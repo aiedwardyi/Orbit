@@ -106,6 +106,14 @@ export function hermesAcpModelId(modelId: string | null | undefined): string | n
   return null;
 }
 
+/** hermes-agent acp_adapter/provenance.py: a compression rotates the internal
+ * session and says so in a session_info_update before the prompt result. */
+export function hermesCompacted(msg: { params?: any }): boolean {
+  const update = msg.params?.update;
+  const meta = update?._meta ?? msg.params?._meta;
+  return update?.sessionUpdate === "session_info_update" && meta?.hermes?.sessionProvenance?.reason === "compression";
+}
+
 /** The id used when Hermes should run on the provider its own config names.
  *
  * Deliberately not an inject id: `hermesAcpModelId` returns null for it, so
@@ -447,6 +455,7 @@ const support: AcpSupport = {
     );
   },
   buildPromptText: (turn) => (turn.system ? `${turn.system}\n\n${turn.text}` : turn.text),
+  compacted: hermesCompacted,
 };
 
 export const HermesAgentDriver = createAcpDriver(support);

@@ -23,6 +23,8 @@ import { KimiAgentDriver } from "./kimi.ts";
 import { DroidAgentDriver } from "./droid.ts";
 import { CursorAgentDriver } from "./cursor.ts";
 import { MuseAgentDriver } from "./muse.ts";
+import { hermesCompacted } from "./hermes.ts";
+import { qwenCompacted } from "./qwen.ts";
 import { readGrokBillingRpc } from "../../usage-refresh.ts";
 import { removeTempDir } from "../../testing/cleanup.ts";
 import { ProviderRegistry } from "../../harness/registry.ts";
@@ -1901,6 +1903,119 @@ describe("ACP turns (fake CLI)", () => {
     });
     expect(fullAuto.adapter.capabilities.askApproval).toBe(false);
     await fullAuto.dispose();
+  });
+});
+
+describe("ACP system text once per session (fake CLI)", () => {
+  // Cold turns only (session/new or session/load); warm reuse has its own suite.
+  const ColdGrok = createAcpDriver({ ...grokSupport, warmSessionIdentity: undefined, isAuthenticated: () => true });
+  const persona = "You are Testy.";
+  const instances: ProviderInstance[] = [];
+  const recorders: EventRecorder[] = [];
+  let scratch: string;
+  let dumps = 0;
+
+  const start = async (driver = ColdGrok) => {
+    const instance = await driver.create({
+      instanceId: "acp-system",
+      displayName: "ACP System",
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    instances.push(instance);
+    const recorder = recordEvents(instance.adapter);
+    recorders.push(recorder);
+    return { instance, recorder };
+  };
+
+  /** One turn; returns the session/prompt text the agent received. */
+  const prompted = async (
+    { instance, recorder }: { instance: ProviderInstance; recorder: EventRecorder },
+    input: Parameters<ProviderInstance["adapter"]["sendTurn"]>[0],
+  ) => {
+    const dump = join(scratch, `prompt-${dumps++}.json`);
+    process.env.FAKE_ACP_DUMP = dump;
+    const { turnId } = await instance.adapter.sendTurn(input);
+    expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId)).toMatchObject({ ok: true });
+    return JSON.parse(readFileSync(dump, "utf8")).prompt[0].text as string;
+  };
+
+  beforeEach(() => {
+    ensureDirs();
+    chmodSync(FAKE_CLI, 0o755);
+    scratch = mkdtempSync(join(tmpdir(), "omb-acp-system-"));
+  });
+
+  afterEach(async () => {
+    for (const recorder of recorders.splice(0)) recorder.stop();
+    for (const instance of instances.splice(0)) await instance.dispose();
+    delete process.env.FAKE_ACP_DUMP;
+    delete process.env.FAKE_ACP_MODE;
+    delete process.env.FAKE_ACP_COMPACT;
+    await removeTempDir(scratch);
+  });
+
+  it("sends it on a new session and not again to the resumed session", async () => {
+    const grok = await start();
+    expect(await prompted(grok, { threadId: "t-once", text: "one", system: persona })).toBe(`${persona}\n\none`);
+    expect(await prompted(grok, { threadId: "t-once", text: "two", system: persona, resumeCursor: "fake-acp-session" })).toBe("two");
+  });
+
+  it("re-sends a changed system once", async () => {
+    const grok = await start();
+    await prompted(grok, { threadId: "t-changed", text: "one", system: persona });
+    const changed = `${persona} Memory: likes tea.`;
+    expect(await prompted(grok, { threadId: "t-changed", text: "two", system: changed, resumeCursor: "fake-acp-session" })).toBe(`${changed}\n\ntwo`);
+    expect(await prompted(grok, { threadId: "t-changed", text: "three", system: changed, resumeCursor: "fake-acp-session" })).toBe("three");
+  });
+
+  it("sends it with the fallback when the remembered session cannot load", async () => {
+    const grok = await start();
+    await prompted(grok, { threadId: "t-fallback", text: "one", system: persona });
+    expect(await prompted(grok, { threadId: "t-fallback", text: "two", system: persona, resumeCursor: "fake-acp-session" })).toBe("two");
+    // session/new answers the same id again, so only the failed load can tell
+    process.env.FAKE_ACP_MODE = "load-fails";
+    const text = await prompted(grok, {
+      threadId: "t-fallback",
+      text: "three",
+      system: persona,
+      resumeCursor: "fake-acp-session",
+      resumeFallback: { text: "durable summary\n\nthree" },
+    });
+    expect(text).toBe(`${persona}\n\ndurable summary\n\nthree`);
+  });
+
+  it("re-sends on the turn after Grok compacted its context", async () => {
+    const grok = await start();
+    await prompted(grok, { threadId: "t-compact", text: "one", system: persona });
+    process.env.FAKE_ACP_COMPACT = "1";
+    expect(await prompted(grok, { threadId: "t-compact", text: "two", system: persona, resumeCursor: "fake-acp-session" })).toBe("two");
+    delete process.env.FAKE_ACP_COMPACT;
+    expect(await prompted(grok, { threadId: "t-compact", text: "three", system: persona, resumeCursor: "fake-acp-session" })).toBe(`${persona}\n\nthree`);
+    expect(await prompted(grok, { threadId: "t-compact", text: "four", system: persona, resumeCursor: "fake-acp-session" })).toBe("four");
+  });
+
+  it("sends it once when a new driver instance resumes an existing session", async () => {
+    await prompted(await start(), { threadId: "t-restart", text: "one", system: persona });
+    const restarted = await start();
+    expect(await prompted(restarted, { threadId: "t-restart", text: "two", system: persona, resumeCursor: "fake-acp-session" })).toBe(`${persona}\n\ntwo`);
+    expect(await prompted(restarted, { threadId: "t-restart", text: "three", system: persona, resumeCursor: "fake-acp-session" })).toBe("three");
+  });
+
+  it("keeps it on every turn for an engine that never reports compaction", async () => {
+    const blind = await start(createAcpDriver({ ...grokSupport, warmSessionIdentity: undefined, isAuthenticated: () => true, compacted: undefined }));
+    await prompted(blind, { threadId: "t-blind", text: "one", system: persona });
+    expect(await prompted(blind, { threadId: "t-blind", text: "two", system: persona, resumeCursor: "fake-acp-session" })).toBe(`${persona}\n\ntwo`);
+  });
+
+  it("recognizes the compaction notices Hermes and Qwen send", () => {
+    const provenance = { hermes: { sessionProvenance: { sessionKind: "continuation", reason: "compression" } } };
+    expect(hermesCompacted({ params: { update: { sessionUpdate: "session_info_update", _meta: provenance } } })).toBe(true);
+    expect(hermesCompacted({ params: { update: { sessionUpdate: "session_info_update", title: "Plan" } } })).toBe(false);
+    const qwenNotice = "IMPORTANT: This conversation approached the input token limit for qwen3. A compressed context will be sent for future messages (compressed from: 120000 to 30000 tokens).";
+    expect(qwenCompacted({ params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: qwenNotice } } } })).toBe(true);
+    expect(qwenCompacted({ params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hello" } } } })).toBe(false);
   });
 });
 

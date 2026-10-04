@@ -266,6 +266,8 @@ export function clearGrokAuthHashCache(path?: string): void {
   else authHashByPath.clear();
 }
 
+const GROK_COMPACTION_UPDATES = new Set(["auto_compact_started", "compaction_checkpoint", "auto_compact_completed"]);
+
 export const grokSupport: AcpSupport = {
   driverKind: "grokAgent",
   grokInterjections: true,
@@ -379,6 +381,9 @@ export const grokSupport: AcpSupport = {
   // reach the agent-stdio system prompt (verified against 1.0.0), so the
   // persona is prepended codex-style.
   buildPromptText: (turn) => (turn.system ? `${turn.system}\n\n${turn.text}` : turn.text),
+  // Auto-compaction arrives as `_x.ai/session/update` (session records,
+  // grok 1.0.46); the agent-mode docs also name `x.ai/session_notification`.
+  compacted: (msg) => GROK_COMPACTION_UPDATES.has(msg.params?.update?.sessionUpdate),
 };
 
 export const GrokAgentDriver = createAcpDriver(grokSupport);

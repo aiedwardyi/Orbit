@@ -6,6 +6,8 @@
 // (agy 1.1.15+ / verified 1.2.4: {"event":"user","message":{...}}), then
 // emits a canned NDJSON turn: init → tool step (ACTIVE then DONE) →
 // agent_response step with usage → result with status SUCCESS.
+// While FAKE_AGY_CHECKPOINT_FILE exists, agy's checkpoint step precedes the response;
+// while FAKE_AGY_RESUME_FAIL_FILE exists, `--conversation` launches fail.
 // Deterministic, no network.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
@@ -110,7 +112,9 @@ const cancelledTool = process.env.FAKE_AGY_CANCELLED_TOOL === "1";
 
 // stream-json / --print with no prompt yields no turn (mirrors real CLI).
 if (!prompt) process.exit(0);
-if (process.env.FAKE_AGY_RESUME_FAIL && argv.includes("--conversation")) {
+const resumeFails = Boolean(process.env.FAKE_AGY_RESUME_FAIL)
+  || Boolean(process.env.FAKE_AGY_RESUME_FAIL_FILE && existsSync(process.env.FAKE_AGY_RESUME_FAIL_FILE));
+if (resumeFails && argv.includes("--conversation")) {
   const diagnostic = process.env.FAKE_AGY_RESUME_FAIL === "multiline"
     ? "agy: conversation 8f2c\nnot found\n"
     : "agy: conversation not found\n";
@@ -135,6 +139,9 @@ out({
       : { name: "write_to_file", parameters: {} },
   },
 });
+if (process.env.FAKE_AGY_CHECKPOINT_FILE && existsSync(process.env.FAKE_AGY_CHECKPOINT_FILE)) {
+  out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 3, state: "DONE", step_type: "checkpoint", duration_seconds: 9.7 } });
+}
 if (process.env.FAKE_AGY_SYSTEM_NOTICE === "1") {
   out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 2, state: "DONE", step_type: "agent_response", text_delta: systemNotice } });
 }

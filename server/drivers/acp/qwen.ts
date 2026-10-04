@@ -19,6 +19,15 @@ function envKeyFor(hostId: string): string {
   return `OPENMAUSBOT_QWEN_${hostId.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;
 }
 
+/** qwen-code acp-integration Session.ts announces auto-compression only as
+ * plain message text. */
+export function qwenCompacted(msg: { params?: any }): boolean {
+  const update = msg.params?.update;
+  return update?.sessionUpdate === "agent_message_chunk"
+    && typeof update.content?.text === "string"
+    && /approached the input token limit|to trigger compaction for/.test(update.content.text);
+}
+
 /** Upsert an OpenAI-compatible provider row so `qwen -m` can reach the host. */
 export function ensureQwenInjectModel(
   modelId: string,
@@ -108,6 +117,7 @@ const support: AcpSupport = {
   authFailure: "continue",
   isAuthenticated: () => true,
   buildPromptText: (turn) => (turn.system ? `${turn.system}\n\n${turn.text}` : turn.text),
+  compacted: qwenCompacted,
 };
 
 export const QwenAgentDriver = createAcpDriver(support);

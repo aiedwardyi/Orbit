@@ -357,6 +357,96 @@ describe("Antigravity turns (fake CLI)", () => {
   });
 });
 
+describe("Antigravity system text once per conversation (fake CLI)", () => {
+  const persona = "You are Testy.";
+  const CONV = "conv-fake-123";
+  const instances: ProviderInstance[] = [];
+  const recorders: EventRecorder[] = [];
+  let scratch: string;
+
+  /** An instance whose fake writes each turn's invocation to its own dump. */
+  const start = async (environment: Record<string, string> = {}) => {
+    const dump = join(scratch, `dump-${instances.length}.json`);
+    const instance = await AntigravityDriver.create({
+      instanceId: "agy-system",
+      displayName: "Antigravity System",
+      environment: { FAKE_AGY_DUMP: dump, ...environment },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: true },
+    });
+    instances.push(instance);
+    const recorder = recordEvents(instance.adapter);
+    recorders.push(recorder);
+    /** One turn; returns the prompt agy read from stdin. */
+    return async (input: Parameters<ProviderInstance["adapter"]["sendTurn"]>[0]) => {
+      const { turnId } = await instance.adapter.sendTurn(input);
+      expect(await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId)).toMatchObject({ ok: true });
+      return JSON.parse(readFileSync(dump, "utf8")).prompt as string;
+    };
+  };
+
+  beforeEach(() => {
+    ensureDirs();
+    chmodSync(FAKE_CLI, 0o755);
+    scratch = mkdtempSync(join(tmpdir(), "omb-agy-system-"));
+  });
+
+  afterEach(async () => {
+    for (const recorder of recorders.splice(0)) recorder.stop();
+    for (const instance of instances.splice(0)) await instance.dispose();
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  it("sends it on a new conversation and not again to the resumed one", async () => {
+    const turn = await start();
+    expect(await turn({ threadId: "t-once", text: "one", system: persona })).toBe(`${persona}\n\none`);
+    expect(await turn({ threadId: "t-once", text: "two", system: persona, resumeCursor: CONV })).toBe("two");
+  });
+
+  it("re-sends a changed system once", async () => {
+    const turn = await start();
+    await turn({ threadId: "t-changed", text: "one", system: persona });
+    const changed = `${persona} Memory: likes tea.`;
+    expect(await turn({ threadId: "t-changed", text: "two", system: changed, resumeCursor: CONV })).toBe(`${changed}\n\ntwo`);
+    expect(await turn({ threadId: "t-changed", text: "three", system: changed, resumeCursor: CONV })).toBe("three");
+  });
+
+  it("sends it with the fallback when the conversation cannot resume", async () => {
+    const resumeFails = join(scratch, "resume-fails");
+    const turn = await start({ FAKE_AGY_RESUME_FAIL_FILE: resumeFails });
+    await turn({ threadId: "t-fallback", text: "one", system: persona });
+    expect(await turn({ threadId: "t-fallback", text: "two", system: persona, resumeCursor: CONV })).toBe("two");
+    // the relaunch starts a new conversation, which answers the same id again
+    writeFileSync(resumeFails, "");
+    const text = await turn({
+      threadId: "t-fallback",
+      text: "three",
+      system: persona,
+      resumeCursor: CONV,
+      resumeFallback: { text: "durable summary\n\nthree" },
+    });
+    expect(text).toBe(`${persona}\n\ndurable summary\n\nthree`);
+  });
+
+  it("re-sends on the turn after an agy checkpoint", async () => {
+    const checkpoint = join(scratch, "checkpoint");
+    const turn = await start({ FAKE_AGY_CHECKPOINT_FILE: checkpoint });
+    await turn({ threadId: "t-checkpoint", text: "one", system: persona });
+    writeFileSync(checkpoint, "");
+    expect(await turn({ threadId: "t-checkpoint", text: "two", system: persona, resumeCursor: CONV })).toBe("two");
+    rmSync(checkpoint);
+    expect(await turn({ threadId: "t-checkpoint", text: "three", system: persona, resumeCursor: CONV })).toBe(`${persona}\n\nthree`);
+    expect(await turn({ threadId: "t-checkpoint", text: "four", system: persona, resumeCursor: CONV })).toBe("four");
+  });
+
+  it("sends it once when a new driver instance resumes an existing conversation", async () => {
+    await (await start())({ threadId: "t-restart", text: "one", system: persona });
+    const restarted = await start();
+    expect(await restarted({ threadId: "t-restart", text: "two", system: persona, resumeCursor: CONV })).toBe(`${persona}\n\ntwo`);
+    expect(await restarted({ threadId: "t-restart", text: "three", system: persona, resumeCursor: CONV })).toBe("three");
+  });
+});
+
 describe("Antigravity snapshot", () => {
   it("reports available with the CLI version against the fake", async () => {
     chmodSync(FAKE_CLI, 0o755);

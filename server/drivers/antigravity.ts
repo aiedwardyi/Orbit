@@ -47,6 +47,7 @@ import type {
 import { newEventId, newId } from "../contracts.ts";
 import { appendNative, finishNative } from "./native.ts";
 import { isResumeCursorRejected } from "./retry.ts";
+import { systemLedger } from "./system-ledger.ts";
 
 const DRIVER_KIND = "antigravityAgent";
 const AGY_STOPPED_NOTE = "The bot stopped before finishing.";
@@ -510,6 +511,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
     // one active turn per thread; a second send while busy is a caller bug
     const active = new Map<string, { stop: () => void; interrupt: () => void; turnId: string }>();
     let disposed = false;
+    const systemHeld = systemLedger();
     // every live agy child, tracked independently of `active`: a child can
     // hang AFTER emitting `result` (so it's already removed from `active`), and
     // dispose()/stopAll() must still be able to reap it. Removed on process exit.
@@ -567,12 +569,21 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       // verified 1.2.4). --print <prompt> is mutually exclusive with that
       // transport and is what blew Windows CreateProcess (~32k) with long
       // pastes / injected continuity. Continuity stays in system/text.
-      const prompt = composeAntigravityPrompt(turn.system, turn.text);
       const resumeCursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
+      // A resumed conversation that holds this exact system text gets only the turn text.
+      const system = turn.system && (!resumeCursor || !systemHeld.holds(resumeCursor, turn.system)) ? turn.system : undefined;
+      if (system && resumeCursor) systemHeld.forget(resumeCursor);
+      const prompt = composeAntigravityPrompt(system, turn.text);
 
       let settled = false;
       // the model answered this prompt, so the session holds it
       let promptAccepted = false;
+      // conversation_id from the init event → the resumeCursor (session.started
+      // is what the harness persists as the cursor). Also seeds tool item ids.
+      let conversationId: string | null = null;
+      // agy's checkpoint step summarizes the conversation; a later turn can drop
+      // everything before it, so the next prompt re-sends the system text
+      let checkpointed = false;
       // backstop watchdog: if agy hangs without emitting `result` and without
       // exiting, the bot would stay busy forever (agy's own --print-timeout 10m
       // is the only other net). Assigned just below; settle() always clears it.
@@ -588,6 +599,9 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       ) => {
         if (settled) return;
         settled = true;
+        const conversation = conversationId ?? resumeCursor;
+        if (conversation && checkpointed) systemHeld.forget(conversation);
+        else if (conversation && system && promptAccepted) systemHeld.record(conversation, system);
         clearTimeout(watchdog);
         active.delete(threadId);
         armPostSettleCleanup();
@@ -795,9 +809,6 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         postSettleReaper.unref?.();
       };
 
-      // conversation_id from the init event → the resumeCursor (session.started
-      // is what the harness persists as the cursor). Also seeds tool item ids.
-      let conversationId: string | null = null;
       let cancelledTool = false;
 
       const handleLine = (line: string) => {
@@ -822,6 +833,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
           }
           case "step_update": {
             promptAccepted = true;
+            if (payload.step_type === "checkpoint") checkpointed = true;
             if (payload.step_type === "tool") {
               cancelledTool ||= isCancelledTool(payload);
               const itemId = `${conversationId ?? o.conversation_id ?? "conv"}:${payload.step_index}`;

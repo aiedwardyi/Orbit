@@ -79,6 +79,7 @@ import { augmentedPath, toWslPath } from "../../env-path.ts";
 // packaged server dir entirely. See server/proxy-paths.ts.
 const COMPUTER_PROXY_PATH = SPAWNED_PROXIES.computer;
 import { appendNative, finishNative } from "../native.ts";
+import { systemLedger } from "../system-ledger.ts";
 import { SPAWNED_PROXIES } from "../../proxy-paths.ts";
 
 export interface AcpConfig {
@@ -185,8 +186,12 @@ export interface AcpSupport {
   requireAuthenticationBeforeSpawn?: boolean;
   /** Classify provider-native failures without coupling the core to messages. */
   classifyError?(error: unknown): ProviderErrorCode | undefined;
-  /** Compose the session/prompt text. Default prepends the persona. */
+  /** Compose the session/prompt text. Default prepends the persona. The
+   * persona is absent when the resumed session already holds that text. */
   buildPromptText?(turn: SendTurnInput): string;
+  /** True when a notification says the agent compacted its own context, so
+   * the next turn re-sends the system text. Without it, every turn sends it. */
+  compacted?(msg: { method?: string; params?: any }): boolean;
   /** Rewrite a picker id (`omlx::model`) into the CLI-native id before spawn
    * and session/select. Local inject writers live here so the child sees a
    * model it already knows. */
@@ -371,6 +376,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         asks: Map<string, (behavior: string, source?: "user" | "timeout" | "system") => string | null>;
       }
       const active = new Map<string, Turn>();
+      const systemHeld = systemLedger();
       const billingStops = new Set<() => void>();
       // SPEED-4: at most one IDLE warm child per instance. Active turns borrow
       // the connection (idle is null while borrowed) so TTL / eviction never
@@ -824,6 +830,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         let sessionId: string | null = reused?.sessionId ?? null;
         let selectedModel: string | null = reused?.model ?? null;
         let interruptTimer: ReturnType<typeof setTimeout> | null = null;
+        // the system text this turn's prompt carried, and whether the agent
+        // compacted its context while the prompt ran
+        let systemSent: string | null = null;
+        let compacted = false;
         const { send, request } = connection;
         const stop = () => {
           if (idleWarm?.connection === connection) discardIdle(idleWarm);
@@ -873,6 +883,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         const settle = (ok: boolean, stopReason: string | null, readBilling = false) => {
           if (state.settled) return;
           state.settled = true;
+          if (sessionId && compacted) systemHeld.forget(sessionId);
+          else if (sessionId && systemSent && state.promptAccepted) systemHeld.record(sessionId, systemSent);
           if (interruptTimer) clearTimeout(interruptTimer);
           for (const finish of [...asks.values()]) finish("cancel", "system");
           for (const finish of interjectionWaiters.values()) finish(false);
@@ -1059,8 +1071,17 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             if (waiter) waiter(true);
             else interjections.add(msg.params.interjectionId);
           }
-          if (msg.method !== "session/update") return;
           const p = msg.params ?? {};
+          if (
+            support.compacted?.(msg)
+            && state.promptSent
+            && !state.settled
+            && p._meta?.isReplay !== true
+            && (!p.sessionId || p.sessionId === sessionId)
+          ) {
+            compacted = true;
+          }
+          if (msg.method !== "session/update") return;
           // Evidence-supported gates only: prompt arming, explicit replay flag,
           // and a present sessionId that disagrees. Orbit's turnId is never sent
           // to the provider, so _meta.turnId is not a shared namespace.
@@ -1171,6 +1192,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             let init: any = null;
             let resumeFailed = false;
+            let loaded = false;
             let sessionResult: any = null;
             if (!reused) {
             if (handshakeReuse) {
@@ -1208,6 +1230,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                   LOAD_SESSION_TIMEOUT,
                 );
                 sessionId = cursor;
+                loaded = true;
               } catch {
                 resumeFailed = true;
               }
@@ -1288,9 +1311,22 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             // Handshake + session config done (or warm reuse); CLI ready to prompt.
             turnTimer.mark("cliReady");
             state.promptSent = true;
-            const promptTurn = resumeFailed && turn.resumeFallback
+            const fallbackTurn = resumeFailed && turn.resumeFallback
               ? { ...cliTurn, text: turn.resumeFallback.text }
               : cliTurn;
+            // A new session always gets the system text; a resumed one only
+            // when it might not hold this exact text. Engines that never report
+            // their own compaction keep it on every turn.
+            const resumed = Boolean(reused) || loaded;
+            const system = fallbackTurn.system
+              && (!resumed || !support.compacted || !systemHeld.holds(activeSessionId, fallbackTurn.system))
+              ? fallbackTurn.system
+              : undefined;
+            if (system) {
+              systemHeld.forget(activeSessionId);
+              systemSent = system;
+            }
+            const promptTurn = { ...fallbackTurn, system };
             const text = support.buildPromptText
               ? support.buildPromptText(promptTurn)
               : promptTurn.system

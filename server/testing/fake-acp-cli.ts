@@ -44,6 +44,7 @@
 //                        core.ts has something to catch
 //   FAKE_ACP_USAGE_ROOT  put the prompt result's usage at the root instead of
 //                        under _meta (what opencode 1.18.18 actually does)
+//   FAKE_ACP_COMPACT     emit Grok's auto-compaction update while a prompt runs
 //   FAKE_ACP_PERMISSION_KINDS  comma-separated ACP option kinds, in the order
 //                        the agent advertises them (e.g.
 //                        "allow_always,allow_once,reject_always,reject_once").
@@ -686,6 +687,13 @@ function handle(msg: any) {
             complete();
           });
         return;
+      }
+      if (process.env.FAKE_ACP_COMPACT) {
+        out({
+          jsonrpc: "2.0",
+          method: "_x.ai/session/update",
+          params: { sessionId: msg.params?.sessionId, update: { sessionUpdate: "auto_compact_completed", tokens_before: 400103, tokens_after: 27923 } },
+        });
       }
       if (mode === "interleave") playInterleaveTurn();
       else if (mode === "tool-progress") playToolProgressTurn();
