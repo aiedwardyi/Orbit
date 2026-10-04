@@ -96,7 +96,8 @@ describe("normal-reopen shutdown stamps", () => {
     const stamped = stampTaskResumePacket(completed, "shutdown", { now: 400 });
     expect(stamped.flushReason).toBe("shutdown");
     expect(stamped.nextAction).toBe("");
-    expect(stamped.completed.at(-1)?.note).toContain("Draft complete");
+    expect(stamped.completed).toEqual([]);
+    expect(isCompletedTaskRecord(stamped)).toBe(true);
   });
 
   it("does not treat a finished 4/4 record as unfinished work on idle reopen", () => {

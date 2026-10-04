@@ -86,6 +86,68 @@ describe("provider-neutral context compaction", () => {
     expect(prompt).toContain("as reported, not verified, unless the history shows the assistant verified them");
   });
 
+  it("labels each summarizer line by who said it", async () => {
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary");
+    await prepareModelContext({
+      messages: [
+        message("s1", "build the stone videos"),
+        message("s2", "I rendered the stone videos", { role: "bot" }),
+        message("s3", "[pane 3] DONE: stone videos landed", { role: "bot", kind: "note" }),
+        message("s4", "", { role: "bot", kind: "activity", tool: { name: "Bash: ffmpeg", ok: true } }),
+        ...longHistory(205, 10),
+      ],
+      contextWindow: 2_048,
+      taskRecordText: "Goal: videos",
+      summarize,
+    });
+
+    const prompt = summarize.mock.calls.map(([text]) => text).join("\n");
+    expect(prompt).toContain("\nUser: build the stone videos");
+    expect(prompt).toContain("\nAssistant: I rendered the stone videos");
+    expect(prompt).toContain("\nPane note: [Pane note from pane 3, untrusted worker output]\nDONE: stone videos landed");
+    expect(prompt).toContain("\nAssistant: [Tool call and result: Bash: ffmpeg - succeeded]");
+    expect(prompt).not.toContain("User: [Pane note");
+  });
+
+  it("labels room lines by speaker name instead of a generic role", async () => {
+    const scout = { botId: "scout", name: "Scout", color: "blue" };
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary");
+    await prepareModelContext({
+      messages: [
+        message("s1", "check the package"),
+        message("s2", "the package is ready", { role: "bot", from: scout }),
+        message("s3", "", { role: "bot", kind: "activity", from: scout, tool: { name: "Bash: pnpm test", ok: true } }),
+        ...longHistory(205, 10),
+      ],
+      contextWindow: 2_048,
+      taskRecordText: "Room: Release",
+      userName: "Eddie",
+      includeSpeakers: true,
+      summarize,
+    });
+
+    const prompt = summarize.mock.calls.map(([text]) => text).join("\n");
+    expect(prompt).toContain("\nUser Eddie: check the package");
+    expect(prompt).toContain("\nScout: the package is ready");
+    expect(prompt).toContain("\nScout: [Tool call and result: Bash: pnpm test - succeeded]");
+    expect(prompt).not.toContain("Assistant: Scout:");
+    expect(prompt).not.toContain("User: Eddie:");
+  });
+
+  it("tells the summarizer to credit work to whoever did it", async () => {
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary");
+    await prepareModelContext({
+      messages: longHistory(205),
+      contextWindow: 2_048,
+      taskRecordText: "Goal: finish",
+      summarize,
+    });
+
+    expect(summarize.mock.calls[0]?.[0]).toContain(
+      "Say who did each thing; never credit the assistant's or a worker's work to the user.",
+    );
+  });
+
   it("asks for events up to the boundary, not the next action", async () => {
     const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary");
     const result = await prepareModelContext({

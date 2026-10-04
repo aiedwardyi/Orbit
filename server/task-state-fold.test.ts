@@ -195,7 +195,7 @@ describe("task state folding", () => {
     expect(cleared.blockers).toEqual([]);
   });
 
-  it("records settled replies and failed turns without claiming success", () => {
+  it("records settled instructions and failed turns without copying replies", () => {
     const waiting = recordTaskBlocker(seed(), {
       kind: "approval",
       note: "Publish the report",
@@ -217,11 +217,11 @@ describe("task state folding", () => {
       turnsAtWrite: 2,
     });
 
-    expect(completed.completed.at(-1)?.note).toContain("Draft complete");
+    expect(completed.completed).toEqual([]);
     expect(completed.evidence.at(-1)?.ref).toBe("message-3");
     expect(completed.blockers).toEqual([]);
     expect(completed.nextAction).toBe("");
-    expect(failed.completed).toHaveLength(1);
+    expect(failed.completed).toEqual([]);
     expect(failed.nextAction).toBe("");
     expect(failed.blockers).toContainEqual({ kind: "engine", note: expect.any(String) });
 
@@ -238,7 +238,7 @@ describe("task state folding", () => {
     const settled = recordTaskCompletion(seed(), { ok: true, reply: "   ", now: 300 });
 
     expect(settled.nextAction).toBe("");
-    expect(settled.completed).toHaveLength(1);
+    expect(settled.completed).toEqual([]);
     expect(isCompletedTaskRecord(settled)).toBe(true);
   });
 
@@ -262,7 +262,7 @@ describe("task state folding", () => {
 
     expect(completed.flushReason).toBe("turn-end");
     expect(completed.nextAction).toBe("");
-    expect(completed.completed).toHaveLength(1);
+    expect(completed.completed).toEqual([]);
   });
 
   it("does not keep completed work as nextAction after a successful turn", () => {
@@ -281,7 +281,7 @@ describe("task state folding", () => {
     });
     // Successful settle clears nextAction (quiet strip); fold runs after and is a no-op.
     expect(advanced.nextAction).toBe("");
-    expect(advanced.completed.at(-1)?.note).toBe("Draft complete with five cited sources.");
+    expect(advanced.completed).toEqual([]);
 
     const echoed = recordTaskCompletion(seed(), {
       ok: true,
@@ -289,7 +289,7 @@ describe("task state folding", () => {
       now: 300,
     });
     expect(echoed.nextAction).toBe("");
-    expect(echoed.completed.at(-1)?.note).toBe("Prepare a weekly competitor brief");
+    expect(echoed.completed).toEqual([]);
   });
 
   it("foldCompletedNextAction skips plan steps already finished", () => {
@@ -385,7 +385,7 @@ describe("task state folding", () => {
     expect(hasUnfinishedTaskWork(settled)).toBe(false);
   });
 
-  it("does not carry a kept next action across a later instruction", () => {
+  it("keeps a bot-set next action across a later instruction", () => {
     const kept = recordTaskCompletion({ ...seed(), nextAction: "Add a pricing comparison" }, {
       ok: true,
       reply: "Drafted the brief; pricing is next.",
@@ -398,9 +398,21 @@ describe("task state folding", () => {
     });
     const settled = recordTaskCompletion(later, { ok: true, reply: "Drafted the intro.", now: 500 });
 
-    expect(settled.nextAction).toBe("");
-    expect(isCompletedTaskRecord(settled)).toBe(true);
-    expect(hasUnfinishedTaskWork(settled)).toBe(false);
+    expect(settled.nextAction).toBe("Add a pricing comparison");
+    expect(isCompletedTaskRecord(settled)).toBe(false);
+    expect(hasUnfinishedTaskWork(settled)).toBe(true);
+  });
+
+  it("preserves a bot next action when a new instruction arrives", () => {
+    const botProgress = { ...seed(), nextAction: "Verify the pricing table", updatedBy: "bot" as const };
+    const updated = recordTaskInstruction(botProgress, {
+      text: "Draft the introduction",
+      messageId: "message-2",
+      now: 200,
+    });
+
+    expect(updated.nextAction).toBe("Verify the pricing table");
+    expect(updated.instructionAction).toBe(seed().instructionAction);
   });
 
   it("stamps engine switches and stops without changing task content", () => {

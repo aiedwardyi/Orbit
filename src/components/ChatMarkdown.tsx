@@ -43,6 +43,15 @@ const absolutePath = (value: string): string | null => {
   return null;
 };
 
+// hrefs arrive percent-encoded, so "C:\a" reaches us as "C:%5Ca"
+const decodeHref = (href: string): string => {
+  try {
+    return decodeURIComponent(href);
+  } catch {
+    return href;
+  }
+};
+
 const localFilePath = (href?: string): string | null => {
   if (!href) return null;
   // URL schemes are case-insensitive, so FILE:// is as valid as file://
@@ -53,14 +62,14 @@ const localFilePath = (href?: string): string | null => {
       return null;
     }
   }
-  return absolutePath(href);
+  return absolutePath(decodeHref(href));
 };
 
 // react-markdown's default transform blanks file: URLs and "C:\…" paths (an
 // unknown scheme to it), and a blank href opened the app origin. Keep those
 // for links only; LocalFileLink never puts them in the DOM.
 const urlTransform = (url: string, key: string): string =>
-  key === "href" && (/^file:/i.test(url) || WINDOWS_PATH.test(url)) ? url : defaultUrlTransform(url);
+  key === "href" && (/^file:/i.test(url) || WINDOWS_PATH.test(decodeHref(url))) ? url : defaultUrlTransform(url);
 
 // A bare relative target ("reps.py", "./notes.md", "..\x.txt") means a file in
 // the writing bot's folder. As an anchor it would resolve against Orbit's own

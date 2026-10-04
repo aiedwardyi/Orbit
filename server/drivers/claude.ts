@@ -953,11 +953,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       // accepts a FILE for this flag, so the secrets go in a 0600 file that
       // is removed when the turn settles.
       let mcpConfigPath: string | null = null;
-      if (Object.keys(mcpServers).length) {
+      if (Object.keys(mcpServers).length || turn.system) {
         mcpConfigPath = join(mkdtempSync(join(tmpdir(), "omb-mcp-")), "mcp.json");
         writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers }), { mode: 0o600 });
-        args.push("--mcp-config", mcpConfigPath);
-        args.push("--allowedTools", allowed.join(","));
+        if (Object.keys(mcpServers).length) {
+          args.push("--mcp-config", mcpConfigPath);
+          args.push("--allowedTools", allowed.join(","));
+        }
       }
 
       const env = claudeEnvironment(turnModel, turnEnvironment);
@@ -1080,11 +1082,28 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       else args.push("--session-id", newSessionId!);
 
       turnTimer.mark("spawnOrReuse");
-      const child = spawnCli(config.cli, args, {
-        cwd,
-        env,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+      let child: ReturnType<typeof spawnCli>;
+      try {
+        if (turn.system && mcpConfigPath) {
+          const systemPromptPath = join(dirname(mcpConfigPath), "system.txt");
+          writeFileSync(systemPromptPath, turn.system, { mode: 0o600 });
+          // Reuse compares the text; only the actual launch uses the file.
+          args.splice(args.indexOf("--append-system-prompt"), 2, "--append-system-prompt-file", systemPromptPath);
+        }
+        child = spawnCli(config.cli, args, {
+          cwd,
+          env,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+      } catch (error) {
+        broker?.close();
+        if (mcpConfigPath) {
+          try {
+            rmSync(dirname(mcpConfigPath), { recursive: true, force: true });
+          } catch {}
+        }
+        throw error;
+      }
       turnTimer.mark("cliReady");
       const session: Session = {
         child,

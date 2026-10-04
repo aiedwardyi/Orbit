@@ -16,6 +16,7 @@ import {
   TurnSeeds,
   turnSeedsSession,
 } from "./turn-context.ts";
+import { recordTaskCompletion, seedTaskResumePacket } from "./task-state-fold.ts";
 
 const transcript = [
   { role: "user" as const, text: "my dog is named Biscuit" },
@@ -385,6 +386,31 @@ describe("buildTurnContext", () => {
       expect(text).toContain(label);
     }
     expect(text).not.toContain(secret);
+  });
+});
+
+describe("task record progress", () => {
+  it("shows bot milestones after settled turns without reply copies", () => {
+    let record = seedTaskResumePacket({
+      botId: "bot-1",
+      threadId: "thread-1",
+      text: "Prepare the report",
+      messageId: "message-1",
+      now: 100,
+      turnsAtWrite: 0,
+    });
+    for (let index = 0; index < 3; index++) {
+      record = recordTaskCompletion(record, {
+        ok: true,
+        reply: `Long assistant reply ${index}: ${"details ".repeat(80)}`,
+        now: 200 + index,
+      });
+      if (index === 1) record.completed.push({ note: "Verified the final sources", at: 202 });
+    }
+
+    const text = taskRecordBlock(record);
+    expect(text).toContain("Done recently: 1 total; Verified the final sources");
+    expect(text).not.toContain("Long assistant reply");
   });
 });
 

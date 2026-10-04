@@ -69,9 +69,10 @@ When a worker reports done, check its work yourself before anything moves:
 1. `git -C <worktree> log --oneline -3` - the commit exists on the right branch.
 2. `git -C <worktree> diff --stat --ignore-cr-at-eol <base>...HEAD` - only the
    expected files changed, no whole-file line-ending diffs.
-3. Run the targeted checks only: the named vitest files
-   (`npx vitest run <files>`) and `pnpm typecheck`.
-4. Never run the full `pnpm test`. Never boot `server/index.ts`.
+3. Run the targeted checks only: the test files the card names and the repo's
+   typecheck, with the commands the repo's own instructions give.
+4. Don't run the full test suite or boot the app's server unless the repo's
+   instructions say that's safe.
 5. Read the diff for the acceptance items. A report is a claim, not proof.
 6. Run new regression tests on the base commit first. They must fail with the
    exact old bug.

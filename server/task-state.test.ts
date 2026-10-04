@@ -24,6 +24,7 @@ import {
   writeTaskResumePacket,
   type TaskResumePacket,
 } from "./task-state.ts";
+import { recordTaskCompletion, seedTaskResumePacket } from "./task-state-fold.ts";
 
 const packet = (overrides: Partial<TaskResumePacket> = {}): TaskResumePacket => ({
   v: 1,
@@ -97,6 +98,30 @@ describe("task resume packets", () => {
     expect(saved.evidence.at(-1)?.ref).toContain("event-79-");
     expect(saved.completed.length).toBeLessThanOrEqual(30);
     expect(saved.evidence.length).toBeLessThanOrEqual(30);
+  });
+
+  it("keeps bot milestones across more than 30 settled turns", () => {
+    let current = seedTaskResumePacket({
+      botId: "bot-1",
+      threadId: "thread-1",
+      text: "Prepare the report",
+      messageId: "message-1",
+      now: 100,
+      turnsAtWrite: 0,
+    });
+    for (let index = 0; index < 35; index++) {
+      current.completed.push({ note: `Milestone ${index}`, at: index });
+      current = recordTaskCompletion(current, {
+        ok: true,
+        reply: `Long reply ${index}: ${"details ".repeat(100)}`,
+        now: 200 + index,
+      });
+    }
+
+    const saved = writeTaskResumePacket(current, { dir });
+    expect(saved.completed).toHaveLength(30);
+    expect(saved.completed[0]?.note).toBe("Milestone 5");
+    expect(saved.completed.at(-1)?.note).toBe("Milestone 34");
   });
 
   it("replaces an old packet without leaving temporary files", () => {

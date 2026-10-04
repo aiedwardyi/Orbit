@@ -28,8 +28,8 @@ export interface TaskCompletionShape {
  *  unsettled. Records written before instruction ids carry neither field and
  *  keep the older "any completion" reading until their next instruction. */
 function settlesCurrentInstruction(packet: TaskCompletionShape): boolean {
-  if ((packet.completed?.length ?? 0) === 0) return false;
-  return !packet.instructionId || packet.settledInstructionId === packet.instructionId;
+  if (packet.instructionId) return packet.settledInstructionId === packet.instructionId;
+  return (packet.completed?.length ?? 0) > 0;
 }
 
 /** Saved work whose output is already recorded — not a pending Resume. */
