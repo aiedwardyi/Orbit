@@ -202,11 +202,13 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
 // modifier click. The shell decides whether to open or only reveal the file.
 function LocalFileLink({ filePath, base, children }: { filePath: string; base?: string; children?: ReactNode }) {
   const [reason, setReason] = useState("");
+  // No bridge at all means a phone or browser, not an outdated desktop app.
+  const desktop = Boolean(window.ogb);
 
   const open = async () => {
     const openFile = window.ogb?.openFile;
     if (!openFile) {
-      setReason("Opening files needs a newer version of the desktop app");
+      setReason(desktop ? "Opening files needs a newer version of the desktop app" : "Files open in the desktop app");
       return;
     }
     try {
@@ -227,7 +229,7 @@ function LocalFileLink({ filePath, base, children }: { filePath: string; base?: 
       >
         {children}
       </button>
-      {reason && <span className="ml-1.5 text-[12px] text-danger">{reason}</span>}
+      {reason && <span className={`ml-1.5 text-[12px] ${desktop ? "text-danger" : "text-ink-secondary"}`}>{reason}</span>}
     </>
   );
 }

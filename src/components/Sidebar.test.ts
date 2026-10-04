@@ -56,6 +56,19 @@ function SeedTerminalAttention() {
   return createElement(Sidebar, { open: false, onClose: () => {} });
 }
 
+function SeedTerminalPanes() {
+  const { state, dispatch } = useStore();
+  useEffect(() => {
+    if (state.bots.length < 3) return;
+    dispatch({
+      type: "setTerminalPanes",
+      panes: { busy: ["AUDIT | Astra | high", "BADGE | Opus 5.5 | max", ""], solo: ["SOLO | Luna | max"], attention: ["A1", "A2"] },
+    });
+    dispatch({ type: "markTerminalAttention", botId: "attention", sessionId: "session-1", reason: "bell", receivedAt: 10 });
+  }, [dispatch, state.bots.length]);
+  return createElement(Sidebar, { open: false, onClose: () => {} });
+}
+
 /** Selects a bot (clearing its unread), then re-marks it unread the way an
  * incoming message would while it stays open - the badge must still skip it. */
 function SelectThenMarkUnread({ id }: { id: string }) {
@@ -1615,6 +1628,49 @@ describe("Sidebar bot second line", () => {
       expect(host.querySelector("[data-sidebar-model-dot]")?.className).toContain("left-0.5");
       expect(host.querySelector("[data-sidebar-chat-unread]")?.className).toContain("bottom-0.5");
       expect(host.querySelector("[data-sidebar-chat-unread]")?.className).toContain("right-0.5");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("counts open worker panes in a gray badge and turns only the user's own terminal alert pink", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) => path === "/api/bots?messages=200"
+        ? new Response(JSON.stringify({ bots: [bot("busy"), bot("solo"), bot("attention"), bot("idle")], groups: [] }))
+        : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const row = (id: string) => host.querySelector(`[data-sidebar-row-kind="bot"][data-sidebar-row-id="${id}"]`);
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(SeedTerminalPanes))));
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      const busy = await vi.waitFor(() => {
+        const element = row("busy")?.querySelector("[data-sidebar-worker-panes]");
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      expect(busy.textContent).toBe("3");
+      const chip = busy.parentElement!;
+      expect(chip.textContent).toBe(">_3");
+      expect(chip.getAttribute("title")).toBe("3 worker panes open\nAUDIT | Astra | high\nBADGE | Opus 5.5 | max");
+      expect(chip.className).toContain("text-ink-secondary");
+      expect(chip.className).not.toContain("accent");
+      expect(row("busy")?.querySelector("[data-sidebar-terminal-attention]")).toBeNull();
+      expect(row("solo")?.querySelector("[data-sidebar-worker-panes]")?.parentElement?.getAttribute("title")).toBe("1 worker pane open\nSOLO | Luna | max");
+      const alert = row("attention")?.querySelector("[data-sidebar-terminal-attention]");
+      expect(alert?.textContent).toBe(">_2");
+      expect(alert?.getAttribute("title")).toBe("The terminal is waiting for input.\n2 worker panes open\nA1\nA2");
+      expect(alert?.querySelector("[data-sidebar-worker-panes]")?.className).toContain("text-ink-secondary");
+      expect(row("idle")?.querySelector("[data-sidebar-worker-panes]")).toBeNull();
+      expect(row("idle")?.textContent).not.toContain(">_");
     } finally {
       await act(async () => root.unmount());
       host.remove();

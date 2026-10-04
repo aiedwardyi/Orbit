@@ -5,10 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { mailboxGrant as serverGrant, resolveMailboxTeacher } from "../server/mailbox.ts";
+import { mailboxScope, mailboxGrant as serverGrant, resolveMailboxTeacher } from "../server/mailbox.ts";
 import { removeTempDir } from "../server/testing/cleanup.ts";
 import { createTerminalHost } from "./terminal-host.mjs";
-import { installOrbitMsg, mailboxGrant, terminalPaneEnv } from "./terminal-mailbox.mjs";
+import { installOrbitMsg, mailboxGrant, postPaneNote, terminalPaneEnv } from "./terminal-mailbox.mjs";
 
 function fixture(mailbox, resolveCwd = async () => os.tmpdir()) {
   const spawned = [];
@@ -91,6 +91,56 @@ describe("mailbox teacher routing", () => {
     expect(resolveMailboxTeacher(roster, "lone")).toBe("lone");
     expect(resolveMailboxTeacher(roster, "ops-worker")).toBe("ops-worker");
     expect(resolveMailboxTeacher(roster, "ghost")).toBe("ghost");
+  });
+});
+
+describe("pane notes from Wink", () => {
+  const mail = { url: "http://127.0.0.1:8799", token: "secret" };
+  const scope = { pane: "pane-1", bot: "worker-1", teacher: "chief-1" };
+
+  it("posts as the pane with a grant the server accepts", async () => {
+    const calls = [];
+    await postPaneNote(mail, scope, "STALLED: x", async (url, init) => { calls.push({ url, init }); return new Response("{}"); });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("http://127.0.0.1:8799/api/mailbox");
+    expect(mailboxScope(calls[0].init.headers, "secret")).toEqual({ ok: true, ...scope });
+    expect(JSON.parse(calls[0].init.body)).toEqual({ text: "STALLED: x" });
+    await expect(postPaneNote(mail, scope, "x", async () => new Response("{}", { status: 401 }))).rejects.toThrow(/401/);
+  });
+
+  it("a stalled worker pane posts its note through the mailbox", async () => {
+    const posts = [];
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => { posts.push({ scope: mailboxScope(req.headers, "secret"), body: JSON.parse(body) }); res.end("{}"); });
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- the stub listens on TCP, never a socket path.
+    if (!address || typeof address === "string") throw new Error("no test port");
+    const owner = { id: 1, isDestroyed: () => false, send: () => {} };
+    const host = createTerminalHost({
+      authorize: () => {},
+      resolveCwd: async () => ({ cwd: os.tmpdir(), source: "workspace", teacherId: "chief-1" }),
+      owner: () => owner,
+      mailbox: async () => ({ url: `http://127.0.0.1:${address.port}`, token: "secret", binDir: null }),
+      platform: "linux",
+      env: { SHELL: "/bin/sh" },
+      loadPty: () => ({ spawn: () => ({ onData() {}, onExit() {}, write() {}, resize() {}, kill() {} }) }),
+      stallMs: 50,
+      stallCheckMs: 10,
+    });
+    try {
+      const pane = await host.openForBot("worker-1", { label: "W", command: "codex --model gpt-6-luna 'go'" });
+      for (let i = 0; i < 100 && !posts.length; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(posts).toHaveLength(1);
+      expect(posts[0].scope).toEqual({ ok: true, pane: pane.sessionId, bot: "worker-1", teacher: "chief-1" });
+      expect(posts[0].body.text).toMatch(/^STALLED: /);
+    } finally {
+      host.dispose();
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 });
 
@@ -262,7 +312,7 @@ describe("installOrbitMsg", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "orbit-install-"));
     try {
       const bin = await installOrbitMsg(path.join(dir, "orbit-bin"), "win32");
-      expect(readdirSync(bin).sort()).toEqual(["orbit-msg", "orbit-msg.cmd", "orbit-msg.ps1"]);
+      expect(readdirSync(bin).sort()).toEqual(["claude-worker.json", "orbit-msg", "orbit-msg.cmd", "orbit-msg.ps1"]);
       const cmd = readFileSync(path.join(bin, "orbit-msg.cmd"), "utf8");
       expect(cmd).toContain("orbit-msg.ps1");
       expect(cmd).toMatch(/\r\n/);
@@ -271,6 +321,20 @@ describe("installOrbitMsg", () => {
       expect(sh).toMatch(/^#!\/bin\/sh\n/);
       expect(sh).toContain("orbit-msg.ps1");
       expect(sh).not.toContain("\r");
+    } finally {
+      await removeTempDir(dir);
+    }
+  });
+
+  it("writes Claude worker settings that post a plain WAITING note on permission prompts", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "orbit-install-"));
+    try {
+      const bin = await installOrbitMsg(path.join(dir, "orbit-bin"), "win32");
+      const settings = JSON.parse(readFileSync(path.join(bin, "claude-worker.json"), "utf8"));
+      expect(settings).toEqual({ hooks: { Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command: expect.any(String), timeout: 15 }] }] } });
+      const { command } = settings.hooks.Notification[0].hooks[0];
+      expect(command).toContain(`-File "${path.join(bin, "orbit-msg.ps1").replace(/\\/g, "/")}" "WAITING: `);
+      expect(command).toMatch(/ "WAITING: [^"$`!%\\]+"$/);
     } finally {
       await removeTempDir(dir);
     }

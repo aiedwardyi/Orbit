@@ -216,22 +216,19 @@ describe("terminal notifications", () => {
     });
   });
 
-  it("keeps the badge reason and tone explicit in both supported locales", () => {
+  it("keeps the badge reason explicit in both supported locales", () => {
     expect(terminalAttentionCopy("bell")).toEqual({
       label: "Waiting",
       tooltip: "The terminal is waiting for input.",
-      tone: "accent",
     });
     expect(terminalAttentionCopy("exit", "ko")).toEqual({
       label: "완료",
       tooltip: "터미널 프로세스가 끝났습니다.",
-      tone: "success",
     });
-    expect(terminalAttentionCopy("error", "ko").tone).toBe("danger");
+    expect(terminalAttentionCopy("error", "ko").label).toBe("오류");
     expect(terminalAttentionCopy("activity", "ko")).toEqual({
       label: "활동",
       tooltip: "터미널에 새 활동이 있습니다.",
-      tone: "accent",
     });
   });
 

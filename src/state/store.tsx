@@ -629,6 +629,8 @@ export interface AppState {
   stoppingBots: Record<string, StopHold>;
   /** Renderer-only PTY alerts, separate from durable chat unread state. */
   terminalAttention: TerminalAttentionMap;
+  /** Labels of each bot's open worker panes, from the desktop terminal host. */
+  terminalPanes: Record<string, string[]>;
   /** Latest task switch request per bot; an older response is dropped. */
   taskSwitches: Record<string, number>;
 }
@@ -839,6 +841,7 @@ export type Action =
       receivedAt: number;
     }
   | { type: "ackTerminalAttention"; botId: string; sessionId: string }
+  | { type: "setTerminalPanes"; panes: Record<string, string[]> }
   | { type: "botPatched"; bot: BotAnnouncement }
   | { type: "messageAdded"; threadId: string; message: Message }
   | { type: "messagePatched"; threadId: string; message: Message }
@@ -1285,6 +1288,8 @@ export function reducer(state: AppState, action: Action): AppState {
       delete terminalAttention[key];
       return { ...state, terminalAttention };
     }
+    case "setTerminalPanes":
+      return { ...state, terminalPanes: action.panes };
     case "botPatched": {
       const before = state.bots.find((b) => b.id === action.bot.id);
       // Bot frames are complete except for their transcript. An unknown one
@@ -1956,6 +1961,7 @@ export const initialState: AppState = {
   acceptedSends: {},
   stoppingBots: {},
   terminalAttention: {},
+  terminalPanes: {},
   taskSwitches: {},
 };
 

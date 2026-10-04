@@ -841,6 +841,12 @@ function BotListItem({
   const expandedModelLabel = modelLabel ? compactSidebarModelLabel(modelLabel) : null;
   const terminalAttention = terminalAttentionForBot(state.terminalAttention, bot.id);
   const terminalCopy = terminalAttention ? terminalAttentionCopy(terminalAttention.reason, locale) : null;
+  const paneLabels = state.terminalPanes[bot.id] ?? [];
+  const workerPanes = paneLabels.length;
+  const workerPanesLabel = workerPanes
+    ? t(workerPanes === 1 ? "chrome.workerPanesOne" : "chrome.workerPanesMany", { count: workerPanes })
+    : null;
+  const workerPanesTitle = workerPanesLabel && [workerPanesLabel, ...paneLabels.filter(Boolean)].join("\n");
   const rowClass = cn(
     "flex w-full items-center rounded-xl border text-left",
     iconOnly
@@ -888,32 +894,44 @@ function BotListItem({
             )}
           />
         )}
-        {terminalAttention && terminalCopy && (
-          <button
-            type="button"
-            data-sidebar-terminal-attention
-            data-terminal-session-id={terminalAttention.sessionId}
-            data-terminal-reason={terminalAttention.reason}
-            aria-label={`${bot.name}: ${terminalCopy.tooltip}`}
-            title={terminalCopy.tooltip}
-            onKeyDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              if (onTerminalAttention) onTerminalAttention(terminalAttention);
-              else dispatch({ type: "ackTerminalAttention", botId: terminalAttention.botId, sessionId: terminalAttention.sessionId });
-            }}
-            className={cn(
-              "absolute -right-1 -top-1 z-10 flex size-5 items-center justify-center rounded-sm border bg-panel font-mono text-[9px] font-bold leading-none shadow-sm",
-              terminalCopy.tone === "danger"
-                ? "border-danger/60 text-danger hover:bg-danger/10"
-                : terminalCopy.tone === "success"
-                  ? "border-success/60 text-success hover:bg-success/10"
-                  : "border-accent/60 text-accent hover:bg-accent/10",
+        {(terminalCopy || workerPanesLabel) && (
+          <span className="absolute -right-1 -top-1 z-10 flex">
+            {terminalAttention && terminalCopy ? (
+              <button
+                type="button"
+                data-sidebar-terminal-attention
+                data-terminal-session-id={terminalAttention.sessionId}
+                data-terminal-reason={terminalAttention.reason}
+                aria-label={`${bot.name}: ${[terminalCopy.tooltip, workerPanesLabel].filter(Boolean).join(", ")}`}
+                title={[terminalCopy.tooltip, workerPanesTitle].filter(Boolean).join("\n")}
+                onKeyDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (onTerminalAttention) onTerminalAttention(terminalAttention);
+                  else dispatch({ type: "ackTerminalAttention", botId: terminalAttention.botId, sessionId: terminalAttention.sessionId });
+                }}
+                className="flex h-5 min-w-5 items-center justify-center gap-0.5 rounded-sm border border-accent/60 bg-panel px-1 font-mono text-[9px] font-bold leading-none shadow-sm hover:bg-accent/10"
+              >
+                <span aria-hidden="true" className="text-accent">&gt;_</span>
+                {workerPanes > 0 && (
+                  <span data-sidebar-worker-panes={workerPanes} aria-hidden="true" className="text-ink-secondary">
+                    {workerPanes}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <span
+                role="img"
+                aria-label={`${bot.name}: ${workerPanesLabel}`}
+                title={workerPanesTitle ?? undefined}
+                className="flex h-5 min-w-5 items-center justify-center gap-0.5 rounded-sm border border-hairline/60 bg-panel px-1 font-mono text-[9px] font-bold leading-none text-ink-secondary shadow-sm"
+              >
+                <span aria-hidden="true">&gt;_</span>
+                <span data-sidebar-worker-panes={workerPanes} aria-hidden="true">{workerPanes}</span>
+              </span>
             )}
-          >
-            <span aria-hidden="true">&gt;_</span>
-          </button>
+          </span>
         )}
       </span>
       <div

@@ -166,6 +166,7 @@ type SkillRecordingPayload = {
       platform: NodeJS.Platform;
       terminal?: {
         readBot?(botId: string): Promise<TerminalBotSnapshot>;
+        paneLabels?(): Promise<Record<string, string[]>>;
         sendBot?(botId: string, input: { sessionId: string; generation: number; text: string }): Promise<TerminalBotSnapshot>;
         appearance(): Promise<{ profileName: string; fontFamily?: string; fontSize?: number; theme: Record<string, string> } | null>;
         openBot?(botId: string, input: { label?: string; cwd?: string; command?: string }): Promise<{ sessionId: string; generation: number }>;

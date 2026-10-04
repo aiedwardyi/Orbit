@@ -321,7 +321,7 @@ import {
   type SyncedBot,
   type SyncEntityValues,
 } from "./profile-sync.ts";
-import { loadMemorySyncLedger, saveMemorySyncLedger, syncBotMemory } from "./memory-sync.ts";
+import { loadLegacyMemoryLedger, loadMemorySyncLedger, markTalked, saveMemorySyncLedger, syncBotMemory } from "./memory-sync.ts";
 import {
   CONFLICT_NOTICE,
   chatSyncBotId,
@@ -1751,6 +1751,8 @@ function scheduleBotThreadUploads(bot: BotRecord): void {
 const PROFILE_SYNC_DELAY_MS = 10_000;
 let profilePublishTimer: ReturnType<typeof setTimeout> | undefined;
 const memorySyncLedger = loadMemorySyncLedger(DATA_DIR);
+const legacyMemoryLedger = loadLegacyMemoryLedger(DATA_DIR);
+let savedMemoryLedger = JSON.stringify(memorySyncLedger);
 
 function publishProfileChangesSafely(): void {
   try {
@@ -1814,13 +1816,25 @@ function syncMemory(botId: string): void {
   const folder = profileSyncSettings.folder;
   const botSyncId = chatSyncBotId(profileSyncSettings, botId);
   if (!folder || !botSyncId || !existsSync(folder)) return;
-  const before = JSON.stringify(memorySyncLedger);
   try {
-    syncBotMemory(folder, botSyncId, workspaceDir(botId), memorySyncLedger);
+    syncBotMemory(folder, botSyncId, workspaceDir(botId), memorySyncLedger, { legacy: legacyMemoryLedger });
   } catch (error) {
     console.warn("memory sync: failed", error);
   }
-  if (JSON.stringify(memorySyncLedger) !== before) saveMemorySyncLedger(DATA_DIR, memorySyncLedger);
+  const ledger = JSON.stringify(memorySyncLedger);
+  if (ledger === savedMemoryLedger) return;
+  try {
+    saveMemorySyncLedger(DATA_DIR, memorySyncLedger);
+    savedMemoryLedger = ledger;
+  } catch (error) {
+    console.warn("memory sync: ledger save failed", error);
+  }
+}
+
+// the PC the user is talking to a bot on keeps its copy of the bot's memory when two PCs changed it at once
+function noteTalked(botId: string): void {
+  const botSyncId = chatSyncBotId(profileSyncSettings, botId);
+  if (botSyncId) markTalked(memorySyncLedger, botSyncId);
 }
 
 /** Bots and their memory ride the chat poll: remote bot ops first so a pending local edit is kept, then ours. */
@@ -5484,6 +5498,7 @@ function startGroupTurn(groupId: string, text: string, replyTo?: Message, sendId
     replyToId: replyTo?.id,
     sendId,
   });
+  for (const memberId of group.memberIds) noteTalked(memberId);
   if (!group.dm) store.titleGroupTaskFromFirstMessage(group.id, text, threadId);
 
   const members = group.memberIds
@@ -6172,7 +6187,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!note) return json(res, 400, { error: "empty message" });
       const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note, origin: profileSyncSettings.deviceId });
       if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text), { botId: teacher.id, threadId: teacher.threadId });
-      void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane);
+      void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, parsed.data.kind);
       paneWake.noteArrived(teacher.id, teacher.threadId);
       return json(res, 200, { ok: true, id: message.id });
     }
@@ -8738,6 +8753,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.threadId !== undefined && (typeof body.threadId !== "string" || !/^[\w-]+$/.test(body.threadId))) {
         return json(res, 400, { error: "threadId must be a task id" });
       }
+      noteTalked(bot.id);
       // A retry carries its original task. That lets us return the canonical
       // receipt after a task switch, while a genuinely new send still has to
       // target the task that is active now.

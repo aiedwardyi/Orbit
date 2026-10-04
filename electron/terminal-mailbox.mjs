@@ -22,6 +22,17 @@ export function mailboxGrant(token, pane, bot, teacher) {
   return `${keyId}.${createHmac("sha256", token).update(`${GRANT_PREFIX}:${pane}:${bot}:${teacher}`).digest("base64url")}`;
 }
 
+/** Posts as the pane itself, so the note takes orbit-msg's route to the teacher. */
+export async function postPaneNote(mailbox, { pane, bot, teacher }, text, fetchImpl = fetch) {
+  const response = await fetchImpl(`${mailbox.url}/api/mailbox`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${mailboxGrant(mailbox.token, pane, bot, teacher)}`, "content-type": "application/json", "x-orbit-pane": pane, "x-orbit-bot": bot, "x-orbit-teacher": teacher },
+    body: JSON.stringify({ text }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`Mailbox post failed: ${response.status}`);
+}
+
 export function terminalPaneEnv(base, { pane, bot, teacher = bot, mailbox = null }) {
   const env = { ...base, ORBIT_PANE: pane, ORBIT_BOT: bot, ORBIT_TEACHER: teacher };
   if (!mailbox) return env;
@@ -172,7 +183,16 @@ else
 fi
 `;
 
-/** Writes orbit-msg into `dir`; Windows only, returns null elsewhere. */
+const WAITING_NOTE = "WAITING: this worker is stuck on an on-screen prompt (permission check or question). terminal_read its pane, then answer with key presses or tell the user.";
+
+// permission_prompt also fires for AskUserQuestion; idle_prompt would repeat after every finished turn.
+// A plain note, not --hook: the report dedup can swallow an auto note.
+function claudeWorkerSettings(dir) {
+  const command = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(dir, "orbit-msg.ps1").replace(/\\/g, "/")}" "${WAITING_NOTE}"`;
+  return `${JSON.stringify({ hooks: { Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command, timeout: 15 }] }] } }, null, 2)}\n`;
+}
+
+/** Writes orbit-msg and the Claude worker hook settings into `dir`; Windows only, returns null elsewhere. */
 export async function installOrbitMsg(dir, platform = process.platform) {
   if (platform !== "win32") return null;
   await fs.mkdir(dir, { recursive: true });
@@ -180,6 +200,7 @@ export async function installOrbitMsg(dir, platform = process.platform) {
     ["orbit-msg.ps1", ORBIT_MSG_PS1.replace(/\r?\n/g, "\r\n")],
     ["orbit-msg.cmd", ORBIT_MSG_CMD.replace(/\r?\n/g, "\r\n")],
     ["orbit-msg", ORBIT_MSG_SH],
+    ["claude-worker.json", claudeWorkerSettings(dir)],
   ];
   for (const [name, content] of files) {
     const target = path.join(dir, name);

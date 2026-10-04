@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
-import { terminalPaneEnv } from "./terminal-mailbox.mjs";
+import { postPaneNote, terminalPaneEnv } from "./terminal-mailbox.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { createTerminalScreen } from "./terminal-screen.mjs";
 
@@ -13,6 +13,18 @@ const WINDOWS_READY_TIMEOUT_MS = 15_000;
 const SHUTDOWN_TIMEOUT_MS = 500;
 export const TERMINAL_ACTIVITY_COALESCE_MS = 750;
 export const TERMINAL_ACTIVITY_ACK_COOLDOWN_MS = 3_000;
+export const TERMINAL_STALL_MS = 120_000;
+const STALL_CHECK_MS = 10_000;
+// Stop hooks and Codex notify land seconds after the screen settles.
+const STALL_NOTE_SLACK_MS = 30_000;
+const STALL_TAIL_LINES = 15;
+// A failed STALLED post (server restarting) tries again this often, this many times.
+const STALL_RETRY_MS = 60_000;
+const STALL_TRIES = 5;
+// A TUI repaints after a resize; that redraw is not the worker moving again.
+const RESIZE_REPAINT_MS = 2_000;
+// Script panes go quiet when they finish; only an agent CLI waits on its teacher.
+const WORKER_CLI_RE = /(?:^|[;&|\r\n])\s*&?\s*["']?(?:[^\s"';&|]*[\\/])?(?:claude|codex|muse|grok|gemini|agy)(?:\.(?:exe|cmd|ps1))?["']?(?=\s|$)/i;
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 const BOT_PANE_LIMIT = 8;
@@ -108,6 +120,12 @@ function normalizeTerminalText(text) {
   return text.replace(/\r\n/g, "\r").replace(/\n/g, "\r");
 }
 
+// A turn that dies on a usage limit or a menu runs no engine hook, so the screen is the only signal.
+function stallNoteText(screenText, stallMs) {
+  const tail = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES).join("\n");
+  return `STALLED: no screen change for ${Math.max(1, Math.round(stallMs / 60_000))} min and no report. It may be stuck on a usage limit, a menu or an error. terminal_read its pane, then act or tell the user. Last lines:\n${tail}`;
+}
+
 // X10/RXVT (ESC [ M + 3 bytes), SGR (ESC [ < ... M/m), focus (ESC [ I/O).
 // X10 trailing bytes bypass the CSI parser as printable text, so without
 // this they would read as typed input.
@@ -167,7 +185,7 @@ function paneLabel(value) {
   return value.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, LABEL_LIMIT) || undefined;
 }
 
-export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, now = () => Date.now() }) {
+export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, notePane = postPaneNote, now = () => Date.now() }) {
   const sessions = new Map();
   const active = new Map();
   const generations = new Map();
@@ -177,6 +195,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const closedBotPanes = new Map();
   let reservedPanes = 0;
   let disposed = false;
+  let stallTimer = null;
   const rememberClosedPane = (botId, sessionId) => {
     const list = closedBotPanes.get(botId) ?? [];
     list.push(sessionId);
@@ -242,10 +261,12 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     session.activityTimer = null;
   };
   const reportAttention = (session, reason) => {
-    if (session.retired || session.attentionReported) return;
+    // A pane the bot spawned is the bot's to watch; its WAITING and STALLED notes reach the bot, not the user.
+    if (session.retired || session.attentionReported || session.botPane) return false;
     session.attentionReported = true;
     session.activityArmed = false;
     emit(session, "terminal:attention", { id: session.id, botId: session.botId, reason });
+    return true;
   };
   const scheduleActivity = (session) => {
     if (!session.activityArmed || session.retired || session.attentionReported || now() < session.activityCooldownUntil) return;
@@ -257,6 +278,43 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       reportAttention(session, "activity");
     }, activityCoalesceMs);
     session.activityTimer.unref?.();
+  };
+  const checkStalls = () => {
+    const at = now();
+    for (const session of sessions.values()) {
+      if (!session.worker || session.retired || session.exitCode !== null) continue;
+      if (session.stallDirty) {
+        session.stallDirty = false;
+        const text = session.screen.text();
+        if (text !== session.stallText) {
+          session.stallText = text;
+          session.stallChangedAt = at;
+          session.stallFired = false;
+          session.stallTries = 0;
+        }
+      }
+      if (session.stallFired || at - session.stallChangedAt < stallMs || at < session.stallRetryAt) continue;
+      // Its report on this task, or a hook note on this task as the screen settled, already reached the teacher.
+      if (session.reportAt >= session.stallArmedAt) continue;
+      if (session.noteAt >= session.stallArmedAt && session.noteAt >= session.stallChangedAt - STALL_NOTE_SLACK_MS) continue;
+      session.stallFired = true;
+      if (!session.mail) continue;
+      const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
+      const stall = session.stallChangedAt;
+      session.stallTries += 1;
+      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(session.screen.text(), stallMs))).catch(() => {
+        // a post that did land raises noteAt, which stops the retry above
+        if (session.stallChangedAt !== stall || session.stallTries >= STALL_TRIES) return;
+        session.stallFired = false;
+        session.stallRetryAt = now() + STALL_RETRY_MS;
+      });
+    }
+  };
+  const watchStalls = (session) => {
+    session.worker = true;
+    if (stallTimer || disposed) return;
+    stallTimer = setInterval(checkStalls, stallCheckMs);
+    stallTimer.unref?.();
   };
   const resolveFolder = async (input, event) => {
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Optional session-only override from an explicit folder pick.
@@ -366,6 +424,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       try {
         session.screen.consume(data);
       } catch {}
+      if (session.worker && now() - session.resizedAt >= RESIZE_REPAINT_MS) session.stallDirty = true;
       const echo = consumeInputEcho(parsed.text, session.pendingInputEcho);
       session.pendingInputEcho = echo.pending;
       if (parsed.bell && session.activityArmed) reportAttention(session, "bell");
@@ -399,7 +458,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), pendingInputEcho: "", truncated: false,
-      workerReady: false,
+      workerReady: false, mail, teacher: folder.teacher ?? input.botId, worker: false, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
+      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, resizedAt: -Infinity, reportAt: 0, noteAt: 0,
     };
     session.generation = (generations.get(key) ?? 0) + 1;
     generations.set(key, session.generation);
@@ -436,10 +496,15 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     clearActivityTimer(session);
     const echo = inputEchoText(text);
     const submit = isSubmitInput(text);
-    if (submit) session.activityArmed = true;
+    // only a command the user typed arms their alert
     if (submit) {
       session.attentionReported = false;
       session.activityCooldownUntil = 0;
+      session.stallArmedAt = now();
+      session.stallChangedAt = session.stallArmedAt;
+      session.stallFired = false;
+      session.stallTries = 0;
+      if (session.botPane && WORKER_CLI_RE.test(text)) watchStalls(session);
     }
     if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
     try {
@@ -581,6 +646,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const session = owned(event, id);
       dimensions(cols, rows);
       if (session.exitCode !== null) return undefined;
+      session.resizedAt = now();
       try {
         const result = session.pty.resize(cols, rows);
         session.screen.resize(cols, rows);
@@ -655,6 +721,14 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         return { ...snap, waited: "timeout" };
       })();
     },
+    paneLabels() {
+      const labels = {};
+      for (const session of sessions.values()) {
+        if (!session.botPane || session.retired || session.exitCode !== null || active.get(session.key) !== session.id) continue;
+        (labels[session.botId] ??= []).push(session.label ?? "");
+      }
+      return labels;
+    },
     sendBot(botId, input) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
@@ -678,14 +752,15 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge writes synchronously or asynchronously.
       return result && typeof result.then === "function" ? result.then(() => snapshot(session)) : snapshot(session);
     },
-    attendBot(botId, sessionId) {
+    attendBot(botId, sessionId, kind) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
       const session = botSessions(botId).find((candidate) => candidate.id === sessionId);
+      if (session && kind === "report") session.reportAt = now();
+      else if (session) session.noteAt = now();
       if (!session || session.exitCode !== null || session.attentionReported) return false;
       clearActivityTimer(session);
-      reportAttention(session, "activity");
-      return true;
+      return reportAttention(session, "activity");
     },
     closeBotPanes(botId) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
@@ -771,6 +846,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     },
     dispose() {
       disposed = true;
+      if (stallTimer) clearInterval(stallTimer);
       active.clear();
       for (const session of sessions.values()) {
         session.retired = true;

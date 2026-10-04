@@ -124,6 +124,25 @@ describe("score hover card", () => {
   });
 });
 
+describe("index tabs", () => {
+  const scroll = (el: HTMLElement, sizes: { scrollWidth: number; clientWidth: number; scrollLeft: number }) => {
+    for (const [key, value] of Object.entries(sizes)) Object.defineProperty(el, key, { configurable: true, value });
+    act(() => {
+      el.dispatchEvent(new Event("scroll"));
+    });
+    return el.style.maskImage;
+  };
+
+  it("fades the edge with more tabs past it and hides the scrollbar on touch screens", () => {
+    const row = host.querySelector<HTMLElement>('[role="radiogroup"]')!;
+    expect(scroll(row, { scrollWidth: 500, clientWidth: 300, scrollLeft: 0 })).toMatch(/^linear-gradient\(to right, black, .*transparent\)$/);
+    expect(scroll(row, { scrollWidth: 500, clientWidth: 300, scrollLeft: 100 })).toMatch(/^linear-gradient\(to right, transparent, .*transparent\)$/);
+    expect(scroll(row, { scrollWidth: 500, clientWidth: 300, scrollLeft: 200 })).toMatch(/^linear-gradient\(to right, transparent, .*black\)$/);
+    expect(scroll(row, { scrollWidth: 300, clientWidth: 300, scrollLeft: 0 })).toBe("");
+    expect(row.className).toContain("pointer-coarse:[scrollbar-width:none]");
+  });
+});
+
 describe("score vs cost axis", () => {
   const rebuild = async (width: number) => {
     vi.stubGlobal(
@@ -173,6 +192,139 @@ describe("score vs cost axis", () => {
       for (const line of tspans.length ? tspans : [caption()]) {
         expect((line.textContent ?? "").length * 6, `${width}: ${line.textContent}`).toBeLessThanOrEqual(width - 36);
       }
+    }
+  });
+
+  it("centres every caption line inside the plot and keeps the unit note whole", async () => {
+    for (const width of [320, 360, 420]) {
+      await rebuild(width);
+      const axis = [...host.querySelectorAll("line")].find((line) => line.hasAttribute("x1") && line.hasAttribute("y1"))!;
+      const [left, right] = [Number(axis.getAttribute("x1")), Number(axis.getAttribute("x2"))];
+      const tspans = [...caption().querySelectorAll("tspan")];
+      const lines = tspans.length ? tspans : [caption()];
+      for (const line of lines) {
+        const centre = Number(line.getAttribute("x") ?? caption().getAttribute("x"));
+        const half = ((line.textContent ?? "").length * 6 * 11) / 10.5 / 2;
+        expect(centre - half, `${width}: ${line.textContent}`).toBeGreaterThanOrEqual(left);
+        expect(centre + half, `${width}: ${line.textContent}`).toBeLessThanOrEqual(right);
+      }
+      expect(lines.some((line) => line.textContent?.includes("(USD, log scale)")), `${width}: ${lines.map((l) => l.textContent).join(" | ")}`).toBe(true);
+    }
+  });
+
+  it("never draws wider than a narrow phone gives it", async () => {
+    await rebuild(260);
+    expect(host.querySelector("svg[role=img]")?.getAttribute("width")).toBe("260");
+  });
+
+  it("gives phones a taller plot than desktop at the same width, never a shorter one", async () => {
+    const svgHeight = () => Number(host.querySelector("svg[role=img]")?.getAttribute("height"));
+    const media = vi.spyOn(window, "matchMedia");
+    const heights = async (width: number) => {
+      // SAFETY: the chart reads only `matches` from its media queries.
+      media.mockReturnValue({ matches: false } as MediaQueryList);
+      await rebuild(width);
+      const desktop = svgHeight();
+      // SAFETY: the chart reads only `matches` from its media queries.
+      media.mockImplementation((query) => ({ matches: query.includes("max-width") }) as MediaQueryList);
+      await rebuild(width);
+      return { desktop, phone: svgHeight() };
+    };
+    try {
+      const narrow = await heights(294);
+      expect(narrow.phone - narrow.desktop).toBeGreaterThanOrEqual(30);
+      const wide = await heights(640);
+      expect(wide.phone).toBe(wide.desktop);
+    } finally {
+      media.mockRestore();
+    }
+  });
+
+  it("measures labels in the font the app is drawn in", async () => {
+    const fonts: string[] = [];
+    const ctx = {
+      set font(value: string) {
+        fonts.push(value);
+      },
+      measureText: (text: string) => ({ width: text.length * 6 }),
+    };
+    // SAFETY: the chart only sets `font` and calls `measureText` on its 2D context.
+    const getContext = vi.spyOn(window.HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as never);
+    document.documentElement.style.fontFamily = "serif";
+    document.body.style.fontFamily = '"Space Grotesk", sans-serif';
+    try {
+      await rebuild(360);
+      expect(fonts.length).toBeGreaterThan(0);
+      expect(fonts.at(-1)).toContain("Space Grotesk");
+    } finally {
+      getContext.mockRestore();
+      document.documentElement.style.fontFamily = "";
+      document.body.style.fontFamily = "";
+    }
+  });
+});
+
+describe("full screen chart", () => {
+  const rebuild = async (phone: boolean, size: { width: number; height: number }) => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(private cb: (entries: unknown[]) => void) {}
+        observe = () => this.cb([{ contentRect: size }]);
+        disconnect = () => undefined;
+      },
+    );
+    // SAFETY: isPhone only reads .matches
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: phone && query.includes("max-width") }) as MediaQueryList);
+    await act(async () => root.unmount());
+    host.innerHTML = "";
+    root = createRoot(host);
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(ModelIndexSection))));
+  };
+  const button = (label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  const svg = () => host.querySelector("svg[role=img]")!;
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("offers full screen on phones only", async () => {
+    await rebuild(false, { width: 640, height: 400 });
+    expect(button("Full screen")).toBeNull();
+    await rebuild(true, { width: 360, height: 400 });
+    expect(button("Full screen")).not.toBeNull();
+  });
+
+  it("fills the screen with the chart, then closes back into the card", async () => {
+    await rebuild(true, { width: 780, height: 330 });
+    const inline = svg().getAttribute("height");
+    act(() => button("Full screen")!.click());
+    expect(svg().getAttribute("width")).toBe("780");
+    expect(svg().getAttribute("height")).toBe("330");
+    act(() => button("Exit full screen")!.click());
+    expect(button("Exit full screen")).toBeNull();
+    expect(svg().getAttribute("height")).toBe(inline);
+  });
+
+  it("closes when Back leaves full screen before the request settles", async () => {
+    await rebuild(true, { width: 780, height: 330 });
+    let shown: Element | null = null;
+    const request = vi.fn(() => new Promise<void>(() => undefined));
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "requestFullscreen");
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => shown });
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", { configurable: true, value: request });
+    try {
+      act(() => button("Full screen")!.click());
+      expect(request).toHaveBeenCalledTimes(1);
+      shown = svg();
+      act(() => void document.dispatchEvent(new Event("fullscreenchange")));
+      shown = null;
+      act(() => void document.dispatchEvent(new Event("fullscreenchange")));
+      expect(button("Exit full screen")).toBeNull();
+    } finally {
+      Reflect.deleteProperty(document, "fullscreenElement");
+      if (original) Object.defineProperty(HTMLElement.prototype, "requestFullscreen", original);
+      else Reflect.deleteProperty(HTMLElement.prototype, "requestFullscreen");
     }
   });
 });
