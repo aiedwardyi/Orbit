@@ -3456,6 +3456,14 @@ const paneWake = new PaneWakeScheduler({
   warn: (line) => console.warn(line),
 });
 
+/** The user wrote to this bot: lift a Stop pause and wake for notes held under it. */
+function resumePaneWakes(botId: string) {
+  const bot = store.bot(botId);
+  if (!bot?.paneWakePaused) return;
+  store.patchBot(botId, { paneWakePaused: false });
+  paneWake.noteArrived(botId, bot.threadId);
+}
+
 function drainQueuedSends() {
   drainSteeredMessages(store, (botId, threadId, prompt, userMessage, excludeIds, room) => {
     if (room) {
@@ -3757,7 +3765,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // a person typing into this bot ends the unattended window immediately
   else if (turnStartedByUser(opts)) {
     clearUnattended(bot.id);
-    if (bot.paneWakePaused) store.patchBot(bot.id, { paneWakePaused: false });
+    resumePaneWakes(bot.id);
   }
   const task = store.taskByThread(bot.id, threadId);
   if (!task) throw Object.assign(new Error("no such task"), { status: 404 });
@@ -4032,7 +4040,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const folded = currentTurnEpoch(bot.id) === epoch && !(opts?.sendId && isSendCancelled(opts.sendId))
     ? foldQueuedSends(store, bot.id, threadId, claimMark)
     : [];
-  if (folded.length) clearUnattended(bot.id);
+  if (folded.length) {
+    clearUnattended(bot.id);
+    resumePaneWakes(bot.id);
+  }
   const currentPrompt = [
     composeUserTurnPrompt(text, {
       replyTo: opts?.replyTo,
@@ -4418,7 +4429,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         ? " If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. A proposal is not applied until the user confirms its in-app card, so never claim the action completed before that confirmation."
         : "";
       const taskStatePrompt = integrations.agents
-        ? " Keep the durable task record current with update_task_state after meaningful plan changes, completed milestones, new blockers, or created files. Record only verified progress, use it before long operations, and do not call it after every tool."
+        ? " Keep the durable task record current with update_task_state after meaningful plan changes, completed milestones, new blockers, or created files. Record only verified progress, use it before long operations, and do not call it after every tool. If the user asks you to stop working or to wait while they switch models, call update_task_state with pause_automatic_wakes: true, then end your turn."
         : "";
       const reactPrompt = integrations.agents ? ` ${reactionToolGuidance()}` : "";
       const showImagePrompt = integrations.agents ? ` ${SHOW_IMAGE_GUIDANCE}` : "";
@@ -4450,7 +4461,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         if (!live) return Promise.reject(new Error(`provider instance "${instanceId}" is unavailable`));
         // Sends during the setup awaits had no provider turn to steer, so they queued; they join here.
         const late = foldQueuedSends(store, bot.id, threadId, claimMark);
-        if (late.length) clearUnattended(bot.id);
+        if (late.length) {
+          clearUnattended(bot.id);
+          resumePaneWakes(bot.id);
+        }
         const withLate = (base: string) => [base, ...late].join("\n\n");
         return live.adapter.sendTurn({
         threadId,
@@ -5281,7 +5295,7 @@ async function runClaimedGroupMemberTurn(
     integrations.agents &&
       "If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. A proposal is not applied until the user confirms its in-app card, so never claim the action completed before that confirmation.",
     integrations.agents &&
-      "Keep the durable task record current with update_task_state after meaningful plan changes, completed milestones, new blockers, or created files. Record only verified progress, use it before long operations, and do not call it after every tool.",
+      "Keep the durable task record current with update_task_state after meaningful plan changes, completed milestones, new blockers, or created files. Record only verified progress, use it before long operations, and do not call it after every tool. If the user asks you to stop working or to wait while they switch models, call update_task_state with pause_automatic_wakes: true, then end your turn.",
     integrations.agents && reactionToolGuidance(),
     integrations.agents && SHOW_IMAGE_GUIDANCE,
   ]
@@ -5515,6 +5529,7 @@ function startGroupTurn(groupId: string, text: string, replyTo?: Message, sendId
     }
     return message;
   }
+  for (const responder of responders) resumePaneWakes(responder.id);
 
   const taskOwner = responders[0];
   if (!taskOwner) return message;
@@ -8820,7 +8835,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 );
               }
               clearUnattended(current.id);
-              if (current.paneWakePaused) store.patchBot(current.id, { paneWakePaused: false });
+              resumePaneWakes(current.id);
               const message = store.appendMessage(threadId, {
                 role: "user",
                 kind: "text",
@@ -9106,7 +9121,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!packet || !isRecoveryFlushReason(packet.flushReason) || isCompletedTaskRecord(packet)) {
         return json(res, 409, { error: "this task has no interrupted work to continue" });
       }
-      if (bot.paneWakePaused) store.patchBot(bot.id, { paneWakePaused: false });
+      resumePaneWakes(bot.id);
       if (conversation.group) {
         startGroupCardContinuation(conversation.group.id, m[2], bot.id, TASK_RESUME_PROMPT);
         return json(res, 202, { ok: true });

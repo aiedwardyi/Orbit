@@ -55,6 +55,7 @@ interface TaskStateRequestBody {
   artifacts?: Array<{ ref: string; label: string }>;
 }
 let lastTaskStateBody: TaskStateRequestBody | null = null;
+let botWakesPaused = false;
 
 let child: ChildProcess;
 const pending = new Map<number, (msg: any) => void>();
@@ -231,7 +232,7 @@ beforeAll(async () => {
         const body: TaskStateRequestBody = JSON.parse(data);
         lastTaskStateBody = body;
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, nextAction: body.next_action, automaticWakesPaused: body.pause_automatic_wakes === true }));
+        res.end(JSON.stringify({ ok: true, nextAction: body.next_action, automaticWakesPaused: botWakesPaused || body.pause_automatic_wakes === true }));
       });
       return;
     }
@@ -401,6 +402,15 @@ describe("agents-proxy MCP surface", () => {
     expect(res.result.isError).toBe(false);
     expect(res.result.content[0].text).toContain("End this turn");
     expect(res.result.content[0].text).not.toContain("You can change models now");
+  });
+
+  it("keeps later turns running on a paused bot", async () => {
+    botWakesPaused = true;
+    const res = await callTool("update_task_state", { next_action: "Verify citations" });
+    botWakesPaused = false;
+    expect(res.result.isError).toBe(false);
+    expect(res.result.content[0].text).toContain("Next action: Verify citations");
+    expect(res.result.content[0].text).not.toContain("End this turn");
   });
 
   it("does not let a bot clear a user wake pause", async () => {
