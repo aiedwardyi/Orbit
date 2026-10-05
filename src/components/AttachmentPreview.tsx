@@ -32,12 +32,11 @@ function usePictureRetry(src: string) {
   const [seen, setSeen] = useState(src);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   if (seen !== src) {
-    clearTimeout(timer.current);
     setSeen(src);
     setAttempt(0);
     setWaiting(false);
   }
-  useEffect(() => () => clearTimeout(timer.current), []);
+  useLayoutEffect(() => () => clearTimeout(timer.current), [src]);
   const onError = () => {
     clearTimeout(timer.current);
     const delay = PICTURE_RETRY_MS[attempt];
@@ -145,7 +144,6 @@ export function AttachmentPreviewDialog({ image, onClose }: { image: PreviewImag
               type="button"
               onClick={retry.retryNow}
               className="flex flex-col items-center gap-3 text-white/60"
-              role="status"
             >
               <ImageOff size={34} />
               <span className="text-[13px]">This attachment is no longer available.</span>
@@ -242,16 +240,23 @@ export function ShownImage({ name, caption }: { name: string; caption?: string }
             className="block w-full rounded-2xl border border-hairline/40"
           />
         </button>
-      ) : (
+      ) : image ? (
         <button
           type="button"
-          onClick={() => { if (image) retry.retryNow(); }}
-          role="status"
+          onClick={retry.retryNow}
           className="flex items-center gap-2 rounded-2xl border border-hairline/40 bg-inset px-3 py-2 text-[12.5px] text-ink-secondary"
         >
           <ImageOff size={14} />
           Image not available
         </button>
+      ) : (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-2xl border border-hairline/40 bg-inset px-3 py-2 text-[12.5px] text-ink-secondary"
+        >
+          <ImageOff size={14} />
+          Image not available
+        </div>
       )}
       {caption && <p className="max-w-[min(42rem,78%)] px-1 text-[13px] text-ink-secondary">{caption}</p>}
       {open && image && <AttachmentPreviewDialog image={image} onClose={() => setOpen(false)} />}

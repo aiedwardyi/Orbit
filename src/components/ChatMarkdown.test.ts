@@ -256,7 +256,7 @@ describe("relative file links", () => {
       const pdf = host.querySelector('[data-phone-media="pdf"]')!;
       expect(pdf.tagName).toBe("A");
       expect(pdf.getAttribute("target")).toBe("_blank");
-      expect(pdf.getAttribute("rel")).toBe("noopener");
+      expect(pdf.getAttribute("rel")).toBe("noreferrer");
       expect(pdf.textContent).toBe("notes.pdf");
       expect(host.querySelector("iframe")).toBeNull();
     } finally {

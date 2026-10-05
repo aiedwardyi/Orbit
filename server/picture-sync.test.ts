@@ -296,6 +296,24 @@ describe("picture sync", () => {
     expect(readFileSync(threadPath).equals(threadBytes)).toBe(true);
   });
 
+  it("retries a picture from a scanned thread after its upload publish fails", () => {
+    const folder = temp("pic-dirty-retry-");
+    const dataDir = temp("pic-dirty-retry-a-");
+    const attachments = join(dataDir, "attachments");
+    mkdirSync(attachments, { recursive: true });
+    const name = "cccccccc-cccc-4ccc-8ccc-cccccccccccc.png";
+    const bytes = Buffer.from("dirty-retry-pixels");
+    writeFileSync(join(attachments, name), bytes);
+    const now = 1_700_000_000_500;
+    const input = { folder, dataDir, now, threadIds: ["t1"], messagesFor: () => [] };
+    publishUnsyncedPictures(input);
+    writeFileSync(join(folder, PICTURES_DIR), "blocked");
+    publishThreadPictures({ folder, dataDir, now, messages: [{ image: name, at: now }] });
+    rmSync(join(folder, PICTURES_DIR), { force: true });
+    publishUnsyncedPictures({ ...input, messagesFor: () => { throw new Error("scanned twice"); } });
+    expect(readFileSync(join(folder, PICTURES_DIR, name)).equals(bytes)).toBe(true);
+  });
+
   it("never publishes a picture older than 30 days from a clean thread", () => {
     const folder = temp("pic-old-backfill-");
     const dataDir = temp("pic-old-backfill-a-");

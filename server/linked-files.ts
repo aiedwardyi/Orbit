@@ -191,7 +191,8 @@ function insideRoot(real: string, roots: readonly string[]): boolean {
     try {
       const from = relative(realpathSync(root), real);
       return from !== "" && !from.startsWith("..") && !isAbsolute(from);
-    } catch {
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) console.warn("linked file: root check failed", root, error);
       return false;
     }
   });

@@ -353,7 +353,7 @@ function PhoneFile({
       <a
         href={src}
         target="_blank"
-        rel="noopener"
+        rel="noreferrer"
         data-phone-media="pdf"
         className="break-words text-left text-accent underline decoration-accent/40 hover:decoration-accent"
       >

@@ -224,8 +224,12 @@ export function publishThreadPictures(input: {
   const ledger = loadLedger(input.dataDir);
   let changed = false;
   for (const [name, source] of found) {
-    if (tryCopy(root, name, source) !== "copied") continue;
-    ledger.pictures.set(name, now);
+    const result = tryCopy(root, name, source);
+    if (result === "kept") continue;
+    if (result === "copied") {
+      ledger.pictures.set(name, now);
+      ledger.pending.delete(name);
+    } else ledger.pending.set(name, source);
     changed = true;
   }
   if (changed) saveLedger(input.dataDir, ledger);
