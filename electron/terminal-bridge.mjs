@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 const GRANT_PREFIX = "orbit-terminal-read-v1";
 const SEND_GRANT_PREFIX = "orbit-terminal-send-v1";
+const PANE_COUNTS_GRANT_PREFIX = "orbit-terminal-pane-counts-v1";
 const UPDATE_GRANT_PREFIX = "orbit-update-v1";
 const MAX_SEND_BODY = 16 * 1024;
 
@@ -27,6 +28,35 @@ export function updateGrant(token) {
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Grant inputs cross the Electron/server process boundary.
   if (typeof token !== "string" || !token) throw new Error("Invalid update grant");
   return createHmac("sha256", token).update(UPDATE_GRANT_PREFIX).digest("base64url");
+}
+
+export function terminalPaneCountsGrant(token) {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Grant inputs cross the Electron/server process boundary.
+  if (typeof token !== "string" || !token) throw new Error("Invalid terminal pane-counts grant");
+  return createHmac("sha256", token).update(PANE_COUNTS_GRANT_PREFIX).digest("base64url");
+}
+
+function plainRecord(value) {
+  return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+/** Worker-pane counts from the host's paneLabels map. Main shells and empty bots are already absent. */
+export function paneCountBody(labels) {
+  const counts = {};
+  const panes = {};
+  if (!plainRecord(labels)) return { counts, panes };
+  for (const [botId, names] of Object.entries(labels)) {
+    if (!BOT_ID_RE.test(botId) || !Array.isArray(names) || names.length < 1 || names.length > 8) continue;
+    const list = [];
+    for (const name of names) {
+      if (Object.prototype.toString.call(name) !== "[object String]") continue;
+      list.push(name.slice(0, 40));
+    }
+    if (!list.length) continue;
+    panes[botId] = list;
+    counts[botId] = list.length;
+  }
+  return { counts, panes };
 }
 
 function grantMatches(header, grant) {
@@ -104,6 +134,17 @@ export function createTerminalBridge({ host, updater, token = randomBytes(24).to
       }
       const update = parsed.pathname.match(/^\/v1\/update\/(state|check|download|install)$/);
       if (update) return handleUpdate(req, res, updater, token, update[1]);
+      if (parsed.pathname === "/v1/terminal/pane-counts") {
+        if (!grantMatches(req.headers.authorization, terminalPaneCountsGrant(token))) return json(res, 401, { error: "Unauthorized" });
+        if (req.method !== "GET") return json(res, 405, { error: "Method not allowed" });
+        try {
+          const labels = host.paneLabels ? host.paneLabels() : {};
+          return json(res, 200, paneCountBody(labels));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return json(res, 500, { error: message });
+        }
+      }
       const match = parsed.pathname.match(/^\/v1\/bots\/([a-zA-Z0-9_-]{1,128})\/terminal(?:\/(send|open|attention|close))?$/);
       if (!match || !BOT_ID_RE.test(match[1])) return json(res, 404, { error: "Unknown terminal route" });
       const botId = match[1];

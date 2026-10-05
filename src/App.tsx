@@ -26,6 +26,7 @@ import { showComputerPanelChrome } from "@/lib/friends-chrome";
 import { I18nProvider, useI18n } from "@/lib/i18n";
 import { buildTerminalNotification, showNotification, type NotificationTarget } from "@/lib/notify";
 import { terminalPopupsEnabled } from "@/lib/terminal-popups";
+import { altDigitSelectsPane, backquoteTogglesTerminal } from "@/lib/terminal-hotkeys";
 import { useTerminalPanes } from "@/lib/terminal-panes";
 import { composerNeedsTap, focusComposerOnActivation } from "@/lib/focus-composer";
 import { webPushTarget } from "@/lib/web-push";
@@ -251,8 +252,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           : e.code === "Digit8" || e.code === "Numpad8" ? 8
           : e.code === "Digit9" || e.code === "Numpad9" ? 9
           : null;
-        // only the desktop workspace has panes to pick; remote keeps bot switching
-        if (n !== null && e.altKey && terminalOpen && window.ogb?.terminal) {
+        // Desktop picks a preload pane. A window with no preload picks a remote pane. Ctrl+digit still switches bots.
+        if (n !== null && e.altKey && terminalOpen && altDigitSelectsPane(Boolean(window.ogb?.terminal), !window.ogb)) {
           e.preventDefault();
           e.stopPropagation();
           setPaneHotkey({ n });
@@ -315,7 +316,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     return offClosed;
   }, [dispatch]);
 
-  useTerminalPanes(dispatch);
+  useTerminalPanes(dispatch, terminalOpen);
 
   useEffect(() => {
     return window.ogb?.onNotificationClick?.((target) => {
@@ -517,7 +518,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     const toggleTerminal = (event: KeyboardEvent) => {
       if (event.repeat || event.isComposing) return;
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.code !== "Backquote") return;
-      if (!window.ogb?.terminal || !bot || group || state.activeView !== "chat" || nativeViewOverlayOpen || browserWorkspaceBotId || localVmWorkspaceBotId) return;
+      if (!backquoteTogglesTerminal(Boolean(window.ogb), Boolean(window.ogb?.terminal)) || !bot || group || state.activeView !== "chat" || nativeViewOverlayOpen || browserWorkspaceBotId || localVmWorkspaceBotId) return;
       event.preventDefault();
       event.stopPropagation();
       if (terminalOpen) closeTerminal();
@@ -650,7 +651,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
                 {window.ogb?.terminal ? (
                   <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} paneHotkey={paneHotkey} paneFocus={paneFocus} onClose={closeTerminal} />
                 ) : (
-                  <RemoteTerminalView key={bot.id} bot={bot} visible={terminalOpen} onClose={closeTerminal} />
+                  <RemoteTerminalView key={bot.id} bot={bot} visible={terminalOpen} paneHotkey={paneHotkey} onClose={closeTerminal} />
                 )}
               </Suspense>
             </div>

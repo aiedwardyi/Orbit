@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { subscribe, unsubscribe } from "node:diagnostics_channel";
 import os from "node:os";
-import { createTerminalBridge, terminalReadGrant, terminalSendGrant, updateGrant } from "./terminal-bridge.mjs";
+import { createTerminalBridge, paneCountBody, terminalPaneCountsGrant, terminalReadGrant, terminalSendGrant, updateGrant } from "./terminal-bridge.mjs";
 import { createTerminalHost } from "./terminal-host.mjs";
 import { closeBotPanes } from "../server/terminal-cleanup.ts";
-import { terminalSendGrant as serverTerminalSendGrant, updateGrant as serverUpdateGrant } from "../server/terminal-grant.ts";
+import { terminalPaneCountsGrant as serverTerminalPaneCountsGrant, terminalSendGrant as serverTerminalSendGrant, updateGrant as serverUpdateGrant } from "../server/terminal-grant.ts";
 
 test("requires the private bearer and scopes reads to the requested bot", async () => {
   const calls = [];
@@ -123,6 +123,33 @@ test("accepts the send grant on the send route only", async () => {
 test("send grant matches the server's", () => {
   assert.equal(terminalSendGrant("bridge-secret", "bot-1"), serverTerminalSendGrant("bridge-secret", "bot-1"));
   assert.notEqual(terminalSendGrant("bridge-secret", "bot-1"), terminalReadGrant("bridge-secret", "bot-1"));
+});
+
+test("pane-counts grant matches the server's and is not a per-bot read", () => {
+  assert.equal(terminalPaneCountsGrant("bridge-secret"), serverTerminalPaneCountsGrant("bridge-secret"));
+  assert.notEqual(terminalPaneCountsGrant("bridge-secret"), terminalReadGrant("bridge-secret", "bot-1"));
+  assert.notEqual(terminalPaneCountsGrant("bridge-secret"), updateGrant("bridge-secret"));
+});
+
+test("GET /v1/terminal/pane-counts returns worker counts for that grant only", async () => {
+  const bridge = createTerminalBridge({
+    token: "bridge-secret",
+    host: {
+      readBot: () => ({}),
+      sendBot: () => ({}),
+      paneLabels: () => ({ "bot-1": ["w1", "w2"], "bot-2": ["other"], "nope": [] }),
+    },
+  });
+  const connection = await bridge.start();
+  const headers = { authorization: `Bearer ${terminalPaneCountsGrant(connection.token)}` };
+  const response = await fetch(`${connection.url}/v1/terminal/pane-counts`, { headers });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { counts: { "bot-1": 2, "bot-2": 1 }, panes: { "bot-1": ["w1", "w2"], "bot-2": ["other"] } });
+  assert.equal((await fetch(`${connection.url}/v1/terminal/pane-counts`)).status, 401);
+  assert.equal((await fetch(`${connection.url}/v1/terminal/pane-counts`, { headers: { authorization: `Bearer ${terminalReadGrant(connection.token, "bot-1")}` } })).status, 401);
+  assert.equal((await fetch(`${connection.url}/v1/terminal/pane-counts`, { method: "POST", headers })).status, 405);
+  assert.deepEqual(paneCountBody(null), { counts: {}, panes: {} });
+  await bridge.close();
 });
 
 test("opens a pane only for the grant's own bot", async () => {

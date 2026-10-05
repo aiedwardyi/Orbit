@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { terminalReadGrant, terminalSendGrant } from "./terminal-grant.ts";
-import { raisePaneAttention, terminalSendResponse, terminalSnapshotResponse } from "./terminal-snapshot.ts";
+import { terminalPaneCountsGrant, terminalReadGrant, terminalSendGrant } from "./terminal-grant.ts";
+import { acceptedPaneCounts, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
 
 const ACCESS = { url: "http://127.0.0.1:52150", token: "bridge-secret" };
@@ -151,6 +151,71 @@ describe("terminal snapshot relay", () => {
     expect(route).toContain('json(res, 404, { error: "no such bot" })');
     expect(route).toContain("terminalSnapshotResponse(terminalBridgeAccess, bot.id, url.searchParams.get(\"sessionId\"))");
     expect(remoteAccess).not.toMatch(/BEARER_ONLY_PATHS = new Set\([^)]*\/terminal"/);
+  });
+});
+
+describe("terminal pane counts", () => {
+  it("answers 503 when the desktop bridge is absent", async () => {
+    const fetchImpl = (async () => { throw new Error("must not fetch"); }) as typeof fetch;
+    await expect(terminalPaneCountsResponse(null, fetchImpl)).resolves.toEqual({
+      status: 503,
+      body: { error: "terminal bridge unavailable" },
+    });
+  });
+
+  it("reads with the pane-counts grant and keeps labels with their counts", async () => {
+    const calls: Array<{ url: string; auth: string | null }> = [];
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization") });
+      return new Response(JSON.stringify({
+        counts: { "bot-1": 2, "bot-2": 1 },
+        panes: { "bot-1": ["w1", "w2"], "bot-2": ["other"] },
+      }));
+    }) as typeof fetch;
+    await expect(terminalPaneCountsResponse(ACCESS, fetchImpl)).resolves.toEqual({
+      status: 200,
+      body: { counts: { "bot-1": 2, "bot-2": 1 }, panes: { "bot-1": ["w1", "w2"], "bot-2": ["other"] } },
+    });
+    expect(calls).toEqual([
+      { url: "http://127.0.0.1:52150/v1/terminal/pane-counts", auth: `Bearer ${terminalPaneCountsGrant(ACCESS.token)}` },
+    ]);
+  });
+
+  it("drops a bad bot id and a count past the pane cap, and can answer counts alone", () => {
+    expect(acceptedPaneCounts({
+      panes: { "bot-1": ["w1", "w2"], "../x": ["nope"], "bot-2": [] },
+      counts: { "bot-1": 9 },
+    })).toEqual({ counts: { "bot-1": 2 }, panes: { "bot-1": ["w1", "w2"] } });
+    expect(acceptedPaneCounts({ counts: { "bot-3": 2, "bot-4": 0, "bad id": 1 } })).toEqual({
+      counts: { "bot-3": 2 },
+      panes: {},
+    });
+  });
+
+  it("maps a bad bridge body or a down bridge to 502", async () => {
+    const bad = (async () => new Response(JSON.stringify({ panes: { "bot-1": [1] } }))) as typeof fetch;
+    await expect(terminalPaneCountsResponse(ACCESS, bad)).resolves.toEqual({
+      status: 502,
+      body: { error: "terminal bridge: bad pane counts" },
+    });
+    const denied = (async () => new Response("{}", { status: 401 })) as typeof fetch;
+    await expect(terminalPaneCountsResponse(ACCESS, denied)).resolves.toEqual({
+      status: 502,
+      body: { error: "terminal bridge: HTTP 401" },
+    });
+    const down = (async () => { throw new TypeError("fetch failed"); }) as typeof fetch;
+    await expect(terminalPaneCountsResponse(ACCESS, down)).resolves.toEqual({
+      status: 502,
+      body: { error: "terminal bridge unreachable" },
+    });
+  });
+
+  it("routes GET /api/terminal/pane-counts through the bridge with normal /api auth", () => {
+    const start = server.indexOf('if (method === "GET" && path === "/api/terminal/pane-counts")');
+    const route = server.slice(start, start + 240);
+    expect(route).toContain('method === "GET"');
+    expect(route).toContain("terminalPaneCountsResponse(terminalBridgeAccess)");
+    expect(remoteAccess).not.toMatch(/BEARER_ONLY_PATHS = new Set\([^)]*pane-counts/);
   });
 });
 

@@ -224,7 +224,7 @@ import { foldContinuationStart } from "./continuation-turn.ts";
 import { ownTurnReply } from "./turn-reply.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
-import { paneLabel, raisePaneAttention, terminalSendResponse, terminalSnapshotResponse } from "./terminal-snapshot.ts";
+import { paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
 import { launchNoteText } from "./launch-note.ts";
 import { MailboxAutoDedup, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
@@ -8665,6 +8665,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "POST") {
       const update = await updateBridgeResponse(terminalBridgeAccess, m[1] as "check" | "download" | "install");
       return json(res, update.status, update.body);
+    }
+    if (method === "GET" && path === "/api/terminal/pane-counts") {
+      const counts = await terminalPaneCountsResponse(terminalBridgeAccess);
+      return json(res, counts.status, counts.body);
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/terminal-cwd$/);
     if (m && method === "GET") {

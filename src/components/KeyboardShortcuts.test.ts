@@ -41,6 +41,14 @@ describe("KeyboardShortcuts", () => {
     }
   });
 
+  it("lists the terminal toggle in a window with no preload", () => {
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(KeyboardShortcuts)),
+    );
+    expect(html).toContain(">Toggle terminal<");
+    expect(html).toContain("`");
+  });
+
   it("keeps the compact set while hiding low-value help rows", () => {
     persistPreference("en");
     const html = renderToStaticMarkup(
