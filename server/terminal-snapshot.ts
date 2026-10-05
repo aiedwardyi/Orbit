@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { terminalReadGrant, terminalSendGrant } from "./terminal-grant.ts";
+import { terminalPaneCountsGrant, terminalReadGrant, terminalSendGrant } from "./terminal-grant.ts";
 import { TERMINAL_KEYS } from "./terminal-keys.ts";
 
 export type TerminalBridgeAccess = { url: string; token: string };
@@ -20,6 +20,54 @@ function snapshotBody(snapshot: Record<string, unknown>): Record<string, unknown
   // Pane screens feed the MCP pane list only.
   if (Array.isArray(body.panes)) body.panes = body.panes.map(({ screenText: _screenText, ...pane }) => pane);
   return body;
+}
+
+const BOT_ID = /^[\w-]{1,128}$/;
+const paneCountsSchema = z.object({
+  counts: z.record(z.string(), z.number()).optional(),
+  panes: z.record(z.string(), z.array(z.string())).optional(),
+});
+
+export type PaneCounts = { counts: Record<string, number>; panes: Record<string, string[]> };
+
+/** Drops anything the bridge did not prove is a live worker pane. Counts follow the label lists. */
+export function acceptedPaneCounts(body: { counts?: Record<string, number>; panes?: Record<string, string[]> }): PaneCounts {
+  const panes: Record<string, string[]> = {};
+  const counts: Record<string, number> = {};
+  for (const [botId, labels] of Object.entries(body.panes ?? {})) {
+    if (!BOT_ID.test(botId) || labels.length < 1 || labels.length > 8) continue;
+    const names = labels.slice(0, 8).map((label) => label.slice(0, 40));
+    panes[botId] = names;
+    counts[botId] = names.length;
+  }
+  if (Object.keys(panes).length > 0) return { counts, panes };
+  for (const [botId, count] of Object.entries(body.counts ?? {})) {
+    const parsed = z.number().int().min(1).max(8).safeParse(count);
+    if (!BOT_ID.test(botId) || !parsed.success) continue;
+    counts[botId] = parsed.data;
+  }
+  return { counts, panes };
+}
+
+/** Read-only worker-pane counts for clients without the Electron preload. */
+export async function terminalPaneCountsResponse(
+  access: TerminalBridgeAccess | null,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ status: number; body: PaneCounts | { error: string } }> {
+  if (!access) return { status: 503, body: { error: "terminal bridge unavailable" } };
+  let res: Response;
+  try {
+    res = await fetchImpl(`${access.url}/v1/terminal/pane-counts`, {
+      headers: { authorization: `Bearer ${terminalPaneCountsGrant(access.token)}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch {
+    return { status: 502, body: { error: "terminal bridge unreachable" } };
+  }
+  if (!res.ok) return { status: 502, body: { error: `terminal bridge: HTTP ${res.status}` } };
+  const parsed = paneCountsSchema.safeParse(await res.json().catch(() => ({})));
+  if (!parsed.success) return { status: 502, body: { error: "terminal bridge: bad pane counts" } };
+  return { status: 200, body: acceptedPaneCounts(parsed.data) };
 }
 
 /** Read-only terminal snapshot for clients without the Electron preload (remote browsers). */

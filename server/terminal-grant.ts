@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 
 export const TERMINAL_GRANT_PREFIX = "orbit-terminal-read-v1";
 export const TERMINAL_SEND_GRANT_PREFIX = "orbit-terminal-send-v1";
+export const TERMINAL_PANE_COUNTS_GRANT_PREFIX = "orbit-terminal-pane-counts-v1";
 export const UPDATE_GRANT_PREFIX = "orbit-update-v1";
 
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -19,4 +20,10 @@ export function terminalSendGrant(token: string, botId: string): string {
 export function updateGrant(token: string): string {
   if (!token) throw new Error("the shared update grant is invalid");
   return createHmac("sha256", token).update(UPDATE_GRANT_PREFIX).digest("base64url");
+}
+
+/** Fleet-wide read of worker-pane counts. Not a per-bot terminal grant. */
+export function terminalPaneCountsGrant(token: string): string {
+  if (!token) throw new Error("the shared terminal grant is invalid");
+  return createHmac("sha256", token).update(TERMINAL_PANE_COUNTS_GRANT_PREFIX).digest("base64url");
 }
