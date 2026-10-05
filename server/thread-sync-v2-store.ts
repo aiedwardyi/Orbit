@@ -42,7 +42,14 @@ export interface SyncStoreHost {
 export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
   if (!enabled) return null;
   const ownership = new DatabaseSync(join(host.dataDir, "thread-sync-v2-owner.db"));
-  ownership.exec("BEGIN EXCLUSIVE");
+  // the open exclusive transaction is the single-writer lock; a server still exiting gets a few seconds to let go
+  ownership.exec("PRAGMA busy_timeout = 5000");
+  try {
+    ownership.exec("BEGIN EXCLUSIVE");
+  } catch (error) {
+    ownership.close();
+    throw new Error(`chat sync v2: another Wink server holds the sync lock in ${host.dataDir}`, { cause: error });
+  }
   const options: SyncOptions = { dataDir: host.dataDir, deviceId: host.deviceId, folder: join(host.dataDir, "sync-v2-staging"), staged: true };
   const engine = createSyncEngine(options);
   const timers = new Map<string, ReturnType<typeof setTimeout>>();

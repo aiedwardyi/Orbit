@@ -14,11 +14,11 @@ function readCutover(path: string): boolean {
   } catch {
     // Truncated or not JSON. The file only exists after a cutover.
   }
-  console.warn("chat sync v2: ignoring invalid cutover journal");
+  console.warn("chat sync v2: invalid cutover journal; staying cut over");
   return true;
 }
 
-export function createThreadSyncV2Gate(dataDir: string, _deviceId: string, override = process.env.OMB_THREAD_SYNC_V2) {
+export function createThreadSyncV2Gate(dataDir: string, override = process.env.OMB_THREAD_SYNC_V2) {
   const path = join(dataDir, "thread-sync-v2-cutover.json");
   let cutover = override !== "0" && existsSync(path) && readCutover(path);
   let waitingFor: string[] = [];

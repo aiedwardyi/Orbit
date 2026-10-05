@@ -61,7 +61,7 @@ const host = () => ({
   imported: () => { if (!live) store.followNewestTask(bot.id); },
   maintenance: () => {},
 });
-const gate = createThreadSyncV2Gate(input.dataDir, input.deviceId, "");
+const gate = createThreadSyncV2Gate(input.dataDir, "");
 const ledger = loadThreadSyncLedger(input.dataDir);
 const v1: ThreadSyncHost = {
   folder: input.folder, dataDir: input.dataDir, deviceId: input.deviceId, ledger,

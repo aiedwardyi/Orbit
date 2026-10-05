@@ -334,6 +334,7 @@ export function createThreadMigration(options: SyncOptions, engine: ReturnType<t
     const field = (key: string, child = "") => db.prepare("SELECT json FROM sync_v2_source_fields WHERE source = ? AND key = ? AND child = ?").get(id, key, child)?.json;
     const legacy = { sourceHash: String(source.hash) };
     if (String(source.path).endsWith(".deleted.json")) {
+      // legacy tombstones carry no timestamp, and v2 does not order deletes by it
       recover(scope, [{ kind: "delete", value: { deletedAt: 0 }, legacy }]);
       db.prepare("UPDATE sync_v2_sources SET done = 1 WHERE id = ?").run(id);
       return;

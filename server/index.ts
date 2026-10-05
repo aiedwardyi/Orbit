@@ -383,7 +383,7 @@ if (sweepLegacyOpencodeKey() === "failed") {
 }
 const cfg = loadConfig();
 let profileSyncSettings: ProfileSyncSettings = loadProfileSyncSettings(DATA_DIR);
-const threadSyncGate = createThreadSyncV2Gate(DATA_DIR, profileSyncSettings.deviceId);
+const threadSyncGate = createThreadSyncV2Gate(DATA_DIR);
 if (!existsSync(join(DATA_DIR, "profile-sync.json"))) {
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
 }

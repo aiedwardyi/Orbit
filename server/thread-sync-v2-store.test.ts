@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Worker } from "node:worker_threads";
 import { setTimeout as delay } from "node:timers/promises";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Message, TaskRecord } from "./store.ts";
 import { CONFLICT_NOTICE } from "./thread-sync.ts";
@@ -85,9 +85,10 @@ describe("store delta sync", () => {
     await delay(3_300);
     unlinkSync(blocked);
     await a.call("poll");
-    await delay(3_300);
-    await b.call("pull");
-    expect((await b.snapshot()).rows).toMatchObject([{ id: row.id, text: "retry me" }]);
+    await vi.waitFor(async () => {
+      await b.call("pull");
+      expect((await b.snapshot()).rows).toMatchObject([{ id: row.id, text: "retry me" }]);
+    }, { timeout: 15_000, interval: 250 });
   });
 
   it("does not recount migrated history on idle polls", async () => {
@@ -212,9 +213,10 @@ describe("store delta sync", () => {
     await delay(3_300);
     expect(existsSync(join(folder, "threads-v2"))).toBe(false);
     await a.call("live", { value: false });
-    await delay(3_300);
-    await b.call("pull");
-    expect((await b.snapshot()).rows[0].text).toBe("latest");
+    await vi.waitFor(async () => {
+      await b.call("pull");
+      expect((await b.snapshot()).rows[0]?.text).toBe("latest");
+    }, { timeout: 15_000, interval: 250 });
   });
 
   it("bounds worker publication to the versions captured while idle", async () => {
