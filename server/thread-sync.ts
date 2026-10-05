@@ -27,7 +27,7 @@ const messageSchema = z.object({
   at: z.number(),
 }).passthrough();
 
-const fileSchema = z.object({
+export const fileSchema = z.object({
   format: z.literal(THREAD_SYNC_FORMAT),
   version: z.literal(THREAD_SYNC_VERSION),
   revision: z.number().int().positive(),
@@ -235,7 +235,7 @@ function canonical(message: Message): string {
 const isConflictNotice = (message: Message) => message.kind === "activity" && message.tool?.name === `error: ${CONFLICT_NOTICE}`;
 
 /** Conflict notices stay on the PC that showed them; rows under one hang off its parent instead. */
-function shared(local: LocalThread): { messages: Message[]; activeLeafId: string | null } {
+export function shared(local: LocalThread): { messages: Message[]; activeLeafId: string | null } {
   const notices = new Map(local.messages.filter(isConflictNotice).map((message) => [message.id, message.parentId ?? null]));
   const lift = (id: string | null | undefined) => {
     while (id && notices.has(id)) id = notices.get(id);

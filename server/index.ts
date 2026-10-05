@@ -338,6 +338,8 @@ import {
   type ThreadSyncHost,
 } from "./thread-sync.ts";
 import { publishUnsyncedPictures, pullSyncedPicture, pruneSyncedPictures } from "./picture-sync.ts";
+import { createThreadSyncV2Store } from "./thread-sync-v2-store.ts";
+import { createThreadSyncV2Gate } from "./thread-sync-v2-gate.ts";
 import { serveLinkedFile } from "./linked-files.ts";
 import { fetchBotDirectory, matchDirectoryBots, type MatchedDirectoryBot } from "./bot-directory.ts";
 import { scoutProject, suggestTeam } from "./project-scout.ts";
@@ -381,6 +383,7 @@ if (sweepLegacyOpencodeKey() === "failed") {
 }
 const cfg = loadConfig();
 let profileSyncSettings: ProfileSyncSettings = loadProfileSyncSettings(DATA_DIR);
+const threadSyncGate = createThreadSyncV2Gate(DATA_DIR);
 if (!existsSync(join(DATA_DIR, "profile-sync.json"))) {
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
 }
@@ -1654,7 +1657,8 @@ function followPendingSyncImports(): void {
   for (const botId of pendingSyncFollows) {
     if (botHasActiveTurn(botId)) continue;
     pendingSyncFollows.delete(botId);
-    store.followNewestTask(botId, routineThreadIds());
+    if (threadSyncGate.enabled) store.applySyncImport(() => { store.followNewestTask(botId, routineThreadIds()); });
+    else store.followNewestTask(botId, routineThreadIds());
   }
 }
 
@@ -1698,6 +1702,7 @@ function threadSyncHost(folder: string): ThreadSyncHost {
 }
 
 function scheduleThreadUpload(threadId: string): void {
+  if (threadSyncGate.enabled) return threadSyncV2?.schedule(threadId);
   if (threadSyncTimers.has(threadId)) return;
   const timer = setTimeout(() => {
     threadSyncTimers.delete(threadId);
@@ -1716,7 +1721,8 @@ function scheduleThreadUpload(threadId: string): void {
 }
 
 /** Runs before a route answers, so the user never types on a stale copy. */
-function pullSyncedThread(threadId: string): void {
+function pullSyncedThread(threadId: string): void | Promise<void> {
+  if (threadSyncGate.enabled) return threadSyncV2?.pull(threadId).catch((error) => console.warn("chat sync v2: pull failed", error));
   const target = threadSyncTarget(threadId);
   if (!target) return;
   try {
@@ -1727,6 +1733,8 @@ function pullSyncedThread(threadId: string): void {
 }
 
 const threadSyncPoll = createThreadSyncPoll(() => {
+  checkThreadSyncGate();
+  if (threadSyncGate.enabled) return null;
   if (!profileSyncSettings.syncChats || !profileSyncSettings.folder) return null;
   syncProfiles();
   try {
@@ -1753,7 +1761,60 @@ const threadSyncPoll = createThreadSyncPoll(() => {
   };
 });
 
+let threadSyncV2: ReturnType<typeof createThreadSyncV2Store> = null;
+
+function initializeThreadSyncV2() {
+  threadSyncV2 ??= createThreadSyncV2Store({
+    store,
+    dataDir: DATA_DIR,
+    deviceId: profileSyncSettings.deviceId,
+    folder: () => profileSyncSettings.folder,
+    enabled: () => profileSyncSettings.syncChats,
+    target: (threadId) => {
+      const bot = store.botByThread(threadId);
+      if (!bot || !store.taskByThread(bot.id, threadId) || store.groupByThread(threadId) || routineThreadIds().has(threadId)) return null;
+      const botSyncId = profileSyncSettings.botMap[bot.id];
+      return botSyncId ? { botId: bot.id, botSyncId } : null;
+    },
+    bots: () => store.bots.flatMap((bot) => {
+      const botSyncId = chatSyncBotId(profileSyncSettings, bot.id);
+      return botSyncId ? [{ botId: bot.id, botSyncId }] : [];
+    }),
+    running: (threadId) => threadSyncHost(profileSyncSettings.folder ?? "").running(threadId),
+    project: clientMessage,
+    imported: (botId) => {
+      if (botHasActiveTurn(botId)) pendingSyncFollows.add(botId);
+      else store.followNewestTask(botId, routineThreadIds());
+    },
+    maintenance: () => {
+      syncProfiles();
+      if (profileSyncSettings.folder) pruneSyncedPictures(profileSyncSettings.folder, DATA_DIR);
+    },
+  });
+  return threadSyncV2;
+}
+
+function checkThreadSyncGate(): void {
+  if (!profileSyncSettings.syncChats || !profileSyncSettings.folder) return;
+  if (!threadSyncGate.check(profileSyncSettings.folder)) return;
+  threadSyncPoll.stop();
+  for (const timer of threadSyncTimers.values()) clearTimeout(timer);
+  threadSyncTimers.clear();
+  if (!threadSyncV2) {
+    if (threadSyncGate.started) console.log("chat sync v2: cutover start");
+    initializeThreadSyncV2()?.start();
+  }
+}
+
 function syncAllThreads(): void {
+  publishDeviceRecord();
+  checkThreadSyncGate();
+  if (threadSyncGate.enabled) {
+    initializeThreadSyncV2();
+    if (!profileSyncSettings.syncChats || !profileSyncSettings.folder) threadSyncV2?.stop();
+    else threadSyncV2?.start();
+    return;
+  }
   if (!profileSyncSettings.syncChats || !profileSyncSettings.folder) return threadSyncPoll.stop();
   threadSyncPoll.start();
   for (const bot of store.bots) scheduleBotThreadUploads(bot);
@@ -1794,15 +1855,18 @@ let deviceLaptop = false;
 
 function publishDeviceRecord(): void {
   const folder = profileSyncSettings.folder;
-  if (!folder || REMOTE_HOST === undefined) return;
+  if (!folder) return;
   try {
+    const host = REMOTE_HOST ?? listDevices(folder, profileSyncSettings.deviceId, Date.now()).find((record) => record.current)?.host;
+    if (!host) return;
     writeDeviceRecord(
       folder,
       {
         deviceId: profileSyncSettings.deviceId,
         name: deviceDisplayName(deviceName, process.env.ORBIT_DEVICE_NAME, osHostname()),
-        host: REMOTE_HOST,
+        host,
         laptop: deviceLaptop,
+        chatSync: 2,
       },
       Date.now(),
     );
@@ -1869,14 +1933,17 @@ function syncProfiles(): void {
 }
 
 store.onChange((change) => {
+  if (threadSyncGate.enabled && store.importingSync) return;
   if (change.type === "bot" || change.type === "bot.deleted" || change.type === "bots.order") scheduleProfilePublish();
 });
 
 store.onBeforeWrite((threadId) => {
+  if (threadSyncGate.enabled) return;
   if (markThreadDirty(threadSyncLedger, threadId)) saveThreadSyncLedger(DATA_DIR, threadSyncLedger);
 });
 
 store.onChange((change) => {
+  if (threadSyncGate.enabled || store.importingSync) return;
   if (change.type !== "message" && change.type !== "message.patch" && change.type !== "thread") return;
   if (markThreadDirty(threadSyncLedger, change.threadId)) saveThreadSyncLedger(DATA_DIR, threadSyncLedger);
   if (threadSyncTarget(change.threadId)) scheduleThreadUpload(change.threadId);
@@ -7126,7 +7193,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     // ── shared bot profile sync ───────────────────────────────────────
     if (method === "GET" && path === "/api/profile-sync") {
-      return json(res, 200, profileSyncStatus());
+      return json(res, 200, {
+        ...profileSyncStatus(),
+        chatSyncVersion: threadSyncGate.enabled ? 2 : 1,
+        chatSyncWaitingFor: threadSyncGate.waitingFor,
+        chatSyncMigration: threadSyncV2?.migrationStatus() ?? null,
+      });
     }
     if (method === "PUT" && path === "/api/profile-sync") {
       const body = await readBody(req);
@@ -7149,6 +7221,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (method === "DELETE" && path === "/api/profile-sync") {
       threadSyncPoll.stop();
+      threadSyncV2?.stop();
       profileSyncSettings.folder = null;
       profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
       return json(res, 200, profileSyncStatus());
@@ -7256,7 +7329,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const limit = pageSize(url.searchParams.get("limit"));
       if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
-      pullSyncedThread(threadId);
+      if (threadSyncGate.enabled) await pullSyncedThread(threadId);
+      else pullSyncedThread(threadId);
       const before = url.searchParams.get("before");
       const around = url.searchParams.get("around");
       if (before && around) return json(res, 400, { error: "before and around cannot be combined" });
@@ -7354,7 +7428,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         threadId,
         messages,
         deviceId: profileSyncSettings.deviceId,
-        writerDeviceId: (messageId) => messageWriter(DATA_DIR, threadId, messageId),
+        writerDeviceId: (messageId) => threadSyncGate.enabled ? threadSyncV2?.messageWriter(threadId, messageId) ?? null : messageWriter(DATA_DIR, threadId, messageId),
         rootsFor: (message) => {
           if (bot) return botOutputRoots(bot, threadId);
           const sender = message.fromBotId ? store.bot(message.fromBotId) : undefined;
@@ -8818,7 +8892,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!store.taskByThread(bot.id, threadId)) {
         return json(res, 409, { error: "the bot switched tasks before it could receive the message" });
       }
-      pullSyncedThread(threadId);
+      if (threadSyncGate.enabled) await pullSyncedThread(threadId);
+      else pullSyncedThread(threadId);
       const sendId = parseSendId(body.sendId);
       if (sendId) {
         ensureChatLatency({ sendId, threadId });
@@ -9257,7 +9332,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!canSwitchWhileWorking(m[2], working)) {
         return json(res, 409, { error: "this bot is working — stop it before switching tasks" });
       }
-      pullSyncedThread(m[2]);
+      if (threadSyncGate.enabled) {
+        await pullSyncedThread(m[2]);
+        const current = store.bot(bot.id);
+        if (!current) return json(res, 404, { error: "no such bot" });
+        const claimed = turnStartClaims.get(bot.id);
+        const active = claimed ?? workingThreadId({
+          busy: Boolean(current.busy),
+          viewedThreadId: current.threadId,
+          liveRoutineThreadId: routines!.activeRunForBot(bot.id)?.threadId,
+        });
+        if (!canSwitchWhileWorking(m[2], active)) return json(res, 409, { error: "this bot is working - stop it before switching tasks" });
+      } else pullSyncedThread(m[2]);
       const switched = store.switchTask(bot.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such task" });
       const fresh = botWithThread(switched);
@@ -9290,7 +9376,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const syncTarget = threadSyncTarget(m[2]);
       const updated = store.deleteTask(m[1], m[2]);
       if (!updated) return json(res, 400, { error: "a bot keeps at least one task" });
-      if (syncTarget) {
+      if (syncTarget && !threadSyncGate.enabled) {
         try {
           deleteSyncedThread(threadSyncHost(profileSyncSettings.folder!), syncTarget.botSyncId, m[2]);
         } catch (error) {

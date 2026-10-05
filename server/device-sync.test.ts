@@ -10,6 +10,7 @@ import {
   listDevices,
   loadDeviceName,
   saveDeviceName,
+  scanDevices,
   writeDeviceRecord,
 } from "./device-sync.ts";
 
@@ -88,6 +89,22 @@ describe("device sync", () => {
     const dataDir = freshDir();
     writeFileSync(join(dataDir, "device-name.json"), "{nope");
     expect(loadDeviceName(dataDir)).toBeNull();
+  });
+
+  it("reports an unreadable root, a missing device directory, and bad records", () => {
+    expect(scanDevices(join(freshDir(), "missing"))).toMatchObject({ rootError: true, records: [], unreadable: [] });
+    const empty = freshDir();
+    expect(scanDevices(empty)).toMatchObject({ rootError: false, dirError: "absent", records: [] });
+    const folder = freshDir();
+    writeDeviceRecord(folder, rec("home"), NOW);
+    writeFileSync(join(folder, DEVICE_DIR, "work.json"), "{nope");
+    writeFileSync(join(folder, DEVICE_DIR, "notes.txt"), "hi");
+    const scan = scanDevices(folder);
+    expect(scan.dirError).toBeNull();
+    expect(scan.records.map((item) => item.deviceId)).toEqual(["home"]);
+    expect(scan.unreadable.map((item) => item.stem)).toEqual(["work"]);
+    expect(scan.unreadable[0]?.mtimeMs).toBeGreaterThan(0);
+    expect(listDevices(folder, "home", NOW).map((item) => item.deviceId)).toEqual(["home"]);
   });
 
   it("prefers the saved name, then the env name, then the hostname", () => {

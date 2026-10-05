@@ -6,13 +6,16 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
 import {
+  applySyncedRows,
   closeMessageDb,
   deleteThread,
   insertMessage,
   readThread,
+  scanThreadRows,
   searchMessages,
   setActiveLeaf,
   updateMessage,
+  withMessageTransaction,
 } from "./message-db.ts";
 import { Store, type Message } from "./store.ts";
 import type { ModelSelection } from "./contracts.ts";
@@ -45,6 +48,33 @@ describe("message-db", () => {
     const thread = readThread("t1", legacy("t1"));
     expect(thread.messages.map((m) => m.text)).toEqual(["hello, edited", "world"]);
     expect(thread.activeLeafId).toBe("m2");
+  });
+
+  it("pages rows without moving an edited row or touching unchanged rows", () => {
+    const messages = [msg("a", "one"), msg("b", "two"), msg("c", "three")];
+    expect(applySyncedRows("paged", messages, "c")).toBe(4);
+    const first = scanThreadRows("paged", 0, 2);
+    expect(first.messages.map((row) => row.id)).toEqual(["a", "b"]);
+    expect(applySyncedRows("paged", messages, "c")).toBe(0);
+    expect(applySyncedRows("paged", [{ ...messages[0], text: "edited" }])).toBe(1);
+    const second = scanThreadRows("paged", first.cursor, 2);
+    expect(second.messages.map((row) => row.id)).toEqual(["c"]);
+    expect(scanThreadRows("paged", second.cursor).messages).toEqual([]);
+    expect(scanThreadRows("paged").messages.map((row) => row.text)).toEqual(["edited", "two", "three"]);
+  });
+
+  it("rolls row and branch changes back with the outbox transaction", () => {
+    applySyncedRows("atomic", [msg("a", "original")], "a");
+    expect(() => withMessageTransaction((database) => {
+      applySyncedRows("atomic", [msg("a", "edited"), msg("b", "new")], "b", database);
+      throw new Error("outbox failed");
+    })).toThrow("outbox failed");
+    expect(readThread("atomic", legacy("atomic"))).toMatchObject({ messages: [{ id: "a", text: "original" }], activeLeafId: "a" });
+  });
+
+  it("rejects unbounded scan pages", () => {
+    expect(() => scanThreadRows("t", -1)).toThrow("Invalid thread scan page");
+    expect(() => scanThreadRows("t", 0, 1025)).toThrow("Invalid thread scan page");
   });
 
   it("imports a legacy JSON thread file exactly once", () => {
