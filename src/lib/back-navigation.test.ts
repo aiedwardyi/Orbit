@@ -160,6 +160,35 @@ describe("BackNavigation", () => {
     expect(go).toHaveBeenCalledOnce();
   });
 
+  it("rewinds the rest after a retreat in flight before leaving", () => {
+    const history = fakeHistory();
+    const navigation = new BackNavigation(history);
+    const close = vi.fn();
+    navigation.sync([{ key: "chat:a", close }, { key: "chat:b", close }, { key: "settings", close }]);
+    navigation.sync([{ key: "chat:a", close }]);
+    const go = vi.fn();
+    navigation.leave(go);
+    history.deliver(navigation);
+    expect(history.index).toBe(0);
+    expect(go).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("starts one rewind for repeated leaves and runs the latest", () => {
+    const history = { pushState: vi.fn(), go: vi.fn(), state: {} };
+    const navigation = new BackNavigation(history);
+    history.state = { depth: 2 };
+    const first = vi.fn();
+    const second = vi.fn();
+    navigation.leave(first);
+    navigation.leave(second);
+    expect(history.go).toHaveBeenCalledOnce();
+    history.state = {};
+    navigation.pop(0);
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledOnce();
+  });
+
   it("drops deleted chats from the selection trail", () => {
     const live = new Set(["root", "a", "b", "c"]);
     const exists = (id: string) => live.has(id);

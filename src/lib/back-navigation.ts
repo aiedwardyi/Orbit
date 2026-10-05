@@ -54,6 +54,8 @@ export class BackNavigation {
 
   pop(depth = Math.max(this.layers.length - 1, 0)) {
     if (this.leaving) {
+      // history.state lags until a traversal lands, so a repeat leave waits on this one
+      this.pending = depth > 0 ? [] : null;
       if (depth > 0) this.history.go(-depth);
       else this.leaving();
       return;
