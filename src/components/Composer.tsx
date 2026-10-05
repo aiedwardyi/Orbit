@@ -296,6 +296,11 @@ export function Composer({
     },
     [composerRef],
   );
+  // A remounted box holds its restored draft with the caret at 0, and focusing keeps that selection.
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (input && document.activeElement !== input) input.setSelectionRange(input.value.length, input.value.length);
+  }, [draftId]);
   // IME composition: native isComposing can stay true after Hangul
   // commits, which used to make Enter insert a newline instead of send.
   const composingRef = useRef(false);

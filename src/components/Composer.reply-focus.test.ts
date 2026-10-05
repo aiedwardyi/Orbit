@@ -159,6 +159,33 @@ describe("composer reply focus", () => {
   });
 });
 
+describe("composer draft caret", () => {
+  it("opens a chat with the caret at the end of its restored draft", async () => {
+    const bot: Bot = {
+      id: "caret", threadId: "caret-thread", name: "Caret", title: "", description: "",
+      notifications: false, color: "blue", unread: false, messages: [],
+      modelSelection: { instanceId: "grok", model: "grok" },
+    };
+    vi.stubGlobal("localStorage", window.localStorage);
+    localStorage.setItem("omb-drafts", JSON.stringify({ "bot:caret:caret-thread": "half a thought" }));
+    focusState.botId = bot.id;
+    try {
+      host = document.createElement("div");
+      document.body.append(host);
+      root = createRoot(host);
+      await act(async () => root!.render(createElement(Composer, { bot })));
+      const textarea = host.querySelector("textarea")!;
+      expect(textarea.value).toBe("half a thought");
+      expect(document.activeElement).toBe(textarea);
+      expect(textarea.selectionStart).toBe("half a thought".length);
+      expect(textarea.selectionEnd).toBe("half a thought".length);
+    } finally {
+      localStorage.removeItem("omb-drafts");
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("composer approval chip", () => {
   it("leaves the approval mode out of the composer", async () => {
     await mount(null);
