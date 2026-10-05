@@ -606,17 +606,15 @@ const Bubble = memo(function Bubble({
               )}
             </>
           ) : markdownText.trim() ? (
-            <>
-              <MessageBoundary fallbackText={markdownText}>
-                <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} threadId={bot.threadId} />
-              </MessageBoundary>
-              {message.summarized && (
-                <div className="mt-1 text-[11px] text-ink-secondary/70" title="Claude shortened this mid-task note. Its exact words weren't kept.">
-                  summarized
-                </div>
-              )}
-            </>
+            <MessageBoundary fallbackText={markdownText}>
+              <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} threadId={bot.threadId} />
+            </MessageBoundary>
           ) : null}
+          {!user && message.summarized && (
+            <div className="mt-1 text-[11px] text-ink-secondary/70" title="Claude shortened this mid-task note. Its exact words weren't kept.">
+              summarized
+            </div>
+          )}
         </div>
         {!user && !streaming && (
           <div

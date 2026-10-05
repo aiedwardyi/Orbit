@@ -2768,8 +2768,8 @@ bus.subscribe((event: RuntimeEvent) => {
           assistantMessageId: message.id,
         });
         // kept so "finished" can say what it finished with, rather than
-        // just that something ended
-        lastReply.set(event.threadId, { text: event.text, messageId: message.id });
+        // just that something ended; an engine summary is not the bot's words
+        if (!event.summarized) lastReply.set(event.threadId, { text: event.text, messageId: message.id });
       } else if (event.itemType === "tool" && event.itemId) {
         const itemKey = `${event.threadId}:${event.itemId}`;
         const pending = toolMessageByItem.get(itemKey);

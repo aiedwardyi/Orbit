@@ -1,7 +1,7 @@
 import type { ModelCatalog } from "./contracts.ts";
 import { decodeInjectId } from "./drivers/local-inject.ts";
 import { redactSecretsInText } from "./redact.ts";
-import { transcriptText } from "./replies.ts";
+import { ENGINE_SUMMARY_PREFIX, transcriptText } from "./replies.ts";
 import type { Message } from "./store.ts";
 import {
   CONTEXT_COMPACTION_VERSION,
@@ -271,8 +271,6 @@ export function withoutTurnNotes<T extends ModelContextMessage>(transcript: T[],
   }
   return kept;
 }
-
-const ENGINE_SUMMARY_PREFIX = "[Engine summary of a mid-turn note; the exact words were not kept] ";
 
 function replayUnits(
   messages: Message[],

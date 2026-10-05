@@ -465,16 +465,12 @@ const Transcript = memo(function Transcript({
                       )}
                       {attachedImages?.display ?? m.text}
                     </>
-                  ) : markdownText.trim() ? (
-                    <>
-                      <ChatMarkdown text={markdownText} baseDir={botFolder} threadId={group.threadId} />
-                      {m.summarized && (
-                        <div className="mt-1 text-[11px] text-ink-secondary/70" title="Claude shortened this mid-task note. Its exact words weren't kept.">
-                          summarized
-                        </div>
-                      )}
-                    </>
-                  ) : null}
+                  ) : markdownText.trim() ? <ChatMarkdown text={markdownText} baseDir={botFolder} threadId={group.threadId} /> : null}
+                  {!user && m.summarized && (
+                    <div className="mt-1 text-[11px] text-ink-secondary/70" title="Claude shortened this mid-task note. Its exact words weren't kept.">
+                      summarized
+                    </div>
+                  )}
                 </div>
                 {!user && (
                   <div
