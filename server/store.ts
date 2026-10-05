@@ -10,6 +10,7 @@ import { peerAllowKey, type PeerAction } from "./peer-approval-key.ts";
 import { DATA_DIR } from "./config.ts";
 import { defaultComputerForNewBot } from "./local-routing.ts";
 import * as mdb from "./message-db.ts";
+import type { SyncChange, SyncMutation } from "./thread-sync-v2.ts";
 import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
@@ -659,6 +660,8 @@ export class Store {
   private defaultSelection: () => ModelSelection;
   private listeners = new Set<(change: StoreChange) => void>();
   private writeListeners = new Set<(threadId: string) => void>();
+  private syncWrite?: (threadId: string, mutations: SyncMutation[], write: () => void) => void;
+  private syncImport = false;
 
   constructor(defaultSelection: () => ModelSelection) {
     this.defaultSelection = defaultSelection;
@@ -843,6 +846,33 @@ export class Store {
     writeFileAtomic(GROUPS_FILE, JSON.stringify(this.groups.map(({ busyBotId: _busyBotId, ...g }) => g), null, 2), { mode: 0o600 });
   }
 
+  setSyncWriter(writer: Store["syncWrite"]): void {
+    this.syncWrite = writer;
+  }
+
+  get importingSync(): boolean {
+    return this.syncImport;
+  }
+
+  applySyncImport(work: () => void): void {
+    const previous = this.syncImport;
+    this.syncImport = true;
+    try {
+      work();
+    } finally {
+      this.syncImport = previous;
+    }
+  }
+
+  private persistThread(threadId: string, mutations: SyncMutation[], write: () => void): void {
+    if (this.syncWrite) this.syncWrite(threadId, mutations, write);
+    else write();
+  }
+
+  private persistTask(task: TaskRecord): void {
+    this.persistThread(task.threadId, [{ kind: "metadata", value: { title: task.title, createdAt: task.createdAt } }], () => {});
+  }
+
   // ── groups ────────────────────────────────────────────────────────────
   /** Subscribe to every write. Listeners run after the write and after
    * save; a throwing listener never breaks the write. */
@@ -959,7 +989,7 @@ export class Store {
     try {
       deleteTaskResumePacket(threadId);
     } catch {}
-    mdb.deleteThread(threadId);
+    this.persistThread(threadId, [{ kind: "delete", value: { deletedAt: Date.now() } }], () => mdb.deleteThread(threadId));
     for (const file of [messagesFile(threadId), `${messagesFile(threadId)}.imported`]) {
       try {
         unlinkSync(file);
@@ -1116,10 +1146,10 @@ export class Store {
     t.messages.push(full);
     t.activeLeafId = full.id;
     this.beforeWrite(threadId);
-    mdb.appendMessage(threadId, full);
+    this.persistThread(threadId, [{ kind: "row", value: full }, { kind: "head", value: full.id }], () => mdb.appendMessage(threadId, full));
     if (full.kind === "screen") {
       for (const pruned of this.pruneScreenFrames(t)) {
-        mdb.updateMessage(threadId, pruned);
+        this.persistThread(threadId, [{ kind: "row", value: pruned }], () => mdb.updateMessage(threadId, pruned));
         this.emit({ type: "message.patch", threadId, message: pruned });
       }
     }
@@ -1195,7 +1225,7 @@ export class Store {
     t.messages.push(full);
     t.activeLeafId = full.id;
     this.beforeWrite(threadId);
-    mdb.appendMessage(threadId, full);
+    this.persistThread(threadId, [{ kind: "row", value: full }, { kind: "head", value: full.id }], () => mdb.appendMessage(threadId, full));
     this.emit({ type: "message", threadId, message: full });
     return full;
   }
@@ -1213,7 +1243,7 @@ export class Store {
     }
     t.activeLeafId = cur;
     this.beforeWrite(threadId);
-    mdb.setActiveLeaf(threadId, cur);
+    this.persistThread(threadId, [{ kind: "head", value: cur }], () => mdb.setActiveLeaf(threadId, cur));
     this.emit({ type: "thread", threadId, activeLeafId: cur });
     return cur;
   }
@@ -1227,7 +1257,7 @@ export class Store {
     // frame the UI already saw.
     t.messages[idx] = redactBotAuthored({ ...t.messages[idx], ...patch, card: patch.card ?? t.messages[idx].card });
     this.beforeWrite(threadId);
-    mdb.updateMessage(threadId, t.messages[idx]);
+    this.persistThread(threadId, [{ kind: "row", value: t.messages[idx] }], () => mdb.updateMessage(threadId, t.messages[idx]));
     this.emit({ type: "message.patch", threadId, message: t.messages[idx] });
     return t.messages[idx];
   }
@@ -1286,6 +1316,7 @@ export class Store {
     if (section) bot.section = section;
     bot.tasks = [{ threadId: bot.threadId, title: UNTITLED_TASK, createdAt: bot.createdAt, resumeCursors: {} }];
     this.bots.unshift(bot);
+    this.persistTask(bot.tasks[0]);
     this.saveBots();
     // Announce the owner before its onboarding transcript. SSE clients need
     // the bot/thread mapping before they can place either message.
@@ -1755,6 +1786,7 @@ export class Store {
       bot.threadId = task.threadId;
       bot.resumeCursors = {}; // legacy mirror follows the active task
     }
+    this.persistTask(task);
     this.saveBots();
     this.emit({ type: "bot", botId });
     return task;
@@ -1815,6 +1847,60 @@ export class Store {
     return record;
   }
 
+  applySyncChanges(botId: string, threadId: string, changes: SyncChange[]): void {
+    const bot = this.bot(botId);
+    if (!bot || !changes.length) return;
+    this.applySyncImport(() => {
+      if (changes.some((change) => change.kind === "delete")) {
+        this.removeSyncedTask(botId, threadId);
+        return;
+      }
+      let task = this.taskByThread(botId, threadId);
+      if (!task) {
+        task = { threadId, title: UNTITLED_TASK, createdAt: 0, resumeCursors: {} };
+        bot.tasks = [...(bot.tasks ?? []), task];
+      }
+      const cached = this.threads.get(threadId);
+      const events: StoreChange[] = [];
+      mdb.withMessageTransaction((db) => {
+        for (const change of changes) {
+          if (change.kind === "metadata") {
+            // SAFETY: The sync engine validates metadata before adding a change page.
+            const metadata = change.value as { title: string; createdAt: number };
+            task.title = metadata.title;
+            task.createdAt = metadata.createdAt;
+          } else if (change.kind === "row") {
+            // SAFETY: The sync engine validates each row before adding a change page.
+            const message = structuredClone(change.value as Message);
+            const exists = db.prepare("SELECT 1 FROM messages WHERE thread_id = ? AND id = ?").get(threadId, message.id);
+            if (!mdb.applySyncedRows(threadId, [message], undefined, db)) continue;
+            if (cached) {
+              const at = cached.messages.findIndex((row) => row.id === message.id);
+              if (at < 0) cached.messages.push(message);
+              else cached.messages[at] = message;
+            }
+            events.push(exists ? { type: "message.patch", threadId, message } : { type: "message", threadId, message, imported: true });
+          } else if (change.kind === "head") {
+            // SAFETY: The sync engine accepts only a string or null for branch heads.
+            const leaf = change.value as string | null;
+            mdb.applySyncedRows(threadId, [], leaf, db);
+            if (cached) cached.activeLeafId = leaf;
+            if (leaf) events.push({ type: "thread", threadId, activeLeafId: leaf });
+          }
+        }
+      });
+      task.resumeCursors = {};
+      delete task.lastInstanceId;
+      delete task.providerSessionBoundId;
+      delete task.resumeSeed;
+      if (bot.threadId === threadId) bot.resumeCursors = {};
+      bot.tasks?.sort((a, b) => b.createdAt - a.createdAt);
+      this.saveBots();
+      for (const event of events) this.emit(event);
+      this.emit({ type: "bot", botId });
+    });
+  }
+
   /** Show an idle bot's task with the newest message; `skip` threads never win.
    * An empty task it leaves is dropped, like a followed import. */
   followNewestTask(botId: string, skip: ReadonlySet<string> = new Set()): boolean {
@@ -1855,6 +1941,7 @@ export class Store {
     const task = this.bot(botId)?.tasks?.find((t) => t.threadId === threadId);
     if (!task) return null;
     task.title = title.trim().slice(0, 80) || UNTITLED_TASK;
+    this.persistTask(task);
     this.saveBots();
     this.emit({ type: "bot", botId });
     return task;
@@ -1865,6 +1952,7 @@ export class Store {
     const task = threadId ? this.taskByThread(botId, threadId) : this.activeTask(botId);
     if (!task || task.title !== UNTITLED_TASK) return;
     task.title = titleFromMessage(text);
+    this.persistTask(task);
     this.saveBots();
     this.emit({ type: "bot", botId });
   }

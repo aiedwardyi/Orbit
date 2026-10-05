@@ -1,7 +1,7 @@
 // Per-PC presence records in the sync folder so a phone can jump between PCs.
 // Records carry only a name, a public tailnet host and a timestamp: never the remote key or cookie.
 import { execFile } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import { z } from "zod";
@@ -22,13 +22,14 @@ const deviceSchema = z.object({
   host: z.string().max(253).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/),
   lastSeen: z.number().int().nonnegative(),
   laptop: z.boolean().optional(),
+  chatSync: z.literal(2).optional(),
 });
 
 export type DeviceRecord = z.infer<typeof deviceSchema>;
 export type DeviceListItem = DeviceRecord & { current: boolean; offline: boolean };
 
 export function writeDeviceRecord(folder: string, record: Omit<DeviceRecord, "lastSeen">, now: number): void {
-  const parsed = deviceSchema.parse({ deviceId: record.deviceId, name: record.name, host: record.host, lastSeen: now, laptop: record.laptop });
+  const parsed = deviceSchema.parse({ deviceId: record.deviceId, name: record.name, host: record.host, lastSeen: now, laptop: record.laptop, chatSync: record.chatSync });
   const directory = join(folder, DEVICE_DIR);
   mkdirSync(directory, { recursive: true });
   writeFileAtomic(join(directory, `${parsed.deviceId}.json`), `${JSON.stringify(parsed, null, 2)}\n`);
@@ -77,7 +78,7 @@ export function deviceDisplayName(saved: string | null, envName: string | undefi
 }
 
 /** Valid records by name; corrupt files are skipped. */
-export function listDevices(folder: string, currentId: string, now: number): DeviceListItem[] {
+export function listDevices(folder: string, currentId: string, now: number, limit = MAX_DEVICE_FILES): DeviceListItem[] {
   const directory = join(folder, DEVICE_DIR);
   let names: string[];
   try {
@@ -86,7 +87,7 @@ export function listDevices(folder: string, currentId: string, now: number): Dev
     return [];
   }
   const items: DeviceListItem[] = [];
-  for (const name of names.filter((value) => value.endsWith(".json")).sort().slice(0, MAX_DEVICE_FILES)) {
+  for (const name of names.filter((value) => value.endsWith(".json")).sort().slice(0, limit)) {
     try {
       const parsed = deviceSchema.safeParse(JSON.parse(readFileSync(join(directory, basename(name)), "utf8")));
       if (!parsed.success) continue;
@@ -94,4 +95,48 @@ export function listDevices(folder: string, currentId: string, now: number): Dev
     } catch {}
   }
   return items.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export interface DeviceScan {
+  rootError: boolean;
+  dirError: "absent" | "unreadable" | null;
+  records: DeviceRecord[];
+  unreadable: { stem: string; mtimeMs: number | null }[];
+}
+
+/** Presence scan for cutover. Read failures stay visible; the phone picker still uses listDevices. */
+export function scanDevices(folder: string): DeviceScan {
+  const empty = { records: [], unreadable: [] };
+  try {
+    if (!statSync(folder).isDirectory()) return { rootError: true, dirError: null, ...empty };
+  } catch {
+    return { rootError: true, dirError: null, ...empty };
+  }
+  let names: string[];
+  try {
+    names = readdirSync(join(folder, DEVICE_DIR));
+  } catch (error) {
+    // SAFETY: Filesystem failures expose Node's errno code.
+    const code = (error as NodeJS.ErrnoException).code;
+    return { rootError: false, dirError: code === "ENOENT" ? "absent" : "unreadable", ...empty };
+  }
+  const records: DeviceRecord[] = [];
+  const unreadable: DeviceScan["unreadable"] = [];
+  for (const name of names.filter((value) => value.endsWith(".json")).sort()) {
+    const path = join(folder, DEVICE_DIR, basename(name));
+    let mtimeMs: number | null;
+    try {
+      mtimeMs = statSync(path).mtimeMs;
+    } catch {
+      mtimeMs = null;
+    }
+    try {
+      const parsed = deviceSchema.safeParse(JSON.parse(readFileSync(path, "utf8")));
+      if (!parsed.success) unreadable.push({ stem: basename(name, ".json"), mtimeMs });
+      else records.push(parsed.data);
+    } catch {
+      unreadable.push({ stem: basename(name, ".json"), mtimeMs });
+    }
+  }
+  return { rootError: false, dirError: null, records, unreadable };
 }

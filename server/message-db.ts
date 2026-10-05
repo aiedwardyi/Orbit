@@ -67,6 +67,8 @@ function db(): DatabaseSync {
   return handle;
 }
 
+export { db as messageDatabase };
+
 const rowToMessage = (row: { json: string }): Message => JSON.parse(row.json) as Message;
 
 export interface ThreadRows {
@@ -135,16 +137,10 @@ export function insertMessage(threadId: string, message: Message): void {
 
 /** Persist a new message and the branch head as one crash-safe mutation. */
 export function appendMessage(threadId: string, message: Message): void {
-  const database = db();
-  database.exec("BEGIN IMMEDIATE");
-  try {
+  withMessageTransaction(() => {
     insertMessage(threadId, message);
     setActiveLeaf(threadId, message.id);
-    database.exec("COMMIT");
-  } catch (error) {
-    database.exec("ROLLBACK");
-    throw error;
-  }
+  });
 }
 
 export function updateMessage(threadId: string, message: Message): void {
@@ -175,6 +171,65 @@ export function replaceThread(threadId: string, messages: Message[], activeLeafI
     database.exec("ROLLBACK");
     throw error;
   }
+}
+
+export function withMessageTransaction<T>(work: (database: DatabaseSync) => T): T {
+  const database = db();
+  const nested = database.isTransaction;
+  database.exec(nested ? "SAVEPOINT message_write" : "BEGIN IMMEDIATE");
+  try {
+    const result = work(database);
+    database.exec(nested ? "RELEASE message_write" : "COMMIT");
+    return result;
+  } catch (error) {
+    database.exec(nested ? "ROLLBACK TO message_write; RELEASE message_write" : "ROLLBACK");
+    throw error;
+  }
+}
+
+export interface ThreadRowPage {
+  messages: Message[];
+  cursor: number;
+}
+
+export function scanThreadRows(threadId: string, after = 0, limit = 256): ThreadRowPage {
+  if (!Number.isSafeInteger(after) || after < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1024) {
+    throw new Error("Invalid thread scan page");
+  }
+  // SAFETY: This projection selects SQLite's rowid and the stored message JSON.
+  const rows = db().prepare(
+    "SELECT rowid AS cursor, json FROM messages WHERE thread_id = ? AND rowid > ? ORDER BY rowid LIMIT ?",
+  ).all(threadId, after, limit) as Array<{ cursor: number; json: string }>;
+  return { messages: rows.map(rowToMessage), cursor: rows.at(-1)?.cursor ?? after };
+}
+
+/** Pass the transaction handle to commit rows and their sync outbox together. */
+export function applySyncedRows(
+  threadId: string,
+  messages: readonly Message[],
+  activeLeafId?: string | null,
+  database?: DatabaseSync,
+): number {
+  if (!database) return withMessageTransaction((transaction) => applySyncedRows(threadId, messages, activeLeafId, transaction));
+  const upsert = database.prepare(
+    "INSERT INTO messages (thread_id, id, at, role, kind, text, json) VALUES (?, ?, ?, ?, ?, ?, ?) " +
+      "ON CONFLICT(thread_id, id) DO UPDATE SET at = excluded.at, role = excluded.role, kind = excluded.kind, " +
+      "text = excluded.text, json = excluded.json WHERE messages.json != excluded.json",
+  );
+  let touched = 0;
+  for (const message of messages) {
+    touched += Number(upsert.run(
+      threadId, message.id, message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message),
+    ).changes);
+  }
+  if (activeLeafId !== undefined) {
+    touched += Number(database.prepare(
+      "INSERT INTO thread_state (thread_id, active_leaf_id) VALUES (?, ?) " +
+        "ON CONFLICT(thread_id) DO UPDATE SET active_leaf_id = excluded.active_leaf_id " +
+        "WHERE thread_state.active_leaf_id IS NOT excluded.active_leaf_id",
+    ).run(threadId, activeLeafId).changes);
+  }
+  return touched;
 }
 
 /** Newest message time without loading the transcript. */
