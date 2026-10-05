@@ -8,7 +8,7 @@ export function KeyboardShortcuts() {
   const mac = /Mac/i.test(globalThis.navigator?.platform ?? "");
   const mod = mac ? "Cmd" : "Ctrl";
   const alt = mac ? "Option" : "Alt";
-  const terminal: Array<[MessageKey, ...string[][]]> = window.ogb?.terminal ? [["shortcuts.terminal", [mod, "`"]]] : [];
+  const terminal: Array<[MessageKey, ...string[][]]> = !window.ogb || window.ogb.terminal ? [["shortcuts.terminal", [mod, "`"]]] : [];
   const groups: Array<{ title: MessageKey; rows: Array<[MessageKey, ...string[][]]> }> = [
     { title: "shortcuts.navigation", rows: [
       ["shortcuts.themes", [alt, "T"]],

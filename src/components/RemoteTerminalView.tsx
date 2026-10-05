@@ -76,14 +76,23 @@ function folderName(cwd: string): string {
   return trimmed.split(/[\\/]/).pop() || cwd;
 }
 
+/** Alt+n picks the nth pane in this view's order. Null is the main pane. Undefined is past the end. */
+export function remotePaneHotkey(panes: RemoteTerminalPane[], n: number): string | null | undefined {
+  const pane = panes[n - 1];
+  if (!pane) return undefined;
+  return pane.main ? null : pane.sessionId;
+}
+
 export function RemoteTerminalView({
   bot,
   onClose,
   visible,
+  paneHotkey,
 }: {
   bot: Pick<Bot, "id" | "name">;
   onClose: () => void;
   visible: boolean;
+  paneHotkey?: { n: number } | null;
 }) {
   const { t } = useI18n();
   const sidebarOnRight = useSidebarSide() === "right";
@@ -102,6 +111,10 @@ export function RemoteTerminalView({
   const pinnedRef = useRef(true);
 
   const panes = snapshot?.panes ?? [];
+  const panesRef = useRef(panes);
+  panesRef.current = panes;
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   const mainPane = panes.find((pane) => pane.main);
   const fallbackPane = mainPane ? undefined : panes[0]?.sessionId;
   const activePaneId = selectedPane ?? mainPane?.sessionId ?? fallbackPane;
@@ -151,6 +164,12 @@ export function RemoteTerminalView({
     await spin;
     setRefreshing(false);
   }, [refresh]);
+
+  useEffect(() => {
+    if (!visibleRef.current || !paneHotkey) return;
+    const next = remotePaneHotkey(panesRef.current, paneHotkey.n);
+    if (next !== undefined) setSelectedPane(next);
+  }, [paneHotkey]);
 
   useEffect(() => {
     if (!visible) return;

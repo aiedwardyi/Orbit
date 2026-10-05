@@ -10,7 +10,7 @@ const store = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("@/state/store", () => store);
 
 import { I18nProvider } from "@/lib/i18n";
-import { RemoteTerminalView, snapshotText } from "./RemoteTerminalView";
+import { RemoteTerminalView, remotePaneHotkey, snapshotText } from "./RemoteTerminalView";
 
 const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "App.tsx"), "utf8");
 
@@ -630,6 +630,46 @@ describe("RemoteTerminalView", () => {
   it("joins only the parts that have text", () => {
     expect(snapshotText({ screenText: "a" })).toBe("a");
     expect(snapshotText({ recentText: "b" })).toBe("b");
+  });
+
+  it("maps Alt+n onto the view's own pane order", () => {
+    const workerFirst = [
+      { sessionId: "worker", label: "Worker", main: false },
+      { sessionId: "main", label: "Main", main: true },
+    ];
+    expect(remotePaneHotkey(workerFirst, 1)).toBe("worker");
+    expect(remotePaneHotkey(workerFirst, 2)).toBeNull();
+    expect(remotePaneHotkey(workerFirst, 9)).toBeUndefined();
+  });
+
+  it("selects that pane when Alt+n arrives", async () => {
+    const panes = [
+      { sessionId: "main", label: "Main", main: true },
+      { sessionId: "worker", label: "Worker", main: false },
+      { sessionId: "other", label: "Other", main: false },
+    ];
+    store.api.mockImplementation(async (path: string) => {
+      const sessionId = String(path).includes("sessionId=other") ? "other" : String(path).includes("sessionId=worker") ? "worker" : "main";
+      return { screenText: sessionId, sessionId, generation: 1, panes };
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const view = (paneHotkey: { n: number } | null) =>
+      createElement(I18nProvider, null, createElement(RemoteTerminalView, { bot: { id: "bot-1", name: "Ada" }, visible: true, onClose: () => {}, paneHotkey }));
+    try {
+      await act(async () => root.render(view(null)));
+      const tab = (name: string) => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((el) => el.textContent === name)!;
+      expect(tab("Main").getAttribute("aria-selected")).toBe("true");
+      await act(async () => root.render(view({ n: 3 })));
+      expect(tab("Other").getAttribute("aria-selected")).toBe("true");
+      await act(async () => root.render(view({ n: 1 })));
+      expect(tab("Main").getAttribute("aria-selected")).toBe("true");
+      await act(async () => root.render(view({ n: 9 })));
+      expect(tab("Main").getAttribute("aria-selected")).toBe("true");
+    } finally {
+      await act(async () => root.unmount());
+    }
   });
 
   it("offers the terminal button without the preload and picks the remote view there", () => {
