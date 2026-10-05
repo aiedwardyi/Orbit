@@ -605,7 +605,7 @@ const Bubble = memo(function Bubble({
             </>
           ) : markdownText.trim() ? (
             <MessageBoundary fallbackText={markdownText}>
-              <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} />
+              <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} threadId={bot.threadId} />
             </MessageBoundary>
           ) : null}
         </div>
