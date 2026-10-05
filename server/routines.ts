@@ -719,7 +719,7 @@ export class RoutineManager {
     } else if (event.type === "request.resolved") {
       run.status = "running";
       run.attention = undefined;
-    } else if (event.type === "item.completed" && event.itemType === "assistant_text") {
+    } else if (event.type === "item.completed" && event.itemType === "assistant_text" && !event.summarized) {
       run.output = redactSecretsInText(event.text).trim().slice(0, 2_000);
     } else if (event.type === "runtime.error") {
       run.error = redactSecretsInText(event.message).slice(0, 500);

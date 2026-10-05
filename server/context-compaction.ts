@@ -1,7 +1,7 @@
 import type { ModelCatalog } from "./contracts.ts";
 import { decodeInjectId } from "./drivers/local-inject.ts";
 import { redactSecretsInText } from "./redact.ts";
-import { transcriptText } from "./replies.ts";
+import { ENGINE_SUMMARY_PREFIX, transcriptText } from "./replies.ts";
 import type { Message } from "./store.ts";
 import {
   CONTEXT_COMPACTION_VERSION,
@@ -283,7 +283,8 @@ function replayUnits(
   return messages.flatMap((message, pathIndex): ReplayUnit[] => {
     if (excludeIds.has(message.id)) return [];
     if (message.kind === "text" && message.text?.trim()) {
-      const text = transcriptText(message, messagesById, userName);
+      const body = transcriptText(message, messagesById, userName);
+      const text = message.summarized ? `${ENGINE_SUMMARY_PREFIX}${body}` : body;
       const speaker = message.role === "user" ? userName : (message.from?.name ?? "Bot");
       return [{
         id: message.id,

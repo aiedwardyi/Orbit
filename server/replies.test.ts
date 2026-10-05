@@ -32,6 +32,16 @@ describe("flat replies", () => {
     );
   });
 
+  it("keeps the engine-summary label on a quoted summary", () => {
+    const target = message({ text: "Checking the logs.", summarized: true });
+    const reply = message({ id: "m2", role: "user", text: "Why?", replyToId: target.id });
+    const label = "[Engine summary of a mid-turn note; the exact words were not kept] ";
+    expect(transcriptText(reply, new Map([[target.id, target]]), "Milind")).toBe(
+      `[replying to Assistant: “${label}Checking the logs.”]\nWhy?`,
+    );
+    expect(promptWithReply("Why?", target, "Milind")).toContain(`--- quoted excerpt ---\n${label}Checking the logs.\n`);
+  });
+
   it("appends reaction tone so replayed history carries the feedback", () => {
     const answered = message({
       reactions: [{ emoji: "👍", by: "user" }],

@@ -121,7 +121,7 @@ export type RuntimeEvent = RuntimeEventBase &
       }
     | { type: "item.updated"; itemType: "tool" | "reasoning"; tokens?: number | null }
     | { type: "item.completed"; itemType: "tool"; ok: boolean; summary?: string; durationMs?: number }
-    | { type: "item.completed"; itemType: "assistant_text"; text: string }
+    | { type: "item.completed"; itemType: "assistant_text"; text: string; summarized?: boolean }
     | { type: "content.delta"; streamKind: "assistant_text" | "reasoning_text"; delta: string }
     | {
         type: "request.opened";

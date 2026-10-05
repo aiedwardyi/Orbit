@@ -481,15 +481,26 @@ function firstText(content: unknown): string {
   return "";
 }
 
-/** Text blocks plus narration: thinking blocks the CLI flags as prose to the user, not reasoning. */
-function replyText(content: unknown, narration: unknown): string {
-  if (!Array.isArray(content) || !Array.isArray(narration)) return firstText(content);
-  return content
-    .map((b, i) =>
-      b?.type === "text" ? b.text : b?.type === "thinking" && narration.includes(i) ? String(b.thinking ?? "").trim() : "",
-    )
-    .filter(Boolean)
-    .join("");
+type ClaudeContentBlock = { type?: string; text?: string; thinking?: string };
+
+/** Plain reply text, and narration the CLI flagged, kept apart so a summary never joins the real reply. */
+function replySegments(content: ClaudeContentBlock[] | string | undefined, narration: number[] | undefined) {
+  if (!Array.isArray(content) || !Array.isArray(narration)) {
+    const text = firstText(content);
+    return text.trim() ? [{ text }] : [];
+  }
+  const flagged = new Set(narration);
+  const segments: Array<{ text: string; summarized?: true }> = [];
+  for (let i = 0; i < content.length; i++) {
+    const block = content[i];
+    const summarized = block?.type === "thinking" && flagged.has(i);
+    const text = block?.type === "text" ? String(block.text ?? "") : summarized ? String(block.thinking ?? "").trim() : "";
+    if (!text) continue;
+    const last = segments.at(-1);
+    if (last && Boolean(last.summarized) === Boolean(summarized)) last.text += text;
+    else segments.push(summarized ? { text, summarized: true } : { text });
+  }
+  return segments.filter((segment) => segment.text.trim());
 }
 
 type TurnUsage = { input: number; output: number; cachedInput?: number };
@@ -1250,16 +1261,32 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           case "assistant": {
             if (session.turn) session.turn.promptAccepted = true;
             const msg = o.message ?? {};
-            const text = replyText(msg.content, o.narration_block_indexes);
             // a subagent's final report is the main agent's input, not a reply
-            if (text.trim() && !o.parent_tool_use_id) {
-              // fallback delta for CLIs/paths that never streamed the block
-              if (!session.turn?.sawStreamDelta) {
-                session.turn?.timer.mark("firstVisible");
-                emit({ ...base(threadId, currentTurnId()), type: "content.delta", streamKind: "assistant_text", delta: text });
+            if (!o.parent_tool_use_id) {
+              const streamed = Boolean(session.turn?.sawStreamDelta);
+              let sawPlain = false;
+              for (const segment of replySegments(msg.content, o.narration_block_indexes)) {
+                if (segment.summarized) {
+                  // no delta: a summary must not flash as an unlabeled reply
+                  session.turn?.timer.mark("firstVisible");
+                  emit({
+                    ...base(threadId, currentTurnId()),
+                    type: "item.completed",
+                    itemType: "assistant_text",
+                    text: segment.text,
+                    summarized: true,
+                  });
+                  continue;
+                }
+                sawPlain = true;
+                // fallback delta for CLIs/paths that never streamed the block
+                if (!streamed) {
+                  session.turn?.timer.mark("firstVisible");
+                  emit({ ...base(threadId, currentTurnId()), type: "content.delta", streamKind: "assistant_text", delta: segment.text });
+                }
+                emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "assistant_text", text: segment.text });
               }
-              if (session.turn) session.turn.sawStreamDelta = false;
-              emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "assistant_text", text });
+              if (session.turn && sawPlain) session.turn.sawStreamDelta = false;
             }
             for (const b of Array.isArray(msg.content) ? msg.content : []) {
               if (b.type === "tool_use") {

@@ -2,6 +2,7 @@
 // event, so the persistence guard dropping a stopped turn's late text does
 // not stop it reaching a collector; each collector applies the same rule.
 import type { RuntimeEvent } from "./contracts.ts";
+import { ENGINE_SUMMARY_PREFIX } from "./replies.ts";
 
 export type TurnReplyStep = { text: string } | "completed" | null;
 
@@ -19,7 +20,8 @@ export function ownTurnReply(stale: (threadId: string, turnId: string | undefine
       if (e.type === "turn.started") own ??= e.turnId;
       if (e.type !== "item.completed" || e.itemType !== "assistant_text") return null;
       own ??= e.turnId;
-      return !e.turnId || e.turnId === own ? { text: e.text } : null;
+      if (e.turnId && e.turnId !== own) return null;
+      return { text: e.summarized ? `${ENGINE_SUMMARY_PREFIX}${e.text}` : e.text };
     },
   };
 }

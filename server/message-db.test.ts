@@ -89,6 +89,35 @@ describe("message-db", () => {
     }
   });
 
+  it("round-trips a summarized bot message, including a room sender", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const direct = store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "text",
+      text: "Checking the logs.",
+      summarized: true,
+    });
+    const room = store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "text",
+      text: "Package is ready.",
+      summarized: true,
+      from: { botId: "scout", name: "Scout", color: "blue" },
+    });
+    const plain = store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "All clear." });
+
+    closeMessageDb();
+    const loaded = new Store(selection).messagesFor(bot.threadId);
+    expect(loaded.find((message) => message.id === direct.id)).toMatchObject({ summarized: true, text: "Checking the logs." });
+    expect(loaded.find((message) => message.id === room.id)).toMatchObject({
+      summarized: true,
+      text: "Package is ready.",
+      from: { name: "Scout" },
+    });
+    expect(loaded.find((message) => message.id === plain.id)?.summarized).toBeUndefined();
+  });
+
   it("round-trips unknown future compaction versions without deleting them", () => {
     const future = {
       ...msg("future", ""),

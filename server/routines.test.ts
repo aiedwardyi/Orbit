@@ -552,6 +552,35 @@ describe("RoutineManager", () => {
     });
   });
 
+  it("keeps the real reply as output when an engine summary lands after it", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Ship report",
+      prompt: "Write the report",
+      botId: "maus-3",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    const base = {
+      eventId: "event-1",
+      provider: "fake",
+      threadId: "thread-1",
+      createdAt: new Date(h.manager.listRuns()[0]!.startedAt!).toISOString(),
+    };
+    h.manager.handleRuntimeEvent({ ...base, type: "item.completed", itemType: "assistant_text", text: "Report shipped." });
+    h.manager.handleRuntimeEvent({
+      ...base,
+      type: "item.completed",
+      itemType: "assistant_text",
+      text: "I've wrapped up the report.",
+      summarized: true,
+    });
+    h.manager.handleRuntimeEvent({ ...base, type: "turn.completed", ok: true, cost: 0.02 });
+
+    expect(h.manager.listRuns()[0]).toMatchObject({ status: "completed", output: "Report shipped." });
+  });
+
   it("reports a failed run once with its detached thread", async () => {
     const h = harness();
     const routine = h.manager.create({

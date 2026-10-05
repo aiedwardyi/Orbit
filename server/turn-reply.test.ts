@@ -52,6 +52,14 @@ describe("ownTurnReply", () => {
     expect(r.completed()).toBe(true);
   });
 
+  it("marks an engine summary in the collected reply", () => {
+    const r = rig([]);
+    r.event("mine", { type: "item.completed", itemType: "assistant_text", text: "Checking the logs.", summarized: true });
+    r.event("mine", { type: "item.completed", itemType: "assistant_text", text: "All clear." });
+    r.event("mine", { type: "turn.completed", ok: true });
+    expect(r.text()).toBe("[Engine summary of a mid-turn note; the exact words were not kept] Checking the logs.\nAll clear.");
+  });
+
   it("adopts its turn from the first fresh text", () => {
     const r = rig([]);
     r.event("mine", { type: "item.completed", itemType: "assistant_text", text: "mine" });

@@ -548,7 +548,9 @@ const Bubble = memo(function Bubble({
               ? "overflow-hidden border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
               : user
                 ? "bg-bubble-user px-4 py-2.5 whitespace-pre-wrap text-ink"
-                : "bg-card px-4 py-2.5 text-ink",
+                : message.summarized
+                  ? "bg-card px-4 py-2.5 text-ink-secondary"
+                  : "bg-card px-4 py-2.5 text-ink",
           )}
         >
           {quoted && (
@@ -608,6 +610,11 @@ const Bubble = memo(function Bubble({
               <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} threadId={bot.threadId} />
             </MessageBoundary>
           ) : null}
+          {!user && message.summarized && (
+            <div className="mt-1 text-[11px] text-ink-secondary/70" title="Claude shortened this mid-task note. Its exact words weren't kept.">
+              summarized
+            </div>
+          )}
         </div>
         {!user && !streaming && (
           <div

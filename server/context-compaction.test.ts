@@ -134,6 +134,77 @@ describe("provider-neutral context compaction", () => {
     expect(prompt).not.toContain("User: Eddie:");
   });
 
+  const engineSummary = "[Engine summary of a mid-turn note; the exact words were not kept] ";
+
+  it("prefixes a summarized note in the 1:1 replay and compaction prompt", async () => {
+    const ready = await prepareModelContext({
+      messages: [
+        message("u1", "check the logs"),
+        message("b1", "Checking the logs.", { role: "bot", summarized: true }),
+        message("b2", "All clear.", { role: "bot" }),
+      ],
+      contextWindow: 8_192,
+      taskRecordText: "Goal: logs",
+    });
+    expect(ready).toMatchObject({
+      status: "ready",
+      transcript: [
+        { role: "user", text: "check the logs" },
+        { role: "assistant", text: `${engineSummary}Checking the logs.` },
+        { role: "assistant", text: "All clear." },
+      ],
+    });
+
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary");
+    await prepareModelContext({
+      messages: [message("s0", "Checking the logs.", { role: "bot", summarized: true }), ...longHistory(205, 10)],
+      contextWindow: 2_048,
+      taskRecordText: "Goal: logs",
+      summarize,
+    });
+    expect(summarize.mock.calls.map(([text]) => text).join("\n")).toContain(
+      `\nAssistant: ${engineSummary}Checking the logs.`,
+    );
+  });
+
+  it("prefixes a summarized note in the room replay and compaction prompt", async () => {
+    const scout = { botId: "scout", name: "Scout", color: "blue" };
+    const ready = await prepareModelContext({
+      messages: [
+        message("u1", "check the logs"),
+        message("b1", "Checking the logs.", { role: "bot", from: scout, summarized: true }),
+      ],
+      contextWindow: 8_192,
+      taskRecordText: "Room: logs",
+      userName: "Eddie",
+      includeSpeakers: true,
+    });
+    expect(ready).toMatchObject({
+      status: "ready",
+      transcript: [
+        { role: "user", text: "Eddie: check the logs" },
+        { role: "assistant", text: `Scout: ${engineSummary}Checking the logs.` },
+      ],
+    });
+
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary");
+    await prepareModelContext({
+      messages: [
+        message("s0", "Checking the logs.", { role: "bot", from: scout, summarized: true }),
+        ...longHistory(205, 10),
+      ],
+      contextWindow: 2_048,
+      taskRecordText: "Room: logs",
+      userName: "Eddie",
+      includeSpeakers: true,
+      summarize,
+    });
+    expect(summarize.mock.calls.map(([text]) => text).join("\n")).toContain(
+      `\nScout: ${engineSummary}Checking the logs.`,
+    );
+    expect(summarize.mock.calls.map(([text]) => text).join("\n")).not.toContain("Assistant: Scout:");
+  });
+
   it("tells the summarizer to credit work to whoever did it", async () => {
     const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary");
     await prepareModelContext({
