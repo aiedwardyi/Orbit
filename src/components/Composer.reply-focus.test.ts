@@ -3,7 +3,10 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const focusState = vi.hoisted(() => ({ botId: "", dispatch: vi.fn() }));
+const focusState = vi.hoisted(() => {
+  const bots: Bot[] = [];
+  return { botId: "", bots, dispatch: vi.fn() };
+});
 
 vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
@@ -13,7 +16,7 @@ vi.mock("@/state/store", async (importOriginal) => {
     useStore: () => ({
       state: {
         acceptedSends: {},
-        bots: [],
+        bots: focusState.bots,
         composerFocusBotId: focusState.botId,
         instances: [],
         pendingQueued: {},
@@ -37,6 +40,7 @@ afterEach(async () => {
   root = null;
   host = null;
   focusState.botId = "";
+  focusState.bots = [];
   vi.clearAllMocks();
   vi.restoreAllMocks();
 });
@@ -156,6 +160,44 @@ describe("composer reply focus", () => {
     });
 
     expect(document.activeElement).not.toBe(textarea);
+  });
+});
+
+describe("composer draft caret", () => {
+  const bot: Bot = {
+    id: "caret", threadId: "caret-thread", name: "Caret", title: "", description: "",
+    notifications: false, color: "blue", unread: false, messages: [],
+    modelSelection: { instanceId: "grok", model: "grok" },
+  };
+
+  async function restore(draft: string) {
+    vi.stubGlobal("localStorage", window.localStorage);
+    localStorage.setItem("omb-drafts", JSON.stringify({ "bot:caret:caret-thread": draft }));
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => root!.render(createElement(Composer, { bot })));
+    return host.querySelector("textarea")!;
+  }
+
+  afterEach(() => {
+    localStorage.removeItem("omb-drafts");
+    vi.unstubAllGlobals();
+  });
+
+  it("opens a chat with the caret at the end of its restored draft", async () => {
+    focusState.botId = bot.id;
+    const textarea = await restore("half a thought");
+    expect(textarea.value).toBe("half a thought");
+    expect(document.activeElement).toBe(textarea);
+    expect(textarea.selectionStart).toBe("half a thought".length);
+    expect(textarea.selectionEnd).toBe("half a thought".length);
+  });
+
+  it("reopens the @mention picker for a draft that ends mid-tag", async () => {
+    focusState.bots = [bot, { ...bot, id: "pokkey", threadId: "pokkey-thread", name: "Pokkey" }];
+    await restore("ask @Pok");
+    expect(host!.querySelector('[role="option"]')?.textContent).toContain("Pokkey");
   });
 });
 
