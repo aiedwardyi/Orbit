@@ -1735,18 +1735,10 @@ const threadSyncPoll = createThreadSyncPoll(() => {
     console.warn("picture sync: prune failed", error);
   }
   try {
-    const threadIds = new Set<string>();
-    for (const bot of store.bots) {
-      for (const task of store.tasks(bot.id)) threadIds.add(task.threadId);
-    }
-    for (const group of store.groups) {
-      threadIds.add(group.threadId);
-      for (const task of group.tasks ?? []) threadIds.add(task.threadId);
-    }
     publishUnsyncedPictures({
       folder: profileSyncSettings.folder,
       dataDir: DATA_DIR,
-      threadIds: [...threadIds],
+      threadIds: store.bots.flatMap((bot) => store.tasks(bot.id).map((task) => task.threadId)).filter((threadId) => threadSyncTarget(threadId)),
       messagesFor: (threadId) => store.messagesFor(threadId),
     });
   } catch (error) {

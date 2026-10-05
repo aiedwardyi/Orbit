@@ -172,6 +172,26 @@ describe("picture sync", () => {
     expect(readFileSync(join(attachments, keptName)).equals(keptBytes)).toBe(true);
   });
 
+  it("keeps a prune entry while the picture cannot be deleted", () => {
+    const folder = temp("pic-prune-locked-");
+    const dataDir = temp("pic-prune-locked-a-");
+    const attachments = join(dataDir, "attachments");
+    mkdirSync(attachments, { recursive: true });
+    const name = "dddddddd-dddd-4ddd-8ddd-dddddddddddd.png";
+    writeFileSync(join(attachments, name), Buffer.from("locked"));
+    const t0 = 1_700_000_000_000;
+    publishThreadPictures({ folder, dataDir, now: t0, messages: [{ image: name, at: t0 }] });
+    const dest = join(folder, PICTURES_DIR, name);
+    rmSync(dest);
+    mkdirSync(dest);
+    const later = t0 + PICTURE_MAX_AGE_MS + 1;
+    pruneSyncedPictures(folder, dataDir, later);
+    expect(readFileSync(join(dataDir, "picture-sync.json"), "utf8").includes(name)).toBe(true);
+    rmSync(dest, { recursive: true });
+    pruneSyncedPictures(folder, dataDir, later);
+    expect(readFileSync(join(dataDir, "picture-sync.json"), "utf8").includes(name)).toBe(false);
+  });
+
   it("does not republish a picture once its message is 30 days old", () => {
     const folder = temp("pic-age-");
     const dataDir = temp("pic-age-a-");

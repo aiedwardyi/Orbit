@@ -194,7 +194,12 @@ export function pruneSyncedPictures(folder: string, dataDir: string, now = Date.
     if (pictures) {
       const dest = join(pictures, name);
       if (relative(pictures, dest) !== name) continue;
-      try { unlinkSync(dest); } catch { /* already gone */ }
+      try {
+        unlinkSync(dest);
+      } catch (error) {
+        // a locked file keeps its entry so the next prune retries it
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) continue;
+      }
     }
     ledger.pictures.delete(name);
     changed = true;
