@@ -97,6 +97,7 @@ export const SECTION_PHRASE_KEYS = {
     "settings.skin.notebook.tagline",
     "settings.skin.messenger.tagline",
     "settings.skin.community.tagline",
+    "settings.skin.community-light.tagline",
     "settings.skin.code-review.tagline",
     "settings.skin.blueprint.tagline",
     "settings.skin.blueprint-gray.tagline",

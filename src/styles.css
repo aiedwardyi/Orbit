@@ -1560,7 +1560,55 @@
   --radius-xl: 8px;
 }
 
-@scope ([data-skin="community"]) to ([data-skin]) {
+/* ── Community Light ───────────────────────────────────────────────────────
+   Community's open, wide transcript on light gray. Replies run across the
+   column without a bubble; the user's own turns sit on white.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="community-light"] {
+  color-scheme: light;
+  --color-app: #ebedef;
+  --color-panel: #f2f3f5;
+  --color-raised: #e3e5e8;
+  --color-raised-hover: #d8dbdf;
+  --color-card: #ffffff;
+  --color-inset: #dfe1e5;
+  --color-control: #cdd0d6;
+  --color-hairline: #a5a9b1;
+
+  --color-ink: #2e3338;
+  --color-ink-secondary: #4e5058;
+
+  --color-accent: #4752c4;
+  --color-accent-border: #5865f2;
+  --color-accent-text: #3c45a5;
+  --color-focus: #3c45a5;
+  --color-accent-ink: #ffffff;
+  --color-bubble-user: #ffffff;
+
+  --color-success: #2f6b4a;
+  --color-danger: #a33a32;
+  --color-danger-ink: #ffffff;
+  --color-warning: #7a5a28;
+  --color-scrollbar: #a5a9b1;
+  --color-maus-line: #4e5058;
+
+  --color-syntax-fg: #1a1a18;
+  --color-syntax-comment: #4a453c;
+  --color-syntax-keyword: #8b1a24;
+  --color-syntax-string: #0a3069;
+  --color-syntax-function: #5b21b6;
+  --color-syntax-constant: #084298;
+  --color-syntax-variable: #7a3500;
+  --color-syntax-tag: #0b4d24;
+  --color-syntax-invalid: #8b1a24;
+
+  --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "Malgun Gothic",
+    system-ui, sans-serif;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+}
+
+@scope ([data-skin="community"], [data-skin="community-light"]) to ([data-skin]) {
   [data-orbit-message] {
     padding-block: 0.25rem;
   }
@@ -3095,6 +3143,7 @@
   [data-skin="notebook"],
   [data-skin="messenger"],
   [data-skin="community"],
+  [data-skin="community-light"],
   [data-skin="code-review"],
   [data-skin="blueprint"],
   [data-skin="blueprint-gray"],
@@ -3948,18 +3997,18 @@ button:disabled.bg-danger {
 
 /* The paper skins use the same Shiki source palette with their own
    readable foreground tokens. */
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki {
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki {
   color: var(--color-syntax-fg) !important;
 }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#8b949e" i] { color: var(--color-syntax-comment) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ff7b72" i] { color: var(--color-syntax-keyword) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#a5d6ff" i] { color: var(--color-syntax-string) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#d2a8ff" i] { color: var(--color-syntax-function) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#79c0ff" i] { color: var(--color-syntax-constant) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ffa657" i],
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#f2cc60" i] { color: var(--color-syntax-variable) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#7ee787" i] { color: var(--color-syntax-tag) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ffa198" i] { color: var(--color-syntax-invalid) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#e6edf3" i],
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#f0f6fc" i],
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#161b22" i] { color: var(--color-syntax-fg) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#8b949e" i] { color: var(--color-syntax-comment) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ff7b72" i] { color: var(--color-syntax-keyword) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#a5d6ff" i] { color: var(--color-syntax-string) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#d2a8ff" i] { color: var(--color-syntax-function) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#79c0ff" i] { color: var(--color-syntax-constant) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ffa657" i],
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#f2cc60" i] { color: var(--color-syntax-variable) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#7ee787" i] { color: var(--color-syntax-tag) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ffa198" i] { color: var(--color-syntax-invalid) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#e6edf3" i],
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#f0f6fc" i],
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#161b22" i] { color: var(--color-syntax-fg) !important; }

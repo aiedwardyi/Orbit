@@ -221,6 +221,7 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('data-skin="notebook"');
     expect(html).toContain('data-skin="messenger"');
     expect(html).toContain('data-skin="community"');
+    expect(html).toContain('data-skin="community-light"');
     expect(html).toContain('data-skin="code-review"');
     expect(html).toContain('data-skin="blueprint"');
     expect(html).toContain('data-skin="blueprint-gray"');

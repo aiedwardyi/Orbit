@@ -139,6 +139,7 @@ describe("skin overlay chrome", () => {
     expect(SKIN_CHROME.notebook).toEqual({ color: "#ffffff", symbolColor: "#686862" });
     expect(SKIN_CHROME.messenger).toEqual({ color: "#f8f9fb", symbolColor: "#606671" });
     expect(SKIN_CHROME.community).toEqual({ color: "#313338", symbolColor: "#b5bac1" });
+    expect(SKIN_CHROME["community-light"]).toEqual({ color: "#ebedef", symbolColor: "#4e5058" });
     expect(SKIN_CHROME["code-review"]).toEqual({ color: "#ffffff", symbolColor: "#59636e" });
     expect(SKIN_CHROME.blueprint).toEqual({ color: "#eaf2fa", symbolColor: "#4f6680" });
     expect(SKIN_CHROME["blueprint-gray"]).toEqual({ color: "#3a414a", symbolColor: "#d8e0e8" });
@@ -203,6 +204,7 @@ describe("skin overlay chrome", () => {
     expect(skinThemeSource("gruvbox")).toBe("dark");
     expect(skinThemeSource("precision")).toBe("dark");
     expect(skinThemeSource("community")).toBe("dark");
+    expect(skinThemeSource("community-light")).toBe("light");
     expect(skinThemeSource("notebook")).toBe("light");
     expect(skinThemeSource("messenger")).toBe("light");
     expect(skinThemeSource("code-review")).toBe("light");

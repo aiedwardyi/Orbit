@@ -144,6 +144,11 @@ describe("home-screen app shell", () => {
     for (const file of Object.values(preloads)) expect(existsSync(join(root, `public/fonts/${file}-Variable.woff2`))).toBe(true);
   });
 
+  it("opts out of browser page translation, which rewrites text under React and blanks the app", () => {
+    expect(html).toContain('<html lang="en" translate="no">');
+    expect(html).toContain('<meta name="google" content="notranslate" />');
+  });
+
   it("styles scrollbars only off touch screens, so phones keep their own thin ones", () => {
     const touchless = css.match(/@media not all and \(pointer: coarse\) \{\r?\n([\s\S]*?)\r?\n\}/)?.[1] ?? "";
     expect(touchless).toContain("::-webkit-scrollbar {");
