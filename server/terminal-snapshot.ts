@@ -36,7 +36,7 @@ export function acceptedPaneCounts(body: { counts?: Record<string, number>; pane
   const counts: Record<string, number> = {};
   for (const [botId, labels] of Object.entries(body.panes ?? {})) {
     if (!BOT_ID.test(botId) || labels.length < 1 || labels.length > 8) continue;
-    const names = labels.slice(0, 8).map((label) => label.slice(0, 40));
+    const names = labels.map((label) => label.slice(0, 40));
     panes[botId] = names;
     counts[botId] = names.length;
   }
