@@ -110,7 +110,7 @@ describe("skins", () => {
     const boxy = css.match(
       /:root\[data-shape="boxy"\]:is\(([\s\S]*?)\)\s*\[data-orbit-message="bot"\][^{]+\{([^}]*)\}/,
     )?.[0] ?? "";
-    const ids = ["precision", "notebook", "messenger", "community", "code-review", "blueprint", "blueprint-gray", "blueprint-charcoal"];
+    const ids = ["precision", "notebook", "messenger", "community", "community-light", "code-review", "blueprint", "blueprint-gray", "blueprint-charcoal"];
     for (const id of ids) {
       expect(boxy).toContain(`[data-skin="${id}"]`);
     }
@@ -161,6 +161,7 @@ describe("skins", () => {
       "vscode-dark",
       "notebook",
       "messenger",
+      "community-light",
       "code-review",
       "blueprint",
       "wink-day",
@@ -177,7 +178,7 @@ describe("skins", () => {
   it("drives native input color-scheme from the skin, not a hardcoded dark utility", () => {
     const rootBody = css.match(/:root\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(rootBody).toMatch(/color-scheme:\s*dark\s*;/);
-    const light = ["atelier", "lagoon", "ledger", "notebook", "messenger", "code-review", "blueprint", "wink-day"];
+    const light = ["atelier", "lagoon", "ledger", "notebook", "messenger", "community-light", "code-review", "blueprint", "wink-day"];
     for (const id of light) {
       const body = css.match(new RegExp(`\\[data-skin="${id}"\\]\\s*\\{([^}]*)\\}`))?.[1] ?? "";
       expect(body).toMatch(/color-scheme:\s*light\s*;/);
@@ -313,6 +314,16 @@ describe("Ledger", () => {
       "--radius-xl",
     ];
     expect([...tokensOf("ledger")]).toEqual(expect.arrayContaining(required));
+  });
+});
+
+describe("Community Light", () => {
+  it("shares Community's open, wide replies on a light gray ground", () => {
+    expect(css).toContain('@scope ([data-skin="community"], [data-skin="community-light"]) to ([data-skin])');
+    expect(LIGHT_SKIN_IDS.has("community-light")).toBe(true);
+    const app = cssToken("community-light", "--color-app")!;
+    expect(luminance(app)).toBeGreaterThan(0.75);
+    expect(spread(app)).toBeLessThanOrEqual(6);
   });
 });
 
