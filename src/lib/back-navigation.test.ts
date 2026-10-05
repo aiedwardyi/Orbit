@@ -120,6 +120,46 @@ describe("BackNavigation", () => {
     expect(closeChat).toHaveBeenCalledOnce();
   });
 
+  it("rewinds to the first entry before leaving", () => {
+    const history = fakeHistory();
+    const navigation = new BackNavigation(history);
+    const close = vi.fn();
+    navigation.sync([{ key: "chat:second", close }, { key: "settings", close }]);
+    const go = vi.fn();
+    navigation.leave(go);
+    expect(go).not.toHaveBeenCalled();
+    history.deliver(navigation);
+    expect(history.index).toBe(0);
+    expect(go).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
+    navigation.sync([{ key: "chat:second", close }]);
+    expect(history.entries).toHaveLength(3);
+    expect(history.index).toBe(0);
+  });
+
+  it("leaves at once from the first entry", () => {
+    const history = { pushState: vi.fn(), go: vi.fn() };
+    const navigation = new BackNavigation(history);
+    const go = vi.fn();
+    navigation.leave(go);
+    expect(go).toHaveBeenCalledOnce();
+    expect(history.go).not.toHaveBeenCalled();
+    navigation.sync([{ key: "settings", close: vi.fn() }]);
+    expect(history.pushState).not.toHaveBeenCalled();
+  });
+
+  it("leaves once a rewind already in flight lands", () => {
+    const history = fakeHistory();
+    new BackNavigation(history).sync([{ key: "settings", close: vi.fn() }]);
+    const navigation = new BackNavigation(history);
+    const go = vi.fn();
+    navigation.leave(go);
+    expect(go).not.toHaveBeenCalled();
+    history.deliver(navigation);
+    expect(history.index).toBe(0);
+    expect(go).toHaveBeenCalledOnce();
+  });
+
   it("drops deleted chats from the selection trail", () => {
     const live = new Set(["root", "a", "b", "c"]);
     const exists = (id: string) => live.has(id);

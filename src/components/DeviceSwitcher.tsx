@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Check, Laptop, Monitor, Pencil } from "lucide-react";
 
+import { leaveFor } from "@/lib/back-navigation";
 import { useI18n } from "@/lib/i18n";
 import { isPhone } from "@/lib/phone-swipe";
 import { cn } from "@/lib/cn";
@@ -54,9 +55,9 @@ function useDevices(enabled: boolean) {
 
 type Navigate = (url: string) => void;
 
-/** Phones jump in place from the chat header; the desktop app opens the PC in its own window. */
+/** Phones jump in place from the chat header, leaving no Back step to this PC; the desktop app opens the PC in its own window. */
 export function DeviceSwitcher({
-  navigate = (url) => window.location.assign(url),
+  navigate = leaveFor,
   compact = false,
 }: {
   navigate?: Navigate;
