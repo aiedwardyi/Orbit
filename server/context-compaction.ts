@@ -272,6 +272,8 @@ export function withoutTurnNotes<T extends ModelContextMessage>(transcript: T[],
   return kept;
 }
 
+const ENGINE_SUMMARY_PREFIX = "[Engine summary of a mid-turn note; the exact words were not kept] ";
+
 function replayUnits(
   messages: Message[],
   excludeIds: ReadonlySet<string>,
@@ -283,7 +285,8 @@ function replayUnits(
   return messages.flatMap((message, pathIndex): ReplayUnit[] => {
     if (excludeIds.has(message.id)) return [];
     if (message.kind === "text" && message.text?.trim()) {
-      const text = transcriptText(message, messagesById, userName);
+      const body = transcriptText(message, messagesById, userName);
+      const text = message.summarized ? `${ENGINE_SUMMARY_PREFIX}${body}` : body;
       const speaker = message.role === "user" ? userName : (message.from?.name ?? "Bot");
       return [{
         id: message.id,

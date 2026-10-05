@@ -473,15 +473,20 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect((settled[0] as any).text).toBe("hello from fake claude");
   });
 
-  it("settles flagged narration as a reply, never plain reasoning", async () => {
+  it("settles flagged narration as a summarized reply, never an unlabeled stream", async () => {
     await create("narration");
     await instance.adapter.sendTurn({ threadId: "t-narration", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
 
     const replies = recorder.events.filter((e: any) => e.type === "item.completed" && e.itemType === "assistant_text");
-    expect(replies.map((e: any) => e.text)).toEqual(["Checking the logs now.", "hello from fake claude"]);
+    expect(replies.map((e: any) => ({ text: e.text, summarized: e.summarized }))).toEqual([
+      { text: "Checking the logs now.", summarized: true },
+      { text: "plain beside summary", summarized: undefined },
+      { text: "the summary line", summarized: true },
+      { text: "hello from fake claude", summarized: undefined },
+    ]);
     const text = recorder.events.filter((e: any) => e.type === "content.delta" && e.streamKind === "assistant_text");
-    expect(text.map((d: any) => d.delta)).toEqual(["Checking the logs now.", "hello from fake claude"]);
+    expect(text.map((d: any) => d.delta)).toEqual(["plain beside summary", "hello from fake claude"]);
     expect(JSON.stringify(recorder.events)).not.toContain("private reasoning");
     expect(JSON.stringify(recorder.events)).not.toContain("SUBAGENT NARRATION");
   });

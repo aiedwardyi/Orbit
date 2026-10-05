@@ -138,6 +138,8 @@ export interface Message {
   };
   /** user messages sent into a running turn — the model saw it mid-turn */
   steered?: boolean;
+  /** The engine replaced a longer mid-turn note with this short text. */
+  summarized?: boolean;
   /** Client-only accepted send; replaced by the canonical transcript row. */
   placeholder?: true;
   /** screen messages: a frame of the bot's computer (base64) */

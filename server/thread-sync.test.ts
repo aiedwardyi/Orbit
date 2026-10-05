@@ -101,6 +101,29 @@ function conflictMessages(folder: string, writer: string): string[][] {
 }
 
 describe("thread sync", () => {
+  it("round-trips a summarized room note", () => {
+    const folder = temp("thread-sync-summary-");
+    const a = pc("device-a", folder);
+    a.say("t1", "m1", "hi");
+    const thread = a.threads.get("t1")!;
+    thread.messages.push(msg("m2", "Checking the logs.", "m1", {
+      role: "bot",
+      summarized: true,
+      from: { botId: "scout", name: "Scout", color: "blue" },
+    }));
+    thread.activeLeafId = "m2";
+    expect(uploadThread(a.host, BOT_SYNC_ID, "t1")).toBe("written");
+
+    const b = pc("device-b", folder);
+    expect(pullThread(b.host, "bot", BOT_SYNC_ID, "t1")).toBe("imported");
+    expect(b.threads.get("t1")?.messages.find((message) => message.id === "m2")).toMatchObject({
+      role: "bot",
+      text: "Checking the logs.",
+      summarized: true,
+      from: { name: "Scout" },
+    });
+  });
+
   it("round trips a thread into a real store and clears per-device session fields", () => {
     closeMessageDb();
     rmSync(DATA_DIR, { recursive: true, force: true });

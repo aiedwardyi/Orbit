@@ -3,9 +3,10 @@ import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { StoreProvider, type Bot, type Message } from "@/state/store";
+import { StoreProvider, type Bot, type Group, type Message } from "@/state/store";
 
 import { ChatView } from "./ChatView";
+import { GroupView } from "./GroupView";
 import type { TurnStreamState } from "@/lib/turn-stage";
 
 const live = vi.hoisted(() => ({ current: { streaming: {}, reasoning: {}, signal: {}, gen: {}, turn: {} } as TurnStreamState }));
@@ -439,6 +440,105 @@ describe("ChatView transcript click focus", () => {
       expect(document.querySelector("[data-reaction-picker]")).not.toBeNull();
     } finally {
       await unmount();
+    }
+  });
+});
+
+describe("ChatView summarized notes", () => {
+  const mount = async (width: number) => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const bot: Bot = {
+      ...botA,
+      busy: false,
+      messages: [
+        userMsg("ua", "check the logs"),
+        { id: "sum", parentId: "ua", at: 2, role: "bot", kind: "text", text: "Checking the logs.", summarized: true },
+        { id: "plain", parentId: "sum", at: 3, role: "bot", kind: "text", text: "All clear." },
+      ],
+    };
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot }))));
+    return {
+      host,
+      unmount: async () => {
+        await act(async () => root.unmount());
+        host.remove();
+      },
+    };
+  };
+
+  it.each([390, 1280])("labels a summarized note at %ipx and leaves a plain reply alone", async (width) => {
+    const { host, unmount } = await mount(width);
+    try {
+      const bubbles = Array.from(host.querySelectorAll('[data-orbit-message="bot"]'));
+      expect(bubbles).toHaveLength(2);
+      const summarized = bubbles[0]!;
+      const plain = bubbles[1]!;
+      const tag = summarized.querySelector("[title=\"Claude shortened this mid-task note. Its exact words weren't kept.\"]");
+      expect(tag?.textContent?.trim()).toBe("summarized");
+      expect(summarized.querySelector("[data-orbit-message-content]")?.className).toContain("text-ink-secondary");
+      expect(summarized.textContent).toContain("Checking the logs.");
+      expect(plain.textContent).toContain("All clear.");
+      expect(plain.querySelector("[title=\"Claude shortened this mid-task note. Its exact words weren't kept.\"]")).toBeNull();
+      expect(plain.querySelector("[data-orbit-message-content]")?.className).toContain("text-ink");
+      expect(plain.querySelector("[data-orbit-message-content]")?.className).not.toContain("text-ink-secondary");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("labels a summarized note in a room", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const from: Message["from"] = { botId: "a", name: "A", color: "blue" };
+    const group: Group = {
+      id: "g",
+      threadId: "thread-g",
+      name: "Room",
+      memberIds: ["a"],
+      defaultResponder: { kind: "everyone" },
+      bulletin: "",
+      unread: false,
+      createdAt: 1,
+      setupCompletedAt: 1,
+      hasMore: false,
+      messages: [
+        userMsg("ua", "check the logs"),
+        { id: "sum", parentId: "ua", at: 2, role: "bot", kind: "text", text: "Checking the logs.", summarized: true, from },
+        { id: "plain", parentId: "sum", at: 3, role: "bot", kind: "text", text: "All clear.", from },
+      ],
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(GroupView, { group }))));
+      const bubbles = Array.from(host.querySelectorAll('[data-orbit-message="bot"]'));
+      expect(bubbles).toHaveLength(2);
+      const tag = "[title=\"Claude shortened this mid-task note. Its exact words weren't kept.\"]";
+      expect(bubbles[0]!.querySelector(tag)?.textContent?.trim()).toBe("summarized");
+      expect(bubbles[0]!.querySelector("[data-orbit-message-content]")?.className).toContain("text-ink-secondary");
+      expect(bubbles[1]!.querySelector(tag)).toBeNull();
+      expect(bubbles[1]!.querySelector("[data-orbit-message-content]")?.className).not.toContain("text-ink-secondary");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
     }
   });
 });

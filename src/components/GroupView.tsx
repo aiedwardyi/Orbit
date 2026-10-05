@@ -449,7 +449,11 @@ const Transcript = memo(function Transcript({
                   data-orbit-message-content
                   className={cn(
                     "w-fit max-w-full rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed",
-                    user ? "whitespace-pre-wrap bg-bubble-user text-ink" : "bg-card text-ink",
+                    user
+                      ? "whitespace-pre-wrap bg-bubble-user text-ink"
+                      : m.summarized
+                        ? "bg-card text-ink-secondary"
+                        : "bg-card text-ink",
                   )}
                   title={new Date(m.at).toLocaleString(localeTag(locale))}
                 >
@@ -461,7 +465,16 @@ const Transcript = memo(function Transcript({
                       )}
                       {attachedImages?.display ?? m.text}
                     </>
-                  ) : markdownText.trim() ? <ChatMarkdown text={markdownText} baseDir={botFolder} threadId={group.threadId} /> : null}
+                  ) : markdownText.trim() ? (
+                    <>
+                      <ChatMarkdown text={markdownText} baseDir={botFolder} threadId={group.threadId} />
+                      {m.summarized && (
+                        <div className="mt-1 text-[11px] text-ink-secondary/70" title="Claude shortened this mid-task note. Its exact words weren't kept.">
+                          summarized
+                        </div>
+                      )}
+                    </>
+                  ) : null}
                 </div>
                 {!user && (
                   <div
