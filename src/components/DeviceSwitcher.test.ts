@@ -88,6 +88,21 @@ describe("DeviceSwitcher", () => {
     expect(navigate).toHaveBeenCalledWith("https://laptop.tail396477.ts.net/");
   });
 
+  it("hands the phone jump to Back navigation", async () => {
+    setPhone(true);
+    store.api.mockResolvedValue({ devices: [device("home", { current: true }), device("work")] });
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => createRoot(host).render(createElement(I18nProvider, null, createElement(DeviceTag))));
+    const leave = vi.fn();
+    window.addEventListener("orbit:leave", leave);
+    await act(async () => click(host.querySelector("button[aria-expanded]")!));
+    await act(async () => click(host.querySelector("[data-device-id=work]")!));
+    window.removeEventListener("orbit:leave", leave);
+    expect(leave).toHaveBeenCalledOnce();
+    expect(leave.mock.calls[0][0].detail).toBe("https://work.tail396477.ts.net/");
+  });
+
   it("refreshes devices when the menu opens", async () => {
     setPhone(false);
     setDesktop();

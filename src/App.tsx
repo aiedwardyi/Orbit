@@ -469,11 +469,14 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       else modelPickerIds.current.delete(id);
       setModelPickerOpen(modelPickerIds.current.size > 0);
     };
+    const onLeave = (event: CustomEvent<string>) => navigation.leave(() => window.location.replace(event.detail));
     window.addEventListener("popstate", onPop);
     window.addEventListener("orbit:model-picker", onPicker);
+    window.addEventListener("orbit:leave", onLeave);
     return () => {
       window.removeEventListener("popstate", onPop);
       window.removeEventListener("orbit:model-picker", onPicker);
+      window.removeEventListener("orbit:leave", onLeave);
       backNavigation.current = null;
     };
   }, []);

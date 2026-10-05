@@ -1,5 +1,16 @@
 export type BackLayer = { key: string; close: () => void };
 
+declare global {
+  interface WindowEventMap {
+    "orbit:leave": CustomEvent<string>;
+  }
+}
+
+/** App rewinds its Back entries, then replaces this page with `url`. */
+export function leaveFor(url: string) {
+  window.dispatchEvent(new CustomEvent("orbit:leave", { detail: url }));
+}
+
 export function backDepth(state: unknown): number {
   const depth = (state as { depth?: unknown } | null)?.depth;
   return typeof depth === "number" && depth > 0 ? depth : 0;
@@ -9,6 +20,7 @@ export class BackNavigation {
   private layers: BackLayer[] = [];
   private pending: BackLayer[] | null = null;
   private retreat = 0;
+  private leaving: (() => void) | null = null;
 
   constructor(private history: Pick<History, "go" | "pushState"> & { state?: unknown }) {
     // a reload keeps our entries but not the layers they stood for
@@ -20,6 +32,7 @@ export class BackNavigation {
   }
 
   sync(next: BackLayer[]) {
+    if (this.leaving) return;
     if (this.pending) {
       this.pending = next;
       return;
@@ -40,6 +53,13 @@ export class BackNavigation {
   }
 
   pop(depth = Math.max(this.layers.length - 1, 0)) {
+    if (this.leaving) {
+      // history.state lags until a traversal lands, so a repeat leave waits on this one
+      this.pending = depth > 0 ? [] : null;
+      if (depth > 0) this.history.go(-depth);
+      else this.leaving();
+      return;
+    }
     if (this.pending) {
       this.layers.splice(this.layers.length - this.retreat);
       const next = this.pending;
@@ -55,6 +75,12 @@ export class BackNavigation {
       return;
     }
     while (this.layers.length > depth) this.layers.pop()?.close();
+  }
+
+  /** Rewinds our pushed entries before `go`, so a page that replaces this one can't Back into them. */
+  leave(go: () => void) {
+    this.leaving = go;
+    if (!this.pending) this.pop(backDepth(this.history.state));
   }
 }
 
