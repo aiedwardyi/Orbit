@@ -461,7 +461,7 @@ const Transcript = memo(function Transcript({
                       )}
                       {attachedImages?.display ?? m.text}
                     </>
-                  ) : markdownText.trim() ? <ChatMarkdown text={markdownText} baseDir={botFolder} /> : null}
+                  ) : markdownText.trim() ? <ChatMarkdown text={markdownText} baseDir={botFolder} threadId={group.threadId} /> : null}
                 </div>
                 {!user && (
                   <div

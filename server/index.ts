@@ -329,6 +329,7 @@ import {
   deleteSyncedThread,
   loadThreadSyncLedger,
   markThreadDirty,
+  messageWriter,
   pullThread,
   saveThreadSyncLedger,
   threadTurnRunning,
@@ -336,6 +337,8 @@ import {
   uploadThread,
   type ThreadSyncHost,
 } from "./thread-sync.ts";
+import { publishUnsyncedPictures, pullSyncedPicture, pruneSyncedPictures } from "./picture-sync.ts";
+import { serveLinkedFile } from "./linked-files.ts";
 import { fetchBotDirectory, matchDirectoryBots, type MatchedDirectoryBot } from "./bot-directory.ts";
 import { scoutProject, suggestTeam } from "./project-scout.ts";
 import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-library.ts";
@@ -1726,6 +1729,29 @@ function pullSyncedThread(threadId: string): void {
 const threadSyncPoll = createThreadSyncPoll(() => {
   if (!profileSyncSettings.syncChats || !profileSyncSettings.folder) return null;
   syncProfiles();
+  try {
+    pruneSyncedPictures(profileSyncSettings.folder, DATA_DIR);
+  } catch (error) {
+    console.warn("picture sync: prune failed", error);
+  }
+  try {
+    const threadIds = new Set<string>();
+    for (const bot of store.bots) {
+      for (const task of store.tasks(bot.id)) threadIds.add(task.threadId);
+    }
+    for (const group of store.groups) {
+      threadIds.add(group.threadId);
+      for (const task of group.tasks ?? []) threadIds.add(task.threadId);
+    }
+    publishUnsyncedPictures({
+      folder: profileSyncSettings.folder,
+      dataDir: DATA_DIR,
+      threadIds: [...threadIds],
+      messagesFor: (threadId) => store.messagesFor(threadId),
+    });
+  } catch (error) {
+    console.warn("picture sync: backfill failed", error);
+  }
   return {
     host: threadSyncHost(profileSyncSettings.folder),
     bots: store.bots.flatMap((bot) => {
@@ -7315,11 +7341,42 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 201, saved);
     }
 
-    // serving is name-locked to the attachments dir — readAttachment
-    // refuses anything that is not a bare generated filename
+    m = path.match(/^\/api\/threads\/([\w-]+)\/linked-file$/);
+    if (m && method === "GET") {
+      const threadId = m[1]!;
+      const bot = store.botByThread(threadId);
+      const group = bot ? undefined : store.groupByThread(threadId);
+      if (!bot && !group) return json(res, 404, { error: "no such conversation" });
+      const messages = store.messagesFor(threadId).map((message) => ({
+        id: message.id,
+        text: message.text,
+        fromBotId: message.from?.botId,
+      }));
+      return serveLinkedFile(req, res, {
+        bearerOk: authorizedComms(req.headers.authorization),
+        remoteKey: REMOTE_KEY,
+        threadId,
+        messages,
+        deviceId: profileSyncSettings.deviceId,
+        writerDeviceId: (messageId) => messageWriter(DATA_DIR, threadId, messageId),
+        rootsFor: (message) => {
+          if (bot) return botOutputRoots(bot, threadId);
+          const sender = message.fromBotId ? store.bot(message.fromBotId) : undefined;
+          return sender && group ? botOutputRoots(sender, threadId, group.id) : [];
+        },
+      });
+    }
+
+    // serving is name-locked to the attachments dir. readAttachment
+    // refuses anything that is not a bare generated filename.
+    // A synced picture is copied in only when this route misses.
     m = path.match(/^\/api\/attachments\/([\w.-]+)$/);
     if (m && method === "GET") {
-      const attachment = readAttachment(m[1]!);
+      const name = m[1]!;
+      let attachment = readAttachment(name);
+      if (!attachment && profileSyncSettings.folder && pullSyncedPicture(profileSyncSettings.folder, ATTACHMENTS_DIR, name)) {
+        attachment = readAttachment(name);
+      }
       if (!attachment) return json(res, 404, { error: "no such attachment" });
       res.writeHead(200, {
         "content-type": attachment.mime,

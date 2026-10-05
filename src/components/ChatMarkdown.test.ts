@@ -235,4 +235,69 @@ describe("relative file links", () => {
       Reflect.deleteProperty(window, "ogb");
     }
   });
+
+  it("waits to play a video and opens a pdf in a new tab", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([0]), { status: 206 })));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const text = "[clip.mp4](C:/clips/clip.mp4)\n\n[notes.pdf](C:/clips/notes.pdf)";
+    try {
+      await act(async () => root.render(createElement(ChatMarkdown, { text, threadId: "t1" })));
+      await act(async () => {
+        await vi.waitFor(() => {
+          expect(host.querySelector("video")).not.toBeNull();
+        });
+      });
+      const video = host.querySelector("video")!;
+      expect(video.hasAttribute("autoplay")).toBe(false);
+      expect(video.muted).toBe(false);
+      expect(video.getAttribute("preload")).toBe("metadata");
+      const pdf = host.querySelector('[data-phone-media="pdf"]')!;
+      expect(pdf.tagName).toBe("A");
+      expect(pdf.getAttribute("target")).toBe("_blank");
+      expect(pdf.getAttribute("rel")).toBe("noopener");
+      expect(pdf.textContent).toBe("notes.pdf");
+      expect(host.querySelector("iframe")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the file name beside Open on PC", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/devices")) {
+        return new Response(JSON.stringify({
+          devices: [{ deviceId: "home-pc", name: "Home", host: "home.example", current: false }],
+        }), { headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ deviceId: "home-pc" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(ChatMarkdown, {
+        text: "[clip.mp4](C:/clips/clip.mp4)",
+        threadId: "t1",
+      })));
+      await act(async () => {
+        await vi.waitFor(() => {
+          expect(host.querySelector("[data-open-on-pc]")).not.toBeNull();
+        });
+      });
+      expect(host.textContent).toContain("clip.mp4");
+      expect(host.textContent).toContain("Open on Home");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      vi.unstubAllGlobals();
+    }
+  });
 });

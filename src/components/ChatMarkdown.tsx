@@ -9,6 +9,9 @@ import { createContext, memo, useContext, useEffect, useMemo, useState, type Rea
 import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
+import { z } from "zod";
+
+import { useI18n } from "@/lib/i18n";
 
 // tiny highlight cache so revisiting a thread doesn't re-tokenize settled
 // blocks; keys are content-hashed and capped. Streamed partials may land here
@@ -195,12 +198,48 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   );
 }
 
+const PHONE_MEDIA = {
+  png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image",
+  mp4: "video", webm: "video", mov: "video", m4v: "video",
+  mp3: "audio", m4a: "audio", wav: "audio", ogg: "audio", aac: "audio", flac: "audio",
+  pdf: "pdf",
+} as const;
+
+type PhoneExt = keyof typeof PHONE_MEDIA;
+type PhoneKind = (typeof PHONE_MEDIA)[PhoneExt];
+
+function isPhoneExt(value: string): value is PhoneExt {
+  return Object.hasOwn(PHONE_MEDIA, value);
+}
+
+function phoneMediaKind(filePath: string): PhoneKind | null {
+  const name = filePath.split(/[\\/]/).pop() ?? "";
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const ext = name.slice(dot + 1).toLowerCase();
+  return isPhoneExt(ext) ? PHONE_MEDIA[ext] : null;
+}
+
+const missingFileSchema = z.object({ deviceId: z.string().min(1).optional() });
+const deviceListSchema = z.object({
+  devices: z.array(z.object({
+    deviceId: z.string(),
+    name: z.string().min(1),
+    host: z.string().min(1),
+    current: z.boolean().optional(),
+  })).optional(),
+});
+
+function linkedFileSrc(threadId: string, filePath: string): string {
+  return `/api/threads/${encodeURIComponent(threadId)}/linked-file?path=${encodeURIComponent(filePath)}`;
+}
+
 // A local file link renders as a button that asks the shell to open the file,
 // not an anchor. An absolute path in an href resolves against the page origin
 // (http://127.0.0.1:8799<path>, a second chat UI in the browser), and an
 // <a href="file://…"> would still reach setWindowOpenHandler on a middle or
 // modifier click. The shell decides whether to open or only reveal the file.
-function LocalFileLink({ filePath, base, children }: { filePath: string; base?: string; children?: ReactNode }) {
+function DesktopFileLink({ filePath, base, children }: { filePath: string; base?: string; children?: ReactNode }) {
   const [reason, setReason] = useState("");
   // No bridge at all means a phone or browser, not an outdated desktop app.
   const desktop = Boolean(window.ogb);
@@ -232,6 +271,123 @@ function LocalFileLink({ filePath, base, children }: { filePath: string; base?: 
       {reason && <span className={`ml-1.5 text-[12px] ${desktop ? "text-danger" : "text-ink-secondary"}`}>{reason}</span>}
     </>
   );
+}
+
+function PhoneFile({
+  filePath,
+  threadId,
+  kind,
+  children,
+}: {
+  filePath: string;
+  threadId: string;
+  kind: PhoneKind;
+  children?: ReactNode;
+}) {
+  const { t } = useI18n();
+  const src = linkedFileSrc(threadId, filePath);
+  const [phase, setPhase] = useState<"pending" | "local" | "remote" | "desktop">("pending");
+  const [remote, setRemote] = useState<{ name: string; host: string } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(src, { headers: { Range: "bytes=0-0" } })
+      .then(async (res) => {
+        if (!alive) return;
+        if (res.ok) {
+          setPhase("local");
+          return;
+        }
+        const body = missingFileSchema.safeParse(await res.json().catch(() => null));
+        const deviceId = body.success ? body.data.deviceId : undefined;
+        if (!deviceId) {
+          setPhase("desktop");
+          return;
+        }
+        const listed = deviceListSchema.safeParse(await fetch("/api/devices").then((response) => response.json()).catch(() => null));
+        const device = listed.success
+          ? listed.data.devices?.find((item) => item.deviceId === deviceId && !item.current && item.host && item.name)
+          : undefined;
+        if (!alive) return;
+        if (!device) {
+          setPhase("desktop");
+          return;
+        }
+        setRemote({ name: device.name, host: device.host });
+        setPhase("remote");
+      })
+      .catch(() => {
+        if (alive) setPhase("desktop");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [src]);
+
+  if (phase === "desktop") return <DesktopFileLink filePath={filePath}>{children}</DesktopFileLink>;
+  if (phase === "remote" && remote) {
+    return (
+      <a
+        href={`https://${remote.host}${src}`}
+        data-open-on-pc={remote.name}
+        className="break-words text-left text-accent underline decoration-accent/40 hover:decoration-accent"
+      >
+        {children}
+        <span className="ml-1.5">{t("chat.openOnPc", { name: remote.name })}</span>
+      </a>
+    );
+  }
+  if (phase !== "local") {
+    return (
+      <button type="button" title={filePath} className="break-words text-left text-accent underline decoration-accent/40 hover:decoration-accent">
+        {children}
+      </button>
+    );
+  }
+  if (kind === "image") {
+    return <img src={src} alt="" data-phone-media="image" className="max-h-96 max-w-full rounded-lg border border-hairline/30" />;
+  }
+  if (kind === "audio") return <audio src={src} controls data-phone-media="audio" className="max-w-full" />;
+  if (kind === "pdf") {
+    return (
+      <a
+        href={src}
+        target="_blank"
+        rel="noopener"
+        data-phone-media="pdf"
+        className="break-words text-left text-accent underline decoration-accent/40 hover:decoration-accent"
+      >
+        {children}
+      </a>
+    );
+  }
+  return (
+    <video
+      src={src}
+      controls
+      preload="metadata"
+      playsInline
+      data-phone-media="video"
+      className="max-h-96 max-w-full rounded-lg border border-hairline/30"
+    />
+  );
+}
+
+function LocalFileLink({
+  filePath,
+  base,
+  threadId,
+  children,
+}: {
+  filePath: string;
+  base?: string;
+  threadId?: string;
+  children?: ReactNode;
+}) {
+  const streaming = useContext(StreamingContext);
+  const kind = !window.ogb && !streaming && threadId ? phoneMediaKind(filePath) : null;
+  if (kind && threadId) return <PhoneFile filePath={filePath} threadId={threadId} kind={kind}>{children}</PhoneFile>;
+  return <DesktopFileLink filePath={filePath} base={base}>{children}</DesktopFileLink>;
 }
 
 // Spoiler spans: GFM parses ~~text~~ to <del>; in bot messages that content
@@ -276,7 +432,17 @@ function Spoiler({ children }: { children?: ReactNode }) {
   );
 }
 
-function ChatMarkdownComponent({ text, streaming = false, baseDir }: { text: string; streaming?: boolean; baseDir?: string | null }) {
+function ChatMarkdownComponent({
+  text,
+  streaming = false,
+  baseDir,
+  threadId,
+}: {
+  text: string;
+  streaming?: boolean;
+  baseDir?: string | null;
+  threadId?: string;
+}) {
   const components = useMemo(() => ({
     pre({ children }: { children?: ReactNode }) {
       // fenced code arrives as <pre><code class="language-x">…</code></pre>
@@ -309,10 +475,10 @@ function ChatMarkdownComponent({ text, streaming = false, baseDir }: { text: str
       // a stripped target (javascript:, empty) would open the app origin
       if (!href) return <>{children}</>;
       const localPath = localFilePath(href);
-      if (localPath) return <LocalFileLink filePath={localPath}>{children}</LocalFileLink>;
+      if (localPath) return <LocalFileLink filePath={localPath} threadId={threadId}>{children}</LocalFileLink>;
       if (isRelativeHref(href)) {
         const resolved = resolveRelativePath(href, baseDir);
-        return resolved ? <LocalFileLink filePath={resolved} base={baseDir ?? undefined}>{children}</LocalFileLink> : <>{children}</>;
+        return resolved ? <LocalFileLink filePath={resolved} base={baseDir ?? undefined} threadId={threadId}>{children}</LocalFileLink> : <>{children}</>;
       }
       return (
         <a
@@ -375,7 +541,7 @@ function ChatMarkdownComponent({ text, streaming = false, baseDir }: { text: str
     hr() {
       return <hr className="border-hairline/40" />;
     },
-  }), [baseDir]);
+  }), [baseDir, threadId]);
   return (
     <StreamingContext.Provider value={streaming}>
       <div className="chat-md min-w-0 [&>*+*]:mt-2">
