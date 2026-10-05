@@ -209,6 +209,10 @@ export class ThreadSyncV2 {
     return this.request({ method: "migrate", args: [scope, crash, deferUnreadable] });
   }
 
+  get failed(): boolean {
+    return this.failure !== null;
+  }
+
   async close(): Promise<void> {
     if (!this.failure) await this.request({ method: "close", args: [] });
     await this.exited;

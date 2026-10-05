@@ -333,8 +333,18 @@ export function createSyncEngine(input: SyncOptions) {
       closeSync(fd);
     }
     try {
-      if (immutable) linkSync(tmp, path);
-      else renameSync(tmp, path);
+      if (!immutable) renameSync(tmp, path);
+      else {
+        try {
+          linkSync(tmp, path);
+        } catch (error) {
+          // SAFETY: Node filesystem errors carry a string code.
+          const code = (error as NodeJS.ErrnoException).code;
+          // One PC owns this writer directory, so a refused link can rename into place.
+          if (code !== "EEXIST" && !existsSync(path)) renameSync(tmp, path);
+          else throw error;
+        }
+      }
     } finally {
       if (existsSync(tmp)) unlinkSync(tmp);
     }

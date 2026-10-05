@@ -257,7 +257,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
   async function client(): Promise<ThreadSyncV2 | null> {
     const folder = host.folder();
     if (!host.enabled() || !folder) return null;
-    if (worker && workerFolder !== folder) {
+    if (worker && (workerFolder !== folder || worker.failed)) {
       await worker.close();
       worker = undefined;
     }
@@ -398,7 +398,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     }
     tasks.push(...withMessageTransaction((db) => z.array(storedTaskSchema).parse(db.prepare("SELECT * FROM sync_v2_store WHERE eligible = 0").all())));
     for (const task of tasks) await migrate(task, true);
-    if (withMessageTransaction((db) => db.prepare("SELECT 1 FROM sync_v2_migration WHERE phase = 'snapshot' LIMIT 1").get())) return;
+    if (withMessageTransaction((db) => db.prepare("SELECT 1 FROM sync_v2_migration WHERE phase = 'snapshot' AND error IS NULL LIMIT 1").get())) return;
     for (const task of tasks) await migrate(task);
     const seen = new Set(tasks.map((task) => task.threadId));
     const pendingTasks = withMessageTransaction((db) => z.array(storedTaskSchema).parse(db.prepare(

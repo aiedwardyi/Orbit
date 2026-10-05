@@ -6,6 +6,7 @@ import { z } from "zod";
 import { closeMessageDb, messageDatabase } from "../message-db.ts";
 import { Store, type BotRecord, type Message, type StoreChange, type TaskRecord } from "../store.ts";
 import { CONFLICT_NOTICE, loadThreadSyncLedger, pullThread, saveThreadSyncLedger, uploadThread, type ThreadSyncHost } from "../thread-sync.ts";
+import { ThreadSyncV2 } from "../thread-sync-v2.ts";
 import { createThreadSyncV2Store } from "../thread-sync-v2-store.ts";
 import { createThreadSyncV2Gate } from "../thread-sync-v2-gate.ts";
 
@@ -86,6 +87,17 @@ function traceQueries(): void {
   };
 }
 traceQueries();
+const transports = new Set<ThreadSyncV2>();
+const originalFlush = ThreadSyncV2.prototype.flush;
+ThreadSyncV2.prototype.flush = function (scope, crash, through) {
+  transports.add(this);
+  return originalFlush.call(this, scope, crash, through);
+};
+const originalPull = ThreadSyncV2.prototype.pull;
+ThreadSyncV2.prototype.pull = function (scope) {
+  transports.add(this);
+  return originalPull.call(this, scope);
+};
 let sync = createThreadSyncV2Store(host(), input.enabled && !input.auto);
 store.onChange((change) => events.push({ ...structuredClone(change), importing: store.importingSync }));
 
@@ -129,6 +141,17 @@ parentPort!.on("message", async ({ id, method, args = {} }: { id: number; method
       case "fail":
         messageDatabase().exec("CREATE TEMP TRIGGER reject_outbox BEFORE INSERT ON sync_v2_packets BEGIN SELECT RAISE(ABORT, 'outbox rejected'); END");
         break;
+      case "plant":
+        writeFileSync(join(input.dataDir, `messages-${threadId}.json`), "{truncated");
+        store.adoptSyncedTask(bot.id, { threadId, title: "Stuck", createdAt: 1 }, [], null, false);
+        break;
+      case "dropWorker": {
+        const doomed = [...transports];
+        transports.clear();
+        if (!doomed.length) throw new Error("no sync worker");
+        await Promise.all(doomed.map((worker) => worker.close()));
+        break;
+      }
       case "restart":
         await sync?.close();
         closeMessageDb();

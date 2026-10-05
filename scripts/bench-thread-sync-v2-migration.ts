@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, relative } from "node:path";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
 const root = resolve(process.argv[2] ?? "");
 const rel = relative(resolve(tmpdir()), root);
@@ -22,7 +23,7 @@ if (!device) {
   writeFileSync(join(root, "v1-before.json"), JSON.stringify(before));
   for (const id of ["a", "b"]) {
     await new Promise<void>((resolveChild, reject) => {
-      const child = spawn(process.execPath, ["--experimental-strip-types", "--expose-gc", new URL(import.meta.url).pathname.replace(/^\/(.:)/, "$1"), root, id], { stdio: "inherit", windowsHide: true, env: { ...process.env, NODE_NO_WARNINGS: "1" } });
+      const child = spawn(process.execPath, ["--experimental-strip-types", "--expose-gc", fileURLToPath(import.meta.url), root, id], { stdio: "inherit", windowsHide: true, env: { ...process.env, NODE_NO_WARNINGS: "1" } });
       child.on("error", reject);
       child.on("exit", (code) => code === 0 ? resolveChild() : reject(new Error(`PC ${id} exited ${code}`)));
     });

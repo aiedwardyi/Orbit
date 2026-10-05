@@ -59,6 +59,19 @@ function pc(folder: string, deviceId: string, enabled = true, legacy = false, au
   return peer;
 }
 
+function migrationRow(dataDir: string, threadId: string): { phase: string; error: string | null; eligible: number } {
+  const db = new DatabaseSync(join(dataDir, "messages.db"), { readOnly: true });
+  try {
+    // SAFETY: This projection selects the migration phase, its error, and eligibility.
+    const row = db.prepare(`SELECT m.phase AS phase, m.error AS error, s.eligible AS eligible
+      FROM sync_v2_migration m JOIN sync_v2_store s ON s.threadId = m.thread WHERE m.thread = ?`).get(threadId) as { phase: string; error: string | null; eligible: number } | undefined;
+    if (!row) throw new Error(`missing migration for ${threadId}`);
+    return row;
+  } finally {
+    db.close();
+  }
+}
+
 function sourceRows(dataDir: string): Array<{ path: string; hash: string | null; done: number }> {
   const db = new DatabaseSync(join(dataDir, "messages.db"), { readOnly: true });
   try {
@@ -477,6 +490,47 @@ describe("store delta sync", () => {
     expect(readFileSync(source)).toEqual(saved);
     expect(readFileSync(stuck, "utf8")).toBe("{truncated");
     expect(readdirSync(dir).sort()).toEqual(before);
+  });
+
+  it("replaces a dead sync worker on the next flush and pull", async () => {
+    const folder = temp();
+    const a = pc(folder, "a");
+    const b = pc(folder, "b");
+    const first = await a.call<Message>("append", { text: "before" });
+    expect(await a.call("flush")).toBe("written");
+    await b.call("pull");
+    expect((await b.snapshot()).rows).toMatchObject([{ id: first.id, text: "before" }]);
+    await a.call("dropWorker");
+    await b.call("dropWorker");
+    const second = await a.call<Message>("append", { text: "after" });
+    expect(await a.call("flush")).toBe("written");
+    await b.call("pull");
+    expect((await b.snapshot()).rows).toEqual([
+      expect.objectContaining({ id: first.id, text: "before" }),
+      expect.objectContaining({ id: second.id, text: "after" }),
+    ]);
+  });
+
+  it("pulls another chat while a snapshot stays errored", async () => {
+    const folder = temp();
+    const a = pc(folder, "a");
+    const b = pc(folder, "b");
+    const remote = await a.call<Message>("append", { text: "remote" });
+    expect(await a.call("flush")).toBe("written");
+    await b.call("plant", { threadId: "stuck" });
+    await b.call("poll");
+    expect((await b.snapshot()).rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: remote.id, text: "remote" }),
+    ]));
+    expect(migrationRow(b.dataDir, "stuck")).toMatchObject({ phase: "snapshot", eligible: 0, error: expect.any(String) });
+    const later = await a.call<Message>("append", { text: "later" });
+    expect(await a.call("flush")).toBe("written");
+    await b.call("poll");
+    expect((await b.snapshot()).rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: remote.id, text: "remote" }),
+      expect.objectContaining({ id: later.id, text: "later" }),
+    ]));
+    expect(migrationRow(b.dataDir, "stuck")).toMatchObject({ phase: "snapshot", eligible: 0, error: expect.any(String) });
   });
 
   it("creates no v2 tables, files or worker with the switch off", async () => {
