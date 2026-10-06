@@ -25,6 +25,16 @@ describe("local sign-in cache", () => {
     }
   });
 
+  it("re-probes after a signed-out result so a fresh sign-in shows at once", async () => {
+    const probe = vi.fn<() => Promise<boolean | undefined>>().mockResolvedValue(false);
+    const check = cachedSignIn(probe);
+    expect(await check()).toBe(false);
+    probe.mockResolvedValue(true);
+    expect(await check()).toBe(true);
+    expect(await check()).toBe(true);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
   it("caches the classification and invalidates changed or removed files", () => {
     const home = mkdtempSync(join(tmpdir(), "omb-auth-cache-"));
     const path = join(home, "auth.json");

@@ -39,6 +39,10 @@ export function isEngineConnected(instance: Pick<InstanceInfo, "snapshot">): boo
   return instance.snapshot.state === "available" && instance.snapshot.authenticated === true;
 }
 
+function needsAttention(instance: Pick<InstanceInfo, "snapshot">): boolean {
+  return instance.snapshot.state !== "available" || instance.snapshot.authenticated === false;
+}
+
 function engineStatus(instance: Pick<InstanceInfo, "snapshot">) {
   if (instance.snapshot.state !== "available") return "engines.notInstalled";
   if (instance.snapshot.authenticated === false) return "engines.needsSignIn";
@@ -309,9 +313,7 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
           {t("engines.setCli")}
         </button>
       </div>
-      {instance.install && (instance.snapshot.state !== "available" || instance.snapshot.authenticated === false) && (
-        <EngineSetup instance={instance} className="mb-2" />
-      )}
+      {instance.install && needsAttention(instance) && <EngineSetup instance={instance} className="mb-2" />}
       {open && (
         <CustomPicker
           instance={instance}
@@ -395,7 +397,7 @@ export function EnginesSettings() {
   }
 
   const { subscription, custom } = splitEngineRail(visible);
-  const anyDown = cliRows.some((i) => !isEngineConnected(i));
+  const anyDown = cliRows.some(needsAttention);
   const [expanded, setExpanded] = useState(anyDown);
   const listShown = expanded || anyDown || cliRows.length === 0;
 

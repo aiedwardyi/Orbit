@@ -17,13 +17,18 @@ export function storedSignIn(path: string, classify: (text: string) => boolean):
   }
 }
 
+/** Reuses only a signed-in result, so a fresh terminal sign-in shows on the next check. */
 export function cachedSignIn(probe: () => Promise<boolean | undefined>) {
   let cached: Promise<boolean | undefined> | undefined;
-  let checkedAt = 0;
+  let reuseUntil = 0;
   return (refresh = false) => {
-    if (refresh || !cached || Date.now() - checkedAt >= 30_000) {
-      checkedAt = Date.now();
-      cached = probe();
+    if (refresh || !cached || Date.now() >= reuseUntil) {
+      const current = probe();
+      cached = current;
+      reuseUntil = Infinity;
+      void current.then((signedIn) => {
+        if (cached === current) reuseUntil = signedIn === true ? Date.now() + 30_000 : 0;
+      });
     }
     return cached;
   };

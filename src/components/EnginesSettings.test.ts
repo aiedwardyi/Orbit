@@ -243,6 +243,18 @@ describe("engines summary", () => {
     expect(html).not.toContain("Set CLI…");
     expect(html).not.toContain("Kimi");
   });
+
+  it("stays collapsible when an installed engine's sign-in can't be checked", () => {
+    const agy = mockInstances.find((i) => i.instanceId === "antigravity")!;
+    agy.snapshot = { state: "available" };
+    try {
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(EnginesSettings)));
+      expect(html).toContain('aria-expanded="false"');
+      expect(html).not.toContain("Set CLI…");
+    } finally {
+      agy.snapshot = { state: "available", authenticated: true };
+    }
+  });
 });
 
 it("rescans sign-in on opening Connections and after a real trip away", async () => {
