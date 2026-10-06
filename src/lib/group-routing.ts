@@ -13,6 +13,16 @@ export function effectiveDefaultResponder(
   return members[0] ? { kind: "member", botId: members[0].id } : { kind: "mentions" };
 }
 
+export function responderControlLabel(
+  kind: GroupDefaultResponder["kind"],
+  leadName: string | undefined,
+  translate: Translate,
+): string {
+  if (kind === "everyone") return translate("room.whoAnswersEveryone");
+  if (kind === "member") return translate("room.whoAnswers", { name: leadName ?? translate("room.leadBot") });
+  return translate("room.onlyWhenMentioned");
+}
+
 export function defaultResponderName(group: Pick<Group, "defaultResponder">, members: Array<Pick<Bot, "id" | "name">>): string | null {
   const value = effectiveDefaultResponder(group, members);
   if (value.kind !== "member") return null;

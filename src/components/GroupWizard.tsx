@@ -30,12 +30,12 @@ export interface NewRow {
 const PREFERS = [["codex"], ["museAgent"]];
 let nextRowKey = 1;
 
-export function GroupWizard({ onClose }: { onClose: () => void }) {
+export function GroupWizard({ onClose, preselectBotId }: { onClose: () => void; preselectBotId?: string }) {
   const { t } = useI18n();
   const { state, dispatch, refreshInstances } = useStore();
   const [step, setStep] = useState<1 | 2>(1);
   const [name, setName] = useState(() => t("groupWizard.namePrefill"));
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [picked, setPicked] = useState<Set<string>>(() => (preselectBotId ? new Set([preselectBotId]) : new Set()));
   const [rows, setRows] = useState<NewRow[]>([]);
   const [addedNew, setAddedNew] = useState(0);
   const [creating, setCreating] = useState(false);

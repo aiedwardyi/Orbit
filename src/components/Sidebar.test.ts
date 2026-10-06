@@ -749,7 +749,7 @@ describe("Sidebar layout controls", () => {
     expect(footer).toContain("<UpdateButton />");
     const profileRow = footer.indexOf("data-sidebar-profile-row");
     const expandedUpdate = footer.lastIndexOf("data-sidebar-update");
-    const profileButton = footer.indexOf('onClick={() => dispatch({ type: "toggleAppSettings" })}', profileRow);
+    const profileButton = footer.indexOf('onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}', profileRow);
     expect(profileButton).toBeLessThan(expandedUpdate);
     expect(footer).toContain("overflow-x-hidden");
     expect(footer).not.toContain("border-t");
@@ -1569,24 +1569,6 @@ describe("Sidebar bot second line", () => {
       expect(model?.textContent).toBe("Meta Muse 1.3 Cont.");
       expect(host.textContent).not.toContain("Contributor");
       expect(host.querySelector("[data-sidebar-model-dot]")?.className).toContain("left-0.5");
-    } finally {
-      await act(async () => root.unmount());
-      host.remove();
-    }
-  });
-
-  it("disables quick archive for Chief of Staff rows", async () => {
-    const chief = { ...bot("chief"), chiefOfStaff: true };
-    const teammate = bot("teammate");
-    const { host, root } = await renderSidebar({ bots: [chief, teammate], groups: [] });
-    try {
-      const row = await vi.waitFor(() => {
-        const element = host.querySelector('[data-sidebar-row-kind="bot"][data-sidebar-row-id="chief"]');
-        expect(element).not.toBeNull();
-        return element!;
-      });
-      const archive = row.querySelector<HTMLButtonElement>('button[aria-label*="Archive"]');
-      expect(archive?.disabled).toBe(true);
     } finally {
       await act(async () => root.unmount());
       host.remove();

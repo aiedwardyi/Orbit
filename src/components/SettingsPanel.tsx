@@ -355,7 +355,10 @@ export function SettingsPanel({
   const { capabilities } = useDesktopCapabilities();
   const panelRef = useRef<HTMLElement>(null);
   const restoreFocusOnUnmount = useRef(false);
-  const [avatarOpen, setAvatarOpen] = useState(false);
+  const avatarRequest = state.settingsAvatarRequest ?? 0;
+  const [avatarOpen, setAvatarOpen] = useState(avatarRequest > 0);
+  const seenAvatarRequest = useRef(0);
+  const avatarSectionRef = useRef<HTMLDivElement>(null);
   const [advancedOpen, setAdvancedOpen] = useState(defaultAdvancedOpen);
   const providerSupportsLocal = instanceSupportsLocalComputer(state.instances, bot);
   const localSelectable = localComputerSelectable({ capabilities, providerSupportsLocal });
@@ -406,6 +409,13 @@ export function SettingsPanel({
   const terminalShared =
     bot.shareTerminalWithChat === true || (bot.shareTerminalWithChat !== false && (desktopTerminal || serverHasTerminal));
   const sectionName = bot.section?.trim() || "General";
+  useEffect(() => {
+    if (avatarRequest === 0 || avatarRequest === seenAvatarRequest.current) return;
+    seenAvatarRequest.current = avatarRequest;
+    setAvatarOpen(true);
+    avatarSectionRef.current?.scrollIntoView({ block: "nearest" });
+  }, [avatarRequest]);
+
   const closeSettings = () => {
     restoreFocusOnUnmount.current = true;
     dispatch({ type: "toggleSettings", open: false });
@@ -466,7 +476,7 @@ export function SettingsPanel({
 
       <div className="flex-1 overflow-y-auto px-5 pb-5">
         <div className="flex flex-col gap-4 pt-4">
-          <div className="rounded-xl bg-card p-3">
+          <div ref={avatarSectionRef} className="rounded-xl bg-card p-3">
             <div className="flex items-center gap-3">
               <BotAvatar
                 bot={bot}
@@ -484,7 +494,7 @@ export function SettingsPanel({
                 onClick={() => setAvatarOpen((open) => !open)}
                 className="rounded-lg bg-control px-3 py-2 text-[12.5px] text-ink hover:bg-raised-hover"
               >
-                {avatarOpen ? "Done" : "Customize"}
+                {avatarOpen ? t("bot.avatarDone") : t("bot.avatarCustomize")}
               </button>
             </div>
             {avatarOpen && (
