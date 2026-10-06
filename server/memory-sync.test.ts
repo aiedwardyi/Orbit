@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -73,6 +73,23 @@ function seed(text: string, ...all: PC[]) {
 }
 
 describe("memory sync", () => {
+  it("reads split roots and keeps the local snapshot in its existing folder", () => {
+    const [a, b] = pcs();
+    edit(a, "from a");
+    sync(a);
+    renameSync(join(a.folder, "memory-v2"), join(a.folder, "memory-v2 (1)"));
+    edit(a, "a later");
+    sync(a);
+    const path = join(a.folder, "memory-v2 (1)", "bot-1", `${a.ledger.device}.json`);
+    expect(JSON.parse(readFileSync(path, "utf8")).files["MEMORY.md"].text).toBe("a later");
+    expect(existsSync(ownSnapshot(a))).toBe(false);
+    const target = join(b.folder, "memory-v2 (2)", "bot-1");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, `${a.ledger.device}.json`), readFileSync(path));
+    sync(b);
+    expect(read(b)).toBe("a later");
+  });
+
   it("pushes local changes and pulls them on the other PC", () => {
     const [a, b] = pcs();
     edit(a, "# Memory\n- prefers pnpm\n");

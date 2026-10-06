@@ -18,6 +18,9 @@ export interface TestArgs {
   count?: number;
   title?: string;
   value?: boolean;
+  rows?: Message[];
+  leaf?: string | null;
+  at?: number;
 }
 
 export interface Snapshot {
@@ -32,6 +35,7 @@ export interface Snapshot {
   hasSync: boolean;
   noticeChecks: number;
   historyScans: number;
+  headChecks: number;
 }
 
 export type TestResult = Snapshot | Message | TaskRecord | BotRecord | string | null | undefined;
@@ -78,10 +82,12 @@ const v1: ThreadSyncHost = {
 };
 let noticeChecks = 0;
 let historyScans = 0;
+let headChecks = 0;
 function traceQueries(): void {
   const prepare = messageDatabase().prepare.bind(messageDatabase());
   messageDatabase().prepare = (sql: string) => {
     if (sql.includes("WITH RECURSIVE path")) noticeChecks++;
+    if (sql.includes("WITH RECURSIVE ancestry")) headChecks++;
     if (sql.includes("SELECT MAX(at)") || sql === "SELECT COUNT(*) AS n FROM sync_v2_snapshot") historyScans++;
     return prepare(sql);
   };
@@ -106,6 +112,7 @@ parentPort!.on("message", async ({ id, method, args = {} }: { id: number; method
     let value: TestResult;
     const threadId = args.threadId ?? "thread";
     switch (method) {
+      case "seed": store.adoptSyncedTask(bot.id, { threadId, title: "Chat", createdAt: 1 }, args.rows ?? [], args.leaf ?? null, true); break;
       case "append": value = store.appendMessage(threadId, { role: "user", kind: "text", text: args.text }); break;
       case "batch":
         for (let i = 0; i < Number(args.count); i++) store.appendMessage(threadId, { role: "user", kind: "text", text: `row ${i}` });
@@ -117,6 +124,17 @@ parentPort!.on("message", async ({ id, method, args = {} }: { id: number; method
       case "create": value = store.createTask(bot.id, "Other", false); break;
       case "delete": value = store.deleteTask(bot.id, threadId); break;
       case "notice": value = store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `error: ${CONFLICT_NOTICE}`, ok: false } }); break;
+      case "migrationNotice": {
+        writeFileSync(join(input.dataDir, "thread-sync-v2-cutover.json"), JSON.stringify({ version: 2, cutoverAt: 1 }));
+        const message: Message = { id: "migration-notice", parentId: store.activeLeaf(threadId), at: args.at ?? Date.now(), role: "bot", kind: "activity", tool: { name: `error: ${CONFLICT_NOTICE}`, ok: false } };
+        store.applySyncChanges(bot.id, threadId, [
+          { cursor: 0, kind: "row", rowId: message.id, value: message, conflict: false },
+          { cursor: 0, kind: "head", rowId: "", value: message.id, conflict: false },
+        ]);
+        messageDatabase().prepare("INSERT OR REPLACE INTO sync_v2_notices VALUES (?, 1)").run(threadId);
+        value = message;
+        break;
+      }
       case "picture":
         mkdirSync(join(input.dataDir, "attachments"), { recursive: true });
         writeFileSync(join(input.dataDir, "attachments", "test.png"), "picture-bytes");
@@ -167,7 +185,7 @@ parentPort!.on("message", async ({ id, method, args = {} }: { id: number; method
         const outbox = hasSync ? Number(db.prepare("SELECT COUNT(*) AS n FROM sync_v2_packets WHERE writer = (SELECT writer FROM sync_v2_identity)").get()!.n) : 0;
         const pending = hasSync ? Number(db.prepare("SELECT COUNT(*) AS n FROM sync_v2_packets WHERE applied = 0").get()!.n) : 0;
         const disk = db.prepare("SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid").all(threadId).map((row) => JSON.parse(String(row.json)));
-        value = { rows: store.messagesFor(threadId), disk, leaf: store.activeLeaf(threadId), events: events.splice(0), tasks: store.tasks(bot.id), outbox, pending, files: readdirSync(input.dataDir), hasSync, noticeChecks, historyScans };
+        value = { rows: store.messagesFor(threadId), disk, leaf: store.activeLeaf(threadId), events: events.splice(0), tasks: store.tasks(bot.id), outbox, pending, files: readdirSync(input.dataDir), hasSync, noticeChecks, historyScans, headChecks };
         break;
       }
       case "close":

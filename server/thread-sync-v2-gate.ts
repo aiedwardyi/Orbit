@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -35,6 +35,11 @@ export function createThreadSyncV2Gate(dataDir: string, override = process.env.O
         const scan = scanDevices(folder);
         blocked = scan.rootError || scan.dirError === "unreadable";
         if (!blocked) {
+          try {
+            mkdirSync(join(folder, "threads-v2"), { recursive: true });
+          } catch {
+            blocked = true;
+          }
           const names: string[] = [];
           for (const record of scan.records) {
             if (now - record.lastSeen <= ACTIVE_MS && record.chatSync !== 2) names.push(record.name);

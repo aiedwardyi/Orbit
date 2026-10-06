@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { applySyncedRows, messageDatabase, withMessageTransaction } from "./message-db.ts";
 import type { Message } from "./store.ts";
+import { syncRoots, syncWriteRoot } from "./sync-roots.ts";
 import { THREAD_SYNC_V2_HEAD_BYTES } from "./thread-sync-v2.ts";
 import type { SealCrash, SyncApplyResult, SyncChange, SyncFlushResult, SyncFragment, SyncHead, SyncKind, SyncMutation, SyncOptions, SyncPacket, SyncRecovery, SyncScope, SyncSeen, SyncState, SyncVariant, SyncVersion } from "./thread-sync-v2.ts";
 
@@ -22,7 +23,7 @@ const deleteSchema = z.object({ deletedAt: integer }).strict();
 const versionSchema = z.object({
   seq: integer.positive(), seen: seenSchema, kind: z.enum(["row", "metadata", "head", "delete"]),
   rowId: z.string().max(200), baseStamp: stampSchema, value: z.unknown(), origin: idSchema.optional(),
-  legacy: z.object({ sourceHash: z.string().regex(/^[a-f0-9]{64}$/), stamp: z.string().optional() }).strict().optional(),
+  legacy: z.object({ sourceHash: z.string().regex(/^[a-f0-9]{64}$/), stamp: z.string().optional(), source: z.enum(["main", "conflict"]).optional() }).strict().optional(),
 }).strict();
 const fragmentSchema = versionSchema.extend({
   kind: z.literal("fragment"),
@@ -89,6 +90,7 @@ export function createSyncEngine(input: SyncOptions) {
     db.prepare("INSERT OR IGNORE INTO sync_v2_identity VALUES (1, ?, ?)").run(options.deviceId, randomUUID());
   });
   const statements = new Map<string, StatementSync>();
+  const checkedHeads = new Map<string, number>();
   const sql = (text: string): StatementSync => {
     let statement = statements.get(text);
     if (!statement) {
@@ -125,6 +127,8 @@ export function createSyncEngine(input: SyncOptions) {
   const totalChanges = () => get(countSchema, "SELECT total_changes() AS n").n;
   const stamp = (writer: string, seq: number) => `${seq}:${writer}`;
   const saw = (version: SyncVersion, writer: string, seq: number) => (version.seen[writer] ?? 0) >= seq;
+  const contentHash = (version: SyncVersion | SyncMutation) => syncContentHash(version.kind === "head" && "legacy" in version && version.legacy?.source
+    ? { head: version.value, source: version.legacy.source } : version.value);
 
   function scopeDir(scope: SyncScope): string {
     idSchema.parse(scope.botSyncId);
@@ -187,7 +191,7 @@ export function createSyncEngine(input: SyncOptions) {
   }
 
   function applyVersion(scope: SyncScope, writer: string, version: SyncVersion, result: SyncApplyResult): void {
-    const added = sql("INSERT OR IGNORE INTO sync_v2_content VALUES (?, ?, ?, ?)").run(scope.threadId, version.kind, version.rowId, syncContentHash(version.value)).changes;
+    const added = sql("INSERT OR IGNORE INTO sync_v2_content VALUES (?, ?, ?, ?)").run(scope.threadId, version.kind, version.rowId, contentHash(version)).changes;
     if (version.legacy && !added) return;
     const current = variants(scope, version.kind, version.rowId);
     if (current.some((old) => saw(old.version, writer, version.seq))) return;
@@ -211,7 +215,8 @@ export function createSyncEngine(input: SyncOptions) {
       ? all(writerSeqSchema, "SELECT writer, seq FROM sync_v2_frontier WHERE thread = ? AND kind != 'delete'", scope.threadId)
         .some((row) => !deletes.some((item) => saw(item.version, row.writer, row.seq)))
       : deletes.some((item) => !saw(item.version, writer, version.seq));
-    const conflict = next.length > 1 || deletionConflict;
+    const conflict = next.filter((item) => !item.version.legacy).length > 1
+      || (!version.legacy && deletionConflict && deletes.some((item) => !item.version.legacy));
     if (conflict) result.conflicts++;
     if (version.kind === "row" && !options.staged) {
       // SAFETY: validateVersion checks the row envelope and preserves future message fields.
@@ -222,6 +227,56 @@ export function createSyncEngine(input: SyncOptions) {
     if (options.staged && writer === writerId && !version.legacy) return;
     sql("INSERT INTO sync_v2_changes(thread, kind, row_id, json, conflict) VALUES (?, ?, ?, ?, ?)")
       .run(scope.threadId, version.kind, version.rowId, JSON.stringify(selected.value), Number(conflict));
+  }
+
+  function reconcileLegacyHead(scope: SyncScope): void {
+    const heads = variants(scope, "head");
+    let selected = heads[0];
+    if (!selected?.version.legacy || heads.length < 2) return;
+    const sourceRank = (item: SyncVariant) => {
+      const sources = heads.filter((head) => head.version.value === item.version.value).map((head) => head.version.legacy?.source);
+      return sources.includes("main") ? 2 : sources.includes("conflict") ? 0 : 1;
+    };
+    const leafTime = (item: SyncVariant) => {
+      if (!item.version.value) return -Infinity;
+      const row = variants(scope, "row", z.string().parse(item.version.value))[0];
+      return row ? rowSchema.parse(row.version.value).at : -Infinity;
+    };
+    const descends = (candidate: SyncVariant, prior: SyncVariant) => {
+      // Keep ancestry outermost so each parent uses the row-id index.
+      return sql(`WITH RECURSIVE ancestry(id) AS (
+        SELECT json_extract(json, '$.value.parentId') FROM sync_v2_frontier
+          WHERE thread = ? AND kind = 'row' AND row_id = ?
+        UNION SELECT json_extract(f.json, '$.value.parentId') FROM ancestry a CROSS JOIN sync_v2_frontier f ON f.row_id = CAST(a.id AS TEXT)
+          WHERE f.thread = ? AND f.kind = 'row'
+      ) SELECT 1 FROM ancestry WHERE id IS ? LIMIT 1`)
+        .get(scope.threadId, z.string().nullable().parse(candidate.version.value), scope.threadId, z.string().nullable().parse(prior.version.value));
+    };
+    for (const candidate of heads.slice(1)) {
+      if (candidate.version.value === selected.version.value || !candidate.version.value) continue;
+      if (sourceRank(candidate) !== sourceRank(selected)) {
+        if (sourceRank(candidate) > sourceRank(selected)) selected = candidate;
+        continue;
+      }
+      if (descends(candidate, selected)) selected = candidate;
+      else if (!descends(selected, candidate) && (leafTime(candidate) > leafTime(selected)
+        || (leafTime(candidate) === leafTime(selected) && String(candidate.version.value) > String(selected.version.value)))) selected = candidate;
+    }
+    if (selected === heads[0]) return;
+    withMessageTransaction(() => {
+      sql("INSERT INTO sync_v2_selection VALUES (?, 'head', '', ?, ?) ON CONFLICT(thread, kind, row_id) DO UPDATE SET writer = excluded.writer, seq = excluded.seq")
+        .run(scope.threadId, selected.writerId, selected.version.seq);
+      if (!options.staged) applySyncedRows(scope.threadId, [], z.string().nullable().parse(selected.version.value), database!);
+      sql("INSERT INTO sync_v2_changes(thread, kind, row_id, json, conflict) VALUES (?, 'head', '', ?, 0)")
+        .run(scope.threadId, JSON.stringify(selected.version.value));
+    });
+  }
+
+  function reconcilePendingHead(scope: SyncScope): void {
+    const cursor = () => get(countSchema, "SELECT COALESCE(MAX(cursor), 0) AS n FROM sync_v2_changes WHERE thread = ?", scope.threadId).n;
+    if (checkedHeads.get(scope.threadId) === cursor()) return;
+    reconcileLegacyHead(scope);
+    checkedHeads.set(scope.threadId, cursor());
   }
 
   function assemble(thread: string, writer: string, packet: SyncFragment): SyncVersion {
@@ -290,7 +345,7 @@ export function createSyncEngine(input: SyncOptions) {
       for (const mutation of mutations) {
         const rowId = mutation.kind === "row" ? mutation.value.id : "";
         if (recovery && sql("SELECT 1 FROM sync_v2_content WHERE thread = ? AND kind = ? AND row_id = ? AND hash = ?")
-          .get(scope.threadId, mutation.kind, rowId, syncContentHash(mutation.value))) continue;
+          .get(scope.threadId, mutation.kind, rowId, contentHash(mutation))) continue;
         const current = variants(scope, mutation.kind, rowId)[0];
         let origin: string | undefined;
         if (mutation.kind === "row") {
@@ -316,6 +371,7 @@ export function createSyncEngine(input: SyncOptions) {
         context[writerId] = seq - 1;
       }
       sql("UPDATE sync_v2_threads SET next_seq = ? WHERE thread = ?").run(seq, scope.threadId);
+      if (recovery && result.applied) reconcileLegacyHead(scope);
       if (crash === "before-commit") process.exit(91);
     });
     if (crash === "after-commit") process.exit(91);
@@ -384,7 +440,11 @@ export function createSyncEngine(input: SyncOptions) {
   }
 
   function flush(scope: SyncScope, crash?: SealCrash, through?: number): SyncFlushResult {
-    const dir = join(scopeDir(scope), writerId);
+    scopeDir(scope);
+    const ownerPath = join(scope.botSyncId, scope.threadId, writerId);
+    const root = syncRoots(options.folder, "threads-v2").find((path) => existsSync(join(path, ownerPath, "head.json")))
+      ?? syncWriteRoot(options.folder, "threads-v2", ownerPath);
+    const dir = join(root, ownerPath);
     mkdirSync(dir, { recursive: true });
     let bytesWritten = 0;
     let state = get(localHeadSchema, "SELECT cut, generation, head FROM sync_v2_threads WHERE thread = ?", scope.threadId);
@@ -515,38 +575,42 @@ export function createSyncEngine(input: SyncOptions) {
             if (result.applied >= limit) break;
           }
         });
-        if (result.applied >= limit) return;
+        if (result.applied >= limit) { reconcilePendingHead(scope); return; }
       }
       if (!advanced) break;
     }
+    reconcilePendingHead(scope);
   }
 
   function pull(scope: SyncScope): SyncApplyResult {
-    const dir = scopeDir(scope);
+    scopeDir(scope);
     const result = emptyResult();
     const before = totalChanges();
-    if (!existsSync(dir)) return result;
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !idSchema.safeParse(entry.name).success || entry.name === writerId) continue;
-      const writer = entry.name;
-      const writerDir = join(dir, writer);
-      const names = readdirSync(writerDir).filter((name) => name === "head.json" || /^seg-[1-9]\d*-[1-9]\d*\.json\.gz$/.test(name));
-      for (const name of names) {
-        const segment = name !== "head.json";
-        if (segment && sql("SELECT 1 FROM sync_v2_files WHERE thread = ? AND writer = ? AND name = ?").get(scope.threadId, writer, name)) continue;
-        let bytes: Buffer;
-        let head: SyncHead;
-        try {
-          bytes = readFileSync(join(writerDir, name));
-          if (segment) bytes = gunzipSync(bytes, { maxOutputLength: headBytes });
-          head = validateHead(bytes, scope, writer);
-          if (segment && name !== `seg-${head.firstSeq}-${head.lastSeq}.json.gz`) throw new Error("Segment filename range mismatch");
-        } catch {
-          result.rejected++;
-          continue;
-        }
-        if (ingest(scope, writer, head, bytes, segment, result) && segment) {
-          sql("INSERT OR IGNORE INTO sync_v2_files VALUES (?, ?, ?)").run(scope.threadId, writer, name);
+    for (const root of syncRoots(options.folder, "threads-v2")) {
+      const dir = join(root, scope.botSyncId, scope.threadId);
+      if (!existsSync(dir)) continue;
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !idSchema.safeParse(entry.name).success || entry.name === writerId) continue;
+        const writer = entry.name;
+        const writerDir = join(dir, writer);
+        const names = readdirSync(writerDir).filter((name) => name === "head.json" || /^seg-[1-9]\d*-[1-9]\d*\.json\.gz$/.test(name));
+        for (const name of names) {
+          const segment = name !== "head.json";
+          if (segment && sql("SELECT 1 FROM sync_v2_files WHERE thread = ? AND writer = ? AND name = ?").get(scope.threadId, writer, name)) continue;
+          let bytes: Buffer;
+          let head: SyncHead;
+          try {
+            bytes = readFileSync(join(writerDir, name));
+            if (segment) bytes = gunzipSync(bytes, { maxOutputLength: headBytes });
+            head = validateHead(bytes, scope, writer);
+            if (segment && name !== `seg-${head.firstSeq}-${head.lastSeq}.json.gz`) throw new Error("Segment filename range mismatch");
+          } catch {
+            result.rejected++;
+            continue;
+          }
+          if (ingest(scope, writer, head, bytes, segment, result) && segment) {
+            sql("INSERT OR IGNORE INTO sync_v2_files VALUES (?, ?, ?)").run(scope.threadId, writer, name);
+          }
         }
       }
     }
@@ -586,17 +650,48 @@ export function createSyncEngine(input: SyncOptions) {
   }
 
   function threads(botSyncId: string): string[] {
-    const dir = join(options.folder, "threads-v2", idSchema.parse(botSyncId));
-    if (!existsSync(dir)) return [];
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && threadIdSchema.safeParse(entry.name).success)
-      .map((entry) => entry.name);
+    idSchema.parse(botSyncId);
+    return [...new Set(syncRoots(options.folder, "threads-v2").flatMap((root) => {
+      const dir = join(root, botSyncId);
+      return existsSync(dir) ? readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && threadIdSchema.safeParse(entry.name).success)
+        .map((entry) => entry.name) : [];
+    }))].sort();
   }
 
   function conflicted(scope: SyncScope): boolean {
-    return state(scope).deleteConflicts > 0 || Boolean(sql(
-      "SELECT 1 FROM sync_v2_frontier WHERE thread = ? GROUP BY kind, row_id HAVING COUNT(*) > 1 LIMIT 1",
+    const deletes = variants(scope, "delete").filter((item) => !item.version.legacy);
+    return deletes.some((item) => all(writerSeqSchema,
+      "SELECT writer, seq FROM sync_v2_frontier WHERE thread = ? AND kind != 'delete' AND json_extract(json, '$.legacy') IS NULL", scope.threadId)
+      .some((row) => !saw(item.version, row.writer, row.seq))) || Boolean(sql(
+      "SELECT 1 FROM sync_v2_frontier WHERE thread = ? AND json_extract(json, '$.legacy') IS NULL GROUP BY kind, row_id HAVING COUNT(*) > 1 LIMIT 1",
     ).get(scope.threadId));
+  }
+
+  function hadNativeConflict(scope: SyncScope): boolean {
+    const fields = new Map<string, SyncVariant[]>();
+    const deletes: SyncVariant[] = [];
+    const concurrent = (a: SyncVariant, b: SyncVariant) => a.writerId !== b.writerId
+      && !saw(a.version, b.writerId, b.version.seq) && !saw(b.version, a.writerId, a.version.seq);
+    const packets = all(writerJsonSchema,
+      "SELECT writer, json FROM sync_v2_packets WHERE thread = ? AND applied = 1 AND json_extract(json, '$.legacy') IS NULL ORDER BY writer, seq", scope.threadId);
+    for (const row of packets) {
+      const packet: SyncPacket = JSON.parse(row.json);
+      if (packet.kind === "fragment" && packet.value.index !== packet.value.count - 1) continue;
+      const version = packet.kind === "fragment" ? assemble(scope.threadId, row.writer, packet) : packet;
+      if (version.legacy) continue;
+      const item = { writerId: row.writer, version };
+      const key = JSON.stringify([version.kind, version.rowId]);
+      const previous = fields.get(key) ?? [];
+      if (previous.some((prior) => concurrent(item, prior)) || deletes.some((prior) => concurrent(item, prior))) return true;
+      if (version.kind === "delete") {
+        if ([...fields.values()].some((values) => values.some((prior) => concurrent(item, prior)))) return true;
+        deletes.push(item);
+      }
+      previous.push(item);
+      fields.set(key, previous);
+    }
+    return false;
   }
 
   function recoveryRows(scope: SyncScope, after = ""): SyncChange[] {
@@ -609,5 +704,5 @@ export function createSyncEngine(input: SyncOptions) {
   }
 
   const recover = (scope: SyncScope, mutations: SyncRecovery[], crash?: string) => commit(scope, mutations, crash, undefined, true);
-  return { commit, recover, flush, pull, state, variants, changes, applyPending, threads, conflicted, recoveryRows };
+  return { commit, recover, flush, pull, state, variants, changes, applyPending, threads, conflicted, hadNativeConflict, recoveryRows };
 }

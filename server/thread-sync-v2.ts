@@ -23,7 +23,7 @@ export interface SyncVersion {
   baseStamp: string | null;
   value: unknown;
   origin?: string;
-  legacy?: { sourceHash: string; stamp?: string };
+  legacy?: { sourceHash: string; stamp?: string; source?: "main" | "conflict" };
 }
 
 export interface SyncFragment extends Omit<SyncVersion, "kind" | "value"> {
@@ -51,7 +51,7 @@ export type SyncMutation =
   | { kind: "head"; value: string | null }
   | { kind: "delete"; value: { deletedAt: number } };
 
-export type SyncRecovery = SyncMutation & { legacy: { sourceHash: string; stamp?: string } };
+export type SyncRecovery = SyncMutation & { legacy: NonNullable<SyncVersion["legacy"]> };
 
 export interface SyncOptions {
   folder: string;

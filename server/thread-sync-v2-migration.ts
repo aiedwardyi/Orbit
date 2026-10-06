@@ -1,15 +1,15 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 
 import { messageDatabase, withMessageTransaction } from "./message-db.ts";
 import { redactBotAuthored, type Message } from "./store.ts";
-import { CONFLICT_NOTICE, fileSchema, shared } from "./thread-sync.ts";
+import { fileSchema, isConflictNotice, shared } from "./thread-sync.ts";
 import { createSyncEngine, syncContentHash } from "./thread-sync-v2-engine.ts";
 import { readLegacyFields } from "./thread-sync-v2-json.ts";
 import type { LegacyField } from "./thread-sync-v2-json.ts";
-import type { SyncOptions, SyncRecovery, SyncScope } from "./thread-sync-v2.ts";
+import type { SyncOptions, SyncRecovery, SyncScope, SyncVersion } from "./thread-sync-v2.ts";
 
 export type MigrationCrash = "snapshot" | "source" | "pull" | "outbox" | "complete";
 export interface MigrationProgress {
@@ -71,6 +71,28 @@ export function createThreadMigration(options: SyncOptions, engine: ReturnType<t
   const task = (scope: SyncScope) => taskSchema.parse(db.prepare("SELECT * FROM sync_v2_migration WHERE thread = ?").get(scope.threadId));
   const crashAt = (point: MigrationCrash, crash?: MigrationCrash) => { if (point === crash) process.exit(92); };
 
+  withMessageTransaction(() => {
+    const snapshots = db.prepare(`SELECT thread, bot, head FROM sync_v2_migration m WHERE phase != 'snapshot'
+      AND EXISTS (SELECT 1 FROM sync_v2_snapshot s WHERE s.thread = m.thread)`).all();
+    for (const row of snapshots) {
+      const scope = { threadId: String(row.thread), botSyncId: String(row.bot) };
+      engine.recover(scope, [{ kind: "head", value: head(scope, JSON.parse(String(row.head))),
+        legacy: { sourceHash: syncContentHash({ device: options.deviceId, thread: scope.threadId }), source: "main" } }]);
+    }
+    const heads = db.prepare(`SELECT f.thread, t.bot, f.json FROM sync_v2_frontier f JOIN sync_v2_threads t ON t.thread = f.thread
+      WHERE f.kind = 'head' AND f.writer = (SELECT writer FROM sync_v2_identity)
+        AND json_extract(f.json, '$.legacy') IS NOT NULL AND json_extract(f.json, '$.legacy.source') IS NULL`).all();
+    for (const row of heads) {
+      const scope = { threadId: String(row.thread), botSyncId: String(row.bot) };
+      const version: SyncVersion = JSON.parse(String(row.json));
+      const path = db.prepare("SELECT path FROM sync_v2_sources WHERE thread = ? AND hash = ?").get(scope.threadId, version.legacy!.sourceHash)?.path;
+      const local = version.legacy!.sourceHash === syncContentHash({ device: options.deviceId, thread: scope.threadId });
+      if (!local && !path) continue;
+      const source = local || basename(String(path)) === `${scope.threadId}.json` ? "main" : "conflict";
+      engine.recover(scope, [{ kind: "head", value: z.string().nullable().parse(version.value), legacy: { ...version.legacy!, source } }]);
+    }
+  });
+
   function files(botSyncId: string): string[] {
     z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/).parse(botSyncId);
     if (!existsSync(options.folder)) throw new Error("Sync folder is unavailable");
@@ -117,7 +139,7 @@ export function createThreadMigration(options: SyncOptions, engine: ReturnType<t
         : db.prepare("SELECT json FROM sync_v2_source_fields WHERE source = ? AND key = 'notice' AND child = ?").get(source, parent);
       if (!row) break;
       const prior: Message = JSON.parse(String(row.json));
-      if (prior.kind !== "activity" || prior.tool?.name !== `error: ${CONFLICT_NOTICE}`) break;
+      if (!isConflictNotice(prior)) break;
       parent = prior.parentId;
     }
     const projected = redactBotAuthored({ ...message, parentId: parent });
@@ -221,7 +243,7 @@ export function createThreadMigration(options: SyncOptions, engine: ReturnType<t
         db.prepare("INSERT OR REPLACE INTO sync_v2_source_fields VALUES (?, ?, ?, ?)").run(id, field.key, field.child ?? "", field.json);
         if (field.key === "messages" && field.child !== undefined) {
           const row: Message = JSON.parse(field.json);
-          if (row.kind === "activity" && row.tool?.name === `error: ${CONFLICT_NOTICE}`) {
+          if (isConflictNotice(row)) {
             db.prepare("INSERT OR REPLACE INTO sync_v2_source_fields VALUES (?, 'notice', ?, ?)").run(id, row.id, field.json);
           }
         }
@@ -306,7 +328,7 @@ export function createThreadMigration(options: SyncOptions, engine: ReturnType<t
             const mutations: SyncRecovery[] = page.flatMap((row) => project(scope, JSON.parse(String(row.json))).map((value) => localRecovery(scope, value)));
             if (!current.cursor && page.length) mutations.unshift(
               { kind: "metadata", value: JSON.parse(current.metadata), legacy },
-              { kind: "head", value: head(scope, JSON.parse(current.head)), legacy },
+              { kind: "head", value: head(scope, JSON.parse(current.head)), legacy: { ...legacy, source: "main" } },
             );
             recover(scope, mutations);
             if (page.length) db.prepare("UPDATE sync_v2_migration SET cursor = ? WHERE thread = ?").run(Number(page.at(-1)!.cursor), scope.threadId);
@@ -352,7 +374,8 @@ export function createThreadMigration(options: SyncOptions, engine: ReturnType<t
     }
     if (!Number(source.cursor)) {
       const metadata = z.object({ title: z.string(), createdAt: z.number() }).parse(JSON.parse(String(field("task"))));
-      mutations.unshift({ kind: "metadata", value: metadata, legacy }, { kind: "head", value: head(scope, JSON.parse(String(field("activeLeafId"))), id), legacy });
+      const sourceClass = basename(String(source.path)) === `${scope.threadId}.json` ? "main" : "conflict";
+      mutations.unshift({ kind: "metadata", value: metadata, legacy }, { kind: "head", value: head(scope, JSON.parse(String(field("activeLeafId"))), id), legacy: { ...legacy, source: sourceClass } });
     }
     recover(scope, mutations);
     db.prepare("UPDATE sync_v2_sources SET cursor = ?, done = ? WHERE id = ?").run(Number(page.at(-1)?.cursor ?? source.cursor), Number(page.length === 0), id);

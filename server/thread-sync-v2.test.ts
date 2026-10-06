@@ -1,11 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { gunzipSync, gzipSync } from "node:zlib";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Message } from "./store.ts";
+import { syncContentHash } from "./thread-sync-v2-engine.ts";
 import { ThreadSyncV2, type SealCrash, type SyncHead, type SyncOptions } from "./thread-sync-v2.ts";
 
 const roots: string[] = [];
@@ -49,6 +51,122 @@ async function converge(...peers: ThreadSyncV2[]): Promise<void> {
 }
 
 describe("thread sync v2", () => {
+  it("orders legacy main heads by timestamp then id and preserves native selection", async () => {
+    const client = pc(temp(), "a").client;
+    const main = { sourceHash: "a".repeat(64), source: "main" as const };
+    const conflict = { sourceHash: "b".repeat(64), source: "conflict" as const };
+    for (const [id, at, legacy] of [["z", 2, main], ["a", 2, main], ["later", 3, main], ["parked", 1000, conflict]] as const) {
+      await client.recover(scope, [{ kind: "row", value: msg(id, id, { at }), legacy }, { kind: "head", value: id, legacy }]);
+      expect((await client.variants(scope, "head"))[0].version.value).toBe(at === 2 ? "z" : "later");
+    }
+    await client.commit(scope, [{ kind: "head", value: "a" }]);
+    await client.recover(scope, [{ kind: "row", value: msg("newest", "newest", { at: 2000 }), legacy: main }, { kind: "head", value: "newest", legacy: main }]);
+    expect((await client.variants(scope, "head"))[0].version.value).toBe("a");
+    expect(await rows(client)).toHaveLength(5);
+  });
+
+  it("uses backfilled conflict provenance instead of an old unclassified duplicate", async () => {
+    const client = pc(temp(), "a").client;
+    const legacy = { sourceHash: "a".repeat(64) };
+    await client.recover(scope, [{ kind: "row", value: msg("old", "old"), legacy }, { kind: "head", value: "old", legacy }]);
+    const conflict = { ...legacy, source: "conflict" as const };
+    await client.recover(scope, [{ kind: "head", value: "old", legacy: conflict }]);
+    await client.recover(scope, [{ kind: "row", value: msg("new", "new", { at: 2 }), legacy: conflict }, { kind: "head", value: "new", legacy: conflict }]);
+    expect((await client.variants(scope, "head"))[0].version.value).toBe("new");
+  });
+
+  it("backfills an already published local legacy head without rewriting its packets", async () => {
+    const folder = temp();
+    const dataDir = temp();
+    const first = pc(folder, "a", 4096, dataDir).client;
+    const legacy = { sourceHash: syncContentHash({ device: "a", thread: "thread" }) };
+    await first.recover(scope, [{ kind: "row", value: msg("main", "main"), legacy }, { kind: "head", value: "main", legacy }]);
+    await first.flush(scope);
+    const original = (await first.variants(scope, "head"))[0];
+    await first.close();
+    clients.splice(clients.indexOf(first), 1);
+    const restarted = pc(folder, "a", 4096, dataDir).client;
+    const heads = await restarted.variants(scope, "head");
+    expect(heads).toContainEqual(original);
+    expect(heads.some((item) => item.version.legacy?.source === "main")).toBe(true);
+    const conflict = { sourceHash: "b".repeat(64), source: "conflict" as const };
+    await restarted.recover(scope, [{ kind: "row", value: msg("parked", "parked", { at: 1000 }), legacy: conflict }, { kind: "head", value: "parked", legacy: conflict }]);
+    expect((await restarted.variants(scope, "head"))[0].version.value).toBe("main");
+  });
+
+  it("backfills a local snapshot even when its original head publication was deduplicated", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const dataDir = temp();
+    const b = pc(folder, "b", 4096, dataDir).client;
+    const legacy = { sourceHash: "a".repeat(64) };
+    const message = msg("main", "main");
+    await a.recover(scope, [{ kind: "row", value: message, legacy }, { kind: "head", value: "main", legacy }]);
+    await a.flush(scope);
+    await b.pull(scope);
+    expect((await b.state(scope)).outbox).toBe(0);
+    await b.close();
+    clients.splice(clients.indexOf(b), 1);
+    const db = new DatabaseSync(join(dataDir, "messages.db"));
+    try {
+      db.prepare("INSERT INTO sync_v2_migration(thread, bot, phase, metadata, head) VALUES ('thread', 'bot', 'done', ?, ?)")
+        .run(JSON.stringify({ title: "Chat", createdAt: 1 }), JSON.stringify("main"));
+      db.prepare("INSERT INTO sync_v2_snapshot VALUES ('thread', 'main', ?)").run(JSON.stringify(message));
+    } finally {
+      db.close();
+    }
+    const restarted = pc(folder, "b", 4096, dataDir).client;
+    expect((await restarted.variants(scope, "head")).some((item) => item.version.legacy?.source === "main")).toBe(true);
+    expect((await restarted.state(scope)).outbox).toBe(1);
+  });
+
+  it("unions split roots and keeps publishing beside the existing writer head", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const b = pc(folder, "b").client;
+    await put(a, "a", "first");
+    await a.flush(scope);
+    renameSync(join(folder, "threads-v2"), join(folder, "threads-v2 (1)"));
+    mkdirSync(join(folder, "threads-v2"));
+    await put(b, "b", "second");
+    await b.flush(scope);
+    await b.pull(scope);
+    expect((await rows(b)).map((row) => row.id).sort()).toEqual(["a", "b"]);
+    const writer = (await a.state(scope)).writerId;
+    mkdirSync(join(folder, "threads-v2", "bot", "thread", writer));
+    await put(a, "a2", "later");
+    await a.flush(scope);
+    expect(existsSync(join(folder, "threads-v2", "bot", "thread", writer, "head.json"))).toBe(false);
+    expect((await b.pull(scope)).rejected).toBe(0);
+    expect((await rows(b)).map((row) => row.id).sort()).toEqual(["a", "a2", "b"]);
+    const onlyDuplicate = { botSyncId: "bot", threadId: "duplicate" };
+    await a.commit(onlyDuplicate, [{ kind: "row", value: msg("m", "duplicate") }]);
+    await a.flush(onlyDuplicate);
+    renameSync(join(folder, "threads-v2", "bot", "duplicate"), join(folder, "threads-v2 (1)", "bot", "duplicate"));
+    expect(await b.threads("bot")).toContain("duplicate");
+  });
+
+  it("selects the descendant legacy head after its rows arrive without reporting an edit conflict", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const b = pc(folder, "b").client;
+    const legacy = { sourceHash: "c".repeat(64) };
+    await a.recover(scope, [{ kind: "head", value: "new", legacy }]);
+    await b.recover(scope, [
+      { kind: "row", value: msg("old", "old"), legacy },
+      { kind: "head", value: "old", legacy },
+    ]);
+    await converge(a, b);
+    await a.recover(scope, [{ kind: "row", value: msg("new", "new", { parentId: "old" }), legacy }]);
+    await converge(a, b);
+    for (const peer of [a, b]) {
+      expect((await peer.variants(scope, "head"))[0].version.value).toBe("new");
+    }
+    for (const peer of [a, b]) {
+      expect((await peer.changes(scope)).some((change) => change.conflict)).toBe(false);
+    }
+  });
+
   it("deduplicates equal recovery versions published concurrently", async () => {
     const folder = temp();
     const a = pc(folder, "a").client;

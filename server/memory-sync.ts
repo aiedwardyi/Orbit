@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
+import { syncRoots, syncWriteRoot } from "./sync-roots.ts";
 import { isMemoryTopicName, MEMORY_SEED } from "./workspace.ts";
 
 // each PC writes only its own snapshot here; builds before it share one copy per file under "memory" and never read this folder
@@ -292,11 +293,20 @@ export function syncBotMemory(
   ledger: MemorySyncLedger,
   { now = Date.now(), legacy, host = machine() }: MemorySyncOptions = {},
 ): Record<string, MemorySyncResult> {
-  const dir = memorySyncDir(folder, botSyncId);
-  const snapshots = readSnapshots(dir);
+  memorySyncDir(folder, botSyncId);
+  const me = deviceId(ledger, host);
+  let dir: string;
+  let groups: Array<Snapshot[] | undefined>;
+  try {
+    dir = join(syncWriteRoot(folder, MEMORY_SYNC_DIR, join(botSyncId, `${me}.json`)), botSyncId);
+    groups = syncRoots(folder, MEMORY_SYNC_DIR).map((root) => readSnapshots(join(root, botSyncId)));
+  } catch {
+    return {};
+  }
+  if (groups.some((group) => !group)) return {};
+  const snapshots = groups.flatMap((group) => group ?? []);
   const localFiles = memoryFiles(workspace);
   if (!snapshots || !localFiles) return {};
-  const me = deviceId(ledger, host);
   const firstSync = !ledger.bots[botSyncId];
   const bot = (ledger.bots[botSyncId] ??= { files: {} });
   // a wiped or never-created workspace has nothing to publish; forgetting it pulls instead of deleting everywhere, from this PC's own snapshot too
