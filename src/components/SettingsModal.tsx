@@ -614,7 +614,7 @@ export function SettingsModal({
                 )}
               >
                 <Icon size={15} />
-                <span className="min-w-0 flex-1 truncate max-md:hidden">{t(SECTION_KEY[id])}</span>
+                <span className="-mr-1.5 min-w-0 flex-1 truncate max-md:hidden">{t(SECTION_KEY[id])}</span>
                 {shortcut && (
                   <kbd className="ml-auto shrink-0 font-mono text-[10px] tracking-wide text-ink-secondary/55 max-md:hidden">
                     {shortcut}
