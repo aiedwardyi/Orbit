@@ -22,6 +22,7 @@ function fixture() {
   fs.writeFileSync(path.join(dataDir, "profile-sync.json"), JSON.stringify({ folder: drive, deviceId: "old-pc" }));
   fs.writeFileSync(path.join(userData, "credentials.bin"), "encrypted keys");
   fs.writeFileSync(path.join(userData, "locale-preference.json"), '"ko"');
+  fs.writeFileSync(path.join(userData, "companion-settings.json"), JSON.stringify({ enabled: true }));
   fs.mkdirSync(path.join(userData, "Partitions", "browser-work"), { recursive: true });
   fs.writeFileSync(path.join(userData, "Partitions", "browser-work", "Cookies"), "browser login");
   for (const name of [".claude", ".codex", ".grok", ".gemini", "muse", "projects"]) {
@@ -54,6 +55,7 @@ describe("start fresh", () => {
     expect(fs.readFileSync(path.join(result.backup, "desktop-state", "credentials.bin"), "utf8")).toBe("encrypted keys");
     expect(fs.existsSync(path.join(input.userData, "credentials.bin"))).toBe(false);
     expect(fs.existsSync(path.join(input.userData, "locale-preference.json"))).toBe(false);
+    expect(fs.existsSync(path.join(input.userData, "companion-settings.json"))).toBe(false);
     expect(fs.existsSync(input.dataDir)).toBe(false);
     expect(fs.existsSync(resetMarkerPath(input.dataDir))).toBe(false);
     expect(input.clearUiState).toHaveBeenCalledTimes(1);
