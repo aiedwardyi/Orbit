@@ -16,11 +16,19 @@ function scratchHome(signedIn: boolean): string {
   const dir = mkdtempSync(join(tmpdir(), "omb-grok-auth-"));
   scratchDirs.push(dir);
   mkdirSync(join(dir, ".grok"), { recursive: true });
-  if (signedIn) writeFileSync(join(dir, ".grok", "auth.json"), "{}");
+  if (signedIn) writeFileSync(join(dir, ".grok", "auth.json"), JSON.stringify({ account: { key: "test-key" } }));
   return dir;
 }
 
 describe("Grok subscription authentication", () => {
+  it("rejects an empty or malformed credential file", () => {
+    const home = scratchHome(true);
+    writeFileSync(join(home, ".grok", "auth.json"), "{}");
+    expect(grokIsAuthenticated({ HOME: home })).toBe(false);
+    writeFileSync(join(home, ".grok", "auth.json"), "not json");
+    expect(grokIsAuthenticated({ HOME: home })).toBe(false);
+  });
+
   it("reads auth.json out of GROK_HOME", () => {
     expect(grokIsAuthenticated({ GROK_HOME: join(scratchHome(true), ".grok") })).toBe(true);
     expect(grokIsAuthenticated({ GROK_HOME: join(scratchHome(false), ".grok") })).toBe(false);

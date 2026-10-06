@@ -9,6 +9,24 @@ import { BUILT_IN_DRIVERS } from "../builtIn.ts";
 import { augmentedPath, resolveCliSpawn } from "../../env-path.ts";
 
 describe("Meta Muse driver catalog", () => {
+  it("rejects empty credentials and honors MUSE_AUTH_PATH", () => {
+    const home = mkdtempSync(join(tmpdir(), "omb-muse-auth-shape-"));
+    const auth = join(home, "auth.json");
+    const env = { HOME: home, MUSE_AUTH_PATH: auth };
+    const platform = { platform: "linux" } as const;
+    writeFileSync(auth, "{}");
+    expect(museIsAuthenticated(env, undefined, platform)).toBe(false);
+    writeFileSync(auth, JSON.stringify({ providers: { meta: { access_token: "test-token" } } }));
+    expect(museIsAuthenticated(env, undefined, platform)).toBe(true);
+  });
+
+  it("accepts a Keychain login that keeps no token in the file", () => {
+    const auth = join(mkdtempSync(join(tmpdir(), "omb-muse-keychain-")), "auth.json");
+    const env = { HOME: tmpdir(), MUSE_AUTH_PATH: auth };
+    writeFileSync(auth, JSON.stringify({ schema_version: 1, providers: { meta: { storage: "keychain", mechanism: "oauth" } } }));
+    expect(museIsAuthenticated(env, undefined, { platform: "darwin" })).toBe(true);
+  });
+
   it("serves exactly the two Meta Muse models with the required labels", () => {
     expect(STATIC_MUSE_MODELS.default).toBe("muse-spark-1.3");
     expect(STATIC_MUSE_MODELS.options).toEqual([
@@ -48,7 +66,7 @@ describe("Meta Muse driver catalog", () => {
     const home = mkdtempSync(join(tmpdir(), "omb-muse-win-home-"));
     const xdg = mkdtempSync(join(tmpdir(), "omb-muse-win-xdg-"));
     mkdirSync(join(xdg, "muse"), { recursive: true });
-    writeFileSync(join(xdg, "muse", "auth.json"), JSON.stringify({ token: "native" }));
+    writeFileSync(join(xdg, "muse", "auth.json"), JSON.stringify({ providers: { meta: { access_token: "native" } } }));
     const env = { HOME: home, XDG_CONFIG_HOME: xdg };
     expect(museIsAuthenticated(env, undefined, { platform: "win32", probeWslAuth: () => false })).toBe(true);
     const empty = { HOME: home, XDG_CONFIG_HOME: mkdtempSync(join(tmpdir(), "omb-muse-win-empty-")) };
@@ -85,7 +103,7 @@ describe("Meta Muse driver catalog", () => {
     const home = mkdtempSync(join(tmpdir(), "omb-muse-stale-home-"));
     const xdg = mkdtempSync(join(tmpdir(), "omb-muse-stale-xdg-"));
     mkdirSync(join(xdg, "muse"), { recursive: true });
-    writeFileSync(join(xdg, "muse", "auth.json"), JSON.stringify({ token: "stale-windows-copy" }));
+    writeFileSync(join(xdg, "muse", "auth.json"), JSON.stringify({ providers: { meta: { access_token: "stale-windows-copy" } } }));
     const env = { HOME: home, XDG_CONFIG_HOME: xdg };
     // The same file counts off-Windows, where the process reads it directly.
     expect(museIsAuthenticated(env, undefined, { platform: "linux" })).toBe(true);
@@ -106,7 +124,7 @@ describe("Meta Muse driver catalog", () => {
     const home = mkdtempSync(join(tmpdir(), "omb-muse-home-"));
     const xdg = mkdtempSync(join(tmpdir(), "omb-muse-xdg-"));
     mkdirSync(join(xdg, "muse"), { recursive: true });
-    writeFileSync(join(xdg, "muse", "auth.json"), JSON.stringify({ token: "stored" }));
+    writeFileSync(join(xdg, "muse", "auth.json"), JSON.stringify({ providers: { meta: { access_token: "stored" } } }));
     // Pin off-win32 so the assertion stays independent of the host's login.
     const platform = { platform: "linux" } as const;
     expect(museIsAuthenticated({ HOME: home, XDG_CONFIG_HOME: xdg }, undefined, platform)).toBe(true);

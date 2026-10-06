@@ -2087,19 +2087,19 @@ describe("ClaudeDriver snapshot auth (fake CLI)", () => {
     expect(await instance.snapshot()).toMatchObject({ state: "available", authenticated: false });
   });
 
-  it("fails closed instead of trusting stale credential storage", async () => {
+  it("keeps unavailable auth status neutral and refreshes after sign-in", async () => {
     await create();
 
     process.env.FAKE_CLAUDE_AUTH = "unsupported";
-    expect(await instance.snapshot()).toMatchObject({ state: "available", authenticated: false });
+    expect(await instance.snapshot({ rescan: true })).toMatchObject({ state: "available", authenticated: undefined });
 
     process.env.FAKE_CLAUDE_AUTH = "malformed";
-    expect(await instance.snapshot()).toMatchObject({ state: "available", authenticated: false });
+    expect(await instance.snapshot({ rescan: true })).toMatchObject({ state: "available", authenticated: undefined });
 
     // The real turn removes inherited API keys, so the auth probe must do the
     // same or setup can report a login the turn cannot use.
     process.env.FAKE_CLAUDE_AUTH = "inherited-api-key";
     process.env.ANTHROPIC_API_KEY = "sk-should-not-leak";
-    expect(await instance.snapshot()).toMatchObject({ state: "available", authenticated: false });
+    expect(await instance.snapshot({ rescan: true })).toMatchObject({ state: "available", authenticated: false });
   });
 });

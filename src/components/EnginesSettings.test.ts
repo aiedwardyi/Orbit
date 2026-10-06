@@ -1,11 +1,13 @@
-import { createElement } from "react";
+import "./ProfileFields.test-dom.ts";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { applyLocale, I18nProvider, translate } from "@/lib/i18n";
 import type { InstanceInfo } from "@/state/store";
 
-const { mockInstances } = vi.hoisted(() => {
+const { mockInstances, refreshInstances } = vi.hoisted(() => {
   const row = (instanceId: string, driverKind: string, displayName: string): InstanceInfo => ({
     instanceId,
     driverKind,
@@ -15,6 +17,7 @@ const { mockInstances } = vi.hoisted(() => {
     cliDefault: instanceId,
   });
   return {
+    refreshInstances: vi.fn(async () => undefined),
     mockInstances: [
       row("claude", "claudeAgent", "Claude"),
       row("kimi", "kimiAgent", "Kimi"),
@@ -28,25 +31,13 @@ const { mockInstances } = vi.hoisted(() => {
   };
 });
 
-vi.hoisted(() => {
-  Object.defineProperty(globalThis, "window", {
-    value: { ogb: undefined },
-    configurable: true,
-    writable: true,
-  });
-  Object.defineProperty(globalThis, "navigator", {
-    value: { language: "en" },
-    configurable: true,
-  });
-});
-
 vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
   return {
     ...actual,
     useStore: () => ({
       state: { instances: mockInstances },
-      refreshInstances: async () => undefined,
+      refreshInstances,
     }),
   };
 });
@@ -158,6 +149,31 @@ describe("CLI-candidates in-use marker", () => {
 });
 
 describe("EnginesSettings friends Connections list", () => {
+  it.each([
+    [{ state: "unavailable" }, "Not installed", "Open install in Terminal", false],
+    [{ state: "available", authenticated: false }, "Needs sign-in", "Open sign-in in Terminal", false],
+    [{ state: "available", authenticated: true }, "Connected", null, true],
+    [{ state: "available" }, "Installed", null, false],
+  ] as const)("renders honest status for %j", (snapshot, label, action, ready) => {
+    const saved = [...mockInstances];
+    const previousBridge = window.ogb;
+    Object.assign(window, { ogb: { platform: "win32", openInstallTerminal: async () => true } });
+    mockInstances.splice(0, mockInstances.length, instance({
+      snapshot,
+      install: { command: { win32: "install-claude" }, signInCommand: "claude" },
+    }));
+    try {
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(EnginesSettings)));
+      expect(html).toContain(`aria-label="${label}"`);
+      expect(html.includes('class="lucide lucide-check')).toBe(ready);
+      if (action) expect(html).toContain(action);
+      else expect(html).not.toContain("Open sign-in");
+    } finally {
+      window.ogb = previousBridge;
+      mockInstances.splice(0, mockInstances.length, ...saved);
+    }
+  });
+
   it("shows Set CLI for Claude Codex Grok Antigravity Meta Muse, not Gemini API or the zoo", () => {
     const grok = mockInstances.find((i) => i.instanceId === "grok")!;
     grok.snapshot = { state: "unavailable" };
@@ -194,12 +210,18 @@ describe("EnginesSettings friends Connections list", () => {
 });
 
 describe("isEngineConnected", () => {
+  it("requires a confirmed sign-in for a green check", () => {
+    expect(isEngineConnected(instance({ snapshot: { state: "available", authenticated: false } }))).toBe(false);
+    expect(isEngineConnected(instance({ snapshot: { state: "available" } }))).toBe(false);
+    expect(isEngineConnected(instance({ snapshot: { state: "available", authenticated: true } }))).toBe(true);
+  });
+
   it("lights an engine detected on PATH with no configured override", () => {
-    expect(isEngineConnected(instance({ snapshot: { state: "available" } }))).toBe(true);
+    expect(isEngineConnected(instance({ snapshot: { state: "available", authenticated: true } }))).toBe(true);
   });
 
   it("lights an engine whose override probe succeeded", () => {
-    expect(isEngineConnected(instance({ snapshot: { state: "available" }, cli: OTHER }))).toBe(true);
+    expect(isEngineConnected(instance({ snapshot: { state: "available", authenticated: true }, cli: OTHER }))).toBe(true);
   });
 
   it("leaves an absent engine unlit even with an override configured", () => {
@@ -221,4 +243,45 @@ describe("engines summary", () => {
     expect(html).not.toContain("Set CLI…");
     expect(html).not.toContain("Kimi");
   });
+
+  it("stays collapsible when an installed engine's sign-in can't be checked", () => {
+    const agy = mockInstances.find((i) => i.instanceId === "antigravity")!;
+    agy.snapshot = { state: "available" };
+    try {
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(EnginesSettings)));
+      expect(html).toContain('aria-expanded="false"');
+      expect(html).not.toContain("Set CLI…");
+    } finally {
+      agy.snapshot = { state: "available", authenticated: true };
+    }
+  });
+});
+
+it("rescans sign-in on opening Connections and after a real trip away", async () => {
+  refreshInstances.mockClear();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const after = async (ms: number, event: "blur" | "focus") => {
+    vi.setSystemTime(Date.now() + ms);
+    await act(async () => window.dispatchEvent(new Event(event)));
+  };
+  try {
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(EnginesSettings))));
+    expect(refreshInstances).toHaveBeenCalledExactlyOnceWith(true);
+    await after(0, "blur");
+    await after(0, "focus");
+    await after(6000, "blur");
+    await after(1000, "focus");
+    expect(refreshInstances).toHaveBeenCalledTimes(1);
+    await after(0, "blur");
+    await after(6000, "focus");
+    expect(refreshInstances).toHaveBeenCalledTimes(2);
+    expect(refreshInstances).toHaveBeenLastCalledWith(true);
+  } finally {
+    await act(async () => root.unmount());
+    vi.useRealTimers();
+  }
+  window.dispatchEvent(new Event("focus"));
+  expect(refreshInstances).toHaveBeenCalledTimes(2);
 });
