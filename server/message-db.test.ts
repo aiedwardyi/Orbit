@@ -228,6 +228,7 @@ describe("message-db", () => {
     const hits = searchMessages("최세훈");
     expect(hits.map((hit) => hit.kind)).toEqual(["text", "activity"]);
     expect(searchMessages("최세훈", 1)[0]?.messageId).toBe("text-hit");
+    expect(searchMessages("최세훈", 40, "t-rank").map((hit) => hit.messageId)).toEqual(["tool-hit", "text-hit"]);
   });
 
   it("Store round-trips branching through the DB across a restart", () => {
