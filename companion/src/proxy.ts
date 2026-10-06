@@ -208,6 +208,8 @@ const forwardHeaders = (req: IncomingMessage): Record<string, string> => {
   };
   const contentType = req.headers["content-type"];
   if (contentType) out["content-type"] = String(contentType);
+  const attachmentName = req.headers["x-attachment-name"];
+  if (attachmentName) out["x-attachment-name"] = String(attachmentName);
   // Last-Event-ID is how a reconnecting client asks for the gap. Dropping it
   // would turn every resume into a full re-hydration, silently.
   const lastEventId = req.headers["last-event-id"];

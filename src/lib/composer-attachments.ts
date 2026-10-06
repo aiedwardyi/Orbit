@@ -1,6 +1,8 @@
 // What is attached to the next message: text too long for the input or a
 // file dropped onto the window. Chips fold back into a normal prompt on
 // send, so every driver receives the same message shape.
+import { z } from "zod";
+
 export type PasteAttachment = {
   kind: "paste";
   id: string;
@@ -126,6 +128,9 @@ export function fileAttachment(name: string, path: string, size: number): FileAt
 /** Matches the server's IMAGE_MAX_BYTES — checked client-side so an
  * oversized paste is refused before the upload starts, not mid-stream. */
 export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const DOCUMENT_MAX_BYTES = 25 * 1024 * 1024;
+
+const DOCUMENT_EXTENSION = /\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|json)$/i;
 
 export function isImageFile(file: { type: string; size: number }): boolean {
   return (
@@ -134,18 +139,23 @@ export function isImageFile(file: { type: string; size: number }): boolean {
   );
 }
 
-async function uploadAttachmentFile(file: File): Promise<{ path: string; mime: string; bytes: number }> {
+async function uploadAttachmentFile(
+  file: Pick<File, "name" | "type" | "arrayBuffer">,
+  document = false,
+): Promise<{ path: string; name?: string; mime: string; bytes: number }> {
   const bytes = new Uint8Array(await file.arrayBuffer());
+  const headers = new Headers({ "content-type": file.type || "application/octet-stream" });
+  if (document) headers.set("x-attachment-name", encodeURIComponent(file.name));
   const response = await fetch("/api/attachments", {
     method: "POST",
-    headers: { "content-type": file.type },
+    headers,
     body: bytes,
   });
   if (!response.ok) {
     const detail = (await response.json().catch(() => ({ error: response.statusText }))) as { error?: string };
     throw Object.assign(new Error(detail.error ?? "upload failed"), { status: response.status });
   }
-  return (await response.json()) as { path: string; mime: string; bytes: number };
+  return z.object({ path: z.string(), name: z.string().optional(), mime: z.string(), bytes: z.number() }).parse(await response.json());
 }
 
 /** Persist a pasted image server-side and return the attachment chip data.
@@ -336,23 +346,21 @@ export function attachmentImageUrl(path: string): string | null {
   return `/api/attachments/${encodeURIComponent(name)}`;
 }
 
-/** One intake path for files arriving by drop OR by the composer's attach
- * button, so a picked file and a dropped one can never behave differently.
- * The image uploader is injected: the caller owns the network, this owns
- * the ordering and the sentence the user reads when something is refused. */
-export async function intakeFiles<T extends DroppedFile & { type: string }>(
+/** Shared intake for the attach button and file drops on every device. */
+export async function intakeFiles<T extends DroppedFile & Pick<File, "arrayBuffer">>(
   _files: readonly T[],
   _opts: {
     allowImages: boolean;
     getPath: (file: T) => string;
     uploadImage: (file: T, allowImages: boolean) => Promise<Attachment | null>;
+    t: (key: "composer.attachmentUnsupported" | "composer.uploadFailed", vars?: Record<string, string | number>) => string;
   },
 ): Promise<{ attachments: Attachment[]; notice: string | null }> {
   const files = [..._files];
-  const { allowImages, getPath, uploadImage } = _opts;
+  const { allowImages, getPath, uploadImage, t } = _opts;
   const attachments: Attachment[] = [];
   const rejectedNames: string[] = [];
-  const imageErrors: string[] = [];
+  const uploadErrors: string[] = [];
   // Finish each selected file in sequence so the chips retain the order in
   // which the user chose or dropped them.
   for (const file of files) {
@@ -365,21 +373,31 @@ export async function intakeFiles<T extends DroppedFile & { type: string }>(
           const attachment = await uploadImage(file, allowImages);
           if (attachment) attachments.push(attachment);
         } catch (err) {
-          imageErrors.push(`${file.name}: ${err instanceof Error ? err.message : "upload failed"}`);
+          uploadErrors.push(`${file.name}: ${err instanceof Error ? err.message : t("composer.uploadFailed")}`);
         }
         continue;
       }
       attachments.push(fileAttachment(file.name, path, file.size));
       continue;
     }
-    const result = await attachmentsFromDroppedFiles([file], getPath);
-    attachments.push(...result.attachments);
-    rejectedNames.push(...result.rejectedNames);
+    const path = safeGetPath(file, getPath);
+    if (path) {
+      attachments.push(fileAttachment(file.name, path, file.size));
+    } else if (DOCUMENT_EXTENSION.test(file.name) && file.size <= DOCUMENT_MAX_BYTES) {
+      try {
+        const saved = await uploadAttachmentFile(file, true);
+        attachments.push(fileAttachment(saved.name ?? attachmentBasename(file.name), saved.path, saved.bytes));
+      } catch {
+        uploadErrors.push(`${file.name}: ${t("composer.uploadFailed")}`);
+      }
+    } else {
+      rejectedNames.push(file.name);
+    }
   }
   const pathless = rejectedNames.length
-    ? `${rejectedNames.join(", ")} — that file has no path on disk. Save it first, then attach it from Finder.`
+    ? t("composer.attachmentUnsupported", { name: rejectedNames.join(", ") })
     : null;
-  const failed = imageErrors.length ? imageErrors.join("; ") : null;
+  const failed = uploadErrors.length ? uploadErrors.join("; ") : null;
   return {
     attachments,
     notice: pathless && failed ? `${pathless} (${failed})` : (pathless ?? failed),

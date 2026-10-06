@@ -15,7 +15,7 @@ import { z } from "zod";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { openSse } from "./testing/sse.ts";
-import { IMAGE_MAX_BYTES } from "./attachments.ts";
+import { DOCUMENT_MAX_BYTES, IMAGE_MAX_BYTES } from "./attachments.ts";
 import { defaultComputerForNewBot } from "./local-routing.ts";
 import { spawnHarness as spawn, harnessFetch as fetch, harnessToken } from "./testing/harness-auth.ts";
 
@@ -1497,6 +1497,35 @@ describe("harness HTTP API", () => {
       body: Buffer.alloc(IMAGE_MAX_BYTES + 1),
     });
     expect(tooBig.status).toBe(413);
+  });
+
+  it("uploads documents with safe names and preserves upload error responses", async () => {
+    const saved = await fetch(`${BASE}/api/attachments`, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream", "x-attachment-name": encodeURIComponent("../윙크.docx") },
+      body: "document",
+    });
+    expect(saved.status).toBe(201);
+    const body = z.object({ path: z.string(), name: z.string(), bytes: z.number() }).parse(await saved.json());
+    expect(body).toMatchObject({ name: "윙크.docx", bytes: 8 });
+    expect(body.path).toMatch(/[\\/][a-f0-9-]{36}\.docx$/);
+    expect(readFileSync(body.path).toString()).toBe("document");
+
+    const rejected = await fetch(`${BASE}/api/attachments`, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream", "x-attachment-name": "run.exe" },
+      body: "executable",
+    });
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toEqual({ error: "unsupported document type" });
+
+    const tooBig = await fetch(`${BASE}/api/attachments`, {
+      method: "POST",
+      headers: { "content-type": "application/pdf", "x-attachment-name": "big.pdf" },
+      body: Buffer.alloc(DOCUMENT_MAX_BYTES + 1),
+    });
+    expect(tooBig.status).toBe(413);
+    expect(await tooBig.json()).toEqual({ error: `document exceeds ${DOCUMENT_MAX_BYTES} bytes` });
   });
 
   it("persists only app-owned bot avatars and supported crop shapes", async () => {

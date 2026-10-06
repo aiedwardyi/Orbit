@@ -438,6 +438,7 @@ export function Composer({
   const pickFiles = async (picked: FileList | null) => {
     if (!picked?.length) return;
     const { attachments: added, notice } = await intakeFiles(Array.from(picked), {
+      t,
       allowImages: engineSupportsImages,
       getPath: pathForFile,
       uploadImage: pasteImageAttachment,

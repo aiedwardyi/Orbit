@@ -48,7 +48,7 @@ import {
   projectPathsFromRecords,
   userProjectTexts,
 } from "./project-folder.ts";
-import { attachmentExists, ATTACHMENTS_DIR, ensureAttachmentsDir, extensionForMime, IMAGE_MAX_BYTES, importLocalImage, readAttachment, saveImage, type SavedAttachment } from "./attachments.ts";
+import { attachmentExists, ATTACHMENTS_DIR, ensureAttachmentsDir, importLocalImage, readAttachment, receiveAttachment, saveImage, type SavedAttachment } from "./attachments.ts";
 import {
   avatarGenerationRequestSchema,
   avatarGenerationStateMatches,
@@ -7383,43 +7383,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return res.end(bytes);
     }
 
-    // ── image attachments ────────────────────────────────────────────────
-    // Pasted/dropped images are stored as files and referenced by path in
-    // the prompt (<attached-image path="…"/>); this pair of routes is the
-    // save + serve. The POST takes raw bytes (base64 JSON would double the
-    // payload), so it needs its own reader rather than readBody.
     if (method === "POST" && path === "/api/attachments") {
-      const rawType = Array.isArray(req.headers["content-type"]) ? req.headers["content-type"][0] : req.headers["content-type"];
-      const mime = rawType?.split(";")[0]?.trim().toLowerCase();
-      if (!mime || !extensionForMime(mime)) {
-        return json(res, 400, { error: "content-type must be an image type" });
-      }
-      const saved = await new Promise<SavedAttachment>((resolve, reject) => {
-        const chunks: Buffer[] = [];
-        let received = 0;
-        let settled = false;
-        const fail = (status: number, msg: string) => {
-          if (settled) return;
-          settled = true;
-          reject(Object.assign(new Error(msg), { status }));
-        };
-        req.on("data", (chunk: Buffer) => {
-          if (settled) return;
-          received += chunk.byteLength;
-          if (received > IMAGE_MAX_BYTES) return fail(413, `image exceeds ${IMAGE_MAX_BYTES} bytes`);
-          chunks.push(chunk);
-        });
-        req.on("end", () => {
-          if (settled) return;
-          settled = true;
-          try {
-            resolve(saveImage(Buffer.concat(chunks), mime));
-          } catch (e) {
-            reject(Object.assign(e instanceof Error ? e : new Error(String(e)), { status: 400 }));
-          }
-        });
-        req.on("error", (e) => fail(400, e instanceof Error ? e.message : String(e)));
-      });
+      const saved = await receiveAttachment(req);
       return json(res, 201, saved);
     }
 

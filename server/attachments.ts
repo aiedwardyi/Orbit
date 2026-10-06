@@ -1,8 +1,7 @@
-// Image attachments: pasted/dropped images become files under
-// ~/.orbit/attachments so every CLI engine can open them by path.
-// the app never ships image bytes through the prompt itself.
+// Uploaded images and documents become files every CLI engine can open by path.
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import type { IncomingMessage } from "node:http";
 import { basename, extname, isAbsolute, join, relative } from "node:path";
 import { DATA_DIR } from "./config.ts";
 
@@ -11,6 +10,9 @@ export const ATTACHMENTS_DIR = join(DATA_DIR, "attachments");
 /** The spec's ceiling: a screenshot bigger than this is rejected before it
  * is ever buffered, matching the composer's existing size discipline. */
 export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const DOCUMENT_MAX_BYTES = 25 * 1024 * 1024;
+
+const DOCUMENT_EXTENSIONS = new Set([".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".txt", ".md", ".csv", ".json"]);
 
 /** Mimes the endpoint accepts, mapped to the extension stored on disk.
  * Sniffing is not attempted — a lie here only changes the filename. */
@@ -32,8 +34,70 @@ export function ensureAttachmentsDir(): void {
 
 export interface SavedAttachment {
   path: string;
+  name?: string;
   mime: string;
   bytes: number;
+}
+
+export async function receiveAttachment(req: IncomingMessage): Promise<SavedAttachment> {
+  const mime = req.headers["content-type"]?.split(";")[0]?.trim().toLowerCase() ?? "";
+  const rawName = req.headers["x-attachment-name"];
+  let name: string | undefined;
+  let ext = "";
+  if (rawName !== undefined) {
+    if (Array.isArray(rawName)) throw Object.assign(new Error("invalid attachment name"), { status: 400 });
+    try {
+      // eslint-disable-next-line no-control-regex -- Uploaded names are display metadata only.
+      name = decodeURIComponent(rawName).split(/[\\/]/).pop()!.replace(/[\x00-\x1f\x7f<>:"|?*]/g, "");
+    } catch {
+      throw Object.assign(new Error("invalid attachment name"), { status: 400 });
+    }
+    ext = extname(name);
+    if (!DOCUMENT_EXTENSIONS.has(ext.toLowerCase())) {
+      throw Object.assign(new Error("unsupported document type"), { status: 400 });
+    }
+  } else if (!extensionForMime(mime)) {
+    throw Object.assign(new Error("content-type must be an image type or a supported document name must be provided"), { status: 400 });
+  }
+  const limit = name === undefined ? IMAGE_MAX_BYTES : DOCUMENT_MAX_BYTES;
+  const kind = name === undefined ? "image" : "document";
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let received = 0;
+    let settled = false;
+    const fail = (status: number, message: string) => {
+      if (settled) return;
+      settled = true;
+      chunks.length = 0;
+      reject(Object.assign(new Error(message), { status }));
+    };
+    req.on("data", (chunk: Buffer) => {
+      if (settled) return;
+      received += chunk.byteLength;
+      if (received > limit) return fail(413, `${kind} exceeds ${limit} bytes`);
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (settled) return;
+      if (!received) return fail(400, `empty ${kind}`);
+      settled = true;
+      try {
+        const bytes = Buffer.concat(chunks);
+        if (name === undefined) {
+          resolve(saveImage(bytes, mime));
+        } else {
+          ensureAttachmentsDir();
+          const path = join(ATTACHMENTS_DIR, `${randomUUID()}${ext}`);
+          writeFileSync(path, bytes, { mode: 0o600, flag: "wx" });
+          resolve({ path, name, mime: "application/octet-stream", bytes: received });
+        }
+      } catch (error) {
+        reject(error);
+      }
+    });
+    req.on("error", (error) => fail(400, error.message));
+    req.on("aborted", () => fail(400, "upload aborted"));
+  });
 }
 
 /** Persist one image and return its path. The UUID filename means the name
