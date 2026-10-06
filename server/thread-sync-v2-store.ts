@@ -36,7 +36,7 @@ export interface SyncStoreHost {
   running(threadId: string): boolean;
   project(message: Message): Message;
   imported(botId: string): void;
-  maintenance(): void;
+  maintenance(): void | Promise<void>;
 }
 
 export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
@@ -409,7 +409,8 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     const transport = await client();
     if (!transport) return;
     for (const threadId of retry) schedule(threadId);
-    host.maintenance();
+    const pendingMaintenance = host.maintenance();
+    if (pendingMaintenance instanceof Promise) await pendingMaintenance;
     const tasks: StoredTask[] = [];
     for (const target of host.bots()) {
       for (const local of host.store.tasks(target.botId)) {
