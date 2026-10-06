@@ -241,7 +241,7 @@ describe("bot archive is not a user action", () => {
   it("opens the delete confirm before the sync check answers", async () => {
     bots = [bot("ada", "Ada", false)];
     sync = { configured: true, syncChats: true };
-    let answer = () => undefined as void;
+    let answer: (() => void) | undefined;
     syncAnswer = new Promise((resolve) => {
       answer = resolve;
     });
@@ -252,7 +252,7 @@ describe("bot archive is not a user action", () => {
         buttonByText("Delete", document.querySelector("[data-bot-menu]") ?? document).click();
       });
       expect(document.body.textContent).toContain("This permanently deletes Ada and its conversation. This cannot be undone.");
-      await act(async () => answer());
+      await act(async () => answer?.());
       await vi.waitFor(() => {
         expect(document.body.textContent).toContain("on all your PCs");
       });
