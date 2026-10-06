@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ClipboardPaste, File as FileIcon, Image as ImageIcon, MessageSquareText, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useI18n } from "@/lib/i18n";
 import {
   attachmentImageUrl,
   intakeFiles,
@@ -39,6 +40,7 @@ export function ComposerAttachments({
   notice: string | null;
   onNotice: (notice: string | null) => void;
 }) {
+  const { t } = useI18n();
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<PreviewImage | null>(null);
   // dragenter/dragleave fire once per element crossed, so the overlay
@@ -73,6 +75,7 @@ export function ComposerAttachments({
       // Same intake the attach button uses: a dropped file and a picked one
       // must not appear in a different order.
       const { attachments, notice: message } = await intakeFiles(files, {
+        t,
         allowImages,
         getPath: pathForFile,
         uploadImage: pasteImageAttachment,
@@ -95,7 +98,7 @@ export function ComposerAttachments({
       window.removeEventListener("dragover", onOver);
       window.removeEventListener("drop", onDrop);
     };
-  }, [onAdd, allowImages, onNotice]);
+  }, [onAdd, allowImages, onNotice, t]);
 
   return (
     <>

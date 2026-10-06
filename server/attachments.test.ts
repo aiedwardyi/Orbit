@@ -3,7 +3,9 @@
 import * as fs from "node:fs";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { IncomingMessage } from "node:http";
+import { Socket } from "node:net";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,7 +25,60 @@ vi.mock("node:fs", async (importOriginal) => {
 const DATA_ROOT = mkdtempSync(join(tmpdir(), "omb-attachments-"));
 process.env.OMB_DATA_DIR = join(DATA_ROOT, "data");
 
-const { ATTACHMENTS_DIR, IMAGE_MAX_BYTES, extensionForMime, importLocalImage, readAttachment, saveImage, sniffImageMime } = await import("./attachments.ts");
+const { ATTACHMENTS_DIR, IMAGE_MAX_BYTES, extensionForMime, importLocalImage, readAttachment, receiveAttachment, saveImage, sniffImageMime } = await import("./attachments.ts");
+
+function uploadRequest(name: string | undefined, chunks: Buffer[], mime = "application/octet-stream") {
+  const req = new IncomingMessage(new Socket());
+  req.headers["content-type"] = mime;
+  if (name !== undefined) req.headers["x-attachment-name"] = encodeURIComponent(name);
+  const saved = receiveAttachment(req);
+  for (const chunk of chunks) req.emit("data", chunk);
+  req.emit("end");
+  return saved;
+}
+
+describe("document uploads", () => {
+  afterEach(() => {
+    rmSync(ATTACHMENTS_DIR, { recursive: true, force: true });
+  });
+
+  it.each(["pdf", "docx", "doc", "xlsx", "xls", "pptx", "ppt", "txt", "md", "csv", "json"])("stores .%s bytes under a random name", async (ext) => {
+    const saved = await uploadRequest(`윙크.${ext}`, [Buffer.from("document")]);
+    const second = await uploadRequest(`윙크.${ext}`, [Buffer.from("document")]);
+    expect(dirname(saved.path)).toBe(ATTACHMENTS_DIR);
+    expect(basename(saved.path)).toMatch(new RegExp(`^[a-f0-9-]{36}\\.${ext}$`));
+    expect(saved.path).not.toBe(second.path);
+    expect(saved).toMatchObject({ name: `윙크.${ext}`, bytes: 8 });
+    expect(readFileSync(saved.path).toString()).toBe("document");
+    expect(readAttachment(basename(saved.path))).toBeNull();
+  });
+
+  it("neutralizes traversal and control characters in display metadata", async () => {
+    const saved = await uploadRequest("../../private\\윙크\r\n.docx", [Buffer.from("doc")]);
+    expect(saved.name).toBe("윙크.docx");
+    expect(dirname(saved.path)).toBe(ATTACHMENTS_DIR);
+    expect(basename(saved.path)).toMatch(/^[a-f0-9-]{36}\.docx$/);
+  });
+
+  it("accepts 25 MB and rejects a stream over the limit with status 413", async () => {
+    const bytes = Buffer.alloc(25 * 1024 * 1024);
+    expect((await uploadRequest("limit.PDF", [bytes])).bytes).toBe(bytes.length);
+    await expect(uploadRequest("big.pdf", [bytes, Buffer.from("x")])).rejects.toMatchObject({ status: 413, message: expect.stringContaining("exceeds") });
+  });
+
+  it.each(["run.exe", "run.docx.exe", "page.html", "image.svg", "file", "file.pdf:run.exe"])("rejects %s", async (name) => {
+    await expect(uploadRequest(name, [Buffer.from("x")])).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("preserves the image limit and rejects empty documents and missing names", async () => {
+    await expect(uploadRequest("empty.txt", [])).rejects.toMatchObject({ status: 400 });
+    await expect(uploadRequest(undefined, [Buffer.from("x")], "text/plain")).rejects.toMatchObject({ status: 400 });
+    await expect(uploadRequest(undefined, [Buffer.alloc(IMAGE_MAX_BYTES + 1)], "image/png")).rejects.toMatchObject({ status: 413 });
+    const image = await uploadRequest(undefined, [Buffer.from("png")], "image/png");
+    expect(image.mime).toBe("image/png");
+    expect(readAttachment(basename(image.path))?.bytes.toString()).toBe("png");
+  });
+});
 
 describe("extensionForMime", () => {
   it("maps the accepted image mimes to extensions", () => {
