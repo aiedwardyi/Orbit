@@ -3232,20 +3232,20 @@ describe("harness HTTP API", () => {
   it("keeps Teach a skill off by default and persists an explicit opt-in", async () => {
     const before = await api("GET", "/api/config");
     expect(before.status).toBe(200);
-    expect(before.body.features).toEqual({ browser: false, skillRecorder: false, showToolCalls: false, terminalHost: false });
+    expect(before.body.features).toEqual({ browser: false, skillRecorder: false, showToolCalls: false, detailedReplies: false, terminalHost: false });
 
     const saved = await api("PATCH", "/api/config", {
       features: { skillRecorder: true },
     });
     expect(saved.status).toBe(200);
-    expect(saved.body.features).toEqual({ browser: false, skillRecorder: true, showToolCalls: false, terminalHost: false });
+    expect(saved.body.features).toEqual({ browser: false, skillRecorder: true, showToolCalls: false, detailedReplies: false, terminalHost: false });
 
     const disk = JSON.parse(readFileSync(join(home, ".orbit", "config.json"), "utf8"));
     expect(disk.features).toEqual({ skillRecorder: true });
 
     const tools = await api("PATCH", "/api/config", { features: { showToolCalls: true } });
     expect(tools.status).toBe(200);
-    expect(tools.body.features).toEqual({ browser: false, skillRecorder: true, showToolCalls: true, terminalHost: false });
+    expect(tools.body.features).toEqual({ browser: false, skillRecorder: true, showToolCalls: true, detailedReplies: false, terminalHost: false });
 
     await api("PATCH", "/api/config", { features: { skillRecorder: false, showToolCalls: false } });
   });
