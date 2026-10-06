@@ -1063,6 +1063,8 @@ describe("composer attachment chips", () => {
     expect(ko["composer.chipPasted"]).toBe("붙여넣음");
     expect(en["composer.chipImage"]).toBe("IMAGE");
     expect(ko["composer.chipImage"]).toBe("이미지");
+    expect(ko["composer.removeImage"]).toBe("이미지 빼기");
+    expect(attachments).toContain('"composer.removeImage"');
     expect(attachments).toContain('kind="FILE"');
     expect(attachments).toContain('"composer.chipFile"');
     expect(attachments).not.toContain('label="FILE"');

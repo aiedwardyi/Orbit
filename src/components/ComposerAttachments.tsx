@@ -220,7 +220,7 @@ function Chip({
           way to drop a chip out of reach of the keyboard */}
       <button
         onClick={onRemove}
-        aria-label={t(kind === "PASTED" ? "composer.removePasted" : "composer.removeFile")}
+        aria-label={t(kind === "PASTED" ? "composer.removePasted" : kind === "IMAGE" ? "composer.removeImage" : "composer.removeFile")}
         className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-hairline/60 bg-panel text-ink-secondary opacity-0 transition-opacity hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
       >
         <X size={11} />
