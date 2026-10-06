@@ -2540,7 +2540,7 @@ export function Sidebar({
           onDeleteRequest={(bot) => setDeleteTarget(bot)}
         />
       )}
-      {deleteTarget && deleteReach && (
+      {deleteTarget && (
         <ConfirmDialog
           title={t("chrome.deleteBotTitle")}
           body={t(deleteReach === "every-pc" ? "chrome.deleteBotBodyAllPcs" : "chrome.deleteBotBody", { name: deleteTarget.name })}

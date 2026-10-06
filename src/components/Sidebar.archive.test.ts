@@ -26,6 +26,7 @@ type ApiCall = { path: string; method: string; body: string };
 
 const calls: ApiCall[] = [];
 let sync = { configured: false, syncChats: false };
+let syncAnswer: Promise<void> | null = null;
 let bots: Bot[] = [];
 
 function bot(id: string, name: string, hidden: boolean): Bot {
@@ -56,6 +57,7 @@ vi.mock("@/state/store", async (importOriginal) => {
     ...actual,
     api: async (path: string, init?: RequestInit): Promise<ApiResult> => {
       calls.push({ path, method: init?.method ?? "GET", body: textBody(init?.body) });
+      if (path === "/api/profile-sync") await syncAnswer;
       if (path === "/api/profile-sync") return { configured: sync.configured, syncChats: sync.syncChats, folder: sync.configured ? "D:/Orbit" : null };
       if (path.startsWith("/api/bots/") && init?.method === "PATCH") return { bot: { id: "bo", hidden: false, name: "Bo" } };
       return {};
@@ -137,6 +139,7 @@ afterEach(() => {
   document.body.replaceChildren();
   calls.length = 0;
   sync = { configured: false, syncChats: false };
+  syncAnswer = null;
   bots = [];
   localStorage.setItem("omb-locale", "en");
 });
@@ -232,6 +235,29 @@ describe("bot archive is not a user action", () => {
       });
     } finally {
       await act(async () => second.root.unmount());
+    }
+  });
+
+  it("opens the delete confirm before the sync check answers", async () => {
+    bots = [bot("ada", "Ada", false)];
+    sync = { configured: true, syncChats: true };
+    let answer = () => undefined as void;
+    syncAnswer = new Promise((resolve) => {
+      answer = resolve;
+    });
+    const view = await renderSidebar();
+    try {
+      await openMenu("Ada");
+      await act(async () => {
+        buttonByText("Delete", document.querySelector("[data-bot-menu]") ?? document).click();
+      });
+      expect(document.body.textContent).toContain("This permanently deletes Ada and its conversation. This cannot be undone.");
+      await act(async () => answer());
+      await vi.waitFor(() => {
+        expect(document.body.textContent).toContain("on all your PCs");
+      });
+    } finally {
+      await act(async () => view.root.unmount());
     }
   });
 });
