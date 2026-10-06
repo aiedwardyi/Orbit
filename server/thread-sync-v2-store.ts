@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -7,7 +7,7 @@ import { z } from "zod";
 import { lastMessageAt, withMessageTransaction } from "./message-db.ts";
 import { publishThreadPictures } from "./picture-sync.ts";
 import type { Message, Store } from "./store.ts";
-import { CONFLICT_NOTICE, shared, THREAD_SYNC_POLL_MS } from "./thread-sync.ts";
+import { CONFLICT_NOTICE, CONFLICT_NOTICE_V2, isConflictNotice, shared, THREAD_SYNC_POLL_MS } from "./thread-sync.ts";
 import { createSyncEngine } from "./thread-sync-v2-engine.ts";
 import { initializeMigration, registerMigration, type MigrationProgress } from "./thread-sync-v2-migration.ts";
 import { ThreadSyncV2, type SyncChange, type SyncMutation, type SyncOptions, type SyncScope } from "./thread-sync-v2.ts";
@@ -155,15 +155,35 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
         SELECT active_leaf_id FROM thread_state WHERE thread_id = ?
         UNION SELECT json_extract(m.json, '$.parentId') FROM messages m JOIN path ON m.id = path.id WHERE m.thread_id = ?
       ) SELECT 1 FROM path JOIN messages m ON m.id = path.id
-        WHERE m.thread_id = ? AND json_extract(m.json, '$.tool.name') = ? LIMIT 1`)
-        .get(task.threadId, task.threadId, task.threadId, `error: ${CONFLICT_NOTICE}`);
+        WHERE m.thread_id = ? AND json_extract(m.json, '$.tool.name') IN (?, ?) LIMIT 1`)
+        .get(task.threadId, task.threadId, task.threadId, `error: ${CONFLICT_NOTICE}`, `error: ${CONFLICT_NOTICE_V2}`);
       if (noticed) return;
       const parent = db.prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?").get(task.threadId)?.active_leaf_id;
-      const message: Message = { id: randomUUID(), at: Date.now(), parentId: parent ? String(parent) : null, role: "bot", kind: "activity", tool: { name: `error: ${CONFLICT_NOTICE}`, ok: false } };
+      const message: Message = { id: randomUUID(), at: Date.now(), parentId: parent ? String(parent) : null, role: "bot", kind: "activity", tool: { name: `error: ${CONFLICT_NOTICE_V2}`, ok: false } };
       host.store.applySyncChanges(task.botId, task.threadId, [
         { cursor: 0, kind: "row", rowId: message.id, value: message, conflict: false },
         { cursor: 0, kind: "head", rowId: "", value: message.id, conflict: false },
       ]);
+    });
+  }
+
+  function removeMigrationNotices(task: StoredTask): void {
+    const path = join(host.dataDir, "thread-sync-v2-cutover.json");
+    if (!existsSync(path) || host.running(task.threadId)) return;
+    let cutoverAt: number;
+    try {
+      cutoverAt = z.object({ version: z.literal(2), cutoverAt: z.number().finite().nonnegative() }).parse(JSON.parse(readFileSync(path, "utf8"))).cutoverAt;
+    } catch {
+      return;
+    }
+    withMessageTransaction((db) => {
+      if (!db.prepare("SELECT 1 FROM sync_v2_notices WHERE thread = ?").get(task.threadId)) return;
+      const notices = db.prepare(`SELECT id FROM messages m WHERE thread_id = ? AND at >= ? AND kind = 'activity'
+        AND json_extract(json, '$.tool.name') = ?
+        AND NOT EXISTS (SELECT 1 FROM sync_v2_snapshot s WHERE s.thread = m.thread_id AND s.row_id = m.id)`)
+        .all(task.threadId, cutoverAt, `error: ${CONFLICT_NOTICE}`);
+      if (!notices.length || engine.hadNativeConflict(task)) return;
+      host.store.removeSyncNotices(task.threadId, notices.map((row) => String(row.id)));
     });
   }
 
@@ -176,6 +196,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
   const saved = withMessageTransaction((db) => z.array(storedTaskSchema).parse(db.prepare("SELECT * FROM sync_v2_store").all()));
   for (const task of saved) {
     if (!host.store.bot(task.botId)) continue;
+    removeMigrationNotices(task);
     const change: SyncChange = task.deleted
       ? { cursor: 0, kind: "delete", rowId: "", value: { deletedAt: 0 }, conflict: false }
       : { cursor: 0, kind: "metadata", rowId: "", value: { title: task.title, createdAt: task.createdAt }, conflict: false };
@@ -197,7 +218,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       while (id && !visited.has(id)) {
         visited.add(id);
         const parent = messages.find((message) => message.id === id);
-        if (parent?.tool?.name !== `error: ${CONFLICT_NOTICE}` || parent.kind !== "activity") break;
+        if (!parent || !isConflictNotice(parent)) break;
         id = parent.parentId ?? null;
       }
       return id;

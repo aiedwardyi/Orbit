@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -15,6 +15,8 @@ import type { Snapshot, TestArgs, TestResult } from "./testing/thread-sync-v2-pc
 
 const roots: string[] = [];
 const peers: Array<{ close(): Promise<void> }> = [];
+const CONFLICT_NOTICE_V2 = "This chat also changed on another PC. Both versions were kept.";
+const isConflictNotice = (message: Message) => [CONFLICT_NOTICE, CONFLICT_NOTICE_V2].some((notice) => message.tool?.name === `error: ${notice}`);
 const temp = () => {
   const root = mkdtempSync(join(tmpdir(), "sync-v2-store-"));
   roots.push(root);
@@ -88,6 +90,117 @@ afterEach(async () => {
 });
 
 describe("store delta sync", () => {
+  it("prefers main history after a stale PC sees a newer conflict branch first", async () => {
+    const main = temp();
+    const stale = temp();
+    const row = (id: string, parentId: string | null, at: number): Message => ({ id, parentId, at, role: "user", kind: "text", text: id });
+    const base = row("base", null, 1);
+    const parked = row("parked", "base", 1000);
+    const current = row("current", "base", 2);
+    for (const folder of [main, stale]) {
+      const dir = join(folder, "threads", "bot");
+      mkdirSync(dir, { recursive: true });
+      const file = { format: "orbit.thread-sync", version: 1, revision: 1, writerDeviceId: "old", updatedAt: 1,
+        task: { threadId: "thread", title: "Chat", createdAt: 1 } };
+      writeFileSync(join(dir, "thread.json"), JSON.stringify({ ...file, messages: folder === main ? [base, current] : [base], activeLeafId: folder === main ? current.id : base.id }));
+      writeFileSync(join(dir, "thread.conflict-old.json"), JSON.stringify({ ...file, messages: [base, parked], activeLeafId: parked.id }));
+    }
+    const a = pc(main, "a", true, false, true);
+    const b = pc(main, "b", true, false, true);
+    const c = pc(stale, "c", true, false, true);
+    for (const [peer, messages] of [[a, [base, current]], [b, [base, current]], [c, [base]]] as const) {
+      await peer.call("seed", { rows: [...messages], leaf: messages.at(-1)!.id });
+      await peer.call("poll");
+      await peer.call("flush");
+    }
+    expect((await c.snapshot()).rows.some((message) => message.id === parked.id)).toBe(true);
+    cpSync(join(main, "threads-v2"), join(stale, "threads-v2 (1)"), { recursive: true });
+    for (const peer of [a, b, c]) {
+      await peer.call("poll");
+      const snapshot = await peer.snapshot();
+      expect(snapshot.leaf).toBe(current.id);
+      expect(snapshot.rows.map((message) => message.id).sort()).toEqual(["base", "current", "parked"]);
+      expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+      await peer.call("restart");
+      await peer.call("poll");
+      expect((await peer.snapshot()).leaf).toBe(current.id);
+    }
+  });
+
+  it("removes a migration notice on restart and reconnects later messages", async () => {
+    const a = pc(temp(), "a", true, true);
+    await a.call("poll");
+    const before = await a.snapshot();
+    await a.call("migrationNotice");
+    const child = await a.call<Message>("append", { text: "after migration" });
+    expect((await a.snapshot()).rows.filter(isConflictNotice)).toHaveLength(1);
+    await a.call("restart");
+    const after = await a.snapshot();
+    expect(after.rows.filter(isConflictNotice)).toHaveLength(0);
+    expect(after.rows.find((row) => row.id === child.id)?.parentId).toBe(before.leaf);
+    expect(after.leaf).toBe(child.id);
+    expect(after.disk).toEqual(after.rows);
+    await a.call("restart");
+    expect((await a.snapshot()).rows).toEqual(after.rows);
+    await a.call("migrationNotice", { at: 0 });
+    await a.call("restart");
+    expect((await a.snapshot()).rows.some((message) => message.id === "migration-notice")).toBe(true);
+  });
+
+  it("retains an old notice when native edits really conflicted, even after resolution", async () => {
+    const folder = temp();
+    const a = pc(folder, "a");
+    const b = pc(folder, "b");
+    const row = await a.call<Message>("append", { text: "base" });
+    await a.call("flush");
+    await b.call("pull");
+    await a.call("patch", { id: row.id, patch: { text: "a" } });
+    await b.call("patch", { id: row.id, patch: { text: "b" } });
+    await a.call("flush");
+    await b.call("pull");
+    expect((await b.snapshot()).rows.some((message) => message.tool?.name === `error: ${CONFLICT_NOTICE_V2}`)).toBe(true);
+    await b.call("migrationNotice");
+    await b.call("patch", { id: row.id, patch: { text: "resolved" } });
+    await b.call("restart");
+    expect((await b.snapshot()).rows.some((message) => message.id === "migration-notice")).toBe(true);
+  });
+
+  it("heals two current PCs and a stale laptop after simultaneous migration into split roots", async () => {
+    const folders = [temp(), temp(), temp()];
+    const rows: Message[] = Array.from({ length: 300 }, (_, i) => ({ id: `m${i}`, parentId: i ? `m${i - 1}` : null, at: i, role: "user", kind: "text", text: `row ${i}` }));
+    for (const [i, folder] of folders.entries()) {
+      const messages = i === 2 ? rows.slice(0, 30) : rows;
+      const dir = join(folder, "threads", "bot");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "thread.json"), JSON.stringify({ format: "orbit.thread-sync", version: 1, revision: 1, writerDeviceId: "old", updatedAt: 1,
+        task: { threadId: "thread", title: "Chat", createdAt: 1 }, messages, activeLeafId: messages.at(-1)!.id }));
+    }
+    const all = folders.map((folder, i) => pc(folder, `pc${i}`, true, false, true));
+    for (const [i, peer] of all.entries()) {
+      const messages = i === 2 ? rows.slice(0, 30) : rows;
+      await peer.call("seed", { rows: messages, leaf: messages.at(-1)!.id });
+    }
+    for (const peer of all) { await peer.call("poll"); await peer.call("flush"); }
+    for (const [i, folder] of folders.entries()) {
+      for (const [j, source] of folders.entries()) {
+        if (i !== j) cpSync(join(source, "threads-v2"), join(folder, `threads-v2 (${j + 1})`), { recursive: true });
+      }
+    }
+    for (const peer of all) {
+      await peer.call("poll");
+      const after = await peer.snapshot();
+      expect(after.rows.map((row) => row.id).sort()).toEqual(rows.map((row) => row.id).sort());
+      expect(after.leaf).toBe("m299");
+      expect(after.disk).toEqual(after.rows);
+      await peer.call("poll");
+      await peer.call("poll");
+      expect((await peer.snapshot()).headChecks).toBe(after.headChecks);
+      await peer.call("restart");
+      await peer.call("poll");
+      expect((await peer.snapshot()).leaf).toBe("m299");
+    }
+  });
+
   it("retries a failed scheduled publication without another local edit", async () => {
     const folder = temp();
     const blocked = join(folder, "threads-v2");
@@ -139,7 +252,7 @@ describe("store delta sync", () => {
     await b.call("pull");
     const second = await b.snapshot();
     expect(second.noticeChecks).toBe(first.noticeChecks + 1);
-    expect(second.rows.filter((message) => message.tool?.name === `error: ${CONFLICT_NOTICE}`)).toHaveLength(1);
+    expect(second.rows.filter(isConflictNotice)).toHaveLength(1);
     await b.call("restart");
     await b.call("poll");
     expect((await b.snapshot()).noticeChecks).toBe(second.noticeChecks);
@@ -271,7 +384,7 @@ describe("store delta sync", () => {
     expect(during.disk[0].text).toBe("streaming");
     await b.call("live", { value: false });
     await b.call("pull");
-    expect((await b.snapshot()).rows.some((message) => message.tool?.name === `error: ${CONFLICT_NOTICE}`)).toBe(true);
+    expect((await b.snapshot()).rows.some(isConflictNotice)).toBe(true);
   });
 
   it("keeps notice filtering, lifted parents and picture publication", async () => {

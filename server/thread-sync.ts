@@ -115,6 +115,7 @@ export interface ThreadSyncHost {
 export type ThreadSyncResult = "written" | "imported" | "current" | "conflict" | "running" | "skipped" | "deleted";
 
 export const CONFLICT_NOTICE = "This chat also changed on another PC. The other PC's copy was saved as a conflict file.";
+export const CONFLICT_NOTICE_V2 = "This chat also changed on another PC. Both versions were kept.";
 
 export function loadThreadSyncLedger(dataDir: string): ThreadSyncLedger {
   const ledger: ThreadSyncLedger = {};
@@ -232,7 +233,8 @@ function canonical(message: Message): string {
       : value);
 }
 
-const isConflictNotice = (message: Message) => message.kind === "activity" && message.tool?.name === `error: ${CONFLICT_NOTICE}`;
+export const isConflictNotice = (message: Message) => message.kind === "activity"
+  && [CONFLICT_NOTICE, CONFLICT_NOTICE_V2].some((notice) => message.tool?.name === `error: ${notice}`);
 
 /** Conflict notices stay on the PC that showed them; rows under one hang off its parent instead. */
 export function shared(local: LocalThread): { messages: Message[]; activeLeafId: string | null } {

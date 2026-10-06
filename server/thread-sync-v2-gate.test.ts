@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -19,6 +19,7 @@ describe("chat sync cutover", () => {
     writeDeviceRecord(folder, record("b"), now);
     writeDeviceRecord(folder, record("c"), now - 4 * 86400_000);
     expect(gate.check(folder, now)).toBe(false);
+    expect(existsSync(join(folder, "threads-v2"))).toBe(true);
     expect(gate.waitingFor).toEqual(["b"]);
     writeDeviceRecord(folder, { ...record("b"), chatSync: 2 }, now);
     expect(gate.check(folder, now)).toBe(true);

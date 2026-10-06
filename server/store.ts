@@ -1847,6 +1847,22 @@ export class Store {
     return record;
   }
 
+  removeSyncNotices(threadId: string, ids: string[]): void {
+    mdb.withMessageTransaction((db) => {
+      for (const id of ids) {
+        const row = db.prepare("SELECT json FROM messages WHERE thread_id = ? AND id = ?").get(threadId, id);
+        if (!row) continue;
+        const message: Message = JSON.parse(String(row.json));
+        const parent = message.parentId ?? null;
+        db.prepare("UPDATE messages SET json = json_set(json, '$.parentId', ?) WHERE thread_id = ? AND json_extract(json, '$.parentId') = ?")
+          .run(parent, threadId, id);
+        db.prepare("UPDATE thread_state SET active_leaf_id = ? WHERE thread_id = ? AND active_leaf_id = ?").run(parent, threadId, id);
+        db.prepare("DELETE FROM messages WHERE thread_id = ? AND id = ?").run(threadId, id);
+      }
+    });
+    this.threads.delete(threadId);
+  }
+
   applySyncChanges(botId: string, threadId: string, changes: SyncChange[]): void {
     const bot = this.bot(botId);
     if (!bot || !changes.length) return;
