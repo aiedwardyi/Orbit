@@ -181,18 +181,21 @@ describe("isAgyAccountError", () => {
       "API disabled",
       "UNAUTHENTICATED: Request had invalid authentication credentials",
       "Agent Platform API has not been used in project my-project-500 before or it is disabled.",
+      "Agent Platform API has not been used in project my-project-429 before or it is disabled.",
     ]) {
       expect(isAgyAccountError(text), text).toBe(true);
     }
   });
 
-  it("ignores rate limits, 5xx, and timeout-only failures", () => {
+  it("ignores rate limits, quota, 5xx, and timeout-only failures", () => {
     for (const text of [
       "429 rate limit",
       "rate limit exceeded",
       "500 internal server error",
       "503",
       "5xx",
+      "403 RESOURCE_EXHAUSTED: quota exceeded",
+      "403 Forbidden: you have exceeded your daily quota",
       "agy watchdog timeout",
       "request timed out",
     ]) {
