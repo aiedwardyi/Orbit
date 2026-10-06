@@ -96,7 +96,9 @@ export async function receiveAttachment(req: IncomingMessage): Promise<SavedAtta
       }
     });
     req.on("error", (error) => fail(400, error.message));
-    req.on("aborted", () => fail(400, "upload aborted"));
+    req.on("close", () => {
+      if (!req.readableEnded) fail(400, "upload aborted");
+    });
   });
 }
 

@@ -390,6 +390,10 @@ export async function intakeFiles<T extends DroppedFile & Pick<File, "arrayBuffe
       } catch {
         uploadErrors.push(`${file.name}: ${t("composer.uploadFailed")}`);
       }
+    } else if (file.type === "text/plain") {
+      const result = await attachmentsFromDroppedFiles([file], getPath);
+      attachments.push(...result.attachments);
+      rejectedNames.push(...result.rejectedNames);
     } else {
       rejectedNames.push(file.name);
     }

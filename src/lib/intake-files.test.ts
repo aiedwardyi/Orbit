@@ -118,6 +118,12 @@ describe("intakeFiles", () => {
     expect(out.notice).toMatch(/ghost\.bin/);
   });
 
+  it("keeps a small pathless text file outside the document types as a paste chip", async () => {
+    const out = await intakeFiles([file("notes.log", "text/plain")], { t, allowImages: false, getPath: () => "", uploadImage: upload });
+    expect(out.attachments.map((attachment) => attachment.kind)).toEqual(["paste"]);
+    expect(out.notice).toBeNull();
+  });
+
   it("reports an upload that failed without losing the files that worked", async () => {
     const out = await intakeFiles([file("ok.png", "image/png"), file("bad.png", "image/png")], {
       t, allowImages: true,
