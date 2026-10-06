@@ -3294,6 +3294,11 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   color: var(--color-ink);
 }
 
+::highlight(orbit-find) {
+  background-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
+  color: var(--color-ink);
+}
+
 /* Styling a scrollbar turns off a phone's thin overlay one, so touch screens keep their own. */
 @media not all and (pointer: coarse) {
   ::-webkit-scrollbar {

@@ -112,9 +112,9 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toContain("Skin");
     expect(html).not.toContain("Applies instantly and is remembered");
     expect(html).toContain("Tool calls");
-    expect(html).toContain("Show tool calls");
+    expect(html).toContain("Show work steps");
     expect(html).toContain("Failed tools, turn-level errors, and bot-to-bot messages still appear.");
-    expect(html).toMatch(/aria-label="Show tool calls in chat"[^>]*aria-checked="false"|aria-checked="false"[^>]*aria-label="Show tool calls in chat"/);
+    expect(html).toMatch(/aria-label="Show work steps"[^>]*aria-checked="false"|aria-checked="false"[^>]*aria-label="Show work steps"/);
     expect(html).toContain(">Auto<");
     expect(html).toContain("Uses English or Korean from the operating system.");
     expect(html).toContain("aria-describedby");

@@ -25,7 +25,7 @@ export function RenameTitle({
   onEditingChange?: (editing: boolean) => void;
   /** Optional single-click action for locations where the title opens a profile. */
   onActivate?: () => void;
-  /** Preserve deliberate inline rename beside an onActivate title. */
+  /** Pencil beside the title. With onActivate, the pencil opens that profile. */
   showEditButton?: boolean;
   className?: string;
   inputClassName?: string;
@@ -104,9 +104,9 @@ export function RenameTitle({
         )}
         <button
           type="button"
-          onClick={startRename}
-          aria-label={t("rename.named", { name: value })}
-          title={t("rename.agent")}
+          onClick={onActivate ?? startRename}
+          aria-label={onActivate ? t("chat.openProfile", { name: value }) : t("rename.named", { name: value })}
+          title={onActivate ? t("rename.openProfile") : t("rename.agent")}
           className="flex size-10 shrink-0 items-center justify-center rounded text-ink-secondary opacity-70 hover:bg-raised hover:text-ink hover:opacity-100"
         >
           <Pencil size={12} />

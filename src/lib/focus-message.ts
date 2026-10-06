@@ -3,8 +3,18 @@
 // so the wrapper carries data-mid and its last child — the bubble/chip,
 // after any day separator — is what gets scrolled and highlighted.
 import { useEffect } from "react";
-import { api, useStore, type Action, type AppState } from "@/state/store";
+import { api, useStore, type Action } from "@/state/store";
 import type { SearchHit } from "@/lib/search-hit";
+
+interface SearchOwner {
+  id: string;
+  threadId: string;
+}
+
+interface SearchLandingState {
+  bots: readonly SearchOwner[];
+  groups: readonly SearchOwner[];
+}
 
 const FLASH_CLASSES = ["ring-2", "ring-accent/70", "rounded-2xl", "transition-shadow"];
 
@@ -37,8 +47,9 @@ let landGeneration = 0;
 /** Select and prepare the exact conversation represented by a search hit. */
 export async function landOnSearchHit(
   hit: SearchHit,
-  state: Pick<AppState, "bots" | "groups">,
+  state: SearchLandingState,
   dispatch: React.Dispatch<Action>,
+  query?: string,
 ): Promise<void> {
   const generation = ++landGeneration;
   const stale = () => generation !== landGeneration;
@@ -69,7 +80,21 @@ export async function landOnSearchHit(
     }
   }
   if (stale()) return;
-  dispatch({ type: "focusMessage", threadId: hit.threadId, messageId: hit.messageId });
+  const trimmed = query?.trim() ?? "";
+  if (trimmed) {
+    dispatch({
+      type: "focusMessage",
+      threadId: hit.threadId,
+      messageId: hit.messageId,
+      query: trimmed,
+    });
+    return;
+  }
+  dispatch({
+    type: "focusMessage",
+    threadId: hit.threadId,
+    messageId: hit.messageId,
+  });
 }
 
 export function useFocusMessage(threadId: string, ready: boolean) {

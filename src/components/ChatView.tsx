@@ -67,6 +67,7 @@ import { ReactionBar, ReactionChips } from "./Reactions";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
+import { useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
@@ -1124,24 +1125,24 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     bot.threadId,
     activeRunForBot(state.routineRuns, bot.id),
   );
-  const [findOpen, setFindOpen] = useState(false);
+  const find = useSearchFindSeed(bot.threadId);
+  const findOpen = find.findOpen;
   const { replyTo, selectReply, clearReply, consumeReply, restoreReply } = useReplyDraft(
     bot.threadId,
     `bot:${bot.id}:${bot.threadId}`,
     bot.messages,
   );
-  useEffect(() => setFindOpen(false), [bot.threadId]);
   useEffect(() => {
     const onFind = (event: KeyboardEvent) => {
       if (focusComposerBlocked) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
-        setFindOpen(true);
+        find.openFind();
       }
     };
     window.addEventListener("keydown", onFind);
     return () => window.removeEventListener("keydown", onFind);
-  }, [focusComposerBlocked]);
+  }, [find.openFind, focusComposerBlocked]);
 
   // only the active branch is rendered; forks stay reachable via ‹ › nav
   const accepted = state.acceptedSends[bot.threadId];
@@ -1545,7 +1546,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             </button>
           )}
           <button
-            onClick={() => setFindOpen((open) => !open)}
+            onClick={() => find.toggleFind()}
             aria-label={t("chat.findInConversation")}
             aria-pressed={findOpen}
             className={cn(
@@ -1576,7 +1577,15 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         </div>
       </div>
 
-      {findOpen && <ChatFindBar threadId={bot.threadId} onClose={() => setFindOpen(false)} />}
+      {findOpen && (
+        <ChatFindBar
+          key={find.findSeed?.nonce ?? "browse"}
+          threadId={bot.threadId}
+          initialQuery={find.findSeed?.query ?? ""}
+          initialMessageId={find.findSeed?.messageId ?? null}
+          onClose={find.closeFind}
+        />
+      )}
 
       {/* Error banner */}
       {state.error && (

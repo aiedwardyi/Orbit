@@ -207,7 +207,10 @@ describe("SettingsPanel Korean bot details", () => {
     expect(html).toContain("aria-label=\"봇 세부 정보 접기\"");
     expect(html).toContain("aria-label=\"봇 세부 정보 닫기\"");
     expect(html).toContain(">프로젝트 폴더<");
-    expect(html).toContain(">Memory<");
+    expect(html).toContain(">이름<");
+    expect(html).toContain(">메모리<");
+    expect(html).not.toContain(">Name<");
+    expect(html).not.toContain(">Memory<");
     expect(html).toContain(">Notifications<");
     expect(html).not.toContain(">연결 앱<");
     expect(html).not.toContain("Allow this bot to use connected apps");

@@ -50,6 +50,7 @@ import { nextBulletin } from "@/lib/room-bulletin";
 import { ActivityRun } from "./ActivityRun";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
+import { useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { shortPath } from "@/lib/short-path";
@@ -1066,7 +1067,8 @@ export function GroupView({ group }: { group: Group }) {
   const [bulletinDraft, setBulletinDraft] = useState(group.bulletin);
   const [folderOpen, setFolderOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
-  const [findOpen, setFindOpen] = useState(false);
+  const find = useSearchFindSeed(group.threadId);
+  const findOpen = find.findOpen;
   const { replyTo, selectReply, clearReply, consumeReply, restoreReply } = useReplyDraft(
     group.threadId,
     `group:${group.id}:${group.threadId}`,
@@ -1074,17 +1076,16 @@ export function GroupView({ group }: { group: Group }) {
   );
   const membersTriggerRef = useRef<HTMLButtonElement>(null);
   const closeMembers = useCallback(() => setMembersOpen(false), []);
-  useEffect(() => setFindOpen(false), [group.threadId]);
   useEffect(() => {
     const onFind = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
-        setFindOpen(true);
+        find.openFind();
       }
     };
     window.addEventListener("keydown", onFind);
     return () => window.removeEventListener("keydown", onFind);
-  }, []);
+  }, [find.openFind]);
 
   const members = useMemo(
     () => group.memberIds.map((id) => state.bots.find((b) => b.id === id)).filter((b): b is Bot => Boolean(b)),
@@ -1372,7 +1373,7 @@ export function GroupView({ group }: { group: Group }) {
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            onClick={() => setFindOpen((open) => !open)}
+            onClick={() => find.toggleFind()}
             aria-label={t("chat.findInConversation")}
             aria-pressed={findOpen}
             className={cn(
@@ -1408,7 +1409,15 @@ export function GroupView({ group }: { group: Group }) {
         </div>
       </div>
 
-      {findOpen && <ChatFindBar threadId={group.threadId} onClose={() => setFindOpen(false)} />}
+      {findOpen && (
+        <ChatFindBar
+          key={find.findSeed?.nonce ?? "browse"}
+          threadId={group.threadId}
+          initialQuery={find.findSeed?.query ?? ""}
+          initialMessageId={find.findSeed?.messageId ?? null}
+          onClose={find.closeFind}
+        />
+      )}
 
       {/* Bulletin: one pinned line; click to edit */}
       {!setupPending && <div className="w-full px-5">

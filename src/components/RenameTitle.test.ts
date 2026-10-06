@@ -25,5 +25,7 @@ describe("RenameTitle", () => {
     }));
 
     expect(markup).toContain("Open Maus&#x27;s profile");
+    expect(markup).not.toContain('aria-label="Rename Maus"');
   });
 });
+
