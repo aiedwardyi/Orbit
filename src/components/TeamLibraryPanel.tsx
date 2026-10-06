@@ -139,9 +139,8 @@ export function TeamLibraryPanel({
   const [pending, setPending] = useState<PendingTeamImport | null>(null);
   const [githubUrl, setGithubUrl] = useState("");
   const [githubLoading, setGithubLoading] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [importing, setImporting] = useState<ImportMode | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [importMode, setImportMode] = useState<ImportMode>("replace");
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [scoutFolder, setScoutFolder] = useState("");
@@ -217,7 +216,6 @@ export function TeamLibraryPanel({
 
   const previewManifest = (preview: PendingTeamImport) => {
     setPending(preview);
-    setImportMode(currentBotCount > 0 ? "replace" : "add");
     setError("");
   };
 
@@ -279,13 +277,13 @@ export function TeamLibraryPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialUrl]);
 
-  const importTeam = async () => {
-    if (!pending) return;
-    setImporting(true);
+  const importTeam = async (mode: ImportMode) => {
+    if (!pending || importing) return;
+    setImporting(mode);
     setError("");
     try {
       // SAFETY: this endpoint is owned by the app and returns imported bots.
-      const response = (await api(`/api/teams/import?mode=${importMode}`, {
+      const response = (await api(`/api/teams/import?mode=${mode}`, {
         method: "POST",
         body: JSON.stringify(pending.manifest),
       })) as {
@@ -299,8 +297,10 @@ export function TeamLibraryPanel({
       for (const bot of response.bots) dispatch({ type: "botAdded", bot });
       for (const group of response.groups ?? []) dispatch({ type: "groupPatched", group });
       for (const routine of response.routines ?? []) dispatch({ type: "routinePatched", routine });
+      const createdGroup = response.groups?.[0];
       const first = response.bots[0];
-      if (first) dispatch({ type: "select", id: first.id });
+      if (createdGroup) dispatch({ type: "select", id: createdGroup.id });
+      else if (first) dispatch({ type: "select", id: first.id });
       onImported({
         name: pending.name,
         members: response.bots.length,
@@ -312,7 +312,7 @@ export function TeamLibraryPanel({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setImporting(false);
+      setImporting(null);
     }
   };
 
@@ -438,7 +438,7 @@ export function TeamLibraryPanel({
                     setPending(null);
                     setError("");
                   }}
-                  disabled={importing}
+                  disabled={importing !== null}
                   className="rounded-lg p-1.5 text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-50"
                   aria-label={t("teamLibrary.backToTeams")}
                 >
@@ -471,7 +471,7 @@ export function TeamLibraryPanel({
             )}
             <button
               onClick={onClose}
-              disabled={importing}
+              disabled={importing !== null}
               className="rounded-lg p-2 text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-50"
               aria-label={t("teamLibrary.close")}
             >
@@ -523,37 +523,47 @@ export function TeamLibraryPanel({
             <footer className="flex flex-col gap-3 border-t border-hairline/35 px-6 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-8">
               <div className="text-[12.5px] text-ink-secondary">
                 {currentBotCount > 0 ? (
-                  importMode === "replace" ? (
-                    <>
-                      {t(currentBotCount === 1 ? "teamLibrary.replacesOne" : "teamLibrary.replacesMany", { count: currentBotCount })}{" "}
-                      <button onClick={() => setImportMode("add")} className="font-medium text-ink hover:underline">{t("teamLibrary.addAlongside")}</button>
-                    </>
-                  ) : (
-                    <>
-                      {t("teamLibrary.addedAlongside")}{" "}
-                      <button onClick={() => setImportMode("replace")} className="font-medium text-ink hover:underline">{t("teamLibrary.replaceInstead")}</button>
-                    </>
-                  )
+                  <>
+                    <p>{t("teamLibrary.addedAlongside")}</p>
+                    <p className="mt-1">{t(currentBotCount === 1 ? "teamLibrary.replacesOne" : "teamLibrary.replacesMany", { count: currentBotCount })}</p>
+                  </>
                 ) : (
                   pending.kind === "package" ? t("teamLibrary.reviewSetup") : t("teamLibrary.noChannel")
                 )}
               </div>
-              <button
-                onClick={() => void importTeam()}
-                disabled={importing}
-                className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-accent px-5 py-2.5 text-[13.5px] font-medium text-accent-ink hover:bg-accent/90 disabled:opacity-60"
-              >
-                {importing && <Loader2 size={15} className="animate-spin" />}
-                {importing
-                  ? t("teamLibrary.loadingEllipsis")
-                  : pending.kind === "package" && currentBotCount === 0
-                    ? t("teamLibrary.activate")
-                    : currentBotCount === 0
-                    ? t("teamLibrary.loadTeam")
-                    : importMode === "replace"
-                      ? t("teamLibrary.replaceTeam")
-                      : t("teamLibrary.addTeam")}
-              </button>
+              {currentBotCount > 0 ? (
+                <div className="flex shrink-0 items-center justify-end gap-2">
+                  <button
+                    onClick={() => void importTeam("replace")}
+                    disabled={importing !== null}
+                    className="flex shrink-0 items-center justify-center gap-2 rounded-full border border-hairline/50 px-5 py-2.5 text-[13.5px] font-medium text-ink hover:bg-raised disabled:opacity-60"
+                  >
+                    {importing === "replace" && <Loader2 size={15} className="animate-spin" />}
+                    {importing === "replace" ? t("teamLibrary.loadingEllipsis") : t("teamLibrary.replaceTeam")}
+                  </button>
+                  <button
+                    onClick={() => void importTeam("add")}
+                    disabled={importing !== null}
+                    className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-accent px-5 py-2.5 text-[13.5px] font-medium text-accent-ink hover:bg-accent/90 disabled:opacity-60"
+                  >
+                    {importing === "add" && <Loader2 size={15} className="animate-spin" />}
+                    {importing === "add" ? t("teamLibrary.loadingEllipsis") : t("teamLibrary.addTeam")}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => void importTeam("add")}
+                  disabled={importing !== null}
+                  className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-accent px-5 py-2.5 text-[13.5px] font-medium text-accent-ink hover:bg-accent/90 disabled:opacity-60"
+                >
+                  {importing && <Loader2 size={15} className="animate-spin" />}
+                  {importing
+                    ? t("teamLibrary.loadingEllipsis")
+                    : pending.kind === "package"
+                      ? t("teamLibrary.activate")
+                      : t("teamLibrary.loadTeam")}
+                </button>
+              )}
             </footer>
           </>
         ) : (

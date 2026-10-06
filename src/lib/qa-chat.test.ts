@@ -18,9 +18,7 @@ describe("qa chat copy", () => {
     );
   });
 
-  it("explains archive, memory, and work steps in place", () => {
-    expect(en["chrome.archiveHint"]).toBe("Hide from the list. The chat is kept.");
-    expect(ko["chrome.archiveHint"]).toBe("목록에서 숨겨요. 대화는 그대로 남아요.");
+  it("explains memory and work steps in place", () => {
     expect(en["bot.memoryPlaceholder"]).toBe(
       "This is where the bot saves rules and facts to remember.",
     );
@@ -34,10 +32,8 @@ describe("qa chat copy", () => {
   });
 
   it("wires those phrases and the search find bar", () => {
-    const sidebar = read("components/Sidebar.tsx");
     const panel = read("components/SettingsPanel.tsx");
     const find = read("components/ChatFindBar.tsx");
-    expect(sidebar).toContain('t("chrome.archiveHint")');
     expect(panel).toContain('t("bot.memoryPlaceholder")');
     expect(panel).toContain('t("bot.name")');
     expect(panel).toContain('t("bot.memory")');

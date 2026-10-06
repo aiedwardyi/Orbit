@@ -21,7 +21,7 @@ import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { DEFAULT_MAUS_COLOR, normalizeState } from "@/lib/mascot";
-import { effectiveDefaultResponder, groupResponseHint } from "@/lib/group-routing";
+import { effectiveDefaultResponder, groupResponseHint, responderControlLabel } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { MemorySaveChip } from "./MemorySaveChip";
@@ -543,6 +543,7 @@ function DefaultResponderSelect({ group, members }: { group: Group; members: Bot
   const responder = effectiveDefaultResponder(group, members);
   const value = responder.kind === "member" ? `member:${responder.botId}` : responder.kind;
   const lead = responder.kind === "member" ? members.find((member) => member.id === responder.botId) : undefined;
+  const closedLabel = responderControlLabel(responder.kind, lead?.name, t);
   const title =
     responder.kind === "everyone"
       ? t("room.titleEveryone")
@@ -561,23 +562,26 @@ function DefaultResponderSelect({ group, members }: { group: Group; members: Bot
   return (
     <div className="relative shrink-0" title={title}>
       <select
-        aria-label={t("room.defaultResponder")}
+        aria-label={closedLabel}
         value={value}
         onChange={(event) => change(event.target.value)}
-        className="h-8 max-w-[190px] appearance-none truncate rounded-full border border-hairline/40 bg-raised/60 py-1 pl-3 pr-7 text-[12.5px] font-medium text-ink outline-none hover:bg-raised focus:border-accent"
+        className="h-8 max-w-[240px] appearance-none truncate rounded-full border border-hairline/40 bg-raised/60 py-1 pl-3 pr-7 text-[12.5px] font-medium text-transparent outline-none hover:bg-raised focus:border-accent"
       >
         <optgroup label={t("room.channelLead")}>
           {members.map((member) => (
-            <option key={member.id} value={`member:${member.id}`}>
+            <option key={member.id} value={`member:${member.id}`} className="text-ink">
               {t("room.leadLabel", { name: member.name })}
             </option>
           ))}
         </optgroup>
         <optgroup label={t("room.channelBehavior")}>
-          <option value="everyone">{t("room.everyoneResponds")}</option>
-          <option value="mentions">{t("room.onlyWhenMentioned")}</option>
+          <option value="everyone" className="text-ink">{t("room.everyoneResponds")}</option>
+          <option value="mentions" className="text-ink">{t("room.onlyWhenMentioned")}</option>
         </optgroup>
       </select>
+      <span data-who-answers="" className="pointer-events-none absolute inset-0 flex items-center truncate pl-3 pr-7 text-[12.5px] font-medium text-ink">
+        {closedLabel}
+      </span>
       <ChevronDown
         size={13}
         aria-hidden="true"

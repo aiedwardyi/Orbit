@@ -665,14 +665,14 @@ function SectionPicker({
 function BotContextMenu({
   menu,
   onClose,
-  onArchive,
   onMoveToSection,
+  onMakeGroup,
   onDeleteRequest,
 }: {
   menu: MenuState;
   onClose: () => void;
-  onArchive: (bot: Bot) => void;
   onMoveToSection: (botId: string) => void;
+  onMakeGroup: (botId: string) => void;
   onDeleteRequest: (bot: Bot) => void;
 }) {
   const { t } = useI18n();
@@ -697,16 +697,9 @@ function BotContextMenu({
   if (!bot) return null;
   const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId);
   const canCoordinate = engine?.capabilities?.agentsMcp === true;
-  const visibleBotCount = state.bots.filter((candidate) => !candidate.hidden).length;
-  const archiveBlocked = Boolean(bot.chiefOfStaff) || visibleBotCount <= 1;
-  const archiveHint = bot.chiefOfStaff
-    ? t("chrome.chooseAnotherChief")
-    : visibleBotCount <= 1
-      ? t("chrome.keepOneBot")
-      : t("chrome.archiveHint");
   // keep the menu on-screen near the click
   const top = Math.max(8, Math.min(menu.y, window.innerHeight - 380));
-  const left = Math.min(menu.x, window.innerWidth - 240);
+  const left = Math.min(menu.x, window.innerWidth - 300);
 
   const item = (
     icon: React.ReactNode,
@@ -742,7 +735,7 @@ function BotContextMenu({
     <div
       data-bot-menu
       style={{ top, left }}
-      className="fixed z-40 w-[228px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60"
+      className="fixed z-40 w-[280px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60"
     >
       {[
         item(
@@ -772,19 +765,10 @@ function BotContextMenu({
           dispatch({ type: "duplicateBot", botId: bot.id }),
         ),
         divider("d2"),
-        item(<ClipboardCopy size={16} className="text-ink-secondary" />, t("chrome.copyConversationId"), () => {
-          void navigator.clipboard?.writeText(bot.threadId);
+        item(<Users size={16} className="text-ink-secondary" />, t("chrome.makeGroupWithBot"), () => {
+          onMakeGroup(bot.id);
         }),
         divider("d3"),
-        item(
-          <Archive size={16} className="text-ink-secondary" />,
-          t("chrome.archive"),
-          () => onArchive(bot),
-          {
-            disabled: archiveBlocked,
-            hint: archiveHint,
-          },
-        ),
         item(<Trash2 size={16} />, t("chrome.delete"), () => onDeleteRequest(bot), {
           danger: true,
         }),
@@ -807,16 +791,12 @@ function BotListItem({
   bot,
   density: listDensity,
   onMenu,
-  onArchive,
-  archiveDisabled,
   drag,
   onTerminalAttention,
 }: {
   bot: Bot;
   density: SidebarDensity;
   onMenu: (menu: MenuState) => void;
-  onArchive: (bot: Bot) => void;
-  archiveDisabled: boolean;
   drag?: SidebarRowDrag;
   onTerminalAttention?: (attention: TerminalAttention) => void;
 }) {
@@ -1096,22 +1076,6 @@ function BotListItem({
       >
         {body}
       </div>
-      {!iconOnly && <button
-        type="button"
-        disabled={archiveDisabled}
-        onClick={() => onArchive(bot)}
-        aria-label={t("chrome.archiveBot", { name: bot.name })}
-        title={
-          bot.chiefOfStaff
-            ? t("chrome.chooseAnotherChief")
-            : archiveDisabled
-              ? t("chrome.keepOneBot")
-              : t("chrome.archiveHint")
-        }
-        className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg bg-card/90 text-ink-secondary opacity-0 shadow-sm transition hover:bg-raised hover:text-ink focus:opacity-100 disabled:cursor-default disabled:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100"
-      >
-        <Archive size={14} />
-      </button>}
     </div>
   );
 }
@@ -1291,7 +1255,7 @@ export function Sidebar({
   const [roomMenu, setRoomMenu] = useState<{ groupId: string; x: number; y: number } | null>(null);
   const [roomSectionPicker, setRoomSectionPicker] = useState<{ groupId: string; x: number; y: number } | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
-  const [wizard, setWizard] = useState(false);
+  const [wizard, setWizard] = useState<{ preselectBotId?: string } | null>(null);
   const [teamLibraryOpen, setTeamLibraryOpen] = useState(false);
   const [teamInstallUrl, setTeamInstallUrl] = useState<string | null>(null);
   const [archivedBotsOpen, setArchivedBotsOpen] = useState(false);
@@ -1300,8 +1264,8 @@ export function Sidebar({
     error: boolean;
     text: string;
     undo?: TeamImportResult;
-    restoreBot?: { id: string; name: string };
   } | null>(null);
+  const [deleteReach, setDeleteReach] = useState<"local" | "every-pc" | null>(null);
   const [query, setQuery] = useState("");
   const [densityState, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarCollapsed());
@@ -1345,7 +1309,7 @@ export function Sidebar({
       else if (roomSectionPicker) setRoomSectionPicker(null);
       else if (menu) setMenu(null);
       else if (roomMenu) setRoomMenu(null);
-      else if (wizard) setWizard(false);
+      else if (wizard) setWizard(null);
       else if (archivedBotsOpen) setArchivedBotsOpen(false);
       else if (teamLibraryOpen) { setTeamLibraryOpen(false); setTeamInstallUrl(null); }
       else if (plusOpen) setPlusOpen(false);
@@ -1619,6 +1583,28 @@ export function Sidebar({
     return () => window.clearTimeout(timer);
   }, [teamFeedback]);
 
+  useEffect(() => {
+    if (!deleteTarget) {
+      setDeleteReach(null);
+      return;
+    }
+    let live = true;
+    setDeleteReach(null);
+    void api("/api/profile-sync")
+      .then((body) => {
+        if (!live) return;
+        // A connected folder with chat sync off does not copy a delete to other PCs.
+        const everyPc = body?.configured === true && body?.syncChats === true;
+        setDeleteReach(everyPc ? "every-pc" : "local");
+      })
+      .catch(() => {
+        if (live) setDeleteReach("local");
+      });
+    return () => {
+      live = false;
+    };
+  }, [deleteTarget]);
+
   const exportAllBots = async () => {
     setExportingTeam(true);
     setTeamFeedback(null);
@@ -1684,45 +1670,6 @@ export function Sidebar({
       const first = result.archived[0];
       if (first) dispatch({ type: "select", id: first.id });
       setTeamFeedback({ error: false, text: t("chrome.teamRestored") });
-    } catch (cause) {
-      setTeamFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) });
-    }
-  };
-
-  const archiveBot = async (bot: Bot) => {
-    const activeBots = state.bots.filter((candidate) => !candidate.hidden);
-    if (bot.chiefOfStaff || activeBots.length <= 1) return;
-    setTeamFeedback(null);
-    try {
-      const response = await api(`/api/bots/${bot.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ hidden: true }),
-      });
-      dispatch({ type: "botPatched", bot: response.bot });
-      if (state.selectedId === bot.id) {
-        const next = activeBots.find((candidate) => candidate.id !== bot.id);
-        if (next) dispatch({ type: "select", id: next.id });
-      }
-      setTeamFeedback({
-        error: false,
-        text: t("chrome.botArchived", { name: bot.name }),
-        restoreBot: { id: bot.id, name: bot.name },
-      });
-    } catch (cause) {
-      setTeamFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) });
-    }
-  };
-
-  const undoBotArchive = async (bot: { id: string; name: string }) => {
-    setTeamFeedback(null);
-    try {
-      const response = await api(`/api/bots/${bot.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ hidden: false }),
-      });
-      dispatch({ type: "botPatched", bot: response.bot });
-      dispatch({ type: "select", id: bot.id });
-      setTeamFeedback({ error: false, text: t("chrome.botRestored", { name: bot.name }) });
     } catch (cause) {
       setTeamFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) });
     }
@@ -2027,7 +1974,6 @@ export function Sidebar({
     }
     dropSection(event);
   };
-  const activeBotCount = state.bots.filter((bot) => !bot.hidden).length;
   const archivedBots = state.bots.filter((bot) => bot.hidden);
   const moveItemByKeyboard = (key: string, direction: -1 | 1) => {
     if (!rowsReorderable) return;
@@ -2153,7 +2099,6 @@ export function Sidebar({
     },
   });
   const pendingTeamUndo = teamFeedback?.undo;
-  const pendingBotUndo = teamFeedback?.restoreBot;
 
   return (
     <aside
@@ -2322,7 +2267,7 @@ export function Sidebar({
                 <button
                   onClick={() => {
                     setPlusOpen(false);
-                    setWizard(true);
+                    setWizard({});
                   }}
                   className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                 >
@@ -2421,8 +2366,6 @@ export function Sidebar({
                     bot={item.bot!}
                     density={density}
                     onMenu={setMenu}
-                    onArchive={(candidate) => void archiveBot(candidate)}
-                    archiveDisabled={Boolean(item.bot!.chiefOfStaff) || activeBotCount <= 1}
                     drag={rowsReorderable ? rowDrag(item) : undefined}
                     onTerminalAttention={onTerminalAttention}
                   />
@@ -2493,8 +2436,6 @@ export function Sidebar({
                     bot={item.bot!}
                     density={density}
                     onMenu={setMenu}
-                    onArchive={(candidate) => void archiveBot(candidate)}
-                    archiveDisabled={Boolean(item.bot!.chiefOfStaff) || activeBotCount <= 1}
                     drag={rowsReorderable ? rowDrag(item) : undefined}
                     onTerminalAttention={onTerminalAttention}
                   />
@@ -2558,7 +2499,7 @@ export function Sidebar({
         )}
         <div className={cn("flex min-w-0 items-center", density === "icons" && "justify-center")} data-sidebar-profile-row>
           <button
-            onClick={() => dispatch({ type: "toggleAppSettings" })}
+            onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}
             className={cn("flex min-w-0 items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "flex-1 gap-3 px-3")}
             aria-label={density === "icons" ? t("chrome.appSettings") : undefined}
             title={density === "icons" ? (state.config?.profile?.name?.trim() || t("chrome.appSettings")) : undefined}
@@ -2594,15 +2535,15 @@ export function Sidebar({
         <BotContextMenu
           menu={menu}
           onClose={() => setMenu(null)}
-          onArchive={(bot) => void archiveBot(bot)}
           onMoveToSection={(botId) => setSectionPicker({ botId, x: menu.x, y: menu.y })}
+          onMakeGroup={(botId) => setWizard({ preselectBotId: botId })}
           onDeleteRequest={(bot) => setDeleteTarget(bot)}
         />
       )}
-      {deleteTarget && (
+      {deleteTarget && deleteReach && (
         <ConfirmDialog
           title={t("chrome.deleteBotTitle")}
-          body={t("chrome.deleteBotBody", { name: deleteTarget.name })}
+          body={t(deleteReach === "every-pc" ? "chrome.deleteBotBodyAllPcs" : "chrome.deleteBotBody", { name: deleteTarget.name })}
           confirmLabel={t("chrome.delete")}
           onConfirm={() => {
             dispatch({ type: "deleteBot", botId: deleteTarget.id });
@@ -2637,7 +2578,7 @@ export function Sidebar({
           }
         />
       )}
-      {wizard && <GroupWizard onClose={() => setWizard(false)} />}
+      {wizard && <GroupWizard preselectBotId={wizard.preselectBotId} onClose={() => setWizard(null)} />}
       {archivedBotsOpen && (
         <ArchivedBotsPanel
           bots={archivedBots}
@@ -2687,14 +2628,6 @@ export function Sidebar({
               {pendingTeamUndo && (
                 <button
                   onClick={() => void undoTeamLoad(pendingTeamUndo)}
-                  className="rounded-md px-1.5 py-0.5 font-medium text-accent hover:bg-raised"
-                >
-                  {t("chrome.undo")}
-                </button>
-              )}
-              {pendingBotUndo && (
-                <button
-                  onClick={() => void undoBotArchive(pendingBotUndo)}
                   className="rounded-md px-1.5 py-0.5 font-medium text-accent hover:bg-raised"
                 >
                   {t("chrome.undo")}

@@ -445,7 +445,6 @@ describe("remaining P1 surfaces", () => {
     expect(ko["chrome.newChannel"]).toBe("새 그룹");
     expect(ko["chrome.newChannel"]).not.toMatch(/New Channel/i);
     expect(ko["chrome.createBotFirst"]).not.toMatch(/Create a bot first/i);
-    expect(ko["chrome.chooseAnotherChief"]).not.toMatch(/Chief of Staff/i);
   });
 
   it("wires those phrases into UpdateBanner, the Stop chip, and the sidebar", () => {
@@ -469,7 +468,6 @@ describe("remaining P1 surfaces", () => {
     expect(sidebar).toContain('t("chrome.newChannel")');
     expect(sidebar).toContain("GroupWizard");
     expect(sidebar).not.toContain("NewRoomPanel");
-    expect(sidebar).toContain('t("chrome.chooseAnotherChief")');
     expect(sidebar).not.toContain('t("chrome.teamMap")');
     expect(sidebar).toContain('t("chrome.resizeSidebar")');
     expect(sidebar).toContain('t("chrome.sidebarWidthPixels", { width: sidebarDisplayWidth })');
@@ -478,7 +476,7 @@ describe("remaining P1 surfaces", () => {
 });
 
 describe("sidebar create group and bot/room chrome", () => {
-  it("keeps Create group, Duplicate, Archive, Delete, and Move to context as complete EN+KO phrases", () => {
+  it("keeps Create group, Make a copy, Delete, and Move to context as complete EN+KO phrases", () => {
     expect(en["chrome.createChannel"]).toBe("Create group");
     expect(en["chrome.createChannelOne"]).toBe("Create group · {count} bot");
     expect(en["chrome.createChannelMany"]).toBe("Create group · {count} bots");
@@ -487,19 +485,16 @@ describe("sidebar create group and bot/room chrome", () => {
     expect(ko["chrome.createChannelMany"]).toBe("그룹 만들기 · 봇 {count}개");
     expect(ko["chrome.createChannelOne"]).not.toMatch(/Create Channel|\bbot\b|\bbots\b/i);
     expect(ko["chrome.createChannelMany"]).not.toMatch(/Create Channel|\bbot\b|\bbots\b/i);
-    expect(en["chrome.duplicate"]).toBe("Duplicate");
-    expect(ko["chrome.duplicate"]).toBe("복제");
+    expect(en["chrome.duplicate"]).toBe("Make a copy");
+    expect(ko["chrome.duplicate"]).toBe("사본 만들기");
     expect(ko["chrome.duplicate"]).not.toMatch(/Duplicate/i);
-    expect(en["chrome.archive"]).toBe("Archive");
-    expect(ko["chrome.archive"]).toBe("보관");
-    expect(ko["chrome.archive"]).not.toMatch(/Archive/i);
     expect(en["chrome.delete"]).toBe("Delete");
     expect(ko["chrome.delete"]).toBe("삭제");
     expect(en["chrome.cannotContactTeammates"]).toBe("This engine cannot contact teammates yet");
     expect(ko["chrome.cannotContactTeammates"]).toBe("이 엔진은 아직 팀원에게 연락할 수 없습니다");
     expect(ko["chrome.cannotContactTeammates"]).not.toMatch(/cannot contact/i);
     expect(en["chrome.moveToContext"]).toBe("Move to section");
-    expect(ko["chrome.moveToContext"]).toBe("섹션으로 이동");
+    expect(ko["chrome.moveToContext"]).toBe("분류로 이동");
     expect(ko["chrome.moveToContext"]).not.toMatch(/Move to context/i);
     expect(en["chrome.deleteChannel"]).toBe("Delete group");
     expect(ko["chrome.deleteChannel"]).toBe("그룹 삭제");
@@ -517,7 +512,7 @@ describe("sidebar create group and bot/room chrome", () => {
     expect(groupWizard).not.toMatch(/>Create group ·/);
     expect(groupWizard).not.toMatch(/>Add bot</);
     expect(sidebar).toContain('t("chrome.duplicate")');
-    expect(sidebar).toContain('t("chrome.archive")');
+    expect(sidebar).not.toContain('t("chrome.archive")');
     expect(sidebar).toContain('t("chrome.delete")');
     expect(sidebar).toContain('t("chrome.cannotContactTeammates")');
     expect(sidebar).toContain('t("chrome.moveToContext")');
@@ -597,7 +592,7 @@ describe("team map, team library, and team toasts", () => {
 
   it("translates the team and bot toasts in Sidebar", () => {
     expect(sidebar).toContain('t("chrome.teamRestored")');
-    expect(sidebar).toContain('t("chrome.botArchived", { name: bot.name })');
+    expect(sidebar).not.toContain('t("chrome.botArchived"');
     expect(sidebar).toContain('t("chrome.botRestored", { name: bot.name })');
     expect(sidebar).toContain('result.members === 1 ? "chrome.teamLoadedOne" : "chrome.teamLoadedMany"');
     expect(sidebar).toContain('t("chrome.undo")');
@@ -613,7 +608,7 @@ describe("team map, team library, and team toasts", () => {
     expect(hardcoded(teamLibrary).filter((hit) => !/github\.com\/owner\/repo|"Community bot"/.test(hit))).toEqual([]);
     expect(teamLibrary).not.toMatch(/"room" : "rooms"|"bot" : "bots"| min`|bots · |ready-to-load|That team file is too large/);
     expect(translate("en", "teamLibrary.replacesOne", { count: 1 })).toBe(
-      "Replaces your 1 current bot. They'll be archived with conversations intact.",
+      "Replace team moves your 1 current bot to Archived bots. Its chat is kept.",
     );
     expect(ko["teamLibrary.loadTeam"]).toBe("팀 불러오기");
     expect(ko["teamLibrary.searchTeams"]).toBe("팀 검색");

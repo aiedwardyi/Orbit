@@ -14,16 +14,20 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel,
   danger = true,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
+  children,
 }: {
   title: string;
   body?: ReactNode;
   confirmLabel: string;
   cancelLabel?: string;
   danger?: boolean;
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  children?: ReactNode;
 }) {
   const { t } = useI18n();
   const titleId = useId();
@@ -109,6 +113,7 @@ export function ConfirmDialog({
             {body}
           </p>
         )}
+        {children}
         <div className="mt-5 flex justify-end gap-2">
           <button
             ref={cancelRef}
@@ -120,11 +125,12 @@ export function ConfirmDialog({
           </button>
           <button
             type="button"
+            disabled={confirmDisabled}
             onClick={onConfirm}
             className={
               danger
-                ? "rounded-full border border-danger/30 px-4 py-2 text-[13px] font-medium text-danger hover:bg-danger/10"
-                : "rounded-full bg-accent px-4 py-2 text-[13px] font-medium text-accent-ink hover:brightness-110"
+                ? "rounded-full border border-danger/30 px-4 py-2 text-[13px] font-medium text-danger hover:bg-danger/10 disabled:opacity-40"
+                : "rounded-full bg-accent px-4 py-2 text-[13px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"
             }
           >
             {confirmLabel}

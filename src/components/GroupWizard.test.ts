@@ -66,12 +66,12 @@ vi.mock("@/state/store", async (importOriginal) => {
 
 import { GroupWizard } from "./GroupWizard";
 
-async function renderWizard() {
+async function renderWizard(preselectBotId?: string) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(createElement(GroupWizard, { onClose: () => undefined }));
+    root.render(createElement(GroupWizard, { onClose: () => undefined, preselectBotId }));
   });
   const dialog = host.querySelector('[role="dialog"]');
   if (!(dialog instanceof HTMLElement)) throw new Error("wizard did not render");
@@ -129,6 +129,20 @@ afterEach(() => {
 });
 
 describe("GroupWizard members", () => {
+  it("checks a preselected bot on the members step", async () => {
+    const { host, root } = await renderWizard("b1");
+    try {
+      await toMembers(host);
+      expect(pickRow(host, "Ada").getAttribute("aria-checked")).toBe("true");
+      expect(pickRow(host, "Bo").getAttribute("aria-checked")).toBe("false");
+      expect(host.textContent).toContain("Create group · 1 bot");
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
   it("advances from the prefilled name step to members", async () => {
     const { host, root } = await renderWizard();
     try {
