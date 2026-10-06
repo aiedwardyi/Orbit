@@ -18,6 +18,7 @@ import {
   mergeSyncedModelSelection,
   planProfileImport,
   profileImportDue,
+  syncedDeleteChoice,
   forgetSynced,
   unsyncedChanges,
   parseSyncOperationText,
@@ -401,11 +402,9 @@ describe("automatic bot sync", () => {
       bindSyncId(host.botMap, localId, item.globalId);
       markImported(host.synced, "bot", item.globalId, state.bots[item.globalId]!, item.apply, bot.changes);
     }
-    for (const item of plan.hide) {
-      const bot = host.bots.get(item.localId)!;
-      bot.hidden = true;
-      bot.changes.chiefOfStaff = false;
-      markSynced(host.synced, { entity: "bot", entityId: item.globalId, changes: { ...bot.changes, deleted: item.tombstoneId } });
+    for (const item of plan.remove) {
+      host.bots.delete(item.localId);
+      delete host.botMap[item.localId];
     }
     return plan;
   }
@@ -454,7 +453,7 @@ describe("automatic bot sync", () => {
     expect(importInto(a).bots[0]!.apply).toEqual({ color: "green" });
   });
 
-  it("hides a bot deleted on another device once and never brings it back", () => {
+  it("deletes a bot deleted on another device once and never brings it back", () => {
     const a = device("a");
     const b = device("b");
     a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", chiefOfStaff: true } });
@@ -469,12 +468,77 @@ describe("automatic bot sync", () => {
     expect(a.bots.size).toBe(0);
     expect(publish(a)).toMatchObject([{ entityId: "g-a-tutor", deleted: true }]);
     expect(importInto(a).bots).toEqual([]);
-    expect(importInto(b).hide).toEqual([{ globalId: "g-a-tutor", localId: bLocalId, tombstoneId: "a-2" }]);
-    expect(bBot!.hidden).toBe(true);
+    expect(importInto(b).remove).toEqual([{ globalId: "g-a-tutor", localId: bLocalId, tombstoneId: "a-2" }]);
+    expect(b.bots.has(bLocalId)).toBe(false);
+    expect(b.botMap[bLocalId]).toBeUndefined();
     expect(publish(b)).toEqual([]);
-    bBot!.hidden = false;
-    expect(importInto(b).hide).toEqual([]);
+    expect(importInto(b).remove).toEqual([]);
+    expect(importInto(b).bots).toEqual([]);
     expect(applySyncOperations(emptyProfileSyncState(), log).bots).toEqual({});
+  });
+
+  it("deletes a bot still hidden from an earlier tombstone", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor" } });
+    publish(a);
+    importInto(b);
+    const [[bLocalId, bBot]] = [...b.bots];
+    a.bots.delete("tutor");
+    const [tombstone] = publish(a);
+    bBot!.hidden = true;
+    markSynced(b.synced, { entity: "bot", entityId: "g-a-tutor", changes: { deleted: tombstone!.operationId } });
+    expect(importInto(b).remove).toEqual([{ globalId: "g-a-tutor", localId: bLocalId, tombstoneId: tombstone!.operationId }]);
+    expect(b.bots.has(bLocalId)).toBe(false);
+  });
+
+  it("keeps a bot the user restored after that tombstone", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor" } });
+    publish(a);
+    importInto(b);
+    const [[bLocalId, bBot]] = [...b.bots];
+    a.bots.delete("tutor");
+    const [tombstone] = publish(a);
+    bBot!.hidden = false;
+    markSynced(b.synced, { entity: "bot", entityId: "g-a-tutor", changes: { deleted: tombstone!.operationId } });
+    expect(importInto(b).remove).toEqual([]);
+    expect(b.bots.has(bLocalId)).toBe(true);
+    expect(bBot!.hidden).toBe(false);
+  });
+
+  it("leaves a bot the snapshot omits when there is no tombstone", () => {
+    const plan = planProfileImport({
+      state: emptyProfileSyncState(),
+      deviceId: "b",
+      workspaceId: "workspace",
+      synced: {},
+      botMap: { local: "g-missing" },
+      local: [{ id: "local", name: "Local", hidden: false, changes: { name: "Local" } }],
+      localOrder: {},
+    });
+    expect(plan.remove).toEqual([]);
+    expect(plan.bots).toEqual([]);
+  });
+
+  it("leaves a bot hidden by hand when nothing tombstoned it", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor" } });
+    publish(a);
+    importInto(b);
+    const [[bLocalId, bBot]] = [...b.bots];
+    bBot!.hidden = true;
+    expect(importInto(b).remove).toEqual([]);
+    expect(b.bots.get(bLocalId)!.hidden).toBe(true);
+  });
+
+  it("hides instead of deleting when the Local VM refuses", () => {
+    expect(syncedDeleteChoice({ tombstoned: true, markerMatches: false, hidden: false, vmRefused: true })).toBe("hide");
+    expect(syncedDeleteChoice({ tombstoned: true, markerMatches: true, hidden: true, vmRefused: true })).toBe("hide");
+    expect(syncedDeleteChoice({ tombstoned: true, markerMatches: false, hidden: false, vmRefused: false })).toBe("delete");
+    expect(syncedDeleteChoice({ tombstoned: false, markerMatches: false, hidden: true, vmRefused: true })).toBe("keep");
   });
 
   it("keeps a picked mascot icon when a legacy bot with no style publishes null", () => {

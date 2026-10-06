@@ -731,10 +731,26 @@ export interface LocalSyncBot extends SyncBotMatchCandidate {
   changes: Record<string, unknown>;
 }
 
+export interface SyncedDeleteInput {
+  tombstoned: boolean;
+  markerMatches: boolean;
+  hidden: boolean;
+  vmRefused: boolean;
+}
+
+/** Delete, or hide when the Local VM refuses. A restored bot (marker set, not hidden) stays. */
+export function syncedDeleteChoice(input: SyncedDeleteInput): "delete" | "hide" | "keep" {
+  if (!input.tombstoned) return "keep";
+  if (input.markerMatches && !input.hidden) return "keep";
+  if (input.vmRefused) return "hide";
+  return "delete";
+}
+
 export interface ProfileImportPlan {
   /** localId null means create. */
   bots: Array<{ globalId: string; localId: string | null; apply: Record<string, unknown> }>;
-  hide: Array<{ globalId: string; localId: string; tombstoneId: string }>;
+  /** Tombstoned bots to delete. A restored bot is not listed. */
+  remove: Array<{ globalId: string; localId: string; tombstoneId: string }>;
   order: Record<string, unknown>;
 }
 
@@ -750,7 +766,7 @@ export function planProfileImport(input: {
   const { state, deviceId, synced } = input;
   const botMap = { ...input.botMap };
   const byId = new Map(input.local.map((bot) => [bot.id, bot]));
-  const plan: ProfileImportPlan = { bots: [], hide: [], order: {} };
+  const plan: ProfileImportPlan = { bots: [], remove: [], order: {} };
   for (const remote of Object.values(state.bots)) {
     // a same-named unmapped bot was made separately; binding it by name would merge two bots
     const localId = localIdForSyncId(botMap, remote.id) ?? null;
@@ -764,9 +780,15 @@ export function planProfileImport(input: {
     const globalId = key.slice("bot:".length);
     const localId = localIdForSyncId(botMap, globalId);
     if (!localId || !byId.has(localId)) continue;
-    // hidden once per tombstone, so a bot unhidden here stays recovered
-    if (synced[syncedKey("bot", globalId, "deleted")] === syncValueHash(tombstone.operationId)) continue;
-    plan.hide.push({ globalId, localId, tombstoneId: tombstone.operationId });
+    const markerMatches = synced[syncedKey("bot", globalId, "deleted")] === syncValueHash(tombstone.operationId);
+    const choice = syncedDeleteChoice({
+      tombstoned: true,
+      markerMatches,
+      hidden: byId.get(localId)!.hidden === true,
+      vmRefused: false,
+    });
+    if (choice !== "delete") continue;
+    plan.remove.push({ globalId, localId, tombstoneId: tombstone.operationId });
   }
   const remoteOrder = Object.fromEntries((["sectionOrder", "itemOrder"] as const)
     .filter((field) => state.fieldVersions[syncedKey("order", input.workspaceId, field)])

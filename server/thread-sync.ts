@@ -623,13 +623,24 @@ function scanBotThreads(
 }
 
 /** Rescans Drive while chat sync is on; `start` runs a full, logged scan first. */
-export function createThreadSyncPoll(targets: () => ThreadSyncTargets | null, intervalMs = THREAD_SYNC_POLL_MS) {
+export function createThreadSyncPoll(
+  targets: () => ThreadSyncTargets | null | Promise<ThreadSyncTargets | null>,
+  intervalMs = THREAD_SYNC_POLL_MS,
+) {
   const seen = new Map<string, FileStat>();
   const missing = new Set<string>();
   let timer: ReturnType<typeof setInterval> | undefined;
-  const scan = (full: boolean) => {
-    const target = targets();
+  const scanTarget = (target: ThreadSyncTargets | null, full: boolean) => {
     for (const bot of target?.bots ?? []) scanBotThreads(target!.host, bot.botId, bot.botSyncId, seen, missing, full);
+  };
+  const scan = (full: boolean) => {
+    const pending = targets();
+    // profile import deletes a tombstoned bot before this scan lists targets
+    if (pending instanceof Promise) {
+      void pending.then((target) => scanTarget(target, full)).catch((error) => console.warn("chat sync: scan failed", error));
+      return;
+    }
+    scanTarget(pending, full);
   };
   return {
     start(): void {

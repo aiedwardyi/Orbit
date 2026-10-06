@@ -307,6 +307,7 @@ import {
   mergeSyncedModelSelection,
   planProfileImport,
   profileImportDue,
+  syncedDeleteChoice,
   readSyncAvatarAsset,
   readSyncOperations,
   syncAvatarMatches,
@@ -316,6 +317,7 @@ import {
   validateSyncFolder,
   writeSyncAvatarAsset,
   writeSyncOperation,
+  type ProfileImportPlan,
   type ProfileImportSeen,
   type ProfileSyncOperation,
   type ProfileSyncSettings,
@@ -1403,7 +1405,7 @@ function applySyncedBotFields(
 }
 
 /** Applies what other devices published since the last pass: newest recordedAt wins, a local edit waiting to publish is kept. */
-function importProfileChanges(): void {
+function importProfileChanges(): void | Promise<void> {
   const folder = profileSyncSettings.folder;
   if (!profileSyncSettings.syncChats || !folder) return;
   ensureProfileSyncWorkspace(folder);
@@ -1456,11 +1458,7 @@ function importProfileChanges(): void {
       markSynced(synced, { entity: "bot", entityId: item.globalId, changes: Object.fromEntries(Object.entries(local).filter(([field]) => !(field in remoteBot))) });
     }
   }
-  for (const item of plan.hide) {
-    const bot = store.patchBot(item.localId, { hidden: true, chiefOfStaff: false });
-    if (!bot) continue;
-    markSynced(synced, { entity: "bot", entityId: item.globalId, changes: { ...portableSyncChanges(bot, folder), deleted: item.tombstoneId } });
-  }
+  const finish = () => {
   for (const key of Object.keys(state.tombstones).filter((value) => value.startsWith("bot:"))) {
     const globalId = key.slice("bot:".length);
     for (const [localId, mappedGlobalId] of Object.entries(profileSyncSettings.botMap)) {
@@ -1514,6 +1512,82 @@ function importProfileChanges(): void {
   profileSyncLastSyncAt = Date.now();
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
   profileSyncSeen = { signature, invalid: remote.invalidFiles.length > 0, missingAssets };
+  };
+  if (!plan.remove.length) {
+    finish();
+    return;
+  }
+  return removeSyncedBots(plan.remove, synced, folder).then(finish);
+}
+
+async function localVmDeleteRefusal(botId: string): Promise<string | null> {
+  if (localVmMode(cfg) !== "per-bot") return null;
+  const target = perBotLocalVmTarget(botId);
+  if (localVmActiveThreads.has(target.key) || localVmLifecycleBusy.has(target.key)) {
+    return "stop this bot's Local VM turn or setup action before deleting the bot";
+  }
+  const vm = await containerComputerStatus(undefined, undefined, target);
+  if (!vm.daemonUp && existsSync(target.workspaceDir)) {
+    return "start the container runtime and delete this bot's Local VM before deleting the bot";
+  }
+  if (vm.container !== "missing") {
+    return "delete this bot's Local VM from its Computer panel before deleting the bot";
+  }
+  return null;
+}
+
+async function deleteBotFully(bot: BotRecord): Promise<void> {
+  // a running turn dies with its bot
+  await registry.get(bot.modelSelection.instanceId)?.adapter.interruptTurn(bot.threadId).catch(() => {});
+  stopScreenPoller(bot.id);
+  activeVpsThreads.delete(bot.id);
+  routines!.disableForBot(bot.id);
+  webhooks.disableForBot(bot.id);
+  lastReply.delete(bot.threadId);
+  // a peer approval naming this bot can never be meaningfully answered
+  // now, and its caller would otherwise wait out the 15-minute timeout
+  cancelPeerApprovalsFor(bot.id);
+  discardDelegations(commsBus, bot.threadId);
+  // the call above clears this bot's own thread; room queues live on the room
+  // thread instead, so they outlive the bot record unless dropped by owner
+  discardDelegationsFrom(commsBus, bot.id);
+  computerControl.forget(bot.id);
+  paneWake.forgetBot(bot.id);
+  const target = perBotLocalVmTarget(bot.id);
+  localVmIdles.get(target.key)?.cancel();
+  localVmIdles.delete(target.key);
+  store.deleteBot(bot.id);
+  for (const dir of [EVENTS_DIR, NATIVE_DIR]) {
+    try {
+      unlinkSync(join(dir, `${bot.threadId}.ndjson`));
+    } catch {}
+  }
+}
+
+async function removeSyncedBots(
+  items: ProfileImportPlan["remove"],
+  synced: ProfileSyncSettings["syncedHashes"],
+  folder: string,
+): Promise<void> {
+  for (const item of items) {
+    const bot = store.bot(item.localId);
+    if (!bot) continue;
+    const refusal = await localVmDeleteRefusal(bot.id);
+    const choice = syncedDeleteChoice({
+      tombstoned: true,
+      markerMatches: false,
+      hidden: bot.hidden === true,
+      vmRefused: refusal !== null,
+    });
+    if (choice === "hide" && refusal) {
+      const hidden = store.patchBot(item.localId, { hidden: true, chiefOfStaff: false });
+      if (!hidden) continue;
+      markSynced(synced, { entity: "bot", entityId: item.globalId, changes: { ...portableSyncChanges(hidden, folder), deleted: item.tombstoneId } });
+      console.warn(`bot sync: Local VM refused delete of ${hidden.name}; hiding it (${refusal})`);
+      continue;
+    }
+    if (choice === "delete") await deleteBotFully(bot);
+  }
 }
 
 type GroupTurnOperation = {
@@ -1736,30 +1810,34 @@ function pullSyncedThread(threadId: string): void | Promise<void> {
 const threadSyncPoll = createThreadSyncPoll(() => {
   checkThreadSyncGate();
   if (threadSyncGate.enabled) return null;
-  if (!profileSyncSettings.syncChats || !profileSyncSettings.folder) return null;
-  syncProfiles();
-  try {
-    pruneSyncedPictures(profileSyncSettings.folder, DATA_DIR);
-  } catch (error) {
-    console.warn("picture sync: prune failed", error);
-  }
-  try {
-    publishUnsyncedPictures({
-      folder: profileSyncSettings.folder,
-      dataDir: DATA_DIR,
-      threadIds: store.bots.flatMap((bot) => store.tasks(bot.id).map((task) => task.threadId)).filter((threadId) => threadSyncTarget(threadId)),
-      messagesFor: (threadId) => store.messagesFor(threadId),
-    });
-  } catch (error) {
-    console.warn("picture sync: backfill failed", error);
-  }
-  return {
-    host: threadSyncHost(profileSyncSettings.folder),
-    bots: store.bots.flatMap((bot) => {
-      const botSyncId = chatSyncBotId(profileSyncSettings, bot.id);
-      return botSyncId ? [{ botId: bot.id, botSyncId }] : [];
-    }),
+  const folder = profileSyncSettings.folder;
+  if (!profileSyncSettings.syncChats || !folder) return null;
+  const pending = syncProfiles();
+  const list = () => {
+    try {
+      pruneSyncedPictures(folder, DATA_DIR);
+    } catch (error) {
+      console.warn("picture sync: prune failed", error);
+    }
+    try {
+      publishUnsyncedPictures({
+        folder,
+        dataDir: DATA_DIR,
+        threadIds: store.bots.flatMap((bot) => store.tasks(bot.id).map((task) => task.threadId)).filter((threadId) => threadSyncTarget(threadId)),
+        messagesFor: (threadId) => store.messagesFor(threadId),
+      });
+    } catch (error) {
+      console.warn("picture sync: backfill failed", error);
+    }
+    return {
+      host: threadSyncHost(folder),
+      bots: store.bots.flatMap((bot) => {
+        const botSyncId = chatSyncBotId(profileSyncSettings, bot.id);
+        return botSyncId ? [{ botId: bot.id, botSyncId }] : [];
+      }),
+    };
   };
+  return pending instanceof Promise ? pending.then(list) : list();
 });
 
 let threadSyncV2: ReturnType<typeof createThreadSyncV2Store> = null;
@@ -1788,8 +1866,11 @@ function initializeThreadSyncV2() {
       else store.followNewestTask(botId, routineThreadIds());
     },
     maintenance: () => {
-      syncProfiles();
-      if (profileSyncSettings.folder) pruneSyncedPictures(profileSyncSettings.folder, DATA_DIR);
+      const pending = syncProfiles();
+      const prune = () => {
+        if (profileSyncSettings.folder) pruneSyncedPictures(profileSyncSettings.folder, DATA_DIR);
+      };
+      return pending instanceof Promise ? pending.then(prune) : prune();
     },
   });
   return threadSyncV2;
@@ -1896,6 +1977,8 @@ if (REMOTE_HOST !== undefined) {
 }
 
 function syncMemory(botId: string): void {
+  // a missing workspace is restored from Drive, so a deleted bot must not be a target
+  if (!store.bot(botId)) return;
   const folder = profileSyncSettings.folder;
   const botSyncId = chatSyncBotId(profileSyncSettings, botId);
   if (!folder || !botSyncId || !existsSync(folder)) return;
@@ -1921,16 +2004,26 @@ function noteTalked(botId: string): void {
 }
 
 /** Bots and their memory ride the chat poll: remote bot ops first so a pending local edit is kept, then ours. */
-function syncProfiles(): void {
+function syncProfiles(): void | Promise<void> {
+  let pending: void | Promise<void> | undefined;
   try {
-    importProfileChanges();
+    pending = importProfileChanges();
   } catch (error) {
     console.warn("bot sync: import failed", error);
   }
-  publishProfileChangesSafely();
-  for (const bot of store.bots) {
-    if (!botHasActiveTurn(bot.id)) syncMemory(bot.id);
+  const after = () => {
+    publishProfileChangesSafely();
+    for (const bot of store.bots) {
+      if (!botHasActiveTurn(bot.id)) syncMemory(bot.id);
+    }
+  };
+  if (pending instanceof Promise) {
+    return pending.then(after, (error) => {
+      console.warn("bot sync: import failed", error);
+      after();
+    });
   }
+  after();
 }
 
 store.onChange((change) => {
@@ -8621,46 +8714,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "DELETE") {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      if (localVmMode(cfg) === "per-bot") {
-        const target = perBotLocalVmTarget(bot.id);
-        if (localVmActiveThreads.has(target.key) || localVmLifecycleBusy.has(target.key)) {
-          return json(res, 409, { error: "stop this bot's Local VM turn or setup action before deleting the bot" });
-        }
-        const vm = await containerComputerStatus(undefined, undefined, target);
-        if (!vm.daemonUp && existsSync(target.workspaceDir)) {
-          return json(res, 409, {
-            error: "start the container runtime and delete this bot's Local VM before deleting the bot",
-          });
-        }
-        if (vm.container !== "missing") {
-          return json(res, 409, { error: "delete this bot's Local VM from its Computer panel before deleting the bot" });
-        }
-      }
-      // a running turn dies with its bot
-      await registry.get(bot.modelSelection.instanceId)?.adapter.interruptTurn(bot.threadId).catch(() => {});
-      stopScreenPoller(bot.id);
-      activeVpsThreads.delete(bot.id);
-      routines!.disableForBot(bot.id);
-      webhooks.disableForBot(bot.id);
-      lastReply.delete(bot.threadId);
-      // a peer approval naming this bot can never be meaningfully answered
-      // now, and its caller would otherwise wait out the 15-minute timeout
-      cancelPeerApprovalsFor(bot.id);
-      discardDelegations(commsBus, bot.threadId);
-      // the call above clears this bot's own thread; room queues live on the room
-      // thread instead, so they outlive the bot record unless dropped by owner
-      discardDelegationsFrom(commsBus, bot.id);
-      computerControl.forget(bot.id);
-      paneWake.forgetBot(bot.id);
-      const target = perBotLocalVmTarget(bot.id);
-      localVmIdles.get(target.key)?.cancel();
-      localVmIdles.delete(target.key);
-      store.deleteBot(bot.id);
-      for (const dir of [EVENTS_DIR, NATIVE_DIR]) {
-        try {
-          unlinkSync(join(dir, `${bot.threadId}.ndjson`));
-        } catch {}
-      }
+      const refusal = await localVmDeleteRefusal(bot.id);
+      if (refusal) return json(res, 409, { error: refusal });
+      await deleteBotFully(bot);
       return json(res, 200, { ok: true });
     }
 
