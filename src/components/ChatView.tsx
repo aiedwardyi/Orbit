@@ -229,6 +229,17 @@ function ErrorRow({
   const now = useNow();
   const action = setupErrorAction(message, setupInstance, signIn);
   const reset = usageLimit ? usageLimitReset(usageLimit.resetsAt, now) : null;
+  const retryButton = onRetry && (
+    <button
+      onClick={onRetry}
+      className={cn(
+        "mt-1.5 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px]",
+        usageLimit ? "border-warning/30 hover:bg-warning/15" : "border-danger/30 hover:bg-danger/15",
+      )}
+    >
+      <RefreshCw size={12} /> {t("composer.retry")}
+    </button>
+  );
   return (
     <div className="flex justify-start">
       <div
@@ -254,21 +265,15 @@ function ErrorRow({
           </span>
         </div>
         {action === "cli" && setupInstance ? (
-          <EngineSetup instance={setupInstance} signIn={signIn} className="mt-2 text-ink-secondary" />
+          <>
+            <EngineSetup instance={setupInstance} signIn={signIn} className="mt-2 text-ink-secondary" />
+            {/* agy never reports signed-in, so the card can't flip to Retry */}
+            {signIn && retryButton}
+          </>
         ) : action === "key" ? (
           <OpenConnectionsCta />
         ) : (
-          onRetry && (
-            <button
-              onClick={onRetry}
-              className={cn(
-                "mt-1.5 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px]",
-                usageLimit ? "border-warning/30 hover:bg-warning/15" : "border-danger/30 hover:bg-danger/15",
-              )}
-            >
-              <RefreshCw size={12} /> {t("composer.retry")}
-            </button>
-          )
+          retryButton
         )}
       </div>
     </div>

@@ -596,6 +596,7 @@ describe("agy sign-in error bubble", () => {
       expect(host.querySelector("code")?.textContent).toBe("agy");
       expect(host.textContent).toContain("Open sign-in in Terminal");
       expect(host.textContent).toContain("Sign in to Gemini (Antigravity)");
+      expect(host.textContent).toContain("Retry");
     } finally {
       window.ogb = previousOgb;
       await act(async () => root.unmount());

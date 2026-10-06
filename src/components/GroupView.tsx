@@ -107,6 +107,19 @@ export function RoomToolChip({
         onRetry({ onError: () => setRetried(false) });
       }
     : undefined;
+  const retryButton = onRetry && (
+    <button
+      disabled={retried}
+      onClick={handleRetry}
+      className={cn(
+        "mt-1.5 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px]",
+        tool.usageLimit ? "border-warning/30 hover:bg-warning/15" : "border-danger/30 hover:bg-danger/15",
+        "disabled:pointer-events-none disabled:opacity-50",
+      )}
+    >
+      <RefreshCw size={12} /> {t("composer.retry")}
+    </button>
+  );
   // A spent plan is the one failure a room can explain, so it gets the same
   // warning treatment as 1:1 — with the engine's own words kept on the title.
   if (tool.usageLimit) {
@@ -187,23 +200,14 @@ export function RoomToolChip({
           </span>
         </div>
         {setupAction === "cli" && instance ? (
-          <EngineSetup instance={instance} signIn={tool.signIn} className="mt-2 text-ink-secondary" />
+          <>
+            <EngineSetup instance={instance} signIn={tool.signIn} className="mt-2 text-ink-secondary" />
+            {tool.signIn && retryButton}
+          </>
         ) : setupAction === "key" ? (
           <OpenConnectionsCta />
         ) : (
-          onRetry && (
-            <button
-              disabled={retried}
-              onClick={handleRetry}
-              className={cn(
-                "mt-1.5 flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12.5px]",
-                tool.usageLimit ? "border-warning/30 hover:bg-warning/15" : "border-danger/30 hover:bg-danger/15",
-                "disabled:pointer-events-none disabled:opacity-50",
-              )}
-            >
-              <RefreshCw size={12} /> {t("composer.retry")}
-            </button>
-          )
+          retryButton
         )}
         {/* Failed turns truncate mid-word in the pill above; the full text
           is the debuggable part. Same affordance as ChatView bot bubbles. */}
