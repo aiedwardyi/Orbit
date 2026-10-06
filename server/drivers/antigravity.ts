@@ -120,7 +120,7 @@ function antigravityEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.Proce
   // provider's key, in any of its turn, snapshot, or helper children.
   applyCredentialAllowlist(env);
   // agy's detached --bg-updater (15+ min after its last check) opens a visible console on Windows.
-  env.AGY_CLI_DISABLE_AUTO_UPDATE = "true";
+  if (process.platform === "win32") env.AGY_CLI_DISABLE_AUTO_UPDATE = "true";
   return env;
 }
 
