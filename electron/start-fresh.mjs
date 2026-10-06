@@ -3,6 +3,7 @@ import path from "node:path";
 
 const DESKTOP_FILES = [
   "credentials.bin", "locale-preference.json", "skin-preference.json", "window-state.json", "companion-settings.json",
+  "cua-local-control.json",
 ];
 const DELAYS = [100, 200, 400, 800];
 
@@ -14,6 +15,15 @@ function unusedPath(base) {
   let candidate = base;
   for (let suffix = 1; fs.existsSync(candidate); suffix++) candidate = `${base}-${suffix}`;
   return candidate;
+}
+
+// Startup reads unreadable sync settings as defaults; a reset must not trip on them either.
+function syncFolderOf(dataDir) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dataDir, "profile-sync.json"), "utf8"))?.folder;
+  } catch {
+    return undefined;
+  }
 }
 
 function contains(parent, child) {
@@ -72,14 +82,11 @@ export async function applyStartFresh({
     try {
       if (fs.existsSync(backup)) throw new Error("Reset backup already exists");
       if (fs.existsSync(dataDir) && fs.lstatSync(dataDir).isSymbolicLink()) throw new Error("Cannot reset a linked data folder");
-      const syncSettings = path.join(dataDir, "profile-sync.json");
-      if (fs.existsSync(syncSettings)) {
-        const { folder } = JSON.parse(fs.readFileSync(syncSettings, "utf8"));
-        if (folder && fs.existsSync(folder)) {
-          const syncFolder = fs.realpathSync(folder);
-          const dataFolder = fs.realpathSync(dataDir);
-          if (contains(dataFolder, syncFolder) || contains(syncFolder, dataFolder)) throw new Error("Data and sync folders overlap");
-        }
+      const folder = syncFolderOf(dataDir);
+      if (folder && fs.existsSync(folder)) {
+        const syncFolder = fs.realpathSync(folder);
+        const dataFolder = fs.realpathSync(dataDir);
+        if (contains(dataFolder, syncFolder) || contains(syncFolder, dataFolder)) throw new Error("Data and sync folders overlap");
       }
       fs.mkdirSync(dataDir, { recursive: true });
       if (!userDataInside) {

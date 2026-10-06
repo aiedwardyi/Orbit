@@ -23,6 +23,7 @@ function fixture() {
   fs.writeFileSync(path.join(userData, "credentials.bin"), "encrypted keys");
   fs.writeFileSync(path.join(userData, "locale-preference.json"), '"ko"');
   fs.writeFileSync(path.join(userData, "companion-settings.json"), JSON.stringify({ enabled: true }));
+  fs.writeFileSync(path.join(userData, "cua-local-control.json"), JSON.stringify({ enabled: true }));
   fs.mkdirSync(path.join(userData, "Partitions", "browser-work"), { recursive: true });
   fs.writeFileSync(path.join(userData, "Partitions", "browser-work", "Cookies"), "browser login");
   for (const name of [".claude", ".codex", ".grok", ".gemini", "muse", "projects"]) {
@@ -56,6 +57,7 @@ describe("start fresh", () => {
     expect(fs.existsSync(path.join(input.userData, "credentials.bin"))).toBe(false);
     expect(fs.existsSync(path.join(input.userData, "locale-preference.json"))).toBe(false);
     expect(fs.existsSync(path.join(input.userData, "companion-settings.json"))).toBe(false);
+    expect(fs.existsSync(path.join(input.userData, "cua-local-control.json"))).toBe(false);
     expect(fs.existsSync(input.dataDir)).toBe(false);
     expect(fs.existsSync(resetMarkerPath(input.dataDir))).toBe(false);
     expect(input.clearUiState).toHaveBeenCalledTimes(1);
@@ -65,6 +67,14 @@ describe("start fresh", () => {
     for (const name of [".claude", ".codex", ".grok", ".gemini", "muse", "projects"]) {
       expect(fs.readFileSync(path.join(path.dirname(input.dataDir), name, "keep"), "utf8")).toBe(name);
     }
+  });
+
+  it("still resets when the sync settings are unreadable", async () => {
+    const input = fixture();
+    fs.writeFileSync(path.join(input.dataDir, "profile-sync.json"), "{");
+    requestStartFresh(input);
+    expect((await applyStartFresh(input)).status).toBe("reset");
+    expect(fs.existsSync(input.dataDir)).toBe(false);
   });
 
   it("preserves an existing backup and adds a collision suffix", async () => {
