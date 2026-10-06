@@ -1115,3 +1115,126 @@ test("a prompt redrawn after a resize does not send a stall note after its waiti
   await f.advance(600_000);
   assert.equal(f.notes.length, 0);
 });
+
+test("opening the panel attaches to the pre-started main shell instead of spawning a second", async () => {
+  const f = fixture();
+  assert.equal(await f.host.prestart(f.event, { botId: "bot-1", cols: 100, rows: 30, projectCwd: null }), true);
+  assert.equal(f.children.length, 1);
+  assert.deepEqual([f.children[0].options.cols, f.children[0].options.rows], [100, 30]);
+  f.children[0].data("PS> ");
+  const shown = await f.host.open(f.event, { ...f.input, projectCwd: null });
+  assert.equal(f.children.length, 1);
+  assert.equal(shown.output, "PS> ");
+  f.host.resize(f.event, shown.id, 80, 24);
+  assert.deepEqual(f.children[0].sizes, [[80, 24]]);
+});
+
+test("an open during a pre-start joins it and claims the shell", async () => {
+  const f = fixture({ prestartIdleMs: 20 });
+  const [started, shown] = await Promise.all([f.host.prestart(f.event, { botId: "bot-1", cols: 100, rows: 30 }), f.host.open(f.event, f.input)]);
+  assert.equal(started, true);
+  assert.equal(f.children.length, 1);
+  await wait(40);
+  assert.equal(f.children[0].killed, false);
+  assert.equal(f.host.readBot("bot-1").sessionId, shown.id);
+});
+
+test("pre-start skips a bot that already has a main shell, live or exited", async () => {
+  const f = fixture();
+  await f.host.open(f.event, f.input);
+  assert.equal(await f.host.prestart(f.event, { botId: "bot-1", cols: 80, rows: 24 }), false);
+  f.children[0].exit({ exitCode: 0 });
+  assert.equal(await f.host.prestart(f.event, { botId: "bot-1", cols: 80, rows: 24 }), false);
+  assert.equal(f.children.length, 1);
+});
+
+test("keeps at most three never-shown pre-starts, retiring the oldest", async () => {
+  let clock = 0;
+  const f = fixture({ now: () => clock });
+  for (const botId of ["bot-1", "bot-2", "bot-3"]) {
+    clock += 1;
+    await f.host.prestart(f.event, { botId, cols: 80, rows: 24 });
+  }
+  await f.host.open(f.event, { ...f.input, botId: "bot-2" });
+  clock += 1;
+  await f.host.prestart(f.event, { botId: "bot-4", cols: 80, rows: 24 });
+  assert.deepEqual(f.children.map((child) => child.killed), [false, false, false, false]);
+  clock += 1;
+  await f.host.prestart(f.event, { botId: "bot-5", cols: 80, rows: 24 });
+  assert.deepEqual(f.children.map((child) => child.killed), [true, false, false, false, false]);
+  assert.equal(f.host.readBot("bot-1").state, "no-terminal");
+  assert.equal(f.host.readBot("bot-2").state, undefined);
+});
+
+test("retires a pre-started shell nobody showed in time", async () => {
+  const f = fixture({ prestartIdleMs: 20 });
+  await f.host.prestart(f.event, { botId: "bot-1", cols: 80, rows: 24 });
+  await f.host.prestart(f.event, { botId: "bot-2", cols: 80, rows: 24 });
+  await f.host.open(f.event, { ...f.input, botId: "bot-2" });
+  await wait(40);
+  assert.deepEqual(f.children.map((child) => child.killed), [true, false]);
+  assert.equal(f.host.readBot("bot-1").state, "no-terminal");
+});
+
+test("a never-shown pre-start raises no alert and a panel unmount cannot cancel it", async () => {
+  let releaseFolder;
+  const folder = new Promise((resolve) => { releaseFolder = resolve; });
+  const f = fixture({ resolveCwd: async () => { await folder; return os.tmpdir(); } });
+  const starting = f.host.prestart(f.event, { botId: "bot-1", cols: 80, rows: 24 });
+  assert.equal(f.host.cancelOpen(f.event, "bot-1"), false);
+  releaseFolder();
+  assert.equal(await starting, true);
+  f.children[0].data("\x07");
+  f.children[0].exit({ exitCode: 1 });
+  assert.equal(f.events.some(([channel]) => channel === "terminal:attention"), false);
+});
+
+test("pre-start validates its caller and input", async () => {
+  const f = fixture();
+  await assert.rejects(f.host.prestart({ ...f.event, sender: {} }, { botId: "bot-1", cols: 80, rows: 24 }), /Untrusted/);
+  await assert.rejects(f.host.prestart(f.event, { botId: "../x", cols: 80, rows: 24 }), /Invalid bot/);
+  await assert.rejects(f.host.prestart(f.event, { botId: "bot-1", cols: 0, rows: 24 }), /Invalid terminal dimensions/);
+  assert.equal(f.children.length, 0);
+});
+
+test("pre-start never spawns when the folder needs a pick", async () => {
+  const f = fixture({ resolveCwd: async () => ({ needsFolder: true }) });
+  assert.equal(await f.host.prestart(f.event, { botId: "bot-1", cols: 80, rows: 24 }), false);
+  assert.equal(f.children.length, 0);
+});
+
+test("a remote open starts the same main shell the host panel attaches to", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, prestartIdleMs: 20 });
+  owner = f.owner;
+  const started = await f.host.openMainForBot("bot-1");
+  assert.equal(f.host.readBot("bot-1").sessionId, started.sessionId);
+  assert.equal(f.host.readBot("bot-1").panes[0].main, true);
+  const shown = await f.host.open(f.event, f.input);
+  assert.equal(shown.id, started.sessionId);
+  assert.equal(f.children.length, 1);
+  assert.equal((await f.host.openMainForBot("bot-1")).sessionId, started.sessionId);
+  await wait(40);
+  assert.equal(f.children[0].killed, false);
+});
+
+test("a remote open attaches to a pre-started shell and keeps it", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, prestartIdleMs: 20 });
+  owner = f.owner;
+  await f.host.prestart(f.event, { botId: "bot-1", cols: 80, rows: 24 });
+  await f.host.openMainForBot("bot-1");
+  await wait(40);
+  assert.equal(f.children.length, 1);
+  assert.equal(f.children[0].killed, false);
+});
+
+test("a remote open refuses a bad bot, a folder pick or a missing window", async () => {
+  let owner = null;
+  const f = fixture({ owner: () => owner, resolveCwd: async () => ({ needsFolder: true }) });
+  await assert.rejects(f.host.openMainForBot("bot-1"), /not available/);
+  owner = f.owner;
+  await assert.rejects(f.host.openMainForBot("../x"), /Invalid bot/);
+  await assert.rejects(f.host.openMainForBot("bot-1"), /folder is unavailable/);
+  assert.equal(f.children.length, 0);
+});

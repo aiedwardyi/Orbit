@@ -145,7 +145,7 @@ export function createTerminalBridge({ host, updater, token = randomBytes(24).to
           return json(res, 500, { error: message });
         }
       }
-      const match = parsed.pathname.match(/^\/v1\/bots\/([a-zA-Z0-9_-]{1,128})\/terminal(?:\/(send|open|attention|close))?$/);
+      const match = parsed.pathname.match(/^\/v1\/bots\/([a-zA-Z0-9_-]{1,128})\/terminal(?:\/(send|open|main|attention|close))?$/);
       if (!match || !BOT_ID_RE.test(match[1])) return json(res, 404, { error: "Unknown terminal route" });
       const botId = match[1];
       const sendOnly = match[2] === "send" && grantMatches(req.headers.authorization, terminalSendGrant(token, botId));
@@ -166,6 +166,10 @@ export function createTerminalBridge({ host, updater, token = randomBytes(24).to
           return json(res, 200, { closed: true });
         }
         if (req.method === "POST" && match[2] === "open") return json(res, 200, await host.openForBot(botId, await readJson(req)));
+        if (req.method === "POST" && match[2] === "main") {
+          await host.openMainForBot(botId);
+          return json(res, 200, host.readBot(botId));
+        }
         if (req.method === "POST" && match[2] === "close") {
           const result = await host.closeForBot(botId, (await readJson(req))?.sessionId);
           return json(res, 200, result?.alreadyClosed === true ? { closed: true, alreadyClosed: true } : { closed: true });

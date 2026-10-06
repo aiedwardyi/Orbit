@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("ogb", {
   terminal: {
     appearance: () => ipcRenderer.invoke("terminal:appearance"),
     open: (input) => ipcRenderer.invoke("terminal:open", input),
+    prestart: (input) => ipcRenderer.invoke("terminal:prestart", input),
     cancelOpen: (botId) => ipcRenderer.invoke("terminal:cancel-open", botId),
     write: (id, data) => ipcRenderer.invoke("terminal:write", id, data),
     acknowledge: (id) => ipcRenderer.invoke("terminal:acknowledge", id),

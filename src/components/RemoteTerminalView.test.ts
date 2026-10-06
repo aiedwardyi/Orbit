@@ -119,6 +119,37 @@ describe("RemoteTerminalView", () => {
     await act(async () => root.unmount());
   });
 
+  it("asks the host to open the main terminal from the no-terminal state", async () => {
+    store.api.mockImplementation(async (path: string) =>
+      path.endsWith("/start") ? { screenText: "PS>", sessionId: "s1", generation: 1, panes: [{ sessionId: "s1", main: true }] } : { state: "no-terminal", screenText: "", recentText: "" });
+    const { host, root } = await renderView();
+    try {
+      const open = [...host.querySelectorAll("button")].find((item) => item.textContent?.includes("Open terminal"))!;
+      await act(async () => click(open));
+      expect(store.api).toHaveBeenCalledWith("/api/bots/bot-1/terminal/start", { method: "POST" });
+      expect(host.querySelector("pre")?.textContent).toBe("PS>");
+      expect(composer(host)).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("keeps the no-terminal state and shows why when the host cannot open one", async () => {
+    store.api.mockImplementation(async (path: string) => {
+      if (path.endsWith("/start")) throw new Error("Terminal folder is unavailable");
+      return { state: "no-terminal", screenText: "", recentText: "" };
+    });
+    const { host, root } = await renderView();
+    try {
+      const open = [...host.querySelectorAll("button")].find((item) => item.textContent?.includes("Open terminal"))!;
+      await act(async () => click(open));
+      expect(host.querySelector('[role="alert"]')?.textContent).toContain("Terminal folder is unavailable");
+      expect(open.disabled).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("closes and refreshes on tap", async () => {
     store.api.mockResolvedValue({ screenText: "one" });
     const { host, root, onClose } = await renderView();

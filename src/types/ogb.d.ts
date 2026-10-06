@@ -176,6 +176,7 @@ type SkillRecordingPayload = {
           | { needsFolder: true; reason?: string }
         >;
         cancelOpen?(botId: string): Promise<boolean>;
+        prestart?(input: { botId: string; cols: number; rows: number; projectCwd: string | null }): Promise<boolean>;
         write(id: string, data: string): Promise<void>;
         acknowledge?(id: string): Promise<void>;
         resize(id: string, cols: number, rows: number): Promise<void>;
