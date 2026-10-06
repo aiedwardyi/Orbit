@@ -10,6 +10,8 @@ export const LOCALE_PREFERENCES = ["system", "en", "ko"];
 export const DEFAULT_PREFERENCE = "en";
 
 const en = {
+  "settings.startFresh.error": "Could not start fresh. Your data is unchanged.",
+  "settings.startFresh.recoveryError": "Could not finish reset recovery. Your backup is safe.",
   "packaged.bootTitle": "Couldn't start the bot server",
   "packaged.bootPorts": "Every Wink port answered health checks from another process. Quit the other copy or program, then reopen Wink.",
   "packaged.bootTimeout": "The background server did not start in time. Quit and reopen Wink.",
@@ -36,6 +38,8 @@ const en = {
 };
 
 const ko = {
+  "settings.startFresh.error": "다시 시작하지 못했습니다. 데이터는 그대로예요.",
+  "settings.startFresh.recoveryError": "복구를 마치지 못했습니다. 백업은 안전해요.",
   "packaged.bootTitle": "봇 서버를 시작하지 못했습니다",
   "packaged.bootPorts": "Wink 포트가 모두 다른 프로세스의 상태 확인에 응답했습니다. 다른 복사본이나 프로그램을 종료한 뒤 Wink를 다시 여세요.",
   "packaged.bootTimeout": "백그라운드 서버가 제시간에 시작되지 않았습니다. Wink를 종료한 뒤 다시 여세요.",

@@ -1,5 +1,9 @@
 export interface FeatureFlagConfig {
-  features?: { skillRecorder?: boolean; showToolCalls?: boolean; browser?: boolean };
+  features?: { skillRecorder?: boolean; showToolCalls?: boolean; detailedReplies?: boolean; browser?: boolean };
+}
+
+export function detailedRepliesEnabled(config: FeatureFlagConfig | null | undefined): boolean {
+  return config?.features?.detailedReplies === true;
 }
 
 /** Experimental features are available only after an explicit opt-in. */

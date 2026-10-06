@@ -24,6 +24,7 @@ import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
 import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, startUpdater, updaterBridge } from "./updater.mjs";
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
+import { applyStartFresh, requestStartFresh } from "./start-fresh.mjs";
 import { installMainCrashLogging } from "./crash-log.mjs";
 import { companionParkedOnDesktop } from "./companion-policy.mjs";
 import { createAppAuthorization, waitForAppToken } from "./local-api-auth.mjs";
@@ -1856,6 +1857,17 @@ ipcMain.handle("desktop:locale-preference", (_event, preference) => {
   return true;
 });
 ipcMain.handle("desktop:app-version", () => app.getVersion());
+let startFreshRequested = false;
+ipcMain.handle("desktop:start-fresh", (event) => {
+  if (!app.isPackaged || !trustedTerminalSender(event, mainWindow?.webContents, rendererOrigin())) {
+    throw new Error("Start fresh requires the installed main window");
+  }
+  if (startFreshRequested) return;
+  requestStartFresh({ dataDir: process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".orbit") });
+  startFreshRequested = true;
+  app.relaunch();
+  app.quit();
+});
 
 // Renderer skin -> nativeTheme + window ground + Windows titleBarOverlay.
 ipcMain.handle("desktop:skin", (event, skin) => {
@@ -2130,6 +2142,21 @@ setCuaStateListener((connection) => {
 });
 
 app.whenReady().then(async () => {
+  let resetFailed = false;
+  if (app.isPackaged) {
+    try {
+      const reset = await applyStartFresh({
+        dataDir: process.env.OMB_DATA_DIR || path.join(app.getPath("home"), ".orbit"),
+        userData: app.getPath("userData"),
+        clearUiState: () => session.defaultSession.clearStorageData(),
+      });
+      resetFailed = reset.status === "failed";
+    } catch (error) {
+      // Keep booting: quitting here would lock the user out on every start.
+      console.error("[desktop] reset recovery failed:", error);
+      dialog.showErrorBox("Wink", nativeText("settings.startFresh.recoveryError"));
+    }
+  }
   if (app.isPackaged) app.setAsDefaultProtocolClient(PACKAGE_INSTALL_SCHEME);
   if (process.platform === "darwin") app.dock.setIcon(APP_ICON);
   registerCuaIpc();
@@ -2192,6 +2219,7 @@ app.whenReady().then(async () => {
   // connecting page does not need keys; the child env does.
   const credentialsReady = loadSecureCredentials();
   const win = createWindow();
+  if (resetFailed) void dialog.showMessageBox(win, { type: "info", message: nativeText("settings.startFresh.error") });
   slog(`window shown packaged=${app.isPackaged} serverReady=${serverReady} uptime=${process.uptime().toFixed(2)}s`);
   startUpdater(win);
   if (!app.isPackaged) void startBrowserSurface(win);

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChartScatter, ChevronDown, Cloud, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Smartphone, Terminal, User, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
-import { builtInBrowserEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
+import { builtInBrowserEnabled, detailedRepliesEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
   showSettingsAdvancedSection,
   showSettingsEnginesNav,
@@ -44,6 +44,7 @@ import { saveRainbowBox, useRainbowBox } from "@/lib/rainbow-box";
 import { saveTerminalPopups, useTerminalPopups } from "@/lib/terminal-popups";
 import { cn } from "@/lib/cn";
 import { SyncPanel } from "./SyncPanel";
+import { StartFreshRow } from "./StartFreshRow";
 
 const SECTIONS: Array<{
   id: AppSettingsSection;
@@ -178,6 +179,55 @@ function ToolCallsRow() {
           role="switch"
           aria-checked={enabled}
           aria-label={t("settings.toolCalls.aria")}
+          disabled={saving}
+          onClick={() => void toggle()}
+          className={`${cnSwitch(enabled)} disabled:cursor-wait disabled:opacity-50`}
+        >
+          <span className={cnKnob(enabled)} />
+        </button>
+      </div>
+      {error ? <p role="alert" className="mt-2 text-[12px] text-danger">{error}</p> : null}
+    </Card>
+  );
+}
+
+function DetailedRepliesRow() {
+  const { t } = useI18n();
+  const { state, dispatch } = useStore();
+  const enabled = detailedRepliesEnabled(state.config);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const toggle = async () => {
+    if (saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const config: ConfigStatus = await api("/api/config", {
+        method: "PATCH",
+        body: JSON.stringify({ features: { detailedReplies: !enabled } }),
+      });
+      dispatch({ type: "configStatus", config });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("settings.detailedReplies.saveError"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card title={t("settings.detailedReplies.title")}>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-[14px] font-medium text-ink">{t("settings.detailedReplies.toggle")}</div>
+          <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
+            {t("settings.detailedReplies.help")}
+          </div>
+        </div>
+        <button
+          role="switch"
+          aria-checked={enabled}
+          aria-label={t("settings.detailedReplies.aria")}
           disabled={saving}
           onClick={() => void toggle()}
           className={`${cnSwitch(enabled)} disabled:cursor-wait disabled:opacity-50`}
@@ -602,6 +652,7 @@ export function SettingsModal({
                 </Card>
                 <TerminalAppearanceRow />
                 <ToolCallsRow />
+                <DetailedRepliesRow />
                 <NotificationsRow />
                 <VibrationRow />
                 <UpdatesRow />
@@ -636,6 +687,7 @@ export function SettingsModal({
                 )}
                   </>
                 )}
+                <StartFreshRow />
               </>
             )}
 

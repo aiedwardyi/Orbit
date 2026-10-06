@@ -258,6 +258,7 @@ type SkillRecordingPayload = {
       applySkin?(skin: string): Promise<boolean>;
       /** Installed app version, from the main process. */
       getAppVersion?(): Promise<string>;
+      startFresh?(): Promise<void>;
       /** OS/app locale tag from Electron, e.g. "ko-KR". */
       getLocale?(): string;
       /** Remember the Settings language choice for packaged copy. */

@@ -91,6 +91,7 @@ import {
   roomTurnTimeoutMinutes,
   saveConfig,
   showToolCallsEnabled,
+  detailedRepliesEnabled,
   skillRecorderEnabled,
   builtInBrowserEnabled,
   sweepLegacyOpencodeKey,
@@ -3761,8 +3762,12 @@ function turnStartedByUser(opts?: StartTurnOptions): boolean {
 const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. For a video, audio or other file, link its absolute path in markdown, like [clip.mp4](C:\\path\\clip.mp4) or, when the path contains spaces, in angle brackets like [clip.mp4](<C:\\My Files\\clip.mp4>), so the user can open it with one click. Never end with only a file path. To create a new image, call generate_image.";
 
-const ALWAYS_REPLY_INSTRUCTIONS =
-  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in a short visible message (for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary, so keep each mid-turn message to one short line, and put answers, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. After tool work, close with a short standalone summary of what you did and found. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
+const ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS =
+  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in a short visible message (for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary, so keep each mid-turn message to one short line, and put answers, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line.";
+const REPLY_STYLE_INSTRUCTIONS =
+  " Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. After tool work, close with a short standalone summary of what you did and found. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
+const ALWAYS_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS + REPLY_STYLE_INSTRUCTIONS;
+const DETAILED_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS;
 
 // Retrieval discipline for document workloads. Static on purpose: the
 // stream-json driver folds --append-system-prompt into its warm-process
@@ -4625,7 +4630,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           taskStatePrompt +
           reactPrompt +
           showImagePrompt +
-          ALWAYS_REPLY_INSTRUCTIONS +
+          (detailedRepliesEnabled(cfg) ? DETAILED_REPLY_INSTRUCTIONS : ALWAYS_REPLY_INSTRUCTIONS) +
           CORPUS_SEARCH_INSTRUCTIONS +
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace ? memorySystemPrompt(bot.id) + skillsSystemPrompt(bot.id) : "") +
@@ -5396,7 +5401,7 @@ async function runClaimedGroupMemberTurn(
     bot.description && `About: ${bot.description}`,
     `Room members: ${roster}, and ${userName} (the human).`,
     group.bulletin.trim() && `Room bulletin (shared instructions for everyone):\n${group.bulletin.trim()}`,
-    `Reply as yourself, briefly and conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
+    `Reply as yourself, ${detailedRepliesEnabled(cfg) ? "" : "briefly and "}conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
     reactionSystemGuidance(),
     coordinationPrompt,
     integrations.agents &&
@@ -5429,7 +5434,7 @@ async function runClaimedGroupMemberTurn(
   const roomSystem =
     system +
     projectFolderPrompt(cwd, workspace, instance.driverKind) +
-    ALWAYS_REPLY_INSTRUCTIONS +
+    (detailedRepliesEnabled(cfg) ? DETAILED_REPLY_INSTRUCTIONS : ALWAYS_REPLY_INSTRUCTIONS) +
     CORPUS_SEARCH_INSTRUCTIONS +
     sectionContextSystemPrompt(bot.section) +
     (workspace ? `\n${memorySystemPrompt(bot.id).trim()}${skillsSystemPrompt(bot.id)}` : "") +
@@ -6151,6 +6156,7 @@ function configStatus() {
     features: {
       skillRecorder: skillRecorderEnabled(cfg),
       showToolCalls: showToolCallsEnabled(cfg),
+      detailedReplies: detailedRepliesEnabled(cfg),
       browser: builtInBrowserEnabled(cfg),
       terminalHost: Boolean(terminalBridgeAccess),
     },
