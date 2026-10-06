@@ -85,3 +85,16 @@ export async function openBlankTerminal(platform = process.platform, run = execF
   }
   return false;
 }
+
+export async function openSignInTerminal({ command, driverKind }, platform = process.platform, run = execFile) {
+  const agy = driverKind === "antigravityAgent";
+  if (platform === "win32") {
+    const script = `${agy ? "$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; " : ""}${command}`;
+    return launch("cmd.exe", ["/c", "start", "", "powershell.exe", "-NoProfile", "-NoExit", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { windowsHide: true }, run);
+  }
+  if (platform === "darwin") {
+    const script = `${agy ? "AGY_CLI_DISABLE_AUTO_UPDATE=true " : ""}${command}`;
+    return launch("osascript", ["-e", `tell application "Terminal" to do script ${JSON.stringify(script)}`, "-e", 'tell application "Terminal" to activate'], undefined, run);
+  }
+  return false;
+}

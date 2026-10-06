@@ -7,6 +7,15 @@ import { makeFakeDriver } from "../testing/fake-driver.ts";
 import { ProviderRegistry } from "./registry.ts";
 
 describe("ProviderRegistry", () => {
+  it("resolves sign-in only from the registered driver", async () => {
+    const fake = makeFakeDriver();
+    const registry = new ProviderRegistry([{ ...fake.driver, install: { signInCommand: "official login" } }]);
+    await registry.load({ a: { driver: "fake", config: { signInCommand: "untrusted", cli: "untrusted" } } });
+    expect(registry.signIn("a")).toEqual({ driverKind: "fake", command: "official login" });
+    expect(registry.signIn("official login")).toBeNull();
+    expect(registry.signIn("missing")).toBeNull();
+  });
+
   it("creates live instances for known drivers", async () => {
     const fake = makeFakeDriver();
     const registry = new ProviderRegistry([fake.driver]);

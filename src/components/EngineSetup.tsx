@@ -120,12 +120,13 @@ export function OpenConnectionsCta({ className }: { className?: string }) {
   );
 }
 
-function CommandRow({ command, actionLabel }: { command: string; actionLabel: string }) {
+function CommandRow({ command, actionLabel, signInInstanceId }: { command: string; actionLabel: string; signInInstanceId?: string }) {
   const { t } = useI18n();
-  const [status, setStatus] = useState<"copied" | "opened" | null>(null);
-  const canOpen = Boolean(window.ogb?.openInstallTerminal);
+  const [status, setStatus] = useState<"copied" | "opened" | "running" | null>(null);
+  const canOpen = Boolean(signInInstanceId ? window.ogb?.openEngineSignIn : window.ogb?.openInstallTerminal);
+  const automaticSignIn = Boolean(signInInstanceId && !/\bYOUR_[A-Z0-9_]+\b/.test(command));
 
-  const settle = (next: "copied" | "opened") => {
+  const settle = (next: "copied" | "opened" | "running") => {
     setStatus(next);
     window.setTimeout(() => setStatus(null), 2200);
   };
@@ -141,6 +142,14 @@ function CommandRow({ command, actionLabel }: { command: string; actionLabel: st
 
   const openTerminal = async () => {
     try {
+      if (signInInstanceId) {
+        try {
+          settle(await window.ogb!.openEngineSignIn!(signInInstanceId));
+        } catch {
+          await copy();
+        }
+        return;
+      }
       settle(
         await openInstallTerminalOrCopy(command, () => window.ogb!.openInstallTerminal!(command), (text) =>
           navigator.clipboard.writeText(text),
@@ -179,11 +188,13 @@ function CommandRow({ command, actionLabel }: { command: string; actionLabel: st
             onClick={() => void openTerminal()}
             className="mt-2 flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-accent-ink hover:brightness-110"
           >
-            {status === "opened" ? <Check size={14} /> : <TerminalSquare size={14} />}
-            {status === "opened" ? t("engine.terminalOpened") : actionLabel}
+            {status === "opened" || status === "running" ? <Check size={14} /> : <TerminalSquare size={14} />}
+            {status === "opened" || status === "running" ? t("engine.terminalOpened") : actionLabel}
           </button>
           <p aria-live="polite" className="mt-1.5 text-center text-[11px] text-ink-secondary/70">
-            {status === "opened" ? t("engine.pasteAndEnter") : t("engine.copiedWhenOpens")}
+            {status === "copied" ? t("engine.commandCopied")
+              : status === "opened" ? t("engine.pasteAndEnter")
+                : automaticSignIn ? t("engine.followSignIn") : t("engine.copiedWhenOpens")}
           </p>
         </>
       ) : (
@@ -262,7 +273,7 @@ export function EngineSetup({
       {keyOnly ? (
         <OpenConnectionsCta />
       ) : command ? (
-        <CommandRow command={command} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
+        <CommandRow command={command} signInInstanceId={signInOnly ? instance.instanceId : undefined} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
       ) : (
         <p className="mt-3 rounded-lg bg-inset px-2.5 py-2 text-[12px] leading-relaxed text-ink-secondary">
           {t("engine.noInstaller")}

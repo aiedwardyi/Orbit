@@ -17,6 +17,7 @@ import {
   stopRecorder,
 } from "./skill-recorder.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
+import { openEngineSignIn } from "./engine-signin.mjs";
 import { createTerminalHost, trustedTerminalSender } from "./terminal-host.mjs";
 import { installOrbitMsg, readMailboxSecret } from "./terminal-mailbox.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
@@ -1807,6 +1808,24 @@ ipcMain.handle("engine:open-terminal", async (_event, command) => {
   if (typeof command !== "string" || !command.trim()) return false;
   clipboard.writeText(command);
   return openBlankTerminal();
+});
+
+ipcMain.handle("engine:sign-in", async (event, instanceId) => {
+  if (!trustedTerminalSender(event, mainWindow?.webContents, rendererOrigin())) throw new Error("Untrusted sign-in caller");
+  return openEngineSignIn(instanceId, {
+    copy: (command) => clipboard.writeText(command),
+    async resolve(id) {
+      if (app.isPackaged && !serverToken) throw new Error("Server is not ready");
+      const port = app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT);
+      const response = await fetch(`http://127.0.0.1:${port}/api/instances/${encodeURIComponent(id)}/sign-in`, {
+        headers: serverToken ? { Authorization: `Bearer ${serverToken}` } : {},
+        redirect: "error",
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error("Could not resolve engine sign-in");
+      return response.json();
+    },
+  });
 });
 
 // OAuth/connect links are returned asynchronously, after Chromium's direct

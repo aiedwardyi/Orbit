@@ -8,7 +8,9 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, st
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import * as auth from "./antigravity-auth.ts";
 
 import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
@@ -32,6 +34,12 @@ import {
 import { describeSpawnFailure } from "../procs.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-agy-cli.ts");
+
+const createSignIn = auth.antigravitySignIn;
+beforeEach(() => {
+  vi.spyOn(auth, "antigravitySignIn").mockImplementation(() => createSignIn(async () => true));
+});
+afterEach(() => vi.restoreAllMocks());
 
 /** Every credential this process could be holding, plus two nobody has heard
  * of yet — the allowlist has to exclude those for the same reason, under
@@ -231,6 +239,7 @@ describe("Antigravity turns (fake CLI)", () => {
 
   it("normalizes a full print-mode turn into the canonical event sequence", async () => {
     await create();
+    expect((await instance.snapshot()).authenticated).toBe(true);
     const { turnId } = await instance.adapter.sendTurn({ threadId: "t-happy", text: "hi", model: "gemini-3.1-pro-high" });
     await recorder.until((e) => e.type === "turn.completed");
 
@@ -264,6 +273,7 @@ describe("Antigravity turns (fake CLI)", () => {
     // result.usage is the turn total (the per-step figures precede it)
     expect(done).toMatchObject({ type: "turn.completed", ok: true, promptAccepted: true, usage: { input: 105, output: 20 } });
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
+    expect((await instance.snapshot()).authenticated).toBe(true);
   });
 
   it("does not render internal system notices from streamed or final text", async () => {
@@ -412,6 +422,7 @@ describe("Antigravity turns (fake CLI)", () => {
     process.env.FAKE_AGY_RESULT_ERROR = error;
     try {
       await create();
+      expect((await instance.snapshot()).authenticated).toBe(true);
       await instance.adapter.sendTurn({ threadId: `t-agy-error-${label}`, text: "hi" });
       await recorder.until((event) => event.type === "turn.completed");
 
@@ -420,6 +431,8 @@ describe("Antigravity turns (fake CLI)", () => {
       ]);
       expect(recorder.events.some((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toBe(false);
       expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "no_final_text" });
+      expect((await instance.snapshot()).authenticated).toBe(false);
+      expect((await instance.snapshot({ rescan: true })).authenticated).toBe(true);
     } finally {
       delete process.env.FAKE_AGY_RESULT_ERROR;
     }
@@ -546,9 +559,7 @@ describe("Antigravity snapshot", () => {
     const snap = await instance.snapshot();
     expect(snap.state).toBe("available");
     expect(snap.version).toBe("1.1.12");
-    // agy auth is keyring-backed with no reliable file marker, so the snapshot
-    // must NOT claim signed-in from a mere directory — authenticated stays unset.
-    expect((snap as any).authenticated).toBeUndefined();
+    expect(snap.authenticated).toBe(true);
     await instance.dispose();
   });
 

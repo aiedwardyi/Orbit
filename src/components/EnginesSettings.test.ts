@@ -43,6 +43,7 @@ vi.mock("@/state/store", async (importOriginal) => {
 });
 
 import { CustomPicker, EnginesSettings, cliPickerCommitValue, inUseCliPath, isEngineConnected } from "./EnginesSettings";
+import { EngineSetup } from "./EngineSetup";
 
 applyLocale("en");
 
@@ -149,6 +150,23 @@ describe("CLI-candidates in-use marker", () => {
 });
 
 describe("EnginesSettings friends Connections list", () => {
+  it("shows authenticated agy as Connected with its colored dot and check", () => {
+    const saved = [...mockInstances];
+    mockInstances.splice(0, mockInstances.length, instance({
+      instanceId: "antigravity", driverKind: "antigravityAgent", displayName: "Gemini (Antigravity)",
+      snapshot: { state: "available", authenticated: true },
+    }), instance({ snapshot: { state: "unavailable" } }));
+    try {
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(EnginesSettings)));
+      expect(html).toContain('aria-label="Connected"');
+      expect(html).toContain('class="lucide lucide-check');
+      expect(html).toContain("bg-accent");
+      expect(html).not.toContain("Open sign-in");
+    } finally {
+      mockInstances.splice(0, mockInstances.length, ...saved);
+    }
+  });
+
   it.each([
     [{ state: "unavailable" }, "Not installed", "Open install in Terminal", false],
     [{ state: "available", authenticated: false }, "Needs sign-in", "Open sign-in in Terminal", false],
@@ -157,7 +175,7 @@ describe("EnginesSettings friends Connections list", () => {
   ] as const)("renders honest status for %j", (snapshot, label, action, ready) => {
     const saved = [...mockInstances];
     const previousBridge = window.ogb;
-    Object.assign(window, { ogb: { platform: "win32", openInstallTerminal: async () => true } });
+    Object.assign(window, { ogb: { platform: "win32", openInstallTerminal: async () => true, openEngineSignIn: async () => "running" } });
     mockInstances.splice(0, mockInstances.length, instance({
       snapshot,
       install: { command: { win32: "install-claude" }, signInCommand: "claude" },
@@ -207,6 +225,29 @@ describe("EnginesSettings friends Connections list", () => {
     expect(antigravity).toBeGreaterThan(grokAt);
     expect(muse).toBeGreaterThan(antigravity);
   });
+});
+
+it("opens sign-in with only the instance id and shows running instructions", async () => {
+  const previous = window.ogb;
+  const openEngineSignIn = vi.fn(async () => "running" as const);
+  const openInstallTerminal = vi.fn(async () => true);
+  Object.assign(window, { ogb: { platform: "win32", openEngineSignIn, openInstallTerminal } });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(EngineSetup, {
+      instance: instance({ snapshot: { state: "available", authenticated: false }, install: { signInCommand: "claude" } }),
+    }))));
+    const button = [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Open sign-in"))!;
+    await act(async () => button.click());
+    expect(openEngineSignIn).toHaveBeenCalledExactlyOnceWith("claude");
+    expect(openInstallTerminal).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain("Paste the command");
+    expect(host.textContent).toContain("Follow the sign-in steps");
+  } finally {
+    await act(async () => root.unmount());
+    window.ogb = previous;
+  }
 });
 
 describe("isEngineConnected", () => {

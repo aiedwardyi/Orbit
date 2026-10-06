@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 
-import { openBlankTerminal } from "./terminal-launch.mjs";
+import { openBlankTerminal, openSignInTerminal } from "./terminal-launch.mjs";
 
 function launcher(outcomes) {
   const calls = [];
@@ -20,6 +20,29 @@ function launcher(outcomes) {
 }
 
 describe("blank terminal launcher", () => {
+  it("runs the trusted sign-in in a visible Windows PowerShell and disables agy updates", async () => {
+    const fake = launcher(["spawn"]);
+    expect(await openSignInTerminal({ driverKind: "antigravityAgent", command: "agy" }, "win32", fake.run)).toBe(true);
+    const call = fake.calls[0];
+    expect(call.executable).toBe("cmd.exe");
+    expect(call.args.slice(0, 3)).toEqual(["/c", "start", ""]);
+    expect(call.args).toContain("-NoExit");
+    expect(call.args).toContain("-EncodedCommand");
+    expect(Buffer.from(call.args.at(-1), "base64").toString("utf16le")).toBe("$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; agy");
+  });
+
+  it("runs macOS sign-in via Terminal without reading credentials", async () => {
+    const fake = launcher(["spawn"]);
+    expect(await openSignInTerminal({ driverKind: "antigravityAgent", command: "agy" }, "darwin", fake.run)).toBe(true);
+    expect(fake.calls[0].args.join(" ")).toContain('do script "AGY_CLI_DISABLE_AUTO_UPDATE=true agy"');
+  });
+
+  it("keeps unsupported Linux sign-in on the copy path", async () => {
+    const fake = launcher([]);
+    expect(await openSignInTerminal({ driverKind: "codex", command: "codex login" }, "linux", fake.run)).toBe(false);
+    expect(fake.calls).toHaveLength(0);
+  });
+
   it("opens Terminal on macOS without a command argument", async () => {
     const fake = launcher(["spawn"]);
     await expect(openBlankTerminal("darwin", fake.run)).resolves.toBe(true);
