@@ -23,6 +23,7 @@ import {
   composeAntigravityPrompt,
   ensureAntigravityComputerMcp,
   estimateWin32CmdlineLength,
+  isAgyAccountError,
   measureAntigravityTransportLengths,
   readAntigravityModelCatalog,
   STATIC_ANTIGRAVITY_MODELS,
@@ -152,6 +153,49 @@ describe("Antigravity decodeConfig", () => {
   it("rejects invalid types (throws → shadow snapshot)", () => {
     expect(() => AntigravityDriver.decodeConfig({ cli: 5 })).toThrow(/invalid cli/);
     expect(() => AntigravityDriver.decodeConfig({ fullAuto: "yes" })).toThrow(/invalid fullAuto/);
+  });
+
+  it("sends sign-in to the agy command", () => {
+    expect(AntigravityDriver.install?.signInCommand).toBe("agy");
+  });
+});
+
+const AGY_AUTH_FAILED = "authentication failed or timed out";
+const AGY_API_DISABLED =
+  "Agent Platform API has not been used in project my-personal-agy-vertex before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/aiplatform.googleapis.com/overview?project=my-personal-agy-vertex then retry. If you enabled this API recently, wait a few minutes for the action to propagate to our systems and retry.";
+
+describe("isAgyAccountError", () => {
+  it("matches auth and permission wording", () => {
+    for (const text of [
+      AGY_AUTH_FAILED,
+      AGY_API_DISABLED,
+      "unauthorized",
+      "forbidden",
+      "HTTP 401",
+      "HTTP 403",
+      "not logged in",
+      "please sign in",
+      "authentication failed",
+      "PERMISSION_DENIED",
+      "permission denied",
+      "API disabled",
+    ]) {
+      expect(isAgyAccountError(text), text).toBe(true);
+    }
+  });
+
+  it("ignores rate limits, 5xx, and timeout-only failures", () => {
+    for (const text of [
+      "429 rate limit",
+      "rate limit exceeded",
+      "500 internal server error",
+      "503",
+      "5xx",
+      "agy watchdog timeout",
+      "request timed out",
+    ]) {
+      expect(isAgyAccountError(text), text).toBe(false);
+    }
   });
 });
 
@@ -354,6 +398,43 @@ describe("Antigravity turns (fake CLI)", () => {
   it("respondToRequest resolves `unavailable` — no interactive permission channel, so the caller denies", async () => {
     await create();
     await expect(instance.adapter.respondToRequest("t-happy", "req-1", { behavior: "allow" })).resolves.toBe("unavailable");
+  });
+
+  it.each([
+    ["auth", AGY_AUTH_FAILED],
+    ["api", AGY_API_DISABLED],
+  ])("surfaces an agy %s error as sign-in text without the stopped note", async (label, error) => {
+    process.env.FAKE_AGY_RESULT_ERROR = error;
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: `t-agy-error-${label}`, text: "hi" });
+      await recorder.until((event) => event.type === "turn.completed");
+
+      expect(recorder.events.filter((event) => event.type === "runtime.error")).toEqual([
+        expect.objectContaining({ type: "runtime.error", message: error, signIn: true }),
+      ]);
+      expect(recorder.events.some((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toBe(false);
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "no_final_text" });
+    } finally {
+      delete process.env.FAKE_AGY_RESULT_ERROR;
+    }
+  });
+
+  it("reports a non-account ERROR without signIn", async () => {
+    process.env.FAKE_AGY_RESULT_ERROR = "429 rate limit";
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-agy-rate", text: "hi" });
+      await recorder.until((event) => event.type === "turn.completed");
+
+      const err = recorder.events.find((event) => event.type === "runtime.error");
+      expect(recorder.events.filter((event) => event.type === "runtime.error")).toHaveLength(1);
+      expect(err).toMatchObject({ type: "runtime.error", message: "429 rate limit" });
+      expect(err && "signIn" in err ? err.signIn : undefined).toBeUndefined();
+      expect(recorder.events.some((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toBe(false);
+    } finally {
+      delete process.env.FAKE_AGY_RESULT_ERROR;
+    }
   });
 });
 

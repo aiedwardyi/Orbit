@@ -217,15 +217,17 @@ function ErrorRow({
   onRetry,
   setupInstance,
   usageLimit,
+  signIn,
 }: {
   message: string;
   onRetry?: () => void;
   setupInstance?: InstanceInfo;
   usageLimit?: { resetsAt: number | null };
+  signIn?: boolean;
 }) {
   const { t } = useI18n();
   const now = useNow();
-  const action = setupErrorAction(message, setupInstance);
+  const action = setupErrorAction(message, setupInstance, signIn);
   const reset = usageLimit ? usageLimitReset(usageLimit.resetsAt, now) : null;
   return (
     <div className="flex justify-start">
@@ -252,7 +254,7 @@ function ErrorRow({
           </span>
         </div>
         {action === "cli" && setupInstance ? (
-          <EngineSetup instance={setupInstance} className="mt-2 text-ink-secondary" />
+          <EngineSetup instance={setupInstance} signIn={signIn} className="mt-2 text-ink-secondary" />
         ) : action === "key" ? (
           <OpenConnectionsCta />
         ) : (
@@ -987,8 +989,9 @@ const MessagesList = memo(function MessagesList({
                   <ErrorRow
                     message={m.tool.name.slice(6).trim()}
                     onRetry={m.id === canonicalLastMessageId && canRetryLast ? onRegenerate : undefined}
-                    setupInstance={m.tool.setup ? engine : undefined}
+                    setupInstance={m.tool.setup || m.tool.signIn ? engine : undefined}
                     usageLimit={m.tool.usageLimit}
+                    signIn={m.tool.signIn}
                   />
                 );
               }

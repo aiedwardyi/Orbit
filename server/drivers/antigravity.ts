@@ -53,6 +53,17 @@ const DRIVER_KIND = "antigravityAgent";
 const AGY_STOPPED_NOTE = "The bot stopped before finishing.";
 const AGY_SYSTEM_NOTICE = /<SYSTEM_MESSAGE\b/i;
 const AGY_CONTEXT_CANCELLATION = /\bcontext\s+cancel(?:ed|led)\b/i;
+const AGY_ACCOUNT_ERROR =
+  /unauthorized|\bforbidden\b|\b401\b|\b403\b|not logged in|\bsign[\s-]?in\b|authentication failed|permission_denied|permission denied|has not been used in project|\bapi\b[^.\n]{0,120}\bdisabled\b/i;
+const AGY_NOT_ACCOUNT_ERROR = /\brate[\s-]?limit\b|\b429\b|\btoo many requests\b|\b5\d\d\b|\b5xx\b/i;
+const AGY_TIMEOUT_ERROR = /\b(?:watchdog timeout|timed out|time-out|timeout)\b/i;
+
+/** Account or permission failure. Rate limits, 5xx, and timeout-only lines are not. */
+export function isAgyAccountError(text: string): boolean {
+  if (AGY_NOT_ACCOUNT_ERROR.test(text)) return false;
+  if (AGY_TIMEOUT_ERROR.test(text) && !AGY_ACCOUNT_ERROR.test(text)) return false;
+  return AGY_ACCOUNT_ERROR.test(text);
+}
 
 function isAntigravitySystemNotice(text: string): boolean {
   return AGY_SYSTEM_NOTICE.test(text);
@@ -488,6 +499,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       win32: "irm https://antigravity.google/cli/install.ps1 | iex",
     },
     docsUrl: "https://github.com/google-antigravity/antigravity-cli#installation",
+    signInCommand: "agy",
   },
   models: STATIC_ANTIGRAVITY_MODELS,
   decodeConfig,
@@ -859,10 +871,20 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             // agy delivers the assistant text in result.response (not streamed)
             const response = typeof payload.response === "string" ? payload.response : "";
             const realResponse = Boolean(response.trim()) && !isAntigravitySystemNotice(response) && !cancelledTool;
+            const parsedError = z.string().safeParse(payload.error);
+            const agyError = parsedError.success ? parsedError.data : "";
+            const agyResultError = payload.status === "ERROR" && agyError.length > 0;
+            if (agyResultError) {
+              if (isAgyAccountError(agyError)) {
+                emit({ ...base(threadId, turnId), type: "runtime.error", message: agyError, signIn: true });
+              } else {
+                emit({ ...base(threadId, turnId), type: "runtime.error", message: agyError });
+              }
+            }
             if (realResponse) {
               emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "assistant_text", delta: response });
               emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: response });
-            } else {
+            } else if (!agyResultError) {
               emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: AGY_STOPPED_NOTE });
             }
             if (payload.usage) {

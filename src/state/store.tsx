@@ -134,6 +134,7 @@ export interface Message {
     summary?: string;
     durationMs?: number;
     setup?: boolean;
+    signIn?: boolean;
     usageLimit?: { resetsAt: number | null };
   };
   /** user messages sent into a running turn — the model saw it mid-turn */

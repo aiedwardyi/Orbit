@@ -133,6 +133,7 @@ export interface Message {
     summary?: string;
     durationMs?: number;
     setup?: boolean;
+    signIn?: boolean;
     usageLimit?: { resetsAt: number | null };
   };
   /** user messages sent INTO a running turn (capabilities.queueing): the

@@ -3207,7 +3207,13 @@ bus.subscribe((event: RuntimeEvent) => {
       pushMessage({
         role: "bot",
         kind: "activity",
-        tool: { name: `error: ${event.message.slice(0, 160)}`, ok: false, setup: event.setup, usageLimit: event.usageLimit },
+        tool: {
+          name: `error: ${event.message.slice(0, event.signIn ? 600 : 160)}`,
+          ok: false,
+          setup: event.setup,
+          usageLimit: event.usageLimit,
+          signIn: event.signIn,
+        },
       });
       // a setup error means the engine could not even start: the bot is
       // dead until something changes, not merely idle. The next successful

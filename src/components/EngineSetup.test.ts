@@ -106,6 +106,14 @@ describe("API key setup", () => {
     expect(setupErrorAction("Gemini API key missing", installed)).toBe("key");
     expect(setupErrorAction("Gemini API key missing", unset)).toBe("key");
   });
+
+  it("offers Terminal when the error carries signIn and an instance is known", () => {
+    const agy = instance({ state: "available", version: "1.2.4" });
+    expect(setupErrorAction("authentication failed or timed out", agy, true)).toBe("cli");
+    expect(setupErrorAction("authentication failed or timed out", agy)).toBe("retry");
+    expect(setupErrorAction("authentication failed or timed out", undefined, true)).toBe("retry");
+    expect(setupErrorAction("429 rate limit", agy)).toBe("retry");
+  });
 });
 
 describe("openInstallTerminalOrCopy", () => {

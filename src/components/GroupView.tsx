@@ -163,8 +163,8 @@ export function RoomToolChip({
     ? state.instances.find((i) => i.instanceId === member.modelSelection.instanceId)
     : undefined;
   const setupAction =
-    tool.setup && onRetry
-      ? setupErrorAction(tool.name.startsWith("error:") ? tool.name.slice(6).trim() : tool.name, instance)
+    (tool.setup || tool.signIn) && onRetry
+      ? setupErrorAction(tool.name.startsWith("error:") ? tool.name.slice(6).trim() : tool.name, instance, tool.signIn)
       : undefined;
 
   return (
@@ -187,7 +187,7 @@ export function RoomToolChip({
           </span>
         </div>
         {setupAction === "cli" && instance ? (
-          <EngineSetup instance={instance} className="mt-2 text-ink-secondary" />
+          <EngineSetup instance={instance} signIn={tool.signIn} className="mt-2 text-ink-secondary" />
         ) : setupAction === "key" ? (
           <OpenConnectionsCta />
         ) : (
