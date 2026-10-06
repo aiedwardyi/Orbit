@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { restoreChatChrome, scrollElementIntoContainer } from "./focus-message";
+import { landOnSearchHit, restoreChatChrome, scrollElementIntoContainer } from "./focus-message";
+import type { SearchHit } from "./search-hit";
 
 function box(top: number, height: number, scrollTop = 0) {
   return {
@@ -58,5 +59,31 @@ describe("restoreChatChrome", () => {
     expect(calls).toEqual([[0, 0]]);
     expect(documentLike.documentElement.scrollTop).toBe(0);
     expect(documentLike.body.scrollTop).toBe(0);
+  });
+});
+
+describe("landOnSearchHit", () => {
+  it("carries the sidebar query so the chat can open find on that message", async () => {
+    const hit: SearchHit = {
+      botId: "b",
+      name: "Bot",
+      threadId: "t",
+      messageId: "m",
+      role: "user",
+      kind: "text",
+      at: 1,
+      snippet: "최세훈",
+      matchStart: 0,
+      matchLength: 3,
+      onActivePath: true,
+    };
+    const dispatch = vi.fn();
+    await landOnSearchHit(hit, { bots: [{ id: "b", threadId: "t" }], groups: [] }, dispatch, "최세훈");
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "focusMessage",
+      threadId: "t",
+      messageId: "m",
+      query: "최세훈",
+    });
   });
 });

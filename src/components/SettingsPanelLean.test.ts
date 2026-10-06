@@ -206,7 +206,7 @@ describe("SettingsPanel memory and order", () => {
     await act(async () => {
       root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
     });
-    const box = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Bot memory"]');
+    const box = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Memory"]');
     expect(box?.value).toBe("likes tea");
     expect(host.querySelector('button[aria-expanded][class*="justify-between"]')).toBeNull();
   });

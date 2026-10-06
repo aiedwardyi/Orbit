@@ -565,7 +565,7 @@ export function PluginsPanel() {
               className="font-medium underline underline-offset-2"
               onClick={() => {
                 close();
-                dispatch({ type: "toggleAppSettings", open: true });
+                dispatch({ type: "toggleAppSettings", open: true, section: "connections" });
               }}
             >
               Open settings
@@ -579,7 +579,7 @@ export function PluginsPanel() {
               className="underline underline-offset-2 hover:text-ink"
               onClick={() => {
                 close();
-                dispatch({ type: "toggleAppSettings", open: true });
+                dispatch({ type: "toggleAppSettings", open: true, section: "connections" });
               }}
             >
               Update your Composio key

@@ -208,6 +208,7 @@ const formatBytes = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${Math.ro
  * every bot and most visits never look at memory — and an expand also
  * re-reads, so notes the bot wrote mid-session show up on the next open. */
 function MemoryCard({ bot }: { bot: Bot }) {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -268,7 +269,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
 
   return (
     <div>
-      <div className="mb-1.5 text-[13px] text-ink-secondary">Memory</div>
+      <div className="mb-1.5 text-[13px] text-ink-secondary">{t("bot.memory")}</div>
       {loading && <div className="text-[13px] text-ink-secondary">Loading…</div>}
 
       {!loading && topic && (
@@ -293,8 +294,8 @@ function MemoryCard({ bot }: { bot: Bot }) {
           <textarea
             className={cn(inputCls, "min-h-[160px] resize-y font-mono text-[12.5px] leading-relaxed")}
             value={text}
-            placeholder="Nothing remembered yet."
-            aria-label="Bot memory"
+            placeholder={t("bot.memoryPlaceholder")}
+            aria-label={t("bot.memory")}
             onChange={(e) => {
               setText(e.target.value);
               setDirty(true);
@@ -498,7 +499,7 @@ export function SettingsPanel({
             )}
           </div>
 
-          <Field label="Name">
+          <Field label={t("bot.name")}>
             <input
               className={inputCls}
               maxLength={BOT_PROFILE_LIMITS.name}

@@ -8,6 +8,7 @@ import { api, useStore, formatTime } from "@/state/store";
 import { MausAvatar } from "./Avatar";
 import { cn } from "@/lib/cn";
 import type { SearchHit } from "@/lib/search-hit";
+import { highlightParts } from "@/lib/chat-find";
 import { landOnSearchHit } from "@/lib/focus-message";
 import { localeTag, useI18n } from "@/lib/i18n";
 
@@ -47,7 +48,7 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
 
   const land = async (hit: SearchHit) => {
     try {
-      await landOnSearchHit(hit, state, dispatch);
+      await landOnSearchHit(hit, state, dispatch, q);
       onLanded();
     } catch (e) {
       dispatch({ type: "error", message: e instanceof Error ? e.message : String(e) });
@@ -65,9 +66,6 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
       {hits && hits.length === 0 && !error && <div className="px-3 py-3 text-[13px] text-ink-secondary">{t("search.noMatch", { query: q })}</div>}
       {hits?.map((hit) => {
         const bot = hit.botId ? state.bots.find((b) => b.id === hit.botId) : undefined;
-        const before = hit.snippet.slice(0, hit.matchStart);
-        const match = hit.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength);
-        const after = hit.snippet.slice(hit.matchStart + hit.matchLength);
         return (
           <button
             key={`${hit.threadId}:${hit.messageId}`}
@@ -81,15 +79,13 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
             )}
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline gap-1.5 text-[12px] text-ink-secondary">
-                <span className="truncate font-medium text-ink">{hit.from ?? hit.name}</span>
-                {hit.task ? <span className="truncate">· {hit.task}</span> : null}
+                <span className="truncate font-medium text-ink"><Highlighted text={hit.from ?? hit.name} query={q} /></span>
+                {hit.task ? <span className="truncate">· <Highlighted text={hit.task} query={q} /></span> : null}
                 <span className="ml-auto shrink-0 tabular-nums">{formatTime(hit.at, localeTag(locale))}</span>
               </span>
               <span className={cn("mt-0.5 line-clamp-2 text-[12.5px] leading-snug", hit.role === "user" ? "text-ink" : "text-ink-secondary")}>
                 {hit.kind === "activity" && <Wrench size={11} className="mr-1 inline text-ink-secondary" />}
-                {before}
-                <mark className="rounded-sm bg-accent/25 px-0.5 text-ink">{match}</mark>
-                {after}
+                <Highlighted text={hit.snippet} query={q} />
               </span>
               {!hit.onActivePath && (
                 <span className="mt-0.5 flex items-center gap-1 text-[11px] text-ink-secondary">
@@ -101,5 +97,15 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
         );
       })}
     </div>
+  );
+}
+
+function Highlighted({ text, query }: { text: string; query: string }) {
+  return highlightParts(text, query).map((part, index) =>
+    part.match ? (
+      <mark key={index} className="rounded-sm bg-accent/25 px-0.5 text-ink">{part.text}</mark>
+    ) : (
+      <span key={index}>{part.text}</span>
+    ),
   );
 }

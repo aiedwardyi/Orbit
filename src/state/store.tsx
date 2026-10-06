@@ -599,7 +599,7 @@ export interface AppState {
   computerControl: Record<string, { held: boolean; helpReason: string | null }>;
   /** a search hit to scroll to once its thread is on screen; nonce lets the
    * same message be focused twice in a row */
-  focusMessage: { threadId: string; messageId: string; nonce: number; consumed: boolean } | null;
+  focusMessage: { threadId: string; messageId: string; nonce: number; consumed: boolean; query?: string } | null;
   connected: boolean;
   /** true once the first `hydrate` action has landed and state.bots reflects the real snapshot */
   hydrated: boolean;
@@ -862,7 +862,7 @@ export type Action =
   | { type: "toggleInspector"; open?: boolean }
   | { type: "setWorkspaceOpen"; open: boolean }
   | { type: "windowActivated" }
-  | { type: "focusMessage"; threadId: string; messageId: string }
+  | { type: "focusMessage"; threadId: string; messageId: string; query?: string }
   | { type: "focusMessageConsumed"; nonce: number }
   | { type: "mascotMotionDone"; nonce: number }
   | { type: "toggleAppSettings"; open?: boolean; section?: AppSettingsSection }
@@ -1487,6 +1487,7 @@ export function reducer(state: AppState, action: Action): AppState {
         focusMessage: {
           threadId: action.threadId,
           messageId: action.messageId,
+          query: action.query,
           nonce: (state.focusMessage?.nonce ?? 0) + 1,
           consumed: false,
         },
@@ -1548,7 +1549,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         appSettingsOpen: open,
-        appSettingsSection: action.section ?? state.appSettingsSection,
+        appSettingsSection: action.section ?? (open ? "general" : state.appSettingsSection),
         settingsOpen: open ? false : state.settingsOpen,
         computerOpen: open ? false : state.computerOpen,
         inspectorOpen: open ? false : state.inspectorOpen,

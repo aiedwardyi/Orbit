@@ -275,9 +275,12 @@ export function searchSnippet(haystack: string, needle: string): Pick<SearchHit,
   };
 }
 
-/** Case-insensitive substring search over text messages, newest first.
- * A LIKE scan, deliberately: local transcripts are megabytes at most, a
- * scan is milliseconds, and it needs no FTS extension to exist. */
+/** Case-insensitive substring search. Across chats, text messages rank
+ * ahead of tool rows so a real line is not crowded out by newer paths that
+ * repeat it; inside one chat (find bar) it stays newest first, so next and
+ * previous follow the transcript. A LIKE scan, deliberately: local
+ * transcripts are megabytes at most, a scan is milliseconds, and it needs
+ * no FTS extension to exist. */
 export function searchMessages(query: string, limit = 40, threadId?: string): SearchHit[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
@@ -291,7 +294,7 @@ export function searchMessages(query: string, limit = 40, threadId?: string): Se
     "SELECT thread_id, id, at, role, kind, text, json_extract(json, '$.tool.name') AS tool_name, json_extract(json, '$.from.name') AS from_name FROM messages " +
       `WHERE ${scope}((kind = 'text' AND text IS NOT NULL AND lower(text) LIKE ? ESCAPE '\\') ` +
       "   OR (kind = 'activity' AND tool_name IS NOT NULL AND lower(tool_name) LIKE ? ESCAPE '\\')) " +
-      "ORDER BY at DESC LIMIT ?",
+      `ORDER BY ${threadId ? "" : "CASE WHEN kind = 'text' THEN 0 ELSE 1 END, "}at DESC LIMIT ?`,
   );
   const rows = (threadId
     ? statement.all(threadId, pattern, pattern, limit)

@@ -218,6 +218,19 @@ describe("message-db", () => {
     expect(searchMessages("spoke")[0].from).toBe("Scout");
   });
 
+  it("ranks an older text message ahead of a newer tool-call row", () => {
+    insertMessage("t-rank", msg("text-hit", "재판기록의 최세훈입니다", { at: 10 }));
+    insertMessage("t-rank", {
+      ...msg("tool-hit", "", { at: 50, role: "bot", kind: "activity" }),
+      tool: { name: "rg 최세훈 targets-by-id\\1qTq", ok: true },
+    });
+
+    const hits = searchMessages("최세훈");
+    expect(hits.map((hit) => hit.kind)).toEqual(["text", "activity"]);
+    expect(searchMessages("최세훈", 1)[0]?.messageId).toBe("text-hit");
+    expect(searchMessages("최세훈", 40, "t-rank").map((hit) => hit.messageId)).toEqual(["tool-hit", "text-hit"]);
+  });
+
   it("Store round-trips branching through the DB across a restart", () => {
     const store = new Store(selection);
     const bot = store.createBot();

@@ -1,17 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 
+import { findHitIndex, watchChatFindHighlight } from "@/lib/chat-find";
 import { landOnSearchHit, restoreChatChrome } from "@/lib/focus-message";
 import type { SearchHit } from "@/lib/search-hit";
 import { api, useStore } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 
-export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: () => void }) {
+export function ChatFindBar({
+  threadId,
+  initialQuery = "",
+  initialMessageId = null,
+  onClose,
+}: {
+  threadId: string;
+  initialQuery?: string;
+  initialMessageId?: string | null;
+  onClose: () => void;
+}) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const inputRef = useRef<HTMLInputElement>(null);
   const requestRef = useRef(0);
-  const [query, setQuery] = useState("");
+  const anchorRef = useRef(initialMessageId);
+  const anchorQueryRef = useRef(initialQuery);
+  const hitsQueryRef = useRef("");
+  const [query, setQuery] = useState(initialQuery);
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -26,6 +40,7 @@ export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: 
     const trimmed = query.trim();
     const request = ++requestRef.current;
     if (!trimmed) {
+      hitsQueryRef.current = "";
       setHits([]);
       setIndex(0);
       setLoading(false);
@@ -36,8 +51,8 @@ export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: 
       void api(`/api/search?q=${encodeURIComponent(trimmed)}&limit=100&threadId=${encodeURIComponent(threadId)}`)
         .then((body) => {
           if (request !== requestRef.current) return;
+          hitsQueryRef.current = trimmed;
           setHits(Array.isArray(body?.hits) ? body.hits : []);
-          setIndex(0);
         })
         .catch((error) => {
           if (request !== requestRef.current) return;
@@ -64,12 +79,23 @@ export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: 
     land((index + delta + hits.length) % hits.length);
   };
 
-  // Jump to the first match as soon as a new result set arrives.
+  // First result set starts on the clicked row. Later queries start at the top.
   useEffect(() => {
-    if (hits[0]) land(0);
+    if (!hits.length || hitsQueryRef.current !== query.trim()) return;
+    const wanted = query.trim() === anchorQueryRef.current.trim() ? anchorRef.current : null;
+    anchorRef.current = null;
+    const next = findHitIndex(hits, wanted);
+    if (next == null) return;
+    land(next);
     // `land` intentionally reads the state that produced this result set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hits]);
+  }, [hits, query]);
+
+  useEffect(() => {
+    const root = inputRef.current?.closest("main")?.querySelector("[data-orbit-transcript]");
+    if (!(root instanceof HTMLElement)) return;
+    return watchChatFindHighlight(root, query);
+  }, [query]);
 
   return (
     <div data-chat-find className="w-full px-5 pb-2">

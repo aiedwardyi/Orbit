@@ -703,7 +703,7 @@ function BotContextMenu({
     ? t("chrome.chooseAnotherChief")
     : visibleBotCount <= 1
       ? t("chrome.keepOneBot")
-      : undefined;
+      : t("chrome.archiveHint");
   // keep the menu on-screen near the click
   const top = Math.max(8, Math.min(menu.y, window.innerHeight - 380));
   const left = Math.min(menu.x, window.innerWidth - 240);
@@ -1106,7 +1106,7 @@ function BotListItem({
             ? t("chrome.chooseAnotherChief")
             : archiveDisabled
               ? t("chrome.keepOneBot")
-              : t("chrome.archiveBot", { name: bot.name })
+              : t("chrome.archiveHint")
         }
         className="absolute right-1 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg bg-card/90 text-ink-secondary opacity-0 shadow-sm transition hover:bg-raised hover:text-ink focus:opacity-100 disabled:cursor-default disabled:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100"
       >
