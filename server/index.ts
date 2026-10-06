@@ -1564,12 +1564,16 @@ async function deleteBotFully(bot: BotRecord): Promise<void> {
   }
 }
 
+// a Local VM refusal is retried on the next launch, not on every poll
+const syncDeleteRefused = new Set<string>();
+
 async function removeSyncedBots(
   items: ProfileImportPlan["remove"],
   synced: ProfileSyncSettings["syncedHashes"],
   folder: string,
 ): Promise<void> {
   for (const item of items) {
+    if (syncDeleteRefused.has(item.globalId)) continue;
     const bot = store.bot(item.localId);
     if (!bot) continue;
     const refusal = await localVmDeleteRefusal(bot.id);
@@ -1580,6 +1584,7 @@ async function removeSyncedBots(
       vmRefused: refusal !== null,
     });
     if (choice === "hide" && refusal) {
+      syncDeleteRefused.add(item.globalId);
       const hidden = store.patchBot(item.localId, { hidden: true, chiefOfStaff: false });
       if (!hidden) continue;
       markSynced(synced, { entity: "bot", entityId: item.globalId, changes: { ...portableSyncChanges(hidden, folder), deleted: item.tombstoneId } });
