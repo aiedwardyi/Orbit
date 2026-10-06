@@ -140,6 +140,21 @@ describe("grokRateLimitWindows", () => {
     expect(exhaustedWindow(windows, Date.parse("2026-09-14T00:00:00Z"))).toBeNull();
   });
 
+  it("reads a subscriber's untouched week as unused", () => {
+    expect(
+      grokRateLimitWindows({
+        config: {
+          currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", start: "2026-10-04T08:45:16.197799+00:00", end: "2026-10-11T08:45:16.197799+00:00" },
+          onDemandCap: { val: 0 },
+          isUnifiedBillingUser: true,
+        },
+        subscription_tier: "SuperGrok",
+      }),
+    ).toEqual([
+      { id: "seven_day", usedPercent: 0, resetsAt: Date.parse("2026-10-11T08:45:16.197799+00:00"), windowMinutes: 10_080 },
+    ]);
+  });
+
   it("drops a payload without a weekly fill", () => {
     expect(
       grokRateLimitWindows({
