@@ -23,7 +23,9 @@ export const STATIC_MUSE_MODELS: ModelCatalog = {
 
 const nonBlank = (value: string | undefined): boolean => Boolean(value?.trim());
 const museAuthSchema = z.object({
-  providers: z.object({ meta: z.object({ access_token: z.string().optional(), api_key: z.string().optional() }) }),
+  providers: z.object({
+    meta: z.object({ access_token: z.string().optional(), api_key: z.string().optional(), storage: z.string().optional() }),
+  }),
 });
 
 function museConfigDir(env: Record<string, string | undefined>): string {
@@ -153,7 +155,10 @@ export function museIsAuthenticated(
   if (nonBlank(env.META_API_KEY)) return true;
   const signedIn = () => storedSignIn(museAuthPath(env), (text) => {
     const parsed = museAuthSchema.safeParse(JSON.parse(text));
-    return parsed.success && (nonBlank(parsed.data.providers.meta.access_token) || nonBlank(parsed.data.providers.meta.api_key));
+    if (!parsed.success) return false;
+    const meta = parsed.data.providers.meta;
+    // macOS Muse keeps the tokens in Keychain and leaves only this descriptor.
+    return nonBlank(meta.access_token) || nonBlank(meta.api_key) || meta.storage === "keychain";
   });
   // Native Windows Muse reads its own auth file. Keep the WSL probe as a
   // fallback for older installs and explicit WSL configurations.

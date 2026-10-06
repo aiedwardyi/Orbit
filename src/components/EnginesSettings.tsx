@@ -309,7 +309,9 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
           {t("engines.setCli")}
         </button>
       </div>
-      {!connected && instance.install && <EngineSetup instance={instance} signIn className="mb-2" />}
+      {instance.install && (instance.snapshot.state !== "available" || instance.snapshot.authenticated === false) && (
+        <EngineSetup instance={instance} className="mb-2" />
+      )}
       {open && (
         <CustomPicker
           instance={instance}
@@ -346,11 +348,34 @@ export function EnginesSettings() {
   const { t } = useI18n();
   const { state, refreshInstances } = useStore();
   const [showAll, setShowAll] = useState(false);
+  // Same guard as the store's focus probe: a rescan can flash a window that
+  // steals focus, so only a real trip away (a terminal sign-in) rescans.
   useEffect(() => {
-    const refresh = () => { void refreshInstances(true); };
-    refresh();
-    window.addEventListener("focus", refresh);
-    return () => window.removeEventListener("focus", refresh);
+    const AWAY_MS = 5000;
+    let blurredAt = 0;
+    let quietUntil = 0;
+    const rescan = () => {
+      quietUntil = Infinity;
+      void refreshInstances(true).finally(() => {
+        quietUntil = Date.now() + AWAY_MS;
+      });
+    };
+    const onBlur = () => {
+      const now = Date.now();
+      blurredAt = now < quietUntil ? 0 : now;
+    };
+    const onFocus = () => {
+      const away = blurredAt > 0 && Date.now() - blurredAt >= AWAY_MS;
+      blurredAt = 0;
+      if (away) rescan();
+    };
+    rescan();
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [refreshInstances]);
   // every KNOWN-driver instance has cliDefault; unknown-driver shadows have
   // neither unless an override was set. Including them keeps a Reset-able row

@@ -153,7 +153,7 @@ describe("EnginesSettings friends Connections list", () => {
     [{ state: "unavailable" }, "Not installed", "Open install in Terminal", false],
     [{ state: "available", authenticated: false }, "Needs sign-in", "Open sign-in in Terminal", false],
     [{ state: "available", authenticated: true }, "Connected", null, true],
-    [{ state: "available" }, "Installed", "Open sign-in in Terminal", false],
+    [{ state: "available" }, "Installed", null, false],
   ] as const)("renders honest status for %j", (snapshot, label, action, ready) => {
     const saved = [...mockInstances];
     const previousBridge = window.ogb;
@@ -245,17 +245,30 @@ describe("engines summary", () => {
   });
 });
 
-it("refreshes sign-in on opening Connections and returning from the terminal", async () => {
+it("rescans sign-in on opening Connections and after a real trip away", async () => {
   refreshInstances.mockClear();
+  vi.useFakeTimers({ toFake: ["Date"] });
   const host = document.createElement("div");
   const root = createRoot(host);
+  const after = async (ms: number, event: "blur" | "focus") => {
+    vi.setSystemTime(Date.now() + ms);
+    await act(async () => window.dispatchEvent(new Event(event)));
+  };
   try {
     await act(async () => root.render(createElement(I18nProvider, null, createElement(EnginesSettings))));
     expect(refreshInstances).toHaveBeenCalledExactlyOnceWith(true);
-    await act(async () => window.dispatchEvent(new Event("focus")));
+    await after(0, "blur");
+    await after(0, "focus");
+    await after(6000, "blur");
+    await after(1000, "focus");
+    expect(refreshInstances).toHaveBeenCalledTimes(1);
+    await after(0, "blur");
+    await after(6000, "focus");
     expect(refreshInstances).toHaveBeenCalledTimes(2);
+    expect(refreshInstances).toHaveBeenLastCalledWith(true);
   } finally {
     await act(async () => root.unmount());
+    vi.useRealTimers();
   }
   window.dispatchEvent(new Event("focus"));
   expect(refreshInstances).toHaveBeenCalledTimes(2);

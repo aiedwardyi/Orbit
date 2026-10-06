@@ -20,6 +20,13 @@ describe("Meta Muse driver catalog", () => {
     expect(museIsAuthenticated(env, undefined, platform)).toBe(true);
   });
 
+  it("accepts a Keychain login that keeps no token in the file", () => {
+    const auth = join(mkdtempSync(join(tmpdir(), "omb-muse-keychain-")), "auth.json");
+    const env = { HOME: tmpdir(), MUSE_AUTH_PATH: auth };
+    writeFileSync(auth, JSON.stringify({ schema_version: 1, providers: { meta: { storage: "keychain", mechanism: "oauth" } } }));
+    expect(museIsAuthenticated(env, undefined, { platform: "darwin" })).toBe(true);
+  });
+
   it("serves exactly the two Meta Muse models with the required labels", () => {
     expect(STATIC_MUSE_MODELS.default).toBe("muse-spark-1.3");
     expect(STATIC_MUSE_MODELS.options).toEqual([
