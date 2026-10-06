@@ -888,7 +888,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const sender = paneOwner();
       if (!sender || sender.isDestroyed?.()) throw new Error("Wink window is not available");
       const result = await openMain({ sender }, { botId, cols: 120, rows: 30 }, { trusted: true });
-      if (result.needsFolder) throw new Error("Terminal folder is unavailable");
+      if (!result || result.needsFolder) throw new Error("Terminal folder is unavailable");
       return { sessionId: result.id, generation: result.generation };
     },
     close(event, id) {

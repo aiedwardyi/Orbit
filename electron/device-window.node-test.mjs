@@ -55,6 +55,7 @@ function watched() {
   const webContents = new FakeWebContents();
   const logs = [];
   const timers = { tick: null, cleared: 0 };
+  const deferred = [];
   const watch = watchDeviceLoad(webContents, {
     host: "home.tail396477.ts.net",
     url: URL_,
@@ -65,8 +66,9 @@ function watched() {
       timers.tick = null;
       timers.cleared += 1;
     },
+    defer: (fn) => deferred.push(fn),
   });
-  return { webContents, logs, timers, watch };
+  return { webContents, logs, timers, watch, deferred };
 }
 
 test("shows the unreachable page and logs the host once on a failed load", () => {
@@ -95,8 +97,12 @@ test("shows the unreachable page when the PC page crashes or hangs", () => {
     ["render-process-gone", { reason: "crashed" }, "render-process-gone crashed"],
     ["unresponsive", undefined, "unresponsive"],
   ]) {
-    const { webContents, logs } = watched();
+    const { webContents, logs, deferred } = watched();
     webContents.emit(event, {}, details);
+    if (event === "render-process-gone") {
+      assert.deepEqual(webContents.loads, []);
+      deferred.shift()();
+    }
     assert.deepEqual(webContents.loads, ["data:failure"]);
     assert.deepEqual(logs, [`device window home.tail396477.ts.net: ${line}`]);
   }
@@ -124,6 +130,15 @@ test("a successful load stops retrying and a later failure logs again", () => {
   webContents.emit("unresponsive");
   assert.equal(logs.length, 2);
   assert.ok(timers.tick);
+});
+
+test("stops retrying when the PC asks to link this device", () => {
+  const { webContents, timers } = watched();
+  webContents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", URL_, true);
+  webContents.emit("did-navigate", {}, "data:failure");
+  timers.tick();
+  webContents.emit("did-navigate", {}, "data:link");
+  assert.equal(timers.tick, null);
 });
 
 test("stops retrying when the window closes", () => {

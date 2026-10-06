@@ -111,18 +111,26 @@ const DEVICE_RETRY_LIMIT_MS = 120_000;
 const ERR_ABORTED = -3;
 
 /** Swaps a failed, crashed or hung PC page for `failurePage` and retries `url` until a load commits. */
-function watchDeviceLoad(webContents, { host, url, failurePage, log, setInterval: every = setInterval, clearInterval: stop = clearInterval }) {
+function watchDeviceLoad(webContents, { host, url, failurePage, log, setInterval: every = setInterval, clearInterval: stop = clearInterval, defer = (fn) => setTimeout(fn, 0) }) {
   let retry = null;
   let retries = 0;
   let failed = false;
+  let showingFailure = false;
   const cancel = () => {
     if (retry) stop(retry);
     retry = null;
   };
-  const fail = (detail) => {
+  const showFailure = () => {
+    if (webContents.isDestroyed()) return;
+    showingFailure = true;
+    void webContents.loadURL(failurePage).catch(() => {});
+  };
+  const fail = (detail, { crashed = false } = {}) => {
     if (!retry && retries === 0) log(`device window ${host}: ${detail}`);
     failed = true;
-    if (!webContents.isDestroyed()) void webContents.loadURL(failurePage).catch(() => {});
+    // navigating inside render-process-gone can crash the main process before Electron 43.7.1
+    if (crashed) defer(showFailure);
+    else showFailure();
     if (retry || retries > 0) return;
     retry = every(() => {
       retries += 1;
@@ -135,11 +143,16 @@ function watchDeviceLoad(webContents, { host, url, failurePage, log, setInterval
     fail(`did-fail-load ${code} ${description}`);
   });
   webContents.on("render-process-gone", (_event, details) => {
-    if (details?.reason !== "clean-exit") fail(`render-process-gone ${details?.reason ?? "unknown"}`);
+    if (details?.reason !== "clean-exit") fail(`render-process-gone ${details?.reason ?? "unknown"}`, { crashed: true });
   });
   webContents.on("unresponsive", () => fail("unresponsive"));
   webContents.on("did-navigate", (_event, target) => {
-    if (String(target).startsWith("data:")) return;
+    // only the failure page keeps retrying; the device link form must not be reloaded away
+    if (showingFailure && String(target).startsWith("data:")) {
+      showingFailure = false;
+      return;
+    }
+    showingFailure = false;
     cancel();
     retries = 0;
     failed = false;
