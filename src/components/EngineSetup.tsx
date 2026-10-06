@@ -92,12 +92,13 @@ export async function openInstallTerminalOrCopy(
 export function setupErrorAction(
   message: string,
   instance: InstanceInfo | undefined,
+  signIn?: boolean,
 ): "cli" | "key" | "retry" {
   if (instance && needsCli(instance)) return "cli";
   if (needsApiKey(instance)) return "key";
   if (instance && isApiKeyEngine(instance) && isApiKeySetupMessage(message)) return "key";
   if (instance == null && isGeminiApiKeyMessage(message)) return "key";
-  if (instance && needsSignIn(instance)) return "cli";
+  if (instance && (needsSignIn(instance) || signIn)) return "cli";
   return "retry";
 }
 
@@ -203,18 +204,21 @@ export function EngineSetup({
   instance,
   className,
   intent = "cloud",
+  signIn = false,
 }: {
   instance: InstanceInfo;
   className?: string;
   /** `inject` installs the CLI but deliberately skips cloud sign-in. */
   intent?: "cloud" | "inject";
+  /** Force the sign-in card when the snapshot has no `authenticated` field. */
+  signIn?: boolean;
 }) {
   const { t } = useI18n();
   const install = instance.install;
   const installCommand = installCommandFor(install);
   const signInCommand = install?.signInCommand;
   const keyOnly = intent === "cloud" && needsApiKey(instance);
-  const signInOnly = intent === "cloud" && needsSignIn(instance) && !keyOnly;
+  const signInOnly = intent === "cloud" && !keyOnly && (needsSignIn(instance) || (signIn && !needsCli(instance)));
   const command = keyOnly ? null : signInOnly ? signInCommand : installCommand;
   const title = keyOnly
     ? t("engine.needsKeyTitle", { name: instance.displayName })

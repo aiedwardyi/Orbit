@@ -8,6 +8,7 @@
 // agent_response step with usage → result with status SUCCESS.
 // While FAKE_AGY_CHECKPOINT_FILE exists, agy's checkpoint step precedes the response;
 // while FAKE_AGY_RESUME_FAIL_FILE exists, `--conversation` launches fail.
+// FAKE_AGY_RESULT_ERROR, when set, is the result.error of a status ERROR turn.
 // Deterministic, no network.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
@@ -151,14 +152,17 @@ out({
   conversation_id: CONV,
   result: {
     conversation_id: CONV,
-    status: "SUCCESS",
-    response: process.env.FAKE_AGY_SYSTEM_NOTICE === "1"
-      ? systemNotice
-      : process.env.FAKE_AGY_NO_FINAL === "1"
-        ? ""
-        : cancelledTool
-          ? "final text after cancellation"
-          : "done from fake agy",
+    status: process.env.FAKE_AGY_RESULT_ERROR ? "ERROR" : "SUCCESS",
+    response: process.env.FAKE_AGY_RESULT_ERROR
+      ? ""
+      : process.env.FAKE_AGY_SYSTEM_NOTICE === "1"
+        ? systemNotice
+        : process.env.FAKE_AGY_NO_FINAL === "1"
+          ? ""
+          : cancelledTool
+            ? "final text after cancellation"
+            : "done from fake agy",
+    error: process.env.FAKE_AGY_RESULT_ERROR,
     duration_seconds: 1,
     num_turns: 1,
     usage: { input_tokens: 100, output_tokens: 20, thinking_tokens: 0, cache_read_tokens: 5, total_tokens: 125 },

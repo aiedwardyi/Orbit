@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-import { act, createElement, useState } from "react";
+import { act, createElement, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { StoreProvider, type Bot, type Group, type Message } from "@/state/store";
+import { StoreProvider, useStore, type Bot, type Group, type InstanceInfo, type Message } from "@/state/store";
 
 import { ChatView } from "./ChatView";
 import { GroupView } from "./GroupView";
@@ -537,6 +537,67 @@ describe("ChatView summarized notes", () => {
       expect(bubbles[1]!.querySelector(tag)).toBeNull();
       expect(bubbles[1]!.querySelector("[data-orbit-message-content]")?.className).not.toContain("text-ink-secondary");
     } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
+describe("agy sign-in error bubble", () => {
+  it("shows the sign-in button with command agy", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const previousOgb = window.ogb;
+    window.ogb = { platform: "win32", openInstallTerminal: async () => true } as unknown as typeof window.ogb;
+    const agy: InstanceInfo = {
+      instanceId: "agy",
+      driverKind: "antigravityAgent",
+      displayName: "Gemini (Antigravity)",
+      models: { default: "gemini-3.1-pro-high", options: [] },
+      install: { signInCommand: "agy" },
+      snapshot: { state: "available", version: "1.2.4" },
+    };
+    function Harness() {
+      const { dispatch } = useStore();
+      useEffect(() => {
+        dispatch({ type: "instances", instances: [agy] });
+      }, [dispatch]);
+      const bot: Bot = {
+        ...botA,
+        busy: false,
+        activity: "idle",
+        modelSelection: { instanceId: "agy", model: "gemini-3.1-pro-high" },
+        activeLeafId: "err",
+        messages: [
+          userMsg("ua", "hi"),
+          {
+            id: "err",
+            parentId: "ua",
+            at: 2,
+            role: "bot",
+            kind: "activity",
+            tool: { name: "error: authentication failed or timed out", ok: false, signIn: true },
+          },
+        ],
+      };
+      return createElement(ChatView, { bot });
+    }
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(Harness))));
+      expect(host.querySelector("code")?.textContent).toBe("agy");
+      expect(host.textContent).toContain("Open sign-in in Terminal");
+      expect(host.textContent).toContain("Sign in to Gemini (Antigravity)");
+    } finally {
+      window.ogb = previousOgb;
       await act(async () => root.unmount());
       host.remove();
     }
