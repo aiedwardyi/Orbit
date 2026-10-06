@@ -1197,7 +1197,7 @@ function ArchivedBotsPanel({
                 <BotAvatar bot={bot} state="happy" size={42} animated={false} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[14px] font-medium text-ink">{bot.name}</div>
-                  <div className="mt-0.5 truncate text-[12.5px] text-ink-secondary">{bot.title || "Bot"}</div>
+                  <div className="mt-0.5 truncate text-[12.5px] text-ink-secondary">{bot.title || t("chrome.botFallback")}</div>
                 </div>
                 <button
                   onClick={() => void restore(bot)}

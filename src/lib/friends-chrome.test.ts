@@ -129,9 +129,9 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(teamLibrary).toContain('t("teamLibrary.communityRepo")');
     expect(avatarCard).toContain("showAvatarImageGenerate()");
     expect(avatarCard).toContain("showAvatarShapeOptions()");
-    expect(avatarCard).toContain("Generate with GPT Image 2");
+    expect(avatarCard).toContain('t("bot.generateTitle")');
     expect(avatarCard).toContain("BOT_AVATAR_CROPS");
-    expect(avatarCard).toContain("Upload image");
+    expect(avatarCard).toContain('t("bot.uploadImage")');
     expect(avatarCard).toContain("MAUS_COLOR_NAMES");
     expect(avatarCard).toContain("BOT_AVATAR_PICKER_ORDER");
     expect(avatarCard).toContain("mascotStyle");

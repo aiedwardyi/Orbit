@@ -129,7 +129,7 @@ export function ComposerAttachments({
             a.kind === "paste" ? (
               <Chip
                 key={a.id}
-                label="PASTED"
+                kind="PASTED"
                 title={a.text.slice(0, 4000)}
                 onRemove={() => onRemove(a.id)}
               >
@@ -152,7 +152,7 @@ export function ComposerAttachments({
                 </button>
               </Chip>
             ) : a.kind === "image" ? (
-              <Chip key={a.id} label="IMAGE" title={a.name} onRemove={() => onRemove(a.id)}>
+              <Chip key={a.id} kind="IMAGE" title={a.name} onRemove={() => onRemove(a.id)}>
                 <button
                   type="button"
                   onClick={() => setPreview(previewImage(a.path))}
@@ -169,7 +169,7 @@ export function ComposerAttachments({
                 <div className="mt-1 truncate text-[10.5px] text-ink-secondary/70">{formatSize(a.size)}</div>
               </Chip>
             ) : (
-              <Chip key={a.id} label="FILE" title={a.path} onRemove={() => onRemove(a.id)}>
+              <Chip key={a.id} kind="FILE" title={a.path} onRemove={() => onRemove(a.id)}>
                 <div className="flex h-[76px] items-center gap-2">
                   <FileIcon size={16} className="shrink-0 text-ink-secondary" />
                   <div className="min-w-0">
@@ -189,16 +189,18 @@ export function ComposerAttachments({
 
 function Chip({
   children,
-  label,
+  kind,
   title,
   onRemove,
 }: {
   children: React.ReactNode;
-  label: "PASTED" | "FILE" | "IMAGE";
+  kind: "PASTED" | "FILE" | "IMAGE";
   title: string;
   onRemove: () => void;
 }) {
-  const Icon = label === "PASTED" ? ClipboardPaste : label === "IMAGE" ? ImageIcon : FileIcon;
+  const { t } = useI18n();
+  const Icon = kind === "PASTED" ? ClipboardPaste : kind === "IMAGE" ? ImageIcon : FileIcon;
+  const label = t(kind === "PASTED" ? "composer.chipPasted" : kind === "IMAGE" ? "composer.chipImage" : "composer.chipFile");
   return (
     <div
       title={title}
@@ -218,7 +220,7 @@ function Chip({
           way to drop a chip out of reach of the keyboard */}
       <button
         onClick={onRemove}
-        aria-label={`Remove ${label === "PASTED" ? "pasted text" : "file"}`}
+        aria-label={t(kind === "PASTED" ? "composer.removePasted" : "composer.removeFile")}
         className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-hairline/60 bg-panel text-ink-secondary opacity-0 transition-opacity hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
       >
         <X size={11} />

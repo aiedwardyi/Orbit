@@ -453,7 +453,7 @@ export function TeamLibraryPanel({
                 {pending
                   ? pending.kind === "package"
                     ? t("teamLibrary.packageSummary", { count: pending.members.length })
-                    : t("teamLibrary.readyBots", { count: pending.members.length })
+                    : t(pending.members.length === 1 ? "teamLibrary.readyBotsOne" : "teamLibrary.readyBots", { count: pending.members.length })
                   : t("teamLibrary.subtitle")}
             </p>
           </div>
