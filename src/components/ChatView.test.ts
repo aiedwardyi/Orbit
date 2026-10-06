@@ -554,7 +554,7 @@ describe("agy sign-in error bubble", () => {
     });
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const previousOgb = window.ogb;
-    window.ogb = { platform: "win32", openInstallTerminal: async () => true } as unknown as typeof window.ogb;
+    Object.assign(window, { ogb: { platform: "win32", openInstallTerminal: async () => true, openEngineSignIn: async () => "running" } });
     const agy: InstanceInfo = {
       instanceId: "agy",
       driverKind: "antigravityAgent",

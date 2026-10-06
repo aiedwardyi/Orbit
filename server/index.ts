@@ -9587,6 +9587,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }));
     }
 
+    const engineSignIn = /^\/api\/instances\/([\w.-]+)\/sign-in$/.exec(path);
+    if (method === "GET" && engineSignIn) {
+      const signIn = registry.signIn(engineSignIn[1]);
+      return signIn ? json(res, 200, signIn) : json(res, 404, { error: "Unknown engine sign-in" });
+    }
+
     if (method === "GET" && path === "/api/instances") {
       // Rescan PATH first: this endpoint is how the app answers "what can I
       // run?", and the interesting case is a CLI installed since launch.

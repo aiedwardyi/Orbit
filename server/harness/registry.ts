@@ -155,6 +155,14 @@ export class ProviderRegistry {
     return this.byId.get(instanceId)?.live ?? null;
   }
 
+  signIn(instanceId: InstanceId) {
+    const entry = this.byId.get(instanceId);
+    const kind = entry?.live?.driverKind ?? entry?.shadow?.driverKind;
+    const driver = kind ? this.driversByKind.get(kind) : undefined;
+    const command = driver?.install?.signInCommand;
+    return command ? { driverKind: driver!.driverKind, command } : null;
+  }
+
   entries(): RegistryEntry[] {
     return [...this.byId.values()];
   }

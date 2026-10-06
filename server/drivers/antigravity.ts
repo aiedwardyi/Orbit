@@ -48,6 +48,7 @@ import { newEventId, newId } from "../contracts.ts";
 import { appendNative, finishNative } from "./native.ts";
 import { isResumeCursorRejected } from "./retry.ts";
 import { systemLedger } from "./system-ledger.ts";
+import { antigravitySignIn } from "./antigravity-auth.ts";
 
 const DRIVER_KIND = "antigravityAgent";
 const AGY_STOPPED_NOTE = "The bot stopped before finishing.";
@@ -119,7 +120,7 @@ function antigravityEnvironment(overrides: NodeJS.ProcessEnv = {}): NodeJS.Proce
   // provider's key, in any of its turn, snapshot, or helper children.
   applyCredentialAllowlist(env);
   // agy's detached --bg-updater (15+ min after its last check) opens a visible console on Windows.
-  if (process.platform === "win32") env.AGY_CLI_DISABLE_AUTO_UPDATE = "true";
+  env.AGY_CLI_DISABLE_AUTO_UPDATE = "true";
   return env;
 }
 
@@ -508,6 +509,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
   async create(input: DriverCreateInput<AntigravityConfig>): Promise<ProviderInstance> {
     const { instanceId, config } = input;
     const env = antigravityEnvironment(input.environment);
+    const signIn = antigravitySignIn();
     const catalogEnv: Record<string, string | undefined> = env;
     let models = STATIC_ANTIGRAVITY_MODELS;
     const refreshModels = async () => {
@@ -530,6 +532,8 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
     const children = new Set<ChildProcess>();
 
     const emit = (event: RuntimeEvent) => {
+      if (event.type === "turn.completed" && event.ok) signIn.record(true);
+      else if (event.type === "runtime.error" && event.signIn) signIn.record(false);
       finishNative(event);
       for (const l of [...listeners]) l(event);
     };
@@ -1013,17 +1017,14 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       return { turnId };
     };
 
-    const snapshot = async (): Promise<ProviderSnapshot> => {
+    const snapshot = async (opts?: { rescan?: boolean }): Promise<ProviderSnapshot> => {
       const version = await new Promise<string | null>((resolve) => {
         execCli(config.cli, ["--version"], { timeout: 8000, env }, (err, stdout) =>
           resolve(err ? null : stdout.trim()),
         );
       });
       if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-      // No auth field: agy auth is keyring-backed with no reliable file marker
-      // (~/.gemini/antigravity-cli/ exists after first run even when logged
-      // out), so any file heuristic would overstate "signed in". Leave undefined.
-      return { state: "available", version };
+      return { state: "available", version, authenticated: await signIn.check(opts?.rescan) };
     };
 
     return {
