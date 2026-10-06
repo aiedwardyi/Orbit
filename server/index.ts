@@ -1459,59 +1459,59 @@ function importProfileChanges(): void | Promise<void> {
     }
   }
   const finish = () => {
-  for (const key of Object.keys(state.tombstones).filter((value) => value.startsWith("bot:"))) {
-    const globalId = key.slice("bot:".length);
-    for (const [localId, mappedGlobalId] of Object.entries(profileSyncSettings.botMap)) {
-      if (mappedGlobalId === globalId && !store.bot(localId)) delete profileSyncSettings.botMap[localId];
-    }
-  }
-  if (Object.keys(plan.order).length) {
-    const { sectionOrder, itemOrder } = state.order;
-    const remoteBotIds = Object.keys(state.bots);
-    const sectionFor = (globalId: string): string | null => {
-      const value = state.bots[globalId]?.sectionId;
-      return typeof value === "string" ? value : null;
-    };
-    const orderedSectionIds = [...new Set([
-      ...sectionOrder.filter((id) => Boolean(state.sections[id])),
-      ...Object.entries(state.sections)
-        .sort(([, left], [, right]) => Number(left.order ?? Number.MAX_SAFE_INTEGER) - Number(right.order ?? Number.MAX_SAFE_INTEGER))
-        .map(([id]) => id),
-    ])];
-    const desired: string[] = [];
-    const seenDesired = new Set<string>();
-    const appendSection = (sectionId: string | null) => {
-      const listed = itemOrder[sectionId ?? ""] ?? itemOrder[profileSyncSettings.workspaceId] ?? [];
-      for (const globalId of [...listed, ...remoteBotIds]) {
-        if (sectionFor(globalId) !== sectionId) continue;
-        const localId = localBotIdForGlobal(globalId);
-        if (!localId || seenDesired.has(localId) || !store.bot(localId)) continue;
-        seenDesired.add(localId);
-        desired.push(localId);
+    for (const key of Object.keys(state.tombstones).filter((value) => value.startsWith("bot:"))) {
+      const globalId = key.slice("bot:".length);
+      for (const [localId, mappedGlobalId] of Object.entries(profileSyncSettings.botMap)) {
+        if (mappedGlobalId === globalId && !store.bot(localId)) delete profileSyncSettings.botMap[localId];
       }
-    };
-    for (const sectionId of orderedSectionIds) appendSection(sectionId);
-    appendSection(null);
-    for (const sectionId of [...new Set(remoteBotIds.map(sectionFor).filter((id): id is string => id !== null && !orderedSectionIds.includes(id)))]) {
-      appendSection(sectionId);
     }
-    const rest = store.bots.map((bot) => bot.id).filter((id) => !desired.includes(id));
-    if (desired.length + rest.length === store.bots.length) store.reorderBots([...desired, ...rest]);
-    markImported(synced, "order", profileSyncSettings.workspaceId, plan.order, plan.order, localOrderChanges(false));
-  }
-  for (const id of chiefs) {
-    const local = store.bot(id);
-    if (local?.chiefOfStaff) store.setChiefOfStaff(local.id, local.section);
-  }
-  for (const section of localSectionChanges()) {
-    const remoteSection = state.sections[section.entityId];
-    if (remoteSection) markImported(synced, "section", section.entityId, remoteSection, {}, section.changes);
-  }
-  pruneProfileSyncSectionAliases();
-  profileSyncSettings.seenCheckpoint = state.checkpoint;
-  profileSyncLastSyncAt = Date.now();
-  profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
-  profileSyncSeen = { signature, invalid: remote.invalidFiles.length > 0, missingAssets };
+    if (Object.keys(plan.order).length) {
+      const { sectionOrder, itemOrder } = state.order;
+      const remoteBotIds = Object.keys(state.bots);
+      const sectionFor = (globalId: string): string | null => {
+        const value = state.bots[globalId]?.sectionId;
+        return typeof value === "string" ? value : null;
+      };
+      const orderedSectionIds = [...new Set([
+        ...sectionOrder.filter((id) => Boolean(state.sections[id])),
+        ...Object.entries(state.sections)
+          .sort(([, left], [, right]) => Number(left.order ?? Number.MAX_SAFE_INTEGER) - Number(right.order ?? Number.MAX_SAFE_INTEGER))
+          .map(([id]) => id),
+      ])];
+      const desired: string[] = [];
+      const seenDesired = new Set<string>();
+      const appendSection = (sectionId: string | null) => {
+        const listed = itemOrder[sectionId ?? ""] ?? itemOrder[profileSyncSettings.workspaceId] ?? [];
+        for (const globalId of [...listed, ...remoteBotIds]) {
+          if (sectionFor(globalId) !== sectionId) continue;
+          const localId = localBotIdForGlobal(globalId);
+          if (!localId || seenDesired.has(localId) || !store.bot(localId)) continue;
+          seenDesired.add(localId);
+          desired.push(localId);
+        }
+      };
+      for (const sectionId of orderedSectionIds) appendSection(sectionId);
+      appendSection(null);
+      for (const sectionId of [...new Set(remoteBotIds.map(sectionFor).filter((id): id is string => id !== null && !orderedSectionIds.includes(id)))]) {
+        appendSection(sectionId);
+      }
+      const rest = store.bots.map((bot) => bot.id).filter((id) => !desired.includes(id));
+      if (desired.length + rest.length === store.bots.length) store.reorderBots([...desired, ...rest]);
+      markImported(synced, "order", profileSyncSettings.workspaceId, plan.order, plan.order, localOrderChanges(false));
+    }
+    for (const id of chiefs) {
+      const local = store.bot(id);
+      if (local?.chiefOfStaff) store.setChiefOfStaff(local.id, local.section);
+    }
+    for (const section of localSectionChanges()) {
+      const remoteSection = state.sections[section.entityId];
+      if (remoteSection) markImported(synced, "section", section.entityId, remoteSection, {}, section.changes);
+    }
+    pruneProfileSyncSectionAliases();
+    profileSyncSettings.seenCheckpoint = state.checkpoint;
+    profileSyncLastSyncAt = Date.now();
+    profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+    profileSyncSeen = { signature, invalid: remote.invalidFiles.length > 0, missingAssets };
   };
   if (!plan.remove.length) {
     finish();
@@ -1591,7 +1591,12 @@ async function removeSyncedBots(
       console.warn(`bot sync: Local VM refused delete of ${hidden.name}; hiding it (${refusal})`);
       continue;
     }
-    if (choice === "delete") await deleteBotFully(bot);
+    if (choice !== "delete") continue;
+    try {
+      await deleteBotFully(bot);
+    } catch (error) {
+      console.warn(`bot sync: delete of ${bot.name} failed`, error);
+    }
   }
 }
 
