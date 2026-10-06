@@ -715,7 +715,7 @@ describe("MSP turns (fake host)", () => {
     await create("auth-failure");
     await instance.adapter.sendTurn({ threadId: "t-authfail", text: "hi" });
     const error = await recorder.until((e) => e.type === "runtime.error");
-    expect(error).toMatchObject({ message: "login expired", setup: true });
+    expect(error).toMatchObject({ message: "login expired", signIn: true });
     expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({
       ok: false,
       stopReason: "auth_required",

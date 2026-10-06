@@ -20,6 +20,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, unlinkSync, 
 import { createServer as createNetServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { z } from "zod";
 
 import { ATTACHMENTS_DIR, sniffImageMime } from "../attachments.ts";
 import { BACKGROUND_DENY_NOTE } from "../auto-approve.ts";
@@ -60,6 +61,9 @@ import { appendNative, finishNative } from "./native.ts";
 import { claudeRateLimitWindows } from "./rate-limits.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { redactSecretsInText } from "../redact.ts";
+import { cachedSignIn } from "./auth-status.ts";
+
+const claudeAuthSchema = z.object({ loggedIn: z.boolean() });
 
 /** Whether `claude` has been signed in.
  *
@@ -72,16 +76,14 @@ export function claudeSignedIn(
   cli: string,
   env: NodeJS.ProcessEnv,
   run: typeof execCli = execCli,
-): Promise<boolean> {
+): Promise<boolean | undefined> {
   return new Promise((resolve) => {
-    run(cli, ["auth", "status", "--json"], { timeout: 8000, env }, (_error, stdout) => {
+    run(cli, ["auth", "status", "--json"], { timeout: 3000, env }, (_error, stdout) => {
       try {
-        const status: unknown = JSON.parse(stdout);
-        resolve(
-          typeof status === "object" && status !== null && "loggedIn" in status && status.loggedIn === true,
-        );
+        const parsed = claudeAuthSchema.safeParse(JSON.parse(stdout));
+        resolve(parsed.success ? parsed.data.loggedIn : undefined);
       } catch {
-        resolve(false);
+        resolve(undefined);
       }
     });
   });
@@ -1570,7 +1572,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       return written;
     };
 
-    const snapshot = async (): Promise<ProviderSnapshot> => {
+    const signedIn = cachedSignIn(() =>
+      claudeSignedIn(config.cli, claudeEnvironment(undefined, { ...process.env, ...input.environment })),
+    );
+    const snapshot = async (opts?: { rescan?: boolean }): Promise<ProviderSnapshot> => {
       const env = claudeEnvironment(undefined, { ...process.env, ...input.environment });
       const version = await new Promise<string | null>((resolve) => {
         execCli(config.cli, ["--version"], { timeout: 8000, env }, (err, stdout) =>
@@ -1578,7 +1583,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         );
       });
       if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-      const authenticated = await claudeSignedIn(config.cli, env);
+      const authenticated = await signedIn(opts?.rescan);
       // claudeEnvironment strips ANTHROPIC_API_KEY, so turns run on the
       // CLI's own login (Pro/Max): the cost it reports is what the call
       // WOULD bill, not a charge

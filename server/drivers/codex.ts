@@ -39,6 +39,7 @@ import { augmentedPath } from "../env-path.ts";
 import { classifyError, computeBackoff, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { appendNative, finishNative } from "./native.ts";
 import { codexRateLimitWindows } from "./rate-limits.ts";
+import { cachedSignIn } from "./auth-status.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -717,7 +718,15 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     return { turnId };
   };
 
-  const snapshot = async (): Promise<ProviderSnapshot> => {
+  const signedIn = cachedSignIn(() => new Promise<boolean | undefined>((resolve) => {
+    execCli(config.cli, ["login", "status"], { timeout: 3000, env: childEnv() }, (err, stdout, stderr) => {
+      const status = `${stdout}\n${stderr ?? ""}`;
+      if (!err && /^logged in\b/im.test(status)) resolve(true);
+      else if (/^not logged in\b/im.test(status)) resolve(false);
+      else resolve(undefined);
+    });
+  }));
+  const snapshot = async (opts?: { rescan?: boolean }): Promise<ProviderSnapshot> => {
     const env = childEnv();
     const version = await new Promise<string | null>((resolve) => {
       execCli(config.cli, ["--version"], { timeout: 8000, env }, (err, stdout) =>
@@ -725,11 +734,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       );
     });
     if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-    const authenticated = await new Promise<boolean>((resolve) => {
-      execCli(config.cli, ["login", "status"], { timeout: 8000, env }, (err, stdout, stderr) =>
-        resolve(!err && /^logged in\b/im.test(`${stdout}\n${stderr ?? ""}`)),
-      );
-    });
+    const authenticated = await signedIn(opts?.rescan);
     // childEnv drops OPENAI_API_KEY on purpose — turns run on the ChatGPT login
     return { state: "available", version, authenticated, billing: "subscription" };
   };

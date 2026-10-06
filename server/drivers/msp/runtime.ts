@@ -429,7 +429,8 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
         try {
           if (support.requireAuthenticationBeforeSpawn && !(await withWslProbeReason("turn", () => support.isAuthenticated(env, config)))) {
             emit({ ...base(threadId, turnId), type: "turn.started" });
-            emit({ ...base(threadId, turnId), type: "runtime.error", message: support.loginNote, setup: true });
+            emit({ ...base(threadId, turnId), type: "runtime.error", message: support.loginNote, signIn: true });
+            active.delete(threadId);
             turnTimer.mark("turnDone");
     turnTimer.finish();
     emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "auth_required" });
@@ -443,6 +444,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               message: wslProbeAllowed("turn") ? `\`${effectiveCli()}\` CLI not found` : wslBlockedReason(support.displayName),
               setup: true,
             });
+            active.delete(threadId);
             turnTimer.mark("turnDone");
     turnTimer.finish();
     emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "unavailable" });
@@ -526,8 +528,8 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
     emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason });
           stop();
         };
-        const fail = (message: string, setup = false, stopReason: string | null = "rpc_error") => {
-          emit({ ...base(threadId, turnId), type: "runtime.error", message, ...(setup ? { setup: true } : {}) });
+        const fail = (message: string, signIn = false, stopReason: string | null = "rpc_error") => {
+          emit({ ...base(threadId, turnId), type: "runtime.error", message, signIn: signIn || undefined });
           settle(false, stopReason);
         };
         const startTurnOn = async (targetSessionId: string, fullText: string) => {

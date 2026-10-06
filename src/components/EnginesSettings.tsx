@@ -10,6 +10,7 @@ import { Check, ChevronDown, Loader2, TriangleAlert } from "lucide-react";
 import { api, useStore, type InstanceInfo } from "@/state/store";
 import { EngineGroupLabel } from "./EngineGroupLabel";
 import { ProviderMark } from "./ProviderIcons";
+import { EngineSetup } from "./EngineSetup";
 import { isFriendsCliEngine, orderFriendsEngines, splitEngineRail, splitFriendsEngines } from "@/lib/engine-rail";
 import { showEngineRailZoo } from "@/lib/friends-chrome";
 import { cn } from "@/lib/cn";
@@ -34,11 +35,14 @@ export function inUseCliPath(
   return candidates[0];
 }
 
-/** Whether the connected dot lights: the engine is usable right now. Driven
- * off the boot `<cli> --version` probe, not `cli` — an engine found on PATH
- * has no configured override yet still runs. */
 export function isEngineConnected(instance: Pick<InstanceInfo, "snapshot">): boolean {
-  return instance.snapshot.state === "available";
+  return instance.snapshot.state === "available" && instance.snapshot.authenticated === true;
+}
+
+function engineStatus(instance: Pick<InstanceInfo, "snapshot">) {
+  if (instance.snapshot.state !== "available") return "engines.notInstalled";
+  if (instance.snapshot.authenticated === false) return "engines.needsSignIn";
+  return instance.snapshot.authenticated === true ? "connections.connected" : "engines.installed";
 }
 
 /** Value probed and PATCHed: a typed manual path wins over the dropdown. */
@@ -287,11 +291,12 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
       <div className="flex min-h-[44px] items-center gap-2 rounded-lg px-1 text-[13px] hover:bg-raised/50">
         <span
           role="img"
-          aria-label={connected ? t("connections.connected") : t("engines.unavailable")}
+          aria-label={t(engineStatus(instance))}
           className={cn("size-1.5 shrink-0 rounded-full", connected ? "bg-accent" : "bg-raised-hover")}
         />
         <ProviderMark driverKind={instance.driverKind} size={14} />
         <span className="min-w-0 shrink truncate text-ink">{instance.displayName}</span>
+        <span className="text-[11.5px] text-ink-secondary">{t(engineStatus(instance))}</span>
         <span className="flex-1" />
         <button
           onClick={() => setOpen((v) => !v)}
@@ -304,6 +309,7 @@ function EngineRow({ instance }: { instance: InstanceInfo }) {
           {t("engines.setCli")}
         </button>
       </div>
+      {!connected && instance.install && <EngineSetup instance={instance} signIn className="mb-2" />}
       {open && (
         <CustomPicker
           instance={instance}
@@ -338,8 +344,14 @@ function EngineGroup({
 
 export function EnginesSettings() {
   const { t } = useI18n();
-  const { state } = useStore();
+  const { state, refreshInstances } = useStore();
   const [showAll, setShowAll] = useState(false);
+  useEffect(() => {
+    const refresh = () => { void refreshInstances(true); };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [refreshInstances]);
   // every KNOWN-driver instance has cliDefault; unknown-driver shadows have
   // neither unless an override was set. Including them keeps a Reset-able row
   // (and a Set CLI… path) for engines the running build doesn't recognize.
@@ -379,7 +391,9 @@ export function EnginesSettings() {
               <span key={i.instanceId} className="flex items-center gap-1">
                 {isEngineConnected(i)
                   ? <Check size={13} className="text-success" aria-label={t("connections.connected")} />
-                  : <TriangleAlert size={13} className="text-warning" aria-label={t("engines.unavailable")} />}
+                  : i.snapshot.state === "available" && i.snapshot.authenticated === undefined
+                    ? <span role="img" className="size-1.5 rounded-full bg-ink-secondary" aria-label={t("engines.installed")} />
+                    : <TriangleAlert size={13} className="text-warning" aria-label={t(engineStatus(i))} />}
                 {i.displayName}
               </span>
             ))}

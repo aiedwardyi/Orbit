@@ -1,11 +1,13 @@
-import { createElement } from "react";
+import "./ProfileFields.test-dom.ts";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { applyLocale, I18nProvider, translate } from "@/lib/i18n";
 import type { InstanceInfo } from "@/state/store";
 
-const { mockInstances } = vi.hoisted(() => {
+const { mockInstances, refreshInstances } = vi.hoisted(() => {
   const row = (instanceId: string, driverKind: string, displayName: string): InstanceInfo => ({
     instanceId,
     driverKind,
@@ -15,6 +17,7 @@ const { mockInstances } = vi.hoisted(() => {
     cliDefault: instanceId,
   });
   return {
+    refreshInstances: vi.fn(async () => undefined),
     mockInstances: [
       row("claude", "claudeAgent", "Claude"),
       row("kimi", "kimiAgent", "Kimi"),
@@ -28,25 +31,13 @@ const { mockInstances } = vi.hoisted(() => {
   };
 });
 
-vi.hoisted(() => {
-  Object.defineProperty(globalThis, "window", {
-    value: { ogb: undefined },
-    configurable: true,
-    writable: true,
-  });
-  Object.defineProperty(globalThis, "navigator", {
-    value: { language: "en" },
-    configurable: true,
-  });
-});
-
 vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
   return {
     ...actual,
     useStore: () => ({
       state: { instances: mockInstances },
-      refreshInstances: async () => undefined,
+      refreshInstances,
     }),
   };
 });
@@ -158,6 +149,31 @@ describe("CLI-candidates in-use marker", () => {
 });
 
 describe("EnginesSettings friends Connections list", () => {
+  it.each([
+    [{ state: "unavailable" }, "Not installed", "Open install in Terminal", false],
+    [{ state: "available", authenticated: false }, "Needs sign-in", "Open sign-in in Terminal", false],
+    [{ state: "available", authenticated: true }, "Connected", null, true],
+    [{ state: "available" }, "Installed", "Open sign-in in Terminal", false],
+  ] as const)("renders honest status for %j", (snapshot, label, action, ready) => {
+    const saved = [...mockInstances];
+    const previousBridge = window.ogb;
+    Object.assign(window, { ogb: { platform: "win32", openInstallTerminal: async () => true } });
+    mockInstances.splice(0, mockInstances.length, instance({
+      snapshot,
+      install: { command: { win32: "install-claude" }, signInCommand: "claude" },
+    }));
+    try {
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(EnginesSettings)));
+      expect(html).toContain(`aria-label="${label}"`);
+      expect(html.includes('class="lucide lucide-check')).toBe(ready);
+      if (action) expect(html).toContain(action);
+      else expect(html).not.toContain("Open sign-in");
+    } finally {
+      window.ogb = previousBridge;
+      mockInstances.splice(0, mockInstances.length, ...saved);
+    }
+  });
+
   it("shows Set CLI for Claude Codex Grok Antigravity Meta Muse, not Gemini API or the zoo", () => {
     const grok = mockInstances.find((i) => i.instanceId === "grok")!;
     grok.snapshot = { state: "unavailable" };
@@ -194,12 +210,18 @@ describe("EnginesSettings friends Connections list", () => {
 });
 
 describe("isEngineConnected", () => {
+  it("requires a confirmed sign-in for a green check", () => {
+    expect(isEngineConnected(instance({ snapshot: { state: "available", authenticated: false } }))).toBe(false);
+    expect(isEngineConnected(instance({ snapshot: { state: "available" } }))).toBe(false);
+    expect(isEngineConnected(instance({ snapshot: { state: "available", authenticated: true } }))).toBe(true);
+  });
+
   it("lights an engine detected on PATH with no configured override", () => {
-    expect(isEngineConnected(instance({ snapshot: { state: "available" } }))).toBe(true);
+    expect(isEngineConnected(instance({ snapshot: { state: "available", authenticated: true } }))).toBe(true);
   });
 
   it("lights an engine whose override probe succeeded", () => {
-    expect(isEngineConnected(instance({ snapshot: { state: "available" }, cli: OTHER }))).toBe(true);
+    expect(isEngineConnected(instance({ snapshot: { state: "available", authenticated: true }, cli: OTHER }))).toBe(true);
   });
 
   it("leaves an absent engine unlit even with an override configured", () => {
@@ -221,4 +243,20 @@ describe("engines summary", () => {
     expect(html).not.toContain("Set CLI…");
     expect(html).not.toContain("Kimi");
   });
+});
+
+it("refreshes sign-in on opening Connections and returning from the terminal", async () => {
+  refreshInstances.mockClear();
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(EnginesSettings))));
+    expect(refreshInstances).toHaveBeenCalledExactlyOnceWith(true);
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(refreshInstances).toHaveBeenCalledTimes(2);
+  } finally {
+    await act(async () => root.unmount());
+  }
+  window.dispatchEvent(new Event("focus"));
+  expect(refreshInstances).toHaveBeenCalledTimes(2);
 });

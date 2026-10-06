@@ -3,14 +3,16 @@
 // (~/.grok/auth.json), NOT the xAI API key (that driver is drivers/grok.ts).
 // The generic protocol runtime lives in acp/core.ts; this file is only the
 // per-harness quirks. Verified against grok 1.0.0.
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 
 import type { ModelCatalog } from "../../contracts.ts";
 import { decodeInjectId, hostApiKey, localHost, mergeLocalInject } from "../local-inject.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
+import { storedSignIn } from "../auth-status.ts";
 
 export const STATIC_GROK_MODELS: ModelCatalog = {
   default: "grok-4.6",
@@ -21,6 +23,7 @@ export const STATIC_GROK_MODELS: ModelCatalog = {
 };
 
 const SLUG = /^[a-z0-9][a-z0-9._-]*$/i;
+const grokAuthSchema = z.record(z.string(), z.object({ key: z.string().optional(), refresh_token: z.string().optional() }));
 
 function grokHome(env: Record<string, string | undefined>): string {
   if (env.GROK_HOME) return env.GROK_HOME;
@@ -30,7 +33,10 @@ function grokHome(env: Record<string, string | undefined>): string {
 /** Probed at the same home the config is read from: on the real homedir a set
  *  GROK_HOME/HOME reads as signed in and the inline sign-in card never renders. */
 export function grokIsAuthenticated(env: Record<string, string | undefined>): boolean {
-  return existsSync(join(grokHome(env), "auth.json"));
+  return storedSignIn(join(grokHome(env), "auth.json"), (text) => {
+    const parsed = grokAuthSchema.safeParse(JSON.parse(text));
+    return parsed.success && Object.values(parsed.data).some((entry) => Boolean(entry.key?.trim() || entry.refresh_token?.trim()));
+  });
 }
 
 function unquote(raw: string): string {

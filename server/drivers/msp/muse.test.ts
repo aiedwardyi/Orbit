@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { MspMuseAgentDriver, MSP_MUSE_EFFORT_LEVELS, MSP_MUSE_MODELS } from "./muse.ts";
 import { classifyMuseError, museDefaultCli } from "../acp/muse.ts";
+import { setWslGateForTests } from "../../wsl-gate.ts";
 import { defaultModelEffort } from "../../../shared/model-effort.ts";
 
 describe("classifyMuseError MSP turn errors", () => {
@@ -18,6 +22,38 @@ describe("classifyMuseError MSP turn errors", () => {
 });
 
 describe("MSP Muse driver", () => {
+  it("offers sign-in and frees a signed-out thread before completion", async () => {
+    setWslGateForTests({ env: { ORBIT_NO_WSL: "1" } });
+    const home = mkdtempSync(join(tmpdir(), "omb-muse-signed-out-"));
+    const instance = await MspMuseAgentDriver.create({
+      instanceId: "muse-signed-out",
+      displayName: "Muse",
+      enabled: true,
+      environment: {
+        HOME: home, USERPROFILE: home, APPDATA: home, LOCALAPPDATA: home,
+        XDG_CONFIG_HOME: home, XDG_DATA_HOME: home, XDG_CACHE_HOME: home, XDG_STATE_HOME: home,
+        MUSE_AUTH_PATH: join(home, "auth.json"), META_API_KEY: "", ORBIT_NO_WSL: "1",
+      },
+      config: { cli: "missing-muse-cli", fullAuto: false },
+    });
+    const errors: unknown[] = [];
+    const busyAtCompletion: boolean[] = [];
+    instance.adapter.onEvent((event) => {
+      if (event.type === "runtime.error") errors.push(event);
+      if (event.type === "turn.completed") busyAtCompletion.push(instance.adapter.hasSession("signed-out"));
+    });
+    try {
+      await instance.adapter.sendTurn({ threadId: "signed-out", text: "say hi", cwd: home });
+      expect(busyAtCompletion).toEqual([false]);
+      expect(errors).toContainEqual(expect.objectContaining({ signIn: true, message: expect.stringContaining("muse login") }));
+      await instance.adapter.sendTurn({ threadId: "signed-out", text: "say hi again", cwd: home });
+      expect(busyAtCompletion).toEqual([false, false]);
+    } finally {
+      await instance.dispose();
+      setWslGateForTests(null);
+    }
+  });
+
   it("ships the four live model/list models with the 1.3 default", () => {
     expect(MSP_MUSE_MODELS.default).toBe("muse-spark-1.3");
     expect(MSP_MUSE_MODELS.options.map((o) => o.id)).toEqual([

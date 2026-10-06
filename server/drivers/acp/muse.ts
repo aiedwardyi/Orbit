@@ -3,14 +3,15 @@
 // ~/.config/muse/auth.json) or META_API_KEY. The generic protocol runtime
 // lives in acp/core.ts; this file is only the per-harness quirks.
 import { execFile, execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 
 import type { ModelCatalog, ProviderErrorCode } from "../../contracts.ts";
 import { augmentedPath, resolveCliSpawn } from "../../env-path.ts";
 import { wslProbeAllowed } from "../../wsl-gate.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
+import { storedSignIn } from "../auth-status.ts";
 
 export const STATIC_MUSE_MODELS: ModelCatalog = {
   default: "muse-spark-1.3",
@@ -21,6 +22,9 @@ export const STATIC_MUSE_MODELS: ModelCatalog = {
 };
 
 const nonBlank = (value: string | undefined): boolean => Boolean(value?.trim());
+const museAuthSchema = z.object({
+  providers: z.object({ meta: z.object({ access_token: z.string().optional(), api_key: z.string().optional() }) }),
+});
 
 function museConfigDir(env: Record<string, string | undefined>): string {
   const home = env.HOME || env.USERPROFILE || homedir();
@@ -28,6 +32,7 @@ function museConfigDir(env: Record<string, string | undefined>): string {
 }
 
 function museAuthPath(env: Record<string, string | undefined>): string {
+  if (env.MUSE_AUTH_PATH) return env.MUSE_AUTH_PATH;
   const dir = museConfigDir(env);
   // XDG_CONFIG_HOME names the config root only; the muse segment is appended
   // here, while the HOME fallback already includes it.
@@ -146,11 +151,15 @@ export function museIsAuthenticated(
   overrides?: { platform?: NodeJS.Platform; probeWslAuth?: (probeEnv: NodeJS.ProcessEnv) => boolean },
 ): boolean {
   if (nonBlank(env.META_API_KEY)) return true;
+  const signedIn = () => storedSignIn(museAuthPath(env), (text) => {
+    const parsed = museAuthSchema.safeParse(JSON.parse(text));
+    return parsed.success && (nonBlank(parsed.data.providers.meta.access_token) || nonBlank(parsed.data.providers.meta.api_key));
+  });
   // Native Windows Muse reads its own auth file. Keep the WSL probe as a
   // fallback for older installs and explicit WSL configurations.
   if ((overrides?.platform ?? process.platform) === "win32") {
     try {
-      if (existsSync(museAuthPath(env))) return true;
+      if (signedIn()) return true;
     } catch {
       // Try the WSL-side login below.
     }
@@ -161,7 +170,7 @@ export function museIsAuthenticated(
     }
   }
   try {
-    return existsSync(museAuthPath(env));
+    return signedIn();
   } catch {
     return false;
   }
