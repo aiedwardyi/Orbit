@@ -612,6 +612,10 @@ describe("team map, team library, and team toasts", () => {
     );
     expect(ko["teamLibrary.loadTeam"]).toBe("팀 불러오기");
     expect(ko["teamLibrary.searchTeams"]).toBe("팀 검색");
+    expect(translate("en", "teamLibrary.readyBotsOne", { count: 1 })).toBe("1 ready-to-load bot");
+    expect(translate("en", "teamLibrary.readyBots", { count: 2 })).toBe("2 ready-to-load bots");
+    expect(ko["teamLibrary.readyBotsOne"]).toBe("바로 불러올 수 있는 봇 {count}개");
+    expect(teamLibrary).toContain('pending.members.length === 1 ? "teamLibrary.readyBotsOne" : "teamLibrary.readyBots"');
   });
 
   it("translates team import errors at throw time", () => {
@@ -1039,6 +1043,31 @@ describe("archived bots panel chrome", () => {
     expect(sidebar).not.toMatch(/>\s*Restore all\s*</);
     expect(sidebar).not.toMatch(/>\s*Restore\s*</);
     expect(sidebar).not.toMatch(/\{bots\.length\}\s*archived/);
+  });
+
+  it("localizes an empty archived title instead of the English fallback", () => {
+    expect(en["chrome.botFallback"]).toBe("Bot");
+    expect(ko["chrome.botFallback"]).toBe("봇");
+    expect(sidebar).toContain('bot.title || t("chrome.botFallback")');
+    expect(sidebar).not.toContain('bot.title || "Bot"');
+  });
+});
+
+describe("composer attachment chips", () => {
+  const attachments = readFileSync(join(here, "../components/ComposerAttachments.tsx"), "utf8");
+
+  it("shows a localized chip label and keeps the kind values", () => {
+    expect(en["composer.chipFile"]).toBe("FILE");
+    expect(ko["composer.chipFile"]).toBe("파일");
+    expect(en["composer.chipPasted"]).toBe("PASTED");
+    expect(ko["composer.chipPasted"]).toBe("붙여넣음");
+    expect(en["composer.chipImage"]).toBe("IMAGE");
+    expect(ko["composer.chipImage"]).toBe("이미지");
+    expect(ko["composer.removeImage"]).toBe("이미지 빼기");
+    expect(attachments).toContain('"composer.removeImage"');
+    expect(attachments).toContain('kind="FILE"');
+    expect(attachments).toContain('"composer.chipFile"');
+    expect(attachments).not.toContain('label="FILE"');
   });
 });
 

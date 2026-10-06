@@ -307,7 +307,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
               disabled={saving || !dirty}
               className="rounded-lg bg-control px-3 py-1.5 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? t("bot.memorySaving") : t("bot.save")}
             </button>
             {truncated && (
               <span className="text-[11.5px] text-ink-secondary">
@@ -486,7 +486,7 @@ export function SettingsPanel({
                 motionKey={mascotMotion?.nonce ?? 0}
               />
               <div className="min-w-0 flex-1">
-                <div className="text-[15px] font-medium text-ink">Avatar</div>
+                <div className="text-[15px] font-medium text-ink">{t("bot.avatar")}</div>
               </div>
               <button
                 type="button"
@@ -517,20 +517,20 @@ export function SettingsPanel({
               onChange={(e) => patch({ name: e.target.value })}
             />
           </Field>
-          <Field label="Title">
+          <Field label={t("bot.title")}>
             <input
               className={inputCls}
               maxLength={BOT_PROFILE_LIMITS.title}
-              placeholder="The job, in a few words"
+              placeholder={t("bot.titlePlaceholder")}
               value={bot.title}
               onChange={(e) => patch({ title: e.target.value })}
             />
           </Field>
-          <Field label="Description">
+          <Field label={t("bot.description")}>
             <textarea
               className={cn(inputCls, "min-h-[96px] resize-none")}
               maxLength={BOT_PROFILE_LIMITS.description}
-              placeholder="How it should work"
+              placeholder={t("bot.descriptionPlaceholder")}
               value={bot.description}
               onChange={(e) => patch({ description: e.target.value })}
             />
