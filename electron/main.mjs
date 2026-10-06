@@ -96,7 +96,7 @@ const { createDisplayMediaGuard, invokeDisplayMediaCallback, selectCaptureSource
 );
 const { STAGE_PREFIX: APPIMAGE_CUA_STAGE_PREFIX } = require("./cua-linux-bundle.cjs");
 const { desktopViewerUrl, desktopViewerWindowOptions, sameDesktopViewerOrigin } = require("./desktop-viewer.cjs");
-const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus } = require("./device-window.cjs");
+const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceUnreachablePage, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus, watchDeviceLoad } = require("./device-window.cjs");
 const { createDesktopWorkspaceManager } = require("./desktop-workspace.cjs");
 const { createBrowserSurfaceManager } = require("./browser-surface.cjs");
 const { browserProfilePartition } = require("./browser-snapshot.cjs");
@@ -116,6 +116,7 @@ let desktopViewerOwner = null;
 let desktopViewerContextId = null;
 const deviceWindows = new Map();
 const deviceLinkPages = new WeakMap();
+const deviceLoads = new WeakMap();
 let desktopWorkspaceManager = null;
 let desktopWorkspaceOwner = null;
 // The built-in browser surface (Browser tab of the computer panel): views
@@ -1027,8 +1028,8 @@ function escapeHtml(value) {
 function uiLocale() {
   return resolveUiLocale(readLocalePreference(app.getPath("userData")), app.getLocale());
 }
-function nativeText(key) {
-  return translateNative(uiLocale(), key);
+function nativeText(key, vars) {
+  return translateNative(uiLocale(), key, vars);
 }
 
 function buildErrorPage({ allPortsOccupied }) {
@@ -1259,7 +1260,8 @@ async function openDeviceWindow(rawHost, rawName) {
     devices.webRequest.onCompleted({ urls: ["https://*/*"] }, ({ statusCode, webContentsId }) => {
       if (statusCode !== 401) return;
       const target = [...deviceWindows.values()].find((open) => !open.isDestroyed() && open.webContents.id === webContentsId);
-      if (target && !target.webContents.getURL().startsWith("data:")) void target.loadURL(deviceLinkPages.get(target));
+      // Not a data: check: a retry from the unreachable page answers 401 before it commits.
+      if (target && target.webContents.getURL() !== deviceLinkPages.get(target)) void target.loadURL(deviceLinkPages.get(target));
     });
     win.on("page-title-updated", (event) => {
       event.preventDefault();
@@ -1282,9 +1284,21 @@ async function openDeviceWindow(rawHost, rawName) {
     win.webContents.on("will-redirect", (event, target) => {
       if (!sameDesktopViewerOrigin(target, url.origin)) event.preventDefault();
     });
+    const name = Object.prototype.toString.call(rawName) === "[object String]" && rawName.trim() ? rawName.trim().slice(0, 64) : url.hostname;
+    deviceLoads.set(win, watchDeviceLoad(win.webContents, {
+      host: url.hostname,
+      url: url.toString(),
+      failurePage: deviceUnreachablePage({
+        host: url.host,
+        title,
+        heading: nativeText("packaged.deviceUnreachable", { name }),
+        retry: nativeText("packaged.deviceRetry"),
+      }),
+      log: slog,
+    }));
     void win.loadURL(url.toString()).catch(() => {});
     return win;
-  });
+  }, (existing) => deviceLoads.get(existing)?.reloadIfStuck());
   return true;
 }
 

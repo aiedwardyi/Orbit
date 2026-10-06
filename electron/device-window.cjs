@@ -41,11 +41,12 @@ function deviceWindowTitle(rawName, host) {
 }
 
 /** Focuses the open window for `key`, or creates and tracks one until it closes. */
-function openOrFocus(windows, key, create) {
+function openOrFocus(windows, key, create, refresh) {
   const existing = windows.get(key);
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore();
     existing.focus();
+    refresh?.(existing);
     return existing;
   }
   const win = create();
@@ -84,4 +85,73 @@ location.assign("https://"+host+"/remote?key="+key);});`;
   );
 }
 
-module.exports = { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus };
+/** Shown when the PC can't be reached; Retry reloads its own origin only. */
+function deviceUnreachablePage({ host, title, heading, retry }) {
+  const escape = (value) =>
+    String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
+  const script = `const host=${JSON.stringify(host)};
+document.querySelector("button").addEventListener("click",()=>location.assign("https://"+host+"/"));`;
+  return (
+    "data:text/html;charset=utf-8," +
+    encodeURIComponent(`<!doctype html><html><meta name="color-scheme" content="dark"><title>${escape(title)}</title>
+      <body style="margin:0;display:grid;place-items:center;height:100vh;background:#070707;color:#f5f5f5;font:14px system-ui,sans-serif">
+        <div style="max-width:440px;padding:32px;text-align:center"><h2 style="margin:0 0 20px;font-size:18px">${escape(heading)}</h2>
+        <button style="border:0;border-radius:9px;background:#fff;color:#111;padding:9px 14px;font-weight:600;cursor:pointer">${escape(retry)}</button></div>
+        <script>${script}</script>
+      </body></html>`)
+  );
+}
+
+const DEVICE_RETRY_MS = 10_000;
+const DEVICE_RETRY_LIMIT_MS = 120_000;
+const ERR_ABORTED = -3;
+
+/** Swaps a failed, crashed or hung PC page for `failurePage` and retries `url` until a load commits. */
+function watchDeviceLoad(webContents, { host, url, failurePage, log, setInterval: every = setInterval, clearInterval: stop = clearInterval }) {
+  let retry = null;
+  let retries = 0;
+  let failed = false;
+  const cancel = () => {
+    if (retry) stop(retry);
+    retry = null;
+  };
+  const fail = (detail) => {
+    if (!retry && retries === 0) log(`device window ${host}: ${detail}`);
+    failed = true;
+    if (!webContents.isDestroyed()) void webContents.loadURL(failurePage).catch(() => {});
+    if (retry || retries > 0) return;
+    retry = every(() => {
+      retries += 1;
+      if (retries * DEVICE_RETRY_MS >= DEVICE_RETRY_LIMIT_MS) cancel();
+      if (!webContents.isDestroyed()) void webContents.loadURL(url).catch(() => {});
+    }, DEVICE_RETRY_MS);
+  };
+  webContents.on("did-fail-load", (_event, code, description, validatedUrl, isMainFrame) => {
+    if (!isMainFrame || code === ERR_ABORTED || String(validatedUrl).startsWith("data:")) return;
+    fail(`did-fail-load ${code} ${description}`);
+  });
+  webContents.on("render-process-gone", (_event, details) => {
+    if (details?.reason !== "clean-exit") fail(`render-process-gone ${details?.reason ?? "unknown"}`);
+  });
+  webContents.on("unresponsive", () => fail("unresponsive"));
+  webContents.on("did-navigate", (_event, target) => {
+    if (String(target).startsWith("data:")) return;
+    cancel();
+    retries = 0;
+    failed = false;
+  });
+  webContents.once("destroyed", cancel);
+  return {
+    /** Reloads a window left on the failure page, a crash or nothing at all. */
+    reloadIfStuck() {
+      if (webContents.isDestroyed() || !(failed || !webContents.getURL() || webContents.isCrashed())) return;
+      void webContents.loadURL(url).catch(() => {});
+    },
+  };
+}
+
+module.exports = { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceUnreachablePage, watchDeviceLoad, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus };
