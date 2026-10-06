@@ -119,6 +119,9 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("Uses English or Korean from the operating system.");
     expect(html).toContain("aria-describedby");
     expect(html).not.toMatch(/title="Uses English or Korean from the operating system/);
+    expect(html).toContain("Detailed replies");
+    expect(html).toContain("Bots write longer, fuller answers. Off keeps replies short and to the point.");
+    expect(html).toMatch(/aria-checked="false"[^>]*aria-label="Detailed replies"/);
     expect(html).toContain("English");
     expect(html).toContain("한국어");
     expect(html).toContain("Your name");

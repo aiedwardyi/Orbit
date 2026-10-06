@@ -166,6 +166,7 @@ contextBridge.exposeInMainWorld("ogb", {
   applySkin: (skin) => ipcRenderer.invoke("desktop:skin", skin),
   /** Installed app version, from the main process. */
   getAppVersion: () => ipcRenderer.invoke("desktop:app-version"),
+  startFresh: () => ipcRenderer.invoke("desktop:start-fresh"),
   getLocale: () => ipcRenderer.sendSync("desktop:os-locale"),
   getLocalePreference: () => ipcRenderer.sendSync("desktop:locale-preference-get"),
   setLocalePreference: (preference) => ipcRenderer.invoke("desktop:locale-preference", preference),

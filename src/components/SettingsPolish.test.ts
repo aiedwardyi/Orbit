@@ -245,6 +245,23 @@ describe("Settings Polish", () => {
     }
   });
 
+  it("saves Detailed replies through the shared config", async () => {
+    const previousSection = mockState.appSettingsSection;
+    mockState.appSettingsSection = "general";
+    mockApi.mockClear();
+    try {
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal))));
+      const toggle = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Detailed replies"]');
+      expect(toggle?.getAttribute("aria-checked")).toBe("false");
+      await act(async () => toggle?.click());
+      expect(mockApi).toHaveBeenCalledWith("/api/config", {
+        method: "PATCH", body: JSON.stringify({ features: { detailedReplies: true } }),
+      });
+    } finally {
+      mockState.appSettingsSection = previousSection;
+    }
+  });
+
   it("the Connections pane shows \"Connections\" exactly once", async () => {
     mockState.appSettingsSection = "connections";
     await act(async () => {
