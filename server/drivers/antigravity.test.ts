@@ -179,6 +179,8 @@ describe("isAgyAccountError", () => {
       "PERMISSION_DENIED",
       "permission denied",
       "API disabled",
+      "UNAUTHENTICATED: Request had invalid authentication credentials",
+      "Agent Platform API has not been used in project my-project-500 before or it is disabled.",
     ]) {
       expect(isAgyAccountError(text), text).toBe(true);
     }

@@ -54,8 +54,8 @@ const AGY_STOPPED_NOTE = "The bot stopped before finishing.";
 const AGY_SYSTEM_NOTICE = /<SYSTEM_MESSAGE\b/i;
 const AGY_CONTEXT_CANCELLATION = /\bcontext\s+cancel(?:ed|led)\b/i;
 const AGY_ACCOUNT_ERROR =
-  /unauthorized|\bforbidden\b|\b401\b|\b403\b|not logged in|\bsign[\s-]?in\b|authentication failed|permission_denied|permission denied|has not been used in project|\bapi\b[^.\n]{0,120}\bdisabled\b/i;
-const AGY_NOT_ACCOUNT_ERROR = /\brate[\s-]?limit\b|\b429\b|\btoo many requests\b|\b5\d\d\b|\b5xx\b/i;
+  /unauthorized|unauthenticated|\bforbidden\b|(?<![\w-])40[13](?![\w-])|not logged in|\bsign[\s-]?in\b|authentication failed|permission_denied|permission denied|has not been used in project|\bapi\b[^.\n]{0,120}\bdisabled\b/i;
+const AGY_NOT_ACCOUNT_ERROR = /\brate[\s-]?limit\b|\b429\b|\btoo many requests\b|(?<![\w-])5\d\d(?![\w-])|\b5xx\b/i;
 const AGY_TIMEOUT_ERROR = /\b(?:watchdog timeout|timed out|time-out|timeout)\b/i;
 
 /** Account or permission failure. Rate limits, 5xx, and timeout-only lines are not. */
