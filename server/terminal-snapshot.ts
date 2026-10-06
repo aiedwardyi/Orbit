@@ -23,6 +23,8 @@ function snapshotBody(snapshot: Record<string, unknown>): Record<string, unknown
 }
 
 const BOT_ID = /^[\w-]{1,128}$/;
+const bridgeErrorSchema = z.object({ error: z.string().optional() }).catch({});
+const bridgeSnapshotSchema = z.record(z.string(), z.unknown()).catch({});
 const paneCountsSchema = z.object({
   counts: z.record(z.string(), z.number()).optional(),
   panes: z.record(z.string(), z.array(z.string())).optional(),
@@ -96,6 +98,31 @@ export async function terminalSnapshotResponse(
     return { status: 502, body: { error: `terminal bridge: HTTP ${res.status}` } };
   }
   return { status: 200, body: snapshotBody((await res.json().catch(() => ({}))) as Record<string, unknown>) };
+}
+
+/** Starts the bot's main shell on the desktop for a remote browser; answers its snapshot. */
+export async function terminalStartResponse(
+  access: TerminalBridgeAccess | null,
+  botId: string,
+  fetchImpl: typeof fetch = fetch,
+): ReturnType<typeof terminalSnapshotResponse> {
+  if (!access) return { status: 503, body: { error: "terminal bridge unavailable" } };
+  let res: Response;
+  try {
+    // A cold Windows shell can take most of the host's 15 s readiness window.
+    res = await fetchImpl(`${access.url}/v1/bots/${encodeURIComponent(botId)}/terminal/main`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${terminalReadGrant(access.token, botId)}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch {
+    return { status: 502, body: { error: "terminal bridge unreachable" } };
+  }
+  if (!res.ok) {
+    const errorBody = bridgeErrorSchema.parse(await res.json().catch(() => ({})));
+    return { status: 502, body: { error: errorBody.error ?? `terminal bridge: HTTP ${res.status}` } };
+  }
+  return { status: 200, body: snapshotBody(bridgeSnapshotSchema.parse(await res.json().catch(() => ({})))) };
 }
 
 /** Sends a line from a remote browser with a send-only grant; answers the post-send snapshot. */

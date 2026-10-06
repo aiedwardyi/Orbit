@@ -28,6 +28,7 @@ import { buildTerminalNotification, showNotification, type NotificationTarget } 
 import { terminalPopupsEnabled } from "@/lib/terminal-popups";
 import { altDigitSelectsPane, backquoteTogglesTerminal } from "@/lib/terminal-hotkeys";
 import { useTerminalPanes } from "@/lib/terminal-panes";
+import { rememberTerminalOpened, schedulePrestart } from "@/lib/terminal-prestart";
 import { composerNeedsTap, focusComposerOnActivation } from "@/lib/focus-composer";
 import { webPushTarget } from "@/lib/web-push";
 import { usePhoneSwipe } from "@/lib/use-phone-swipe";
@@ -449,6 +450,20 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     state.createBotOpen;
 
   const swipeStageRef = usePhoneSwipe(bot?.id, !terminalOpen && !nativeViewOverlayOpen, (id) => dispatch({ type: "select", id }));
+
+  const chatShown = Boolean(bot && state.activeView === "chat" && !terminalOpen);
+  useEffect(() => {
+    if (bot && terminalOpen) rememberTerminalOpened(bot.id);
+  }, [bot?.id, terminalOpen]);
+  useEffect(() => {
+    if (!bot || !chatShown) return;
+    return schedulePrestart({
+      bridge: window.ogb?.terminal,
+      botId: bot.id,
+      projectCwd: bot.cwd ?? null,
+      measure: () => conversationRef.current?.getBoundingClientRect(),
+    });
+  }, [bot?.id, bot?.cwd, chatShown]);
 
   const closeTerminal = () => {
     if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: false }));

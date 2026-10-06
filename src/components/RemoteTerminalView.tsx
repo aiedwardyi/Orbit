@@ -104,6 +104,7 @@ export function RemoteTerminalView({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [starting, setStarting] = useState(false);
   const requestRef = useRef(0);
   const appliedRequestRef = useRef(0);
   const outputRef = useRef<HTMLPreElement>(null);
@@ -247,6 +248,22 @@ export function RemoteTerminalView({
       setSending(false);
     }
   };
+  // The host starts the same main shell its own panel would open.
+  const start = async () => {
+    setStarting(true);
+    setError(null);
+    try {
+      const next: RemoteTerminalSnapshot = await api(`/api/bots/${encodeURIComponent(bot.id)}/terminal/start`, { method: "POST" });
+      appliedRequestRef.current = ++requestRef.current;
+      pinnedRef.current = true;
+      setSelectedPane(null);
+      setSnapshot(next);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setStarting(false);
+    }
+  };
   const send = (event: FormEvent) => {
     event.preventDefault();
     void post(terminalSendInput(draft));
@@ -304,7 +321,18 @@ export function RemoteTerminalView({
       )}
       {error && <p role="alert" className="shrink-0 border-b border-hairline px-4 py-2 text-[12px] text-ink-secondary">{t("terminal.unavailable")}: {error}</p>}
       {noTerminal ? (
-        <p className="flex flex-1 items-center justify-center p-6 text-center text-[13px] text-ink-secondary">{t("terminal.noSession")}</p>
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-[13px] text-ink-secondary">
+          <p>{t("terminal.noSession")}</p>
+          <button
+            type="button"
+            onClick={() => void start()}
+            disabled={starting}
+            aria-busy={starting}
+            className="flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-hairline bg-panel px-4 text-[13px] text-ink hover:bg-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text disabled:opacity-50"
+          >
+            <TerminalSquare size={16} /> {t("terminal.open")}
+          </button>
+        </div>
       ) : (
         <pre
           ref={outputRef}

@@ -313,6 +313,7 @@ const terminalHost = createTerminalHost({
 const terminalBridge = createTerminalBridge({ host: terminalHost, updater: app.isPackaged ? updaterBridge : undefined });
 let terminalBridgeAccess = null;
 ipcMain.handle("terminal:open", (event, input) => terminalHost.open(event, input));
+ipcMain.handle("terminal:prestart", (event, input) => terminalHost.prestart(event, input));
 ipcMain.handle("terminal:cancel-open", (event, botId) => terminalHost.cancelOpen(event, botId));
 ipcMain.handle("terminal:write", (event, id, data) => terminalHost.write(event, id, data));
 ipcMain.handle("terminal:acknowledge", (event, id) => terminalHost.acknowledge(event, id));

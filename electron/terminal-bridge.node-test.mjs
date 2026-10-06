@@ -181,6 +181,37 @@ test("opens a pane only for the grant's own bot", async () => {
   await bridge.close();
 });
 
+test("opens the main shell only for the grant's own bot and answers its snapshot", async () => {
+  const calls = [];
+  const bridge = createTerminalBridge({
+    token: "bridge-secret",
+    host: {
+      readBot: (botId) => ({ botId, sessionId: "m1", generation: 1 }),
+      sendBot: () => ({}),
+      async openMainForBot(botId) {
+        calls.push(botId);
+        if (botId === "bot-3") throw new Error("Terminal folder is unavailable");
+        return { sessionId: "m1", generation: 1 };
+      },
+    },
+  });
+  const connection = await bridge.start();
+  const open = (botId, grantBot = botId) => fetch(`${connection.url}/v1/bots/${botId}/terminal/main`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${terminalReadGrant(connection.token, grantBot)}` },
+  });
+  try {
+    const response = await open("bot-1");
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { botId: "bot-1", sessionId: "m1", generation: 1 });
+    assert.equal((await open("bot-2", "bot-1")).status, 401);
+    assert.equal((await open("bot-3")).status, 400);
+    assert.deepEqual(calls, ["bot-1", "bot-3"]);
+  } finally {
+    await bridge.close();
+  }
+});
+
 test("raises pane attention for the granted bot only", async () => {
   const calls = [];
   const bridge = createTerminalBridge({

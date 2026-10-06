@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { terminalPaneCountsGrant, terminalReadGrant, terminalSendGrant } from "./terminal-grant.ts";
-import { acceptedPaneCounts, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse } from "./terminal-snapshot.ts";
+import { acceptedPaneCounts, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
 
 const ACCESS = { url: "http://127.0.0.1:52150", token: "bridge-secret" };
@@ -41,6 +41,35 @@ describe("deleted bot pane cleanup", () => {
   it("runs cleanup for every persisted bot deletion", () => {
     const deletion = server.slice(server.indexOf('case "bot.deleted":'), server.indexOf('case "bots.order":'));
     expect(deletion).toContain("closeBotPanes(terminalBridgeAccess, change.botId)");
+  });
+});
+
+describe("remote terminal start", () => {
+  it("starts the main shell with the per-bot grant and relays only the snapshot fields", async () => {
+    const calls: Array<{ url: string; auth: string | null; method: string | undefined }> = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization"), method: init?.method });
+      return new Response(JSON.stringify({ botId: "bot-1", sessionId: "s1", generation: 1, screenText: "PS>", output: "raw", panes: [{ sessionId: "s1", main: true, screenText: "PS>" }] }));
+    };
+    await expect(terminalStartResponse(ACCESS, "bot-1", fetchImpl)).resolves.toEqual({
+      status: 200,
+      body: { sessionId: "s1", generation: 1, screenText: "PS>", panes: [{ sessionId: "s1", main: true }] },
+    });
+    expect(calls).toEqual([{ url: `${ACCESS.url}/v1/bots/bot-1/terminal/main`, auth: `Bearer ${terminalReadGrant(ACCESS.token, "bot-1")}`, method: "POST" }]);
+  });
+
+  it("answers 503 without a bridge and keeps the host's reason on failure", async () => {
+    const never: typeof fetch = async () => { throw new Error("must not fetch"); };
+    await expect(terminalStartResponse(null, "bot-1", never)).resolves.toEqual({ status: 503, body: { error: "terminal bridge unavailable" } });
+    const refused: typeof fetch = async () => new Response(JSON.stringify({ error: "Terminal folder is unavailable" }), { status: 400 });
+    await expect(terminalStartResponse(ACCESS, "bot-1", refused)).resolves.toEqual({ status: 502, body: { error: "Terminal folder is unavailable" } });
+    const down: typeof fetch = async () => { throw new Error("offline"); };
+    await expect(terminalStartResponse(ACCESS, "bot-1", down)).resolves.toEqual({ status: 502, body: { error: "terminal bridge unreachable" } });
+  });
+
+  it("routes the remote start through the app's own auth", () => {
+    expect(server).toContain("terminalStartResponse(terminalBridgeAccess, bot.id)");
+    expect(remoteAccess).toContain('BEARER_ONLY_PATHS = new Set(["/api/internal/terminal-bridge"])');
   });
 });
 

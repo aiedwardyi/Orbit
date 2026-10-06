@@ -35,6 +35,9 @@ const CLOSED_PANE_HISTORY_LIMIT = 32;
 const WAIT_POLL_MS = 100;
 const READ_WAIT_DEFAULT_MS = 15_000;
 const READ_WAIT_MAX_MS = 60_000;
+// Pre-started main shells nobody has shown yet: at most this many, each for this long.
+export const PRESTART_LIMIT = 3;
+export const PRESTART_IDLE_MS = 10 * 60_000;
 // A stray Enter on an empty Claude prompt submits its suggestion as a real turn.
 const BOT_PANE_ENV = { CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: "false" };
 
@@ -185,7 +188,7 @@ function paneLabel(value) {
   return value.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, LABEL_LIMIT) || undefined;
 }
 
-export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, notePane = postPaneNote, now = () => Date.now() }) {
+export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, prestartIdleMs = PRESTART_IDLE_MS, notePane = postPaneNote, now = () => Date.now() }) {
   const sessions = new Map();
   const active = new Map();
   const generations = new Map();
@@ -262,7 +265,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   };
   const reportAttention = (session, reason) => {
     // A pane the bot spawned is the bot's to watch; its WAITING and STALLED notes reach the bot, not the user.
-    if (session.retired || session.attentionReported || session.botPane) return false;
+    if (session.retired || session.attentionReported || session.botPane || session.prestartedAt !== null) return false;
     session.attentionReported = true;
     session.activityArmed = false;
     emit(session, "terminal:attention", { id: session.id, botId: session.botId, reason });
@@ -459,7 +462,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), pendingInputEcho: "", truncated: false,
       workerReady: false, mail, teacher: folder.teacher ?? input.botId, worker: false, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
-      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, resizedAt: -Infinity, reportAt: 0, noteAt: 0,
+      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
     };
     session.generation = (generations.get(key) ?? 0) + 1;
     generations.set(key, session.generation);
@@ -524,7 +527,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (operation.cancelled) throw new Error("Terminal open cancelled");
     }
     if (folder.needsFolder) return { needsFolder: true, reason: folder.reason };
-    authorize(operation.event);
+    if (!operation.trusted) authorize(operation.event);
     if (disposed) throw new Error("Terminal host is shutting down");
     const cwd = folder.cwd;
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Validate the API or picked folder before spawning.
@@ -543,7 +546,69 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     }
     active.set(operation.key, replacement.id);
     if (operation.existing && operation.existing !== replacement) retireQuietly(operation.existing);
+    if (operation.prestart && !operation.claimed) holdPrestarted(replacement);
     return snapshot(replacement);
+  };
+  const holdPrestarted = (session) => {
+    session.prestartedAt = now();
+    const timer = setTimeout(() => {
+      if (session.prestartedAt !== null) retireQuietly(session, true);
+    }, prestartIdleMs);
+    timer.unref?.();
+  };
+  const unshownPrestarts = () => [...sessions.values()].filter((session) => session.prestartedAt !== null && !session.retired && active.get(session.key) === session.id);
+  const openMain = async (event, input, { prestart = false, trusted = false } = {}) => {
+    if (disposed) throw new Error("Terminal host is shutting down");
+    const key = `${event.sender.id}:${input.botId}`;
+    while (true) {
+      const inFlight = pending.get(key);
+      if (!inFlight) break;
+      if (inFlight.cancelled) {
+        try { await inFlight.promise; } catch {}
+        continue;
+      }
+      if (prestart) return null;
+      inFlight.claimed = true;
+      if (input.restart === true) {
+        inFlight.restartInput = input;
+      }
+      return inFlight.promise;
+    }
+    const existing = current(key);
+    if (existing && prestart) return null;
+    if (existing && input.restart !== true) {
+      existing.prestartedAt = null;
+      const { cols, rows, alternate } = existing.screen.snapshot();
+      // Diff-rendering TUIs cannot be rebuilt from trimmed history; a size bounce forces a full repaint.
+      if (existing.truncated && alternate && existing.exitCode === null && rows > 1) {
+        try {
+          void Promise.resolve(existing.pty.resize(cols, rows - 1)).catch(() => {});
+          void Promise.resolve(existing.pty.resize(cols, rows)).catch(() => {});
+        } catch {}
+      }
+      return snapshot(existing);
+    }
+    if (prestart) {
+      // The oldest never-shown shell makes room for the chat the user is on now.
+      const unshown = unshownPrestarts().sort((a, b) => a.prestartedAt - b.prestartedAt);
+      const evicted = unshown.slice(0, Math.max(0, unshown.length - PRESTART_LIMIT + 1));
+      if (evicted.length) {
+        await Promise.all(evicted.map((session) => retire(session, true)));
+        if (disposed || pending.has(key) || current(key)) return null;
+      }
+    }
+    if (!existing && active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
+    if (!existing && active.size + reservedPanes >= SESSION_LIMIT) throw new Error("Too many terminal sessions");
+    let cancelResolve;
+    const cancelPromise = new Promise((resolve) => { cancelResolve = resolve; });
+    const operation = { key, event, input, existing, restartInput: input.restart === true ? input : null, cancelled: false, cancelPromise, cancelResolve, promise: null, prestart, trusted, claimed: false };
+    operation.promise = runOpen(operation);
+    pending.set(key, operation);
+    try {
+      return await operation.promise;
+    } finally {
+      if (pending.get(key) === operation) pending.delete(key);
+    }
   };
   return {
     async open(event, input) {
@@ -557,43 +622,18 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         if (!session?.botPane || session.botId !== input.botId || session.owner !== event.sender || session.retired || active.get(session.key) !== session.id) throw new Error("Unknown terminal");
         return snapshot(session);
       }
-      const key = `${event.sender.id}:${input.botId}`;
-      while (true) {
-        const inFlight = pending.get(key);
-        if (!inFlight) break;
-        if (inFlight.cancelled) {
-          try { await inFlight.promise; } catch {}
-          continue;
-        }
-        if (input.restart === true) {
-          inFlight.restartInput = input;
-        }
-        return inFlight.promise;
-      }
-      const existing = current(key);
-      if (existing && input.restart !== true) {
-        const { cols, rows, alternate } = existing.screen.snapshot();
-        // Diff-rendering TUIs cannot be rebuilt from trimmed history; a size bounce forces a full repaint.
-        if (existing.truncated && alternate && existing.exitCode === null && rows > 1) {
-          try {
-            void Promise.resolve(existing.pty.resize(cols, rows - 1)).catch(() => {});
-            void Promise.resolve(existing.pty.resize(cols, rows)).catch(() => {});
-          } catch {}
-        }
-        return snapshot(existing);
-      }
-      if (!existing && active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
-      if (!existing && active.size + reservedPanes >= SESSION_LIMIT) throw new Error("Too many terminal sessions");
-      let cancelResolve;
-      const cancelPromise = new Promise((resolve) => { cancelResolve = resolve; });
-      const operation = { key, event, input, existing, restartInput: input.restart === true ? input : null, cancelled: false, cancelPromise, cancelResolve, promise: null };
-      operation.promise = runOpen(operation);
-      pending.set(key, operation);
-      try {
-        return await operation.promise;
-      } finally {
-        if (pending.get(key) === operation) pending.delete(key);
-      }
+      return openMain(event, input);
+    },
+    /** Starts the bot's main shell before its panel is shown; the panel's open attaches to it. */
+    async prestart(event, input) {
+      authorize(event);
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- IPC input must be validated before resolving a shell folder.
+      if (!input || typeof input.botId !== "string" || !BOT_ID_RE.test(input.botId)) throw new Error("Invalid bot");
+      dimensions(input.cols, input.rows);
+      const main = { botId: input.botId, cols: input.cols, rows: input.rows };
+      if (input.projectCwd !== undefined) main.projectCwd = input.projectCwd;
+      const result = await openMain(event, main, { prestart: true });
+      return Boolean(result && !result.needsFolder);
     },
     cancelOpen(event, botId) {
       authorize(event);
@@ -601,7 +641,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (typeof botId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(botId)) throw new Error("Invalid bot");
       const key = `${event.sender.id}:${botId}`;
       const operation = pending.get(key);
-      if (!operation) return false;
+      // A pre-start belongs to no panel, so a panel unmounting cannot cancel it.
+      if (!operation || (operation.prestart && !operation.claimed)) return false;
       operation.cancelled = true;
       operation.cancelResolve();
       return true;
@@ -838,6 +879,17 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         await botWrite(session, command.endsWith("\r") ? command : `${command}\r`);
       }
       return { sessionId: session.id, generation: session.generation };
+    },
+    /** Starts the bot's main shell for a remote viewer: the same session the host's panel attaches to. */
+    async openMainForBot(botId) {
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
+      if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
+      if (deletedBots.has(botId)) throw new Error("Terminal bot was deleted");
+      const sender = paneOwner();
+      if (!sender || sender.isDestroyed?.()) throw new Error("Wink window is not available");
+      const result = await openMain({ sender }, { botId, cols: 120, rows: 30 }, { trusted: true });
+      if (result.needsFolder) throw new Error("Terminal folder is unavailable");
+      return { sessionId: result.id, generation: result.generation };
     },
     close(event, id) {
       const session = owned(event, id);

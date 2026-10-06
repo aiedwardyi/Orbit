@@ -225,7 +225,7 @@ import { foldContinuationStart } from "./continuation-turn.ts";
 import { ownTurnReply } from "./turn-reply.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
-import { paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse } from "./terminal-snapshot.ts";
+import { paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
 import { launchNoteText } from "./launch-note.ts";
 import { MailboxAutoDedup, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
@@ -8772,6 +8772,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!bot) return json(res, 404, { error: "no such bot" });
       const snapshot = await terminalSnapshotResponse(terminalBridgeAccess, bot.id, url.searchParams.get("sessionId"));
       return json(res, snapshot.status, snapshot.body);
+    }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/terminal\/start$/);
+    if (m && method === "POST") {
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      const started = await terminalStartResponse(terminalBridgeAccess, bot.id);
+      return json(res, started.status, started.body);
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/terminal\/send$/);
     if (m && method === "POST") {
