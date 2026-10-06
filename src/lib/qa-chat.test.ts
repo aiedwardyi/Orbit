@@ -46,4 +46,12 @@ describe("qa chat copy", () => {
     expect(read("components/GroupView.tsx")).toContain("initialQuery");
     expect(read("components/SearchResults.tsx")).toContain("highlightParts");
   });
+
+  it("names the tab when a link opens settings for one job", () => {
+    for (const file of ["components/ComputerPanel.tsx", "components/PluginsPanel.tsx"]) {
+      const opens = read(file).match(/\{ type: "toggleAppSettings", open: true[^}]*\}/g) ?? [];
+      expect(opens.length).toBeGreaterThan(0);
+      for (const open of opens) expect(open).toContain("section:");
+    }
+  });
 });

@@ -767,7 +767,7 @@ export function ComputerPanel({
 
   const openVmSettings = () => {
     window.sessionStorage.setItem("openmausbot.settings.section", "computer");
-    dispatch({ type: "toggleAppSettings", open: true });
+    dispatch({ type: "toggleAppSettings", open: true, section: "computer" });
   };
 
   const openConnectionSettings = () => {

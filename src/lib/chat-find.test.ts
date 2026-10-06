@@ -8,9 +8,14 @@ describe("highlightParts", () => {
     expect(parts.filter((part) => part.match).map((part) => part.text)).toEqual(["최세훈", "최세훈"]);
   });
 
-  it("marks each word when the phrase is split", () => {
-    const parts = highlightParts("foo then bar", "foo bar");
-    expect(parts.filter((part) => part.match).map((part) => part.text)).toEqual(["foo", "bar"]);
+  it("marks only the exact phrase, like the search count", () => {
+    expect(highlightParts("foo then bar", "foo bar")).toEqual([{ text: "foo then bar", match: false }]);
+    const parts = highlightParts("say Foo Bar", "foo bar");
+    expect(parts.filter((part) => part.match).map((part) => part.text)).toEqual(["Foo Bar"]);
+  });
+
+  it("keeps offsets on the original text when lowercasing changes length", () => {
+    expect(highlightParts("İabc", "abc")).toEqual([{ text: "İ", match: false }, { text: "abc", match: true }]);
   });
 
   it("leaves a snippet unmarked when the words are absent", () => {

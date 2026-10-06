@@ -21,38 +21,21 @@ function highlightHost(): HighlightHost {
   return globalThis as HighlightHost;
 }
 
+/** Exact-phrase matches only, like /api/search, so highlights agree with N/M. */
 export function highlightParts(text: string, query: string): Array<{ text: string; match: boolean }> {
-  const phrase = query.trim().toLowerCase();
+  const phrase = query.trim();
   if (!text) return [];
   if (!phrase) return [{ text, match: false }];
-  if (text.toLowerCase().includes(phrase)) return markAll(text, [phrase]);
-  const words = [...new Set(phrase.split(/\s+/).filter((word) => word.length > 1))];
-  if (words.length < 2) return [{ text, match: false }];
-  return markAll(text, words);
-}
-
-function markAll(text: string, needles: string[]): Array<{ text: string; match: boolean }> {
-  const lower = text.toLowerCase();
+  const pattern = new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
   const parts: Array<{ text: string; match: boolean }> = [];
   let cursor = 0;
-  while (cursor < text.length) {
-    let bestAt = -1;
-    let bestLen = 0;
-    for (const needle of needles) {
-      const at = lower.indexOf(needle, cursor);
-      if (at < 0) continue;
-      if (bestAt < 0 || at < bestAt || (at === bestAt && needle.length > bestLen)) {
-        bestAt = at;
-        bestLen = needle.length;
-      }
-    }
-    if (bestAt < 0) break;
-    if (bestAt > cursor) parts.push({ text: text.slice(cursor, bestAt), match: false });
-    parts.push({ text: text.slice(bestAt, bestAt + bestLen), match: true });
-    cursor = bestAt + bestLen;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    if (match.index > cursor) parts.push({ text: text.slice(cursor, match.index), match: false });
+    parts.push({ text: match[0], match: true });
+    cursor = match.index + match[0].length;
   }
   if (cursor < text.length) parts.push({ text: text.slice(cursor), match: false });
-  return parts.length ? parts : [{ text, match: false }];
+  return parts;
 }
 
 /** Index of the clicked message. Null when that row is not in this result set. */

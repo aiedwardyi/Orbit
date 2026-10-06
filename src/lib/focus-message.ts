@@ -80,20 +80,11 @@ export async function landOnSearchHit(
     }
   }
   if (stale()) return;
-  const trimmed = query?.trim() ?? "";
-  if (trimmed) {
-    dispatch({
-      type: "focusMessage",
-      threadId: hit.threadId,
-      messageId: hit.messageId,
-      query: trimmed,
-    });
-    return;
-  }
   dispatch({
     type: "focusMessage",
     threadId: hit.threadId,
     messageId: hit.messageId,
+    query: query?.trim() || undefined,
   });
 }
 
