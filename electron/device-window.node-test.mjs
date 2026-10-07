@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceUnreachablePage, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus, watchDeviceLoad } = require("./device-window.cjs");
+const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceLinkedFileName, deviceTailnet, deviceUnreachablePage, deviceWindowTitle, deviceWindowUrl, openOrFocus, saveDeviceLinkedFile, tailnetFromStatus, watchDeviceLoad } = require("./device-window.cjs");
 
 class FakeWindow extends EventEmitter {
   destroyed = false;
@@ -270,4 +272,85 @@ test("main process sandboxes PC windows without the app preload", () => {
   assert.ok(open.includes("watchDeviceLoad(win.webContents"));
   assert.ok(open.includes("host: url.hostname"));
   assert.ok(open.includes("reloadIfStuck()"));
+});
+
+const ORIGIN = "https://home.tail396477.ts.net";
+const linked = (filePath, origin = ORIGIN, thread = "t-1") => `${origin}/api/threads/${thread}/linked-file?path=${encodeURIComponent(filePath)}`;
+
+test("linked-file URLs on the PC's own origin get a download name", () => {
+  assert.equal(deviceLinkedFileName(linked("/Users/me/Report.pdf"), ORIGIN), "Report.pdf");
+  assert.equal(deviceLinkedFileName(linked("C:\\Users\\me\\notes.final.docx"), ORIGIN), "notes.final.docx");
+});
+
+test("other paths, origins and lookalike hosts are not linked files", () => {
+  assert.equal(deviceLinkedFileName(`${ORIGIN}/api/threads/t-1/linked-file`, ORIGIN), "");
+  assert.equal(deviceLinkedFileName(`${ORIGIN}/api/threads/t-1/other?path=%2Fa.pdf`, ORIGIN), "");
+  assert.equal(deviceLinkedFileName(`${ORIGIN}/api/threads/a/b/linked-file?path=%2Fa.pdf`, ORIGIN), "");
+  assert.equal(deviceLinkedFileName(`${ORIGIN}/x/api/threads/t-1/linked-file?path=%2Fa.pdf`, ORIGIN), "");
+  assert.equal(deviceLinkedFileName(linked("/a.pdf", "https://other.tail396477.ts.net"), ORIGIN), "");
+  assert.equal(deviceLinkedFileName(linked("/a.pdf", "https://home.tail396477.ts.net.evil.com"), ORIGIN), "");
+  assert.equal(deviceLinkedFileName(linked("/a.pdf", "https://home.tail396477.ts.net:8443"), ORIGIN), "");
+  assert.equal(deviceLinkedFileName(linked("/a.pdf", "http://home.tail396477.ts.net"), ORIGIN), "");
+  assert.equal(deviceLinkedFileName(linked("/a.pdf").replace("https://", "https://user@"), ORIGIN), "");
+  assert.equal(deviceLinkedFileName("not a url", ORIGIN), "");
+  assert.equal(deviceLinkedFileName(undefined, ORIGIN), "");
+});
+
+test("download names are safe and keep the extension", () => {
+  const name = (filePath) => deviceLinkedFileName(linked(filePath), ORIGIN);
+  assert.equal(name("/a/../../etc/passwd.pdf"), "passwd.pdf");
+  assert.equal(name(".."), "file");
+  assert.equal(name("/tmp/.."), "file");
+  assert.equal(name("/tmp/"), "file");
+  assert.equal(name("/tmp/../.pdf"), "file.pdf");
+  assert.equal(name("/x/a:b*c?.pdf"), "a_b_c_.pdf");
+  assert.equal(name("/x/CON.pdf"), "_CON.pdf");
+  assert.equal(name("/x/com1.txt"), "_com1.txt");
+  assert.equal(name("/x/nul"), "_nul");
+  assert.equal(name("/x/report.pdf. . "), "report.pdf");
+  assert.equal(name("/x/run.exe"), "run.exe");
+  const long = name(`/x/${"a".repeat(400)}.pdf`);
+  assert.ok(long.length <= 120);
+  assert.ok(long.endsWith(".pdf"));
+  for (const safe of [name("/x/a\u0000b.pdf"), name("C:\\x\\..\\y.pdf")]) {
+    // oxlint-disable-next-line no-control-regex -- the name must come out without them
+    assert.equal(/[\\/:*?"<>|\u0000-\u001f]/.test(safe), false);
+    assert.ok(safe.endsWith(".pdf"));
+  }
+});
+
+const tempFolder = (t) => {
+  const folder = mkdtempSync(join(tmpdir(), "wink-device-test-"));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  return folder;
+};
+
+test("linked files stream to disk without buffering the whole body", async (t) => {
+  const filePath = join(tempFolder(t), "clip.mp4");
+  const response = new Response(ReadableStream.from([Buffer.from("first "), Buffer.from("second")]));
+  response.arrayBuffer = () => Promise.reject(new Error("buffered the whole body"));
+  await saveDeviceLinkedFile(response, filePath);
+  assert.equal(readFileSync(filePath, "utf8"), "first second");
+});
+
+test("a failed or aborted linked file download leaves no partial file", async (t) => {
+  for (const error of [new Error("connection reset"), new DOMException("This operation was aborted", "AbortError")]) {
+    const folder = tempFolder(t);
+    const body = ReadableStream.from(
+      (async function* () {
+        yield Buffer.from("partial");
+        throw error;
+      })(),
+    );
+    await assert.rejects(saveDeviceLinkedFile(new Response(body), join(folder, "clip.mp4")), error);
+    assert.deepEqual(readdirSync(folder), []);
+  }
+});
+
+test("main process downloads PC linked files instead of opening the browser", () => {
+  const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+  const open = main.slice(main.indexOf("function openDeviceWindow"), main.indexOf("function ensureDesktopWorkspace"));
+  assert.ok(open.includes("deviceLinkedFileName(target, url.origin)"));
+  assert.ok(main.includes("await saveDeviceLinkedFile(response, filePath)"));
+  assert.ok(main.includes('nativeText("packaged.deviceFileFailed")'));
 });

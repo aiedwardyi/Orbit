@@ -97,7 +97,7 @@ const { createDisplayMediaGuard, invokeDisplayMediaCallback, selectCaptureSource
 );
 const { STAGE_PREFIX: APPIMAGE_CUA_STAGE_PREFIX } = require("./cua-linux-bundle.cjs");
 const { desktopViewerUrl, desktopViewerWindowOptions, sameDesktopViewerOrigin } = require("./desktop-viewer.cjs");
-const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceTailnet, deviceUnreachablePage, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus, watchDeviceLoad } = require("./device-window.cjs");
+const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceLinkedFileName, deviceTailnet, deviceUnreachablePage, deviceWindowTitle, deviceWindowUrl, openOrFocus, saveDeviceLinkedFile, tailnetFromStatus, watchDeviceLoad } = require("./device-window.cjs");
 const { createDesktopWorkspaceManager } = require("./desktop-workspace.cjs");
 const { createBrowserSurfaceManager } = require("./browser-surface.cjs");
 const { browserProfilePartition } = require("./browser-snapshot.cjs");
@@ -1224,6 +1224,21 @@ async function localTailnet() {
   return cachedTailnet;
 }
 
+// The PC's login cookie lives only in its window's session, so the browser would get a 401.
+async function openDeviceLinkedFile(devices, target, name) {
+  try {
+    const response = await devices.fetch(target);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const folder = await fs.promises.mkdtemp(path.join(os.tmpdir(), "wink-device-"));
+    const filePath = path.join(folder, name);
+    await saveDeviceLinkedFile(response, filePath);
+    await openLocalFile(filePath, { shell });
+  } catch (error) {
+    slog(`device linked file: ${error?.message ?? error}`);
+    dialog.showErrorBox("Wink", nativeText("packaged.deviceFileFailed"));
+  }
+}
+
 async function openDeviceWindow(rawHost, rawName) {
   const tailnet = await localTailnet();
   if (!tailnet) {
@@ -1270,6 +1285,11 @@ async function openDeviceWindow(rawHost, rawName) {
       win.setTitle(title);
     });
     win.webContents.setWindowOpenHandler(({ url: target }) => {
+      const linkedFile = deviceLinkedFileName(target, url.origin);
+      if (linkedFile) {
+        void openDeviceLinkedFile(devices, target, linkedFile);
+        return { action: "deny" };
+      }
       const open = safeExternalUrl(target);
       if (open) void shell.openExternal(open);
       return { action: "deny" };
@@ -1278,6 +1298,12 @@ async function openDeviceWindow(rawHost, rawName) {
       if (applyZoomShortcut(win.webContents, input)) event.preventDefault();
     });
     win.webContents.on("will-navigate", (event, target) => {
+      const linkedFile = deviceLinkedFileName(target, url.origin);
+      if (linkedFile) {
+        event.preventDefault();
+        void openDeviceLinkedFile(devices, target, linkedFile);
+        return;
+      }
       if (sameDesktopViewerOrigin(target, url.origin)) return;
       event.preventDefault();
       const open = safeExternalUrl(target);
