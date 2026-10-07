@@ -15,6 +15,7 @@ import {
   taskRecordBlock,
   TurnSeeds,
   turnSeedsSession,
+  withSystemChanges,
 } from "./turn-context.ts";
 import { recordTaskCompletion, seedTaskResumePacket } from "./task-state-fold.ts";
 
@@ -784,5 +785,53 @@ describe("TurnSeeds", () => {
     expect(seeds.take("t1", undefined)).toBeUndefined();
     expect(seeds.take("t1", "turn-b")).toBe(replacement);
     expect(seeds.get("t1")).toBeUndefined();
+  });
+});
+
+describe("withSystemChanges", () => {
+  const reminder = (...lines: string[]) => [
+    "<system-reminder>",
+    "[Wink instructions update - your system prompt changed after this session started. Removed lines no longer apply; added lines are current and win over anything older.]",
+    ...lines,
+    "</system-reminder>",
+  ];
+  const withMemory = (...lines: string[]) =>
+    `You are Testy, a personal bot in Wink. Role: Helper.\n\nYour memory (MEMORY.md):\n${lines.join("\n")}`;
+
+  it("puts exactly the changed memory lines at the top of the turn", () => {
+    const delivered = withMemory("- Pet: a cat named Mochi", "- City: Seoul", "- Drinks: tea");
+    const system = withMemory("- Pet: a dog named Mochi", "- City: Seoul", "- Drinks: tea", "- Job: designer");
+    expect(withSystemChanges("what pet do I have?", delivered, system)).toBe(
+      [...reminder("[Removed:]", "- Pet: a cat named Mochi", "[Added:]", "- Pet: a dog named Mochi", "- Job: designer"), "", "what pet do I have?"].join("\n"),
+    );
+  });
+
+  it("sends nothing when the system text did not change", () => {
+    const system = withMemory("- City: Seoul");
+    expect(withSystemChanges("hi", system, system)).toBe("hi");
+    expect(withSystemChanges("hi", `${system}\n\n`, system)).toBe("hi");
+  });
+
+  it("sends nothing for a session whose text is unknown, like a fresh one", () => {
+    expect(withSystemChanges("hi", undefined, withMemory("- City: Seoul"))).toBe("hi");
+  });
+
+  it("names a removed line without inventing an added one", () => {
+    expect(withSystemChanges("hi", withMemory("- City: Seoul", "- Drinks: tea"), withMemory("- City: Seoul"))).toBe(
+      [...reminder("[Removed:]", "- Drinks: tea"), "", "hi"].join("\n"),
+    );
+  });
+
+  it("sends one changed rule out of Wink's long guidance line, not the whole line", () => {
+    const rules = Array.from({ length: 40 }, (_, i) => `Rule ${i} keeps the bot focused on the task the user gave it.`);
+    const line = (changed: string) => [...rules.slice(0, 20), changed, ...rules.slice(20)].join(" ");
+    const out = withSystemChanges("hi", line("Reply in English."), line("Reply in Korean."));
+    expect(out).toBe([...reminder("[Removed:]", "Reply in English.", "[Added:]", "Reply in Korean."), "", "hi"].join("\n"));
+  });
+
+  it("returns null past the cap, so the session recycles instead", () => {
+    const big = (word: string) => withMemory(...Array.from({ length: 200 }, (_, i) => `- ${word} note ${i} ${"x".repeat(40)}`));
+    expect(withSystemChanges("hi", big("old"), big("new"))).toBeNull();
+    expect(withSystemChanges("hi", big("old"), big("new"), Infinity)).toContain("- new note 199");
   });
 });

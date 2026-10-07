@@ -28,8 +28,9 @@ export interface TurnContextInput {
    * Why the provider session is being recycled. Compaction keeps the PR 70
    * preamble; a pre-first-compact fat soak uses a distinct session-bound
    * marker so the model is not told a summary exists when it does not.
+   * `system`: the system text changed too much for a reminder.
    */
-  recycleReason?: "compaction" | "session-fat";
+  recycleReason?: "compaction" | "session-fat" | "system";
   /** transcript-replay drivers get history via SendTurnInput.transcript instead */
   replaysNatively: boolean;
   /** durable harness state, included only at a recovery boundary */
@@ -234,39 +235,97 @@ export function turnSeedsSession(input: {
   return input.seed.cursor !== undefined && input.seed.cursor === input.currentCursor;
 }
 
-export interface TurnSeed extends ResumeSeed {
+export type TurnSeed<T = ResumeSeed> = T & {
   /** the adapter's id for the dispatch, once sendTurn returned it */
   turnId?: string;
-}
+};
 
 /** Thread -> what its running 1:1 turn certifies on completion. Each entry
  * belongs to the dispatch that set it: a stopped dispatch's cleanup or late
  * completion must not drop or consume its replacement's entry. */
-export class TurnSeeds {
-  private readonly byThread = new Map<string, TurnSeed>();
+export class TurnSeeds<T extends { instanceId: string; cursor: unknown } = ResumeSeed> {
+  private readonly byThread = new Map<string, TurnSeed<T>>();
 
-  set(threadId: string, seed: ResumeSeed): TurnSeed {
-    const entry: TurnSeed = { ...seed };
+  set(threadId: string, seed: T): TurnSeed<T> {
+    const entry: TurnSeed<T> = { ...seed };
     this.byThread.set(threadId, entry);
     return entry;
   }
 
-  get(threadId: string): TurnSeed | undefined {
+  get(threadId: string): TurnSeed<T> | undefined {
     return this.byThread.get(threadId);
   }
 
   /** Drop `entry` only while it is still the thread's current seed. */
-  release(threadId: string, entry: TurnSeed): void {
+  release(threadId: string, entry: TurnSeed<T>): void {
     if (this.byThread.get(threadId) === entry) this.byThread.delete(threadId);
   }
 
   /** Consume the seed of the turn that completed; another dispatch's stays. */
-  take(threadId: string, turnId: string | undefined): TurnSeed | undefined {
+  take(threadId: string, turnId: string | undefined): TurnSeed<T> | undefined {
     const entry = this.byThread.get(threadId);
     if (!entry || turnId === undefined || entry.turnId !== turnId) return undefined;
     this.byThread.delete(threadId);
     return entry;
   }
+}
+
+/** Cap on the changed lines' characters; past it the session recycles instead. */
+export const SYSTEM_REMINDER_MAX_CHARS = 12_000;
+// Most of Wink's guidance is one long line; split such lines at sentence
+// ends so one changed rule does not resend the rest.
+const SYSTEM_LINE_SPLIT_CHARS = 2_000;
+const SYSTEM_REMINDER_HEADER =
+  "[Wink instructions update - your system prompt changed after this session started. Removed lines no longer apply; added lines are current and win over anything older.]";
+
+function systemLines(text: string): string[] {
+  return text
+    .split("\n")
+    .flatMap((line) => {
+      const trimmed = line.trimEnd();
+      return trimmed.length > SYSTEM_LINE_SPLIT_CHARS ? trimmed.split(/(?<=[.!?])\s+/) : [trimmed];
+    })
+    .filter((line) => line.trim());
+}
+
+/** Lines of `from` that `other` does not also hold, in `from`'s order. */
+function linesOnlyIn(from: string[], other: string[]): string[] {
+  const left = new Map<string, number>();
+  for (const line of other) left.set(line, (left.get(line) ?? 0) + 1);
+  return from.filter((line) => {
+    const count = left.get(line) ?? 0;
+    left.set(line, count - 1);
+    return count <= 0;
+  });
+}
+
+/** A resumed session keeps the system text it started with. Prepends what
+ * changed since `delivered` to this turn's text; null when the change is
+ * too big for that and the session should recycle instead. */
+export function withSystemChanges(
+  text: string,
+  delivered: string | undefined,
+  system: string,
+  maxChars = SYSTEM_REMINDER_MAX_CHARS,
+): string | null {
+  if (delivered === undefined || delivered === system) return text;
+  const before = systemLines(delivered);
+  const after = systemLines(system);
+  const removed = linesOnlyIn(before, after);
+  const added = linesOnlyIn(after, before);
+  if (!removed.length && !added.length) return text;
+  if ([...removed, ...added].reduce((sum, line) => sum + line.length, 0) > maxChars) return null;
+  // Untagged, Haiku kept the stale system prompt in about half of real-CLI
+  // trials; the CLI's own prompt treats tags in a user message as system info.
+  return [
+    "<system-reminder>",
+    SYSTEM_REMINDER_HEADER,
+    ...(removed.length ? ["[Removed:]", ...removed] : []),
+    ...(added.length ? ["[Added:]", ...added] : []),
+    "</system-reminder>",
+    "",
+    text,
+  ].join("\n");
 }
 
 const REWOUND_PREAMBLE =
@@ -277,11 +336,15 @@ const RECYCLED_PREAMBLE =
   "[Wink compacted this conversation to keep the provider session bounded. The conversation so far:]";
 const SESSION_FAT_PREAMBLE =
   "[Wink started a fresh provider session to keep tool history bounded. The conversation so far:]";
+const SYSTEM_CHANGED_PREAMBLE =
+  "[Wink started a fresh provider session because your instructions changed. The conversation so far:]";
 
 function replayPreamble(input: TurnContextInput): string {
   if (input.rewound) return REWOUND_PREAMBLE;
   if (input.recycled) {
-    return input.recycleReason === "compaction" ? RECYCLED_PREAMBLE : SESSION_FAT_PREAMBLE;
+    return input.recycleReason === "compaction"
+      ? RECYCLED_PREAMBLE
+      : input.recycleReason === "system" ? SYSTEM_CHANGED_PREAMBLE : SESSION_FAT_PREAMBLE;
   }
   return FRESH_PREAMBLE;
 }

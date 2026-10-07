@@ -263,6 +263,9 @@ export interface ProviderAdapter {
     transcriptReplay?: boolean;
     /** False when session.started IDs cannot resume later turns. */
     resumeCursor?: boolean;
+    /** True when a resumed session keeps following the system text it
+     * started with, so the harness must send later changes in the turn text. */
+    pinnedSystem?: boolean;
     /** True when turn.completed `usage.input` is the final prompt size, so it
      * can be compared against the model window. Opt-in: an agentic CLI reports
      * the invocation total instead (every tool round's cache read summed),
