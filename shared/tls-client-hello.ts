@@ -96,7 +96,12 @@ function joined(parts: Uint8Array[], size: number, tail?: Uint8Array): Uint8Arra
 
 class Reader {
   at = 0;
-  constructor(private readonly buf: Uint8Array, private readonly end = buf.length) {}
+  private readonly buf: Uint8Array;
+  private readonly end: number;
+  constructor(buf: Uint8Array, end = buf.length) {
+    this.buf = buf;
+    this.end = end;
+  }
   get left(): number {
     return this.end - this.at;
   }
