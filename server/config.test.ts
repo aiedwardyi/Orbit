@@ -17,6 +17,7 @@ import {
   customKeyStorageError,
   PROVIDER_CREDENTIAL_ENV,
   roomTurnTimeoutMinutes,
+  saveConfig,
   showToolCallsEnabled,
   skillRecorderEnabled,
   builtInBrowserEnabled,
@@ -40,6 +41,38 @@ describe("configuration boundaries", () => {
       profile: { name: "Ada", email: "ada@example.com" },
       instances: { claude: { driver: "claudeAgent", config: { cli: "/opt/claude" } } },
     });
+  });
+
+  it("keeps the phone relay section in the file but out of API patches", () => {
+    const phoneRelay = {
+      base: "wink.test",
+      enabled: true,
+      acmeDirectories: ["https://ca.example/directory"],
+      acmeAccounts: { "https://ca.example/directory": { eab: { kid: "kid-1", hmacKey: "hmac" }, contact: ["mailto:ops@example.com"] } },
+    };
+    expect(parseStoredConfig({ phoneRelay })).toEqual({ phoneRelay });
+    expect(parseConfigPatch({ phoneRelay: { base: "evil.example", enabled: true } })).toEqual({});
+  });
+
+  it("drops a malformed phone relay section without losing the rest", () => {
+    expect(parseStoredConfig({ profile: { name: "Ada" }, phoneRelay: { base: 42, enabled: "yes" } })).toEqual({ profile: { name: "Ada" } });
+  });
+
+  it("saves the phone relay toggle without touching its private settings", () => {
+    mkdirSync(DATA_DIR, { recursive: true });
+    const path = join(DATA_DIR, "config.json");
+    writeFileSync(path, JSON.stringify({ phoneRelay: { base: "wink.test", acmeAccounts: { "https://ca.example/d": { contact: ["mailto:a@b.c"] } } } }));
+    try {
+      saveConfig({ phoneRelay: { enabled: true } });
+      expect(JSON.parse(readFileSync(path, "utf8")).phoneRelay).toEqual({
+        base: "wink.test",
+        enabled: true,
+        acmeAccounts: { "https://ca.example/d": { contact: ["mailto:a@b.c"] } },
+      });
+      expect(loadConfig().phoneRelay?.enabled).toBe(true);
+    } finally {
+      rmSync(path, { force: true });
+    }
   });
 
   it("rejects malformed stored instances and API patches", () => {
@@ -536,6 +569,9 @@ describe("credential env preference", () => {
     expect(customKeyStorageError(custom, local, "orbit.tail1234.ts.net", false)).toBe(store);
     expect(customKeyStorageError(custom, local, undefined, true)).toBeUndefined();
     expect(customKeyStorageError(preset, phone, undefined, false)).toBeUndefined();
+    // a relay request is a phone whatever its headers claim
+    expect(customKeyStorageError(custom, local, undefined, false, true)).toBe(pcOnly);
+    expect(customKeyStorageError(custom, local, undefined, true, true)).toBe(pcOnly);
   });
 
   it("syncCredentialEnv keeps model and provider env in step with a save", () => {

@@ -284,9 +284,14 @@ import {
   deviceNameSchema,
   listDevices,
   loadDeviceName,
+  pickerDevices,
   saveDeviceName,
   writeDeviceRecord,
 } from "./device-sync.ts";
+import { PhoneAccess } from "./phone-access.ts";
+import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
+import type { PublicPhone } from "./phone-devices.ts";
+import { isRelayRequest } from "./phone-relay/via.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, routineTriggerIsUnattended, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { browserScreenshot, readBrowserConnection } from "./browser-connection.ts";
@@ -452,6 +457,27 @@ const mailboxAutoDedup = new MailboxAutoDedup();
 // the Host/Origin gates and /api/* cookie auth to one tailnet hostname;
 // unset means loopback-only until a running Tailscale is detected below.
 let { host: REMOTE_HOST, key: REMOTE_KEY } = initRemoteAccess(process.env, DATA_DIR);
+
+// Phone access from anywhere through the relay (docs/phone-relay-design.md).
+// Absent unless phoneRelay.base is configured and enabled; it starts only
+// once handleRequest exists, so early static serving is never reachable.
+let relayPresenceHost: string | null = null;
+const phoneAccess: PhoneAccess = new PhoneAccess({
+  dataDir: DATA_DIR,
+  env: process.env,
+  staticDir: STATIC_DIR,
+  config: () => cfg.phoneRelay,
+  saveEnabled: (enabled) => {
+    saveConfig({ phoneRelay: { enabled } });
+    Object.assign(cfg, loadConfig());
+  },
+  onChange: () => {
+    const host = phoneAccess.presenceHost();
+    if (host === relayPresenceHost) return;
+    relayPresenceHost = host;
+    startDevicePresence();
+  },
+});
 
 /** Constant-time bearer check for the internal comms endpoints. The token
  * is high-entropy and loopback-only, so a timing oracle is a long shot —
@@ -1949,7 +1975,10 @@ function publishDeviceRecord(): void {
   const folder = profileSyncSettings.folder;
   if (!folder) return;
   try {
-    const host = REMOTE_HOST ?? listDevices(folder, profileSyncSettings.deviceId, Date.now()).find((record) => record.current)?.host;
+    const relayHost = phoneAccess.presenceHost() ?? undefined;
+    const previous = REMOTE_HOST ? undefined : listDevices(folder, profileSyncSettings.deviceId, Date.now()).find((record) => record.current);
+    // A relay-only PC repeats its relay host as host, so older PCs still read the record.
+    const host = REMOTE_HOST ?? (previous?.host !== previous?.relayHost ? previous?.host : undefined) ?? relayHost;
     if (!host) return;
     writeDeviceRecord(
       folder,
@@ -1957,6 +1986,7 @@ function publishDeviceRecord(): void {
         deviceId: profileSyncSettings.deviceId,
         name: deviceDisplayName(deviceName, process.env.ORBIT_DEVICE_NAME, osHostname()),
         host,
+        relayHost,
         laptop: deviceLaptop,
         chatSync: 2,
       },
@@ -1967,8 +1997,13 @@ function publishDeviceRecord(): void {
   }
 }
 
+let devicePresenceStarted = false;
+
+/** Tailnet detection and the relay both call this; the heartbeat starts once. */
 function startDevicePresence(): void {
   publishDeviceRecord();
+  if (devicePresenceStarted) return;
+  devicePresenceStarted = true;
   setInterval(publishDeviceRecord, DEVICE_HEARTBEAT_MS).unref();
   void detectLaptop().then((laptop) => {
     deviceLaptop = laptop;
@@ -6359,20 +6394,33 @@ function isAllowedOrigin(origin: string | undefined | null): boolean {
 }
 
 const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
-  const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
-  const path = url.pathname;
-  const method = req.method ?? "GET";
   /** scratch for route matches, shared by every `path.match` below */
   let m: RegExpMatchArray | null = null;
   try {
-    // loopback-host + loopback-origin gate before any route (DNS rebinding / CSRF)
-    if (!isLoopbackHost(req.headers.host) && !hostMatchesRemote(req.headers.host, REMOTE_HOST)) {
-      return json(res, 403, { error: "forbidden: loopback host required" });
+    // Relay traffic is known by socket identity. It needs this PC's relay Host
+    // and Origin and a phone session, and never reaches local-only routes.
+    const relay = isRelayRequest(req);
+    let phone: PublicPhone | null = null;
+    if (relay) {
+      const gate = await phoneAccess.gate(req, res);
+      if (gate.handled) return;
+      phone = gate.phone;
     }
-    const origin = req.headers.origin;
-    if (origin && !isAllowedOrigin(origin) && !originAllowedByRemote(origin, REMOTE_HOST)) {
-      return json(res, 403, { error: "forbidden: cross-origin request" });
+    // Inside the try: a request target like "//" makes the URL parser throw.
+    const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+    const path = url.pathname;
+    const method = req.method ?? "GET";
+    if (!relay) {
+      // loopback-host + loopback-origin gate before any route (DNS rebinding / CSRF)
+      if (!isLoopbackHost(req.headers.host) && !hostMatchesRemote(req.headers.host, REMOTE_HOST)) {
+        return json(res, 403, { error: "forbidden: loopback host required" });
+      }
+      const origin = req.headers.origin;
+      if (origin && !isAllowedOrigin(origin) && !originAllowedByRemote(origin, REMOTE_HOST)) {
+        return json(res, 403, { error: "forbidden: cross-origin request" });
+      }
     }
+    const credentials = requestCredentials(relay, phone !== null, authorizedComms(req.headers.authorization), REMOTE_KEY);
     // Terminal panes hold a per-pane grant, never the comms token. The note
     // itself never starts a turn; paneWake may, once the teacher is idle.
     if (method === "POST" && path === "/api/mailbox") {
@@ -6395,8 +6443,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       paneWake.noteArrived(teacher.id, teacher.threadId);
       return json(res, 200, { ok: true, id: message.id });
     }
-    if (path.startsWith("/api/") && !(method === "GET" && path === "/api/health") &&
-        !apiRequestAuthorized(authorizedComms(req.headers.authorization), req.headers.cookie, REMOTE_KEY, path)) {
+    if (path.startsWith("/api/") && !(method === "GET" && path === "/api/health") && !credentials.phoneSession &&
+        !apiRequestAuthorized(credentials.bearerOk, req.headers.cookie, credentials.remoteKey, path)) {
       return json(res, 401, { error: "unauthorized" });
     }
     // One-time remote handshake: a valid key mints the cookie /api/* accepts.
@@ -7355,6 +7403,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, { uses: loadKeyUses(DATA_DIR) });
     }
 
+    // ── phone access from anywhere: pairing, phones and relay status (PC only) ──
+    if (await phoneAccess.handle(req, res, path, method, credentials.bearerOk)) return;
+
     // ── phone link (this PC's own /remote?key= url, never synced) ──
     if (method === "GET" && path === "/api/remote-link") {
       return json(res, 200, { url: remoteLinkUrl(REMOTE_HOST, REMOTE_KEY) ?? null });
@@ -7363,7 +7414,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // ── device picker: PCs in the sync folder ──
     if (method === "GET" && path === "/api/devices") {
       const folder = profileSyncSettings.folder;
-      const devices = folder ? listDevices(folder, profileSyncSettings.deviceId, Date.now()) : [];
+      const listed = folder ? listDevices(folder, profileSyncSettings.deviceId, Date.now()) : [];
+      const devices = pickerDevices(listed, relay ? phoneAccess.base() : null);
       return json(res, 200, { devices });
     }
     if (method === "PUT" && path === "/api/devices/name") {
@@ -7503,8 +7555,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         fromBotId: message.from?.botId,
       }));
       return serveLinkedFile(req, res, {
-        bearerOk: authorizedComms(req.headers.authorization),
-        remoteKey: REMOTE_KEY,
+        ...credentials,
         threadId,
         messages,
         deviceId: profileSyncSettings.deviceId,
@@ -9718,7 +9769,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const patch = parseConfigPatch(body);
       if (!Object.keys(patch).length) return json(res, 400, { error: "nothing to save" });
       const externalSecretStorage = url.searchParams.get("secretStorage") === "external";
-      const customKeyError = customKeyStorageError(patch, req.headers, REMOTE_HOST, externalSecretStorage);
+      const customKeyError = customKeyStorageError(patch, req.headers, REMOTE_HOST, externalSecretStorage, relay);
       if (customKeyError) return json(res, 400, { error: customKeyError });
       if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
       if (patch.vps !== undefined) {
@@ -10084,7 +10135,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 409, { error: "the VPS computer is being used by this bot — interrupt the turn first" });
         }
         if (m[2] === "join") {
-          if (req.headers["x-openmausbot-companion"] === "1") {
+          if (refuseVpsJoin(req.headers, relay)) {
             return json(res, 409, {
               error: "VPS live desktop control is currently available in the desktop app; the SSH viewer is loopback-only",
             });
@@ -10167,6 +10218,9 @@ if (early) {
     console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
   });
 }
+phoneAccess.start(handleRequest).catch((error) => {
+  console.error(`[phone-relay] start failed: ${error instanceof Error ? error.message : String(error)}`);
+});
 // PATH/CLI describe after the socket is accepting, and after this turn so
 // a queued first /api/bots can drain before `--version` scans start.
 setImmediate(() => {
@@ -10201,6 +10255,7 @@ hostShutdown = () => {
   }
   for (const idle of localVmIdles.values()) idle.cancel();
   vps.closeAllVpsDesktopTunnels();
+  void phoneAccess.stop();
   watchdog.stop();
   routines?.stop();
   webhookIngress?.server.close();
