@@ -1646,10 +1646,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       new Promise((resolve, reject) => {
         const child = spawnCli(
           config.cli,
-          ["-p", "--model", "claude-haiku-4-5", "--output-format", "text"],
+          ["-p", "--model", "claude-haiku-5-5", "--output-format", "text"],
           {
             stdio: ["pipe", "pipe", "pipe"],
-            env: claudeEnvironment("claude-haiku-4-5", { ...process.env, ...input.environment }),
+            env: claudeEnvironment("claude-haiku-5-5", { ...process.env, ...input.environment }),
           },
         );
         let stdout = "";
