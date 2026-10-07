@@ -16,7 +16,7 @@ import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
 import { redactSecretsInText } from "./redact.ts";
-import type { ResumeSeed } from "./turn-context.ts";
+import type { NativePrompt, ResumeSeed } from "./turn-context.ts";
 import {
   deleteTaskResumePacket,
   readTaskResumePacket,
@@ -275,6 +275,9 @@ export interface TaskRecord {
   /** Newest pane note a dispatched turn carried; `null` once tracked with
    * none yet. Absent on tasks from before the field existed. */
   paneNotesDeliveredId?: string | null;
+  /** Prompt sizes the engine last reported, for the session named by its
+   * cursor. Says nothing once `resumeCursors` no longer holds that cursor. */
+  nativePrompt?: NativePrompt;
 }
 
 export interface TaskUsage {
@@ -1584,6 +1587,25 @@ export class Store {
     const current = task.resumeSeed;
     if (current && current.instanceId === seed.instanceId && current.cursor === seed.cursor && current.compactionId === seed.compactionId) return;
     task.resumeSeed = { ...seed };
+    this.saveBots();
+  }
+
+  /** Keep a settled turn's prompt sizes under the session it ran on. A cursor
+   * the record does not name is a new session, so its first report is where
+   * that session started. The window belongs to the model, not the session. */
+  recordNativePrompt(
+    botId: string,
+    threadId: string,
+    instanceId: string,
+    prompt: { first: number; last: number },
+    contextWindow?: number,
+  ) {
+    const task = this.taskByThread(botId, threadId);
+    const cursor = task?.resumeCursors[instanceId];
+    if (!task || cursor === undefined) return;
+    const same = task.nativePrompt?.cursor === cursor ? task.nativePrompt : undefined;
+    const window = contextWindow && task.lastModel ? { model: task.lastModel, tokens: contextWindow } : task.nativePrompt?.window;
+    task.nativePrompt = { cursor, first: same?.first ?? prompt.first, last: prompt.last, window };
     this.saveBots();
   }
 
