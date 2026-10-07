@@ -778,7 +778,7 @@ export function syncedDeleteChoice(input: SyncedDeleteInput): "delete" | "hide" 
 }
 
 export interface ProfileImportPlan {
-  /** localId null means create. */
+  /** localId null means create; a localId missing here means create under that id. */
   bots: Array<{ globalId: string; localId: string | null; apply: Record<string, unknown> }>;
   /** Tombstoned bots to delete. A restored bot is not listed. */
   remove: Array<{ globalId: string; localId: string; tombstoneId: string }>;
@@ -793,16 +793,27 @@ export function planProfileImport(input: {
   botMap: Record<string, string>;
   local: readonly LocalSyncBot[];
   localOrder: Record<string, unknown>;
+  /** bots.json was lost: mapped bots missing here come back, except deletes not yet published. */
+  restore?: boolean;
+  pendingBotDeletes?: readonly string[];
 }): ProfileImportPlan {
   const { state, deviceId, synced } = input;
   const botMap = { ...input.botMap };
   const byId = new Map(input.local.map((bot) => [bot.id, bot]));
   const plan: ProfileImportPlan = { bots: [], remove: [], order: {} };
+  let restored = false;
   for (const remote of Object.values(state.bots)) {
     // a same-named unmapped bot was made separately; binding it by name would merge two bots
     const localId = localIdForSyncId(botMap, remote.id) ?? null;
-    // deleted here; its tombstone goes out on the next publish
-    if (localId && !byId.has(localId)) continue;
+    if (localId && !byId.has(localId)) {
+      // deleted here; its tombstone goes out on the next publish
+      if (!input.restore || input.pendingBotDeletes?.includes(remote.id)) continue;
+      // every field, this device's own ops too: its copy went with bots.json
+      const { id: _id, ...apply } = remote;
+      plan.bots.push({ globalId: remote.id, localId, apply });
+      restored = true;
+      continue;
+    }
     const apply = remoteFieldsToApply(state, deviceId, synced, "bot", remote.id, remote, localId ? byId.get(localId)!.changes : null);
     plan.bots.push({ globalId: remote.id, localId, apply });
   }
@@ -824,6 +835,7 @@ export function planProfileImport(input: {
   const remoteOrder = Object.fromEntries((["sectionOrder", "itemOrder"] as const)
     .filter((field) => state.fieldVersions[syncedKey("order", input.workspaceId, field)])
     .map((field) => [field, state.order[field]]));
-  plan.order = remoteFieldsToApply(state, deviceId, synced, "order", input.workspaceId, remoteOrder, input.localOrder);
+  // a restored sidebar takes the shared order whole rather than publishing its rebuilt one
+  plan.order = restored ? remoteOrder : remoteFieldsToApply(state, deviceId, synced, "order", input.workspaceId, remoteOrder, input.localOrder);
   return plan;
 }

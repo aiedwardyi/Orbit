@@ -815,6 +815,28 @@ describe("Store", () => {
     expect(reloaded.bots).toHaveLength(1);
   });
 
+  it("tells a missing bots.json from one that loaded", () => {
+    expect(new Store(selection).botsFile).toBe("missing");
+    new Store(selection).createBot();
+    expect(new Store(selection).botsFile).toBe("loaded");
+  });
+
+  it("leaves an unparseable bots.json as it is and reports it unreadable", () => {
+    mkdirSync(DATA_DIR, { recursive: true });
+    const path = join(DATA_DIR, "bots.json");
+    writeFileSync(path, '[{"id": "bot-1"');
+    const store = new Store(selection);
+    expect(store.botsFile).toBe("unreadable");
+    expect(store.bots).toEqual([]);
+    expect(readFileSync(path, "utf8")).toBe('[{"id": "bot-1"');
+  });
+
+  it("createBot recreates a lost bot under its old id", () => {
+    const store = new Store(selection);
+    expect(store.createBot({ name: "Tutor" }, { seedMessages: false, id: "lost-bot" }).id).toBe("lost-bot");
+    expect(new Store(selection).bot("lost-bot")?.name).toBe("Tutor");
+  });
+
   it("chains appended messages and keeps the newest as active leaf", () => {
     const store = new Store(selection);
     const bot = store.createBot();
