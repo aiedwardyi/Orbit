@@ -13,6 +13,7 @@ import {
   openData,
   startRelay,
   type Harness,
+  type LogEntry,
 } from "./fixtures.ts";
 import { phoneConnect, serveInner } from "./pc-side.ts";
 
@@ -118,7 +119,8 @@ describe("log sink", () => {
     }
     for (const line of h.logs) {
       expect(line.length).toBeLessThan(400);
-      const entry = JSON.parse(line) as Record<string, unknown>;
+      // SAFETY: the logger writes one JSON object of sanitized scalar fields per line.
+      const entry = JSON.parse(line) as LogEntry;
       for (const key of Object.keys(entry)) expect(ALLOWED.has(key)).toBe(true);
       // Peers are /24 prefixes, never a full address.
       if (entry.peer !== undefined) expect(entry.peer).toMatch(/\/(24|48)$/);
@@ -135,7 +137,10 @@ describe("log sink", () => {
         code: "Bearer abc",
         peer: "10.1.2.3",
         bytesIn: 12.4,
-        ...({ cookie: "a=b", payload: "secret" } as object),
+        ...Object.fromEntries([
+          ["cookie", "a=b"],
+          ["payload", "secret"],
+        ]),
       }),
     ).toEqual({ label: "[redacted]", reason: "[redacted]", code: "[redacted]", peer: "[redacted]", bytesIn: 12 });
     const lines: string[] = [];

@@ -66,18 +66,20 @@ function fakeCa(ca: Ca): FakeCa {
         fake.orders += 1;
         expect(opts.challengePriority).toEqual(["tls-alpn-01"]);
         const value = fake.identifier ?? HOST;
-        const authz = {
+        const authz: acme.Authorization = {
           identifier: { type: "dns", value },
           status: "pending",
           expires: "",
           challenges: [],
           url: "https://ca.invalid/authz/1",
-        } as unknown as acme.Authorization;
+        };
         const challenge = { type: "tls-alpn-01", url: "https://ca.invalid/chall/1", status: "pending", token: "tok" };
         const keyAuthorization = `tok.thumbprint-${fake.orders}`;
+        // SAFETY: acme-client 5.4.0 types omit tls-alpn-01 challenges, which the relay handles.
         await opts.challengeCreateFn(authz, challenge as never, keyAuthorization);
         const presented = await fetchAlpnCert(await port);
         fake.validated.push(acme.crypto.isAlpnCertificateAuthorizationValid(presented, keyAuthorization));
+        // SAFETY: as above, a tls-alpn-01 challenge the typings do not list.
         await opts.challengeRemoveFn(authz, challenge as never, keyAuthorization);
         return ca.signCsr(opts.csr.toString());
       },

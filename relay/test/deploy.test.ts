@@ -229,7 +229,9 @@ describe("manual DNS", () => {
     );
     const parsed = parseOptions(["provision", "--project", "wink-new-proj", "--base", BASE, "--dns-zone", "example.com", "--dns", "manual"]);
     expect(parsed.opts.dnsMode).toBe("manual");
-    expect(() => planProvision(opts({ dnsMode: "cloudflare" as never }), EMPTY)).toThrow(/--dns/);
+    expect(() =>
+      parseOptions(["provision", "--project", "wink-new-proj", "--base", BASE, "--dns-zone", "example.com", "--dns", "cloudflare"]),
+    ).toThrow(/--dns is namecom or manual/);
   });
 
   it("upsert passes only when a random name under base resolves to the address, else fails with the exact record", async () => {

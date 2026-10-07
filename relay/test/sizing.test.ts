@@ -11,7 +11,7 @@ const POOL = 3;
 
 it.skipIf(!N)(`holds ${N} synthetic PCs with ${POOL} idle channels each`, { timeout: 600_000 }, async () => {
   const h = await startRelay({ limits: { connPerIpBurst: 1e9, connPerIpPerSec: 1e9, controlAuthPerIpPerMin: 1e9 } });
-  const gc = (globalThis as { gc?: () => void }).gc;
+  const gc = globalThis.gc;
   gc?.();
   const before = process.memoryUsage();
   const started = performance.now();

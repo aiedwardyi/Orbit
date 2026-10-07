@@ -103,6 +103,7 @@ async function splicePair(h: Harness, session: string, token: string, hello: Buf
   phone.write(hello);
   const { rest } = await go;
   // The PC end first consumes the ClientHello the relay forwarded.
+  // SAFETY: resume() returns the socket itself, which openData opened as a TLSSocket.
   const helloAtPc = await readExactly(data.resume() as TLSSocket, hello.length, rest);
   expect(helloAtPc.equals(hello)).toBe(true);
   return { data, phone };

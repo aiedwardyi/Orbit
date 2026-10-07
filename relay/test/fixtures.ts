@@ -7,7 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { connect as netConnect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connect as tlsConnect, type TLSSocket } from "node:tls";
+import { connect as tlsConnect, type ConnectionOptions, type TLSSocket } from "node:tls";
 import {
   ALPN_CONTROL,
   ALPN_DATA,
@@ -23,7 +23,8 @@ import {
 import { createLogger } from "../src/log.ts";
 import { createRelay, type Relay, type RelayOptions } from "../src/relay.ts";
 
-x509.cryptoProvider.set(webcrypto as unknown as Parameters<typeof x509.cryptoProvider.set>[0]);
+// SAFETY: Node's webcrypto implements the WebCrypto Crypto interface; its typings differ from lib.dom's only nominally.
+x509.cryptoProvider.set(webcrypto as never);
 
 type CryptoKey = webcrypto.CryptoKey;
 type CryptoKeyPair = webcrypto.CryptoKeyPair;
@@ -43,6 +44,7 @@ async function exportKey(key: CryptoKey): Promise<string> {
 
 /** A throwaway CA. Certificates live one day. */
 export async function makeCa(): Promise<Ca> {
+  // SAFETY: generating an ECDSA key yields a key pair, never a single key.
   const keys = (await webcrypto.subtle.generateKey(EC, true, ["sign", "verify"])) as CryptoKeyPair;
   const notBefore = new Date(Date.now() - 60_000);
   const notAfter = new Date(Date.now() + 24 * 3600_000);
@@ -77,6 +79,7 @@ export async function makeCa(): Promise<Ca> {
   return {
     certPem: ca.toString("pem"),
     async issue(host) {
+      // SAFETY: generating an ECDSA key yields a key pair, never a single key.
       const pair = (await webcrypto.subtle.generateKey(EC, true, ["sign", "verify"])) as CryptoKeyPair;
       const cert = await leaf(host, pair.publicKey);
       return { key: await exportKey(pair.privateKey), cert: cert.toString("pem") };
@@ -121,7 +124,7 @@ export interface Harness {
   dataDir: string;
   logs: string[];
   /** Resolves once `count` log entries match. Event driven, no polling. */
-  waitLog(match: (entry: Record<string, unknown>) => boolean, count?: number): Promise<void>;
+  waitLog(match: (entry: LogEntry) => boolean, count?: number): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -264,9 +267,7 @@ export async function openControl(
   );
   const ready = await reader.next();
   if (ready?.type !== "ready") {
-    const error = new Error(ready ? `got ${ready.type}` : "closed") as Error & { frame?: RelayMessage | null };
-    error.frame = ready;
-    throw error;
+    throw Object.assign(new Error(ready ? `got ${ready.type}` : "closed"), { frame: ready });
   }
   return { socket, reader, ready };
 }
@@ -279,9 +280,12 @@ export async function openData(h: Harness, session: string, poolToken: string): 
   return socket;
 }
 
+/** One parsed log line: the event and its sanitized scalar fields. */
+export type LogEntry = Record<string, string | number | boolean | null>;
+
 export const event =
-  (name: string, fields: Record<string, unknown> = {}) =>
-  (entry: Record<string, unknown>) =>
+  (name: string, fields: LogEntry = {}) =>
+  (entry: LogEntry) =>
     entry.event === name && Object.entries(fields).every(([k, v]) => entry[k] === v);
 
 /** Raw TCP to the relay port. */
@@ -304,14 +308,11 @@ export async function captureClientHello(servername: string | null, alpn = ["htt
       });
     });
     server.listen(0, "127.0.0.1", () => {
+      // SAFETY: the server listens on TCP, so address() is an AddressInfo.
       const port = (server.address() as { port: number }).port;
-      const c = tlsConnect({
-        host: "127.0.0.1",
-        port,
-        ...(servername ? { servername } : {}),
-        ALPNProtocols: alpn,
-        rejectUnauthorized: false,
-      });
+      const options: ConnectionOptions = { host: "127.0.0.1", port, ALPNProtocols: alpn, rejectUnauthorized: false };
+      if (servername) options.servername = servername;
+      const c = tlsConnect(options);
       c.on("error", () => {});
     });
     server.on("error", reject);

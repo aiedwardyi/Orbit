@@ -18,7 +18,7 @@ afterEach(async () => {
 interface Reply {
   status: number;
   headers: Record<string, string | string[] | undefined>;
-  body: Record<string, unknown>;
+  body: Record<string, string | number | boolean | null>;
   raw: string;
 }
 
@@ -65,9 +65,9 @@ describe("enrollment", () => {
     const res = await enroll(h, enrollBody(mintInvite(h.operator), pc));
     expect(res.status).toBe(200);
     expect(Object.keys(res.body)).toEqual(["ticket"]);
-    const ticket = verifyTicket(res.body.ticket as string, createPublicKey(h.operator));
+    const ticket = verifyTicket(String(res.body.ticket), createPublicKey(h.operator));
     expect(ticket.ok && ticket.value.label).toBe(pc.label);
-    const ctl = await openControl(h, pc, { ticket: res.body.ticket as string });
+    const ctl = await openControl(h, pc, { ticket: String(res.body.ticket) });
     expect(ctl.ready.session).toBeTruthy();
     ctl.socket.destroy();
     await h.waitLog(event("enrolled", { label: pc.label }));
@@ -176,7 +176,7 @@ describe("status and health", () => {
     });
     expect(Object.keys(online.body).sort()).toEqual(["online", "since"]);
     expect(online.body.online).toBe(true);
-    expect(typeof online.body.since).toBe("number");
+    expect(online.body.since).toEqual(expect.any(Number));
     expect(online.headers["access-control-allow-origin"]).toBe(`https://${pc.label}.${h.base}`);
     expect(online.raw.length).toBeLessThan(64);
     const foreign = await call(h, "GET", `/v1/status/${pc.label}`, { headers: { origin: "https://evil.example" } });

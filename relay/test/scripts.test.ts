@@ -33,9 +33,8 @@ describe("mint-invite", () => {
 
   it("refuses non-Ed25519 keys without echoing them", async () => {
     const rsa = generateKeyPairSync("rsa", { modulusLength: 1024 }).privateKey;
-    const { path } = await keyFile(0o600, rsa as never);
-    const error = await readOperatorKey(path).catch((e: Error) => e);
-    expect((error as Error).message).toBe("operator key must be Ed25519");
+    const { path } = await keyFile(0o600, rsa);
+    await expect(readOperatorKey(path)).rejects.toThrow(/^operator key must be Ed25519$/);
     await expect(mintInviteFromFile(path, 99)).rejects.toThrow(/ttl-days/);
   });
 });
