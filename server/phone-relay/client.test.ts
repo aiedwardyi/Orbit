@@ -349,4 +349,3 @@ function waitFor(check: () => boolean): Promise<void> {
     bus.on("event", listener);
   });
 }
-
