@@ -147,6 +147,17 @@ if (lateRole === "speaker") {
     ? `\\\\.\\pipe\\fake-claude-late-${process.pid}-${randomUUID()}`
     : join(tmpdir(), `fake-claude-late-${process.pid}-${randomUUID().slice(0, 8)}.sock`);
   const server = createServer();
+  // a kill before the speaker connects (a probe or prewarm the harness drops)
+  // would leave the socket file behind
+  const dropSocket = () => {
+    if (process.platform !== "win32") rmSync(socketPath, { force: true });
+  };
+  const killedEarly = () => {
+    dropSocket();
+    process.exit(143);
+  };
+  process.once("SIGTERM", killedEarly);
+  process.once("exit", dropSocket);
   await new Promise<void>((resolve) => server.listen(socketPath, resolve));
   const linked = new Promise<void>((resolve) => server.once("connection", () => resolve()));
   spawn(process.execPath, [...process.execArgv, process.argv[1]], {
@@ -155,8 +166,9 @@ if (lateRole === "speaker") {
     windowsHide: true,
   });
   await linked;
-  // a SIGTERM leaves no chance to clean up later; the live link needs no path
-  if (process.platform !== "win32") rmSync(socketPath, { force: true });
+  // the live link needs no path, and Stop's SIGTERM must kill us outright
+  process.off("SIGTERM", killedEarly);
+  dropSocket();
 }
 
 // Line-driven, like the real CLI under --input-format stream-json: each user
