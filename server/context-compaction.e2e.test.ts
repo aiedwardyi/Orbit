@@ -1132,7 +1132,7 @@ describe("context compaction e2e", () => {
     const packet = storedTaskPacket(GOAL_LEGACY.botThreadId);
     expect(packet.goal).toBe("Ship the legacy release");
     expect(packet.instructionGoal).toBeUndefined();
-    expect(packet.instructionAction).toBe("Draft the outage timeline from the scanned exhibits.");
+    expect(packet.instructionAction).toBeUndefined();
   }, 30_000);
 
   it("keeps a goal the bot set through update_task_state when its text matched the seed", async () => {

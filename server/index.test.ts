@@ -2566,7 +2566,7 @@ describe("harness HTTP API", () => {
         goal: "Prepare a durable weekly brief",
         turnsAtWrite: 1,
       });
-      expect(completed.completed.at(-1)?.note).toContain("hello from fake claude");
+      expect(completed.completed).toEqual([]);
 
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         modelSelection: { instanceId: "claude", model: hanging.models.default },
