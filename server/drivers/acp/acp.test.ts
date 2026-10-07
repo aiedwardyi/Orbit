@@ -2191,7 +2191,12 @@ describe("ACP create-time handshake prewarm", () => {
     });
     await expect.poll(() => spawn.mock.results.length).toBe(1);
     const child = spawn.mock.results[0].value;
-    await expect.poll(() => child.exitCode !== null || child.signalCode !== null).toBe(true);
+    // The idle timer starts at spawn and the kill is an async taskkill on
+    // Windows, so a fixed poll window races both; wait for the exit itself.
+    if (child.exitCode === null && child.signalCode === null) {
+      await new Promise((resolve) => child.once("exit", resolve));
+    }
+    expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
 
     const recorder = recordEvents(instance.adapter);
     await instance.adapter.sendTurn({ threadId: "t-hs-expired", text: "hi" });

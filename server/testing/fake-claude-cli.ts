@@ -47,8 +47,11 @@
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { connect } from "node:net";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { connect, createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
 
@@ -108,6 +111,52 @@ if (argAfter("--output-format") === "text") {
   }
   process.stdout.write("fake generated text\n");
   process.exit(0);
+}
+
+// late-after-stop: Stop force-kills the CLI tree on Windows (taskkill /F)
+// while it ends stdin, so the fake itself cannot be relied on to outlive the
+// kill and speak. A speaker process that holds our stdout says the late reply
+// once we are gone, however we died. A relay launches it and exits, so the
+// speaker is outside the tree taskkill /T walks; on POSIX it is detached from
+// the process group Stop signals. It connects to a socket we listen on: the
+// connection closing is our death, and its arrival is the ready signal we
+// wait for before emitting anything, so a test cannot stop the turn first.
+const lateRole = process.env.FAKE_CLAUDE_LATE_ROLE;
+if (lateRole === "relay") {
+  spawn(process.execPath, [...process.execArgv, process.argv[1]], {
+    env: { ...process.env, FAKE_CLAUDE_LATE_ROLE: "speaker" },
+    stdio: ["ignore", "inherit", "ignore"],
+    detached: true,
+    windowsHide: true,
+  }).unref();
+  process.exit(0);
+}
+if (lateRole === "speaker") {
+  process.stdout.on("error", () => process.exit(0));
+  const link = connect(process.env.FAKE_CLAUDE_LATE_SOCKET ?? "");
+  link.on("error", () => {});
+  link.resume();
+  link.once("close", () => {
+    out({ type: "assistant", message: { content: [{ type: "text", text: "LATE AFTER STOP" }] } });
+    process.stdout.write(JSON.stringify({ type: "system", subtype: "thinking_tokens", estimated_tokens: 1 }) + "\n", () => process.exit(0));
+  });
+  // hold the rest of the module back: the speaker plays no turns
+  await new Promise(() => {});
+} else if (mode === "late-after-stop") {
+  const socketPath = process.platform === "win32"
+    ? `\\\\.\\pipe\\fake-claude-late-${process.pid}-${randomUUID()}`
+    : join(tmpdir(), `fake-claude-late-${process.pid}-${randomUUID().slice(0, 8)}.sock`);
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  const linked = new Promise<void>((resolve) => server.once("connection", () => resolve()));
+  spawn(process.execPath, [...process.execArgv, process.argv[1]], {
+    env: { ...process.env, FAKE_CLAUDE_LATE_ROLE: "relay", FAKE_CLAUDE_LATE_SOCKET: socketPath },
+    stdio: ["ignore", "inherit", "ignore"],
+    windowsHide: true,
+  });
+  await linked;
+  // a SIGTERM leaves no chance to clean up later; the live link needs no path
+  if (process.platform !== "win32") rmSync(socketPath, { force: true });
 }
 
 // Line-driven, like the real CLI under --input-format stream-json: each user
@@ -450,17 +499,10 @@ const playTurn = (prompt: JsonValue) => {
   }
 
   if (mode === "late-after-stop") {
-    // Stop ends stdin (and SIGTERMs on POSIX); the reply still gets out,
-    // followed by a marker the test can wait on
-    let spoke = false;
-    const lastWords = () => {
-      if (spoke) return;
-      spoke = true;
-      out({ type: "assistant", message: { content: [{ type: "text", text: "LATE AFTER STOP" }] } });
-      process.stdout.write(JSON.stringify({ type: "system", subtype: "thinking_tokens", estimated_tokens: 1 }) + "\n", () => process.exit(0));
-    };
-    process.stdin.once("end", lastWords);
-    process.once("SIGTERM", lastWords);
+    // Stop ends stdin and kills the tree (SIGTERM on POSIX, taskkill /F on
+    // Windows); whichever lands first, the speaker set up at startup says
+    // the late reply, then a marker the test can wait on
+    process.stdin.once("end", () => process.exit(0));
     setInterval(() => {}, 1_000);
     return;
   }
