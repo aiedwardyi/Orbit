@@ -212,14 +212,21 @@ export function spkiFingerprint(key: KeyObject): string {
 
 const keyHistorySchema = z.object({ spki: z.array(z.string()) });
 
-export function readKeyHistory(dataDir: string): string[] {
+export function loadKeyHistory(dataDir: string): Loaded<string[]> {
   const text = readText(join(relayDir(dataDir), KEY_HISTORY_FILE));
-  if (text.kind !== "ok") return [];
+  if (text.kind !== "ok") return text;
   const parsed = keyHistorySchema.safeParse(parseJsonText(text.value));
-  return parsed.success ? parsed.data.spki : [];
+  return parsed.success ? { kind: "ok", value: parsed.data.spki } : { kind: "invalid", reason: "key history file is corrupt" };
 }
 
-/** Records a certificate key before it is sent to a CA, so CT monitoring knows it. */
+/** Known certificate keys, empty when none were recorded. Throws rather than guess at an unusable file. */
+export function readKeyHistory(dataDir: string): string[] {
+  const history = loadKeyHistory(dataDir);
+  if (history.kind === "invalid") throw new Error(`phone relay key history unusable: ${history.reason}`);
+  return history.kind === "ok" ? history.value : [];
+}
+
+/** Records a certificate key before it is sent to a CA, so CT monitoring knows it. Never overwrites an unusable history. */
 export function rememberCertKey(dataDir: string, fingerprint: string): void {
   const history = readKeyHistory(dataDir).filter((entry) => entry !== fingerprint);
   history.push(fingerprint);

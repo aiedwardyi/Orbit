@@ -112,9 +112,15 @@ export class CtWatch {
     this.running = true;
     try {
       const { host, dataDir, source } = this.opts;
+      // A `*.<base>` certificate covers this host too; crt.sh lists it only under that name.
+      const dot = host.indexOf(".");
+      const wildcard = dot > 0 ? `*${host.slice(dot)}` : null;
       let ids: number[];
+      let known: string[];
       try {
         ids = await source.list(host);
+        if (wildcard) ids = ids.concat(await source.list(wildcard));
+        known = readKeyHistory(dataDir);
       } catch {
         return { kind: "unavailable" };
       }
@@ -137,7 +143,13 @@ export class CtWatch {
         this.seen.add(id);
         if (cert.checkHost(host, { wildcards: true, subject: "never" }) === undefined) continue;
         checked++;
-        const known = readKeyHistory(dataDir);
+        // This PC never asks for a wildcard, so any wildcard for the base is someone else's.
+        const names = (cert.subjectAltName ?? "").split(", ");
+        if (wildcard && names.includes(`DNS:${wildcard}`)) {
+          const message = `CT log shows a wildcard certificate ${wildcard} covering ${host} (crt.sh id ${id})`;
+          this.opts.onAlert(message);
+          return { kind: "alert", message };
+        }
         if (!known.includes(spkiFingerprint(cert.publicKey))) {
           const message = `CT log shows a certificate for ${host} with a key this PC never made (crt.sh id ${id})`;
           this.opts.onAlert(message);
