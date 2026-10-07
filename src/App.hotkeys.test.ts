@@ -1,7 +1,11 @@
+// @vitest-environment happy-dom
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { describe, expect, it, vi } from "vitest";
+import App from "./App";
 import {
   DRAWER_BUTTON_LEFT,
   DRAWER_BUTTON_RIGHT,
@@ -9,6 +13,7 @@ import {
   DRAWER_HEADER_RIGHT,
 } from "@/lib/drawer-button";
 import { LIGHT_SKIN_IDS, SKINS, SKIN_IDS, nextSkin, type SkinId } from "@/lib/skins";
+import { SNAPSHOT_CACHE_KEY } from "@/state/snapshot-cache";
 
 const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "App.tsx"), "utf8");
 /** Every page whose header keeps the drawer button's corner clear. */
@@ -46,6 +51,36 @@ describe("phone drawer menu button", () => {
     expect(button).toContain("data-menu-unread");
     expect(button).toContain("{menuUnreadBadge}");
     expect(app).toContain("collapsedUnreadCount(state.bots, state.groups, state.selectedId)");
+  });
+
+  it("closes when App settings opens from the drawer and stays closed after", async () => {
+    localStorage.setItem("omb-onboarding-done", "true");
+    localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify({
+      bots: [{ id: "b1", threadId: "t1", name: "Scout", messages: [], modelSelection: { instanceId: "inst", model: "m" } }],
+      groups: [],
+      selectedId: "b1",
+    }));
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    vi.stubGlobal("EventSource", class { onmessage = null; close = vi.fn(); });
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(App)));
+      const menu = host.querySelector<HTMLButtonElement>('button[aria-label="Open bot list"]')!;
+      const appSettings = host.querySelector<HTMLButtonElement>('[data-sidebar-profile-row] button[aria-label="App settings"]')!;
+      await act(async () => menu.click());
+      expect(menu.getAttribute("aria-expanded")).toBe("true");
+      await act(async () => appSettings.click());
+      expect(menu.getAttribute("aria-expanded")).toBe("false");
+      await act(async () => appSettings.click());
+      expect(menu.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      vi.unstubAllGlobals();
+      localStorage.clear();
+    }
   });
 });
 
