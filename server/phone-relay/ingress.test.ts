@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { Duplex, duplexPair } from "node:stream";
 import { connect, type TLSSocket } from "node:tls";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -182,6 +182,36 @@ describe("relay ingress", () => {
     await closed(pcEnd);
     expect(rejected).toEqual(["timeout"]);
     other.destroy();
+  });
+
+  it("cuts a phone that never finishes its request headers", async () => {
+    const clock = new FakeClock();
+    const servers = new Set<Server>();
+    const ingress = new RelayIngress({
+      host: HOST,
+      clock,
+      handler: function (this: Server, req: IncomingMessage, res: ServerResponse) {
+        servers.add(this);
+        res.end(`ok ${req.url}`);
+      },
+    });
+    ingress.setCertificate(certA.keyPem, certA.certPem);
+    open.push(ingress);
+    const { pcEnd, tls } = phonePipe();
+    ingress.accept(pcEnd, Buffer.alloc(0), "203.0.113.9");
+    await once(tls, "secureConnect");
+    expect(await get(tls, "/warm")).toBe("ok /warm");
+    expect(servers.size).toBe(1);
+    // Node arms these only on a listening server; the ingress server never listens.
+    for (const server of servers) {
+      server.headersTimeout = 200;
+      server.requestTimeout = 300;
+    }
+    tls.write(`GET /slow HTTP/1.1\r\nhost: ${HOST}\r\n`);
+    clock.advance(60_000);
+    const cut = await Promise.race([closed(pcEnd).then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1_000))]);
+    expect(cut).toBe(true);
+    tls.destroy();
   });
 
   it("gives the challenge certificate only to acme-tls/1", async () => {

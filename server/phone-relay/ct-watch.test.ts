@@ -1,10 +1,13 @@
-import { createPrivateKey } from "node:crypto";
+import { X509Certificate, createPrivateKey } from "node:crypto";
+import { createServer } from "node:https";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CT_FIRST_CHECK_MS, CT_INTERVAL_MS, CT_MAX_CERTS_PER_RUN, CtWatch, type CtSource } from "./ct-watch.ts";
+import { CT_FIRST_CHECK_MS, CT_INTERVAL_MS, CT_MAX_CERTS_PER_RUN, CtWatch, crtShSource, type CtSource } from "./ct-watch.ts";
 import { rememberCertKey, spkiFingerprint } from "./store.ts";
 import { FakeClock } from "./testing/fake-clock.ts";
+import { loopbackLookup } from "./testing/fake-relay.ts";
 import { tempDataDir } from "./testing/harness.ts";
+import { listenLocal } from "./testing/net.ts";
 import { TestCa, type KeyAndCert } from "./testing/pki.ts";
 
 const HOST = "abcdefghijklmnop.wink.test";
@@ -89,6 +92,37 @@ describe("certificate transparency watch", () => {
     expect(fetched).toHaveLength(CT_MAX_CERTS_PER_RUN + 5);
     await watch.run();
     expect(fetched).toHaveLength(CT_MAX_CERTS_PER_RUN + 5);
+  });
+
+  it("reports a logged wildcard certificate that covers this host", async () => {
+    const ca = await TestCa.create();
+    const site = await ca.issue("crt.sh");
+    const mine = await ca.issue(HOST);
+    const rogue = await ca.issue("*.wink.test");
+    const logged = new Map([[1, mine.certPem], [2, rogue.certPem]]);
+    // Like crt.sh: q matches a logged name exactly, % is a LIKE wildcard.
+    const server = createServer({ key: site.keyPem, cert: site.certPem }, (req, res) => {
+      const url = new URL(req.url ?? "/", "https://crt.sh");
+      const q = url.searchParams.get("q");
+      const pem = logged.get(Number(url.searchParams.get("d")));
+      if (q === null) return res.writeHead(pem ? 200 : 404).end(pem ?? "");
+      const like = new RegExp(`^${q.split("%").map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`, "i");
+      const ids = [...logged]
+        .filter(([, cert]) => (new X509Certificate(cert).subjectAltName ?? "").split(", ").some((name) => like.test(name.replace(/^DNS:/, ""))))
+        .map(([id]) => ({ id }));
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(ids));
+    });
+    const port = await listenLocal(server);
+    cleanups.push(() => server.close());
+    const { dir, cleanup } = tempDataDir();
+    cleanups.push(cleanup);
+    remember(dir, mine);
+    const alerts: string[] = [];
+    const source = crtShSource({ ca: ca.certPem, port, lookup: loopbackLookup });
+    const watch = new CtWatch({ host: HOST, dataDir: dir, clock: new FakeClock(), source, onAlert: (message) => alerts.push(message) });
+    cleanups.push(() => watch.stop());
+    expect((await watch.run()).kind).toBe("alert");
+    expect(alerts).toHaveLength(1);
   });
 
   it("runs on its schedule and stops cleanly", async () => {
