@@ -1,4 +1,20 @@
-// Push-only worker. No fetch handler and no caching, so the app shell never goes stale after an update.
+// Push worker. On a relay origin it also answers a page load that cannot reach the PC with
+// offline.html; nothing else is cached, so the app shell never goes stale after an update.
+const OFFLINE_CACHE = "wink-offline-v1";
+const OFFLINE_URL = "/offline.html";
+const RELAY_ORIGIN = /^[a-z2-7]{16}\./.test(self.location.hostname) && !self.location.hostname.endsWith(".ts.net");
+
+if (RELAY_ORIGIN) {
+  self.addEventListener("install", (event) => {
+    event.waitUntil(caches.open(OFFLINE_CACHE).then((cache) => cache.add(new Request(OFFLINE_URL, { cache: "reload" }))));
+  });
+
+  self.addEventListener("fetch", (event) => {
+    if (event.request.mode !== "navigate") return;
+    event.respondWith(fetch(event.request).catch(async () => (await caches.match(OFFLINE_URL)) ?? Response.error()));
+  });
+}
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {
