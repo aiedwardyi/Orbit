@@ -216,6 +216,11 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
     return rpcMethods();
   };
 
+  // The driver's post-turn _x.ai/billing request makes the child rewrite the
+  // dump while a test reads it; a torn read parses as []. Poll for a complete
+  // snapshot that already holds the finished prompt's result.
+  const settledRpc = () => waitForRpc((m) => m.includes("session/prompt.result"));
+
   const sessionIdFor = (turnId: string) => {
     const started = recorder.events.find((e) => e.type === "session.started" && e.turnId === turnId) as any;
     expect(started?.sessionId).toEqual(expect.any(String));
@@ -345,11 +350,7 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
     const t1 = await instance.adapter.sendTurn({ threadId: "t-cursor", text: "one" });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
     const sessionId = sessionIdFor(t1.turnId);
-    // The driver's post-turn _x.ai/billing request makes the child rewrite the
-    // dump while we read it; a torn read parses as []. Poll for a complete
-    // snapshot that already holds t1's prompt result.
-    const afterT1 = await waitForRpc((m) => m.includes("session/prompt.result"));
-    const promptsAfterT1 = afterT1.filter((m) => m === "session/prompt").length;
+    const promptsAfterT1 = (await settledRpc()).filter((m) => m === "session/prompt").length;
 
     // Missing cursor (compaction) → kill warm + cold respawn. A new process
     // overwrites the rpc dump, so prompt count resets instead of accumulating.
@@ -384,7 +385,7 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
     const t1 = await instance.adapter.sendTurn({ threadId: "t-kill", text: "one" });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
     const sessionId = sessionIdFor(t1.turnId);
-    const promptsBeforeKill = rpcMethods().filter((m) => m === "session/prompt").length;
+    const promptsBeforeKill = (await settledRpc()).filter((m) => m === "session/prompt").length;
     await instance.adapter.stopAll();
     const t2 = await instance.adapter.sendTurn({ threadId: "t-kill", text: "two", resumeCursor: sessionId });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
@@ -405,7 +406,7 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
     const t2 = await instance.adapter.sendTurn({ threadId: "t-poison", text: "recover" });
     const done2 = await recorder.until((e) => e.type === "turn.completed" && e.turnId === t2.turnId);
     expect(done2).toMatchObject({ ok: true });
-    expect(rpcMethods().filter((m) => m === "session/prompt").length).toBeGreaterThanOrEqual(1);
+    expect((await settledRpc()).filter((m) => m === "session/prompt").length).toBeGreaterThanOrEqual(1);
   });
 
   it("cancel then send starts a fresh turn", async () => {
@@ -497,7 +498,7 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
     const t1 = await instance.adapter.sendTurn({ threadId: "t-ttl", text: "one" });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
     const sessionId = sessionIdFor(t1.turnId);
-    const promptsAfterT1 = rpcMethods().filter((m) => m === "session/prompt").length;
+    const promptsAfterT1 = (await settledRpc()).filter((m) => m === "session/prompt").length;
     // 80ms TTL needs real margin here: under CI scheduler contention the eviction
     // setTimeout can fire late, so a short wait races it and flakes.
     await new Promise((r) => setTimeout(r, 800));

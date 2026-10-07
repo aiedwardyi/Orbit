@@ -125,6 +125,7 @@ let steered: string[] = [];
 let stdinEnded = false;
 let steerGateArmed = false;
 let onSteer: (() => void) | null = null;
+let lateSteerAnswered = false;
 
 // Ownership-race fixture: after accepting the first prompt, stop consuming
 // stdin until the test creates this file. A large second write then leaves
@@ -573,40 +574,50 @@ const playTurn = (prompt: JsonValue) => {
     turnRunning = false;
     finishIfDone();
   };
+  // Hold a gap open until a steer actually lands, so a test is not racing a
+  // fixed window; capped so a lost steer still settles the turn.
+  const untilSteer = (close: () => void) => {
+    const cap = setTimeout(() => {
+      onSteer = null;
+      close();
+    }, 10_000);
+    onSteer = () => {
+      onSteer = null;
+      clearTimeout(cap);
+      close();
+    };
+  };
   if (mode === "late-steer") {
     // the final request is already out, so a steer landing now waits for
-    // its own query, the way the real CLI runs it after `result`
+    // its own query, the way the real CLI runs it after `result`. Every
+    // caller steers the first turn, so its gap waits for the steer; the
+    // follow-up that answers it keeps the plain 800 ms gap.
     out({ type: "system", subtype: "status", status: "requesting" });
     out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "reply" } } });
-    setTimeout(() => {
+    const close = () => {
       out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${promptText(prompt)}` }] } });
       const late = steered;
       finish();
       if (late.length) playTurn({ type: "user", message: { role: "user", content: late.join(" | ") } });
-    }, 800);
+    };
+    if (lateSteerAnswered) setTimeout(close, 800);
+    else {
+      lateSteerAnswered = true;
+      untilSteer(close);
+    }
   } else if (mode === "slow") {
     // a gap a test can steer into; the closing reply carries anything that
     // was folded in, the way the real CLI includes a mid-turn message in
-    // the same turn's next model call. FAKE_CLAUDE_SLOW_UNTIL_STEER holds
-    // the gap open until a steer actually lands, so a test is not racing a
-    // fixed window (capped so a lost steer still settles the turn)
+    // the same turn's next model call. FAKE_CLAUDE_SLOW_UNTIL_STEER waits
+    // for the steer instead of a fixed 800 ms
     const close = () => {
       out({ type: "system", subtype: "status", status: "requesting" });
       const tail = steered.length ? ` + steered: ${steered.join(" | ")}` : "";
       out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${promptText(prompt)}${tail}` }] } });
       finish();
     };
-    if (process.env.FAKE_CLAUDE_SLOW_UNTIL_STEER) {
-      const cap = setTimeout(() => {
-        onSteer = null;
-        close();
-      }, 10_000);
-      onSteer = () => {
-        onSteer = null;
-        clearTimeout(cap);
-        close();
-      };
-    } else setTimeout(close, 800);
+    if (process.env.FAKE_CLAUDE_SLOW_UNTIL_STEER) untilSteer(close);
+    else setTimeout(close, 800);
   } else {
     finish();
   }
