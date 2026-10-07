@@ -74,6 +74,7 @@ Plain `net.Server` on :443. Per socket: read up to 16 KiB or 5 s, parse the Clie
 
 - **Challenge**: TLS-ALPN-01 (RFC 8737, port 443 only, [Let's Encrypt challenge types](https://letsencrypt.org/docs/challenge-types/)). The CA connects to the relay with SNI `<label>.<base>` and ALPN `acme-tls/1`; the relay routes it like any phone. The PC peeks the ClientHello with the same shared parser and, when ALPN lists `acme-tls/1`, hands the socket to a second `tls.Server` holding the self-signed challenge cert. HTTP-01 was rejected because it needs port 80 and Host routing on the relay. DNS-01 and wildcard certs are impossible by design: they would need DNS control, which is exactly the trust we keep away from PCs.
 - **Client**: `acme-client` npm (MIT, pure JS on `node:crypto` plus `@peculiar/x509`, supports EAB) ([repo](https://github.com/publishlab/node-acme-client)). Its docs do not list TLS-ALPN-01 helpers, so the challenge cert (critical `id-pe-acmeIdentifier` extension) is built with `@peculiar/x509`, about 40 lines. Two new runtime deps; reason: X.509 and JWS by hand is several hundred lines.
+- **Check first**: before building the challenge cert by hand, check whether the pinned `acme-client` version already ships TLS-ALPN-01 helpers (`crypto.createAlpnCertificate`).
 - **Keys**: ECDSA P-256 cert key and per-PC ACME account key in `DATA_DIR/phone-relay/` (0600), never synced, never sent anywhere. A shared ACME account across PCs is impossible since its key would be on every PC.
 - **Renewal**: check ARI twice a day; fallback renew at one third of lifetime left ([LE integration guide](https://letsencrypt.org/docs/integration-guide/)). ARI renewals are exempt from rate limits ([LE rate limits](https://letsencrypt.org/docs/rate-limits/)). Failure: retry with backoff (1 h, cap 12 h); after 3 failed days switch to the second CA in `phoneRelay.acmeDirectories`. The renewed cert is swapped with `tls.Server.setSecureContext`, no restart.
 - **Relay's own cert** for `relay.<base>`: same ACME module, TLS-ALPN-01 answered locally.
@@ -151,7 +152,7 @@ Whoever controls DNS for `<base>`, or simply runs the relay, can pass TLS-ALPN-0
 | `server/phone-devices.ts` | Ported `DeviceRegistry`. |
 | `src/components/PhoneAccessSettings.tsx`, `public/pair.html`, `public/offline.html`, `public/sw.js` | UI. |
 
-Config (`~/.openmausbot/config.json`): `phoneRelay.base` (empty means feature absent; shipped builds default empty), `phoneRelay.enabled` (user toggle), `phoneRelay.acmeDirectories` (default Let's Encrypt, then Google Trust Services with EAB). Env `ORBIT_RELAY=0` forces off. The base domain is never hardcoded.
+Config (`~/.orbit/config.json`, `server/config.ts:1`): `phoneRelay.base` (empty means feature absent; shipped builds default empty), `phoneRelay.enabled` (user toggle), `phoneRelay.acmeDirectories` (default Let's Encrypt, then Google Trust Services with EAB). Env `ORBIT_RELAY=0` forces off. The base domain is never hardcoded.
 
 ## 13. Relay deploy, update, move, pause
 
