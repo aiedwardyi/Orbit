@@ -26,6 +26,8 @@ describe("readClaudeModelCatalog", () => {
       contextWindow: 200_000,
     });
     expect(STATIC_CLAUDE_MODELS.options.every((option) => option.contextWindow === 200_000)).toBe(true);
+    expect(STATIC_CLAUDE_MODELS.options.at(-1)).toEqual({ id: "claude-haiku-5-5", label: "Claude Haiku 5.5", contextWindow: 200_000 });
+    expect(STATIC_CLAUDE_MODELS.options.map((option) => option.id)).not.toContain("claude-haiku-4-5");
   });
 
   it("tags extra settings models as custom and leaves official rows untagged", () => {
