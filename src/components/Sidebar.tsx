@@ -793,12 +793,15 @@ function BotListItem({
   onMenu,
   drag,
   onTerminalAttention,
+  onReselect,
 }: {
   bot: Bot;
   density: SidebarDensity;
   onMenu: (menu: MenuState) => void;
   drag?: SidebarRowDrag;
   onTerminalAttention?: (attention: TerminalAttention) => void;
+  /** Tapping the row whose chat is already open changes no state, so the phone drawer closes here. */
+  onReselect?: () => void;
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
@@ -1047,6 +1050,7 @@ function BotListItem({
         aria-label={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined}
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onClick={(event) => {
+          if (selected) onReselect?.();
           dispatch({ type: "select", id: bot.id });
           focusComposerOnActivation({
             activatedElement: event.currentTarget,
@@ -2368,6 +2372,7 @@ export function Sidebar({
                     onMenu={setMenu}
                     drag={rowsReorderable ? rowDrag(item) : undefined}
                     onTerminalAttention={onTerminalAttention}
+                    onReselect={open ? onClose : undefined}
                   />
                 ))}
               </div>
@@ -2438,6 +2443,7 @@ export function Sidebar({
                     onMenu={setMenu}
                     drag={rowsReorderable ? rowDrag(item) : undefined}
                     onTerminalAttention={onTerminalAttention}
+                    onReselect={open ? onClose : undefined}
                   />
                 ))}
                 {sectionDropTarget?.id === id && sectionDropTarget.place === "after" && draggingSectionId !== id && (
