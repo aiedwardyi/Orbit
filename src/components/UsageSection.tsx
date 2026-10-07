@@ -51,7 +51,7 @@ function museReportStale(instance: InstanceInfo, now = Date.now()): boolean {
   return !Number.isFinite(at) || now - at >= MUSE_STALE_MS;
 }
 const STALE_READING_MS = 60 * 60_000;
-type RefreshResult ={ error?: string; status?: string };
+type RefreshResult = { error?: string; status?: string };
 
 // One shared row for every engine in the plan card: the label sits left and
 // the values stack in a single left-aligned column underneath. Every engine
