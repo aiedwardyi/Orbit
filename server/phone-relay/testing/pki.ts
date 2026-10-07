@@ -55,6 +55,7 @@ export class TestCa {
       extensions: [
         new x509.BasicConstraintsExtension(true, 0, true),
         new x509.KeyUsagesExtension(x509.KeyUsageFlags.keyCertSign | x509.KeyUsageFlags.cRLSign, true),
+        await x509.SubjectKeyIdentifierExtension.create(keys.publicKey),
       ],
     });
     return new TestCa(keys, cert);
@@ -75,6 +76,8 @@ export class TestCa {
         new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
         new x509.ExtendedKeyUsageExtension([x509.ExtendedKeyUsage.serverAuth]),
         new x509.SubjectAlternativeNameExtension([{ type: "dns", value: host }]),
+        // Like a real CA's leaves: an AKI equal to the root's SKI, which ARI's certID needs.
+        await x509.AuthorityKeyIdentifierExtension.create(this.keys.publicKey),
       ],
     });
     return cert.toString("pem");
