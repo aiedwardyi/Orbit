@@ -698,8 +698,8 @@ describe("bot delete publishing", () => {
   });
 
   it("drops a remotely deleted bot so it is not counted as missing", () => {
-    const botMap: Record<string, string> = { "local-1": "global-1", "local-2": "global-2" };
-    const synced: Record<string, string> = { "bot:global-1:name": "hash", "bot:global-2:name": "hash" };
+    const botMap = { "local-1": "global-1", "local-2": "global-2" };
+    const synced = { "bot:global-1:name": "hash", "bot:global-2:name": "hash" };
     dropSyncedBot(botMap, synced, "local-1", "global-1");
     expect(botMap).toEqual({ "local-2": "global-2" });
     expect(synced).toEqual({ "bot:global-2:name": "hash" });
