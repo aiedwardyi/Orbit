@@ -439,6 +439,23 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
   });
 
+  it("reports each main call's own prompt, cache writes included, never a sum", async () => {
+    await create("usage-calls");
+    await instance.adapter.sendTurn({ threadId: "t-prompt", text: "hi", model: "claude-opus-5-5" });
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    // 3 + 40k read + 5k written, then 2 + 45k + 1.2k. The subagent's 900k is
+    // its own context, and the result's 91k is both calls summed.
+    expect(done).toMatchObject({ ok: true, prompt: { first: 45_003, last: 46_202 }, contextWindow: 1_000_000 });
+    expect(recorder.events.find((e) => e.type === "thread.token-usage.updated")).toMatchObject({ input: 45_003 });
+  });
+
+  it("does not vouch for the CLI's window on a local-host model", async () => {
+    await create("usage-calls", { UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret" });
+    await instance.adapter.sendTurn({ threadId: "t-local-prompt", text: "hi", model: "unsloth::local-model" });
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: true, prompt: { first: 45_003, last: 46_202 }, contextWindow: undefined });
+  });
+
   it("forwards the CLI's subscription windows as account.rate-limits.updated", async () => {
     process.env.FAKE_CLAUDE_RATE_LIMITS = "1";
     await create();

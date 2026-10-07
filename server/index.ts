@@ -213,6 +213,7 @@ import {
   engineIsFresh,
   nativeSessionTokenBudget,
   resumeSessionUnseeded,
+  sessionPromptFor,
   shouldRecycleProviderSession,
   TASK_RESUME_PROMPT,
   taskRecordBlock,
@@ -3406,6 +3407,9 @@ bus.subscribe((event: RuntimeEvent) => {
           })) {
             store.recordSessionSystem(systemSeed.instanceId, systemSeed.cursor, systemSeed.system);
           }
+          if (event.prompt && event.providerInstanceId) {
+            store.recordNativePrompt(bot.id, event.threadId, event.providerInstanceId, event.prompt, event.contextWindow);
+          }
           const packet = taskPacketForWrite(event.threadId);
           if (packet) {
             persistTaskPacket(recordTaskCompletion(packet, {
@@ -4211,6 +4215,13 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const knownWindow = instance.adapter.capabilities.turnInputIsPromptSize
     ? knownCatalogContextWindow(instance.models, model)
     : null;
+  // Engines that report each call's real prompt are judged on that alone.
+  const sessionPrompt = sessionPromptFor({
+    report: task.nativePrompt,
+    cursor: task.resumeCursors[instanceId],
+    model,
+    catalogWindow: knownCatalogContextWindow(instance.models, model),
+  });
   const unseeded = !rewound && !fresh && resumeSessionUnseeded({
     instanceId,
     cursor: task.resumeCursors[instanceId],
@@ -4229,6 +4240,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     sessionToolRounds,
     lastTurnInputTokens: task.usage?.lastInput,
     nativeTokenBudget: knownWindow ? nativeSessionTokenBudget(knownWindow) : 0,
+    sessionPrompt,
   });
   // A recycle closes the live CLI and kills its background work. Resume it
   // instead; the first turn after that work settles recycles on the same checks.
@@ -4257,6 +4269,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       reason: rewound ? "rewound" : fresh ? "fresh" : recycleDeferred ? "recycle-deferred-background" : unseeded && !compactedThisTurn ? "unseeded" : recycleReason,
       lastTurnToolRounds,
       sessionToolRounds,
+      promptTokens: sessionPrompt?.last,
     })}`);
   }
   const replaysNatively = instance.adapter.capabilities.transcriptReplay === true;
