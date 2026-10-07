@@ -15,6 +15,8 @@ export interface LiveFrame {
   kind: string;
   cursor?: string;
   resumed?: boolean;
+  /** Set here on frames a resumed stream replays from before it reconnected. */
+  replayed?: boolean;
   event?: unknown;
 }
 
@@ -69,6 +71,11 @@ export function liveEventsUrl(options?: { since?: string | null; screens?: boole
 
 export function isLivePing(frame: Pick<LiveFrame, "kind">): boolean {
   return frame.kind === "ping";
+}
+
+// Cursors read `<stream>:<seq>`; NaN when there is no sequence to compare.
+function cursorSeq(cursor?: string): number {
+  return Number(cursor?.slice(cursor.lastIndexOf(":") + 1) || NaN);
 }
 
 export function shouldReconnectLiveEvents(
@@ -247,6 +254,8 @@ export function openLiveEvents(
 
     source = current;
     lastHeardAt = platform.now();
+    // A resumed hello's cursor is the newest frame the server replays.
+    let replayedThrough = NaN;
     current.onopen = () => {
       if (stopped || source !== current) return;
       lastHeardAt = platform.now();
@@ -272,6 +281,7 @@ export function openLiveEvents(
       if (frame.kind === "hello") {
         wakePending = false;
         wasHidden = false;
+        replayedThrough = frame.resumed ? cursorSeq(frame.cursor) : NaN;
         // `resumed:true` is followed by replay frames. Advancing to hello's
         // newest cursor here would skip any replay frame not yet delivered if
         // this socket died mid-replay. A failed resume has no replay, but its
@@ -322,7 +332,8 @@ export function openLiveEvents(
 
       // Hello is transport control, not application state. Consumers rebuild
       // through onSnapshotRequired and receive only numbered application data.
-      if (frame.kind !== "hello") handlers.onFrame(frame);
+      if (frame.kind === "hello") return;
+      handlers.onFrame(cursorSeq(event.lastEventId) <= replayedThrough ? { ...frame, replayed: true } : frame);
     };
   };
 

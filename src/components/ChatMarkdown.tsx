@@ -6,7 +6,7 @@
 // as plain <pre> until its content has held still for STREAM_SETTLE_MS (the
 // fence is very likely complete), then highlights and caches.
 import { createContext, memo, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import Markdown, { defaultUrlTransform } from "react-markdown";
+import Markdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 import { z } from "zod";
@@ -106,6 +106,55 @@ export const resolveRelativePath = (href: string, base?: string | null): string 
 };
 
 const StreamingContext = createContext(false);
+
+// Streaming replies split at blank lines that open a top-level block, so only
+// the growing block re-parses per frame. HTML or a fence of unclear depth stops
+// the split; a link definition keeps the reply whole.
+const LIST_ITEM = /^(?:[-+*]|\d{1,9}[.)]?)(?:[ \t]|$)/;
+const FENCE = /^( {0,3})(`{3,}(?=[^`]*$)|~{3,})/;
+
+export function streamBlocks(text: string): string[] {
+  if (/^ {0,3}\[[^\]\n]+\]:/m.test(text)) return [text];
+  const blocks: string[] = [];
+  let start = 0;
+  let blank = false;
+  let fence: { mark: string; indent: number } | null = null;
+  for (let at = 0; at < text.length; ) {
+    const end = text.indexOf("\n", at);
+    const next = end === -1 ? text.length : end + 1;
+    const line = text.slice(at, next);
+    const indent = line.length - line.trimStart().length;
+    if (fence) {
+      const close = FENCE.exec(line);
+      if (close && close[2][0] === fence.mark[0] && close[2].length >= fence.mark.length && !line.slice(close[0].length).trim()) {
+        if (indent < fence.indent) break;
+        fence = null;
+      } else if (line.trim() && indent < fence.indent) break;
+    } else if (!line.trim()) {
+      blank = true;
+    } else {
+      if (blank && indent === 0 && !LIST_ITEM.test(line)) {
+        blocks.push(text.slice(start, at));
+        start = at;
+      }
+      blank = false;
+      if (/^ {0,3}</.test(line)) break;
+      const open = FENCE.exec(line);
+      if (open) fence = { mark: open[2], indent: open[1].length };
+    }
+    at = next;
+  }
+  blocks.push(text.slice(start));
+  return blocks;
+}
+
+const MarkdownBlock = memo(function MarkdownBlock({ text, components }: { text: string; components: Components }) {
+  return (
+    <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
+      {text}
+    </Markdown>
+  );
+});
 
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const streaming = useContext(StreamingContext);
@@ -443,6 +492,10 @@ function ChatMarkdownComponent({
   baseDir?: string | null;
   threadId?: string;
 }) {
+  // A streamed reply keeps its blocks once settled, so settling re-parses nothing.
+  const [split, setSplit] = useState(streaming);
+  if (streaming && !split) setSplit(true);
+  const blocks = useMemo(() => (split ? streamBlocks(text) : [text]), [split, text]);
   const components = useMemo(() => ({
     pre({ children }: { children?: ReactNode }) {
       // fenced code arrives as <pre><code class="language-x">…</code></pre>
@@ -545,9 +598,9 @@ function ChatMarkdownComponent({
   return (
     <StreamingContext.Provider value={streaming}>
       <div className="chat-md min-w-0 [&>*+*]:mt-2">
-        <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
-          {text}
-        </Markdown>
+        {blocks.map((block, i) => (
+          <MarkdownBlock key={i} text={block} components={components} />
+        ))}
       </div>
     </StreamingContext.Provider>
   );

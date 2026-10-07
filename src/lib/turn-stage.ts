@@ -242,6 +242,25 @@ export function applyStreamDelta(buffers: StreamBuffers, kind: StreamKind, delta
   return { ...buffers, reasoning: (buffers.reasoning ?? "") + delta };
 }
 
+/** How long a live delta takes to type out, so the screen never trails the engine by more. */
+export const STREAM_REVEAL_MS = 150;
+
+export type StreamRamp = readonly [chars: number, at: number];
+
+/** Each delta types out evenly over STREAM_REVEAL_MS from its arrival, so a bigger backlog types faster. */
+export function revealStream(text: string, ramps: readonly StreamRamp[], now: number) {
+  let held = 0;
+  for (const [chars, at] of ramps) held += chars * Math.max(0, 1 - (now - at) / STREAM_REVEAL_MS);
+  let shown = text.length - Math.min(text.length, Math.floor(held));
+  // A cut inside a surrogate pair would paint half an emoji for a frame.
+  if ((text.codePointAt(shown - 1) ?? 0) > 0xffff) shown++;
+  return {
+    shown: text.slice(0, shown),
+    rest: text.slice(shown),
+    ramps: ramps.filter(([, at]) => now - at < STREAM_REVEAL_MS),
+  };
+}
+
 function bumpedGen(prev: TurnStreamState, threadId: string) {
   return { ...prev.gen, [threadId]: (prev.gen?.[threadId] ?? 0) + 1 };
 }

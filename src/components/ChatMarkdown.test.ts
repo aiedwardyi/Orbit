@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { describe, expect, it, vi } from "vitest";
 
-import { ChatMarkdown, isRelativeHref, resolveRelativePath } from "./ChatMarkdown";
+import { ChatMarkdown, isRelativeHref, resolveRelativePath, streamBlocks } from "./ChatMarkdown";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -31,6 +34,39 @@ describe("ChatMarkdown streaming", () => {
       await act(async () => root.unmount());
       host.remove();
     }
+  });
+});
+
+// whitespace between blocks aside
+const markup = (text: string) =>
+  renderToStaticMarkup(createElement(Markdown, { remarkPlugins: [remarkGfm] }, text)).replace(/\s*(<[^>]+>)\s*/g, "$1");
+
+const SPLITS: Array<[name: string, text: string, blocks: number]> = [
+  ["a loose list", "Steps:\n\n1. First\n\n   More on first.\n\n2. Second\n\nDone.", 2],
+  ["a fence with blank lines", "- a\n- b\n\n```js\nconst x = 1;\n\nconst y = 2;\n```\n\nAfter the code.", 3],
+  ["a fence in a list item", "1. Install:\n   ```sh\n   npm i\n\n   npm test\n   ```\n\nThat's it.", 2],
+  ["a closing fence outside its list", "1. Run:\n   ```sh\n   npm i\n```\n\nNot code?\n\nStill?", 1],
+  ["an HTML block", "Intro\n\n<details>\n\nHidden\n\n</details>\n\nOutro", 2],
+  ["a reference link", "See [the docs][d].\n\nMore.\n\n[d]: https://example.com", 1],
+  ["headings, tables and quotes", "# Title\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n> quote\n\n> another\n\n***\n\nEnd", 6],
+  ["indented code", "Para\n\n    code line\n\n    more code\n\nAfter", 2],
+];
+
+describe("streaming blocks", () => {
+  it("leaves finished blocks untouched as a reply grows", () => {
+    const settled = Array.from({ length: 30 }, (_, i) => `Paragraph ${i} with **bold** words.`).join("\n\n");
+    const before = streamBlocks(`${settled}\n\nThe tail`);
+    const after = streamBlocks(`${settled}\n\nThe tail grows`);
+    expect(before).toHaveLength(31);
+    expect(after.slice(0, -1)).toEqual(before.slice(0, -1));
+    expect(after.at(-1)).toBe("The tail grows");
+  });
+
+  it.each(SPLITS)("splits %s only where each block renders as in the whole reply", (_, text, blocks) => {
+    const split = streamBlocks(text);
+    expect(split).toHaveLength(blocks);
+    expect(split.join("")).toBe(text);
+    expect(split.map(markup).join("")).toBe(markup(text));
   });
 });
 
