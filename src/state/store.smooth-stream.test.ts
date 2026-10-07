@@ -138,6 +138,17 @@ describe("live reply typing", () => {
     expect(shown()).toBe(BURST.length + 100);
   });
 
+  it("never shows half an emoji while typing", async () => {
+    await live();
+    await delta("🙂".repeat(200));
+    for (let i = 0; i < 12; i++) {
+      await advance(16);
+      // under the u flag a whole pair is one code point, so only a lone surrogate matches
+      expect(stream.streaming.t1).not.toMatch(/[\uD800-\uDFFF]/u);
+    }
+    expect(shown()).toBe(400);
+  });
+
   it("stops typing when the turn ends and never types text that arrives after it", async () => {
     await typingBurst();
     await emit({ kind: "runtime", event: { type: "turn.completed", threadId: "t1", turnId: "turn1" } });

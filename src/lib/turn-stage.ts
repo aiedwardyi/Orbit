@@ -251,7 +251,9 @@ export type StreamRamp = readonly [chars: number, at: number];
 export function revealStream(text: string, ramps: readonly StreamRamp[], now: number) {
   let held = 0;
   for (const [chars, at] of ramps) held += chars * Math.max(0, 1 - (now - at) / STREAM_REVEAL_MS);
-  const shown = text.length - Math.min(text.length, Math.floor(held));
+  let shown = text.length - Math.min(text.length, Math.floor(held));
+  // A cut inside a surrogate pair would paint half an emoji for a frame.
+  if ((text.codePointAt(shown - 1) ?? 0) > 0xffff) shown++;
   return {
     shown: text.slice(0, shown),
     rest: text.slice(shown),
