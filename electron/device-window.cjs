@@ -2,6 +2,8 @@
 // host. Access is that PC's one-time phone link cookie, kept in a persistent
 // partition so the link is pasted once, never the local app's token.
 
+const { desktopViewerUrl, sameDesktopViewerOrigin } = require("./desktop-viewer.cjs");
+
 const DEVICE_WINDOW_PARTITION = "persist:orbit-devices";
 // Tailscale Serve names only: a synced record must never point a PC window at the public web.
 const HOST_RE = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+ts\.net$/;
@@ -106,6 +108,26 @@ document.querySelector("button").addEventListener("click",()=>location.assign("h
   );
 }
 
+const LINKED_FILE_RE = /^\/api\/threads\/[\w-]+\/linked-file$/;
+const RESERVED_NAME_RE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
+
+/** A safe local name for a linked file on the PC's own origin, or "" for any other URL. */
+function deviceLinkedFileName(rawUrl, origin) {
+  if (!sameDesktopViewerOrigin(rawUrl, origin)) return "";
+  const url = desktopViewerUrl(rawUrl);
+  const filePath = url.searchParams.get("path");
+  if (!LINKED_FILE_RE.test(url.pathname) || !filePath) return "";
+  const base = filePath
+    .split(/[\\/]/)
+    .pop()
+    .replace(/[<>:"|?*\u0000-\u001f]/g, "_")
+    .replace(/[. ]+$/, "");
+  const dot = base.lastIndexOf(".");
+  const ext = dot >= 0 && /^\.[a-z0-9]{1,16}$/i.test(base.slice(dot)) ? base.slice(dot) : "";
+  const stem = (ext ? base.slice(0, dot) : base).replace(/^[. ]+/, "").slice(0, 120 - ext.length - 1) || "file";
+  return `${RESERVED_NAME_RE.test(stem.split(".")[0]) ? "_" : ""}${stem}${ext}`;
+}
+
 const DEVICE_RETRY_MS = 10_000;
 const DEVICE_RETRY_LIMIT_MS = 120_000;
 const ERR_ABORTED = -3;
@@ -167,4 +189,4 @@ function watchDeviceLoad(webContents, { host, url, failurePage, log, setInterval
   };
 }
 
-module.exports = { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceUnreachablePage, watchDeviceLoad, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus };
+module.exports = { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceLinkedFileName, deviceUnreachablePage, watchDeviceLoad, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus };
