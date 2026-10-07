@@ -258,11 +258,13 @@ function GroupListItem({
   density,
   onMenu,
   drag,
+  onReselect,
 }: {
   group: Group;
   density: SidebarDensity;
   onMenu: (menu: { groupId: string; x: number; y: number }) => void;
   drag?: SidebarRowDrag;
+  onReselect?: () => void;
 }) {
   const { locale } = useI18n();
   const { state, dispatch } = useStore();
@@ -272,6 +274,10 @@ function GroupListItem({
     .map((id) => state.bots.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
   const last = group.messages.at(-1);
+  const select = () => {
+    if (selected) onReselect?.();
+    dispatch({ type: "select", id: group.id });
+  };
   const dragProps = drag
     ? {
         draggable: true,
@@ -326,7 +332,7 @@ function GroupListItem({
       <button
         type="button"
         onClick={(e) => {
-          dispatch({ type: "select", id: group.id });
+          select();
           focusComposerOnActivation({
             activatedElement: e.currentTarget,
             settingsOpen: state.settingsOpen || state.appSettingsOpen,
@@ -347,7 +353,7 @@ function GroupListItem({
           }
           if (e.key === "Enter") {
             e.preventDefault();
-            dispatch({ type: "select", id: group.id });
+            select();
             focusComposerOnActivation({
               activatedElement: e.currentTarget,
               settingsOpen: state.settingsOpen || state.appSettingsOpen,
@@ -356,7 +362,7 @@ function GroupListItem({
           }
           if (e.key === " ") {
             e.preventDefault();
-            dispatch({ type: "select", id: group.id });
+            select();
             return;
           }
           if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
@@ -793,12 +799,15 @@ function BotListItem({
   onMenu,
   drag,
   onTerminalAttention,
+  onReselect,
 }: {
   bot: Bot;
   density: SidebarDensity;
   onMenu: (menu: MenuState) => void;
   drag?: SidebarRowDrag;
   onTerminalAttention?: (attention: TerminalAttention) => void;
+  /** Tapping the row whose chat is already open changes no state, so the phone drawer closes here. */
+  onReselect?: () => void;
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
@@ -981,6 +990,10 @@ function BotListItem({
     event.preventDefault();
     onMenu({ botId: bot.id, x: event.clientX, y: event.clientY });
   };
+  const select = () => {
+    if (selected) onReselect?.();
+    dispatch({ type: "select", id: bot.id });
+  };
 
   // Keep the rename <input> out of role="button" — a button's descendants
   // are presentational, which hides the field from assistive tech.
@@ -1047,7 +1060,7 @@ function BotListItem({
         aria-label={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined}
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onClick={(event) => {
-          dispatch({ type: "select", id: bot.id });
+          select();
           focusComposerOnActivation({
             activatedElement: event.currentTarget,
             settingsOpen: state.settingsOpen || state.appSettingsOpen,
@@ -1061,14 +1074,14 @@ function BotListItem({
           }
           if (event.key === "Enter") {
             event.preventDefault();
-            dispatch({ type: "select", id: bot.id });
+            select();
             focusComposerOnActivation({
               activatedElement: event.currentTarget,
               settingsOpen: state.settingsOpen || state.appSettingsOpen,
             });
           } else if (event.key === " ") {
             event.preventDefault();
-            dispatch({ type: "select", id: bot.id });
+            select();
           }
         }}
         onContextMenu={onContextMenu}
@@ -2368,6 +2381,7 @@ export function Sidebar({
                     onMenu={setMenu}
                     drag={rowsReorderable ? rowDrag(item) : undefined}
                     onTerminalAttention={onTerminalAttention}
+                    onReselect={open ? onClose : undefined}
                   />
                 ))}
               </div>
@@ -2429,6 +2443,7 @@ export function Sidebar({
                     density={density}
                     onMenu={setRoomMenu}
                     drag={rowsReorderable ? rowDrag(item) : undefined}
+                    onReselect={open ? onClose : undefined}
                   />
                 ) : (
                   <BotListItem
@@ -2438,6 +2453,7 @@ export function Sidebar({
                     onMenu={setMenu}
                     drag={rowsReorderable ? rowDrag(item) : undefined}
                     onTerminalAttention={onTerminalAttention}
+                    onReselect={open ? onClose : undefined}
                   />
                 ))}
                 {sectionDropTarget?.id === id && sectionDropTarget.place === "after" && draggingSectionId !== id && (

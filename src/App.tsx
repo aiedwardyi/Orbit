@@ -393,12 +393,12 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // Picking a conversation closes the drawer: on a phone the chat is what you
   // asked for, and leaving the list up would hide it. Watching activeView too
   // catches re-selecting the bot that is already current from another view —
-  // the reducer switches the view without changing selectedId. pluginsOpen
-  // and settingsOpen cover the same idea from a different trigger: close the
-  // drawer whenever an action opens something over the chat.
+  // the reducer switches the view without changing selectedId. pluginsOpen,
+  // settingsOpen and appSettingsOpen cover the same idea from a different
+  // trigger: close the drawer whenever an action opens something over the chat.
   useEffect(() => {
     setDrawerOpen(false);
-  }, [state.selectedId, state.activeView, state.pluginsOpen, state.settingsOpen]);
+  }, [state.selectedId, state.activeView, state.pluginsOpen, state.settingsOpen, state.appSettingsOpen]);
 
   useEffect(() => {
     if (

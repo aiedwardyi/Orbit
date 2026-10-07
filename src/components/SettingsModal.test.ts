@@ -267,6 +267,15 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain('aria-keyshortcuts="Alt+U"');
   });
 
+  it("spreads the phone icon strip across the full row and leaves the desktop column alone", () => {
+    const html = markup("general");
+    const nav = html.slice(html.indexOf("<nav"), html.indexOf("</nav>"));
+    const strip = nav.match(/<div class="([^"]*max-md:flex-row[^"]*)"/)![1]!.split(" ");
+    expect(strip).toContain("max-md:justify-between");
+    expect(strip).not.toContain("justify-between");
+    expect(nav.match(/<button/g)!.length).toBeGreaterThanOrEqual(7);
+  });
+
   it("places Model index right after Usage with its shortcuts", () => {
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
     const block = source.slice(source.indexOf("const SECTIONS"), source.indexOf("];", source.indexOf("const SECTIONS")));
