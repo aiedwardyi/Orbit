@@ -300,6 +300,7 @@ import {
   loadOrCreateSyncWorkspace,
   loadProfileSyncSettings,
   bindSyncId,
+  botDeletesToPublish,
   localIdForSyncId,
   importedSyncAvatarCrop,
   markImported,
@@ -1327,8 +1328,11 @@ function publishProfileChanges(): number {
     { entity: "order", entityId: profileSyncSettings.workspaceId, changes: localOrderChanges(true) },
   ]);
   const liveBotIds = new Set(store.bots.map((bot) => bot.id));
-  const deleted = Object.entries(profileSyncSettings.botMap).filter(([localId]) => !liveBotIds.has(localId));
-  if (!changed.length && !deleted.length) return 0;
+  const deletes = botDeletesToPublish(profileSyncSettings.botMap, liveBotIds, profileSyncSettings.pendingBotDeletes);
+  if (deletes.missing) console.warn(`bot sync: ${deletes.missing} synced bot(s) missing here without a delete; not publishing deletes`);
+  const deleted = deletes.publish;
+  const hadPending = profileSyncSettings.pendingBotDeletes.length > 0;
+  if (!changed.length && !deleted.length && !hadPending) return 0;
   const record = (
     input: Omit<ProfileSyncOperation, "format" | "version" | "operationId" | "deviceId" | "sequence" | "recordedAt">,
   ) => nextProfileSyncOperation(baseCheckpoint ? { ...input, baseCheckpoint } : input, now);
@@ -1351,6 +1355,7 @@ function publishProfileChanges(): number {
     forgetSynced(synced, "bot", globalId);
     written++;
   }
+  profileSyncSettings.pendingBotDeletes = deletes.pendingBotDeletes;
   profileSyncLastSyncAt = Date.now();
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
   // chats written before the bot had a sync id never scheduled an upload
@@ -8691,6 +8696,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!bot) return json(res, 404, { error: "no such bot" });
       const refusal = await localVmDeleteRefusal(bot.id);
       if (refusal) return json(res, 409, { error: refusal });
+      const globalId = profileSyncSettings.botMap[bot.id];
+      if (globalId && !profileSyncSettings.pendingBotDeletes.includes(globalId)) {
+        profileSyncSettings.pendingBotDeletes.push(globalId);
+        profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+      }
       await deleteBotFully(bot);
       return json(res, 200, { ok: true });
     }
