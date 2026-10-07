@@ -74,20 +74,19 @@ const toUsage = (t: CodexTokens): TurnUsage => ({
   ...(typeof t.cachedInputTokens === "number" ? { cachedInput: t.cachedInputTokens } : {}),
 });
 
-const combine = (a: TurnUsage, b: TurnUsage, sign: 1 | -1): TurnUsage => ({
-  input: Math.max(0, a.input + sign * b.input),
-  output: Math.max(0, a.output + sign * b.output),
-  ...(a.cachedInput !== undefined || b.cachedInput !== undefined
-    ? { cachedInput: Math.max(0, (a.cachedInput ?? 0) + sign * (b.cachedInput ?? 0)) }
-    : {}),
-});
+const combine = (a: TurnUsage, b: TurnUsage, sign: 1 | -1): TurnUsage => {
+  const usage: TurnUsage = {
+    input: Math.max(0, a.input + sign * b.input),
+    output: Math.max(0, a.output + sign * b.output),
+  };
+  if (a.cachedInput !== undefined || b.cachedInput !== undefined) {
+    usage.cachedInput = Math.max(0, (a.cachedInput ?? 0) + sign * (b.cachedInput ?? 0));
+  }
+  return usage;
+};
 
-// Folds one thread/tokenUsage/updated report into the turn's spend. In codex
-// `last` is ONE model call and `total` the thread so far — seeded from the
-// rollout on resume, so it carries earlier turns even in a fresh app-server.
-// The turn is the last total minus the total before its first call; with no
-// total, the turn's calls are summed. inputTokens already includes
-// cachedInputTokens; the cached share rides alongside for the UI.
+// codex `last` is one model call and `total` the thread (earlier turns too on
+// resume), so a turn is its last total minus the total before its first call.
 function accrueTurnUsage(
   spend: TurnSpend,
   tokenUsage: { total?: CodexTokens; last?: CodexTokens } | undefined,
@@ -103,7 +102,7 @@ function accrueTurnUsage(
   return spend.summed;
 }
 
-type StdioMcpServer ={ command: string; args: string[]; env: Record<string, string> };
+type StdioMcpServer = { command: string; args: string[]; env: Record<string, string> };
 
 function mountMcpServer(
   appServerArgs: string[],
@@ -275,6 +274,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
 
       let abandoned = false;
       let initialized = false;
+      const spend: TurnSpend = {};
       const state = {
         settled: false,
         lastText: "",
@@ -284,7 +284,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         // codex reports token usage per model call (`last`) and as a running
         // THREAD total; the harness wants this turn's figure, banked on settle
         usage: undefined as TurnUsage | undefined,
-        spend: { baseline: undefined, latest: undefined, summed: undefined } as TurnSpend,
+        spend,
         // only reports after turn/start was sent can belong to this turn
         turnRequested: false,
       };
@@ -511,10 +511,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           }
           case "thread/tokenUsage/updated": {
             // a resumed thread replays its restored usage right after
-            // thread/resume, stamped with an earlier turn's id — that report
+            // thread/resume, stamped with an earlier turn's id. That report
             // is history, not this turn's spend. This turn's reports follow
             // turn/started, so its id is known by the time they land.
-            const counts = state.turnRequested && (typeof p.turnId !== "string" || p.turnId === nativeTurnId);
+            const counts = state.turnRequested && (p.turnId === undefined || p.turnId === nativeTurnId);
             if (counts) state.usage = accrueTurnUsage(state.spend, p.tokenUsage) ?? state.usage;
             const t = p.tokenUsage?.total;
             if (t) {
