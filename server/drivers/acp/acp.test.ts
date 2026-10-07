@@ -345,7 +345,11 @@ describe("SPEED4 warm session reuse (fake CLI)", () => {
     const t1 = await instance.adapter.sendTurn({ threadId: "t-cursor", text: "one" });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === t1.turnId);
     const sessionId = sessionIdFor(t1.turnId);
-    const promptsAfterT1 = rpcMethods().filter((m) => m === "session/prompt").length;
+    // The driver's post-turn _x.ai/billing request makes the child rewrite the
+    // dump while we read it; a torn read parses as []. Poll for a complete
+    // snapshot that already holds t1's prompt result.
+    const afterT1 = await waitForRpc((m) => m.includes("session/prompt.result"));
+    const promptsAfterT1 = afterT1.filter((m) => m === "session/prompt").length;
 
     // Missing cursor (compaction) → kill warm + cold respawn. A new process
     // overwrites the rpc dump, so prompt count resets instead of accumulating.

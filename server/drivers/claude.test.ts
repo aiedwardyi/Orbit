@@ -1066,7 +1066,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
   });
 
   it("a message sent mid-turn is steered into the running turn", async () => {
-    await create("slow");
+    // hold the slow gap open until the steer lands instead of racing 800 ms
+    await create("slow", { FAKE_CLAUDE_SLOW_UNTIL_STEER: "1" });
     const { turnId } = await instance.adapter.sendTurn({ threadId: "t-steer", text: "first" });
     await recorder.until((e) => e.type === "item.completed" && e.itemType === "tool");
     expect(instance.adapter.capabilities.queueing).toBe(true);

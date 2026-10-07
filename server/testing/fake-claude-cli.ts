@@ -124,6 +124,7 @@ let turnRunning = false;
 let steered: string[] = [];
 let stdinEnded = false;
 let steerGateArmed = false;
+let onSteer: (() => void) | null = null;
 
 // Ownership-race fixture: after accepting the first prompt, stop consuming
 // stdin until the test creates this file. A large second write then leaves
@@ -586,13 +587,26 @@ const playTurn = (prompt: JsonValue) => {
   } else if (mode === "slow") {
     // a gap a test can steer into; the closing reply carries anything that
     // was folded in, the way the real CLI includes a mid-turn message in
-    // the same turn's next model call
-    setTimeout(() => {
+    // the same turn's next model call. FAKE_CLAUDE_SLOW_UNTIL_STEER holds
+    // the gap open until a steer actually lands, so a test is not racing a
+    // fixed window (capped so a lost steer still settles the turn)
+    const close = () => {
       out({ type: "system", subtype: "status", status: "requesting" });
       const tail = steered.length ? ` + steered: ${steered.join(" | ")}` : "";
       out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${promptText(prompt)}${tail}` }] } });
       finish();
-    }, 800);
+    };
+    if (process.env.FAKE_CLAUDE_SLOW_UNTIL_STEER) {
+      const cap = setTimeout(() => {
+        onSteer = null;
+        close();
+      }, 10_000);
+      onSteer = () => {
+        onSteer = null;
+        clearTimeout(cap);
+        close();
+      };
+    } else setTimeout(close, 800);
   } else {
     finish();
   }
@@ -612,7 +626,10 @@ process.stdin.on("data", (c) => {
     } catch {
       continue;
     }
-    if (turnRunning) steered.push(promptText(prompt));
+    if (turnRunning) {
+      steered.push(promptText(prompt));
+      onSteer?.();
+    }
     else {
       playTurn(prompt);
       armSteerGate();
