@@ -1,0 +1,199 @@
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { I18nProvider } from "@/lib/i18n";
+import type { api } from "@/state/store";
+import { PhoneAccessSettings, type RelayStatus } from "./PhoneAccessSettings";
+
+const request = vi.fn<typeof api>();
+const HOST = "abcdefghijklmnop.wink.test";
+const status = (over: Partial<RelayStatus> = {}): RelayStatus => ({
+  configured: true,
+  enabled: true,
+  state: "connected",
+  host: HOST,
+  relayRttMs: 31,
+  certNotAfter: Date.UTC(2027, 0, 5),
+  lastError: null,
+  nextRetryAt: null,
+  problem: null,
+  ...over,
+});
+
+type Route = (init?: RequestInit) => Awaited<ReturnType<typeof api>>;
+
+function serve(routes: Record<string, Route>) {
+  request.mockImplementation(async (path: string, init?: RequestInit) => {
+    const route = routes[`${init?.method ?? "GET"} ${path}`];
+    if (!route) throw new Error(`no route ${init?.method ?? "GET"} ${path}`);
+    return route(init);
+  });
+}
+
+afterEach(() => {
+  request.mockReset();
+  vi.restoreAllMocks();
+  localStorage.clear();
+  document.body.innerHTML = "";
+});
+
+async function renderView() {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(createElement(I18nProvider, null, createElement(PhoneAccessSettings, { request }))));
+  return { host, root };
+}
+
+const click = (target: Element) => target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+const button = (host: Element, name: string) =>
+  [...host.querySelectorAll("button")].find((candidate) => candidate.textContent === name || candidate.getAttribute("aria-label") === name)!;
+
+function type(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+describe("PhoneAccessSettings", () => {
+  it("renders nothing without a configured relay, or when the PC refuses the status", async () => {
+    serve({ "GET /api/phone-relay/status": () => status({ configured: false, enabled: false, state: "off", host: null }) });
+    const off = await renderView();
+    expect(off.host.textContent).toBe("");
+    await act(async () => off.root.unmount());
+
+    request.mockRejectedValue(new Error("not found"));
+    const refused = await renderView();
+    expect(refused.host.textContent).toBe("");
+    await act(async () => refused.root.unmount());
+  });
+
+  it("turns phone access on", async () => {
+    const put = vi.fn(() => status({ state: "reconnecting" }));
+    serve({ "GET /api/phone-relay/status": () => status({ enabled: false, state: "off", host: null }), "PUT /api/phone-relay": put, "GET /api/phone/devices": () => ({ phones: [] }) });
+    const { host, root } = await renderView();
+    const toggle = host.querySelector<HTMLButtonElement>('[role="switch"]')!;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(host.textContent).not.toContain("Paired phones");
+    await act(async () => click(toggle));
+    expect(put).toHaveBeenCalledWith({ method: "PUT", body: JSON.stringify({ enabled: true }) });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(host.textContent).toContain("Connecting to the relay...");
+    await act(async () => root.unmount());
+  });
+
+  it("asks for an invite while enrolling and shows a refusal without echoing the invite", async () => {
+    const enroll = vi.fn(() => {
+      throw new Error("relay refused enrollment (403 invite-expired)");
+    });
+    serve({
+      "GET /api/phone-relay/status": () => status({ state: "enrolling", host: null }),
+      "GET /api/phone/devices": () => ({ phones: [] }),
+      "POST /api/phone-relay/enroll": enroll,
+    });
+    const { host, root } = await renderView();
+    expect(host.textContent).toContain("Enter an invite to set up this PC.");
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Invite"]')!;
+    await act(async () => type(input, " wki1.invite.sig "));
+    await act(async () => click(button(host, "Join")));
+    expect(enroll).toHaveBeenCalledWith({ method: "POST", body: JSON.stringify({ invite: "wki1.invite.sig" }) });
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe("Could not join the relay: relay refused enrollment (403 invite-expired)");
+    await act(async () => root.unmount());
+  });
+
+  it("shows the relay's own error when no known problem explains it", async () => {
+    serve({
+      "GET /api/phone-relay/status": () => status({ state: "reconnecting", lastError: "connection to relay closed", nextRetryAt: Date.now() + 9_500 }),
+      "GET /api/phone/devices": () => ({ phones: [] }),
+    });
+    const { host, root } = await renderView();
+    expect(host.querySelector("[data-phone-access-state]")?.textContent).toMatch(/^Relay unreachable, retrying in (9|10)s$/);
+    expect(host.querySelector("[data-phone-access-error]")?.textContent).toBe("connection to relay closed");
+    await act(async () => root.unmount());
+  });
+
+  it("explains a superseded address and an unknown certificate", async () => {
+    serve({
+      "GET /api/phone-relay/status": () => status({ state: "rejected", problem: "superseded", lastError: "superseded: this phone address is in use on another computer" }),
+      "GET /api/phone/devices": () => ({ phones: [] }),
+    });
+    const superseded = await renderView();
+    expect(superseded.host.querySelector('[role="alert"]')?.textContent).toBe(
+      "This phone address is in use on another computer. Turn phone access off and on here to take it back.",
+    );
+    expect(button(superseded.host, "Add a phone")).toBeUndefined();
+    await act(async () => superseded.root.unmount());
+
+    serve({
+      "GET /api/phone-relay/status": () => status({ problem: "unknown-certificate", lastError: "CT log shows a certificate for x" }),
+      "GET /api/phone/devices": () => ({ phones: [] }),
+    });
+    const warned = await renderView();
+    expect(warned.host.querySelector('[role="alert"]')?.textContent).toMatch(/^Certificate warning: /);
+    await act(async () => warned.root.unmount());
+  });
+
+  it("adds a phone with a QR and a 6 digit code, and cancels it", async () => {
+    const url = `https://${HOST}/pair#k=wkp_${"x".repeat(43)}`;
+    const cancel = vi.fn(() => ({ ok: true }));
+    serve({
+      "GET /api/phone-relay/status": () => status(),
+      "GET /api/phone/devices": () => ({ phones: [] }),
+      "POST /api/phone/pairing": () => ({ url, code: "123456", expiresAt: Date.now() + 120_000 }),
+      "DELETE /api/phone/pairing": cancel,
+    });
+    const { host, root } = await renderView();
+    await act(async () => click(button(host, "Add a phone")));
+    const qr = host.querySelector('[aria-label="Phone pairing QR code"]');
+    expect(qr?.querySelector("svg")).not.toBeNull();
+    expect(host.querySelector("[data-pairing-code]")?.textContent).toBe("123456");
+    expect(host.textContent).toMatch(/Expires in [12]:\d\d/);
+    expect(host.textContent).not.toContain("wkp_");
+    await act(async () => click(button(host, "Cancel")));
+    expect(cancel).toHaveBeenCalled();
+    expect(host.querySelector('[aria-label="Phone pairing QR code"]')).toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it("lists paired phones and removes one", async () => {
+    const remove = vi.fn(() => ({ ok: true }));
+    serve({
+      "GET /api/phone-relay/status": () => status(),
+      "GET /api/phone/devices": () => ({
+        phones: [
+          { id: "p1", name: "Pixel", createdAt: Date.UTC(2026, 9, 1), lastSeenAt: Date.UTC(2026, 9, 6) },
+          { id: "p2", name: "iPhone", createdAt: Date.UTC(2026, 9, 2), lastSeenAt: Date.UTC(2026, 9, 7) },
+        ],
+      }),
+      "DELETE /api/phone/devices/p1": remove,
+    });
+    const { host, root } = await renderView();
+    expect(host.textContent).toContain("Pixel");
+    await act(async () => click(button(host, "Remove Pixel")));
+    expect(remove).toHaveBeenCalledWith({ method: "DELETE" });
+    expect(host.textContent).not.toContain("Pixel");
+    expect(host.textContent).toContain("iPhone");
+    await act(async () => root.unmount());
+  });
+
+  it("keeps the address and certificate under Advanced", async () => {
+    serve({ "GET /api/phone-relay/status": () => status(), "GET /api/phone/devices": () => ({ phones: [] }) });
+    const { host, root } = await renderView();
+    const details = host.querySelector("details")!;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")?.textContent).toBe("Advanced");
+    expect(details.textContent).toContain(HOST);
+    expect(details.textContent).toContain("31 ms");
+    await act(async () => root.unmount());
+  });
+
+  it("speaks Korean", async () => {
+    localStorage.setItem("omb-locale", "ko");
+    serve({ "GET /api/phone-relay/status": () => status(), "GET /api/phone/devices": () => ({ phones: [] }) });
+    const { host, root } = await renderView();
+    expect(host.textContent).toContain("어디서나 휴대폰 접속");
+    expect(button(host, "휴대폰 추가")).toBeDefined();
+    await act(async () => root.unmount());
+  });
+});
