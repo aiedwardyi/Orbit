@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, unlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,8 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   applySyncOperations,
   bindSyncId,
+  botDeletesToPublish,
   compatibleSyncChanges,
   createSyncOperation,
+  dropSyncedBot,
   emptyProfileSyncState,
   importedSyncAvatarCrop,
   loadProfileSyncSettings,
@@ -218,6 +220,21 @@ describe("profile sync operations", () => {
     initial.reviewedResolutions = { revision: { conflict: "variant-null" } };
     saveProfileSyncSettings(root, initial);
     expect(loadProfileSyncSettings(root).reviewedResolutions).toEqual(initial.reviewedResolutions);
+  });
+
+  it("loads a settings file written before pending bot deletes existed", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-legacy-"));
+    roots.push(root);
+    writeFileSync(join(root, "profile-sync.json"), JSON.stringify({
+      workspaceId: "workspace-1",
+      deviceId: "device-1",
+      folder: null,
+      botMap: { "local-1": "global-1" },
+    }));
+    const settings = loadProfileSyncSettings(root);
+    expect(settings.workspaceId).toBe("workspace-1");
+    expect(settings.botMap).toEqual({ "local-1": "global-1" });
+    expect(settings.pendingBotDeletes).toEqual([]);
   });
 
   it("saves sectionMap keys that include spaces", () => {
@@ -652,5 +669,42 @@ describe("automatic bot sync", () => {
     expect(b.bots.get("tutor")!.changes.description).toBe("Spanish");
     expect(b.bots.size).toBe(2);
     expect(publish(b)).toMatchObject([{ entityId: "g-b-tutor", changes: { description: "Spanish" } }]);
+  });
+});
+
+describe("bot delete publishing", () => {
+  it("publishes nothing for a mapped bot that is missing but was not deleted", () => {
+    const plan = botDeletesToPublish({ "local-1": "global-1", "local-2": "global-2" }, new Set(), []);
+    expect(plan.publish).toEqual([]);
+    expect(plan.missing).toBe(2);
+  });
+
+  it("publishes exactly one delete for an explicit delete and clears it", () => {
+    const plan = botDeletesToPublish(
+      { "local-1": "global-1", "local-2": "global-2", "local-3": "global-3" },
+      new Set(["local-3"]),
+      ["global-1"],
+    );
+    expect(plan.publish).toEqual([["local-1", "global-1"]]);
+    expect(plan.missing).toBe(1);
+    expect(plan.pendingBotDeletes).toEqual([]);
+  });
+
+  it("keeps a pending delete while its bot is still live", () => {
+    const plan = botDeletesToPublish({ "local-1": "global-1" }, new Set(["local-1"]), ["global-1", "global-gone"]);
+    expect(plan.publish).toEqual([]);
+    expect(plan.missing).toBe(0);
+    expect(plan.pendingBotDeletes).toEqual(["global-1"]);
+  });
+
+  it("drops a remotely deleted bot so it is not counted as missing", () => {
+    const botMap = { "local-1": "global-1", "local-2": "global-2" };
+    const synced = { "bot:global-1:name": "hash", "bot:global-2:name": "hash" };
+    dropSyncedBot(botMap, synced, "local-1", "global-1");
+    expect(botMap).toEqual({ "local-2": "global-2" });
+    expect(synced).toEqual({ "bot:global-2:name": "hash" });
+    const plan = botDeletesToPublish(botMap, new Set(["local-2"]), []);
+    expect(plan.publish).toEqual([]);
+    expect(plan.missing).toBe(0);
   });
 });
