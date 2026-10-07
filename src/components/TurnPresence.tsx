@@ -36,13 +36,13 @@ export class MessageBoundary extends Component<{ children: ReactNode; fallbackTe
 /** The answer bubble above the mascot: settled pop-in text wins, live
  * partial text paints while the turn still works. Nothing until either
  * exists. Shared by 1:1 chat and rooms so both stream identically. */
-export function PresenceAnswer({ text }: { text: string | null }) {
+export function PresenceAnswer({ text, streaming = false }: { text: string | null; streaming?: boolean }) {
   if (!text) return null;
   return (
     // Skin hooks: open-transcript skins drop the card on settled bot rows, so the pop-in must too.
     <div data-orbit-message="bot" className="contents">
       <div data-orbit-message-content className="w-fit max-w-[min(42rem,78%)] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
-        <ChatMarkdown text={text} />
+        <ChatMarkdown text={text} streaming={streaming} />
       </div>
     </div>
   );
