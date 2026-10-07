@@ -44,10 +44,13 @@
 //                      so a test cannot open it after the fact.
 //   FAKE_CLAUDE_AUTH   in (default) | out | unsupported | malformed |
 //                      inherited-api-key — what `auth status` reports
+//   FAKE_CLAUDE_PROMPT_LOG  path; every stdin message is appended as a JSON
+//                      line {pid, argv, systemPrompt, text}, so a test sees
+//                      what each turn of a retained process was sent
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
@@ -611,6 +614,9 @@ process.stdin.on("data", (c) => {
       prompt = JSON.parse(line);
     } catch {
       continue;
+    }
+    if (process.env.FAKE_CLAUDE_PROMPT_LOG) {
+      appendFileSync(process.env.FAKE_CLAUDE_PROMPT_LOG, JSON.stringify({ pid: process.pid, argv, systemPrompt, text: promptText(prompt) }) + "\n");
     }
     if (turnRunning) steered.push(promptText(prompt));
     else {

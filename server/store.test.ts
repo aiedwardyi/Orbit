@@ -457,6 +457,40 @@ describe("Store", () => {
     expect(new Store(selection).taskByThread(bot.id, bot.threadId)?.resumeSeed).toBeUndefined();
   });
 
+  it("keeps a session's system text across a reload, outside bots.json", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const system = "You are Testy.\n\nYour memory (MEMORY.md):\n- Pet: a dog named Mochi";
+    store.setResumeCursor(bot.id, "claude", "session-1", bot.threadId);
+    store.recordSessionSystem("claude", "session-1", system);
+
+    const reloaded = new Store(selection);
+    expect(reloaded.sessionSystem("claude", "session-1")).toBe(system);
+    expect(reloaded.sessionSystem("claude", "session-2")).toBeUndefined();
+    expect(reloaded.sessionSystem("codex", "session-1")).toBeUndefined();
+    expect(readFileSync(join(DATA_DIR, "bots.json"), "utf8")).not.toContain("Mochi");
+  });
+
+  it("drops a session's system text with its cursor", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const background = store.createTask(bot.id, "Detached", false)!;
+    store.setResumeCursor(bot.id, "claude", "session-1", bot.threadId);
+    store.setResumeCursor(bot.id, "claude", "bg-session", background.threadId);
+    store.recordSessionSystem("claude", "session-1", "one");
+    store.recordSessionSystem("claude", "bg-session", "background");
+
+    store.setResumeCursor(bot.id, "claude", "session-2", bot.threadId);
+    expect(store.sessionSystem("claude", "session-1")).toBeUndefined();
+    store.recordSessionSystem("claude", "session-2", "two");
+    store.clearResumeCursors(bot.id, bot.threadId);
+    expect(store.sessionSystem("claude", "session-2")).toBeUndefined();
+    expect(store.sessionSystem("claude", "bg-session")).toBe("background");
+
+    store.deleteTask(bot.id, background.threadId);
+    expect(store.sessionSystem("claude", "bg-session")).toBeUndefined();
+  });
+
   it("markProviderSessionBound records the recycle watermark and drops lastInput", () => {
     const store = new Store(selection);
     const bot = store.createBot();

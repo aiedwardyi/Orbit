@@ -990,8 +990,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const cwd = turn.cwd ?? homedir();
       // everything that shapes the process, minus session/turn specifics
       // (the --mcp-config file is a fresh temp path each time; its CONTENT
-      // is what matters and mcpServers carries that)
-      const keyArgs = args.filter((a, i) => a !== "--mcp-config" && args[i - 1] !== "--mcp-config");
+      // is what matters and mcpServers carries that). The system text is
+      // left out too: a resumed session keeps the one it started with, and
+      // the harness sends later changes in the turn text.
+      const unkeyed = new Set(["--mcp-config", "--append-system-prompt"]);
+      const keyArgs = args.filter((a, i) => !unkeyed.has(a) && !unkeyed.has(args[i - 1] ?? ""));
       const argsKey = JSON.stringify({ args: keyArgs, mcpServers, cwd, model: injected.model ?? null, base: env.ANTHROPIC_BASE_URL ?? null });
 
       // Reuse the live process only when it is idle, unchanged, and the
@@ -1111,7 +1114,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (turn.system && mcpConfigPath) {
           const systemPromptPath = join(dirname(mcpConfigPath), "system.txt");
           writeFileSync(systemPromptPath, turn.system, { mode: 0o600 });
-          // Reuse compares the text; only the actual launch uses the file.
           args.splice(args.indexOf("--append-system-prompt"), 2, "--append-system-prompt-file", systemPromptPath);
         }
         child = spawnCli(config.cli, args, {
@@ -1718,6 +1720,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           images: true,
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
           queueing: true,
+          pinnedSystem: true,
           localComputerMcp: config.permissionMode !== "bypassPermissions",
           askApproval: config.permissionMode !== "bypassPermissions",
           rateLimits: true,
