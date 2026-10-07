@@ -377,17 +377,19 @@ test("coalesces output, suppresses input echo and rearms after acknowledgement c
   f.host.dispose();
 });
 
-test("waits for a redrawing full-screen app to go quiet before reporting activity", async () => {
+test("waits for a redrawing full-screen app to go quiet before reporting activity", async (t) => {
   const f = fixture({ activityCoalesceMs: 20 });
   const session = await f.host.open(f.event, f.input);
+  // Real 10 ms gaps against a 20 ms settle race Windows' ~16 ms timer tick; drive the clock instead.
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   f.host.write(f.event, session.id, "\r");
   for (let frame = 0; frame < 5; frame += 1) {
     f.children[0].data(`\x1b[?2026h\x1b[5;1Hworking ${frame}\x1b[?2026l`);
     f.host.write(f.event, session.id, "\x1b[<35;10;5M");
-    await wait(10);
+    t.mock.timers.tick(10);
   }
   assert.equal(f.events.some(([channel]) => channel === "terminal:attention"), false);
-  await wait(40);
+  t.mock.timers.tick(40);
   assert.deepEqual(f.events.filter(([channel]) => channel === "terminal:attention").map(([, value]) => value.reason), ["activity"]);
   f.host.dispose();
 });
@@ -490,6 +492,10 @@ test("treats pane output forwarded through the owning PTY as provider-neutral ac
 test("returns the replacement before the old worker shutdown acknowledgement", async () => {
   let releaseKill;
   const killAck = new Promise((resolve) => { releaseKill = resolve; });
+  // open stats the folder on the libuv threadpool before it spawns, so a fixed
+  // count of event-loop turns can run out first; wait for the spawn itself
+  let secondSpawned;
+  const replacementSpawned = new Promise((resolve) => { secondSpawned = resolve; });
   const children = [];
   const makeChild = (kill = () => {}) => ({ onData() {}, onExit() {}, ready: Promise.resolve(), write() {}, resize() {}, kill });
   const owner = { id: 1, mainFrame: {}, send() {} };
@@ -500,13 +506,15 @@ test("returns the replacement before the old worker shutdown acknowledgement", a
       const child = makeChild(children.length === 0 ? () => { children[0].killed = true; return killAck; } : undefined);
       child.killed = false;
       children.push(child);
+      if (children.length === 2) secondSpawned();
       return child;
     } }),
   });
   const first = await host.open(event, { botId: "shutdown-ack", cols: 80, rows: 24 });
   let settled = false;
   const replacement = host.open(event, { botId: "shutdown-ack", cols: 80, rows: 24, restart: true }).finally(() => { settled = true; });
-  for (let attempt = 0; attempt < 20 && children.length < 2; attempt += 1) await new Promise((resolve) => setImmediate(resolve));
+  await replacementSpawned;
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(children.length, 2);
   assert.equal(children[0].killed, true);
   await new Promise((resolve) => setImmediate(resolve));

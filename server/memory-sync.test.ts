@@ -347,7 +347,8 @@ describe("memory sync", () => {
     expect(sync(l)["MEMORY.md"]).toBe("pulled");
     expect(read(l)).toBe("v320\n");
     expect(parked(l)).toEqual([]);
-  }, 30_000);
+    // ~970 fsync'd writes: 1.6 s on Linux, 17.1 s on a passing Windows CI run, over 30 s on a slow one
+  }, 90_000);
 
   it("pulls a copy two other PCs built on since this one last synced", () => {
     const [a, b, c] = pcs(3);
