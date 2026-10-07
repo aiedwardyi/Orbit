@@ -115,8 +115,10 @@ describe("relay certificate via ACME TLS-ALPN-01", () => {
     ctl.socket.destroy();
     // The challenge is gone: acme-tls/1 is refused again.
     await expect(fetchAlpnCert(h.port)).rejects.toThrow();
+    // Windows has no POSIX mode bits; the files still exist there.
     for (const file of ["account.key", "cert.key", "cert.pem"]) {
-      expect((await stat(join(dataDir, "acme", file))).mode & 0o077).toBe(0);
+      const { mode } = await stat(join(dataDir, "acme", file));
+      if (process.platform !== "win32") expect(mode & 0o077).toBe(0);
     }
     expect(h.relay.certManager!.notAfter).toBeGreaterThan(Date.now());
 

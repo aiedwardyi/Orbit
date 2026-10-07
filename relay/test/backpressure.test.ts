@@ -6,10 +6,68 @@ import { captureClientHello, event, makePc, openControl, openData, rawConnect, s
 import { awaitGo } from "./pc-side.ts";
 
 let h: Harness | undefined;
+const open: Socket[] = [];
 afterEach(async () => {
+  // Client sockets go first so close() never waits on a stalled splice.
+  for (const socket of open.splice(0)) socket.destroy();
   await h?.close();
   h = undefined;
 });
+
+const CHUNK = 1024 * 1024;
+const MAX_BULK = 256 * CHUNK;
+
+/**
+ * Writes random chunks until write() has returned false and QUEUE bytes sit
+ * in the phone socket's own queue, which the kernel and the relay refused to
+ * take. Bounded by MAX_BULK. One large write proves nothing: Windows can
+ * accept a 32 MiB write whole.
+ */
+const QUEUE = 16 * CHUNK;
+interface Filled {
+  bytes: number;
+  digest: string;
+  refused: boolean;
+  queued: boolean;
+}
+async function fillUntilBackpressure(socket: Socket): Promise<Filled> {
+  const hash = createHash("sha256");
+  let bytes = 0;
+  let refused = false;
+  while (bytes < MAX_BULK) {
+    if (refused && socket.writableLength >= QUEUE) return { bytes, digest: hash.digest("hex"), refused, queued: true };
+    if (socket.writableLength < QUEUE) {
+      const chunk = randomBytes(CHUNK);
+      hash.update(chunk);
+      bytes += chunk.length;
+      if (!socket.write(chunk)) refused = true;
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  return { bytes, digest: hash.digest("hex"), refused, queued: false };
+}
+
+/** sha256 of exactly `n` bytes read from `socket`, without holding them. */
+function digestExactly(socket: Socket, n: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    let size = 0;
+    const finish = (error?: Error) => {
+      socket.off("data", onData);
+      socket.off("error", finish);
+      if (error) reject(error);
+      else resolve(hash.digest("hex"));
+    };
+    const onData = (chunk: Buffer) => {
+      const take = chunk.subarray(0, n - size);
+      hash.update(take);
+      size += take.length;
+      if (size >= n) finish();
+    };
+    socket.on("data", onData);
+    socket.on("error", finish);
+  });
+}
 
 /** Resolves with exactly `n` bytes read from `socket` after `prefix`. */
 function readExactly(socket: Socket, n: number, prefix: Buffer = Buffer.alloc(0)): Promise<Buffer> {
@@ -40,6 +98,7 @@ async function splicePair(h: Harness, session: string, token: string, hello: Buf
   const data = await openData(h, session, token);
   await h.waitLog(event("join", { reason: "parked" }), (pairs += 1));
   const phone = await rawConnect(h);
+  open.push(data, phone);
   const go = awaitGo(data);
   phone.write(hello);
   const { rest } = await go;
@@ -55,15 +114,17 @@ it("a paused reader on one splice does not delay another, and bytes arrive exact
   h = await startRelay();
   const pc = makePc();
   const ctl = await openControl(h, pc);
+  open.push(ctl.socket);
   const hello = await captureClientHello(`${pc.label}.${h.base}`);
   const slow = await splicePair(h, ctl.ready.session, ctl.ready.poolToken, hello);
   const fast = await splicePair(h, ctl.ready.session, ctl.ready.poolToken, hello);
 
   // The slow PC stops reading; its phone pushes far more than socket buffers hold.
   slow.data.pause();
-  const bulk = randomBytes(32 * 1024 * 1024);
-  const drained = !slow.phone.write(bulk);
-  expect(drained).toBe(true);
+  const bulk = await fillUntilBackpressure(slow.phone);
+  expect(bulk.refused).toBe(true);
+  // Linux reports socket backpressure as a deep queue on the phone side.
+  if (process.platform !== "win32") expect(bulk.queued).toBe(true);
 
   // Meanwhile SSE-sized frames on the other pair arrive one by one, promptly.
   const latencies: number[] = [];
@@ -84,13 +145,12 @@ it("a paused reader on one splice does not delay another, and bytes arrive exact
   expect(latencies[49]).toBeLessThan(1_000);
 
   // Backpressure reached the slow phone itself: the relay did not absorb its upload.
-  expect(slow.phone.writableLength).toBeGreaterThan(0);
+  if (bulk.queued) expect(slow.phone.writableLength).toBeGreaterThan(0);
 
   // Once the slow PC reads again, every byte arrives in order.
-  const received = readExactly(slow.data, bulk.length);
+  const received = digestExactly(slow.data, bulk.bytes);
   slow.data.resume();
-  const digest = (b: Buffer) => createHash("sha256").update(b).digest("hex");
-  expect(digest(await received)).toBe(digest(bulk));
+  expect(await received).toBe(bulk.digest);
 
   slow.phone.destroy();
   fast.phone.destroy();

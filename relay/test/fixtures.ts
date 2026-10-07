@@ -141,6 +141,8 @@ export async function startRelay(overrides: Partial<RelayOptions> = {}, ca?: Ca)
       for (const l of [...listeners]) l();
     }),
     ...overrides,
+    // Short drain grace so a test that leaves a splice open cannot stall close().
+    limits: { drainGraceMs: 200, ...overrides.limits },
   });
   const { port } = await relay.listen(0, "127.0.0.1");
   return {

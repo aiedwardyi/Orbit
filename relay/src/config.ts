@@ -2,7 +2,7 @@
 
 import { createPrivateKey, type KeyObject } from "node:crypto";
 import { open } from "node:fs/promises";
-import { join } from "node:path";
+import { posix } from "node:path";
 import { z } from "zod";
 import type { RelayLimits } from "./limits.ts";
 
@@ -81,7 +81,8 @@ export async function readOperatorKey(path: string): Promise<KeyObject> {
 
 /** systemd LoadCredential= wins over the config path. */
 export function operatorKeyPath(config: RelayConfig, env: NodeJS.ProcessEnv = process.env): string {
-  if (env.CREDENTIALS_DIRECTORY) return join(env.CREDENTIALS_DIRECTORY, "operator.key");
+  // A systemd credential path, so always POSIX separators.
+  if (env.CREDENTIALS_DIRECTORY) return posix.join(env.CREDENTIALS_DIRECTORY, "operator.key");
   if (config.operatorKeyFile) return config.operatorKeyFile;
   throw new Error("no operator key: set CREDENTIALS_DIRECTORY or operatorKeyFile");
 }
