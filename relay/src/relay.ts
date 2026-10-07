@@ -239,6 +239,11 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
       socket.destroy();
       return;
     }
+    if (sockets.size > limits.maxConnections) {
+      log.log("conn-rejected", { peer, reason: "connection-limit" });
+      socket.destroy();
+      return;
+    }
     if (pending.size >= limits.maxPendingHandshakes) {
       log.log("conn-rejected", { peer, reason: "pending-limit" });
       socket.destroy();

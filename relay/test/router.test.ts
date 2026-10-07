@@ -180,6 +180,15 @@ describe("SNI routing", () => {
     first.destroy();
   });
 
+  it("caps total open connections", async () => {
+    h = await startRelay({ limits: { maxConnections: 1 } });
+    const first = await rawConnect(h);
+    const second = await rawConnect(h);
+    await closed(second);
+    await h.waitLog(event("conn-rejected", { reason: "connection-limit" }));
+    first.destroy();
+  });
+
   it("rate limits new connections per source IP", async () => {
     h = await startRelay({ limits: { connPerIpPerSec: 0.001, connPerIpBurst: 2 } });
     const ok = [await rawConnect(h), await rawConnect(h)];

@@ -3,6 +3,8 @@
 export interface RelayLimits {
   /** Incomplete ClientHello: bytes are capped by the shared parser, time here. */
   handshakeTimeoutMs: number;
+  /** Open TCP connections in total (each PC holds 1 control + its pool). */
+  maxConnections: number;
   /** Concurrent sockets that have not yet sent a full ClientHello. */
   maxPendingHandshakes: number;
   /** Outer TLS handshake on relay.<base>. */
@@ -40,6 +42,7 @@ export interface RelayLimits {
 
 export const DEFAULT_LIMITS: Readonly<RelayLimits> = Object.freeze({
   handshakeTimeoutMs: 5_000,
+  maxConnections: 200_000,
   maxPendingHandshakes: 4_096,
   tlsHandshakeTimeoutMs: 10_000,
   connPerIpPerSec: 20,

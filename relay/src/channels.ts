@@ -69,8 +69,16 @@ export function checkAuth(ctx: ChannelContext, msg: AuthMessage, nonce: string):
   return { ok: true, label: claims.label, ticket: refreshed };
 }
 
+/** Control frames are tiny; a peer that stops reading is cut instead of buffered for. */
+const MAX_CONTROL_BACKLOG = 64 * 1024;
+
 function send(socket: TLSSocket, message: RelayMessage): void {
-  if (!socket.destroyed && socket.writable) socket.write(encodeFrame(message));
+  if (socket.destroyed || !socket.writable) return;
+  if (socket.writableLength > MAX_CONTROL_BACKLOG) {
+    socket.destroy();
+    return;
+  }
+  socket.write(encodeFrame(message));
 }
 
 /** Runs one control channel: hello, auth, ready, then ping/pong and notices. */

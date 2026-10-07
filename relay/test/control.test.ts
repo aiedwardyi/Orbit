@@ -125,6 +125,22 @@ describe("control channel", () => {
     await h.waitLog(event("control-rejected", { reason: "auth-timeout" }));
   });
 
+  it("cuts a PC that floods pings without reading the pongs", async () => {
+    h = await startRelay();
+    const pc = makePc();
+    const ctl = await openControl(h, pc);
+    ctl.socket.pause();
+    ctl.reader.detach();
+    const ping = encodeFrame({ type: "ping" });
+    const flood = Buffer.concat(Array.from({ length: 4096 }, () => ping));
+    const writeMore = () => {
+      if (!ctl.socket.destroyed) ctl.socket.write(flood, () => setImmediate(writeMore));
+    };
+    writeMore();
+    await h.waitLog(event("session-down", { label: pc.label }));
+    ctl.socket.destroy();
+  });
+
   it("rate limits control auth attempts per IP", async () => {
     h = await startRelay({ limits: { controlAuthPerIpPerMin: 2 } });
     const pc = makePc();
