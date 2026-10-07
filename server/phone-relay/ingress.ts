@@ -308,12 +308,22 @@ export class RelayIngress {
       release();
       stopHeaders?.();
       stopHeaders = null;
+      // A handler that never reads its request (an event stream) gets "end" only
+      // after its response finishes, so a parsed message counts as received too.
+      // Only this request's deadline is cleared, never one armed for the next.
+      const mine = stopRequest;
       const received = () => {
+        if (stopRequest !== mine) return;
         stopRequest?.();
         stopRequest = null;
       };
       if (req.complete) received();
-      else req.once("end", received);
+      else {
+        req.once("end", received);
+        process.nextTick(() => {
+          if (req.complete) received();
+        });
+      }
       // Handlers run first; one that already ended its response starts the wait now.
       if (res.writableEnded) waiting();
       else res.once("finish", waiting);

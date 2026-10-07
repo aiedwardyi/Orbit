@@ -214,6 +214,50 @@ describe("relay ingress", () => {
     tls.destroy();
   });
 
+  /** An ingress whose handler never reads its request and keeps every response open, like /api/events. */
+  async function streaming(clock: FakeClock) {
+    const ingress = new RelayIngress({
+      host: HOST,
+      clock,
+      handler: (_req: IncomingMessage, res: ServerResponse) => {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write("data: hello\n\n");
+      },
+    });
+    ingress.setCertificate(certA.keyPem, certA.certPem);
+    open.push(ingress);
+    const { pcEnd, tls } = phonePipe();
+    ingress.accept(pcEnd, Buffer.alloc(0), "203.0.113.9");
+    await once(tls, "secureConnect");
+    return { pcEnd, tls };
+  }
+
+  function closesSoon(stream: Duplex): Promise<boolean> {
+    return Promise.race([closed(stream).then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 200))]);
+  }
+
+  it("keeps an event stream that never reads its request open past requestTimeout", async () => {
+    const clock = new FakeClock();
+    const { pcEnd, tls } = await streaming(clock);
+    tls.write(`GET /api/events HTTP/1.1\r\nhost: ${HOST}\r\n\r\n`);
+    await once(tls, "data");
+    clock.advance(301_000);
+    expect(await closesSoon(pcEnd)).toBe(false);
+    tls.destroy();
+  });
+
+  it("still cuts a request whose body never completes at requestTimeout", async () => {
+    const clock = new FakeClock();
+    const { pcEnd, tls } = await streaming(clock);
+    tls.write(`POST /upload HTTP/1.1\r\nhost: ${HOST}\r\ncontent-length: 10\r\n\r\nabc`);
+    await once(tls, "data");
+    clock.advance(299_999);
+    expect(await closesSoon(pcEnd)).toBe(false);
+    clock.advance(1);
+    expect(await closesSoon(pcEnd)).toBe(true);
+    tls.destroy();
+  });
+
   it("gives the challenge certificate only to acme-tls/1", async () => {
     const { ingress } = setup();
     ingress.setChallenge(challenge.keyPem, challenge.certPem);
