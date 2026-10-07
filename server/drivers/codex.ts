@@ -800,6 +800,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         effortLevels: ["low", "medium", "high", "xhigh", "max"],
         rateLimits: true,
         askApproval: !config.fullAuto,
+        // Each input re-sends turn.system, yet a resumed thread kept to its first copy.
+        pinnedSystem: true,
       },
       sendTurn,
       steer: async (threadId, text) => active.get(threadId)?.steer(text) ?? false,
