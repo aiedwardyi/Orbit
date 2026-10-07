@@ -47,8 +47,11 @@
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { connect } from "node:net";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { connect, createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
 
@@ -110,6 +113,64 @@ if (argAfter("--output-format") === "text") {
   process.exit(0);
 }
 
+// late-after-stop: Stop force-kills the CLI tree on Windows (taskkill /F)
+// while it ends stdin, so the fake itself cannot be relied on to outlive the
+// kill and speak. A speaker process that holds our stdout says the late reply
+// once we are gone, however we died. A relay launches it and exits, so the
+// speaker is outside the tree taskkill /T walks; on POSIX it is detached from
+// the process group Stop signals. It connects to a socket we listen on: the
+// connection closing is our death, and its arrival is the ready signal we
+// wait for before emitting anything, so a test cannot stop the turn first.
+const lateRole = process.env.FAKE_CLAUDE_LATE_ROLE;
+if (lateRole === "relay") {
+  spawn(process.execPath, [...process.execArgv, process.argv[1]], {
+    env: { ...process.env, FAKE_CLAUDE_LATE_ROLE: "speaker" },
+    stdio: ["ignore", "inherit", "ignore"],
+    detached: true,
+    windowsHide: true,
+  }).unref();
+  process.exit(0);
+}
+if (lateRole === "speaker") {
+  process.stdout.on("error", () => process.exit(0));
+  const link = connect(process.env.FAKE_CLAUDE_LATE_SOCKET ?? "");
+  link.on("error", () => {});
+  link.resume();
+  link.once("close", () => {
+    out({ type: "assistant", message: { content: [{ type: "text", text: "LATE AFTER STOP" }] } });
+    process.stdout.write(JSON.stringify({ type: "system", subtype: "thinking_tokens", estimated_tokens: 1 }) + "\n", () => process.exit(0));
+  });
+  // hold the rest of the module back: the speaker plays no turns
+  await new Promise(() => {});
+} else if (mode === "late-after-stop") {
+  const socketPath = process.platform === "win32"
+    ? `\\\\.\\pipe\\fake-claude-late-${process.pid}-${randomUUID()}`
+    : join(tmpdir(), `fake-claude-late-${process.pid}-${randomUUID().slice(0, 8)}.sock`);
+  const server = createServer();
+  // a kill before the speaker connects (a probe or prewarm the harness drops)
+  // would leave the socket file behind
+  const dropSocket = () => {
+    if (process.platform !== "win32") rmSync(socketPath, { force: true });
+  };
+  const killedEarly = () => {
+    dropSocket();
+    process.exit(143);
+  };
+  process.once("SIGTERM", killedEarly);
+  process.once("exit", dropSocket);
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  const linked = new Promise<void>((resolve) => server.once("connection", () => resolve()));
+  spawn(process.execPath, [...process.execArgv, process.argv[1]], {
+    env: { ...process.env, FAKE_CLAUDE_LATE_ROLE: "relay", FAKE_CLAUDE_LATE_SOCKET: socketPath },
+    stdio: ["ignore", "inherit", "ignore"],
+    windowsHide: true,
+  });
+  await linked;
+  // the live link needs no path, and Stop's SIGTERM must kill us outright
+  process.off("SIGTERM", killedEarly);
+  dropSocket();
+}
+
 // Line-driven, like the real CLI under --input-format stream-json: each user
 // message starts a turn; a message that arrives WHILE a turn is playing is
 // folded into it (the real CLI delivers it before the next model call — the
@@ -124,6 +185,8 @@ let turnRunning = false;
 let steered: string[] = [];
 let stdinEnded = false;
 let steerGateArmed = false;
+let onSteer: (() => void) | null = null;
+let lateSteerAnswered = false;
 
 // Ownership-race fixture: after accepting the first prompt, stop consuming
 // stdin until the test creates this file. A large second write then leaves
@@ -448,17 +511,10 @@ const playTurn = (prompt: JsonValue) => {
   }
 
   if (mode === "late-after-stop") {
-    // Stop ends stdin (and SIGTERMs on POSIX); the reply still gets out,
-    // followed by a marker the test can wait on
-    let spoke = false;
-    const lastWords = () => {
-      if (spoke) return;
-      spoke = true;
-      out({ type: "assistant", message: { content: [{ type: "text", text: "LATE AFTER STOP" }] } });
-      process.stdout.write(JSON.stringify({ type: "system", subtype: "thinking_tokens", estimated_tokens: 1 }) + "\n", () => process.exit(0));
-    };
-    process.stdin.once("end", lastWords);
-    process.once("SIGTERM", lastWords);
+    // Stop ends stdin and kills the tree (SIGTERM on POSIX, taskkill /F on
+    // Windows); whichever lands first, the speaker set up at startup says
+    // the late reply, then a marker the test can wait on
+    process.stdin.once("end", () => process.exit(0));
     setInterval(() => {}, 1_000);
     return;
   }
@@ -572,27 +628,52 @@ const playTurn = (prompt: JsonValue) => {
     turnRunning = false;
     finishIfDone();
   };
+  // Hold a gap open until a steer actually lands, so a test is not racing a
+  // fixed window; capped so a lost steer still settles the turn.
+  const untilSteer = (close: () => void) => {
+    const cap = setTimeout(() => {
+      onSteer = null;
+      close();
+    }, 10_000);
+    onSteer = () => {
+      onSteer = null;
+      clearTimeout(cap);
+      close();
+    };
+  };
   if (mode === "late-steer") {
     // the final request is already out, so a steer landing now waits for
-    // its own query, the way the real CLI runs it after `result`
+    // its own query, the way the real CLI runs it after `result`. Every
+    // caller steers the first turn, so its gap waits for the steer; the
+    // follow-up that answers it keeps the plain 800 ms gap, or with
+    // FAKE_CLAUDE_LATE_STEER_HOLD stays open until the test interrupts it
+    // (capped so a missed interrupt still settles).
     out({ type: "system", subtype: "status", status: "requesting" });
     out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "reply" } } });
-    setTimeout(() => {
+    const close = () => {
       out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${promptText(prompt)}` }] } });
       const late = steered;
       finish();
       if (late.length) playTurn({ type: "user", message: { role: "user", content: late.join(" | ") } });
-    }, 800);
+    };
+    if (lateSteerAnswered) setTimeout(close, process.env.FAKE_CLAUDE_LATE_STEER_HOLD ? 10_000 : 800);
+    else {
+      lateSteerAnswered = true;
+      untilSteer(close);
+    }
   } else if (mode === "slow") {
     // a gap a test can steer into; the closing reply carries anything that
     // was folded in, the way the real CLI includes a mid-turn message in
-    // the same turn's next model call
-    setTimeout(() => {
+    // the same turn's next model call. FAKE_CLAUDE_SLOW_UNTIL_STEER waits
+    // for the steer instead of a fixed 800 ms
+    const close = () => {
       out({ type: "system", subtype: "status", status: "requesting" });
       const tail = steered.length ? ` + steered: ${steered.join(" | ")}` : "";
       out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${promptText(prompt)}${tail}` }] } });
       finish();
-    }, 800);
+    };
+    if (process.env.FAKE_CLAUDE_SLOW_UNTIL_STEER) untilSteer(close);
+    else setTimeout(close, 800);
   } else {
     finish();
   }
@@ -612,7 +693,10 @@ process.stdin.on("data", (c) => {
     } catch {
       continue;
     }
-    if (turnRunning) steered.push(promptText(prompt));
+    if (turnRunning) {
+      steered.push(promptText(prompt));
+      onSteer?.();
+    }
     else {
       playTurn(prompt);
       armSteerGate();
