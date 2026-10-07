@@ -97,7 +97,7 @@ const { createDisplayMediaGuard, invokeDisplayMediaCallback, selectCaptureSource
 );
 const { STAGE_PREFIX: APPIMAGE_CUA_STAGE_PREFIX } = require("./cua-linux-bundle.cjs");
 const { desktopViewerUrl, desktopViewerWindowOptions, sameDesktopViewerOrigin } = require("./desktop-viewer.cjs");
-const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceLinkedFileName, deviceTailnet, deviceUnreachablePage, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus, watchDeviceLoad } = require("./device-window.cjs");
+const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceLinkedFileName, deviceTailnet, deviceUnreachablePage, deviceWindowTitle, deviceWindowUrl, openOrFocus, saveDeviceLinkedFile, tailnetFromStatus, watchDeviceLoad } = require("./device-window.cjs");
 const { createDesktopWorkspaceManager } = require("./desktop-workspace.cjs");
 const { createBrowserSurfaceManager } = require("./browser-surface.cjs");
 const { browserProfilePartition } = require("./browser-snapshot.cjs");
@@ -1231,7 +1231,7 @@ async function openDeviceLinkedFile(devices, target, name) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const folder = await fs.promises.mkdtemp(path.join(os.tmpdir(), "wink-device-"));
     const filePath = path.join(folder, name);
-    await fs.promises.writeFile(filePath, Buffer.from(await response.arrayBuffer()));
+    await saveDeviceLinkedFile(response, filePath);
     await openLocalFile(filePath, { shell });
   } catch (error) {
     slog(`device linked file: ${error?.message ?? error}`);

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceLinkedFileName, deviceTailnet, deviceUnreachablePage, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus, watchDeviceLoad } = require("./device-window.cjs");
+const { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceLinkedFileName, deviceTailnet, deviceUnreachablePage, deviceWindowTitle, deviceWindowUrl, openOrFocus, saveDeviceLinkedFile, tailnetFromStatus, watchDeviceLoad } = require("./device-window.cjs");
 
 class FakeWindow extends EventEmitter {
   destroyed = false;
@@ -317,9 +319,38 @@ test("download names are safe and keep the extension", () => {
   }
 });
 
+const tempFolder = (t) => {
+  const folder = mkdtempSync(join(tmpdir(), "wink-device-test-"));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  return folder;
+};
+
+test("linked files stream to disk without buffering the whole body", async (t) => {
+  const filePath = join(tempFolder(t), "clip.mp4");
+  const response = new Response(ReadableStream.from([Buffer.from("first "), Buffer.from("second")]));
+  response.arrayBuffer = () => Promise.reject(new Error("buffered the whole body"));
+  await saveDeviceLinkedFile(response, filePath);
+  assert.equal(readFileSync(filePath, "utf8"), "first second");
+});
+
+test("a failed or aborted linked file download leaves no partial file", async (t) => {
+  for (const error of [new Error("connection reset"), new DOMException("This operation was aborted", "AbortError")]) {
+    const folder = tempFolder(t);
+    const body = ReadableStream.from(
+      (async function* () {
+        yield Buffer.from("partial");
+        throw error;
+      })(),
+    );
+    await assert.rejects(saveDeviceLinkedFile(new Response(body), join(folder, "clip.mp4")), error);
+    assert.deepEqual(readdirSync(folder), []);
+  }
+});
+
 test("main process downloads PC linked files instead of opening the browser", () => {
   const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
   const open = main.slice(main.indexOf("function openDeviceWindow"), main.indexOf("function ensureDesktopWorkspace"));
   assert.ok(open.includes("deviceLinkedFileName(target, url.origin)"));
+  assert.ok(main.includes("await saveDeviceLinkedFile(response, filePath)"));
   assert.ok(main.includes('nativeText("packaged.deviceFileFailed")'));
 });

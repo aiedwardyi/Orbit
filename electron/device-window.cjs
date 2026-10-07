@@ -2,6 +2,7 @@
 // host. Access is that PC's one-time phone link cookie, kept in a persistent
 // partition so the link is pasted once, never the local app's token.
 
+const fs = require("node:fs");
 const { desktopViewerUrl, sameDesktopViewerOrigin } = require("./desktop-viewer.cjs");
 
 const DEVICE_WINDOW_PARTITION = "persist:orbit-devices";
@@ -129,6 +130,16 @@ function deviceLinkedFileName(rawUrl, origin) {
   return `${RESERVED_NAME_RE.test(stem.split(".")[0]) ? "_" : ""}${stem}${ext}`;
 }
 
+/** Streams the body to `filePath`, deleting the partial file on failure. */
+async function saveDeviceLinkedFile(response, filePath) {
+  try {
+    await fs.promises.writeFile(filePath, response.body);
+  } catch (error) {
+    await fs.promises.rm(filePath, { force: true });
+    throw error;
+  }
+}
+
 const DEVICE_RETRY_MS = 10_000;
 const DEVICE_RETRY_LIMIT_MS = 120_000;
 const ERR_ABORTED = -3;
@@ -190,4 +201,4 @@ function watchDeviceLoad(webContents, { host, url, failurePage, log, setInterval
   };
 }
 
-module.exports = { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceLinkedFileName, deviceUnreachablePage, watchDeviceLoad, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus, tailnetFromStatus };
+module.exports = { DEVICE_WINDOW_PARTITION, deviceLinkPage, deviceLinkedFileName, deviceUnreachablePage, watchDeviceLoad, deviceTailnet, deviceWindowTitle, deviceWindowUrl, openOrFocus, saveDeviceLinkedFile, tailnetFromStatus };
