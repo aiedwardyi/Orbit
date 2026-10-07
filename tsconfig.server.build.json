@@ -11,6 +11,7 @@
     "server/**/*.test.ts",
     "server/testing",
     "server/phone-relay/testing",
+    "server/**/testing",
     "server/drivers/pi-mcp-extension.ts"
   ],
   "include": [

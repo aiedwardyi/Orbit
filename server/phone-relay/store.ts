@@ -30,6 +30,7 @@ const IDENTITY_FILE = "identity.pem";
 const TICKET_FILE = "ticket.json";
 const CERT_FILE = "cert.json";
 const KEY_HISTORY_FILE = "key-history.json";
+const ACME_STATE_FILE = "acme-state.json";
 const MAX_KEY_HISTORY = 64;
 const PRIVATE_MODE = 0o600;
 
@@ -212,14 +213,21 @@ export function spkiFingerprint(key: KeyObject): string {
 
 const keyHistorySchema = z.object({ spki: z.array(z.string()) });
 
-export function readKeyHistory(dataDir: string): string[] {
+export function loadKeyHistory(dataDir: string): Loaded<string[]> {
   const text = readText(join(relayDir(dataDir), KEY_HISTORY_FILE));
-  if (text.kind !== "ok") return [];
+  if (text.kind !== "ok") return text;
   const parsed = keyHistorySchema.safeParse(parseJsonText(text.value));
-  return parsed.success ? parsed.data.spki : [];
+  return parsed.success ? { kind: "ok", value: parsed.data.spki } : { kind: "invalid", reason: "key history file is corrupt" };
 }
 
-/** Records a certificate key before it is sent to a CA, so CT monitoring knows it. */
+/** Known certificate keys, empty when none were recorded. Throws rather than guess at an unusable file. */
+export function readKeyHistory(dataDir: string): string[] {
+  const history = loadKeyHistory(dataDir);
+  if (history.kind === "invalid") throw new Error(`phone relay key history unusable: ${history.reason}`);
+  return history.kind === "ok" ? history.value : [];
+}
+
+/** Records a certificate key before it is sent to a CA, so CT monitoring knows it. Never overwrites an unusable history. */
 export function rememberCertKey(dataDir: string, fingerprint: string): void {
   const history = readKeyHistory(dataDir).filter((entry) => entry !== fingerprint);
   history.push(fingerprint);
@@ -227,6 +235,33 @@ export function rememberCertKey(dataDir: string, fingerprint: string): void {
   writeFileAtomic(join(dir, KEY_HISTORY_FILE), `${JSON.stringify({ spki: history.slice(-MAX_KEY_HISTORY) })}\n`, {
     mode: PRIVATE_MODE,
   });
+}
+
+// ---------------------------------------------------------------------------
+// ACME retry state, so the CA fallback clock and backoff survive restarts
+
+export interface AcmeState {
+  directoryIndex: number;
+  failingSince: number | null;
+  failures: number;
+}
+
+const acmeStateSchema = z.object({
+  directoryIndex: z.int().min(0),
+  failingSince: z.number().nullable(),
+  failures: z.int().min(0),
+});
+
+export function readAcmeState(dataDir: string): Loaded<AcmeState> {
+  const text = readText(join(relayDir(dataDir), ACME_STATE_FILE));
+  if (text.kind !== "ok") return text;
+  const parsed = acmeStateSchema.safeParse(parseJsonText(text.value));
+  return parsed.success ? { kind: "ok", value: parsed.data } : { kind: "invalid", reason: "ACME state file is corrupt" };
+}
+
+export function writeAcmeState(dataDir: string, state: AcmeState): void {
+  const dir = ensureDir(dataDir);
+  writeFileAtomic(join(dir, ACME_STATE_FILE), `${JSON.stringify(state)}\n`, { mode: PRIVATE_MODE });
 }
 
 // ---------------------------------------------------------------------------

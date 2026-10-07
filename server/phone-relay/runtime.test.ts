@@ -256,6 +256,25 @@ describe("phone relay runtime status", () => {
     expect(rejected.poolIdle).toBe(0);
   });
 
+  it("keeps its ticket when the relay offers one that expires sooner", async () => {
+    r = await rig();
+    const rr = r;
+    const enrolled = readTicket(rr.dataDir);
+    const clock = new FakeClock();
+    rr.relay.refreshTicket = rr.relay.ticketFor(rr.identity.pk, 60, clock.now());
+    const statuses = new StatusLog();
+    relayHandle = createPhoneRelay({ dataDir: rr.dataDir, config: rr.config, handler: () => {}, onStatus: statuses.push }, deps(rr, clock));
+    await statuses.until((s) => s.state === "connected");
+    await relayHandle.stop();
+    expect(readTicket(rr.dataDir)).toEqual(enrolled);
+
+    relayHandle = createPhoneRelay(
+      { dataDir: rr.dataDir, config: rr.config, handler: () => {}, onStatus: () => {} },
+      deps(rr, new FakeClock(clock.now() + 2 * 60_000)),
+    );
+    expect(relayHandle.status().state).not.toBe("rejected");
+  });
+
   it("reports reconnecting with the retry time and comes back", async () => {
     r = await rig();
     const rr = r;

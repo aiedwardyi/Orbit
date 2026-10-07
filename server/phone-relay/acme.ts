@@ -4,7 +4,10 @@
 // is active. The certificate key never leaves this PC. A failed renewal
 // keeps the current certificate. Each CA directory has its own account key.
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { X509Certificate, createPrivateKey } from "node:crypto";
+import { Agent as HttpAgent } from "node:http";
+import { Agent as HttpsAgent } from "node:https";
 
 import acme from "acme-client";
 import { z } from "zod";
@@ -14,9 +17,12 @@ import {
   loadOrCreateAccountKey,
   newEcKeyPem,
   parseCertPair,
+  readAcmeState,
   readCert,
+  readKeyHistory,
   rememberCertKey,
   spkiFingerprint,
+  writeAcmeState,
   writeCert,
   type StoredCert,
 } from "./store.ts";
@@ -30,6 +36,41 @@ export const POLL_MS = 2_000;
 export const MAX_POLLS = 30;
 /** Per CA call; covers acme-client's own bounded 5xx/429 retries. */
 export const STEP_TIMEOUT_MS = 120_000;
+/** Per HTTP request to a CA. */
+export const REQUEST_TIMEOUT_MS = 30_000;
+export const MAX_RESPONSE_BYTES = 256 * 1024;
+
+/**
+ * acme-client 5.4.0 sends everything through one shared axios instance with no
+ * timeout, no size cap, redirects on and its own Retry-After waits that nothing
+ * can cancel. Bound it here; our own backoff handles retries. Each request picks
+ * up the agents and abort signal of the CertManager it runs for, so stop() can
+ * end it.
+ */
+interface RequestScope {
+  httpAgent: HttpAgent;
+  httpsAgent: HttpsAgent;
+  signal: AbortSignal;
+}
+const requestScope = new AsyncLocalStorage<RequestScope>();
+acme.axios.defaults.timeout = REQUEST_TIMEOUT_MS;
+acme.axios.defaults.maxContentLength = MAX_RESPONSE_BYTES;
+acme.axios.defaults.maxBodyLength = MAX_RESPONSE_BYTES;
+acme.axios.defaults.maxRedirects = 0;
+// acme-client's untyped settings, as 5.4.0 ships them except for no retries.
+Object.assign(acme.axios.defaults, {
+  acmeSettings: { httpChallengePort: 80, httpsChallengePort: 443, tlsAlpnChallengePort: 443, retryMaxAttempts: 0, retryDefaultDelay: 5 },
+});
+acme.axios.interceptors.request.use((config) => {
+  const scope = requestScope.getStore();
+  if (scope) {
+    if (scope.signal.aborted) throw new CancelledError();
+    config.httpAgent = scope.httpAgent;
+    config.httpsAgent = scope.httpsAgent;
+    config.signal = scope.signal;
+  }
+  return config;
+});
 
 export interface AcmeExternalAccount {
   kid: string;
@@ -102,6 +143,73 @@ export function challengeCertProblem(certPem: string, host: string, keyAuthoriza
   }
 }
 
+interface Der {
+  tag: number;
+  start: number;
+  end: number;
+}
+
+/** One DER element at `offset` within `limit`, or null when it does not fit. */
+function derAt(buf: Buffer, offset: number, limit: number): Der | null {
+  if (offset + 2 > limit) return null;
+  const tag = buf[offset];
+  let length = buf[offset + 1];
+  let start = offset + 2;
+  if (length & 0x80) {
+    const count = length & 0x7f;
+    if (count < 1 || count > 4 || start + count > limit) return null;
+    length = 0;
+    for (let i = 0; i < count; i++) length = length * 256 + buf[start + i];
+    start += count;
+  }
+  const end = start + length;
+  return end <= limit ? { tag, start, end } : null;
+}
+
+function derChildren(buf: Buffer, parent: Der): Der[] {
+  const children: Der[] = [];
+  for (let offset = parent.start; offset < parent.end; ) {
+    const child = derAt(buf, offset, parent.end);
+    if (!child) return [];
+    children.push(child);
+    offset = child.end;
+  }
+  return children;
+}
+
+const AKI_OID = Buffer.from([0x55, 0x1d, 0x23]);
+
+/** RFC 9773 certID: base64url(AKI keyIdentifier) "." base64url(serial DER content), or null without an AKI. */
+export function ariCertId(certPem: string): string | null {
+  try {
+    const raw = new X509Certificate(certPem).raw;
+    const cert = derAt(raw, 0, raw.length);
+    const tbs = cert && derChildren(raw, cert)[0];
+    if (!tbs) return null;
+    const fields = derChildren(raw, tbs);
+    const serial = fields.find((field) => field.tag === 0x02);
+    const extensions = fields.find((field) => field.tag === 0xa3);
+    if (!serial || !extensions) return null;
+    const list = derChildren(raw, extensions)[0];
+    for (const extension of list ? derChildren(raw, list) : []) {
+      const parts = derChildren(raw, extension);
+      if (parts[0]?.tag !== 0x06 || !raw.subarray(parts[0].start, parts[0].end).equals(AKI_OID)) continue;
+      const value = parts.at(-1);
+      const aki = value?.tag === 0x04 ? derAt(raw, value.start, value.end) : null;
+      const keyId = aki ? derChildren(raw, aki).find((part) => part.tag === 0x80) : undefined;
+      if (!keyId || keyId.end === keyId.start) return null;
+      const id = raw.subarray(keyId.start, keyId.end).toString("base64url");
+      return `${id}.${raw.subarray(serial.start, serial.end).toString("base64url")}`;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+const directorySchema = z.object({ renewalInfo: z.string().optional() });
+const renewalInfoSchema = z.object({ suggestedWindow: z.object({ start: z.string(), end: z.string() }) });
+
 export class CertManager {
   private readonly opts: CertManagerOptions;
   private readonly clock: Clock;
@@ -116,10 +224,20 @@ export class CertManager {
   private failures = 0;
   private retryAt = 0;
   private timer: Cancel | null = null;
+  /** When the CA's ARI window says to renew, if it said. */
+  private renewAt: number | null = null;
+  private checkingRenewalInfo = false;
+  private readonly abort = new AbortController();
+  private readonly requests: RequestScope;
 
   constructor(options: CertManagerOptions) {
     this.opts = options;
     this.clock = options.clock;
+    this.requests = {
+      httpAgent: new HttpAgent({ keepAlive: false }),
+      httpsAgent: new HttpsAgent({ keepAlive: false }),
+      signal: this.abort.signal,
+    };
   }
 
   snapshot(): CertSnapshot {
@@ -141,6 +259,14 @@ export class CertManager {
     } else if (stored.kind === "invalid") {
       this.error = stored.reason;
     }
+    const state = readAcmeState(this.opts.dataDir);
+    if (state.kind === "ok") {
+      this.directoryIndex = state.value.directoryIndex;
+      this.failingSince = state.value.failingSince;
+      this.failures = state.value.failures;
+    } else if (state.kind === "invalid") {
+      this.error ??= state.reason;
+    }
     this.scheduleCheck(RENEW_CHECK_MS);
   }
 
@@ -156,12 +282,16 @@ export class CertManager {
     this.timer?.();
     this.timer = null;
     for (const cancel of this.cancels) cancel();
+    this.abort.abort();
+    this.requests.httpAgent.destroy();
+    this.requests.httpsAgent.destroy();
     this.opts.target.clearChallenge();
   }
 
   private due(): boolean {
     const cert = this.cert;
     if (!cert) return true;
+    if (this.renewAt !== null && this.clock.now() >= this.renewAt) return true;
     // Renew with a third of the lifetime left.
     return this.clock.now() >= cert.notAfter - (cert.notAfter - cert.notBefore) / 3;
   }
@@ -173,6 +303,7 @@ export class CertManager {
       if (this.stopped) return;
       this.opts.onChange();
       this.maybeIssue();
+      void this.checkRenewalInfo();
       if (!this.timer) this.scheduleCheck(RENEW_CHECK_MS);
     });
   }
@@ -183,17 +314,71 @@ export class CertManager {
     void this.issue();
   }
 
+  private directories(): string[] {
+    return this.opts.directories.length > 0 ? this.opts.directories : [DEFAULT_ACME_DIRECTORY];
+  }
+
+  private saveState(): void {
+    try {
+      writeAcmeState(this.opts.dataDir, {
+        directoryIndex: this.directoryIndex,
+        failingSince: this.failingSince,
+        failures: this.failures,
+      });
+    } catch {
+      /* the in-memory state still applies until restart */
+    }
+  }
+
+  /** RFC 9773 ARI: asks the CA when to renew, and renews early inside its window. */
+  private async checkRenewalInfo(): Promise<void> {
+    const cert = this.cert;
+    if (!cert || this.checkingRenewalInfo || this.issuing || this.due()) return;
+    const certId = ariCertId(cert.certPem);
+    if (!certId) return;
+    const directories = this.directories();
+    const directoryUrl = directories[this.directoryIndex % directories.length];
+    this.checkingRenewalInfo = true;
+    try {
+      const window = await requestScope.run(this.requests, async () => {
+        const directory = directorySchema.safeParse((await acme.axios.get(this.checkedUrl(directoryUrl))).data);
+        if (!directory.success || !directory.data.renewalInfo) return null;
+        const base = this.checkedUrl(directory.data.renewalInfo).replace(/\/+$/, "");
+        const info = renewalInfoSchema.safeParse((await acme.axios.get(`${base}/${certId}`)).data);
+        return info.success ? info.data.suggestedWindow : null;
+      });
+      if (!window || this.stopped || this.cert !== cert) return;
+      const start = Date.parse(window.start);
+      const end = Date.parse(window.end);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return;
+      this.renewAt = start + Math.random() * (end - start);
+    } catch {
+      return;
+    } finally {
+      this.checkingRenewalInfo = false;
+    }
+    this.maybeIssue();
+  }
+
+  private checkedUrl(raw: string): string {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" && !this.opts.allowInsecureDirectories) throw new Error("ACME directory must be https");
+    return url.href;
+  }
+
   private async issue(): Promise<void> {
     this.issuing = true;
     this.opts.onChange();
-    const directories = this.opts.directories.length > 0 ? this.opts.directories : [DEFAULT_ACME_DIRECTORY];
+    const directories = this.directories();
     const directory = directories[this.directoryIndex % directories.length];
     try {
-      await this.order(directory);
+      await requestScope.run(this.requests, () => this.order(directory));
       this.error = null;
       this.failingSince = null;
       this.failures = 0;
       this.retryAt = 0;
+      this.renewAt = null;
+      this.saveState();
     } catch (cause) {
       if (cause instanceof CancelledError || this.stopped) return;
       const now = this.clock.now();
@@ -207,6 +392,7 @@ export class CertManager {
       const delay = Math.min(RETRY_CAP_MS, RETRY_BASE_MS * 2 ** Math.min(this.failures, 10));
       this.failures++;
       this.retryAt = now + delay;
+      this.saveState();
       this.scheduleCheck(delay);
     } finally {
       if (!this.stopped) {
@@ -237,8 +423,9 @@ export class CertManager {
 
   private async order(directoryUrl: string): Promise<void> {
     const { dataDir, host } = this.opts;
-    const url = new URL(directoryUrl);
-    if (url.protocol !== "https:" && !this.opts.allowInsecureDirectories) throw new Error("ACME directory must be https");
+    this.checkedUrl(directoryUrl);
+    // Refuse before asking the CA, rather than lose older keys CT watch relies on.
+    readKeyHistory(dataDir);
     const account = this.opts.accounts[directoryUrl];
     const create = this.opts.createClient ?? ((options: acme.ClientOptions) => new acme.Client(options));
     const client = create({
@@ -292,6 +479,9 @@ export class CertManager {
     const cert = parseCertPair(keyPem, chain, host);
     if (!cert) throw new Error("CA returned a certificate that does not match the request");
     if (this.stopped) throw new CancelledError();
+    const now = this.clock.now();
+    if (!(cert.notBefore <= now && now < cert.notAfter)) throw new Error("CA returned a certificate that is not valid now");
+    if (this.cert && cert.notAfter < this.cert.notAfter) throw new Error("CA returned a certificate that expires before the current one");
     writeCert(dataDir, keyPem, chain);
     this.cert = cert;
     this.opts.target.setCertificate(keyPem, chain);

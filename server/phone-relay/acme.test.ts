@@ -1,11 +1,11 @@
 import { X509Certificate, createHash, createPrivateKey } from "node:crypto";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CertManager, FALLBACK_AFTER_MS, RETRY_BASE_MS, STEP_TIMEOUT_MS, type AcmeAccountConfig, type ChallengeTarget } from "./acme.ts";
+import { CertManager, FALLBACK_AFTER_MS, RENEW_CHECK_MS, RETRY_BASE_MS, STEP_TIMEOUT_MS, type AcmeAccountConfig, type ChallengeTarget } from "./acme.ts";
 import { readCert, readKeyHistory, relayDir, spkiFingerprint, writeCert } from "./store.ts";
 import { FakeAcme } from "./testing/fake-acme.ts";
 import { FakeClock } from "./testing/fake-clock.ts";
@@ -160,6 +160,22 @@ describe("ACME certificate manager", () => {
     expect(target.installs[1]).not.toBe(target.installs[0]);
   });
 
+  it("keeps the current certificate when the CA hands back an expired one", async () => {
+    const { dir, ca, acmes, clock, target, certs, settled } = await setup();
+    acmes[0].validator = directValidator(target, []);
+    const old = await ca.issue(HOST, { notBefore: new Date(clock.now() - 80 * DAY), notAfter: new Date(clock.now() + 10 * DAY) });
+    writeCert(dir, old.keyPem, old.certPem);
+    const oldFile = readFileSync(join(relayDir(dir), "cert.json"), "utf8");
+    acmes[0].validity = () => ({ notBefore: new Date(clock.now() - 91 * DAY), notAfter: new Date(clock.now() - DAY) });
+    certs.start();
+    const done = settled();
+    certs.setConnected(true);
+    await done;
+    expect(acmes[0].log).toContain("issued");
+    expect(target.installs).toEqual([leafFingerprint(old.certPem)]);
+    expect(readFileSync(join(relayDir(dir), "cert.json"), "utf8")).toBe(oldFile);
+  });
+
   it("reports an invalid challenge and clears it", async () => {
     const { acmes, target, certs, settled } = await setup();
     acmes[0].validator = async () => false;
@@ -205,6 +221,107 @@ describe("ACME certificate manager", () => {
     expect(second.accountKeys.size).toBe(1);
     expect([...first.accountKeys][0]).not.toBe([...second.accountKeys][0]);
     expect(readdirSync(relayDir(dir)).filter((name) => name.startsWith("acme-account-"))).toHaveLength(2);
+  });
+
+  it("still falls back to the next CA when Wink restarts every day", async () => {
+    const ca = await TestCa.create();
+    const first = await FakeAcme.start({ ca });
+    const second = await FakeAcme.start({ ca });
+    cleanups.push(() => first.close(), () => second.close());
+    first.mode = "reject";
+    const { dir, cleanup } = tempDataDir();
+    cleanups.push(cleanup);
+    const clock = new FakeClock();
+    const target = new Target();
+    second.validator = directValidator(target, []);
+    const start = clock.now();
+    for (let day = 1; day <= 5 && target.cert === null; day++) {
+      const events = new EventEmitter();
+      const certs = new CertManager({
+        dataDir: dir,
+        host: HOST,
+        directories: [first.directoryUrl, second.directoryUrl],
+        accounts: {},
+        clock,
+        target,
+        onChange: () => events.emit("change"),
+        allowInsecureDirectories: true,
+      });
+      const settled = () =>
+        new Promise<void>((resolve) => {
+          let started = false;
+          const check = () => {
+            if (certs.snapshot().issuing) started = true;
+            if (!started || certs.snapshot().issuing) return;
+            events.off("change", check);
+            resolve();
+          };
+          events.on("change", check);
+        });
+      certs.start();
+      let done = settled();
+      certs.setConnected(true);
+      await done;
+      const dayEnd = start + day * DAY;
+      for (let next = clock.nextAt; next !== null && next <= dayEnd && target.cert === null; next = clock.nextAt) {
+        done = settled();
+        clock.advance(next - clock.now());
+        await done;
+      }
+      certs.stop();
+      clock.advance(dayEnd - clock.now());
+    }
+    expect(first.log.filter((entry) => entry === "error:rejectedIdentifier").length).toBeGreaterThan(10);
+    expect(second.log).toContain("issued");
+  });
+
+  it("renews early when the CA's ARI window has opened", async () => {
+    const { dir, cleanup } = tempDataDir();
+    cleanups.push(cleanup);
+    const ca = await TestCa.create();
+    const acme = await FakeAcme.start({ ca });
+    cleanups.push(() => acme.close());
+    const clock = new FakeClock();
+    const target = new Target();
+    acme.validator = directValidator(target, []);
+    // The fake CA plus an RFC 9773 renewalInfo resource whose window opened yesterday.
+    const shim = createServer((req, res) => {
+      if (req.url !== "/directory") {
+        const window = { start: new Date(clock.now() - DAY).toISOString(), end: new Date(clock.now() - DAY / 2).toISOString() };
+        res.writeHead(200, { "content-type": "application/json", "retry-after": "21600" }).end(JSON.stringify({ suggestedWindow: window }));
+        return;
+      }
+      void fetch(acme.directoryUrl)
+        .then((answer) => answer.json())
+        .then((directory) => {
+          const renewalInfo = `http://127.0.0.1:${shimPort}/renewal-info`;
+          res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(Object.assign({}, directory, { renewalInfo })));
+        });
+    });
+    const shimPort = await listenLocal(shim);
+    cleanups.push(() => {
+      shim.closeAllConnections();
+      shim.close();
+    });
+    const current = await ca.issue(HOST);
+    writeCert(dir, current.keyPem, current.certPem);
+    const events = new EventEmitter();
+    const certs = new CertManager({
+      dataDir: dir,
+      host: HOST,
+      directories: [`http://127.0.0.1:${shimPort}/directory`],
+      accounts: {},
+      clock,
+      target,
+      onChange: () => events.emit("change"),
+      allowInsecureDirectories: true,
+    });
+    cleanups.push(() => certs.stop());
+    certs.start();
+    certs.setConnected(true);
+    const renewed = new Promise<boolean>((resolve) => events.on("change", () => target.installs.length > 1 && resolve(true)));
+    clock.advance(RENEW_CHECK_MS);
+    expect(await Promise.race([renewed, new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3_000))])).toBe(true);
   });
 
   it("stop() during a renewal writes nothing and goes quiet", async () => {
@@ -280,6 +397,36 @@ describe("ACME step deadline", () => {
       await failed;
       expect(certs.snapshot()).toMatchObject({ issuing: false, error: "certificate request failed: CA did not answer in time" });
       expect(clock.nextAt).toBe(clock.now() + RETRY_BASE_MS);
+    } finally {
+      certs.stop();
+      silent.closeAllConnections();
+      silent.close();
+      cleanup();
+    }
+  });
+
+  it("stop() ends a CA request that is still waiting", async () => {
+    const { dir, cleanup } = tempDataDir();
+    const silent = createServer(() => {});
+    const port = await listenLocal(silent);
+    const certs = new CertManager({
+      dataDir: dir,
+      host: HOST,
+      directories: [`http://127.0.0.1:${port}/directory`],
+      accounts: {},
+      clock: new FakeClock(),
+      target: new Target(),
+      onChange: () => {},
+      allowInsecureDirectories: true,
+    });
+    try {
+      certs.start();
+      const asked = new Promise<IncomingMessage>((resolve) => silent.once("request", resolve));
+      certs.setConnected(true);
+      const req = await asked;
+      certs.stop();
+      const ended = await Promise.race([once(req.socket, "close").then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1_000))]);
+      expect(ended).toBe(true);
     } finally {
       certs.stop();
       silent.closeAllConnections();

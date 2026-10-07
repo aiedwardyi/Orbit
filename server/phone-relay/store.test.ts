@@ -11,6 +11,7 @@ import {
   readIdentity,
   readTicket,
   relayDir,
+  rememberCertKey,
   ticketProblem,
   writeTicket,
 } from "./store.ts";
@@ -74,6 +75,19 @@ describe("relay store", () => {
     expect(readTicket(dataDir)).toEqual({ kind: "ok", value: good });
     writeFileSync(join(relayDir(dataDir), "ticket.json"), "{not json");
     expect(readTicket(dataDir).kind).toBe("invalid");
+  });
+
+  it("never replaces a key history it cannot read", () => {
+    const dataDir = dir();
+    mkdirSync(relayDir(dataDir), { recursive: true });
+    const path = join(relayDir(dataDir), "key-history.json");
+    writeFileSync(path, '{"spki":["key-a",');
+    try {
+      rememberCertKey(dataDir, "key-b");
+    } catch {
+      /* refusing to write keeps the history too */
+    }
+    expect(readFileSync(path, "utf8")).toBe('{"spki":["key-a",');
   });
 
   it("keeps one account key per ACME directory", () => {

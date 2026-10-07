@@ -4,7 +4,7 @@
 // ACME challenge certificate for acme-tls/1) and hand the decrypted socket to
 // an http.Server that never listens: no new port is opened.
 
-import { createServer, type IncomingMessage, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
 import { Duplex } from "node:stream";
 import { TLSSocket, createSecureContext, type SecureContext } from "node:tls";
@@ -12,7 +12,7 @@ import { TLSSocket, createSecureContext, type SecureContext } from "node:tls";
 import type { HarnessHandler } from "../early-listen.ts";
 import { ALPN_ACME } from "../../shared/relay-protocol.ts";
 import { parseClientHello, type ClientHelloInfo } from "../../shared/tls-client-hello.ts";
-import { realClock, type Clock } from "./clock.ts";
+import { realClock, type Cancel, type Clock } from "./clock.ts";
 import { markRelaySocket } from "./via.ts";
 
 export const ALPN_HTTP1 = "http/1.1";
@@ -21,6 +21,8 @@ export const HANDSHAKE_TIMEOUT_MS = 10_000;
 /** Matches the relay's idle timeout; SSE heartbeats every 15 s keep streams alive. */
 export const IDLE_TIMEOUT_MS = 10 * 60_000;
 export const KEEP_ALIVE_TIMEOUT_MS = 65_000;
+/** Connections per relay-reported peer that have not yet sent a complete request head. */
+export const MAX_PENDING_PER_PEER = 8;
 const MAX_PEER_LENGTH = 64;
 
 const relayPeers = new WeakMap<Duplex, string>();
@@ -80,7 +82,14 @@ export class SpliceStream extends Duplex {
   }
 }
 
-export type IngressRejection = "invalid-hello" | "wrong-sni" | "unsupported-alpn" | "no-certificate" | "no-challenge" | "timeout";
+export type IngressRejection =
+  | "invalid-hello"
+  | "wrong-sni"
+  | "unsupported-alpn"
+  | "no-certificate"
+  | "no-challenge"
+  | "timeout"
+  | "too-many-pending";
 
 export interface IngressOptions {
   /** `<label>.<base>`, the only SNI this PC serves. */
@@ -99,6 +108,9 @@ export class RelayIngress {
   private phoneContext: SecureContext | null = null;
   private challengeContext: SecureContext | null = null;
   private readonly owned = new Set<Duplex>();
+  private readonly pending = new Map<string, number>();
+  /** Per phone socket: called when the server parsed a request head on it. */
+  private readonly onRequest = new WeakMap<Duplex, (req: IncomingMessage, res: ServerResponse) => void>();
   private closed = false;
 
   constructor(options: IngressOptions) {
@@ -108,6 +120,9 @@ export class RelayIngress {
     this.http = createServer(options.handler);
     this.http.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
     this.http.timeout = IDLE_TIMEOUT_MS;
+    // Node arms headersTimeout and requestTimeout only for a listening server;
+    // servePhone enforces them per connection on the injected clock instead.
+    this.http.on("request", (req: IncomingMessage, res: ServerResponse) => this.onRequest.get(req.socket)?.(req, res));
   }
 
   get hasCertificate(): boolean {
@@ -138,7 +153,13 @@ export class RelayIngress {
       source.destroy();
       return;
     }
+    const release = this.holdPending(peer);
+    if (!release) {
+      this.reject(source, "too-many-pending");
+      return;
+    }
     this.own(source);
+    source.once("close", release);
     let buf = head;
     let done = false;
     const stopTimer = this.clock.schedule(PEEK_TIMEOUT_MS, () => finish("timeout"));
@@ -156,7 +177,7 @@ export class RelayIngress {
         this.reject(source, reason ?? "invalid-hello");
         return;
       }
-      this.route(source, buf, info, peer);
+      this.route(source, buf, info, peer, release);
     };
     const decide = () => {
       const info = parseClientHello(buf);
@@ -182,6 +203,22 @@ export class RelayIngress {
     this.owned.clear();
   }
 
+  /** Counts a connection against its peer until release(); null when the peer is at its cap. */
+  private holdPending(peer: string): (() => void) | null {
+    const key = cleanPeer(peer) ?? "unknown";
+    const count = this.pending.get(key) ?? 0;
+    if (count >= MAX_PENDING_PER_PEER) return null;
+    this.pending.set(key, count + 1);
+    let held = true;
+    return () => {
+      if (!held) return;
+      held = false;
+      const left = (this.pending.get(key) ?? 1) - 1;
+      if (left > 0) this.pending.set(key, left);
+      else this.pending.delete(key);
+    };
+  }
+
   private own(stream: Duplex): void {
     this.owned.add(stream);
     stream.once("close", () => this.owned.delete(stream));
@@ -192,7 +229,7 @@ export class RelayIngress {
     source.destroy();
   }
 
-  private route(source: Duplex, head: Buffer, info: ClientHelloInfo, peer: string): void {
+  private route(source: Duplex, head: Buffer, info: ClientHelloInfo, peer: string, release: () => void): void {
     if (info.sni !== this.host) return this.reject(source, "wrong-sni");
     if (info.alpn.includes(ALPN_ACME)) {
       // RFC 8737 3: the validation server offers acme-tls/1 and nothing else.
@@ -204,7 +241,7 @@ export class RelayIngress {
     if (info.alpn.length > 0 && !info.alpn.includes(ALPN_HTTP1)) return this.reject(source, "unsupported-alpn");
     const context = this.phoneContext;
     if (!context) return this.reject(source, "no-certificate");
-    this.servePhone(source, head, context, peer);
+    this.servePhone(source, head, context, peer, release);
   }
 
   private terminate(source: Duplex, head: Buffer, context: SecureContext, alpn: string): TLSSocket {
@@ -235,11 +272,53 @@ export class RelayIngress {
     });
   }
 
-  private servePhone(source: Duplex, head: Buffer, context: SecureContext, peer: string): void {
+  private servePhone(source: Duplex, head: Buffer, context: SecureContext, peer: string, release: () => void): void {
     const tlsSocket = this.terminate(source, head, context, ALPN_HTTP1);
     const cleaned = cleanPeer(peer);
     if (cleaned) relayPeers.set(tlsSocket, cleaned);
     markRelaySocket(tlsSocket);
+    this.armRequestDeadlines(tlsSocket, release);
     this.http.emit("connection", tlsSocket);
+  }
+
+  /**
+   * While a connection waits for a request, the head must arrive within the
+   * server's headersTimeout and the whole request within requestTimeout. The
+   * wait starts when the connection opens and again when a response finishes,
+   * so a stream in progress is never cut. Once a request head arrived the
+   * connection stops counting as pending for its peer.
+   */
+  private armRequestDeadlines(socket: TLSSocket, release: () => void): void {
+    const server = this.http;
+    let stopHeaders: Cancel | null = null;
+    let stopRequest: Cancel | null = null;
+    const clear = () => {
+      stopHeaders?.();
+      stopRequest?.();
+      stopHeaders = stopRequest = null;
+    };
+    const deadline = (ms: number) => (ms > 0 ? this.clock.schedule(ms, () => socket.destroy()) : null);
+    function waiting(): void {
+      clear();
+      if (socket.destroyed) return;
+      stopHeaders = deadline(server.headersTimeout);
+      stopRequest = deadline(server.requestTimeout);
+    }
+    this.onRequest.set(socket, (req, res) => {
+      release();
+      stopHeaders?.();
+      stopHeaders = null;
+      const received = () => {
+        stopRequest?.();
+        stopRequest = null;
+      };
+      if (req.complete) received();
+      else req.once("end", received);
+      // Handlers run first; one that already ended its response starts the wait now.
+      if (res.writableEnded) waiting();
+      else res.once("finish", waiting);
+    });
+    socket.once("close", clear);
+    waiting();
   }
 }

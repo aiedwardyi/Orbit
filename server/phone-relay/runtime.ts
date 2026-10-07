@@ -2,7 +2,7 @@
 // status contract of design section 7. Dependencies are injected so tests run
 // against an in-process fake relay, a fake CA and a fake clock.
 
-import { PHONE_RELAY_OFF, hostFor, type PhoneRelayStatus } from "../../shared/relay-protocol.ts";
+import { FrameError, PHONE_RELAY_OFF, encodeFrame, hostFor, type PhoneRelayStatus } from "../../shared/relay-protocol.ts";
 import { CertManager, type CertManagerOptions } from "./acme.ts";
 import { RelayClient, defaultConnector, type RelayConnector } from "./client.ts";
 import { realClock, type Clock } from "./clock.ts";
@@ -10,7 +10,7 @@ import { CtWatch, crtShSource, type CtSource } from "./ct-watch.ts";
 import type { PhoneRelay, PhoneRelayOptions } from "./index.ts";
 import { RelayIngress, type IngressRejection } from "./ingress.ts";
 import { relayHostFor, relayMode } from "./mode.ts";
-import { readIdentity, readTicket, ticketProblem, writeTicket, type Identity } from "./store.ts";
+import { decodeTicketClaims, readIdentity, readTicket, ticketProblem, writeTicket, type Identity } from "./store.ts";
 
 export interface PhoneRelayDeps {
   clock: Clock;
@@ -37,6 +37,24 @@ export function createPhoneRelay(options: PhoneRelayOptions, deps: PhoneRelayDep
   if (mode.kind === "invalid") runtime.fixed({ state: "rejected", lastError: mode.reason });
   else runtime.boot(mode.base);
   return { status: () => runtime.status(), stop: () => runtime.stop() };
+}
+
+/** Ed25519 signature length in base64url, for sizing the auth frame a ticket must fit. */
+const AUTH_SIG_CHARS = 86;
+
+/** A refreshed ticket must name this key, outlive the current one and still fit the auth frame. */
+function refreshAcceptable(next: string, current: string, identity: Identity, now: number): boolean {
+  if (ticketProblem(next, identity, now)) return false;
+  const nextExp = decodeTicketClaims(next)?.exp;
+  const currentExp = decodeTicketClaims(current)?.exp;
+  if (nextExp === undefined || (currentExp !== undefined && nextExp <= currentExp)) return false;
+  try {
+    encodeFrame({ type: "auth", label: identity.label, pk: identity.pk, ticket: next, sig: "A".repeat(AUTH_SIG_CHARS) });
+  } catch (error) {
+    if (error instanceof FrameError) return false;
+    throw error;
+  }
+  return true;
 }
 
 class RelayRuntime {
@@ -87,6 +105,7 @@ class RelayRuntime {
     const { clock } = this.deps;
     const host = hostFor(identity.label, base);
     this.current = { ...this.current, host };
+    let currentTicket = ticket;
     const ingress = new RelayIngress({ host, handler, clock, onReject: this.deps.onIngressReject });
     this.ingress = ingress;
     this.certs = new CertManager({
@@ -109,8 +128,9 @@ class RelayRuntime {
       random: this.deps.random,
       onGo: (socket, head, peer) => ingress.accept(socket, head, peer),
       onTicket: (next) => {
-        if (this.stopped || ticketProblem(next, identity, clock.now())) return false;
+        if (this.stopped || !refreshAcceptable(next, currentTicket, identity, clock.now())) return false;
         writeTicket(dataDir, next);
+        currentTicket = next;
         return true;
       },
       onChange: () => this.update(),
