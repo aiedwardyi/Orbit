@@ -150,6 +150,24 @@ describe("live events supervisor", () => {
     stop();
   });
 
+  it("marks the frames a resumed hello replays", () => {
+    const test = harness();
+    const frames: unknown[] = [];
+    const stop = openLiveEvents(
+      { onFrame: (frame) => frames.push(frame), onSnapshotRequired: async () => true },
+      test.platform,
+    );
+
+    test.sources[0].message({ kind: "hello", resumed: true, cursor: "run00000:5" });
+    test.sources[0].message({ kind: "message", value: "missed" }, "run00000:5");
+    test.sources[0].message({ kind: "message", value: "live" }, "run00000:6");
+    expect(frames).toEqual([
+      { kind: "message", value: "missed", replayed: true },
+      { kind: "message", value: "live" },
+    ]);
+    stop();
+  });
+
   it("commits a refused-resume boundary only after its replacement snapshot succeeds", async () => {
     const test = harness();
     const frames: unknown[] = [];
@@ -370,7 +388,7 @@ describe("live events supervisor", () => {
       test.sources[1].message({ kind: "message", value: "new" }, "run00000:5");
       expect(frames).toEqual([
         { kind: "message", value: "old" },
-        { kind: "message", value: "new" },
+        { kind: "message", value: "new", replayed: true },
       ]);
       expect(onSnapshotRequired).not.toHaveBeenCalled();
       stop();

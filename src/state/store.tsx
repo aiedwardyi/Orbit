@@ -57,9 +57,11 @@ import {
   nextStreamState,
   rememberStreamTail,
   retargetStreamTurn,
+  revealStream,
   streamResetFor,
   writeStreamDelta,
   type StreamBuffers,
+  type StreamRamp,
   type TurnEvent,
   type TurnStreamState,
 } from "@/lib/turn-stage";
@@ -2052,6 +2054,8 @@ const StoreContext = createContext<{
   refreshInstances: (rescan?: boolean) => Promise<void>;
 } | null>(null);
 
+type PendingDeltas = StreamBuffers & { tail: string; ramps?: StreamRamp[] };
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, rawDispatch] = useReducer(reducer, initialState, withCachedSnapshot);
   const stateRef = useRef(state);
@@ -2070,7 +2074,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
   const [stream, setStream] = useState<TurnStreamState>(EMPTY_STREAM);
-  const deltaBuffer = useRef(new Map<string, StreamBuffers & { tail: string }>());
+  const deltaBuffer = useRef(new Map<string, PendingDeltas>());
   const deltaFlush = useRef<number | null>(null);
   // `reason` is what ended the stream, not just that it ended: only a turn
   // boundary or a rewind may also drop the thread's staging signal.
@@ -2125,23 +2129,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!threadId || !messageId) return;
     streamTails.current = rememberStreamTail(streamTails.current, threadId, messageId);
   };
-  const flushDeltas = () => {
+  // With a frame time, live text types out; without one (turn end, a window
+  // shown again, history, replays) everything buffered lands at once.
+  const flushDeltas = (now?: number) => {
     if (deltaFlush.current !== null) {
       cancelAnimationFrame(deltaFlush.current);
       deltaFlush.current = null;
     }
     const buf = deltaBuffer.current;
     if (buf.size === 0) return;
-    const entries = [...buf];
-    buf.clear();
-    setStream((prev) => {
-      let next = prev;
-      for (const [threadId, d] of entries) {
-        const tail = lastMessageIdFor(threadId);
-        if (d.tail !== tail) continue;
-        next = writeStreamDelta(next, threadId, d, currentTurnId(next, threadId, tail));
+    const entries: [string, PendingDeltas][] = [];
+    for (const [threadId, d] of buf) {
+      const step = now === undefined || !d.streaming || !d.ramps ? null : revealStream(d.streaming, d.ramps, now);
+      if (step?.rest) {
+        buf.set(threadId, { tail: d.tail, streaming: step.rest, ramps: step.ramps });
+        if (step.shown || d.reasoning !== undefined) entries.push([threadId, { ...d, streaming: step.shown }]);
+      } else {
+        buf.delete(threadId);
+        entries.push([threadId, d]);
       }
-      return next;
+    }
+    if (entries.length) {
+      setStream((prev) => {
+        let next = prev;
+        for (const [threadId, d] of entries) {
+          const tail = lastMessageIdFor(threadId);
+          if (d.tail !== tail) continue;
+          next = writeStreamDelta(next, threadId, d, currentTurnId(next, threadId, tail));
+        }
+        return next;
+      });
+    }
+    if (buf.size) scheduleDeltaFlush();
+  };
+  const scheduleDeltaFlush = () => {
+    if (deltaFlush.current !== null) return;
+    deltaFlush.current = requestAnimationFrame(() => {
+      deltaFlush.current = null;
+      flushDeltas(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? undefined : performance.now());
     });
   };
 
@@ -2937,6 +2962,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!alive || !loaded) return false;
         hydrated = true;
         for (const frame of pendingFrames.splice(0)) handleFrame(frame);
+        // Text held behind the snapshot is history now: it lands whole.
+        flushDeltas();
         return true;
       })().finally(() => {
         hydrationPromise = null;
@@ -3096,14 +3123,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             if (event.streamKind === "assistant_text" || event.streamKind === "reasoning_text") {
               const tail = lastMessageIdFor(event.threadId);
               const pending = buf.get(event.threadId);
-              const base = pending?.tail === tail ? pending : { tail };
-              buf.set(event.threadId, { ...applyStreamDelta(base, event.streamKind, event.delta), tail });
-              if (deltaFlush.current === null) {
-                deltaFlush.current = requestAnimationFrame(() => {
-                  deltaFlush.current = null;
-                  flushDeltas();
-                });
+              const base: PendingDeltas = pending?.tail === tail ? pending : { tail };
+              const next: PendingDeltas = { ...applyStreamDelta(base, event.streamKind, event.delta), tail };
+              // Only a live turn's reply types out; text after the turn ended lands whole.
+              if (event.streamKind === "assistant_text") {
+                next.ramps = event.threadId in liveTurns.current
+                  ? [...(base.ramps ?? []), [event.delta.length, performance.now()]]
+                  : undefined;
               }
+              buf.set(event.threadId, next);
+              scheduleDeltaFlush();
             }
           } else if (event.type === "turn.completed") {
             if (!isCurrentTurnCompletion(liveTurns.current, event.threadId, event.turnId)) break;
@@ -3185,8 +3214,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return hydrate();
       },
       onFrame: (frame) => {
-        if (hydrated) handleFrame(frame);
-        else pendingFrames.push(frame);
+        if (!hydrated) {
+          pendingFrames.push(frame);
+          return;
+        }
+        handleFrame(frame);
+        // A resume replays what this window missed: it lands whole.
+        if (frame.replayed) flushDeltas();
       },
     });
     // rAF never fires while hidden, so text streamed meanwhile would miss the

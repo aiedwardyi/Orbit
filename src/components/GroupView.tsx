@@ -1633,7 +1633,7 @@ export function GroupView({ group }: { group: Group }) {
             >
               {answerText ? (
                 <MessageBoundary fallbackText={answerText}>
-                  <PresenceAnswer text={answerText} />
+                  <PresenceAnswer text={answerText} streaming={partialText !== null} />
                 </MessageBoundary>
               ) : null}
             </TurnPresence>
