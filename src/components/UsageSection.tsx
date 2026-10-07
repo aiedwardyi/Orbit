@@ -50,6 +50,7 @@ function museReportStale(instance: InstanceInfo, now = Date.now()): boolean {
   const at = Date.parse(instance.rateLimits.observedAt);
   return !Number.isFinite(at) || now - at >= MUSE_STALE_MS;
 }
+const STALE_READING_MS = 60 * 60_000;
 type RefreshResult = { error?: string; status?: string };
 
 // One shared row for every engine in the plan card: the label sits left and
@@ -81,8 +82,13 @@ function EnginePlanRow({
     const minutes = Math.max(0, Math.floor((now - Date.parse(observedAt)) / 60_000));
     return minutes < 60
       ? t("usage.limits.refreshAgeMinutes", { minutes })
-      : t("usage.limits.refreshAgeHours", { hours: Math.floor(minutes / 60) });
+      : minutes < 48 * 60
+        ? t("usage.limits.refreshAgeHours", { hours: Math.floor(minutes / 60) })
+        : t("usage.limits.refreshAgeDays", { days: Math.floor(minutes / 1_440) });
   };
+  // A reading older than an hour says so under the rows: engines like Muse
+  // only report what their own host observed, so an old reading can look current.
+  const stale = instance.rateLimits && now - Date.parse(instance.rateLimits.observedAt) > STALE_READING_MS;
   return (
     <div>
       <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
@@ -114,6 +120,11 @@ function EnginePlanRow({
               </div>
             );
           })}
+        </div>
+      )}
+      {instance.rateLimits && stale && (
+        <div className="mt-1 text-[12px] text-ink-secondary">
+          {t("usage.limits.cachedAsOf", { age: age(instance.rateLimits.observedAt) })}
         </div>
       )}
       {!instance.rateLimits && (
