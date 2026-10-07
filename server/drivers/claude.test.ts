@@ -395,6 +395,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_RATE_LIMITS;
     delete process.env.FAKE_CLAUDE_USER_ALLOW;
     delete process.env.FAKE_CLAUDE_TASK_GATE;
+    delete process.env.FAKE_CLAUDE_STEER_LOG;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.XAI_API_KEY;
     delete process.env.COMPOSIO_API_KEY;
@@ -489,6 +490,83 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(text.map((d: any) => d.delta)).toEqual(["plain beside summary", "hello from fake claude"]);
     expect(JSON.stringify(recorder.events)).not.toContain("private reasoning");
     expect(JSON.stringify(recorder.events)).not.toContain("SUBAGENT NARRATION");
+  });
+
+  const narrationPart1 = `https://example.com/a/${"a".repeat(478)}`;
+  const narrationPart2 = "b".repeat(200);
+  const narrationNotice = (summary: string) =>
+    `[Wink note, not from the user] Your last message between tool calls was long, so the user saw only this summary of it: "${summary}". If it held anything they need word for word (links, numbers, commands, steps), send just that again now in one short line, or put it in your final reply. Otherwise ignore this note and don't mention it.`;
+  const armSteerLog = () => {
+    process.env.FAKE_CLAUDE_STEER_LOG = join(scratch, "steers.json");
+  };
+  const readSteers = () => {
+    const parsed = JSON.parse(readFileSync(join(scratch, "steers.json"), "utf8"));
+    return Array.isArray(parsed.beforeRequest) ? parsed.beforeRequest : [];
+  };
+
+  it("sends one narration notice before the next request when a tool call follows", async () => {
+    armSteerLog();
+    await create("narration-notice");
+    await instance.adapter.sendTurn({ threadId: "t-narration-notice", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const quoted = `${narrationPart1} / ${narrationPart2}`.slice(0, 600);
+    expect(readSteers()).toEqual([narrationNotice(quoted)]);
+    expect(quoted).toContain("https://example.com/a/");
+    expect(quoted.endsWith("b".repeat(97))).toBe(true);
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "item.completed", itemType: "assistant_text", text: "next request done" }));
+    expect(instance.adapter.hasSession("t-narration-notice")).toBe(false);
+  });
+
+  it("writes no narration notice when summarized narration has no tool call", async () => {
+    armSteerLog();
+    await create("narration-only");
+    await instance.adapter.sendTurn({ threadId: "t-narration-only", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(readSteers()).toEqual([]);
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+    expect(JSON.stringify(recorder.events)).not.toContain("Wink note");
+    expect(instance.adapter.hasSession("t-narration-only")).toBe(false);
+  });
+
+  it("writes no narration notice without narration", async () => {
+    armSteerLog();
+    await create("narration-plain");
+    await instance.adapter.sendTurn({ threadId: "t-narration-plain", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(readSteers()).toEqual([]);
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+    expect(JSON.stringify(recorder.events)).not.toContain("Wink note");
+  });
+
+  it("writes no narration notice for subagent narration", async () => {
+    armSteerLog();
+    await create("narration-subagent");
+    await instance.adapter.sendTurn({ threadId: "t-narration-sub", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(readSteers()).toEqual([]);
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+    expect(JSON.stringify(recorder.events)).not.toContain("SUBAGENT NARRATION");
+    expect(JSON.stringify(recorder.events)).not.toContain("Wink note");
+  });
+
+  it("keeps a narration notice out of emitted events", async () => {
+    armSteerLog();
+    await create("narration-notice");
+    await instance.adapter.sendTurn({ threadId: "t-narration-hidden", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(readSteers()[0]).toContain("Wink note");
+    expect(JSON.stringify(recorder.events)).not.toContain("Wink note");
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
   });
 
   it("never settles a subagent's final report as a reply", async () => {

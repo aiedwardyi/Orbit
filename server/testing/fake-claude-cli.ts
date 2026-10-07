@@ -19,6 +19,13 @@
 //                      | background-task | foreground-task (the first turn
 //                        starts task-1 with is_backgrounded true / false)
 //                      | background-hang (starts background task-1, then hangs)
+//                      | narration-notice (summaries on one message id, then a
+//                        tool_use; waits and logs steers before the next request)
+//                      | narration-only (summary, same message id, no tool_use)
+//                      | narration-plain (text and a tool, narration not flagged)
+//                      | narration-subagent (flagged narration on a subagent)
+//   FAKE_CLAUDE_STEER_LOG  path; those four modes write
+//                      { beforeRequest: string[] } after the steer window
 //   FAKE_CLAUDE_TASK_GATE  path; once it exists, a background task-1 finishes
 //                      and its notification wakes the CLI after `result`
 //   FAKE_CLAUDE_USER_ALLOW  tools the user's own settings.json allows, e.g.
@@ -135,6 +142,82 @@ const promptText = (prompt: JsonValue): string => {
 
 const finishIfDone = () => {
   if (stdinEnded && !turnRunning) process.exit(0);
+};
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const logSteers = () => {
+  const path = process.env.FAKE_CLAUDE_STEER_LOG;
+  if (path) writeFileSync(path, JSON.stringify({ beforeRequest: steered.slice() }));
+};
+
+const scriptResult = () => {
+  out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0.01, usage: { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 } });
+  turnRunning = false;
+  finishIfDone();
+};
+
+// Lengths are duplicated in claude.test.ts, which asserts the 600-char cap.
+const playNarrationScript = async () => {
+  const thinking = (text: string) => ({ type: "thinking", thinking: text, signature: "sig" });
+  const bash = (id: string, command: string) => ({ type: "tool_use", id, name: "Bash", input: { command } });
+  try {
+    if (mode === "narration-notice") {
+      const part1 = `https://example.com/a/${"a".repeat(478)}`;
+      const part2 = "b".repeat(200);
+      out({ type: "assistant", message: { id: "msg-0", content: [thinking("private reasoning")] } });
+      out({ type: "assistant", narration_block_indexes: [0], message: { id: "msg-1", content: [thinking(part1)] } });
+      out({
+        type: "assistant",
+        narration_block_indexes: [0],
+        message: { id: "msg-1", content: [thinking(part2), bash("tu-1", "echo hi")] },
+      });
+      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-1", is_error: false }] } });
+      const started = Date.now();
+      while (steered.length === 0 && Date.now() - started < 2_000) await pause(10);
+      await pause(30);
+      logSteers();
+      // A text echo of stdin must not become a chat item.
+      if (steered[0]) out({ type: "user", message: { role: "user", content: [{ type: "text", text: steered[0] }] } });
+      out({ type: "system", subtype: "status", status: "requesting" });
+      out({ type: "assistant", message: { id: "msg-2", content: [{ type: "text", text: "next request done" }] } });
+    } else if (mode === "narration-only") {
+      out({ type: "assistant", narration_block_indexes: [0], message: { id: "msg-1", content: [thinking("only a summary")] } });
+      out({ type: "assistant", message: { id: "msg-1", content: [{ type: "text", text: "final answer" }] } });
+      await pause(800);
+      logSteers();
+    } else if (mode === "narration-plain") {
+      out({
+        type: "assistant",
+        message: {
+          id: "msg-1",
+          content: [thinking("private reasoning"), { type: "text", text: "plain reply" }, bash("tu-1", "echo hi")],
+        },
+      });
+      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-1", is_error: false }] } });
+      await pause(800);
+      logSteers();
+      out({ type: "system", subtype: "status", status: "requesting" });
+      out({ type: "assistant", message: { id: "msg-2", content: [{ type: "text", text: "done" }] } });
+    } else if (mode === "narration-subagent") {
+      out({
+        type: "assistant",
+        parent_tool_use_id: "task-1",
+        narration_block_indexes: [0],
+        message: { id: "msg-sub", content: [thinking("SUBAGENT NARRATION")] },
+      });
+      out({
+        type: "assistant",
+        parent_tool_use_id: "task-1",
+        message: { id: "msg-sub", content: [bash("tu-sub", "echo sub")] },
+      });
+      out({ type: "assistant", message: { id: "msg-main", content: [bash("tu-1", "echo main")] } });
+      await pause(800);
+      logSteers();
+    }
+  } finally {
+    scriptResult();
+  }
 };
 
 // The real CLI's order, checked against 2.1.x: a --settings ask rule beats
@@ -374,6 +457,16 @@ const playTurn = (prompt: JsonValue) => {
       narration_block_indexes: [1],
       message: { content: [{ type: "text", text: "plain beside summary" }, thinking("the summary line\n\n")] },
     });
+  }
+
+  if (
+    mode === "narration-notice" ||
+    mode === "narration-only" ||
+    mode === "narration-plain" ||
+    mode === "narration-subagent"
+  ) {
+    void playNarrationScript();
+    return;
   }
 
   if ((mode === "background-task" || mode === "foreground-task") && !taskStarted) {

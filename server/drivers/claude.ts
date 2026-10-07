@@ -505,6 +505,13 @@ function replySegments(content: ClaudeContentBlock[] | string | undefined, narra
   return segments.filter((segment) => segment.text.trim());
 }
 
+const NARRATION_NOTICE_MAX = 600;
+
+function narrationNotice(summary: string): string {
+  const quoted = summary.slice(0, NARRATION_NOTICE_MAX);
+  return `[Wink note, not from the user] Your last message between tool calls was long, so the user saw only this summary of it: "${quoted}". If it held anything they need word for word (links, numbers, commands, steps), send just that again now in one short line, or put it in your final reply. Otherwise ignore this note and don't mention it.`;
+}
+
 type TurnUsage = { input: number; output: number; cachedInput?: number };
 
 // cache reads count as input: billed (at the cache rate) and they fill the
@@ -715,6 +722,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         continuation?: boolean;
         /** steers written since the CLI last sent a model request */
         unsentSteers?: number;
+        /** summarized narration held until this response calls a tool */
+        narrationNotice?: { parts: string[]; messageId?: string };
         /** accounting of a `result` held open for those steers */
         carried?: { cost: number; usage?: TurnUsage };
         timer: ReturnType<typeof startTurnTimer>;
@@ -1143,6 +1152,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       ) => {
         const t = session.turn;
         if (!t || t.settled) return;
+        t.narrationNotice = undefined;
         t.settled = true;
         // a held `result` already spent; keep it even when this turn ends
         // without one (interrupt, exit)
@@ -1265,12 +1275,18 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             const msg = o.message ?? {};
             // a subagent's final report is the main agent's input, not a reply
             if (!o.parent_tool_use_id) {
-              const streamed = Boolean(session.turn?.sawStreamDelta);
+              const turn = session.turn;
+              const messageId: string | undefined = msg.id || undefined;
+              // A later assistant message is a new response unless it carries this id.
+              if (turn?.narrationNotice && (turn.narrationNotice.messageId === undefined || turn.narrationNotice.messageId !== messageId)) {
+                turn.narrationNotice = undefined;
+              }
+              const streamed = Boolean(turn?.sawStreamDelta);
               let sawPlain = false;
               for (const segment of replySegments(msg.content, o.narration_block_indexes)) {
                 if (segment.summarized) {
                   // no delta: a summary must not flash as an unlabeled reply
-                  session.turn?.timer.mark("firstVisible");
+                  turn?.timer.mark("firstVisible");
                   emit({
                     ...base(threadId, currentTurnId()),
                     type: "item.completed",
@@ -1278,17 +1294,33 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                     text: segment.text,
                     summarized: true,
                   });
+                  if (turn && !turn.settled) {
+                    const pending = turn.narrationNotice ?? { parts: [], messageId };
+                    pending.parts.push(segment.text);
+                    turn.narrationNotice = pending;
+                  }
                   continue;
                 }
                 sawPlain = true;
                 // fallback delta for CLIs/paths that never streamed the block
                 if (!streamed) {
-                  session.turn?.timer.mark("firstVisible");
+                  turn?.timer.mark("firstVisible");
                   emit({ ...base(threadId, currentTurnId()), type: "content.delta", streamKind: "assistant_text", delta: segment.text });
                 }
                 emit({ ...base(threadId, currentTurnId()), type: "item.completed", itemType: "assistant_text", text: segment.text });
               }
-              if (session.turn && sawPlain) session.turn.sawStreamDelta = false;
+              if (turn && sawPlain) turn.sawStreamDelta = false;
+              const blocks = Array.isArray(msg.content) ? msg.content : [];
+              let callsTool = false;
+              for (const block of blocks) {
+                if (block?.type === "tool_use") callsTool = true;
+              }
+              if (turn && !turn.settled && callsTool && turn.narrationNotice?.parts.length) {
+                // Quoted summary of prose the CLI hid between tool calls.
+                const summary = turn.narrationNotice.parts.join(" / ");
+                turn.narrationNotice = undefined;
+                void deliverSteer(session, threadId, narrationNotice(summary));
+              }
             }
             for (const b of Array.isArray(msg.content) ? msg.content : []) {
               if (b.type === "tool_use") {
@@ -1344,6 +1376,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             break;
           }
           case "result":
+            if (session.turn) session.turn.narrationNotice = undefined;
             // A steer that missed the last request is answered as its own
             // query right after this `result`. Settling here frees the thread
             // under it, so a queued send races the CLI and lands out of order.
@@ -1416,6 +1449,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               session.mcpConfigPath = null;
             }
             sessions.delete(threadId);
+            t.narrationNotice = undefined;
             session.turn = null;
             active.delete(threadId);
             retryState.delete(threadId);
@@ -1465,6 +1499,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               session.mcpConfigPath = null;
             }
             sessions.delete(threadId);
+            t.narrationNotice = undefined;
             session.turn = null;
             launch.retry.attempt++;
             const delayMs = computeBackoff(launch.retry.attempt - 1);
@@ -1560,16 +1595,23 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       return { turnId };
     };
 
+    /** Same stdin write and unsent-steer count as a user steer. */
+    const deliverSteer = (s: Session, threadId: string, text: string): Promise<boolean> => {
+      const turn = s.turn;
+      if (!turn || turn.settled || s.closing || s.child.exitCode !== null) return Promise.resolve(false);
+      turn.unsentSteers = (turn.unsentSteers ?? 0) + 1;
+      return writeUser(s, threadId, text).then((written) => {
+        if (!written && turn.unsentSteers) turn.unsentSteers -= 1;
+        return written;
+      });
+    };
+
     /** A user message into the running turn: the CLI delivers it before its
      * next model call. False when nothing is running here to steer. */
-    const steer = async (threadId: string, text: string): Promise<boolean> => {
+    const steer = (threadId: string, text: string): Promise<boolean> => {
       const s = sessions.get(threadId);
-      if (!s || !s.turn || s.turn.settled || s.closing || s.child.exitCode !== null) return false;
-      const turn = s.turn;
-      turn.unsentSteers = (turn.unsentSteers ?? 0) + 1;
-      const written = await writeUser(s, threadId, text);
-      if (!written && turn.unsentSteers) turn.unsentSteers -= 1;
-      return written;
+      if (!s) return Promise.resolve(false);
+      return deliverSteer(s, threadId, text);
     };
 
     const signedIn = cachedSignIn(() =>
