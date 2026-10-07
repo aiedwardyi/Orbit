@@ -813,16 +813,19 @@ function useLivePanes(botId: string, enabled: boolean): Set<string> | null {
     setLive(null);
     if (!bridge || !enabled) return;
     let alive = true;
+    const closed = new Set<string>();
     void Promise.resolve().then(() => bridge.readBot?.(botId)).then((snapshot) => {
       if (!alive || !snapshot?.panes) return;
-      const ids = snapshot.panes.filter((p) => !p.main).map((p) => p.sessionId);
+      const ids = snapshot.panes.filter((p) => !p.main && !closed.has(p.sessionId)).map((p) => p.sessionId);
       setLive((current) => new Set([...ids, ...(current ?? [])]));
     }).catch(() => {});
     const offOpened = bridge.onOpened?.((event) => {
       if (event.botId === botId) setLive((current) => new Set([...(current ?? []), event.id]));
     });
     const offClosed = bridge.onClosed?.((event) => {
-      if (event.botId === botId) setLive((current) => { const next = new Set(current ?? []); next.delete(event.id); return next; });
+      if (event.botId !== botId) return;
+      closed.add(event.id);
+      setLive((current) => { const next = new Set(current ?? []); next.delete(event.id); return next; });
     });
     return () => { alive = false; offOpened?.(); offClosed?.(); };
   }, [botId, enabled]);
