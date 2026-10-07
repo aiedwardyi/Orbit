@@ -2962,13 +2962,13 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("gives a new bot its engine default effort level", async () => {
+  it("gives a new bot the Auto starting effort level", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
-    expect(bot.modelSelection.effort).toBe("high");
+    expect(bot.modelSelection.effort).toBe("medium");
 
     const renamed = await api("PATCH", `/api/bots/${bot.id}`, { name: "Plain" });
     expect(renamed.status).toBe(200);
-    expect(renamed.body.bot.modelSelection.effort).toBe("high");
+    expect(renamed.body.bot.modelSelection.effort).toBe("medium");
   });
 
   // This fixture pins a single unknown driver, so no instance here ever
