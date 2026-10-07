@@ -98,6 +98,8 @@ describe("CodexDriver turns (fake app-server)", () => {
     delete process.env.FAKE_CODEX_STATE;
     delete process.env.FAKE_CODEX_RETRY_SCALE;
     delete process.env.FAKE_CODEX_RATE_LIMITS;
+    delete process.env.FAKE_CODEX_USAGE;
+    delete process.env.FAKE_CODEX_USAGE_REPLAY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.BOX_TOKEN;
     delete process.env.OMB_TTS_KEY;
@@ -528,6 +530,58 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(methods).toContain("thread/resume");
     expect(methods).not.toContain("thread/start");
     expect(seen.argv).toContain('web_search="live"');
+  });
+
+  // codex sends one thread/tokenUsage/updated per model call: `last` is that
+  // call, `total` the thread so far (tokens: [input, cachedInput, output])
+  const tokens = ([inputTokens, cachedInputTokens, outputTokens]: number[]) => ({
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+  });
+  const usageTurn = async (threadId: string, reports: unknown[], opts: { resumeCursor?: string } = {}) => {
+    process.env.FAKE_CODEX_USAGE = JSON.stringify(reports);
+    await instance.adapter.sendTurn({ threadId, text: "go", ...opts });
+    return recorder.until((e) => e.type === "turn.completed");
+  };
+
+  it("reports the whole turn's spend when the turn makes several model calls", async () => {
+    await create();
+    const done = await usageTurn("t-calls", [
+      { last: tokens([100, 0, 10]), total: tokens([100, 0, 10]) },
+      { last: tokens([150, 50, 20]), total: tokens([250, 50, 30]) },
+      { last: tokens([200, 100, 30]), total: tokens([450, 150, 60]) },
+    ]);
+    expect(done).toMatchObject({ usage: { input: 450, output: 60, cachedInput: 150 } });
+  });
+
+  it("reports only this turn on a resumed thread whose total carries earlier turns", async () => {
+    await create({ mode: "resume" });
+    // the restored thread usage the app-server replays after thread/resume
+    process.env.FAKE_CODEX_USAGE_REPLAY = JSON.stringify({ last: tokens([300, 100, 20]), total: tokens([1000, 400, 90]) });
+    const done = await usageTurn(
+      "t-resumed-usage",
+      [
+        { last: tokens([200, 100, 10]), total: tokens([1200, 500, 100]) },
+        { last: tokens([300, 200, 25]), total: tokens([1500, 700, 125]) },
+      ],
+      { resumeCursor: "codex-thread-9" },
+    );
+    expect(done).toMatchObject({ usage: { input: 500, output: 35, cachedInput: 300 } });
+  });
+
+  it("sums the turn's calls when the app-server sends no thread total", async () => {
+    await create();
+    const done = await usageTurn("t-no-total", [{ last: tokens([100, 0, 10]) }, { last: tokens([150, 50, 20]) }]);
+    expect(done).toMatchObject({ usage: { input: 250, output: 30, cachedInput: 50 } });
+  });
+
+  it("leaves a single-call turn's spend as that call", async () => {
+    await create({ mode: "resume" });
+    const done = await usageTurn("t-single", [{ last: tokens([7, 4, 3]), total: tokens([907, 404, 53]) }], {
+      resumeCursor: "codex-thread-9",
+    });
+    expect(done).toMatchObject({ usage: { input: 7, output: 3, cachedInput: 4 } });
   });
 
   it("falls back to a fresh thread when resume fails", async () => {

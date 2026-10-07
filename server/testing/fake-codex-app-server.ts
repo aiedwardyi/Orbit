@@ -8,6 +8,10 @@
 //                     mcp-elicitation | logged-in-stdout | logged-out | unauthorized
 //                     | bench-quiet (no tool items — latency floor)
 //   FAKE_CODEX_DUMP   path to write {argv, env, calls, decision} as JSON
+//   FAKE_CODEX_USAGE  JSON array of tokenUsage payloads, one
+//                     thread/tokenUsage/updated per model call of the turn
+//   FAKE_CODEX_USAGE_REPLAY  JSON tokenUsage the app-server replays after
+//                     thread/resume, stamped with an earlier turn's id
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { readFileSync, writeFileSync, writeSync } from "node:fs";
@@ -71,7 +75,15 @@ const finishTurn = () => {
     notify("item/agentMessage/delta", { itemId: "m1", delta: "fake codex" });
   }
   notify("item/completed", { item: { id: "m1", type: "agentMessage", text: "done from fake codex" } });
-  notify("thread/tokenUsage/updated", { tokenUsage: { total: { inputTokens: 7, cachedInputTokens: 4, outputTokens: 3 } } });
+  if (process.env.FAKE_CODEX_USAGE) {
+    // like the real app-server: one report per model call, each carrying
+    // that call (`last`) and the running thread total
+    for (const tokenUsage of JSON.parse(process.env.FAKE_CODEX_USAGE)) {
+      notify("thread/tokenUsage/updated", { threadId: "codex-thread-1", turnId: "native-turn-1", tokenUsage });
+    }
+  } else {
+    notify("thread/tokenUsage/updated", { tokenUsage: { total: { inputTokens: 7, cachedInputTokens: 4, outputTokens: 3 } } });
+  }
   // ChatGPT-plan accounts get this alongside the token count; resetsAt is
   // epoch SECONDS on the wire
   if (process.env.FAKE_CODEX_RATE_LIMITS) {
@@ -144,6 +156,13 @@ process.stdin.on("data", (chunk) => {
       case "thread/resume":
         if (mode === "resume") {
           out({ jsonrpc: "2.0", id: msg.id, result: { thread: { id: msg.params?.threadId } } });
+          if (process.env.FAKE_CODEX_USAGE_REPLAY) {
+            notify("thread/tokenUsage/updated", {
+              threadId: msg.params?.threadId,
+              turnId: "codex-turn-earlier",
+              tokenUsage: JSON.parse(process.env.FAKE_CODEX_USAGE_REPLAY),
+            });
+          }
         } else {
           out({ jsonrpc: "2.0", id: msg.id, error: { code: -1, message: "no such thread" } });
         }
@@ -201,6 +220,7 @@ process.stdin.on("data", (chunk) => {
           }
         }
         out({ jsonrpc: "2.0", id: msg.id, result: { turn: { id: "native-turn-1" } } });
+        notify("turn/started", { threadId: "codex-thread-1", turn: { id: "native-turn-1" } });
         if (mode.startsWith("steer")) {
           notify("item/agentMessage/delta", { delta: "working" });
           break;
