@@ -591,7 +591,9 @@ const playTurn = (prompt: JsonValue) => {
     // the final request is already out, so a steer landing now waits for
     // its own query, the way the real CLI runs it after `result`. Every
     // caller steers the first turn, so its gap waits for the steer; the
-    // follow-up that answers it keeps the plain 800 ms gap.
+    // follow-up that answers it keeps the plain 800 ms gap, or with
+    // FAKE_CLAUDE_LATE_STEER_HOLD stays open until the test interrupts it
+    // (capped so a missed interrupt still settles).
     out({ type: "system", subtype: "status", status: "requesting" });
     out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "reply" } } });
     const close = () => {
@@ -600,7 +602,7 @@ const playTurn = (prompt: JsonValue) => {
       finish();
       if (late.length) playTurn({ type: "user", message: { role: "user", content: late.join(" | ") } });
     };
-    if (lateSteerAnswered) setTimeout(close, 800);
+    if (lateSteerAnswered) setTimeout(close, process.env.FAKE_CLAUDE_LATE_STEER_HOLD ? 10_000 : 800);
     else {
       lateSteerAnswered = true;
       untilSteer(close);
