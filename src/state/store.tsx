@@ -638,6 +638,8 @@ export interface AppState {
   terminalPanes: Record<string, string[]>;
   /** Latest task switch request per bot; an older response is dropped. */
   taskSwitches: Record<string, number>;
+  /** Task switch generation each bot's last branch choice followed; its snapshot keeps that leaf. */
+  branchChoices: Record<string, number>;
 }
 
 type StopHold = { until: number; busy: boolean; activity?: Bot["activity"] };
@@ -1599,7 +1601,10 @@ export function reducer(state: AppState, action: Action): AppState {
         if (!children.length) break;
         cur = children.reduce((a, b) => (b.at >= a.at ? b : a)).id;
       }
-      return updateBot(state, action.botId, (b) => ({ ...b, activeLeafId: cur }));
+      const generation = state.taskSwitches[action.botId];
+      const chosen =
+        generation === undefined ? state : { ...state, branchChoices: { ...state.branchChoices, [action.botId]: generation } };
+      return updateBot(chosen, action.botId, (b) => ({ ...b, activeLeafId: cur }));
     }
     // optimistic room edits; the server's group frame confirms them later
     case "patchGroup":
@@ -1848,8 +1853,11 @@ export function reducer(state: AppState, action: Action): AppState {
         ];
         const liveLeaf = messages.find((message) => message.id === bot.activeLeafId);
         const snapshotLeaf = messages.find((message) => message.id === action.bot.activeLeafId);
+        const choseBranchSince =
+          action.generation !== undefined && state.branchChoices[action.bot.id] === action.generation;
         const keepLiveLeaf = Boolean(
           liveLeaf && (
+            choseBranchSince ||
             !snapshotLeaf ||
             messageIsAncestor(messages, liveLeaf.id, snapshotLeaf.id) ||
             (!messageIsAncestor(messages, snapshotLeaf.id, liveLeaf.id) && liveLeaf.at >= snapshotLeaf.at)
@@ -1971,6 +1979,7 @@ export const initialState: AppState = {
   terminalAttention: {},
   terminalPanes: {},
   taskSwitches: {},
+  branchChoices: {},
 };
 
 // ── API client ─────────────────────────────────────────────────────────
