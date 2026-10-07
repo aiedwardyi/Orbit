@@ -396,6 +396,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_USER_ALLOW;
     delete process.env.FAKE_CLAUDE_TASK_GATE;
     delete process.env.FAKE_CLAUDE_STEER_LOG;
+    delete process.env.FAKE_CLAUDE_NARRATION_TEXT;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.XAI_API_KEY;
     delete process.env.COMPOSIO_API_KEY;
@@ -599,6 +600,18 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
     expect(readSteers()).toEqual([narrationNotice("first summary"), "and the links?", narrationNotice("second summary")]);
     expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+  });
+
+  it("sends a narration notice as plain text even when it quotes an image tag", async () => {
+    armSteerLog();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7]);
+    const summary = `see <attached-image path="${saveImage(png, "image/png").path}" />`;
+    process.env.FAKE_CLAUDE_NARRATION_TEXT = summary;
+    await create("narration-tag");
+    await instance.adapter.sendTurn({ threadId: "t-narration-tag", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(readSteers()).toEqual([narrationNotice(summary)]);
   });
 
   it("never settles a subagent's final report as a reply", async () => {

@@ -805,8 +805,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }, SESSION_IDLE_MS);
       s.idleTimer.unref?.();
     };
-    const writeUser = (s: Session, threadId: string, text: string): Promise<boolean> => {
-      const content = claudeUserContent(text);
+    const writeUser = (s: Session, threadId: string, text: string, attachImages = true): Promise<boolean> => {
+      const content = attachImages ? claudeUserContent(text) : text;
       const promptMsg = { type: "user", message: { role: "user", content } };
       if (!s.child.stdin.writable || s.child.stdin.destroyed) return Promise.resolve(false);
       return new Promise((resolve) => {
@@ -1323,7 +1323,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 // Quoted summary of prose the CLI hid between tool calls; one per user message.
                 if (!turn.narrationNoticeSent) {
                   turn.narrationNoticeSent = true;
-                  void deliverSteer(session, threadId, narrationNotice(summary));
+                  void deliverSteer(session, threadId, narrationNotice(summary), false);
                 }
               }
             }
@@ -1601,11 +1601,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     };
 
     /** Same stdin write and unsent-steer count as a user steer. */
-    const deliverSteer = (s: Session, threadId: string, text: string): Promise<boolean> => {
+    const deliverSteer = (s: Session, threadId: string, text: string, attachImages = true): Promise<boolean> => {
       const turn = s.turn;
       if (!turn || turn.settled || s.closing || s.child.exitCode !== null) return Promise.resolve(false);
       turn.unsentSteers = (turn.unsentSteers ?? 0) + 1;
-      return writeUser(s, threadId, text).then((written) => {
+      return writeUser(s, threadId, text, attachImages).then((written) => {
         if (!written && turn.unsentSteers) turn.unsentSteers -= 1;
         return written;
       });
