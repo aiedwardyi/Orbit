@@ -5,7 +5,7 @@
 
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { discover, execute, gcloudRunner, nameComDns, realLocal, type Dns } from "./exec.ts";
+import { discover, execute, gcloudRunner, manualDns, nameComDns, realLocal, type DnsAccess } from "./exec.ts";
 import {
   PlanError,
   describeStep,
@@ -15,6 +15,7 @@ import {
   planProvision,
   planUpdate,
   type DeployOptions,
+  type DnsMode,
   type ProjectState,
   type Step,
   type Tier,
@@ -22,12 +23,13 @@ import {
 
 const USAGE = `usage: wink-relay <provision|update|move|pause> --project P --base B --dns-zone Z
   [--region asia-northeast3] [--zone <region>-a] [--network-tier STANDARD|PREMIUM]
-  [--machine e2-small] [--prefix wink-relay] [--operator-key FILE]
+  [--machine e2-small] [--prefix wink-relay] [--address-name <prefix>-ip] [--operator-key FILE]
+  [--dns namecom|manual]
   [--acme-directory URL] [--acme-email E] [--accept-acme-terms]
   [--from-project OLD]   (move)
   [--offline]            (provision/update: plan without reading cloud state)
   [--apply]              (without it, nothing is changed)
-env: NAMECOM_USER, NAMECOM_TOKEN for DNS.`;
+env: NAMECOM_USER, NAMECOM_TOKEN for --dns namecom (manual needs none).`;
 
 /** Offline planning: nothing exists yet, except the instance an update targets. */
 function offlineState(action: string, base: string): ProjectState {
@@ -49,6 +51,8 @@ export function parseOptions(argv: string[]): { action: string; opts: DeployOpti
       "network-tier": { type: "string", default: "STANDARD" },
       machine: { type: "string", default: "e2-small" },
       prefix: { type: "string", default: "wink-relay" },
+      "address-name": { type: "string" },
+      dns: { type: "string", default: "namecom" },
       "operator-key": { type: "string" },
       "acme-directory": { type: "string", default: "https://acme-v02.api.letsencrypt.org/directory" },
       "acme-email": { type: "string" },
@@ -69,6 +73,8 @@ export function parseOptions(argv: string[]): { action: string; opts: DeployOpti
     base: values.base.toLowerCase(),
     dnsZone: values["dns-zone"].toLowerCase(),
     prefix: values.prefix!,
+    addressName: values["address-name"] ?? `${values.prefix!}-ip`,
+    dnsMode: values.dns!.toLowerCase() as DnsMode,
     machine: values.machine!,
     operatorKeyFile: values["operator-key"],
     acmeDirectory: values["acme-directory"]!,
@@ -103,14 +109,19 @@ export async function plan(
 async function main(): Promise<void> {
   const { action, opts, fromProject, apply, offline } = parseOptions(process.argv.slice(2));
   const out = (line: string) => process.stdout.write(`${line}\n`);
-  // Planning needs no DNS access (deletes re-read records at apply time); applying does.
+  // Planning needs no registrar access (deletes re-read records at apply time); applying does.
+  // Manual DNS never touches a registrar and reads public DNS only.
   const hasDnsCreds = Boolean(process.env.NAMECOM_USER && process.env.NAMECOM_TOKEN);
-  const dns: Dns | null = apply || hasDnsCreds ? nameComDns() : null;
+  let dns: DnsAccess | null = null;
+  if (opts.dnsMode === "manual") dns = manualDns(opts);
+  else if (apply || hasDnsCreds) dns = nameComDns();
   const read = (project: string): Promise<ProjectState> =>
     offline ? Promise.resolve(offlineState(action, opts.base)) : discover({ ...opts, project }, gcloudRunner, dns);
   const steps = await plan(action, opts, fromProject, read);
 
-  out(`PLAN ${action}: project=${opts.project}${fromProject ? ` from=${fromProject}` : ""} region=${opts.region} zone=${opts.zone} tier=${opts.tier} base=${opts.base}`);
+  out(
+    `PLAN ${action}: project=${opts.project}${fromProject ? ` from=${fromProject}` : ""} region=${opts.region} zone=${opts.zone} tier=${opts.tier} base=${opts.base} address=${opts.addressName} dns=${opts.dnsMode}`,
+  );
   steps.forEach((step, i) => out(`${String(i + 1).padStart(2)}. ${describeStep(step)}`));
   if (!apply) {
     out(offline ? "dry run (offline: state assumed empty), nothing changed" : "dry run, nothing changed. Re-run with --apply to execute.");

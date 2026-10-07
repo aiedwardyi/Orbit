@@ -61,18 +61,30 @@ Dry run unless `--apply` (`-Apply`). Every run prints the full plan first.
 .\relay\deploy\wink-relay.ps1 pause     -Project <project> -Base <base> -DnsZone <zone>
 ```
 
-Defaults: region `asia-northeast3`, zone `<region>-a`, Standard network tier, `e2-small`, prefix `wink-relay`.
-DNS credentials: `NAMECOM_USER` and `NAMECOM_TOKEN` in the environment.
+Defaults: region `asia-northeast3`, zone `<region>-a`, Standard network tier, `e2-small`, prefix `wink-relay`,
+address `<prefix>-ip` (`-AddressName`), DNS `namecom` (`-Dns namecom|manual`).
+DNS credentials for `namecom`: `NAMECOM_USER` and `NAMECOM_TOKEN` in the environment; `manual` needs none.
 
 - Resources created carry the description `wink-relay-owned:<base>`; pause and move delete only those.
-- An existing `<prefix>-ip` is reused only if its project, region and tier match and nothing else uses it.
+- An existing address (`-AddressName`, e.g. `wink-relay`) is reused only if its project, region and tier match and
+  nothing else uses it; one without the owner marker is never released by pause or move.
+- `-Dns manual` never calls name.com: provision stops with the record to add (`A *.<sub> -> <ip>, TTL 300`) until a
+  random name under `<base>` resolves to the address at 8.8.8.8 and 1.1.1.1; re-run it once added. Pause prints the
+  record to remove by hand.
+- Files go to the login home as `<vm>:.`, since pscp (gcloud scp on Windows) does not expand `~`.
+- The operator key is scp'd as `~/operator.key.upload`, installed 0400 root and shredded, because ssh over IAP
+  from Windows does not forward stdin.
+- The VM is created with `enable-guest-attributes=TRUE` so host keys are published at first boot and the first
+  non-interactive scp/ssh does not stop at a host-key prompt; setting it later is too late.
+- Provision enables `iap.googleapis.com` next to compute, for IAP TCP forwarding.
 - Pause removes `*.<base>` A records that point at the old IP before releasing it. Move provisions the new project,
   points DNS at it, checks health, then pauses the old project; records already on the new IP are never deleted.
-- The VM has no service account and no scopes; SSH is only through IAP (`35.235.240.0/20`) with OS Login.
+- The VM has no service account and no scopes; SSH is only through IAP (`35.235.240.0/20`, priority 1000) with OS Login.
+  An owned `<prefix>-deny-admin` rule (tcp:22,3389 from anywhere, priority 1100) overrides the default network's
+  `default-allow-ssh`/`-rdp`, which the tool does not delete.
 - Node `v24.21.0` linux-x64 is verified by a pinned sha256 on the deploying machine and again on the VM.
 - Deploying account needs roughly: `roles/serviceusage.serviceUsageAdmin` (once), `roles/compute.instanceAdmin.v1`,
   `roles/compute.networkAdmin`, `roles/compute.securityAdmin`, `roles/iap.tunnelResourceAccessor`, `roles/compute.osAdminLogin`.
 
 Not verified against live services: name.com API v4 record shapes, gcloud flag behavior on a real project
-(including Standard tier in `asia-northeast3` and the `default` network), `gcloud compute ssh` stdin on Windows,
-the systemd sandbox options with Node 24 on Debian 12, and Let's Encrypt issuance.
+(including Standard tier in `asia-northeast3` and the `default` network), the systemd sandbox options with Node 24 on Debian 12, and Let's Encrypt issuance.

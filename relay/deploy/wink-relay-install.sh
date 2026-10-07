@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs on the relay VM, uploaded to the deploying user's home and called as
-#   sudo bash wink-relay-install.sh install-key   < operator key on stdin
+#   sudo bash wink-relay-install.sh install-key <upload>   (key file scp'd to the deploying user's home)
 #   sudo bash wink-relay-install.sh install <node-version> <node-sha256>
 #   sudo bash wink-relay-install.sh restart
 set -euo pipefail
@@ -13,17 +13,28 @@ opt=/opt/wink-relay
 
 case "$cmd" in
   install-key)
-    install -d -m 0755 -o root -g root "$etc"
-    tmp="$(mktemp "$etc/.operator.key.XXXXXX")"
-    trap 'rm -f "$tmp"' EXIT
-    head -c 4096 > "$tmp"
-    if ! grep -q '^-----BEGIN PRIVATE KEY-----$' "$tmp"; then
-      echo "install-key: stdin is not a PEM private key" >&2
+    # The key arrives as a file because ssh over IAP from Windows does not forward stdin.
+    name="${2:?upload file name}"
+    [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "install-key: bad upload name" >&2; exit 1; }
+    upload="$home/$name"
+    tmp=""
+    # The upload is shredded on every exit path, success or not.
+    trap 'rm -f "$tmp"; if [ -f "$upload" ] && [ ! -L "$upload" ]; then shred -u "$upload" 2>/dev/null || rm -f "$upload"; fi' EXIT
+    if [ -L "$upload" ] || [ ! -f "$upload" ]; then
+      echo "install-key: $upload is not a regular file" >&2
       exit 1
     fi
+    install -d -m 0755 -o root -g root "$etc"
+    tmp="$(mktemp "$etc/.operator.key.XXXXXX")"
+    head -c 4096 "$upload" > "$tmp"
+    if ! grep -q '^-----BEGIN PRIVATE KEY-----$' "$tmp"; then
+      echo "install-key: upload is not a PEM private key" >&2
+      exit 1
+    fi
+    chown root:root "$tmp"
     chmod 0400 "$tmp"
     mv -f "$tmp" "$etc/operator.key"
-    trap - EXIT
+    tmp=""
     echo "operator key installed"
     ;;
 
@@ -66,7 +77,7 @@ case "$cmd" in
     ;;
 
   *)
-    echo "usage: wink-relay-install.sh install-key|install <version> <sha256>|restart" >&2
+    echo "usage: wink-relay-install.sh install-key <upload>|install <version> <sha256>|restart" >&2
     exit 2
     ;;
 esac

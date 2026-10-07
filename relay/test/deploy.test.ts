@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseOptions, plan } from "../deploy/cli.ts";
-import { discover, execute, type Dns, type Local, type Runner } from "../deploy/exec.ts";
+import { discover, execute, manualDns, type Dns, type DnsAccess, type Local, type Resolve4, type Runner } from "../deploy/exec.ts";
 import {
   PlanError,
   describeStep,
@@ -47,6 +48,7 @@ function deployedState(project: string, ip: string): ProjectState {
     firewall: {
       "wink-relay-allow-443": { name: "wink-relay-allow-443", ...owned },
       "wink-relay-allow-iap-22": { name: "wink-relay-allow-iap-22", ...owned },
+      "wink-relay-deny-admin": { name: "wink-relay-deny-admin", ...owned },
     },
     instance: { name: "wink-relay-vm", ...owned, ip },
     dns: [],
@@ -61,18 +63,16 @@ describe("provision plan", () => {
     const steps = planProvision(opts(), EMPTY);
     const text = lines(steps);
     expect(text).toContain(
-      "gcloud compute addresses create wink-relay-ip --project wink-new-proj --region asia-northeast3 --network-tier STANDARD --description wink-relay-owned:wink.example.com",
+      "gcloud compute addresses create wink-relay-ip --project wink-new-proj --region asia-northeast3 --network-tier STANDARD --description wink-relay-owned:wink.example.com   # owned; pause and move release only addresses that carry this marker",
     );
     const vm = text.find((l) => l.startsWith("gcloud compute instances create"))!;
     expect(vm).toContain("wink-relay-vm --project wink-new-proj --zone asia-northeast3-a --machine-type e2-small --network-tier STANDARD --address wink-relay-ip");
     expect(vm).toContain("--no-service-account --no-scopes");
     expect(vm).toContain("block-project-ssh-keys=TRUE");
-    expect(text.find((l) => l.includes("allow-iap-22"))).toContain("--rules tcp:22 --source-ranges 35.235.240.0/20");
+    expect(text.find((l) => l.includes("allow-iap-22"))).toContain("--rules tcp:22 --source-ranges 35.235.240.0/20 --priority 1000");
     expect(text.find((l) => l.includes("allow-443"))).toContain("--rules tcp:443 --source-ranges 0.0.0.0/0");
     expect(text.filter((l) => l.startsWith("gcloud") && / delete /.test(l))).toEqual([]);
-    // The key travels over stdin from a file, never in argv.
-    const key = steps.find((s) => s.kind === "gcloud" && s.stdinFile)!;
-    expect(key.kind === "gcloud" && key.args.join(" ")).not.toContain("/keys/operator.key");
+    // The key path is a placeholder until apply time and is never printed.
     expect(text.join("\n")).not.toContain("/keys/operator.key");
     // DNS goes up after the VM, then wait, restart for the first certificate, health.
     expect(indexOf(steps, /^dns upsert A \*\.wink\.example\.com \(zone example\.com, host \*\.wink\)/)).toBeGreaterThan(
@@ -119,6 +119,151 @@ describe("provision plan", () => {
   });
 });
 
+describe("Windows and default-project hardening", () => {
+  it("scp targets the login home as '.', which pscp (SFTP, no ~ expansion) accepts", () => {
+    const text = lines(planProvision(opts(), EMPTY));
+    const scps = text.filter((l) => l.startsWith("gcloud compute scp"));
+    expect(scps.length).toBe(2);
+    expect(scps[0]).toMatch(/@deploy\/wink-relay-install\.sh wink-relay-vm:\.   #/);
+    expect(text.join("\n")).not.toMatch(/wink-relay-vm:~/);
+  });
+
+  it("installs the operator key from an uploaded file, not stdin, and keeps the path out of the plan", async () => {
+    const steps = planProvision(opts(), EMPTY);
+    const text = lines(steps);
+    const upload = indexOf(steps, /^gcloud compute scp .* \[operator key file\] wink-relay-vm:operator\.key\.upload/);
+    const install = indexOf(steps, /--command sudo bash wink-relay-install\.sh install-key operator\.key\.upload/);
+    expect(upload).toBeGreaterThan(0);
+    expect(install).toBe(upload + 1);
+    expect(text[install]).toContain("/etc/wink-relay/operator.key (0400 root), shred ~/operator.key.upload");
+    expect(indexOf(steps, /install-key/)).toBeLessThan(indexOf(steps, /install 24\.21\.0/));
+    expect(text.join("\n")).not.toContain("/keys/operator.key");
+    // At apply time the placeholder becomes the file path, as an scp source only.
+    const fx = fakes({});
+    await execute(steps.slice(upload, upload + 1), opts(), fx.ctx);
+    expect(fx.calls[0]).toMatch(/--tunnel-through-iap \/keys\/operator\.key wink-relay-vm:operator\.key\.upload$/);
+    // The installer reads the upload from the deploying user's home and shreds it on every exit path.
+    const script = readFileSync(new URL("../deploy/wink-relay-install.sh", import.meta.url), "utf8");
+    const keyBranch = script.slice(script.indexOf("install-key)"), script.indexOf("install)"));
+    expect(keyBranch).toContain('upload="$home/$name"');
+    expect(keyBranch.indexOf("shred -u")).toBeLessThan(keyBranch.indexOf("BEGIN PRIVATE KEY"));
+    expect(keyBranch).toMatch(/trap .*shred -u "\$upload".* EXIT/);
+    expect(keyBranch).toContain("chmod 0400");
+    expect(keyBranch).not.toMatch(/head -c 4096 >/);
+  });
+
+  it("creates the VM with guest attributes on so host keys are published at first boot", () => {
+    const vm = lines(planProvision(opts(), EMPTY)).find((l) => l.startsWith("gcloud compute instances create"))!;
+    expect(vm).toContain("--metadata enable-oslogin=TRUE,block-project-ssh-keys=TRUE,enable-guest-attributes=TRUE");
+  });
+
+  it("enables the IAP API next to compute", () => {
+    expect(lines(planProvision(opts(), EMPTY))[0]).toBe(
+      "gcloud services enable compute.googleapis.com iap.googleapis.com --project wink-new-proj",
+    );
+  });
+
+  it("adds an owned deny for 22 and 3389 above the default rules, below the IAP allow, and deletes it on pause", () => {
+    const text = lines(planProvision(opts(), EMPTY));
+    expect(text).toContain(
+      "gcloud compute firewall-rules create wink-relay-deny-admin --project wink-new-proj --network default --direction INGRESS --action DENY --rules tcp:22,tcp:3389 --source-ranges 0.0.0.0/0 --priority 1100 --target-tags wink-relay --description wink-relay-owned:wink.example.com",
+    );
+    // Rules it does not own are never deleted.
+    expect(text.join("\n")).not.toMatch(/default-allow/);
+    expect(lines(planPause(opts(), deployedState("wink-new-proj", "34.64.0.10")))).toContain(
+      "gcloud compute firewall-rules delete wink-relay-deny-admin --project wink-new-proj --quiet",
+    );
+    const state = deployedState("wink-new-proj", "34.64.0.10");
+    expect(() =>
+      planProvision(opts(), {
+        ...state,
+        firewall: { ...state.firewall, "wink-relay-deny-admin": { name: "wink-relay-deny-admin", description: "" } },
+      }),
+    ).toThrow(/not owned/);
+  });
+
+  it("reuses an existing address by name and never releases it unless it carries the owner marker", async () => {
+    const o = opts({ addressName: "wink-relay" });
+    const state = deployedState("wink-new-proj", "34.64.0.10");
+    const live = { ...state, address: { ...state.address!, name: "wink-relay", description: "" } };
+    const text = lines(planProvision(o, { ...EMPTY, address: { ...live.address, users: [], status: "RESERVED" } }));
+    expect(text.some((l) => l.includes("addresses create"))).toBe(false);
+    expect(text).toContain(
+      "gcloud compute addresses describe wink-relay --project wink-new-proj --region asia-northeast3   # reuse checked address; not created by this service, so pause and move never release it",
+    );
+    expect(text.find((l) => l.startsWith("gcloud compute instances create"))).toContain("--address wink-relay ");
+    // The reuse checks still apply to a named address.
+    expect(() => planProvision(o, { ...EMPTY, address: { ...live.address, users: ["projects/x/instances/other-vm"] } })).toThrow(
+      /used by another/,
+    );
+    const pause = lines(planPause(o, live));
+    expect(pause.some((l) => l.includes("addresses delete"))).toBe(false);
+    expect(pause.at(-1)).toBe(
+      "gcloud compute addresses describe wink-relay --project wink-new-proj --region asia-northeast3   # kept: not created by this service, never released",
+    );
+    // Discovery describes the named address.
+    const fx = fakes({ "wink-new-proj": live });
+    await discover(o, fx.ctx.runner, null);
+    expect(fx.calls[0]).toBe("compute addresses describe wink-relay --project wink-new-proj --region asia-northeast3 --format=json");
+    expect(parseOptions(["pause", "--project", "wink-new-proj", "--base", BASE, "--dns-zone", "example.com"]).opts.addressName).toBe(
+      "wink-relay-ip",
+    );
+  });
+});
+
+describe("manual DNS", () => {
+  const manual = opts({ dnsMode: "manual" });
+  const resolverAt = (answers: Record<string, string[]>) => {
+    const asked: string[] = [];
+    const resolve4: Resolve4 = async (server, fqdn) => {
+      asked.push(`${server} ${fqdn}`);
+      return answers[server] ?? [];
+    };
+    return { asked, resolve4 };
+  };
+
+  it("plans a check instead of an upsert and parses --dns manual", () => {
+    const text = lines(planProvision(manual, EMPTY));
+    expect(text.find((l) => l.startsWith("dns "))).toBe(
+      "dns check (manual) A *.wink.example.com -> [address wink-relay-ip in wink-new-proj/asia-northeast3]: a random name under it must resolve via 8.8.8.8 and 1.1.1.1, else stop with the record to add: A *.wink -> [ip], TTL 300 (zone example.com)",
+    );
+    const parsed = parseOptions(["provision", "--project", "wink-new-proj", "--base", BASE, "--dns-zone", "example.com", "--dns", "manual"]);
+    expect(parsed.opts.dnsMode).toBe("manual");
+    expect(() => planProvision(opts({ dnsMode: "cloudflare" as never }), EMPTY)).toThrow(/--dns/);
+  });
+
+  it("upsert passes only when a random name under base resolves to the address, else fails with the exact record", async () => {
+    const fx = fakes({ "wink-new-proj": deployedState("wink-new-proj", "34.64.0.10") });
+    const upsert = planProvision(manual, fx.state["wink-new-proj"]).filter((s) => s.kind === "dns-upsert");
+    const good = resolverAt({ "8.8.8.8": ["34.64.0.10"], "1.1.1.1": ["34.64.0.10"] });
+    await execute(upsert, manual, { ...fx.ctx, dns: manualDns(manual, good.resolve4) });
+    expect(good.asked.map((a) => a.split(" ")[0])).toEqual(["8.8.8.8", "1.1.1.1"]);
+    expect(good.asked[0]).toMatch(/^8\.8\.8\.8 probe-[0-9a-f]{12}\.wink\.example\.com$/);
+    const stale = resolverAt({ "8.8.8.8": ["34.64.0.99"] });
+    await expect(execute(upsert, manual, { ...fx.ctx, dns: manualDns(manual, stale.resolve4) })).rejects.toThrow(
+      "Add this record in zone example.com, then re-run: A *.wink -> 34.64.0.10, TTL 300",
+    );
+    await expect(execute(upsert, manual, { ...fx.ctx, dns: manualDns(manual, resolverAt({}).resolve4) })).rejects.toThrow(
+      /resolves to nothing, not 34\.64\.0\.10/,
+    );
+  });
+
+  it("delete prints the record to remove by hand and continues; discovery reads public DNS; no registrar call", async () => {
+    const fx = fakes({ "wink-new-proj": deployedState("wink-new-proj", "34.64.0.10") });
+    const r = resolverAt({ "8.8.8.8": ["34.64.0.10"], "1.1.1.1": ["34.64.0.10"] });
+    const dns = manualDns(manual, r.resolve4);
+    const discovered = await discover(manual, fx.ctx.runner, dns);
+    expect(discovered.dns).toEqual([{ id: 0, host: "*.wink", type: "A", answer: "34.64.0.10" }]);
+    const steps = planPause(manual, discovered);
+    expect(lines(steps)[0]).toBe("dns delete (manual) print the record to remove by hand: A *.wink -> 34.64.0.10 (zone example.com)");
+    const out: string[] = [];
+    await execute(steps, manual, { ...fx.ctx, dns, out: (l) => out.push(l) });
+    expect(out).toContain("  manual DNS: remove this record by hand in zone example.com if it exists: A *.wink -> 34.64.0.10");
+    expect(fx.calls.some((c) => c.includes("addresses delete"))).toBe(true);
+    expect(fx.dnsOps).toEqual([]);
+  });
+});
+
 describe("pause plan", () => {
   it("removes DNS pointing at the old IP before deleting the VM and releasing the IP", () => {
     const steps = planPause(opts(), deployedState("wink-new-proj", "34.64.0.10"));
@@ -128,6 +273,7 @@ describe("pause plan", () => {
       "gcloud compute instances delete wink-relay-vm --project wink-new-proj --zone asia-northeast3-a --quiet",
       "gcloud compute firewall-rules delete wink-relay-allow-443 --project wink-new-proj --quiet",
       "gcloud compute firewall-rules delete wink-relay-allow-iap-22 --project wink-new-proj --quiet",
+      "gcloud compute firewall-rules delete wink-relay-deny-admin --project wink-new-proj --quiet",
       "gcloud compute addresses delete wink-relay-ip --project wink-new-proj --region asia-northeast3 --quiet",
     ]);
   });
@@ -257,6 +403,7 @@ function fakes(state: Record<string, ProjectState>) {
     },
   };
   const dns: Dns = {
+    kind: "namecom",
     async list() {
       return records.map((r) => ({ ...r }));
     },
@@ -287,5 +434,13 @@ function fakes(state: Record<string, ProjectState>) {
     waitDns: async () => {},
     healthz: async () => {},
   };
-  return { state, calls, order, dnsOps, records, ctx: { runner, dns, local, buildDir: "/b", deployDir: "/d", out: () => {} } };
+  const dnsAccess: DnsAccess = dns;
+  return {
+    state,
+    calls,
+    order,
+    dnsOps,
+    records,
+    ctx: { runner, dns: dnsAccess, local, buildDir: "/b", deployDir: "/d", out: (_line: string) => {} },
+  };
 }

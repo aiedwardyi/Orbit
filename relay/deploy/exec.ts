@@ -1,7 +1,7 @@
 // Read-only discovery and step execution. All cloud access goes through the
 // injected Runner and Dns, so tests use fakes and never reach a provider.
 
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -12,9 +12,12 @@ import {
   NODE_SHA256,
   NODE_TARBALL,
   NODE_URL,
+  OPERATOR_KEY_ARG,
+  PUBLIC_RESOLVERS,
   PlanError,
   dnsName,
   describeStep,
+  firewallNames,
   names,
   type AddressState,
   type DeployOptions,
@@ -32,15 +35,25 @@ export interface RunResult {
 }
 
 export interface Runner {
-  gcloud(args: string[], stdinFile?: string): Promise<RunResult>;
+  gcloud(args: string[]): Promise<RunResult>;
 }
 
+/** Registrar API access (name.com). */
 export interface Dns {
+  kind: "namecom";
   list(zone: string): Promise<DnsRecord[]>;
   create(zone: string, host: string, ip: string, ttl: number): Promise<void>;
   update(zone: string, id: number, host: string, ip: string, ttl: number): Promise<void>;
   remove(zone: string, id: number): Promise<void>;
 }
+
+/** No registrar API: reads the wildcard through public resolvers; the operator edits records by hand. */
+export interface ManualDns {
+  kind: "manual";
+  list(zone: string): Promise<DnsRecord[]>;
+}
+
+export type DnsAccess = Dns | ManualDns;
 
 export interface Local {
   build(): Promise<void>;
@@ -63,7 +76,7 @@ const lastPart = (url: unknown) => (typeof url === "string" ? url.split("/").pop
 const projectOf = (selfLink: unknown) => (typeof selfLink === "string" ? (/\/projects\/([^/]+)\//.exec(selfLink)?.[1] ?? "") : "");
 
 /** Read-only: describes the named resources and lists DNS records. */
-export async function discover(opts: DeployOptions, runner: Runner, dns: Dns | null): Promise<ProjectState> {
+export async function discover(opts: DeployOptions, runner: Runner, dns: DnsAccess | null): Promise<ProjectState> {
   const n = names(opts);
   const scope = ["--project", opts.project];
   const a = await describe(runner, ["compute", "addresses", "describe", n.address, ...scope, "--region", opts.region]);
@@ -80,7 +93,7 @@ export async function discover(opts: DeployOptions, runner: Runner, dns: Dns | n
       }
     : null;
   const firewall: Record<string, ResourceState | null> = {};
-  for (const name of [n.fw443, n.fw22]) {
+  for (const name of firewallNames(opts)) {
     const f = await describe(runner, ["compute", "firewall-rules", "describe", name, ...scope]);
     firewall[name] = f ? { name, description: String(f.description ?? "") } : null;
   }
@@ -94,7 +107,7 @@ export async function discover(opts: DeployOptions, runner: Runner, dns: Dns | n
 
 export interface ExecContext {
   runner: Runner;
-  dns: Dns;
+  dns: DnsAccess;
   local: Local;
   /** Maps @build/ and @deploy/ placeholders to local paths. */
   buildDir: string;
@@ -110,7 +123,11 @@ async function resolveIp(ctx: ExecContext, ref: IpRef): Promise<string> {
   return a.address;
 }
 
-function expand(ctx: ExecContext, arg: string): string {
+function expand(ctx: ExecContext, opts: DeployOptions, arg: string): string {
+  if (arg === OPERATOR_KEY_ARG) {
+    if (!opts.operatorKeyFile) throw new PlanError("this step needs --operator-key <file>");
+    return opts.operatorKeyFile;
+  }
   if (arg.startsWith("@build/")) return join(ctx.buildDir, arg.slice(7));
   if (arg.startsWith("@deploy/")) return join(ctx.deployDir, arg.slice(8));
   return arg;
@@ -122,14 +139,23 @@ export async function execute(steps: Step[], opts: DeployOptions, ctx: ExecConte
     ctx.out(`[${index + 1}/${steps.length}] ${describeStep(step)}`);
     switch (step.kind) {
       case "gcloud": {
-        const res = await ctx.runner.gcloud(step.args.map((a) => expand(ctx, a)), step.stdinFile);
+        const res = await ctx.runner.gcloud(step.args.map((a) => expand(ctx, opts, a)));
         if (res.code !== 0) throw new Error(`step ${index + 1} failed: ${res.stderr.trim().split("\n").pop() ?? ""}`);
         break;
       }
       case "dns-upsert": {
         const ip = await resolveIp(ctx, step.value);
+        const record = `A ${step.host} -> ${ip}, TTL ${step.ttl}`;
+        if (step.manual || ctx.dns.kind === "manual") {
+          const seen = (await ctx.dns.list(step.zone)).map((r) => r.answer);
+          if (seen.length === 1 && seen[0] === ip) break;
+          throw new Error(
+            `manual DNS: ${step.fqdn} resolves to ${seen.join(", ") || "nothing"}, not ${ip}. ` +
+              `Add this record in zone ${step.zone}, then re-run: ${record}`,
+          );
+        }
         const records = (await ctx.dns.list(step.zone)).filter((r) => r.host === step.host && r.type === "A");
-        if (records.length > 1) throw new Error(`several A records at ${step.fqdn}; resolve by hand first`);
+        if (records.length > 1) throw new Error(`several A records at ${step.fqdn}; leave only ${record} by hand first`);
         if (records.length === 0) await ctx.dns.create(step.zone, step.host, ip, step.ttl);
         else if (records[0].answer !== ip) await ctx.dns.update(step.zone, records[0].id, step.host, ip, step.ttl);
         break;
@@ -137,6 +163,12 @@ export async function execute(steps: Step[], opts: DeployOptions, ctx: ExecConte
       case "dns-delete": {
         // Re-read now: a move has already pointed the record at the new IP.
         const keep = step.protect ? await resolveIp(ctx, step.protect) : null;
+        if (step.manual || ctx.dns.kind === "manual") {
+          if (step.onlyValue !== keep) {
+            ctx.out(`  manual DNS: remove this record by hand in zone ${step.zone} if it exists: A ${step.host} -> ${step.onlyValue}`);
+          }
+          break;
+        }
         const records = (await ctx.dns.list(step.zone)).filter(
           (r) => r.host === step.host && r.type === "A" && r.answer === step.onlyValue && r.answer !== keep,
         );
@@ -164,7 +196,7 @@ const WIN_SAFE = /^[A-Za-z0-9 ._:/\\=,@~*+-]*$/;
 
 /** gcloud through argv. On Windows gcloud is a .cmd, which needs a shell, so args are checked and quoted. */
 export const gcloudRunner: Runner = {
-  gcloud(args, stdinFile) {
+  gcloud(args) {
     return new Promise((resolve, reject) => {
       const windows = process.platform === "win32";
       if (windows && !args.every((a) => WIN_SAFE.test(a))) {
@@ -180,8 +212,7 @@ export const gcloudRunner: Runner = {
       child.stderr.on("data", (c: Buffer) => (stderr += c));
       child.on("error", reject);
       child.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
-      if (stdinFile) createReadStream(stdinFile).on("error", reject).pipe(child.stdin);
-      else child.stdin.end();
+      child.stdin.end();
     });
   },
 };
@@ -202,6 +233,7 @@ export function nameComDns(env: NodeJS.ProcessEnv = process.env): Dns {
     return res.status === 204 ? {} : ((await res.json()) as Record<string, unknown>);
   };
   return {
+    kind: "namecom",
     async list(zone) {
       const out: DnsRecord[] = [];
       for (let page = 1; page <= 50; page++) {
@@ -222,6 +254,32 @@ export function nameComDns(env: NodeJS.ProcessEnv = process.env): Dns {
     },
     async remove(zone, id) {
       await api("DELETE", `/domains/${zone}/records/${id}`);
+    },
+  };
+}
+
+export type Resolve4 = (server: string, fqdn: string) => Promise<string[]>;
+
+async function publicResolve4(server: string, fqdn: string): Promise<string[]> {
+  const { Resolver } = await import("node:dns/promises");
+  const resolver = new Resolver({ timeout: 5000, tries: 2 });
+  resolver.setServers([server]);
+  return resolver.resolve4(fqdn).catch(() => []);
+}
+
+/**
+ * Manual DNS: the wildcard is read by resolving a random name under <base> at each public resolver,
+ * so a cached answer for one name cannot pass for the record. Never calls a registrar.
+ */
+export function manualDns(opts: Pick<DeployOptions, "base" | "dnsZone">, resolve4: Resolve4 = publicResolve4): ManualDns {
+  const { host } = dnsName(opts);
+  return {
+    kind: "manual",
+    async list() {
+      const fqdn = `probe-${randomBytes(6).toString("hex")}.${opts.base}`;
+      const answers = new Set<string>();
+      for (const server of PUBLIC_RESOLVERS) for (const ip of await resolve4(server, fqdn)) answers.add(ip);
+      return [...answers].map((answer) => ({ id: 0, host, type: "A", answer }));
     },
   };
 }

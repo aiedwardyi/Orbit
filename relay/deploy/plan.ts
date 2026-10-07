@@ -13,6 +13,9 @@ export const IAP_RANGE = "35.235.240.0/20";
 export const DNS_TTL = 300;
 
 export type Tier = "STANDARD" | "PREMIUM";
+/** namecom: records through the name.com API. manual: the operator edits DNS; the tool only checks public DNS. */
+export type DnsMode = "namecom" | "manual";
+export const PUBLIC_RESOLVERS = ["8.8.8.8", "1.1.1.1"];
 
 export interface DeployOptions {
   project: string;
@@ -23,6 +26,9 @@ export interface DeployOptions {
   /** DNS zone at the provider; base must equal it or sit under it. */
   dnsZone: string;
   prefix: string;
+  /** Reserved address to create or reuse; defaults to <prefix>-ip. */
+  addressName?: string;
+  dnsMode?: DnsMode;
   machine: string;
   operatorKeyFile?: string;
   acmeDirectory: string;
@@ -64,9 +70,9 @@ export interface ProjectState {
 export type IpRef = { ip: string } | { addressOf: { project: string; region: string; name: string } };
 
 export type Step =
-  | { kind: "gcloud"; args: string[]; mutates: boolean; stdinFile?: string; note?: string }
-  | { kind: "dns-upsert"; zone: string; host: string; fqdn: string; value: IpRef; ttl: number }
-  | { kind: "dns-delete"; zone: string; host: string; fqdn: string; onlyValue: string; protect?: IpRef }
+  | { kind: "gcloud"; args: string[]; mutates: boolean; note?: string }
+  | { kind: "dns-upsert"; zone: string; host: string; fqdn: string; value: IpRef; ttl: number; manual: boolean }
+  | { kind: "dns-delete"; zone: string; host: string; fqdn: string; onlyValue: string; protect?: IpRef; manual: boolean }
   | { kind: "local"; action: "build" | "fetch-node" | "write-config" | "wait-dns" | "healthz"; detail: string };
 
 export class PlanError extends Error {
@@ -94,21 +100,37 @@ export function validate(opts: DeployOptions): void {
   }
   if (!PREFIX_RE.test(opts.prefix)) throw new PlanError("invalid --prefix");
   if (!MACHINE_RE.test(opts.machine)) throw new PlanError("invalid --machine");
+  if (opts.addressName !== undefined && !PREFIX_RE.test(opts.addressName)) throw new PlanError("invalid --address-name");
+  if (opts.dnsMode !== undefined && opts.dnsMode !== "namecom" && opts.dnsMode !== "manual") {
+    throw new PlanError("--dns is namecom or manual");
+  }
   if (!/^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?\/[A-Za-z0-9._~\/-]*$/.test(opts.acmeDirectory)) {
     throw new PlanError("invalid --acme-directory");
   }
   if (opts.acmeEmail && !/^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+$/.test(opts.acmeEmail)) throw new PlanError("invalid --acme-email");
 }
 
-export function names(opts: Pick<DeployOptions, "prefix">) {
+export function names(opts: Pick<DeployOptions, "prefix" | "addressName">) {
   return {
-    address: `${opts.prefix}-ip`,
+    address: opts.addressName ?? `${opts.prefix}-ip`,
     vm: `${opts.prefix}-vm`,
     fw443: `${opts.prefix}-allow-443`,
     fw22: `${opts.prefix}-allow-iap-22`,
+    fwDeny: `${opts.prefix}-deny-admin`,
     tag: opts.prefix,
   };
 }
+
+/** Owned firewall rules, in the order provision creates and pause deletes them. */
+export const firewallNames = (opts: Pick<DeployOptions, "prefix">) => {
+  const n = names(opts);
+  return [n.fw443, n.fw22, n.fwDeny];
+};
+
+/** Placeholder for the operator key path: expanded only at apply time, never printed. */
+export const OPERATOR_KEY_ARG = "@operator-key";
+/** Upload name in the deploying user's home; the installer shreds it. */
+export const KEY_UPLOAD = "operator.key.upload";
 
 /** Marker in the description of every resource this service creates. */
 export const ownerMarker = (base: string) => `wink-relay-owned:${base}`;
@@ -127,12 +149,12 @@ function where(opts: DeployOptions, scope: "region" | "zone" | "global"): string
   return ["--project", opts.project];
 }
 
-const ssh = (opts: DeployOptions, command: string, stdinFile?: string): Step => ({
-  kind: "gcloud",
-  args: ["compute", "ssh", names(opts).vm, ...where(opts, "zone"), "--tunnel-through-iap", "--command", command],
-  mutates: true,
-  stdinFile,
-});
+const ssh = (opts: DeployOptions, command: string, note?: string): Step =>
+  g(["compute", "ssh", names(opts).vm, ...where(opts, "zone"), "--tunnel-through-iap", "--command", command], true, note);
+
+// pscp (gcloud's scp on Windows) speaks SFTP and does not expand ~, so targets are relative to the login home.
+const scp = (opts: DeployOptions, files: string[], target: string, note: string): Step =>
+  g(["compute", "scp", ...where(opts, "zone"), "--tunnel-through-iap", ...files, `${names(opts).vm}:${target}`], true, note);
 
 /** Throws unless an existing address can be reused for this deployment. */
 export function checkReusableAddress(opts: DeployOptions, address: AddressState): void {
@@ -157,28 +179,29 @@ function installSteps(opts: DeployOptions, withKey: boolean): Step[] {
     { kind: "local", action: "build", detail: "esbuild bundle relay/dist/wink-relay.mjs" },
     { kind: "local", action: "fetch-node", detail: `${NODE_URL} sha256 ${NODE_SHA256}` },
     { kind: "local", action: "write-config", detail: `wink-relay.config.json base=${opts.base}` },
-    g(
+    scp(
+      opts,
       [
-        "compute",
-        "scp",
-        ...where(opts, "zone"),
-        "--tunnel-through-iap",
         "@build/wink-relay.mjs",
         `@build/${NODE_TARBALL}`,
         "@build/wink-relay.config.json",
         "@deploy/wink-relay.service",
         "@deploy/wink-relay-install.sh",
-        `${vm}:~/`,
       ],
-      true,
+      ".",
       "upload bundle, Node tarball, config, unit and installer",
     ),
   ];
   if (withKey) {
-    steps.push({
-      ...ssh(opts, "sudo bash wink-relay-install.sh install-key", opts.operatorKeyFile),
-      note: "operator key over stdin into /etc/wink-relay/operator.key (0400 root)",
-    } as Step);
+    // stdin is not forwarded over IAP from Windows, so the key travels as a file and is shredded on the VM.
+    steps.push(
+      scp(opts, [OPERATOR_KEY_ARG], KEY_UPLOAD, `operator key file -> ~/${KEY_UPLOAD} on ${vm}`),
+      ssh(
+        opts,
+        `sudo bash wink-relay-install.sh install-key ${KEY_UPLOAD}`,
+        `install as /etc/wink-relay/operator.key (0400 root), shred ~/${KEY_UPLOAD}`,
+      ),
+    );
   }
   steps.push(ssh(opts, `sudo bash wink-relay-install.sh install ${NODE_VERSION} ${NODE_SHA256}`));
   return steps;
@@ -190,25 +213,31 @@ export function planProvision(opts: DeployOptions, state: ProjectState): Step[] 
   if (!opts.acceptAcmeTerms) throw new PlanError("provision needs --accept-acme-terms (CA subscriber agreement)");
   const n = names(opts);
   const marker = ownerMarker(opts.base);
-  const steps: Step[] = [g(["services", "enable", "compute.googleapis.com", ...where(opts, "global")], true)];
+  // IAP TCP forwarding (every scp and ssh below) needs its API enabled next to compute.
+  const steps: Step[] = [g(["services", "enable", "compute.googleapis.com", "iap.googleapis.com", ...where(opts, "global")], true)];
 
   if (state.address) {
     checkReusableAddress(opts, state.address);
-    steps.push(g(["compute", "addresses", "describe", n.address, ...where(opts, "region")], false, "reuse checked address"));
+    const kept = state.address.description === marker ? "" : "; not created by this service, so pause and move never release it";
+    steps.push(g(["compute", "addresses", "describe", n.address, ...where(opts, "region")], false, `reuse checked address${kept}`));
   } else {
     steps.push(
       g(
         ["compute", "addresses", "create", n.address, ...where(opts, "region"), "--network-tier", opts.tier, "--description", marker],
         true,
+        "owned; pause and move release only addresses that carry this marker",
       ),
     );
   }
 
-  const rules: Array<[string, string, string]> = [
-    [n.fw443, "tcp:443", "0.0.0.0/0"],
-    [n.fw22, "tcp:22", IAP_RANGE],
+  // Default-network rules (default-allow-ssh/-rdp, priority 65534) also match this VM and are not ours to
+  // delete, so an owned DENY above them closes 22 and 3389 to everything but the IAP allow at 1000.
+  const rules: Array<{ name: string; action: "ALLOW" | "DENY"; ports: string; source: string; priority?: string }> = [
+    { name: n.fw443, action: "ALLOW", ports: "tcp:443", source: "0.0.0.0/0" },
+    { name: n.fw22, action: "ALLOW", ports: "tcp:22", source: IAP_RANGE, priority: "1000" },
+    { name: n.fwDeny, action: "DENY", ports: "tcp:22,tcp:3389", source: "0.0.0.0/0", priority: "1100" },
   ];
-  for (const [name, port, source] of rules) {
+  for (const { name, action, ports, source, priority } of rules) {
     const existing = state.firewall[name];
     if (existing) {
       checkOwned(opts.base, "firewall rule", existing);
@@ -227,11 +256,12 @@ export function planProvision(opts: DeployOptions, state: ProjectState): Step[] 
           "--direction",
           "INGRESS",
           "--action",
-          "ALLOW",
+          action,
           "--rules",
-          port,
+          ports,
           "--source-ranges",
           source,
+          ...(priority === undefined ? [] : ["--priority", priority]),
           "--target-tags",
           n.tag,
           "--description",
@@ -276,7 +306,9 @@ export function planProvision(opts: DeployOptions, state: ProjectState): Step[] 
           "--shielded-vtpm",
           "--shielded-integrity-monitoring",
           "--metadata",
-          "enable-oslogin=TRUE,block-project-ssh-keys=TRUE",
+          // Guest attributes must be on at first boot so the guest agent publishes the host keys that
+          // gcloud hands to plink/ssh; the first non-interactive connection would otherwise fail.
+          "enable-oslogin=TRUE,block-project-ssh-keys=TRUE,enable-guest-attributes=TRUE",
           "--description",
           marker,
         ],
@@ -289,7 +321,7 @@ export function planProvision(opts: DeployOptions, state: ProjectState): Step[] 
   const { host, fqdn } = dnsName(opts);
   const ip: IpRef = { addressOf: { project: opts.project, region: opts.region, name: n.address } };
   steps.push(
-    { kind: "dns-upsert", zone: opts.dnsZone, host, fqdn, value: ip, ttl: DNS_TTL },
+    { kind: "dns-upsert", zone: opts.dnsZone, host, fqdn, value: ip, ttl: DNS_TTL, manual: opts.dnsMode === "manual" },
     { kind: "local", action: "wait-dns", detail: `relay.${opts.base} resolves to the reserved address` },
     // The first certificate needs DNS pointing here; restart so issuance runs now, not at the next retry.
     ssh(opts, "sudo bash wink-relay-install.sh restart"),
@@ -318,13 +350,15 @@ export function planPause(opts: DeployOptions, state: ProjectState, protect?: Ip
   const steps: Step[] = [];
   const oldIp = state.address?.ip ?? state.instance?.ip;
   const { host, fqdn } = dnsName(opts);
-  if (oldIp) steps.push({ kind: "dns-delete", zone: opts.dnsZone, host, fqdn, onlyValue: oldIp, protect });
+  if (oldIp) {
+    steps.push({ kind: "dns-delete", zone: opts.dnsZone, host, fqdn, onlyValue: oldIp, protect, manual: opts.dnsMode === "manual" });
+  }
 
   if (state.instance) {
     checkOwned(opts.base, "instance", state.instance);
     steps.push(g(["compute", "instances", "delete", n.vm, ...where(opts, "zone"), "--quiet"], true));
   }
-  for (const name of [n.fw443, n.fw22]) {
+  for (const name of firewallNames(opts)) {
     const rule = state.firewall[name];
     if (!rule) continue;
     checkOwned(opts.base, "firewall rule", rule);
@@ -334,7 +368,9 @@ export function planPause(opts: DeployOptions, state: ProjectState, protect?: Ip
     if (state.address.description === ownerMarker(opts.base)) {
       steps.push(g(["compute", "addresses", "delete", n.address, ...where(opts, "region"), "--quiet"], true));
     } else {
-      steps.push(g(["compute", "addresses", "describe", n.address, ...where(opts, "region")], false, "kept: not created by this service"));
+      steps.push(
+        g(["compute", "addresses", "describe", n.address, ...where(opts, "region")], false, "kept: not created by this service, never released"),
+      );
     }
   }
   return steps;
@@ -360,16 +396,23 @@ export function describeStep(step: Step): string {
   switch (step.kind) {
     case "gcloud":
       return [
-        `gcloud ${step.args.join(" ")}`,
-        step.stdinFile ? " < [operator key file]" : "",
+        `gcloud ${step.args.map((a) => (a === OPERATOR_KEY_ARG ? "[operator key file]" : a)).join(" ")}`,
         step.note ? `   # ${step.note}` : "",
       ].join("");
     case "dns-upsert":
-      return `dns upsert A ${step.fqdn} (zone ${step.zone}, host ${step.host}) -> ${ipText(step.value)} ttl ${step.ttl}`;
+      return step.manual
+        ? `dns check (manual) A ${step.fqdn} -> ${ipText(step.value)}: a random name under it must resolve via ${PUBLIC_RESOLVERS.join(
+            " and ",
+          )}, else stop with the record to add: A ${step.host} -> [ip], TTL ${step.ttl} (zone ${step.zone})`
+        : `dns upsert A ${step.fqdn} (zone ${step.zone}, host ${step.host}) -> ${ipText(step.value)} ttl ${step.ttl}`;
     case "dns-delete":
-      return `dns delete A ${step.fqdn} (zone ${step.zone}, host ${step.host}) only where value = ${step.onlyValue}${
-        step.protect ? `, never ${ipText(step.protect)}` : ""
-      }`;
+      return step.manual
+        ? `dns delete (manual) print the record to remove by hand: A ${step.host} -> ${step.onlyValue} (zone ${step.zone})${
+            step.protect ? `, unless it is ${ipText(step.protect)}` : ""
+          }`
+        : `dns delete A ${step.fqdn} (zone ${step.zone}, host ${step.host}) only where value = ${step.onlyValue}${
+            step.protect ? `, never ${ipText(step.protect)}` : ""
+          }`;
     case "local":
       return `local ${step.action}: ${step.detail}`;
   }
