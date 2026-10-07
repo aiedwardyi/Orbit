@@ -599,7 +599,7 @@ export function SettingsModal({
               {t("settings.noMatch", { query: query.trim() })}
             </div>
           )}
-          <div className="flex flex-col gap-0.5 max-md:flex-row max-md:gap-1 max-md:overflow-x-auto">
+          <div className="flex flex-col gap-0.5 max-md:flex-row max-md:justify-between max-md:gap-1 max-md:overflow-x-auto">
             {visibleSections.map(({ id, icon: Icon, shortcut }) => (
               <button
                 key={id}
