@@ -517,7 +517,8 @@ describe("context compaction e2e", () => {
         tasks: [{ threadId: SECRET_COLLISION.roomThreadId, title: "Release", createdAt: 1 }],
       },
     ]));
-    const messages = Array.from({ length: 97 }, (_, index) => ({
+    // 61 user turns, one past the compaction cap, so every thread below compacts on its next send.
+    const messages = Array.from({ length: 121 }, (_, index) => ({
       id: `m${index}`,
       at: index + 1,
       parentId: index ? `m${index - 1}` : null,
@@ -541,7 +542,7 @@ describe("context compaction e2e", () => {
       SECRET_COLLISION.roomThreadId,
     ]) {
       writeFileSync(join(dataDir, `messages-${threadId}.json`), JSON.stringify({
-        activeLeafId: "m96",
+        activeLeafId: "m120",
         messages,
       }));
     }
@@ -644,6 +645,7 @@ describe("context compaction e2e", () => {
       artifacts: [{ ref: "dist/room-orbit.exe", label: "Room installer" }],
       blockers: [{ kind: "approval", note: "Awaiting release approval" }],
       nextAction: "Verify the room package",
+      instructionAction: "Verify the room package",
       updatedAt: 1,
       updatedBy: "harness",
       flushReason: "progress",
@@ -704,7 +706,7 @@ describe("context compaction e2e", () => {
     expect(prompt).toContain("reports/green.json");
     expect(prompt).toContain("dist/orbit.exe");
     expect(prompt).toContain("history 0");
-    expect(prompt).toContain("history 96");
+    expect(prompt).toContain("history 120");
 
     const bot = (await api("GET", "/api/bots")).body.bots.find(
       (candidate: { id: string }) => candidate.id === BOT_ID,
@@ -1131,7 +1133,7 @@ describe("context compaction e2e", () => {
     const packet = storedTaskPacket(GOAL_LEGACY.botThreadId);
     expect(packet.goal).toBe("Ship the legacy release");
     expect(packet.instructionGoal).toBeUndefined();
-    expect(packet.instructionAction).toBe("Draft the outage timeline from the scanned exhibits.");
+    expect(packet.instructionAction).toBeUndefined();
   }, 30_000);
 
   it("keeps a goal the bot set through update_task_state when its text matched the seed", async () => {

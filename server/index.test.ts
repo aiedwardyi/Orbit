@@ -2566,7 +2566,7 @@ describe("harness HTTP API", () => {
         goal: "Prepare a durable weekly brief",
         turnsAtWrite: 1,
       });
-      expect(completed.completed.at(-1)?.note).toContain("hello from fake claude");
+      expect(completed.completed).toEqual([]);
 
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         modelSelection: { instanceId: "claude", model: hanging.models.default },
@@ -2962,13 +2962,13 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("gives a new bot its engine default effort level", async () => {
+  it("gives a new bot the Auto starting effort level", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
-    expect(bot.modelSelection.effort).toBe("high");
+    expect(bot.modelSelection.effort).toBe("medium");
 
     const renamed = await api("PATCH", `/api/bots/${bot.id}`, { name: "Plain" });
     expect(renamed.status).toBe(200);
-    expect(renamed.body.bot.modelSelection.effort).toBe("high");
+    expect(renamed.body.bot.modelSelection.effort).toBe("medium");
   });
 
   // This fixture pins a single unknown driver, so no instance here ever
@@ -4353,14 +4353,13 @@ describe("bot memory API", () => {
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hello" })).status).toBe(202);
       await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 10_000 }).toBe(true);
 
-      const dump = z.object({ argv: z.array(z.string()) }).parse(
+      const dump = z.object({ argv: z.array(z.string()), systemPrompt: z.string() }).parse(
         JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
       );
       expect(dump.argv).toContain("--session-id");
       expect(dump.argv).not.toContain("--resume");
-      const at = dump.argv.indexOf("--append-system-prompt");
-      expect(at).toBeGreaterThan(-1);
-      const system = dump.argv[at + 1];
+      expect(dump.argv).toContain("--append-system-prompt-file");
+      const system = dump.systemPrompt;
       expect(system).toContain(JSON.stringify(join(workspaceOf(bot.id), "MEMORY.md")));
       expect(system).toContain(memory);
     } finally {
@@ -5299,13 +5298,12 @@ describe("corpus search discipline instructions", () => {
     rmSync(fakeClaudeDump, { force: true });
     expect((await api("POST", `/api/bots/${botId}/messages`, { text })).status).toBe(202);
     await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 10_000 }).toBe(true);
-    const dump = z.object({ argv: z.array(z.string()) }).parse(
+    const dump = z.object({ argv: z.array(z.string()), systemPrompt: z.string() }).parse(
       JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
     );
     await api("POST", `/api/bots/${botId}/interrupt`);
-    const at = dump.argv.indexOf("--append-system-prompt");
-    expect(at).toBeGreaterThan(-1);
-    return dump.argv[at + 1];
+    expect(dump.argv).toContain("--append-system-prompt-file");
+    return dump.systemPrompt;
   };
 
   it("reaches the engine on every turn and stays byte-identical across turn states", async () => {
@@ -5360,12 +5358,11 @@ describe("corpus search discipline instructions", () => {
         text: "who is BANQUE GENEVOISE SA",
       })).status).toBe(202);
       await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 10_000 }).toBe(true);
-      const dump = z.object({ argv: z.array(z.string()) }).parse(
+      const dump = z.object({ argv: z.array(z.string()), systemPrompt: z.string() }).parse(
         JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
       );
-      const at = dump.argv.indexOf("--append-system-prompt");
-      expect(at).toBeGreaterThan(-1);
-      const roomPrompt = dump.argv[at + 1];
+      expect(dump.argv).toContain("--append-system-prompt-file");
+      const roomPrompt = dump.systemPrompt;
 
       // the room assembles its own system, so this is the other path, not a
       // second read of the 1:1 one
@@ -5404,13 +5401,12 @@ describe("project folder in the system prompt", () => {
     rmSync(fakeClaudeDump, { force: true });
     expect((await api("POST", `/api/bots/${botId}/messages`, { text })).status).toBe(202);
     await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 10_000 }).toBe(true);
-    const dump = z.object({ argv: z.array(z.string()) }).parse(
+    const dump = z.object({ argv: z.array(z.string()), systemPrompt: z.string() }).parse(
       JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
     );
     await api("POST", `/api/bots/${botId}/interrupt`);
-    const at = dump.argv.indexOf("--append-system-prompt");
-    expect(at).toBeGreaterThan(-1);
-    return dump.argv[at + 1];
+    expect(dump.argv).toContain("--append-system-prompt-file");
+    return dump.systemPrompt;
   };
 
   // Under the throwaway home so afterAll owns the teardown: the folder is the
@@ -5512,7 +5508,7 @@ describe("room project folder in the system prompt", () => {
     rmSync(fakeClaudeDump, { force: true });
     expect((await api("POST", `/api/groups/${room.roomId}/messages`, { text })).status).toBe(202);
     await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 10_000 }).toBe(true);
-    const dump = z.object({ argv: z.array(z.string()) }).parse(
+    const dump = z.object({ argv: z.array(z.string()), systemPrompt: z.string() }).parse(
       JSON.parse(readFileSync(fakeClaudeDump, "utf8")),
     );
     await api("POST", `/api/groups/${room.roomId}/interrupt`);
@@ -5523,9 +5519,8 @@ describe("room project folder in the system prompt", () => {
         roomBusyBotId: state.groups.find((group: { id: string }) => group.id === room.roomId)?.busyBotId,
       };
     }, { timeout: 5_000 }).toEqual({ botBusy: false, roomBusyBotId: null });
-    const at = dump.argv.indexOf("--append-system-prompt");
-    expect(at).toBeGreaterThan(-1);
-    return dump.argv[at + 1];
+    expect(dump.argv).toContain("--append-system-prompt-file");
+    return dump.systemPrompt;
   };
 
   const roomWithOneMember = async (name: string, folder?: string, memberFolder?: string) => {
