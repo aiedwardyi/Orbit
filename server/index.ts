@@ -218,6 +218,7 @@ import {
   taskRecordBlock,
   TurnSeeds,
   turnSeedsSession,
+  withSystemChanges,
 } from "./turn-context.ts";
 import { stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
@@ -2422,6 +2423,8 @@ const settledTurnIdByThread = new Map<string, string>();
 // Thread → what its running 1:1 turn certifies on completion: the summary id
 // (null: none) it was dispatched with, for the session it resumed or started.
 const turnSeeds = new TurnSeeds();
+// Thread → the system text its running 1:1 turn leaves its session holding.
+const systemSeeds = new TurnSeeds<{ instanceId: string; cursor: unknown; system: string }>();
 // Room thread → the instruction id its running turn was dispatched against.
 const roomTurnInstruction = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
@@ -2939,6 +2942,8 @@ bus.subscribe((event: RuntimeEvent) => {
         store.setResumeCursor(bot.id, event.providerInstanceId, event.sessionId, event.threadId);
         const seed = turnSeeds.get(event.threadId);
         if (seed?.instanceId === event.providerInstanceId) seed.cursor = event.sessionId;
+        const systemSeed = systemSeeds.get(event.threadId);
+        if (systemSeed?.instanceId === event.providerInstanceId) systemSeed.cursor = event.sessionId;
       }
       break;
     case "item.completed":
@@ -3403,6 +3408,17 @@ bus.subscribe((event: RuntimeEvent) => {
               cursor: seed.cursor,
               compactionId: seed.compactionId,
             });
+          }
+          const systemSeed = systemSeeds.take(event.threadId, event.turnId);
+          if (systemSeed && turnSeedsSession({
+            ok: event.ok,
+            interrupted,
+            promptAccepted: event.promptAccepted,
+            seed: systemSeed,
+            eventInstanceId: event.providerInstanceId,
+            currentCursor: store.taskByThread(bot.id, event.threadId)?.resumeCursors[systemSeed.instanceId],
+          })) {
+            store.recordSessionSystem(systemSeed.instanceId, systemSeed.cursor, systemSeed.system);
           }
           const packet = taskPacketForWrite(event.threadId);
           if (packet) {
@@ -3886,9 +3902,9 @@ const REPLY_STYLE_INSTRUCTIONS =
 const ALWAYS_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS + REPLY_STYLE_INSTRUCTIONS;
 const DETAILED_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS;
 
-// Retrieval discipline for document workloads. Static on purpose: the
-// stream-json driver folds --append-system-prompt into its warm-process
-// argsKey, so anything interpolated here costs a cold start every send.
+// Retrieval discipline for document workloads. Static on purpose: a resumed
+// session is told each change to the system text, so anything interpolated
+// here costs a reminder every send.
 const CORPUS_SEARCH_INSTRUCTIONS =
   " When you search a corpus, a document set, or any body of files, match case-insensitively. Scanned and OCR'd records are routinely written in capitals, so a case-sensitive query misses text that is plainly there. Before concluding that something is absent, try at least one different search strategy or tool class: an empty result is evidence about your query first and about the corpus second. Never state an unqualified absence. If you still report not finding something, say what you searched and how you searched it, so the user can tell a true negative from an unlucky query.";
 
@@ -4314,6 +4330,20 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
   });
+  const systemRecycleText = () => buildTurnContext({
+    text: turnPrompt,
+    transcript: turnTranscript,
+    rewound: false,
+    fresh: false,
+    recycled: true,
+    recycleReason: "system",
+    replaysNatively,
+    taskRecord: taskRecord ?? undefined,
+    taskRecordText: durableTaskRecordText || undefined,
+    contextCapped: contextCompacted,
+    recovering,
+    currentRequestText: recoveryLatestUserText,
+  }).turnText;
 
   const persona = [
     `You are ${bot.name}, a personal bot in Wink.`,
@@ -4356,6 +4386,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       turnSeeds.release(threadId, seed);
       return;
     }
+    let systemSeed: ReturnType<typeof systemSeeds.set> | undefined;
     try {
       const integrations: NonNullable<Parameters<typeof instance.adapter.sendTurn>[0]["integrations"]> = {};
       if (bot.shareTerminalWithChat !== false) {
@@ -4697,29 +4728,14 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           resumePaneWakes(bot.id);
         }
         const withLate = (base: string) => [base, ...late].join("\n\n");
-        return live.adapter.sendTurn({
-        threadId,
-        text: withLate(turnText),
-        model,
-        effort,
-        leanStartup,
-        // a rewound, Orbit-compacted, or pre-compact fat thread never
-        // resumes the abandoned provider session. the active task's own
-        // session — another task's cursor would resume the wrong
-        // conversation and defeat the context bubble
-        resumeCursor: resume ? task.resumeCursors[instanceId] : undefined,
-        resumeFallback: resume && task.resumeCursors[instanceId] !== undefined
-          ? { text: withLate(resumeFallback) }
-          : undefined,
-        transcript,
-        system:
+        const system =
           persona +
           // The folder is already this turn's cwd, but nothing told the model
           // it existed, so a question about a folder it was pinned to got
           // answered from the network instead. Placed early and interpolating
-          // only the path, which is pinned per task: the claude driver folds
-          // this string into its warm-process argsKey, so anything that moved
-          // between turns would cost a cold start on every send.
+          // only the path, which is pinned per task: a resumed session is told
+          // each change to this text, so anything that moved between turns
+          // would cost a reminder on every send.
           projectFolderPrompt(cwd, privateWorkspace, instance.driverKind) +
           (computerKind === "vm"
             ? localVmMode(cfg) === "per-bot"
@@ -4761,7 +4777,41 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
             ? ` The user tagged ${tagged
                 .map((t) => `@${t.name} (ask_bot bot_id ${t.id})`)
                 .join(" and ")} in their message — bring them in with ask_bot and fold their reply into your answer.`
-            : ""),
+            : "");
+        // a rewound, Orbit-compacted, or pre-compact fat thread never
+        // resumes the abandoned provider session. the active task's own
+        // session - another task's cursor would resume the wrong
+        // conversation and defeat the context bubble
+        let resumeCursor = resume ? task.resumeCursors[instanceId] : undefined;
+        let text = withLate(turnText);
+        if (live.adapter.capabilities.pinnedSystem === true) {
+          // The session still holds the system text it started with: what
+          // changed since rides at the top of this turn, or recycles the
+          // session when too big, unless that would kill background work.
+          const delivered = resumeCursor === undefined ? undefined : store.sessionSystem(instanceId, resumeCursor);
+          const updated = withSystemChanges(text, delivered, system)
+            ?? (live.adapter.hasBackgroundWork?.(threadId) === true ? withSystemChanges(text, delivered, system, Infinity) : null);
+          if (updated !== null) text = updated;
+          else {
+            store.clearResumeCursors(bot.id, threadId);
+            store.markProviderSessionBound(bot.id, threadId, opts?.cardContinuation ? activeMessages.at(-1)?.id ?? userMessage.id : userMessage.id);
+            seed.cursor = undefined;
+            resumeCursor = undefined;
+            text = withLate(systemRecycleText());
+            console.info(`[session] ${JSON.stringify({ threadId, reason: "system", lastTurnToolRounds, sessionToolRounds })}`);
+          }
+          systemSeed = systemSeeds.set(threadId, { instanceId, cursor: resumeCursor, system });
+        }
+        return live.adapter.sendTurn({
+        threadId,
+        text,
+        model,
+        effort,
+        leanStartup,
+        resumeCursor,
+        resumeFallback: resumeCursor !== undefined ? { text: withLate(resumeFallback) } : undefined,
+        transcript,
+        system,
         approval: bot.autoApprove ? "auto" : "ask",
         attended: !isUnattended(bot.id),
         integrations,
@@ -4772,6 +4822,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // a deferred recycle's live session never took this turn's summary, so
       // it certifies nothing and the next turn still sees it as unseeded
       if (started.turnId && !recycleDeferred) seed.turnId = started.turnId;
+      if (started.turnId && systemSeed) systemSeed.turnId = started.turnId;
       store.markPaneNotesDelivered(bot.id, threadId, newestPaneNoteId);
       if (currentTurnEpoch(bot.id) !== epoch) return;
       if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
@@ -4797,6 +4848,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       watchdog.settle(threadId);
       turnUsage.delete(threadId);
       turnSeeds.release(threadId, seed);
+      if (systemSeed) systemSeeds.release(threadId, systemSeed);
       if (currentTurnEpoch(bot.id) !== epoch) return;
       const message = e instanceof Error ? e.message : String(e);
       store.appendMessage(threadId, {
