@@ -134,7 +134,7 @@ export const STATIC_CLAUDE_MODELS: ModelCatalog = {
     { id: "claude-fable-5", label: "Claude Fable 5", contextWindow: 200_000 },
     { id: "claude-opus-5-5", label: "Claude Opus 5.5", contextWindow: 200_000 },
     { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", contextWindow: 200_000 },
-    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5", contextWindow: 200_000 },
+    { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", contextWindow: 200_000 },
   ],
 };
 
@@ -1646,10 +1646,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       new Promise((resolve, reject) => {
         const child = spawnCli(
           config.cli,
-          ["-p", "--model", "claude-haiku-4-5", "--output-format", "text"],
+          ["-p", "--model", "claude-haiku-5-5", "--output-format", "text"],
           {
             stdio: ["pipe", "pipe", "pipe"],
-            env: claudeEnvironment("claude-haiku-4-5", { ...process.env, ...input.environment }),
+            env: claudeEnvironment("claude-haiku-5-5", { ...process.env, ...input.environment }),
           },
         );
         let stdout = "";
