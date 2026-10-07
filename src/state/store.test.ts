@@ -1885,4 +1885,32 @@ describe("task switch snapshot", () => {
     expect(next.bots[0]!.threadId).toBe("t0");
     expect(next.bots[0]!.messages.map((m) => m.id)).toEqual(["a"]);
   });
+
+  const forked = () => [msg("r", 1), msg("a", 2, "r"), msg("b", 3, "r")];
+
+  it("keeps a branch chosen after the switch request over its delayed snapshot", () => {
+    let state = { ...initialState, bots: [echo("t1", forked(), "b")] };
+    state = reducer(state, { type: "switchTask", botId: "echo", threadId: "t1", generation: 1 });
+    state = reducer(state, { type: "switchBranch", botId: "echo", messageId: "a" });
+    const next = reducer(state, { type: "taskSwitched", bot: echo("t1", forked(), "b"), generation: 1 });
+    expect(next.bots[0]!.activeLeafId).toBe("a");
+  });
+
+  it("applies the leaf of a snapshot requested after the branch choice", () => {
+    let state = { ...initialState, bots: [echo("t1", forked(), "b")] };
+    state = reducer(state, { type: "switchTask", botId: "echo", threadId: "t1", generation: 1 });
+    state = reducer(state, { type: "switchBranch", botId: "echo", messageId: "a" });
+    state = reducer(state, { type: "switchTask", botId: "echo", threadId: "t1", generation: 2 });
+    const next = reducer(state, { type: "taskSwitched", bot: echo("t1", forked(), "b"), generation: 2 });
+    expect(next.bots[0]!.activeLeafId).toBe("b");
+  });
+
+  it("applies the leaf of a snapshot for another thread despite a branch choice", () => {
+    let state = { ...initialState, bots: [echo("t1", forked(), "b")] };
+    state = reducer(state, { type: "switchTask", botId: "echo", threadId: "t2", generation: 1 });
+    state = reducer(state, { type: "switchBranch", botId: "echo", messageId: "a" });
+    const next = reducer(state, { type: "taskSwitched", bot: echo("t2", [msg("x", 4)], "x"), generation: 1 });
+    expect(next.bots[0]!.threadId).toBe("t2");
+    expect(next.bots[0]!.activeLeafId).toBe("x");
+  });
 });
