@@ -120,6 +120,7 @@ function deviceLinkedFileName(rawUrl, origin) {
   const base = filePath
     .split(/[\\/]/)
     .pop()
+    // oxlint-disable-next-line no-control-regex -- Windows file names cannot hold control characters
     .replace(/[<>:"|?*\u0000-\u001f]/g, "_")
     .replace(/[. ]+$/, "");
   const dot = base.lastIndexOf(".");

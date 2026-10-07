@@ -311,6 +311,7 @@ test("download names are safe and keep the extension", () => {
   assert.ok(long.length <= 120);
   assert.ok(long.endsWith(".pdf"));
   for (const safe of [name("/x/a\u0000b.pdf"), name("C:\\x\\..\\y.pdf")]) {
+    // oxlint-disable-next-line no-control-regex -- the name must come out without them
     assert.equal(/[\\/:*?"<>|\u0000-\u001f]/.test(safe), false);
     assert.ok(safe.endsWith(".pdf"));
   }
