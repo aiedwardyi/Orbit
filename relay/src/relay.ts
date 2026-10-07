@@ -30,7 +30,7 @@ import { RevocationList } from "./revocation.ts";
 
 /** ALPN ids served on relay.<base>, besides acme-tls/1. */
 export const RELAY_ALPNS: readonly string[] = [ALPN_CONTROL, ALPN_DATA, "http/1.1"];
-/** A phone (or the CA validating a PC) must offer one of these. h2 is a later PC-side choice. */
+/** Explicit phone ALPN offers must include one of these. */
 export const PHONE_ALPNS: readonly string[] = ["http/1.1", ALPN_ACME];
 
 export interface RelayOptions {
@@ -78,7 +78,7 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
   if (operatorPublicKey.asymmetricKeyType !== "ed25519") throw new Error("operator key must be Ed25519");
 
   const hub = new Hub({ limits, log, now });
-  const revoked = new RevocationList(opts.revokedLabelsFile);
+  const revoked = new RevocationList(opts.revokedLabelsFile, log);
   await revoked.reload(true);
   const store = await InviteStore.open(opts.dataDir, now);
   const ticketTtlSec = opts.ticketTtlSec ?? TICKET_TTL_SEC;
@@ -217,7 +217,7 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
       sendAlert(socket, ALERT_UNRECOGNIZED_NAME);
       return;
     }
-    if (!alpn.some((p) => PHONE_ALPNS.includes(p))) {
+    if (alpn.length > 0 && !alpn.some((p) => PHONE_ALPNS.includes(p))) {
       log.log("phone-rejected", { label, peer, reason: "alpn" });
       sendAlert(socket, ALERT_NO_APPLICATION_PROTOCOL);
       return;

@@ -250,7 +250,7 @@ describe("manual DNS", () => {
     );
   });
 
-  it("delete prints the record to remove by hand and continues; discovery reads public DNS; no registrar call", async () => {
+  it("refuses manual DNS release without a complete record inventory", async () => {
     const fx = fakes({ "wink-new-proj": deployedState("wink-new-proj", "34.64.0.10") });
     const r = resolverAt({ "8.8.8.8": ["34.64.0.10"], "1.1.1.1": ["34.64.0.10"] });
     const dns = manualDns(manual, r.resolve4);
@@ -259,9 +259,8 @@ describe("manual DNS", () => {
     const steps = planPause(manual, discovered);
     expect(lines(steps)[0]).toBe("dns delete (manual) print the record to remove by hand: A *.wink -> 34.64.0.10 (zone example.com)");
     const out: string[] = [];
-    await execute(steps, manual, { ...fx.ctx, dns, out: (l) => out.push(l) });
-    expect(out).toContain("  manual DNS: remove this record by hand in zone example.com if it exists: A *.wink -> 34.64.0.10");
-    expect(fx.calls.some((c) => c.includes("addresses delete"))).toBe(true);
+    await expect(execute(steps, manual, { ...fx.ctx, dns, out: (l) => out.push(l) })).rejects.toThrow(/manual DNS cannot verify/);
+    expect(fx.calls.some((c) => c.includes(" delete "))).toBe(false);
     expect(fx.dnsOps).toEqual([]);
   });
 });

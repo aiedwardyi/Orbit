@@ -141,6 +141,14 @@ export function dnsName(opts: Pick<DeployOptions, "base" | "dnsZone">) {
   return { host: sub ? `*.${sub}` : "*", fqdn: `*.${opts.base}` };
 }
 
+export function isRelayDnsHost(host: string, wildcard: string): boolean {
+  const suffix = wildcard.slice(1).toLowerCase();
+  const name = host.toLowerCase();
+  if (suffix && !name.endsWith(suffix)) return false;
+  const label = suffix ? name.slice(0, -suffix.length) : name;
+  return label === "*" || label === "relay" || /^[a-z2-7]{16}$/.test(label);
+}
+
 const g = (args: string[], mutates: boolean, note?: string): Step => ({ kind: "gcloud", args, mutates, note });
 
 function where(opts: DeployOptions, scope: "region" | "zone" | "global"): string[] {

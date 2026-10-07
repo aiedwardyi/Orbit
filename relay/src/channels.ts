@@ -91,6 +91,8 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
   let session: Session | undefined;
   let lastSeen = ctx.now();
   let pinger: NodeJS.Timeout | undefined;
+  let closing = false;
+  let closeTimer: NodeJS.Timeout | undefined;
 
   const close = () => socket.destroy();
   const authTimer = setTimeout(() => {
@@ -104,6 +106,7 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
   socket.once("close", () => {
     clearTimeout(authTimer);
     clearInterval(pinger);
+    clearTimeout(closeTimer);
     if (session) hub.end(session);
   });
 
@@ -111,8 +114,12 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
     notice: (code: NoticeCode) => send(socket, { type: "notice", code }),
     want: (n: number) => send(socket, { type: "want", n }),
     close: () => {
+      if (closing) return;
+      closing = true;
+      clearTimeout(authTimer);
+      clearInterval(pinger);
       if (!socket.destroyed) socket.end();
-      socket.setTimeout(2_000, () => socket.destroy());
+      closeTimer = setTimeout(() => socket.destroy(), 2_000);
     },
   };
 
@@ -156,6 +163,7 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
   };
 
   socket.on("data", (chunk: Buffer) => {
+    if (closing) return;
     decoder.push(chunk);
     try {
       for (let msg = decoder.next(); msg; msg = decoder.next()) {
@@ -165,6 +173,7 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
           close();
           return;
         }
+        if (closing) return;
       }
     } catch {
       log.log("control-rejected", { peer, label: session?.label, reason: "bad-frame" });

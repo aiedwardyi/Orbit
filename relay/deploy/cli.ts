@@ -99,6 +99,7 @@ export function parseOptions(argv: string[]): ParsedArgs {
     acceptAcmeTerms: values["accept-acme-terms"]!,
   };
   if (action === "move" && !values["from-project"]) throw new PlanError("move needs --from-project");
+  if (values.offline && values.apply) throw new PlanError("--offline cannot be combined with --apply");
   if (values.offline && (action === "move" || action === "pause")) {
     throw new PlanError(`${action} must read current state; --offline is for provision and update`);
   }

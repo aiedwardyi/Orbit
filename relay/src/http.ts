@@ -64,7 +64,7 @@ export function createApiServer(opts: ApiOptions): Server {
   const statusLimit = RateLimiter.perMinute(limits.statusPerIpPerMin, opts.now);
 
   const server = createServer(
-    { requestTimeout: 10_000, headersTimeout: 5_000, maxHeaderSize: 8 * 1024, keepAliveTimeout: 5_000 },
+    { requestTimeout: 10_000, headersTimeout: 5_000, connectionsCheckingInterval: 1_000, maxHeaderSize: 8 * 1024, keepAliveTimeout: 5_000 },
     (req, res) => {
       handle(req, res).catch(() => {
         if (!res.headersSent) reply(res, 500, { error: "internal" });
@@ -73,6 +73,9 @@ export function createApiServer(opts: ApiOptions): Server {
     },
   );
   server.maxRequestsPerSocket = 100;
+  server.setTimeout(5_000);
+  // Handed-off sockets need Node's parser deadline tracker before the first connection.
+  server.emit("listening");
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const host = (req.headers.host ?? "").toLowerCase().replace(/:443$/, "");

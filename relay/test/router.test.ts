@@ -24,14 +24,14 @@ const ALERT = (description: number) => Buffer.from([0x15, 0x03, 0x01, 0x00, 0x02
 const CCS = Buffer.from([0x14, 0x03, 0x03, 0x00, 0x01, 0x01]);
 
 describe("SNI routing", () => {
-  it("sends go once and the ClientHello bytes exactly, in one write, even when the phone fragments them", async () => {
+  it.each([{ alpn: ["http/1.1"] }, { alpn: [] }])("forwards fragmented ClientHello bytes exactly with ALPN $alpn", async ({ alpn }) => {
     h = await startRelay();
     const pc = makePc();
     const ctl = await openControl(h, pc);
     const data = await openData(h, ctl.ready.session, ctl.ready.poolToken);
     await h.waitLog(event("join", { label: pc.label }));
 
-    const hello = await captureClientHello(`${pc.label}.${h.base}`);
+    const hello = await captureClientHello(`${pc.label}.${h.base}`, alpn);
     const phone = await rawConnect(h);
     const pieces = [hello.subarray(0, 3), hello.subarray(3, 50), Buffer.concat([hello.subarray(50), CCS])];
     const got = awaitGo(data);

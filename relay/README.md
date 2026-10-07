@@ -49,6 +49,9 @@ WINK_SIZING=500 NODE_OPTIONS=--expose-gc pnpm vitest run test/sizing.test.ts --d
 
 The operator key comes from systemd `LoadCredential=operator.key` (`$CREDENTIALS_DIRECTORY`), or `operatorKeyFile` outside systemd.
 `SIGHUP` (`systemctl reload wink-relay`) re-reads the revoked labels; the file is also polled every minute.
+Missing or unreadable revocation files retain the last good list and log `revocation-reload-failed`.
+An explicit empty file clears the list. Used invite hashes expire after the clock-skew window;
+runtime writes compact the journal without dropping unexpired consumes.
 
 ## Deploy
 
@@ -69,15 +72,15 @@ DNS credentials for `namecom`: `NAMECOM_USER` and `NAMECOM_TOKEN` in the environ
 - An existing address (`-AddressName`, e.g. `wink-relay`) is reused only if its project, region and tier match and
   nothing else uses it; one without the owner marker is never released by pause or move.
 - `-Dns manual` never calls name.com: provision stops with the record to add (`A *.<sub> -> <ip>, TTL 300`) until a
-  random name under `<base>` resolves to the address at 8.8.8.8 and 1.1.1.1; re-run it once added. Pause prints the
-  record to remove by hand.
+  random name under `<base>` resolves to the address at 8.8.8.8 and 1.1.1.1; re-run it once added. Pause refuses
+  release without a complete relay/PC DNS inventory; use `-Dns namecom` for that step.
 - Files go to the login home as `<vm>:.`, since pscp (gcloud scp on Windows) does not expand `~`.
 - The operator key is scp'd as `~/operator.key.upload`, installed 0400 root and shredded, because ssh over IAP
   from Windows does not forward stdin.
 - The VM is created with `enable-guest-attributes=TRUE` so host keys are published at first boot and the first
   non-interactive scp/ssh does not stop at a host-key prompt; setting it later is too late.
 - Provision enables `iap.googleapis.com` next to compute, for IAP TCP forwarding.
-- Pause removes `*.<base>` A records that point at the old IP before releasing it. Move provisions the new project,
+- Pause removes wildcard, explicit relay and PC-label A records at the old IP before releasing it. Move provisions the new project,
   points DNS at it, checks health, then pauses the old project; records already on the new IP are never deleted.
 - The VM has no service account and no scopes; SSH is only through IAP (`35.235.240.0/20`, priority 1000) with OS Login.
   An owned `<prefix>-deny-admin` rule (tcp:22,3389 from anywhere, priority 1100) overrides the default network's

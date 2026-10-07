@@ -77,7 +77,11 @@ export class Enroller {
     if (this.opts.isRevoked(label)) return fail(403, "revoked");
 
     // Every check above is synchronous and done; mark the invite used now.
-    if (!this.opts.store.consume(opened.value.nonce, opened.value.exp)) return fail(409, "invite-used");
+    try {
+      if (!this.opts.store.consume(opened.value.nonce, opened.value.exp)) return fail(409, "invite-used");
+    } catch {
+      return fail(503, "store-unavailable");
+    }
 
     const iat = Math.floor(now / 1000);
     const ticket = signTicket(

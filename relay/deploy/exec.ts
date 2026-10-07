@@ -18,6 +18,7 @@ import {
   dnsName,
   describeStep,
   firewallNames,
+  isRelayDnsHost,
   names,
   type AddressState,
   type DeployOptions,
@@ -181,14 +182,18 @@ export async function execute(steps: Step[], opts: DeployOptions, ctx: ExecConte
         const keep = step.protect ? await resolveIp(ctx, step.protect) : null;
         if (step.manual || ctx.dns.kind === "manual") {
           if (step.onlyValue !== keep) {
-            ctx.out(`  manual DNS: remove this record by hand in zone ${step.zone} if it exists: A ${step.host} -> ${step.onlyValue}`);
+            throw new PlanError("manual DNS cannot verify all relay/PC A records; use --dns namecom before releasing the old IP");
           }
           break;
         }
         const records = (await ctx.dns.list(step.zone)).filter(
-          (r) => r.host === step.host && r.type === "A" && r.answer === step.onlyValue && r.answer !== keep,
+          (r) => isRelayDnsHost(r.host, step.host) && r.type === "A" && r.answer === step.onlyValue && r.answer !== keep,
         );
         for (const record of records) await ctx.dns.remove(step.zone, record.id);
+        const remaining = (await ctx.dns.list(step.zone)).some(
+          (r) => isRelayDnsHost(r.host, step.host) && r.type === "A" && r.answer === step.onlyValue && r.answer !== keep,
+        );
+        if (remaining) throw new PlanError("relay/PC A records still point at the old IP; refusing release");
         ctx.out(`  removed ${records.length} record(s)`);
         break;
       }
