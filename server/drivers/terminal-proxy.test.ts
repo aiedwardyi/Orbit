@@ -379,11 +379,25 @@ describe("terminal proxy", () => {
     expect(list[2]).toMatch(/B \| M \| H: sessionId s3 \(generation 2\), Claude: idle$/);
   });
 
+  const IDLE_GT = [
+    "✻ Worked for 54m 33s · done 12:11 AM",
+    "────────────────────────────────────────────────────────",
+    ">",
+    "────────────────────────────────────────────────────────",
+    "  ◆ Opus 5.5 │ recycle-budget/fix/recycle-budget",
+    "  ▰▰▰▱▱ 59% │ ↑409.3k ↓444 │ 5h: ▱▱▱▱▱ 0% (1h47m) │ 7d: ▰▰▰▰▱ 82% (1d3h) │ 1h54m",
+    "  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+  ].join("\n");
+
   it.each([
     ["a running turn", BUSY, "busy"],
     ["the first spinner frame", "❯ go\n* Fermenting…\n────────────\n❯", "busy"],
     ["a finished turn at its prompt", IDLE, "idle"],
     ["a shell", "PS C:\\work> echo done…", undefined],
+    ["an idle 2.1.293 pane at its > prompt", IDLE_GT, "idle"],
+    ["a busy 2.1.293 pane above its > prompt", `* Considering… (10m 9s · ↓ 32.8k tokens · thinking with max effort)\n${IDLE_GT}`, "busy"],
+    ["PowerShell with a continuation prompt", "PS C:\\> Get-ChildItem |\n>> Select-Object Name\n>> \nPS C:\\>", undefined],
+    ["Codex at its prompt", "────────────\n› Ask Codex to do anything\n\n  ? for shortcuts", undefined],
   ])("reads the Claude state from %s", (_label, screenText, state) => {
     expect(claudeState(screenText)).toBe(state);
     const text = terminalSnapshotText({ sessionId: "s1", generation: 1, screenText });
