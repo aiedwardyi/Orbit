@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, unlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,8 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   applySyncOperations,
   bindSyncId,
+  botDeletesToPublish,
   compatibleSyncChanges,
   createSyncOperation,
+  dropSyncedBot,
   emptyProfileSyncState,
   importedSyncAvatarCrop,
   loadProfileSyncSettings,
@@ -220,6 +222,21 @@ describe("profile sync operations", () => {
     expect(loadProfileSyncSettings(root).reviewedResolutions).toEqual(initial.reviewedResolutions);
   });
 
+  it("loads a settings file written before pending bot deletes existed", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-legacy-"));
+    roots.push(root);
+    writeFileSync(join(root, "profile-sync.json"), JSON.stringify({
+      workspaceId: "workspace-1",
+      deviceId: "device-1",
+      folder: null,
+      botMap: { "local-1": "global-1" },
+    }));
+    const settings = loadProfileSyncSettings(root);
+    expect(settings.workspaceId).toBe("workspace-1");
+    expect(settings.botMap).toEqual({ "local-1": "global-1" });
+    expect(settings.pendingBotDeletes).toEqual([]);
+  });
+
   it("saves sectionMap keys that include spaces", () => {
     const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-section-"));
     roots.push(root);
@@ -377,7 +394,7 @@ describe("automatic bot sync", () => {
     return operations;
   }
 
-  function planFor(host: Device) {
+  function planFor(host: Device, lost: { restore?: boolean; pendingBotDeletes?: string[] } = {}) {
     const state = applySyncOperations(emptyProfileSyncState(), log);
     const plan = planProfileImport({
       state,
@@ -387,12 +404,13 @@ describe("automatic bot sync", () => {
       botMap: host.botMap,
       local: [...host.bots].map(([id, bot]) => ({ id, name: String(bot.changes.name), hidden: bot.hidden, changes: bot.changes })),
       localOrder: {},
+      ...lost,
     });
     return { state, plan };
   }
 
-  function importInto(host: Device) {
-    const { state, plan } = planFor(host);
+  function importInto(host: Device, lost: Parameters<typeof planFor>[1] = {}) {
+    const { state, plan } = planFor(host, lost);
     for (const item of plan.bots) {
       const localId = item.localId ?? `${host.id}-bot-${++host.created}`;
       const bot = host.bots.get(localId) ?? { name: "", changes: {} };
@@ -652,5 +670,116 @@ describe("automatic bot sync", () => {
     expect(b.bots.get("tutor")!.changes.description).toBe("Spanish");
     expect(b.bots.size).toBe(2);
     expect(publish(b)).toMatchObject([{ entityId: "g-b-tutor", changes: { description: "Spanish" } }]);
+  });
+
+  it("brings bots lost with bots.json back under the same ids", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", color: "blue", model: "opus" } });
+    a.bots.set("coder", { name: "Coder", changes: { name: "Coder", color: "green" } });
+    publish(a);
+    importInto(b);
+    // b's own op: a normal import never applies it back
+    b.bots.get("b-bot-1")!.changes.title = "Teacher";
+    publish(b);
+    const kept = structuredClone({ bots: Object.fromEntries(b.bots), botMap: b.botMap });
+    b.bots.clear();
+    importInto(b, { restore: true });
+    expect(Object.fromEntries(b.bots)).toEqual(kept.bots);
+    expect(b.botMap).toEqual(kept.botMap);
+    expect(publish(b)).toEqual([]);
+    expect(importInto(b, { restore: true }).bots.map((item) => item.apply)).toEqual([{}, {}]);
+    expect(b.bots.size).toBe(2);
+  });
+
+  it("does not bring back a lost bot whose delete has not published yet", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor" } });
+    a.bots.set("coder", { name: "Coder", changes: { name: "Coder" } });
+    publish(a);
+    importInto(b);
+    const coder = localIdForSyncId(b.botMap, "g-a-coder")!;
+    b.bots.clear();
+    importInto(b, { restore: true, pendingBotDeletes: ["g-a-coder"] });
+    expect([...b.bots.values()].map((bot) => bot.changes.name)).toEqual(["Tutor"]);
+    expect(botDeletesToPublish(b.botMap, new Set(b.bots.keys()), ["g-a-coder"]).publish).toEqual([[coder, "g-a-coder"]]);
+  });
+
+  it("does not bring back a lost bot another device deleted", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor" } });
+    a.bots.set("coder", { name: "Coder", changes: { name: "Coder" } });
+    publish(a);
+    importInto(b);
+    b.bots.clear();
+    a.bots.delete("coder");
+    publish(a);
+    importInto(b, { restore: true });
+    expect([...b.bots.values()].map((bot) => bot.changes.name)).toEqual(["Tutor"]);
+  });
+
+  it("takes the shared order whole when it brings a lost bot back", () => {
+    const state = applySyncOperations(emptyProfileSyncState(), [
+      operation({ operationId: "bot", deviceId: "b", entityId: "g-tutor", changes: { name: "Tutor" } }),
+      operation({ operationId: "order", deviceId: "b", sequence: 2, entity: "order", entityId: "workspace", changes: { sectionOrder: [], itemOrder: { "": ["g-tutor"] } } }),
+    ]);
+    const input = { state, deviceId: "b", workspaceId: "workspace", synced: {}, botMap: { tutor: "g-tutor" }, local: [], localOrder: {} };
+    expect(planProfileImport(input).order).toEqual({});
+    expect(planProfileImport({ ...input, restore: true }).order).toEqual({ sectionOrder: [], itemOrder: { "": ["g-tutor"] } });
+  });
+
+  it("changes nothing on a device that still has every bot", () => {
+    const a = device("a");
+    const b = device("b");
+    a.bots.set("tutor", { name: "Tutor", changes: { name: "Tutor", color: "blue" } });
+    publish(a);
+    importInto(b);
+    b.bots.get("b-bot-1")!.changes.title = "Teacher";
+    publish(b);
+    const kept = structuredClone({ bots: Object.fromEntries(b.bots), botMap: b.botMap, synced: b.synced });
+    const plan = importInto(b, { restore: true });
+    expect(plan.bots).toEqual([{ globalId: "g-a-tutor", localId: "b-bot-1", apply: {} }]);
+    expect(plan.order).toEqual({});
+    expect({ bots: Object.fromEntries(b.bots), botMap: b.botMap, synced: b.synced }).toEqual(kept);
+    expect(publish(b)).toEqual([]);
+  });
+});
+
+describe("bot delete publishing", () => {
+  it("publishes nothing for a mapped bot that is missing but was not deleted", () => {
+    const plan = botDeletesToPublish({ "local-1": "global-1", "local-2": "global-2" }, new Set(), []);
+    expect(plan.publish).toEqual([]);
+    expect(plan.missing).toBe(2);
+  });
+
+  it("publishes exactly one delete for an explicit delete and clears it", () => {
+    const plan = botDeletesToPublish(
+      { "local-1": "global-1", "local-2": "global-2", "local-3": "global-3" },
+      new Set(["local-3"]),
+      ["global-1"],
+    );
+    expect(plan.publish).toEqual([["local-1", "global-1"]]);
+    expect(plan.missing).toBe(1);
+    expect(plan.pendingBotDeletes).toEqual([]);
+  });
+
+  it("keeps a pending delete while its bot is still live", () => {
+    const plan = botDeletesToPublish({ "local-1": "global-1" }, new Set(["local-1"]), ["global-1", "global-gone"]);
+    expect(plan.publish).toEqual([]);
+    expect(plan.missing).toBe(0);
+    expect(plan.pendingBotDeletes).toEqual(["global-1"]);
+  });
+
+  it("drops a remotely deleted bot so it is not counted as missing", () => {
+    const botMap = { "local-1": "global-1", "local-2": "global-2" };
+    const synced = { "bot:global-1:name": "hash", "bot:global-2:name": "hash" };
+    dropSyncedBot(botMap, synced, "local-1", "global-1");
+    expect(botMap).toEqual({ "local-2": "global-2" });
+    expect(synced).toEqual({ "bot:global-2:name": "hash" });
+    const plan = botDeletesToPublish(botMap, new Set(["local-2"]), []);
+    expect(plan.publish).toEqual([]);
+    expect(plan.missing).toBe(0);
   });
 });

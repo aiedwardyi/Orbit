@@ -655,6 +655,8 @@ interface ThreadState {
 
 export class Store {
   bots: BotRecord[] = [];
+  /** "missing" is a lost file; "unreadable" is there but did not load, so it may still hold good bots. */
+  botsFile: "loaded" | "missing" | "unreadable" = "loaded";
   groups: GroupRecord[] = [];
   private threads = new Map<string, ThreadState>();
   private taskPackets = new Map<string, TaskResumePacket | null>();
@@ -669,8 +671,9 @@ export class Store {
     mkdirSync(DATA_DIR, { recursive: true });
     try {
       this.bots = JSON.parse(readFileSync(BOTS_FILE, "utf8"));
-    } catch {
+    } catch (error) {
       this.bots = [];
+      this.botsFile = error instanceof Error && "code" in error && error.code === "ENOENT" ? "missing" : "unreadable";
     }
     try {
       this.groups = JSON.parse(readFileSync(GROUPS_FILE, "utf8"));
@@ -1290,6 +1293,8 @@ export class Store {
       job?: string;
       /** Test seam for the packaged-Windows first-run computer default. */
       host?: { platform?: string; packaged?: boolean };
+      /** A bot lost with bots.json comes back under its old id. */
+      id?: string;
     } = {},
   ): BotRecord {
     const name = profile.name?.trim() || pickBotName(this.bots.map((b) => b.name));
@@ -1297,7 +1302,7 @@ export class Store {
     const section = sectionKey(profile.section);
     const computer = profile.computer ?? defaultComputerForNewBot(opts.host);
     const bot: BotRecord = {
-      id: newId(),
+      id: opts.id ?? newId(),
       threadId: newId(),
       name,
       title: profile.title ?? (job ? titleFromMessage(job) : ""),

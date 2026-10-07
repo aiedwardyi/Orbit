@@ -132,6 +132,8 @@ export interface ProfileSyncSettings {
   deviceId: string;
   folder: string | null;
   botMap: Record<string, string>;
+  /** Global ids of bots the user deleted here; only these publish a delete. */
+  pendingBotDeletes: string[];
   sectionMap: Record<string, string>;
   reviewedResolutions: Record<string, Record<string, string>>;
   nextSequence: number;
@@ -212,6 +214,7 @@ const settingsSchema = z.object({
   deviceId: ID,
   folder: z.string().trim().max(1_000).nullable(),
   botMap: z.record(ID, ID).default({}),
+  pendingBotDeletes: z.array(ID).default([]),
   sectionMap: z.record(z.string().trim().min(1).max(100), ID).default({}),
   reviewedResolutions: z.record(z.string().trim().min(1).max(512), z.record(z.string().trim().min(1).max(240), ID)).default({}),
   nextSequence: z.number().int().positive().max(2_000_000_000).default(1),
@@ -481,6 +484,7 @@ export function loadProfileSyncSettings(dataDir: string): ProfileSyncSettings {
     deviceId: randomUUID(),
     folder: null,
     botMap: {},
+    pendingBotDeletes: [],
     sectionMap: {},
     reviewedResolutions: {},
     nextSequence: 1,
@@ -727,6 +731,33 @@ export function markImported(
   }
 }
 
+export interface BotDeletePlan {
+  /** [localId, globalId] botMap entries to publish a delete for. */
+  publish: Array<[string, string]>;
+  /** Mapped bots missing here without an explicit delete; a lost bots.json must not delete them everywhere. */
+  missing: number;
+  pendingBotDeletes: string[];
+}
+
+/** Only an explicit delete publishes; a pending delete waits while its bot is still here and is dropped once no longer mapped. */
+export function botDeletesToPublish(
+  botMap: Record<string, string>,
+  liveBotIds: ReadonlySet<string>,
+  pendingBotDeletes: readonly string[],
+): BotDeletePlan {
+  const pending = new Set(pendingBotDeletes);
+  const gone = Object.entries(botMap).filter(([localId]) => !liveBotIds.has(localId));
+  const publish = gone.filter(([, globalId]) => pending.has(globalId));
+  const waiting = Object.entries(botMap).filter(([localId, globalId]) => liveBotIds.has(localId) && pending.has(globalId));
+  return { publish, missing: gone.length - publish.length, pendingBotDeletes: [...new Set(waiting.map(([, globalId]) => globalId))] };
+}
+
+/** Forgets a bot that is gone here, without publishing a delete for it. */
+export function dropSyncedBot(botMap: Record<string, string>, synced: Record<string, string>, localId: string, globalId: string): void {
+  if (botMap[localId] === globalId) delete botMap[localId];
+  forgetSynced(synced, "bot", globalId);
+}
+
 export interface LocalSyncBot extends SyncBotMatchCandidate {
   changes: Record<string, unknown>;
 }
@@ -747,7 +778,7 @@ export function syncedDeleteChoice(input: SyncedDeleteInput): "delete" | "hide" 
 }
 
 export interface ProfileImportPlan {
-  /** localId null means create. */
+  /** localId null means create; a localId missing here means create under that id. */
   bots: Array<{ globalId: string; localId: string | null; apply: Record<string, unknown> }>;
   /** Tombstoned bots to delete. A restored bot is not listed. */
   remove: Array<{ globalId: string; localId: string; tombstoneId: string }>;
@@ -762,16 +793,27 @@ export function planProfileImport(input: {
   botMap: Record<string, string>;
   local: readonly LocalSyncBot[];
   localOrder: Record<string, unknown>;
+  /** bots.json was lost: mapped bots missing here come back, except deletes not yet published. */
+  restore?: boolean;
+  pendingBotDeletes?: readonly string[];
 }): ProfileImportPlan {
   const { state, deviceId, synced } = input;
   const botMap = { ...input.botMap };
   const byId = new Map(input.local.map((bot) => [bot.id, bot]));
   const plan: ProfileImportPlan = { bots: [], remove: [], order: {} };
+  let restored = false;
   for (const remote of Object.values(state.bots)) {
     // a same-named unmapped bot was made separately; binding it by name would merge two bots
     const localId = localIdForSyncId(botMap, remote.id) ?? null;
-    // deleted here; its tombstone goes out on the next publish
-    if (localId && !byId.has(localId)) continue;
+    if (localId && !byId.has(localId)) {
+      // deleted here; its tombstone goes out on the next publish
+      if (!input.restore || input.pendingBotDeletes?.includes(remote.id)) continue;
+      // every field, this device's own ops too: its copy went with bots.json
+      const { id: _id, ...apply } = remote;
+      plan.bots.push({ globalId: remote.id, localId, apply });
+      restored = true;
+      continue;
+    }
     const apply = remoteFieldsToApply(state, deviceId, synced, "bot", remote.id, remote, localId ? byId.get(localId)!.changes : null);
     plan.bots.push({ globalId: remote.id, localId, apply });
   }
@@ -793,6 +835,7 @@ export function planProfileImport(input: {
   const remoteOrder = Object.fromEntries((["sectionOrder", "itemOrder"] as const)
     .filter((field) => state.fieldVersions[syncedKey("order", input.workspaceId, field)])
     .map((field) => [field, state.order[field]]));
-  plan.order = remoteFieldsToApply(state, deviceId, synced, "order", input.workspaceId, remoteOrder, input.localOrder);
+  // a restored sidebar takes the shared order whole rather than publishing its rebuilt one
+  plan.order = restored ? remoteOrder : remoteFieldsToApply(state, deviceId, synced, "order", input.workspaceId, remoteOrder, input.localOrder);
   return plan;
 }
