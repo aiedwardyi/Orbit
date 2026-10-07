@@ -288,6 +288,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         // only reports after turn/start was sent can belong to this turn
         turnRequested: false,
       };
+      // the first and latest model call's prompt, and the model's window
+      let promptTokens: { first: number; last: number } | undefined;
+      let contextWindow: number | undefined;
 
       const asks = new Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>();
       let nextId = 1;
@@ -356,6 +359,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           stopReason,
           cost: null,
           ...(state.usage ? { usage: state.usage } : {}),
+          prompt: promptTokens,
+          contextWindow,
           ...(state.promptAccepted ? { promptAccepted: true } : {}),
         });
         stop(); // the app-server never exits on its own
@@ -512,10 +517,17 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           case "thread/tokenUsage/updated": {
             // a resumed thread replays its restored usage right after
             // thread/resume, stamped with an earlier turn's id. That report
-            // is history, not this turn's spend. This turn's reports follow
-            // turn/started, so its id is known by the time they land.
+            // is history, not this turn's spend or prompt. This turn's reports
+            // follow turn/started, so its id is known by the time they land.
             const counts = state.turnRequested && (p.turnId === undefined || p.turnId === nativeTurnId);
-            if (counts) state.usage = accrueTurnUsage(state.spend, p.tokenUsage) ?? state.usage;
+            if (counts) {
+              state.usage = accrueTurnUsage(state.spend, p.tokenUsage) ?? state.usage;
+              // `last` is one model call (checked against rollouts), cache hits included
+              const call = p.tokenUsage?.last?.inputTokens;
+              if (Number.isSafeInteger(call)) promptTokens = { first: promptTokens?.first ?? call, last: call };
+              const window = p.tokenUsage?.modelContextWindow;
+              if (Number.isSafeInteger(window) && window > 0) contextWindow = window;
+            }
             const t = p.tokenUsage?.total;
             if (t) {
               emit({

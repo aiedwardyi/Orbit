@@ -189,6 +189,13 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(seen.env.GITHUB_TOKEN).toBeUndefined();
   });
 
+  it("reports the last call's prompt and the engine's window, never the thread total", async () => {
+    await create({ mode: "usage-calls" });
+    await instance.adapter.sendTurn({ threadId: "t-prompt", text: "hi" });
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: true, prompt: { first: 25_881, last: 29_357 }, contextWindow: 258_400 });
+  });
+
   it("forwards the app-server's account rate limits as account.rate-limits.updated", async () => {
     process.env.FAKE_CODEX_RATE_LIMITS = "1";
     await create();
@@ -568,6 +575,28 @@ describe("CodexDriver turns (fake app-server)", () => {
       { resumeCursor: "codex-thread-9" },
     );
     expect(done).toMatchObject({ usage: { input: 500, output: 35, cachedInput: 300 } });
+  });
+
+  it("takes a resumed turn's spend and prompt from its own calls, not a bigger replayed turn", async () => {
+    await create({ mode: "resume" });
+    process.env.FAKE_CODEX_USAGE_REPLAY = JSON.stringify({
+      last: tokens([90_000, 80_000, 900]),
+      total: tokens([400_000, 300_000, 5_000]),
+      modelContextWindow: 258_400,
+    });
+    const done = await usageTurn(
+      "t-resumed-prompt",
+      [
+        { last: tokens([30_000, 20_000, 100]), total: tokens([430_000, 320_000, 5_100]), modelContextWindow: 258_400 },
+        { last: tokens([32_000, 30_000, 200]), total: tokens([462_000, 350_000, 5_300]), modelContextWindow: 258_400 },
+      ],
+      { resumeCursor: "codex-thread-9" },
+    );
+    expect(done).toMatchObject({
+      usage: { input: 62_000, output: 300, cachedInput: 50_000 },
+      prompt: { first: 30_000, last: 32_000 },
+      contextWindow: 258_400,
+    });
   });
 
   it("sums the turn's calls when the app-server sends no thread total", async () => {
