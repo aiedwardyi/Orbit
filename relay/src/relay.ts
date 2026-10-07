@@ -307,6 +307,7 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
       revocationTimer.unref();
       await certManager?.start();
       log.log("relay-listening", {});
+      // SAFETY: the server listens on TCP, so address() is an AddressInfo, not a pipe name or null.
       return server.address() as AddressInfo;
     },
     reloadRevocations,
@@ -344,6 +345,6 @@ function handOff(socket: Socket, buffered: Buffer, server: ReturnType<typeof cre
 }
 
 function tlsReason(error: NodeJS.ErrnoException): string {
-  const code = typeof error.code === "string" ? error.code.toLowerCase() : "";
+  const code = String(error.code ?? "").toLowerCase();
   return /^[a-z0-9_]{1,32}$/.test(code) ? code : "handshake";
 }

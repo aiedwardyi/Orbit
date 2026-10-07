@@ -36,14 +36,27 @@ export type LogKey = keyof typeof CHECKS;
 const REDACTED = "[redacted]";
 
 /** Maps fields onto the allowlist. Unknown keys are dropped, bad values redacted. */
-export function sanitize(fields: LogFields): Record<string, string | number | boolean | null> {
+export function sanitize(fields: LogFields) {
   const out: Record<string, string | number | boolean | null> = {};
   for (const [key, value] of Object.entries(fields)) {
     if (!Object.hasOwn(CHECKS, key) || value === undefined) continue;
+    // SAFETY: Object.hasOwn(CHECKS, key) above makes key a LogKey.
     const check = CHECKS[key as LogKey];
-    if (value === null || typeof value === "boolean") out[key] = value;
-    else if (typeof value === "number") out[key] = Number.isFinite(value) ? Math.round(value) : null;
-    else out[key] = check && check(value) ? value : REDACTED;
+    if (value === null) {
+      out[key] = value;
+      continue;
+    }
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- LogValue is a typed union; typeof only picks its member.
+    switch (typeof value) {
+      case "boolean":
+        out[key] = value;
+        break;
+      case "number":
+        out[key] = Number.isFinite(value) ? Math.round(value) : null;
+        break;
+      default:
+        out[key] = check && check(value) ? value : REDACTED;
+    }
   }
   return out;
 }

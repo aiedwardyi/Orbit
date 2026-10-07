@@ -65,15 +65,31 @@ export interface Local {
 
 const NOT_FOUND = /was not found|notFound|404/;
 
-async function describe(runner: Runner, args: string[]): Promise<Record<string, unknown> | null> {
+/** The fields discovery reads from `gcloud ... describe --format=json`; gcloud omits unset ones. */
+interface Described {
+  address?: string;
+  description?: string;
+  networkTier?: string;
+  region?: string;
+  selfLink?: string;
+  status?: string;
+  users?: string[];
+  networkInterfaces?: Array<{ accessConfigs?: Array<{ natIP?: string }> }>;
+}
+
+async function describe(runner: Runner, args: string[]): Promise<Described | null> {
   const res = await runner.gcloud([...args, "--format=json"]);
-  if (res.code === 0) return JSON.parse(res.stdout) as Record<string, unknown>;
+  if (res.code === 0) {
+    // SAFETY: a successful describe prints one resource object; every Described field is optional and
+    // each one read below is normalized (String, Array.isArray) or checked before use.
+    return JSON.parse(res.stdout) as Described;
+  }
   if (NOT_FOUND.test(res.stderr)) return null;
   throw new Error(`gcloud ${args.slice(0, 3).join(" ")} failed: ${res.stderr.trim().split("\n").pop()}`);
 }
 
-const lastPart = (url: unknown) => (typeof url === "string" ? url.split("/").pop()! : "");
-const projectOf = (selfLink: unknown) => (typeof selfLink === "string" ? (/\/projects\/([^/]+)\//.exec(selfLink)?.[1] ?? "") : "");
+const lastPart = (url: string | undefined) => (url === undefined ? "" : url.split("/").pop()!);
+const projectOf = (selfLink: string | undefined) => (selfLink === undefined ? "" : (/\/projects\/([^/]+)\//.exec(selfLink)?.[1] ?? ""));
 
 /** Read-only: describes the named resources and lists DNS records. */
 export async function discover(opts: DeployOptions, runner: Runner, dns: DnsAccess | null): Promise<ProjectState> {
@@ -98,7 +114,7 @@ export async function discover(opts: DeployOptions, runner: Runner, dns: DnsAcce
     firewall[name] = f ? { name, description: String(f.description ?? "") } : null;
   }
   const i = await describe(runner, ["compute", "instances", "describe", n.vm, ...scope, "--zone", opts.zone]);
-  const nic = (i?.networkInterfaces as Array<{ accessConfigs?: Array<{ natIP?: string }> }> | undefined)?.[0];
+  const nic = i?.networkInterfaces?.[0];
   const instance = i ? { name: n.vm, description: String(i.description ?? ""), ip: nic?.accessConfigs?.[0]?.natIP } : null;
   const { host } = dnsName(opts);
   const records = dns ? (await dns.list(opts.dnsZone)).filter((r) => r.host === host && r.type === "A") : [];
@@ -119,7 +135,7 @@ async function resolveIp(ctx: ExecContext, ref: IpRef): Promise<string> {
   if ("ip" in ref) return ref.ip;
   const { project, region, name } = ref.addressOf;
   const a = await describe(ctx.runner, ["compute", "addresses", "describe", name, "--project", project, "--region", region]);
-  if (!a || typeof a.address !== "string") throw new Error(`address ${name} has no IP`);
+  if (a?.address === undefined) throw new Error(`address ${name} has no IP`);
   return a.address;
 }
 
@@ -217,20 +233,33 @@ export const gcloudRunner: Runner = {
   },
 };
 
+interface NameComRecord {
+  host: string;
+  type: "A";
+  answer: string;
+  ttl: number;
+}
+
+interface NameComList {
+  records?: Array<{ id?: number; host?: string; type?: string; answer?: string }>;
+  nextPage?: number;
+}
+
 /** name.com API v4 (endpoint shapes unverified against a live account). Credentials from env only. */
 export function nameComDns(env: NodeJS.ProcessEnv = process.env): Dns {
   const user = env.NAMECOM_USER;
   const token = env.NAMECOM_TOKEN;
   if (!user || !token) throw new PlanError("set NAMECOM_USER and NAMECOM_TOKEN in the environment");
   const auth = `Basic ${Buffer.from(`${user}:${token}`).toString("base64")}`;
-  const api = async (method: string, path: string, body?: object) => {
+  const api = async (method: string, path: string, body?: NameComRecord): Promise<NameComList> => {
     const res = await fetch(`https://api.name.com/v4${path}`, {
       method,
       headers: { authorization: auth, "content-type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) throw new Error(`name.com ${method} ${path.split("/").slice(0, 4).join("/")} -> ${res.status}`);
-    return res.status === 204 ? {} : ((await res.json()) as Record<string, unknown>);
+    // SAFETY: name.com v4 answers with a JSON object; list reads only the optional NameComList fields and normalizes them.
+    return res.status === 204 ? {} : ((await res.json()) as NameComList);
   };
   return {
     kind: "namecom",
@@ -238,7 +267,7 @@ export function nameComDns(env: NodeJS.ProcessEnv = process.env): Dns {
       const out: DnsRecord[] = [];
       for (let page = 1; page <= 50; page++) {
         const res = await api("GET", `/domains/${zone}/records?perPage=1000&page=${page}`);
-        const records = (res.records as Array<Record<string, unknown>> | undefined) ?? [];
+        const records = res.records ?? [];
         for (const r of records) {
           out.push({ id: Number(r.id), host: String(r.host ?? ""), type: String(r.type), answer: String(r.answer) });
         }
@@ -290,6 +319,13 @@ async function sha256File(path: string): Promise<string> {
   return hash.digest("hex");
 }
 
+/** The acme block of the relay config, keys in the order the config file lists them. */
+interface AcmeConfig {
+  directoryUrl: string;
+  email?: string;
+  termsOfServiceAgreed?: true;
+}
+
 export function realLocal(relayDir: string, buildDir: string): Local {
   return {
     async build() {
@@ -309,6 +345,7 @@ export function realLocal(relayDir: string, buildDir: string): Local {
         const res = await fetch(NODE_URL);
         if (!res.ok || !res.body) throw new Error(`download ${NODE_URL} -> ${res.status}`);
         const tmp = `${target}.part`;
+        // SAFETY: fetch's body is a WHATWG ReadableStream of bytes; the lib.dom and node:stream/web typings differ only nominally.
         await pipeline(Readable.fromWeb(res.body as never), createWriteStream(tmp));
         await rename(tmp, target);
       }
@@ -320,16 +357,15 @@ export function realLocal(relayDir: string, buildDir: string): Local {
     },
     async writeConfig(opts) {
       await mkdir(buildDir, { recursive: true });
+      const acme: AcmeConfig = { directoryUrl: opts.acmeDirectory };
+      if (opts.acmeEmail) acme.email = opts.acmeEmail;
+      acme.termsOfServiceAgreed = true;
       const config = {
         base: opts.base,
         listen: { host: "::", port: 443 },
         dataDir: "/var/lib/wink-relay",
         revokedLabelsFile: "/etc/wink-relay/revoked-labels",
-        acme: {
-          directoryUrl: opts.acmeDirectory,
-          ...(opts.acmeEmail ? { email: opts.acmeEmail } : {}),
-          termsOfServiceAgreed: true,
-        },
+        acme,
       };
       await writeFile(join(buildDir, "wink-relay.config.json"), `${JSON.stringify(config, null, 2)}\n`);
     },
@@ -338,7 +374,7 @@ export function realLocal(relayDir: string, buildDir: string): Local {
       const resolver = new Resolver();
       resolver.setServers(["8.8.8.8", "1.1.1.1"]);
       for (let attempt = 0; attempt < 60; attempt++) {
-        const got = await resolver.resolve4(fqdn).catch(() => [] as string[]);
+        const got = await resolver.resolve4(fqdn).catch((): string[] => []);
         if (got.length === 1 && got[0] === ip) return;
         await new Promise((r) => setTimeout(r, 10_000));
       }

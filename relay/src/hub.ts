@@ -54,7 +54,7 @@ export class Hub {
   private readonly waiting = new Map<string, WaitingPhone[]>();
   private waitingTotal = 0;
   private readonly splicedPerLabel = new Map<string, number>();
-  private readonly pairs = new Set<SplicedPair>();
+  private readonly pairs = new Set<LabeledPair>();
   /** Removes the parked-state listeners of an idle data channel. */
   private readonly parked = new WeakMap<TLSSocket, () => void>();
   /** label -> ms of the last online/offline change, for /v1/status. Insertion ordered, bounded. */
@@ -215,13 +215,13 @@ export class Hub {
     session.control.want(queue.length);
   }
 
-  status(label: string): { online: boolean; since: number | null } {
+  status(label: string): LabelStatus {
     return { online: this.byLabel.has(label), since: this.changedAt.get(label) ?? null };
   }
 
   /** Splices for a label, so revocation can cut them. */
   pairsOf(label: string): SplicedPair[] {
-    return [...this.pairs].filter((pair) => (pair as LabeledPair).label === label);
+    return [...this.pairs].filter((pair) => pair.label === label);
   }
 
   /** Shutdown step one: tell every PC `draining`, drop pools and waiting phones. */
@@ -254,7 +254,7 @@ export class Hub {
     this.parked.get(data)?.();
     this.parked.delete(data);
     this.splicedPerLabel.set(label, (this.splicedPerLabel.get(label) ?? 0) + 1);
-    const pair = splice({
+    const pair: LabeledPair = Object.assign(splice({
       phone,
       data,
       buffered,
@@ -269,8 +269,7 @@ export class Hub {
         else this.splicedPerLabel.delete(label);
         this.opts.log.log("splice-end", { label, peer: peerPrefix(peer), ...stats });
       },
-    }) as LabeledPair;
-    pair.label = label;
+    }), { label });
     this.pairs.add(pair);
   }
 
@@ -304,3 +303,8 @@ export class Hub {
 }
 
 type LabeledPair = SplicedPair & { label: string };
+
+export interface LabelStatus {
+  online: boolean;
+  since: number | null;
+}

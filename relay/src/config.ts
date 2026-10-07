@@ -8,6 +8,7 @@ import type { RelayLimits } from "./limits.ts";
 
 export const BASE_RE = /^(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
+// SAFETY: every value is a non-negative number, like every RelayLimits field; keys that are not limits are never read.
 const limitsSchema = z
   .record(z.string(), z.number().nonnegative())
   .optional()

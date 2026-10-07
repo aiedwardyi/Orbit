@@ -37,6 +37,7 @@ export class RevocationList {
       this.mtimeMs = info.mtimeMs;
       text = await readFile(this.path, "utf8");
     } catch (error) {
+      // SAFETY: fs rejects with Node errno errors.
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         this.labels = new Set();
         this.mtimeMs = -1;

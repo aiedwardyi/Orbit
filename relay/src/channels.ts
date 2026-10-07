@@ -15,6 +15,7 @@ import {
   PROTOCOL_VERSION,
   type AuthMessage,
   type NoticeCode,
+  type ReadyMessage,
   type RelayMessage,
 } from "../../shared/relay-protocol.ts";
 import type { Hub, Session } from "./hub.ts";
@@ -134,13 +135,9 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
         return true;
       }
       session = hub.register(result.label, link);
-      send(socket, {
-        type: "ready",
-        session: session.id,
-        poolToken: session.poolToken,
-        pool: { ...POOL },
-        ...(result.ticket ? { ticket: result.ticket } : {}),
-      });
+      const ready: ReadyMessage = { type: "ready", session: session.id, poolToken: session.poolToken, pool: { ...POOL } };
+      if (result.ticket) ready.ticket = result.ticket;
+      send(socket, ready);
       const waiting = hub.waitingCount(result.label);
       if (waiting > 0) link.want(waiting);
       pinger = setInterval(() => {

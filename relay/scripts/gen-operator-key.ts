@@ -16,6 +16,7 @@ const { privateKey, publicKey } = generateKeyPairSync("ed25519");
 try {
   await writeFile(values.out, privateKey.export({ format: "pem", type: "pkcs8" }), { mode: 0o600, flag: "wx" });
 } catch (error) {
+  // SAFETY: writeFile rejects with Node errno errors.
   process.stderr.write(`gen-operator-key: ${(error as NodeJS.ErrnoException).code ?? "write failed"}\n`);
   process.exit(1);
 }

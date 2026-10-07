@@ -31,13 +31,30 @@ const USAGE = `usage: wink-relay <provision|update|move|pause> --project P --bas
   [--apply]              (without it, nothing is changed)
 env: NAMECOM_USER, NAMECOM_TOKEN for --dns namecom (manual needs none).`;
 
+const TIERS: readonly Tier[] = ["STANDARD", "PREMIUM"];
+const DNS_MODES: readonly DnsMode[] = ["namecom", "manual"];
+
+function oneOf<T extends string>(allowed: readonly T[], value: string, message: string): T {
+  const found = allowed.find((a) => a === value);
+  if (found === undefined) throw new PlanError(message);
+  return found;
+}
+
+export interface ParsedArgs {
+  action: string;
+  opts: DeployOptions;
+  fromProject?: string;
+  apply: boolean;
+  offline: boolean;
+}
+
 /** Offline planning: nothing exists yet, except the instance an update targets. */
 function offlineState(action: string, base: string): ProjectState {
   const instance = action === "update" ? { name: "", description: ownerMarker(base) } : null;
   return { address: null, firewall: {}, instance, dns: [] };
 }
 
-export function parseOptions(argv: string[]): { action: string; opts: DeployOptions; fromProject?: string; apply: boolean; offline: boolean } {
+export function parseOptions(argv: string[]): ParsedArgs {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -69,12 +86,12 @@ export function parseOptions(argv: string[]): { action: string; opts: DeployOpti
     project: values.project,
     region,
     zone: values.zone ?? `${region}-a`,
-    tier: values["network-tier"]!.toUpperCase() as Tier,
+    tier: oneOf(TIERS, values["network-tier"]!.toUpperCase(), "--network-tier is STANDARD or PREMIUM"),
     base: values.base.toLowerCase(),
     dnsZone: values["dns-zone"].toLowerCase(),
     prefix: values.prefix!,
     addressName: values["address-name"] ?? `${values.prefix!}-ip`,
-    dnsMode: values.dns!.toLowerCase() as DnsMode,
+    dnsMode: oneOf(DNS_MODES, values.dns!.toLowerCase(), "--dns is namecom or manual"),
     machine: values.machine!,
     operatorKeyFile: values["operator-key"],
     acmeDirectory: values["acme-directory"]!,
@@ -142,8 +159,8 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  main().catch((error: unknown) => {
-    process.stderr.write(`wink-relay deploy: ${error instanceof Error ? error.message : "failed"}\n`);
+  main().catch((cause: unknown) => {
+    process.stderr.write(`wink-relay deploy: ${cause instanceof Error ? cause.message : "failed"}\n`);
     process.exit(1);
   });
 }

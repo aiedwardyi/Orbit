@@ -24,8 +24,8 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] && /mint-invite\.(ts|mjs)$/.test(process.argv[1])) {
-  main().catch((error: unknown) => {
-    process.stderr.write(`mint-invite: ${error instanceof Error ? error.message : "failed"}\n`);
+  main().catch((cause: unknown) => {
+    process.stderr.write(`mint-invite: ${cause instanceof Error ? cause.message : "failed"}\n`);
     process.exit(1);
   });
 }

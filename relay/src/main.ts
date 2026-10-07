@@ -35,8 +35,8 @@ async function main(): Promise<void> {
   process.on("SIGHUP", () => void relay.reloadRevocations());
 }
 
-main().catch((error: unknown) => {
+main().catch((cause: unknown) => {
   // Messages here are our own (config, key file, listen); never key material.
-  process.stderr.write(`wink-relay: ${error instanceof Error ? error.message : "failed to start"}\n`);
+  process.stderr.write(`wink-relay: ${cause instanceof Error ? cause.message : "failed to start"}\n`);
   process.exit(1);
 });

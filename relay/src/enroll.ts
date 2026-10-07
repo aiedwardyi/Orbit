@@ -33,9 +33,14 @@ export const enrollRequestSchema = z.strictObject({
   sig: z.string().length(86).regex(B64URL),
 });
 
+export type EnrollRequest = z.infer<typeof enrollRequestSchema>;
+
 export type EnrollResult =
   | { ok: true; label: string; ticket: string }
   | { ok: false; status: number; error: string };
+
+/** The result for a body that does not parse as an EnrollRequest. */
+export const BAD_REQUEST: EnrollResult = { ok: false, status: 400, error: "bad-request" };
 
 export interface EnrollerOptions {
   operatorPrivateKey: KeyObject;
@@ -53,11 +58,10 @@ export class Enroller {
     this.opts = opts;
   }
 
-  async enroll(body: unknown): Promise<EnrollResult> {
+  /** Callers parse the body with enrollRequestSchema first (BAD_REQUEST when it fails). */
+  async enroll(req: EnrollRequest): Promise<EnrollResult> {
     const now = (this.opts.now ?? Date.now)();
-    const req = enrollRequestSchema.safeParse(body);
-    if (!req.success) return fail(400, "bad-request");
-    const { invite, pk, sig } = req.data;
+    const { invite, pk, sig } = req;
 
     const opened = verifyInvite(invite, this.opts.operatorPublicKey, { now });
     if (!opened.ok) return fail(403, opened.reason === "expired" ? "invite-expired" : "invite-invalid");

@@ -40,6 +40,7 @@ export class InviteStore {
         await handle.close();
       }
     } catch (error) {
+      // SAFETY: fs rejects with Node errno errors.
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     const cutoff = Math.floor(now() / 1000) - CLOCK_SKEW_SEC;

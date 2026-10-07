@@ -3,7 +3,7 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { LABEL_RE, hostFor } from "../../shared/relay-protocol.ts";
-import type { Enroller } from "./enroll.ts";
+import { BAD_REQUEST, enrollRequestSchema, type Enroller } from "./enroll.ts";
 import type { Hub } from "./hub.ts";
 import { RateLimiter, type RelayLimits } from "./limits.ts";
 import type { Logger } from "./log.ts";
@@ -21,7 +21,9 @@ export interface ApiOptions {
 
 const STATUS_RE = /^\/v1\/status\/([^/?#]{1,64})$/;
 
-function reply(res: ServerResponse, status: number, body: object, headers: Record<string, string> = {}): void {
+type ReplyBody = Record<string, string | number | boolean | null>;
+
+function reply(res: ServerResponse, status: number, body: ReplyBody, headers: Record<string, string> = {}): void {
   const text = JSON.stringify(body);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -94,7 +96,8 @@ export function createApiServer(opts: ApiOptions): Server {
       if (!LABEL_RE.test(label)) return reply(res, 404, { error: "not-found" });
       // Only the label's own origin may read this cross-origin (the phone offline page).
       const origin = req.headers.origin;
-      const cors: Record<string, string> = { vary: "Origin" };
+      const cors: Record<string, string> = {};
+      cors.vary = "Origin";
       if (origin === `https://${hostFor(label, opts.base)}`) cors["access-control-allow-origin"] = origin;
       const { online, since } = hub.status(label);
       return reply(res, 200, { online, since }, cors);
@@ -117,7 +120,8 @@ export function createApiServer(opts: ApiOptions): Server {
       } catch {
         return reply(res, 400, { error: "bad-request" });
       }
-      const result = await opts.enroller.enroll(parsed);
+      const request = enrollRequestSchema.safeParse(parsed);
+      const result = request.success ? await opts.enroller.enroll(request.data) : BAD_REQUEST;
       if (!result.ok) {
         log.log("enroll-rejected", { peer: peerPrefix(req.socket.remoteAddress), reason: result.error });
         return reply(res, result.status, { error: result.error });

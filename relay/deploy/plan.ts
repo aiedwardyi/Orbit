@@ -104,7 +104,7 @@ export function validate(opts: DeployOptions): void {
   if (opts.dnsMode !== undefined && opts.dnsMode !== "namecom" && opts.dnsMode !== "manual") {
     throw new PlanError("--dns is namecom or manual");
   }
-  if (!/^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?\/[A-Za-z0-9._~\/-]*$/.test(opts.acmeDirectory)) {
+  if (!/^https:\/\/[A-Za-z0-9.-]+(:[0-9]+)?\/[A-Za-z0-9._~/-]*$/.test(opts.acmeDirectory)) {
     throw new PlanError("invalid --acme-directory");
   }
   if (opts.acmeEmail && !/^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+$/.test(opts.acmeEmail)) throw new PlanError("invalid --acme-email");
@@ -136,7 +136,7 @@ export const KEY_UPLOAD = "operator.key.upload";
 export const ownerMarker = (base: string) => `wink-relay-owned:${base}`;
 
 /** The wildcard record: relative host at the provider and its FQDN. */
-export function dnsName(opts: Pick<DeployOptions, "base" | "dnsZone">): { host: string; fqdn: string } {
+export function dnsName(opts: Pick<DeployOptions, "base" | "dnsZone">) {
   const sub = opts.base === opts.dnsZone ? "" : opts.base.slice(0, -(opts.dnsZone.length + 1));
   return { host: sub ? `*.${sub}` : "*", fqdn: `*.${opts.base}` };
 }

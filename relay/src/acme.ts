@@ -51,6 +51,7 @@ async function readOptional(path: string): Promise<Buffer | null> {
   try {
     return await readFile(path);
   } catch (error) {
+    // SAFETY: readFile rejects with Node errno errors.
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
@@ -152,7 +153,7 @@ export class CertManager {
       // The CA validates; a self check would need hairpin routing to our own public IP.
       skipChallengeVerification: true,
       challengeCreateFn: async (authz, challenge, keyAuthorization) => {
-        // acme-client 5.4.0 types list only http-01 and dns-01.
+        // SAFETY: acme-client 5.4.0 types list only http-01 and dns-01; the CA also offers tls-alpn-01.
         if ((challenge.type as string) !== "tls-alpn-01" || authz.identifier.value !== host) {
           throw new Error("unsupported challenge");
         }
@@ -198,7 +199,9 @@ function defaultClient(opts: { directoryUrl: string; accountKey: Buffer }): Acme
   return new acme.Client({ directoryUrl: opts.directoryUrl, accountKey: opts.accountKey });
 }
 
-function errorCode(error: unknown): string {
-  const code = (error as { code?: unknown })?.code;
-  return typeof code === "string" && /^[A-Za-z0-9_-]{1,32}$/.test(code) ? code.toLowerCase() : "failed";
+function errorCode(cause: unknown): string {
+  const code = cause instanceof Object && "code" in cause ? cause.code : undefined;
+  // String(code) === code holds only for string primitives.
+  const text = String(code);
+  return text === code && /^[A-Za-z0-9_-]{1,32}$/.test(text) ? text.toLowerCase() : "failed";
 }
