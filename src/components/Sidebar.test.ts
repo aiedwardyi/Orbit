@@ -2046,3 +2046,37 @@ describe("Sidebar touch drag", () => {
     }
   });
 });
+
+describe("Sidebar phone drawer", () => {
+  it("closes the open drawer when the bot whose chat is already open is tapped", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (path: string) =>
+      path === "/api/bots?messages=200"
+        ? new Response(JSON.stringify({ bots: ["a", "b"].map(bot), groups: [] }))
+        : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onClose = vi.fn();
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const row = (id: string) => host.querySelector<HTMLElement>(`[data-sidebar-row-id="${id}"] [role="button"]`)!;
+    const render = (open: boolean) => root.render(createElement(StoreProvider, null, createElement(Sidebar, { open, onClose })));
+    try {
+      await act(async () => render(true));
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(row("b")).not.toBeNull());
+      await act(async () => row("b").click());
+      expect(onClose).not.toHaveBeenCalled();
+      await act(async () => row("b").click());
+      expect(onClose).toHaveBeenCalledTimes(1);
+      await act(async () => render(false));
+      await act(async () => row("b").click());
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
