@@ -64,7 +64,46 @@ const QUESTION_TIMEOUT_NOTE = "No answer was given — use your best judgment.";
 const DENY_TIMEOUT_NOTE =
   "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
 
-type StdioMcpServer = { command: string; args: string[]; env: Record<string, string> };
+type TurnUsage = { input: number; output: number; cachedInput?: number };
+type CodexTokens = { inputTokens?: number; cachedInputTokens?: number; outputTokens?: number };
+type TurnSpend = { baseline?: TurnUsage; latest?: TurnUsage; summed?: TurnUsage };
+
+const toUsage = (t: CodexTokens): TurnUsage => ({
+  input: t.inputTokens ?? 0,
+  output: t.outputTokens ?? 0,
+  ...(typeof t.cachedInputTokens === "number" ? { cachedInput: t.cachedInputTokens } : {}),
+});
+
+const combine = (a: TurnUsage, b: TurnUsage, sign: 1 | -1): TurnUsage => ({
+  input: Math.max(0, a.input + sign * b.input),
+  output: Math.max(0, a.output + sign * b.output),
+  ...(a.cachedInput !== undefined || b.cachedInput !== undefined
+    ? { cachedInput: Math.max(0, (a.cachedInput ?? 0) + sign * (b.cachedInput ?? 0)) }
+    : {}),
+});
+
+// Folds one thread/tokenUsage/updated report into the turn's spend. In codex
+// `last` is ONE model call and `total` the thread so far — seeded from the
+// rollout on resume, so it carries earlier turns even in a fresh app-server.
+// The turn is the last total minus the total before its first call; with no
+// total, the turn's calls are summed. inputTokens already includes
+// cachedInputTokens; the cached share rides alongside for the UI.
+function accrueTurnUsage(
+  spend: TurnSpend,
+  tokenUsage: { total?: CodexTokens; last?: CodexTokens } | undefined,
+): TurnUsage | undefined {
+  const total = tokenUsage?.total ? toUsage(tokenUsage.total) : undefined;
+  const last = tokenUsage?.last ? toUsage(tokenUsage.last) : undefined;
+  if (last) spend.summed = spend.summed ? combine(spend.summed, last, 1) : last;
+  if (total) {
+    spend.baseline ??= last ? combine(total, last, -1) : { input: 0, output: 0 };
+    spend.latest = total;
+  }
+  if (spend.latest && spend.baseline) return combine(spend.latest, spend.baseline, -1);
+  return spend.summed;
+}
+
+type StdioMcpServer ={ command: string; args: string[]; env: Record<string, string> };
 
 function mountMcpServer(
   appServerArgs: string[],
@@ -242,9 +281,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         sawStreamDelta: false,
         // turn/start took the prompt into the thread, so it survives a stop
         promptAccepted: false,
-        // codex reports token usage as a running THREAD total; the harness
-        // wants this turn's figure, so the last report is banked on settle
-        usage: undefined as { input: number; output: number; cachedInput?: number } | undefined,
+        // codex reports token usage per model call (`last`) and as a running
+        // THREAD total; the harness wants this turn's figure, banked on settle
+        usage: undefined as TurnUsage | undefined,
+        spend: { baseline: undefined, latest: undefined, summed: undefined } as TurnSpend,
+        // only reports after turn/start was sent can belong to this turn
+        turnRequested: false,
       };
 
       const asks = new Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>();
@@ -468,22 +510,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             break;
           }
           case "thread/tokenUsage/updated": {
-            // `last` is the most recent turn when the server sends it;
-            // `total` is the thread so far — a fresh app-server per turn
-            // makes that this turn's figure too
-            const turnUsage = p.tokenUsage?.last ?? p.tokenUsage?.total;
-            // codex's inputTokens already includes cachedInputTokens; the
-            // cached share is carried alongside so the UI can say how much
-            // of a turn was context re-read rather than new text
-            if (turnUsage) {
-              state.usage = {
-                input: turnUsage.inputTokens ?? 0,
-                output: turnUsage.outputTokens ?? 0,
-                ...(typeof turnUsage.cachedInputTokens === "number"
-                  ? { cachedInput: turnUsage.cachedInputTokens }
-                  : {}),
-              };
-            }
+            // a resumed thread replays its restored usage right after
+            // thread/resume, stamped with an earlier turn's id — that report
+            // is history, not this turn's spend. This turn's reports follow
+            // turn/started, so its id is known by the time they land.
+            const counts = state.turnRequested && (typeof p.turnId !== "string" || p.turnId === nativeTurnId);
+            if (counts) state.usage = accrueTurnUsage(state.spend, p.tokenUsage) ?? state.usage;
             const t = p.tokenUsage?.total;
             if (t) {
               emit({
@@ -654,6 +686,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         const prompt = resumeFailed ? (turn.resumeFallback?.text ?? turn.text) : turn.text;
         nativeThreadId = codexThreadId;
         nativeTurnId = null;
+        state.turnRequested = true;
         const startedTurn = await request("turn/start", {
           threadId: codexThreadId,
           input: [{ type: "text", text: turn.system ? `${turn.system}\n\n${prompt}` : prompt }],
