@@ -6,10 +6,13 @@ import {
   countLastTurnToolRounds,
   countSessionToolRounds,
   engineIsFresh,
+  NATIVE_PROMPT_BUDGET_CAP,
+  nativePromptBudget,
   nativeSessionTokenBudget,
   PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT,
   PRE_COMPACT_TOOL_ROUND_LIMIT,
   resumeSessionUnseeded,
+  sessionPromptFor,
   shouldRecycleProviderSession,
   TASK_RESUME_PROMPT,
   taskRecordBlock,
@@ -487,6 +490,71 @@ describe("shouldRecycleProviderSession", () => {
       recovering: true,
       lastTurnToolRounds: PRE_COMPACT_TOOL_ROUND_LIMIT,
     })).toBe(true);
+  });
+
+  it("resumes a 30-tool turn whose native prompt is only 80k", () => {
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      lastTurnToolRounds: 30,
+      sessionToolRounds: 30,
+      sessionPrompt: { first: 40_000, last: 80_000, contextWindow: 1_000_000 },
+    })).toBe(false);
+  });
+
+  it("recycles a 260k native prompt unless the branch moved or Stop is recovering", () => {
+    const sessionPrompt = { first: 45_000, last: 260_000, contextWindow: 1_000_000 };
+    expect(shouldRecycleProviderSession({ compacted: false, sessionPrompt })).toBe(true);
+    expect(shouldRecycleProviderSession({ compacted: false, sessionPrompt: { ...sessionPrompt, last: 250_000 } })).toBe(false);
+    expect(shouldRecycleProviderSession({ compacted: false, rewound: true, sessionPrompt })).toBe(false);
+    expect(shouldRecycleProviderSession({ compacted: false, recovering: true, sessionPrompt })).toBe(false);
+  });
+
+  it("keeps the 24/48 tool rules only for an engine that reports no prompt size", () => {
+    const soak = { compacted: false, lastTurnToolRounds: PRE_COMPACT_TOOL_ROUND_LIMIT, sessionToolRounds: 0 };
+    const session = { compacted: false, lastTurnToolRounds: 0, sessionToolRounds: PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT };
+    expect(shouldRecycleProviderSession(soak)).toBe(true);
+    expect(shouldRecycleProviderSession(session)).toBe(true);
+    const sessionPrompt = { first: 40_000, last: 120_000, contextWindow: 1_000_000 };
+    expect(shouldRecycleProviderSession({ ...soak, sessionPrompt })).toBe(false);
+    expect(shouldRecycleProviderSession({ ...session, sessionPrompt })).toBe(false);
+  });
+
+  it("lets a session outgrow its own replay before recycling again", () => {
+    // 200k window: the budget is 100k, and the replay alone opened the session past it
+    const opened = { first: 110_000, contextWindow: 200_000 };
+    expect(shouldRecycleProviderSession({ compacted: false, sessionPrompt: { ...opened, last: 110_000 } })).toBe(false);
+    expect(shouldRecycleProviderSession({ compacted: false, sessionPrompt: { ...opened, last: 159_999 } })).toBe(false);
+    expect(shouldRecycleProviderSession({ compacted: false, sessionPrompt: { ...opened, last: 160_000 } })).toBe(true);
+  });
+});
+
+describe("nativePromptBudget", () => {
+  it("is half the window, capped at 250k", () => {
+    expect(nativePromptBudget(1_000_000)).toBe(NATIVE_PROMPT_BUDGET_CAP);
+    expect(nativePromptBudget(258_400)).toBe(129_200);
+    expect(nativePromptBudget(200_000)).toBe(100_000);
+    expect(nativePromptBudget(0)).toBe(0);
+  });
+});
+
+describe("sessionPromptFor", () => {
+  const report = { cursor: "session-1", first: 40_000, last: 90_000, window: { model: "claude-opus-5-5", tokens: 1_000_000 } };
+
+  it("uses the engine's window for the model that reported it", () => {
+    expect(sessionPromptFor({ report, cursor: "session-1", model: "claude-opus-5-5", catalogWindow: 200_000 }))
+      .toEqual({ first: 40_000, last: 90_000, contextWindow: 1_000_000 });
+  });
+
+  it("falls back to the catalog window after a model switch", () => {
+    expect(sessionPromptFor({ report, cursor: "session-1", model: "claude-haiku-4-5", catalogWindow: 200_000 }))
+      .toEqual({ first: 40_000, last: 90_000, contextWindow: 200_000 });
+    expect(sessionPromptFor({ report, cursor: "session-1", model: "local-model", catalogWindow: null })).toBeUndefined();
+  });
+
+  it("ignores figures from any session but the one this send would resume", () => {
+    expect(sessionPromptFor({ report, cursor: "session-2", model: "claude-opus-5-5", catalogWindow: 200_000 })).toBeUndefined();
+    expect(sessionPromptFor({ report, cursor: undefined, model: "claude-opus-5-5", catalogWindow: 200_000 })).toBeUndefined();
+    expect(sessionPromptFor({ report: undefined, cursor: "session-1", model: "claude-opus-5-5", catalogWindow: 200_000 })).toBeUndefined();
   });
 });
 

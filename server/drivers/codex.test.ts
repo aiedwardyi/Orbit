@@ -187,6 +187,13 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(seen.env.GITHUB_TOKEN).toBeUndefined();
   });
 
+  it("reports the last call's prompt and the engine's window, never the thread total", async () => {
+    await create({ mode: "usage-calls" });
+    await instance.adapter.sendTurn({ threadId: "t-prompt", text: "hi" });
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: true, prompt: { first: 25_881, last: 29_357 }, contextWindow: 258_400 });
+  });
+
   it("forwards the app-server's account rate limits as account.rate-limits.updated", async () => {
     process.env.FAKE_CODEX_RATE_LIMITS = "1";
     await create();

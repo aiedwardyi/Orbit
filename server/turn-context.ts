@@ -95,9 +95,10 @@ export function engineIsFresh(input: {
  * Before the first compact, a long agentic soak can still fatten the
  * native session with full tool payloads while Orbit's own transcript
  * stays cheap (collapsed chips). Recycle on the next user send when the
- * last turn was tool-heavy, settled tools since the last compact exceed
- * the session budget, or the provider reported native input over half
- * the model window — the same share compaction uses.
+ * session's own latest prompt passed its budget, for engines that report
+ * one. Otherwise when the last turn was tool-heavy, settled tools since the
+ * last compact exceed the session budget, or the provider reported native
+ * input over half the model window, the same share compaction uses.
  *
  * Stop / crash Continuity still `--resume`s when there is no compaction
  * yet, even if the session is already fat. A rewind already drops resume
@@ -106,11 +107,58 @@ export function engineIsFresh(input: {
 export const PRE_COMPACT_TOOL_ROUND_LIMIT = 24;
 export const PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT = 48;
 const NATIVE_SESSION_BUDGET_SHARE = 0.5;
+// Well above a fresh session's own first prompt: ~45k of tools and startup
+// text plus a replay of up to ~92k.
+export const NATIVE_PROMPT_BUDGET_CAP = 250_000;
+const NATIVE_PROMPT_GROWTH = 100_000;
 
 export function nativeSessionTokenBudget(contextWindow: number): number {
   return Number.isSafeInteger(contextWindow) && contextWindow > 0
     ? Math.max(1, Math.floor(contextWindow * NATIVE_SESSION_BUDGET_SHARE))
     : 0;
+}
+
+/** Half the window, capped: on a 1M window every call would re-read 500k first. */
+export function nativePromptBudget(contextWindow: number): number {
+  return Math.min(NATIVE_PROMPT_BUDGET_CAP, nativeSessionTokenBudget(contextWindow));
+}
+
+/** Prompt sizes an engine reported for one native session. */
+export interface NativePrompt {
+  /** the resume cursor of that session */
+  cursor: unknown;
+  /** its first reported call: tools, startup text and any replay */
+  first: number;
+  /** its latest call */
+  last: number;
+  /** the window the engine reported, and the model it was reported for */
+  window?: { model: string; tokens: number };
+}
+
+export interface SessionPrompt {
+  first: number;
+  last: number;
+  contextWindow: number;
+}
+
+/** The figures for the session this send would resume, if any describe it. */
+export function sessionPromptFor(input: {
+  report: NativePrompt | undefined;
+  cursor: unknown;
+  model: string;
+  catalogWindow: number | null;
+}): SessionPrompt | undefined {
+  const { report } = input;
+  if (!report || input.cursor === undefined || report.cursor !== input.cursor) return undefined;
+  const contextWindow = (report.window?.model === input.model ? report.window.tokens : null) ?? input.catalogWindow;
+  return contextWindow ? { first: report.first, last: report.last, contextWindow } : undefined;
+}
+
+// A session must also outgrow its own first prompt, or a replay that alone
+// passes a small window's budget would recycle every send.
+function sessionPromptOverBudget({ first, last, contextWindow }: SessionPrompt): boolean {
+  const budget = nativePromptBudget(contextWindow);
+  return budget > 0 && last > budget && last - first >= Math.min(NATIVE_PROMPT_GROWTH, Math.floor(budget / 2));
 }
 
 export interface SessionFatMessage {
@@ -178,12 +226,15 @@ export function shouldRecycleProviderSession(input: {
   sessionToolRounds?: number;
   lastTurnInputTokens?: number;
   nativeTokenBudget?: number;
+  /** the session's own prompt sizes; they replace the tool-count rules */
+  sessionPrompt?: SessionPrompt;
 }): boolean {
   if (input.rewound) return false;
   // Compaction always forces a recycle regardless of recovery state: a
   // recovered session that was then compacted must start fresh.
   if (input.compacted) return true;
   if (input.recovering) return false;
+  if (input.sessionPrompt) return sessionPromptOverBudget(input.sessionPrompt);
   if ((input.lastTurnToolRounds ?? 0) >= PRE_COMPACT_TOOL_ROUND_LIMIT) return true;
   if ((input.sessionToolRounds ?? 0) >= PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT) return true;
   const budget = input.nativeTokenBudget ?? 0;

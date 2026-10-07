@@ -22,6 +22,7 @@ import { ClaudeDriver, claudeToolSummary, claudeUserContent, permissionSocketPat
 import { inputDigest } from "../repeat-detector.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { REPLY_MARKER } from "../turn-context.ts";
+import { ensureWorkspace, memorySystemPrompt } from "../workspace.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-claude-cli.ts");
 
@@ -438,6 +439,23 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
   });
 
+  it("reports each main call's own prompt, cache writes included, never a sum", async () => {
+    await create("usage-calls");
+    await instance.adapter.sendTurn({ threadId: "t-prompt", text: "hi", model: "claude-opus-5-5" });
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    // 3 + 40k read + 5k written, then 2 + 45k + 1.2k. The subagent's 900k is
+    // its own context, and the result's 91k is both calls summed.
+    expect(done).toMatchObject({ ok: true, prompt: { first: 45_003, last: 46_202 }, contextWindow: 1_000_000 });
+    expect(recorder.events.find((e) => e.type === "thread.token-usage.updated")).toMatchObject({ input: 45_003 });
+  });
+
+  it("does not vouch for the CLI's window on a local-host model", async () => {
+    await create("usage-calls", { UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret" });
+    await instance.adapter.sendTurn({ threadId: "t-local-prompt", text: "hi", model: "unsloth::local-model" });
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: true, prompt: { first: 45_003, last: 46_202 }, contextWindow: undefined });
+  });
+
   it("forwards the CLI's subscription windows as account.rate-limits.updated", async () => {
     process.env.FAKE_CLAUDE_RATE_LIMITS = "1";
     await create();
@@ -710,6 +728,31 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(changed.systemPrompt).toBe("Updated Wink rules.");
     expect(recorder.events.filter((e) => e.type === "runtime.error")).toEqual([]);
     expect(existsSync(dirname(changed.argv[changed.argv.indexOf("--append-system-prompt-file") + 1]))).toBe(false);
+  });
+
+  it("hands an updated MEMORY.md to the resumed session on the next turn", async () => {
+    await create();
+    const dump = join(scratch, "memory.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const memory = join(ensureWorkspace("bot-memory"), "MEMORY.md");
+    writeFileSync(memory, "# Memory\n- deploy with railway up\n");
+    await instance.adapter.sendTurn({ threadId: "t-memory", text: "one", system: memorySystemPrompt("bot-memory") });
+    await recorder.until((e) => e.type === "turn.completed");
+    // SAFETY: find() matched type "session.started", the variant carrying sessionId.
+    const cursor = (recorder.events.find((e) => e.type === "session.started") as { sessionId: string }).sessionId;
+
+    writeFileSync(memory, "# Memory\n- deploy with railway up\n- the user prefers pnpm\n");
+    rmSync(dump);
+    const next = await instance.adapter.sendTurn({
+      threadId: "t-memory",
+      text: "two",
+      system: memorySystemPrompt("bot-memory"),
+      resumeCursor: cursor,
+    });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === next.turnId);
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv[seen.argv.indexOf("--resume") + 1]).toBe(cursor);
+    expect(seen.systemPrompt).toContain("the user prefers pnpm");
   });
 
   it("sends an attached store image as a native block over stdin", async () => {

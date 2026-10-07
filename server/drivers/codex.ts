@@ -246,6 +246,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         // wants this turn's figure, so the last report is banked on settle
         usage: undefined as { input: number; output: number; cachedInput?: number } | undefined,
       };
+      // the first and latest model call's prompt, and the model's window
+      let promptTokens: { first: number; last: number } | undefined;
+      let contextWindow: number | undefined;
 
       const asks = new Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>();
       let nextId = 1;
@@ -314,6 +317,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           stopReason,
           cost: null,
           ...(state.usage ? { usage: state.usage } : {}),
+          prompt: promptTokens,
+          contextWindow,
           ...(state.promptAccepted ? { promptAccepted: true } : {}),
         });
         stop(); // the app-server never exits on its own
@@ -484,6 +489,11 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                   : {}),
               };
             }
+            // `last` is one model call (checked against rollouts), cache hits included
+            const call = p.tokenUsage?.last?.inputTokens;
+            if (Number.isSafeInteger(call)) promptTokens = { first: promptTokens?.first ?? call, last: call };
+            const window = p.tokenUsage?.modelContextWindow;
+            if (Number.isSafeInteger(window) && window > 0) contextWindow = window;
             const t = p.tokenUsage?.total;
             if (t) {
               emit({

@@ -7,6 +7,7 @@
 //   FAKE_CODEX_MODE   happy (default) | approval | resume | stream | windows-command |
 //                     mcp-elicitation | logged-in-stdout | logged-out | unauthorized
 //                     | bench-quiet (no tool items — latency floor)
+//                     | usage-calls (two model calls: `last` per call, `total` the thread)
 //   FAKE_CODEX_DUMP   path to write {argv, env, calls, decision} as JSON
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
@@ -71,7 +72,17 @@ const finishTurn = () => {
     notify("item/agentMessage/delta", { itemId: "m1", delta: "fake codex" });
   }
   notify("item/completed", { item: { id: "m1", type: "agentMessage", text: "done from fake codex" } });
-  notify("thread/tokenUsage/updated", { tokenUsage: { total: { inputTokens: 7, cachedInputTokens: 4, outputTokens: 3 } } });
+  if (mode === "usage-calls") {
+    const call = (inputTokens: number, cachedInputTokens: number, outputTokens: number) => ({ inputTokens, cachedInputTokens, outputTokens });
+    notify("thread/tokenUsage/updated", {
+      tokenUsage: { total: call(25_881, 11_008, 583), last: call(25_881, 11_008, 583), modelContextWindow: 258_400 },
+    });
+    notify("thread/tokenUsage/updated", {
+      tokenUsage: { total: call(55_238, 36_352, 830), last: call(29_357, 25_344, 247), modelContextWindow: 258_400 },
+    });
+  } else {
+    notify("thread/tokenUsage/updated", { tokenUsage: { total: { inputTokens: 7, cachedInputTokens: 4, outputTokens: 3 } } });
+  }
   // ChatGPT-plan accounts get this alongside the token count; resetsAt is
   // epoch SECONDS on the wire
   if (process.env.FAKE_CODEX_RATE_LIMITS) {
