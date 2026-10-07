@@ -296,11 +296,11 @@ import {
   compatibleSyncChanges,
   createSyncOperation,
   emptyProfileSyncState,
-  forgetSynced,
   loadOrCreateSyncWorkspace,
   loadProfileSyncSettings,
   bindSyncId,
   botDeletesToPublish,
+  dropSyncedBot,
   localIdForSyncId,
   importedSyncAvatarCrop,
   markImported,
@@ -1331,8 +1331,8 @@ function publishProfileChanges(): number {
   const deletes = botDeletesToPublish(profileSyncSettings.botMap, liveBotIds, profileSyncSettings.pendingBotDeletes);
   if (deletes.missing) console.warn(`bot sync: ${deletes.missing} synced bot(s) missing here without a delete; not publishing deletes`);
   const deleted = deletes.publish;
-  const hadPending = profileSyncSettings.pendingBotDeletes.length > 0;
-  if (!changed.length && !deleted.length && !hadPending) return 0;
+  const clearsPending = deletes.pendingBotDeletes.length !== profileSyncSettings.pendingBotDeletes.length;
+  if (!changed.length && !deleted.length && !clearsPending) return 0;
   const record = (
     input: Omit<ProfileSyncOperation, "format" | "version" | "operationId" | "deviceId" | "sequence" | "recordedAt">,
   ) => nextProfileSyncOperation(baseCheckpoint ? { ...input, baseCheckpoint } : input, now);
@@ -1351,8 +1351,7 @@ function publishProfileChanges(): number {
   }
   for (const [localId, globalId] of deleted) {
     writeSyncOperation(folder, record({ entity: "bot", entityId: globalId, deleted: true }));
-    delete profileSyncSettings.botMap[localId];
-    forgetSynced(synced, "bot", globalId);
+    dropSyncedBot(profileSyncSettings.botMap, synced, localId, globalId);
     written++;
   }
   profileSyncSettings.pendingBotDeletes = deletes.pendingBotDeletes;
@@ -1601,7 +1600,12 @@ async function removeSyncedBots(
       await deleteBotFully(bot);
     } catch (error) {
       console.warn(`bot sync: delete of ${bot.name} failed`, error);
+      continue;
     }
+    // applied from another PC: forget it here without publishing a delete
+    dropSyncedBot(profileSyncSettings.botMap, synced, item.localId, item.globalId);
+    // keep the in-memory object: the import's finish step still writes to this synced map
+    saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
   }
 }
 

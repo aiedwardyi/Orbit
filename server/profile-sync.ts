@@ -739,7 +739,7 @@ export interface BotDeletePlan {
   pendingBotDeletes: string[];
 }
 
-/** Only an explicit delete publishes; a pending delete whose bot is still here or no longer mapped is dropped. */
+/** Only an explicit delete publishes; a pending delete waits while its bot is still here and is dropped once no longer mapped. */
 export function botDeletesToPublish(
   botMap: Record<string, string>,
   liveBotIds: ReadonlySet<string>,
@@ -748,7 +748,14 @@ export function botDeletesToPublish(
   const pending = new Set(pendingBotDeletes);
   const gone = Object.entries(botMap).filter(([localId]) => !liveBotIds.has(localId));
   const publish = gone.filter(([, globalId]) => pending.has(globalId));
-  return { publish, missing: gone.length - publish.length, pendingBotDeletes: [] };
+  const waiting = Object.entries(botMap).filter(([localId, globalId]) => liveBotIds.has(localId) && pending.has(globalId));
+  return { publish, missing: gone.length - publish.length, pendingBotDeletes: [...new Set(waiting.map(([, globalId]) => globalId))] };
+}
+
+/** Forgets a bot that is gone here, without publishing a delete for it. */
+export function dropSyncedBot(botMap: Record<string, string>, synced: Record<string, string>, localId: string, globalId: string): void {
+  if (botMap[localId] === globalId) delete botMap[localId];
+  forgetSynced(synced, "bot", globalId);
 }
 
 export interface LocalSyncBot extends SyncBotMatchCandidate {
