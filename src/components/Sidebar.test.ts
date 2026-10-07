@@ -2058,7 +2058,7 @@ describe("Sidebar phone drawer", () => {
     const onClose = vi.fn();
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
-    const row = (id: string) => host.querySelector(`[data-sidebar-row-id="${id}"] [role="button"]`) as HTMLElement;
+    const row = (id: string) => host.querySelector<HTMLElement>(`[data-sidebar-row-id="${id}"] [role="button"]`)!;
     const render = (open: boolean) => root.render(createElement(StoreProvider, null, createElement(Sidebar, { open, onClose })));
     try {
       await act(async () => render(true));
