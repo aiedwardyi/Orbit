@@ -24,7 +24,11 @@
 //                      | narration-only (summary, same message id, no tool_use)
 //                      | narration-plain (text and a tool, narration not flagged)
 //                      | narration-subagent (flagged narration on a subagent)
-//   FAKE_CLAUDE_STEER_LOG  path; those four modes write
+//                      | narration-next-response (summary, then a tool_use on
+//                        a new message id)
+//                      | narration-repeat (two summarized tool responses; a
+//                        mid-turn message may arrive between them)
+//   FAKE_CLAUDE_STEER_LOG  path; those six modes write
 //                      { beforeRequest: string[] } after the steer window
 //   FAKE_CLAUDE_TASK_GATE  path; once it exists, a background task-1 finishes
 //                      and its notification wakes the CLI after `result`
@@ -214,6 +218,32 @@ const playNarrationScript = async () => {
       out({ type: "assistant", message: { id: "msg-main", content: [bash("tu-1", "echo main")] } });
       await pause(800);
       logSteers();
+    } else if (mode === "narration-next-response") {
+      out({ type: "assistant", narration_block_indexes: [0], message: { id: "msg-1", content: [thinking("stale summary")] } });
+      out({ type: "system", subtype: "status", status: "requesting" });
+      out({ type: "assistant", message: { id: "msg-2", content: [bash("tu-1", "echo hi")] } });
+      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-1", is_error: false }] } });
+      await pause(800);
+      logSteers();
+      out({ type: "system", subtype: "status", status: "requesting" });
+      out({ type: "assistant", message: { id: "msg-3", content: [{ type: "text", text: "done" }] } });
+    } else if (mode === "narration-repeat") {
+      const waitSteers = async (n: number, ms: number) => {
+        const started = Date.now();
+        while (steered.length < n && Date.now() - started < ms) await pause(10);
+      };
+      out({ type: "assistant", narration_block_indexes: [0], message: { id: "msg-1", content: [thinking("first summary"), bash("tu-1", "echo one")] } });
+      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-1", is_error: false }] } });
+      await waitSteers(1, 2_000);
+      await waitSteers(2, 600);
+      out({ type: "system", subtype: "status", status: "requesting" });
+      out({ type: "assistant", narration_block_indexes: [0], message: { id: "msg-2", content: [thinking("second summary"), bash("tu-2", "echo two")] } });
+      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-2", is_error: false }] } });
+      await waitSteers(steered.length + 1, 600);
+      await pause(30);
+      logSteers();
+      out({ type: "system", subtype: "status", status: "requesting" });
+      out({ type: "assistant", message: { id: "msg-3", content: [{ type: "text", text: "done" }] } });
     }
   } finally {
     scriptResult();
@@ -463,7 +493,9 @@ const playTurn = (prompt: JsonValue) => {
     mode === "narration-notice" ||
     mode === "narration-only" ||
     mode === "narration-plain" ||
-    mode === "narration-subagent"
+    mode === "narration-subagent" ||
+    mode === "narration-next-response" ||
+    mode === "narration-repeat"
   ) {
     void playNarrationScript();
     return;

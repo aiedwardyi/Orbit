@@ -724,6 +724,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         unsentSteers?: number;
         /** summarized narration held until this response calls a tool */
         narrationNotice?: { parts: string[]; messageId?: string };
+        /** a notice went out since the user's last message */
+        narrationNoticeSent?: boolean;
         /** accounting of a `result` held open for those steers */
         carried?: { cost: number; usage?: TurnUsage };
         timer: ReturnType<typeof startTurnTimer>;
@@ -1316,10 +1318,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 if (block?.type === "tool_use") callsTool = true;
               }
               if (turn && !turn.settled && callsTool && turn.narrationNotice?.parts.length) {
-                // Quoted summary of prose the CLI hid between tool calls.
                 const summary = turn.narrationNotice.parts.join(" / ");
                 turn.narrationNotice = undefined;
-                void deliverSteer(session, threadId, narrationNotice(summary));
+                // Quoted summary of prose the CLI hid between tool calls; one per user message.
+                if (!turn.narrationNoticeSent) {
+                  turn.narrationNoticeSent = true;
+                  void deliverSteer(session, threadId, narrationNotice(summary));
+                }
               }
             }
             for (const b of Array.isArray(msg.content) ? msg.content : []) {
@@ -1611,6 +1616,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     const steer = (threadId: string, text: string): Promise<boolean> => {
       const s = sessions.get(threadId);
       if (!s) return Promise.resolve(false);
+      if (s.turn) s.turn.narrationNoticeSent = false;
       return deliverSteer(s, threadId, text);
     };
 

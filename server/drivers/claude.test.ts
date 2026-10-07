@@ -533,6 +533,16 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(instance.adapter.hasSession("t-narration-only")).toBe(false);
   });
 
+  it("writes no narration notice when the tool call comes in a later response", async () => {
+    armSteerLog();
+    await create("narration-next-response");
+    await instance.adapter.sendTurn({ threadId: "t-narration-next", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(readSteers()).toEqual([]);
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+  });
+
   it("writes no narration notice without narration", async () => {
     armSteerLog();
     await create("narration-plain");
@@ -566,6 +576,28 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
     expect(readSteers()[0]).toContain("Wink note");
     expect(JSON.stringify(recorder.events)).not.toContain("Wink note");
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+  });
+
+  it("sends one narration notice per user message", async () => {
+    armSteerLog();
+    await create("narration-repeat");
+    await instance.adapter.sendTurn({ threadId: "t-narration-once", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(readSteers()).toEqual([narrationNotice("first summary")]);
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+  });
+
+  it("re-arms the narration notice after a mid-turn message", async () => {
+    armSteerLog();
+    await create("narration-repeat");
+    await instance.adapter.sendTurn({ threadId: "t-narration-rearm", text: "hi" });
+    await recorder.until((e) => e.type === "item.completed" && "summarized" in e && e.summarized === true);
+    await expect(instance.adapter.steer!("t-narration-rearm", "and the links?")).resolves.toBe(true);
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(readSteers()).toEqual([narrationNotice("first summary"), "and the links?", narrationNotice("second summary")]);
     expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
   });
 
