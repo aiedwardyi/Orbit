@@ -202,6 +202,45 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
+  it("shows a visible cached caption under a reading older than 60 minutes", () => {
+    const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
+    if (!muse?.rateLimits) throw new Error("muse fixture missing rateLimits");
+    const original = muse.rateLimits.observedAt;
+    try {
+      persistPreference("en");
+      muse.rateLimits.observedAt = new Date(Date.now() - 90 * 60_000).toISOString();
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(html).toContain(">Cached, as of 1h ago.<");
+    } finally {
+      muse.rateLimits.observedAt = original;
+      persistPreference("en");
+    }
+  });
+
+  it("reads a cached caption in days at 48 hours or more", () => {
+    const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
+    if (!muse?.rateLimits) throw new Error("muse fixture missing rateLimits");
+    const original = muse.rateLimits.observedAt;
+    try {
+      muse.rateLimits.observedAt = new Date(Date.now() - 50 * 3_600_000).toISOString();
+      persistPreference("en");
+      const english = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(english).toContain(">Cached, as of 2d ago.<");
+      persistPreference("ko");
+      const korean = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(korean).toContain(">캐시된 값, 2일 전 기준입니다.<");
+    } finally {
+      muse.rateLimits.observedAt = original;
+      persistPreference("en");
+    }
+  });
+
+  it("shows no cached caption for a fresh reading", () => {
+    persistPreference("en");
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+    expect(html).not.toContain(">Cached, as of");
+  });
+
   it("includes the subscription engines in the single refresh-all", async () => {
     const host = document.createElement("div");
     document.body.append(host);
