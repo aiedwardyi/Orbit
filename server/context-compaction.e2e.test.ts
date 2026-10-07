@@ -645,6 +645,7 @@ describe("context compaction e2e", () => {
       artifacts: [{ ref: "dist/room-orbit.exe", label: "Room installer" }],
       blockers: [{ kind: "approval", note: "Awaiting release approval" }],
       nextAction: "Verify the room package",
+      instructionAction: "Verify the room package",
       updatedAt: 1,
       updatedBy: "harness",
       flushReason: "progress",
