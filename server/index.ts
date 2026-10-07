@@ -915,6 +915,7 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 }
 let bootSelection = { instanceId: "", model: "" };
 const store = new Store(() => bootSelection);
+if (store.botsFile === "unreadable") console.warn("bot sync: bots.json is there but did not load; not syncing bots until it does");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-sonnet-5", "claude-sonnet-5-5");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "codex").map((i) => i.instanceId), "gpt-6-sol", "gpt-6.1-sol");
 const sendSequencer = new SendSequencer();
@@ -1315,7 +1316,7 @@ function profileSyncStatus() {
 /** Writes ops only for bots, sections and order that changed since the last sync. */
 function publishProfileChanges(): number {
   const folder = profileSyncSettings.folder;
-  if (!profileSyncSettings.syncChats || !folder) return 0;
+  if (!profileSyncSettings.syncChats || !folder || store.botsFile === "unreadable") return 0;
   ensureProfileSyncWorkspace(folder);
   pruneProfileSyncSectionAliases();
   const now = Date.now();
@@ -1411,7 +1412,7 @@ function applySyncedBotFields(
 /** Applies what other devices published since the last pass: newest recordedAt wins, a local edit waiting to publish is kept. */
 function importProfileChanges(): void | Promise<void> {
   const folder = profileSyncSettings.folder;
-  if (!profileSyncSettings.syncChats || !folder) return;
+  if (!profileSyncSettings.syncChats || !folder || store.botsFile === "unreadable") return;
   ensureProfileSyncWorkspace(folder);
   const signature = `${folder}\n${syncOperationsSignature(folder)}`;
   if (!profileImportDue(profileSyncSeen, signature, folder)) return;
@@ -1433,12 +1434,15 @@ function importProfileChanges(): void | Promise<void> {
     botMap: profileSyncSettings.botMap,
     local: store.bots.map((bot) => ({ id: bot.id, name: bot.name, section: bot.section, hidden: bot.hidden, changes: portableSyncChanges(bot, folder) })),
     localOrder: localOrderChanges(false),
+    restore: store.botsFile === "missing",
+    pendingBotDeletes: profileSyncSettings.pendingBotDeletes,
   });
   const chiefs: string[] = [];
   const missingAssets: string[] = [];
   for (const item of plan.bots) {
     const remoteBot = state.bots[item.globalId]!;
     let bot = item.localId ? store.bot(item.localId) : null;
+    const created = !bot;
     if (!bot) {
       bot = store.createBot({
         name: String(remoteBot.name ?? "Imported bot"),
@@ -1449,7 +1453,7 @@ function importProfileChanges(): void | Promise<void> {
         mascotStyle: remoteBot.mascotStyle as BotRecord["mascotStyle"],
         section: typeof remoteBot.sectionId === "string" ? sectionNames.get(remoteBot.sectionId) : undefined,
         autoApprove: true,
-      }, { seedMessages: false });
+      }, { seedMessages: false, id: item.localId ?? undefined });
     }
     bindSyncId(profileSyncSettings.botMap, bot.id, item.globalId);
     // the avatar keeps its local base, so a later pass applies it once Drive delivers the asset
@@ -1458,7 +1462,7 @@ function importProfileChanges(): void | Promise<void> {
     const local = portableSyncChanges(store.bot(bot.id)!, folder);
     markImported(synced, "bot", item.globalId, remoteBot, item.apply, local);
     // fields the remote never set took their value from this import: a new bot's defaults, or the crop a cleared avatar resets
-    if (!item.localId || "avatarAsset" in item.apply) {
+    if (created || "avatarAsset" in item.apply) {
       markSynced(synced, { entity: "bot", entityId: item.globalId, changes: Object.fromEntries(Object.entries(local).filter(([field]) => !(field in remoteBot))) });
     }
   }
