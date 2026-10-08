@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -33,12 +34,20 @@ const CLAUDE_FAT = {
 const CLAUDE_FAT_STOP = {
   botId: "compaction-claude-fat-stop-bot",
   threadId: "compaction-claude-fat-stop-thread",
+  probeThreadId: "compaction-claude-fat-stop-probe",
   fatSession: "fat-soak-stop-session",
 };
 const CLAUDE_SLIM = {
   botId: "compaction-claude-slim-bot",
   threadId: "compaction-claude-slim-thread",
+  probeThreadId: "compaction-claude-slim-probe",
   session: "slim-session",
+};
+// A cursor saved before 1.0.144: no record of the system text it started with.
+const CLAUDE_UPDATE_DAY = {
+  botId: "compaction-claude-update-day-bot",
+  threadId: "compaction-claude-update-day-thread",
+  session: "update-day-session",
 };
 
 function claudeResumeBot(input: {
@@ -47,6 +56,8 @@ function claudeResumeBot(input: {
   name: string;
   color: string;
   session: string;
+  /** a spare task whose fresh turn shows the system text the server sends this bot */
+  probeThreadId?: string;
 }) {
   return {
     id: input.id,
@@ -69,7 +80,9 @@ function claudeResumeBot(input: {
       resumeSeed: { instanceId: "claude", cursor: input.session, compactionId: null },
       lastInstanceId: "claude",
       lastModel: "claude-fake",
-    }],
+    }, ...(input.probeThreadId
+      ? [{ threadId: input.probeThreadId, title: "Probe", createdAt: 2, resumeCursors: {} }]
+      : [])],
   };
 }
 const ROOM_FIRST = {
@@ -126,6 +139,7 @@ describe("context compaction e2e", () => {
   let home: string;
   let dumpPath: string;
   let claudeDumpPath: string;
+  let claudePromptLogPath: string;
   let clearRaceProject: string;
   let stderr = "";
 
@@ -152,6 +166,30 @@ describe("context compaction e2e", () => {
     });
   };
 
+  // store.ts keys one file per resume cursor this way
+  const sessionSystemPath = (cursor: string) => join(
+    home,
+    ".orbit",
+    "session-system",
+    `${createHash("sha256").update(`claude\n${JSON.stringify(cursor)}`).digest("hex").slice(0, 32)}.txt`,
+  );
+  /** Records the bot's saved session as already holding the system text the
+   * server sends it, read off a real fresh turn on the bot's probe task so
+   * the thread under test is untouched. */
+  const seedSessionSystem = async (bot: { botId: string; threadId: string; probeThreadId: string }, cursor: string) => {
+    expect((await api("POST", `/api/bots/${bot.botId}/tasks/${bot.probeThreadId}`)).status).toBe(200);
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/bots/${bot.botId}/messages`, { text: "hello" })).status).toBe(202);
+    await waitFor(async () => (await botById(bot.botId))?.busy === false);
+    const probe = z.object({ argv: z.array(z.string()), systemPrompt: z.string() })
+      .parse(JSON.parse(readFileSync(claudeDumpPath, "utf8")));
+    expect(probe.argv).not.toContain("--resume");
+    expect((await api("POST", `/api/bots/${bot.botId}/tasks/${bot.threadId}`)).status).toBe(200);
+    mkdirSync(dirname(sessionSystemPath(cursor)), { recursive: true });
+    writeFileSync(sessionSystemPath(cursor), probe.systemPrompt);
+    return probe.systemPrompt;
+  };
+
   const waitFor = async (predicate: () => Promise<boolean>, timeout = 20_000) => {
     const deadline = Date.now() + timeout;
     while (!(await predicate())) {
@@ -167,6 +205,7 @@ describe("context compaction e2e", () => {
     home = mkdtempSync(join(tmpdir(), "orbit-compaction-e2e-"));
     dumpPath = join(home, "codex-dump.json");
     claudeDumpPath = join(home, "claude-dump.json");
+    claudePromptLogPath = join(home, "claude-prompts.ndjson");
     clearRaceProject = join(home, "clear-race-project");
     mkdirSync(clearRaceProject);
     const dataDir = join(home, ".orbit");
@@ -182,6 +221,7 @@ describe("context compaction e2e", () => {
           driver: "claudeAgent",
           environment: {
             FAKE_CLAUDE_DUMP: claudeDumpPath,
+            FAKE_CLAUDE_PROMPT_LOG: claudePromptLogPath,
             FAKE_CLAUDE_GENERATE_DELAY_MS: "1500",
           },
           config: { cli: FAKE_CLAUDE_CLI },
@@ -237,6 +277,7 @@ describe("context compaction e2e", () => {
         name: "Fat soak stop",
         color: "red",
         session: CLAUDE_FAT_STOP.fatSession,
+        probeThreadId: CLAUDE_FAT_STOP.probeThreadId,
       }),
       claudeResumeBot({
         id: CLAUDE_SLIM.botId,
@@ -244,6 +285,14 @@ describe("context compaction e2e", () => {
         name: "Slim resume",
         color: "gray",
         session: CLAUDE_SLIM.session,
+        probeThreadId: CLAUDE_SLIM.probeThreadId,
+      }),
+      claudeResumeBot({
+        id: CLAUDE_UPDATE_DAY.botId,
+        threadId: CLAUDE_UPDATE_DAY.threadId,
+        name: "Update day",
+        color: "blue",
+        session: CLAUDE_UPDATE_DAY.session,
       }),
       {
         id: ROOM_FIRST.botId,
@@ -579,10 +628,12 @@ describe("context compaction e2e", () => {
       activeLeafId: "fa",
       messages: fatMessages,
     }));
-    writeFileSync(join(dataDir, `messages-${CLAUDE_SLIM.threadId}.json`), JSON.stringify({
-      activeLeafId: "sa",
-      messages: slimMessages,
-    }));
+    for (const threadId of [CLAUDE_SLIM.threadId, CLAUDE_UPDATE_DAY.threadId]) {
+      writeFileSync(join(dataDir, `messages-${threadId}.json`), JSON.stringify({
+        activeLeafId: "sa",
+        messages: slimMessages,
+      }));
+    }
     writeFileSync(join(dataDir, "task-state", `${CLAUDE_FAT_STOP.threadId}.json`), JSON.stringify({
       v: 1,
       threadId: CLAUDE_FAT_STOP.threadId,
@@ -740,6 +791,7 @@ describe("context compaction e2e", () => {
   }, 30_000);
 
   it("still --resumes Stop recovery on an uncompacted fat Claude soak", async () => {
+    const system = await seedSessionSystem(CLAUDE_FAT_STOP, CLAUDE_FAT_STOP.fatSession);
     rmSync(claudeDumpPath, { force: true });
     expect((await api("POST", `/api/bots/${CLAUDE_FAT_STOP.botId}/messages`, {
       text: "continue",
@@ -758,9 +810,13 @@ describe("context compaction e2e", () => {
     const prompt = typeof dump.prompt === "string" ? dump.prompt : JSON.stringify(dump.prompt);
     expect(prompt).not.toContain("fresh provider session");
     expect(prompt).not.toContain("Wink compacted this conversation");
+    // the seeded record was exactly what this turn sent, so nothing changed to remind
+    expect(dump.systemPrompt).toBe(system);
+    expect(prompt).not.toContain("<system-reminder>");
   }, 30_000);
 
   it("still --resumes a short uncompacted Claude thread", async () => {
+    const system = await seedSessionSystem(CLAUDE_SLIM, CLAUDE_SLIM.session);
     rmSync(claudeDumpPath, { force: true });
     expect((await api("POST", `/api/bots/${CLAUDE_SLIM.botId}/messages`, {
       text: "thanks",
@@ -779,6 +835,44 @@ describe("context compaction e2e", () => {
     const prompt = typeof dump.prompt === "string" ? dump.prompt : JSON.stringify(dump.prompt);
     expect(prompt).not.toContain("fresh provider session");
     expect(prompt).not.toContain("Wink compacted this conversation");
+    expect(dump.systemPrompt).toBe(system);
+    expect(prompt).not.toContain("<system-reminder>");
+  }, 30_000);
+
+  it("starts a session with no system record fresh once, then resumes the new one", async () => {
+    expect(existsSync(sessionSystemPath(CLAUDE_UPDATE_DAY.session))).toBe(false);
+    rmSync(claudeDumpPath, { force: true });
+    expect((await api("POST", `/api/bots/${CLAUDE_UPDATE_DAY.botId}/messages`, {
+      text: "thanks",
+    })).status).toBe(202);
+    await waitFor(async () => (await botById(CLAUDE_UPDATE_DAY.botId))?.busy === false);
+
+    const fresh = JSON.parse(readFileSync(claudeDumpPath, "utf8"));
+    expect(fresh.argv).not.toContain("--resume");
+    expect(fresh.argv).not.toContain(CLAUDE_UPDATE_DAY.session);
+    expect(fresh.argv).toContain("--session-id");
+    const freshPrompt = JSON.stringify(fresh.prompt);
+    expect(freshPrompt).toContain("Wink started a fresh provider session because your instructions changed");
+    expect(freshPrompt).toContain("hello");
+    const session = fresh.argv[fresh.argv.indexOf("--session-id") + 1];
+    expect(readFileSync(sessionSystemPath(session), "utf8")).toBe(fresh.systemPrompt);
+
+    expect((await api("POST", `/api/bots/${CLAUDE_UPDATE_DAY.botId}/messages`, {
+      text: "one more thing",
+    })).status).toBe(202);
+    await waitFor(async () => (await botById(CLAUDE_UPDATE_DAY.botId))?.busy === false);
+
+    // The driver hands a turn to its idle CLI only when the harness names that
+    // CLI's session as the resume cursor; any other cursor spawns a new one.
+    const sent = readFileSync(claudePromptLogPath, "utf8").trim().split("\n")
+      .map((line) => z.object({ pid: z.number(), argv: z.array(z.string()), text: z.string() }).parse(JSON.parse(line)))
+      .filter((line) => line.pid === fresh.pid);
+    expect(sent).toHaveLength(2);
+    const resumed = sent[1];
+    expect(resumed.argv).toContain(session);
+    expect(resumed.text).toContain("one more thing");
+    expect(resumed.text).not.toContain("fresh provider session");
+    expect(resumed.text).not.toContain("<system-reminder>");
   }, 30_000);
 
   it("does not --resume a stale Claude session after Wink compaction", async () => {
