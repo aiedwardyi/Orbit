@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   DEVICE_DIR,
@@ -9,6 +10,7 @@ import {
   deviceDisplayName,
   listDevices,
   loadDeviceName,
+  pickerDevices,
   saveDeviceName,
   scanDevices,
   writeDeviceRecord,
@@ -112,5 +114,75 @@ describe("device sync", () => {
     expect(deviceDisplayName(null, " Env ", "EDWARD-PC")).toBe("Env");
     expect(deviceDisplayName(null, "  ", "EDWARD-PC")).toBe("EDWARD-PC");
     expect(deviceDisplayName(null, undefined, "EDWARD-PC")).toBe("EDWARD-PC");
+  });
+});
+
+describe("relay presence", () => {
+  const BASE = "wink.test";
+  const relay = (label: string) => `${label.padEnd(16, "a")}.${BASE}`;
+  // The record schema shipped before relay presence, as older PCs still read it.
+  const oldReader = z.object({
+    deviceId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/),
+    name: z.string().trim().min(1).max(64),
+    host: z.string().max(253).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/),
+    lastSeen: z.number().int().nonnegative(),
+    laptop: z.boolean().optional(),
+    chatSync: z.literal(2).optional(),
+  });
+
+  it("keeps a relay host next to the tailnet host", () => {
+    const folder = freshDir();
+    writeDeviceRecord(folder, { ...rec("home"), relayHost: relay("home"), chatSync: 2 }, NOW);
+    expect(listDevices(folder, "home", NOW)[0]).toMatchObject({ host: "home.tail396477.ts.net", relayHost: relay("home") });
+  });
+
+  it("stays readable by older PCs, including a relay-only record", () => {
+    const folder = freshDir();
+    writeDeviceRecord(folder, { ...rec("home"), relayHost: relay("home"), chatSync: 2 }, NOW);
+    writeDeviceRecord(folder, { ...rec("cafe", relay("cafe")), relayHost: relay("cafe"), chatSync: 2 }, NOW);
+    for (const id of ["home", "cafe"]) {
+      expect(oldReader.safeParse(JSON.parse(readFileSync(join(folder, DEVICE_DIR, `${id}.json`), "utf8"))).success).toBe(true);
+    }
+    expect(scanDevices(folder).unreadable).toEqual([]);
+  });
+
+  it("reads old records and drops a relay host that is not a relay label", () => {
+    const folder = freshDir();
+    const dir = join(folder, DEVICE_DIR);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "old.json"), JSON.stringify({ deviceId: "old", name: "Old", host: "old.tail396477.ts.net", lastSeen: NOW }));
+    for (const [id, bad] of [["a", "evil.example"], ["b", "https://abcdefghijklmnop.wink.test"], ["c", "ABCDEFGHIJKLMNOP.wink.test"], ["d", 42]]) {
+      writeFileSync(join(dir, `${id}.json`), JSON.stringify({ deviceId: id, name: id, host: `${id}.tail396477.ts.net`, relayHost: bad, lastSeen: NOW }));
+    }
+    const list = listDevices(folder, "old", NOW);
+    expect(list.map((d) => [d.deviceId, d.relayHost])).toEqual([["a", undefined], ["b", undefined], ["c", undefined], ["d", undefined], ["old", undefined]]);
+    expect(scanDevices(folder).unreadable).toEqual([]);
+  });
+
+  it("sends a relay phone only to relay hosts under this base", () => {
+    const folder = freshDir();
+    writeDeviceRecord(folder, { ...rec("home"), relayHost: relay("home") }, NOW);
+    writeDeviceRecord(folder, { ...rec("cafe", relay("cafe")), relayHost: relay("cafe") }, NOW);
+    writeDeviceRecord(folder, rec("work"), NOW);
+    writeDeviceRecord(folder, { ...rec("lab"), relayHost: `${"l".padEnd(16, "a")}.other.test` }, NOW);
+    const picked = pickerDevices(listDevices(folder, "home", NOW), BASE);
+    expect(picked.map((d) => [d.deviceId, d.host, d.current])).toEqual([
+      ["cafe", relay("cafe"), false],
+      ["home", relay("home"), true],
+    ]);
+    expect(JSON.stringify(picked)).not.toContain("ts.net");
+    expect(JSON.stringify(picked)).not.toContain("relayHost");
+  });
+
+  it("keeps the tailnet picker exactly as before", () => {
+    const folder = freshDir();
+    writeDeviceRecord(folder, { ...rec("home"), relayHost: relay("home") }, NOW);
+    writeDeviceRecord(folder, { ...rec("cafe", relay("cafe")), relayHost: relay("cafe") }, NOW);
+    writeDeviceRecord(folder, rec("work"), NOW);
+    const picked = pickerDevices(listDevices(folder, "home", NOW), null);
+    expect(picked).toEqual([
+      { deviceId: "home", name: "home", host: "home.tail396477.ts.net", lastSeen: NOW, current: true, offline: false },
+      { deviceId: "work", name: "work", host: "work.tail396477.ts.net", lastSeen: NOW, current: false, offline: false },
+    ]);
   });
 });

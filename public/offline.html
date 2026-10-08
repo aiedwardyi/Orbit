@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en" translate="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="google" content="notranslate" />
+    <meta name="theme-color" content="#121316" />
+    <title>Wink</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --app: #121316;
+        --ink: #eeeff3;
+        --ink-secondary: #a3a7b3;
+        --accent: #929fff;
+        --accent-ink: #121316;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--app);
+        color: var(--ink);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+        word-break: keep-all;
+        overflow-wrap: anywhere;
+      }
+      main {
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        min-height: 100dvh;
+        padding: 24px 16px;
+      }
+      .panel {
+        width: 100%;
+        max-width: 360px;
+        text-align: center;
+      }
+      svg {
+        width: 56px;
+        height: 56px;
+      }
+      h1 {
+        margin: 16px 0 6px;
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      p {
+        margin: 0;
+        color: var(--ink-secondary);
+        font-size: 14px;
+      }
+      button {
+        width: 100%;
+        margin-top: 24px;
+        padding: 12px;
+        border: 0;
+        border-radius: 12px;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font: inherit;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="panel">
+        <svg viewBox="0 0 256 256" aria-hidden="true">
+          <rect x="12" y="12" width="232" height="232" rx="54" fill="#1f2747" />
+          <path d="M72 86 L122 128 L72 170" fill="none" stroke="#ff4d9d" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" />
+          <rect x="146" y="156" width="52" height="28" rx="14" fill="#ffd447" />
+        </svg>
+        <h1 id="title"></h1>
+        <p id="detail" role="status" aria-live="polite"></p>
+        <button id="retry" type="button"></button>
+      </div>
+    </main>
+    <script>
+      // Shown by sw.js only when a page load could not reach this PC at all.
+      // The relay's public status tells "PC asleep" from "relay down"; when the
+      // PC is online the likely cause is its certificate, which only the
+      // browser can show.
+      (() => {
+        const COPY = {
+          en: {
+            title: "Cannot reach this PC",
+            phoneOffline: "This phone is offline. Wink reconnects when it is back online.",
+            relayDown: "Cannot reach the Wink relay. Trying again every 10 seconds.",
+            asleep: "Your PC is asleep or Wink is closed.",
+            asleepSince: "Your PC is asleep or Wink is closed (since {time}).",
+            online: "Your PC is online, but this page did not load. If this keeps happening, open Wink on the PC and check Phone access; its security certificate may need attention.",
+            retry: "Try again",
+          },
+          ko: {
+            title: "이 PC에 연결할 수 없습니다",
+            phoneOffline: "휴대폰이 오프라인입니다. 다시 온라인이 되면 Wink가 연결됩니다.",
+            relayDown: "Wink 릴레이에 연결할 수 없습니다. 10초마다 다시 시도합니다.",
+            asleep: "PC가 절전 상태이거나 Wink가 닫혀 있습니다.",
+            asleepSince: "PC가 절전 상태이거나 Wink가 닫혀 있습니다 ({time}부터).",
+            online: "PC는 켜져 있지만 이 페이지를 불러오지 못했습니다. 계속되면 PC의 Wink에서 휴대폰 접속을 확인하세요. 보안 인증서에 문제가 있을 수 있습니다.",
+            retry: "다시 시도",
+          },
+        };
+        let lang = "en";
+        try {
+          const saved = localStorage.getItem("omb-locale");
+          const system = /^ko\b/i.test(navigator.language || "") ? "ko" : "en";
+          lang = saved === "ko" ? "ko" : saved === "system" ? system : "en";
+        } catch {}
+        const t = (key, time) => COPY[lang][key].replace("{time}", time || "");
+        document.documentElement.lang = lang;
+        document.getElementById("title").textContent = t("title");
+        const detail = document.getElementById("detail");
+        const retry = document.getElementById("retry");
+        retry.textContent = t("retry");
+        retry.addEventListener("click", () => location.reload());
+
+        const dot = location.hostname.indexOf(".");
+        const label = location.hostname.slice(0, dot);
+        const base = location.hostname.slice(dot + 1);
+        const statusUrl = `https://relay.${base}/v1/status/${label}`;
+        let down = false;
+
+        async function check() {
+          if (!navigator.onLine) {
+            down = true;
+            detail.textContent = t("phoneOffline");
+            return;
+          }
+          try {
+            const res = await fetch(statusUrl, { cache: "no-store", credentials: "omit" });
+            const status = await res.json();
+            if (status.online) {
+              // Came back while we watched: try the page again once.
+              if (down) location.reload();
+              detail.textContent = t("online");
+              return;
+            }
+            down = true;
+            const since = typeof status.since === "number" ? new Date(status.since).toLocaleTimeString(lang, { hour: "2-digit", minute: "2-digit" }) : "";
+            detail.textContent = since ? t("asleepSince", since) : t("asleep");
+          } catch {
+            down = true;
+            detail.textContent = t("relayDown");
+          }
+        }
+
+        void check();
+        setInterval(check, 10_000);
+        window.addEventListener("online", check);
+      })();
+    </script>
+  </body>
+</html>

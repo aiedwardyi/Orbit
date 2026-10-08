@@ -1,7 +1,7 @@
 {
   "name": "orbit-desktop",
   "private": true,
-  "version": "1.0.144",
+  "version": "1.0.145",
   "description": "A local-first desktop workspace for AI teammates.",
   "homepage": "https://github.com/aiedwardyi/Orbit",
   "repository": {
@@ -83,6 +83,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "0.12.0",
     "@xterm/xterm": "^6.0.0",
+    "acme-client": "5.4.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.539.0",
     "mdast-util-from-markdown": "2.0.3",
@@ -101,6 +102,7 @@
   },
   "devDependencies": {
     "@oxlint/plugins": "1.80.0",
+    "@peculiar/x509": "1.14.3",
     "@tailwindcss/vite": "^4.1.11",
     "@types/node": "^26.2.0",
     "@types/react": "^19.1.9",
