@@ -5,10 +5,11 @@
 // keeps the current certificate. Each CA directory has its own account key.
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { X509Certificate, createPrivateKey } from "node:crypto";
+import { X509Certificate, createHash, createPrivateKey, createPublicKey } from "node:crypto";
 import { Agent as HttpAgent } from "node:http";
 import { Agent as HttpsAgent } from "node:https";
 
+import * as x509 from "@peculiar/x509";
 import acme from "acme-client";
 import { z } from "zod";
 
@@ -129,6 +130,35 @@ export interface CertSnapshot {
   issuing: boolean;
   /** Last issuance failure, cleared by success. */
   error: string | null;
+}
+
+x509.cryptoProvider.set(crypto);
+const CHALLENGE_ALG = { name: "ECDSA", namedCurve: "P-256", hash: "SHA-256" };
+/** Challenge certificate validity on each side of now, for CA clock skew. */
+const CHALLENGE_VALIDITY_MS = 60 * 60_000;
+
+/** RFC 8737 challenge certificate. Not acme-client's: Electron's BoringSSL refuses its CA-only key usage. */
+async function createChallengeCert(host: string, keyAuthorization: string, now: number): Promise<{ keyPem: string; certPem: string }> {
+  const keyPem = newEcKeyPem();
+  const privateKey = createPrivateKey(keyPem);
+  const digest = createHash("sha256").update(keyAuthorization).digest();
+  const cert = await x509.X509CertificateGenerator.createSelfSigned({
+    name: `CN=${host}`,
+    notBefore: new Date(now - CHALLENGE_VALIDITY_MS),
+    notAfter: new Date(now + CHALLENGE_VALIDITY_MS),
+    keys: {
+      privateKey: await crypto.subtle.importKey("pkcs8", privateKey.export({ format: "der", type: "pkcs8" }), CHALLENGE_ALG, false, ["sign"]),
+      publicKey: await crypto.subtle.importKey("spki", createPublicKey(privateKey).export({ format: "der", type: "spki" }), CHALLENGE_ALG, true, ["verify"]),
+    },
+    signingAlgorithm: CHALLENGE_ALG,
+    extensions: [
+      new x509.KeyUsagesExtension(x509.KeyUsageFlags.digitalSignature, true),
+      new x509.SubjectAlternativeNameExtension([{ type: "dns", value: host }]),
+      // id-pe-acmeIdentifier: the digest as a DER OCTET STRING.
+      new x509.Extension("1.3.6.1.5.5.7.1.31", true, Buffer.concat([Buffer.from([0x04, 0x20]), digest])),
+    ],
+  });
+  return { keyPem, certPem: cert.toString("pem") };
 }
 
 /** Checks the RFC 8737 challenge certificate before it is served. */
@@ -453,12 +483,10 @@ export class CertManager {
       if (!challenge) throw new Error("CA offered no tls-alpn-01 challenge");
       const alpnClient: TlsAlpnClient = client;
       const keyAuthorization = await this.step(alpnClient.getChallengeKeyAuthorization(challenge));
-      const [challengeKey, challengeCert] = await this.step(
-        acme.crypto.createAlpnCertificate(authz, keyAuthorization, newEcKeyPem()),
-      );
-      const problem = challengeCertProblem(challengeCert.toString(), host, keyAuthorization);
+      const { keyPem: challengeKey, certPem: challengeCert } = await this.step(createChallengeCert(host, keyAuthorization, this.clock.now()));
+      const problem = challengeCertProblem(challengeCert, host, keyAuthorization);
       if (problem) throw new Error(problem);
-      this.opts.target.setChallenge(challengeKey.toString(), challengeCert.toString());
+      this.opts.target.setChallenge(challengeKey, challengeCert);
       await this.step(alpnClient.completeChallenge(challenge));
       await this.poll(async () => {
         const [latest] = await client.getAuthorizations(order);

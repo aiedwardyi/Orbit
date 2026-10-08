@@ -106,19 +106,28 @@ export interface ChallengeCertInfo {
   critical: boolean;
   /** extnValue of id-pe-acmeIdentifier: DER OCTET STRING of the SHA-256 key authorization. */
   value: Buffer;
+  /** Names of the keyUsage bits set, or null without that extension. */
+  keyUsage: { usages: string[]; critical: boolean } | null;
 }
 
-/** SubjectAltName, acmeIdentifier criticality and digest of an RFC 8737 challenge certificate. */
+const KEY_USAGES = ["digitalSignature", "nonRepudiation", "keyEncipherment", "dataEncipherment", "keyAgreement", "keyCertSign", "cRLSign", "encipherOnly", "decipherOnly"] as const;
+
+/** SubjectAltName, acmeIdentifier criticality and digest, and key usage of an RFC 8737 challenge certificate. */
 export function inspectChallengeCert(certPem: string): ChallengeCertInfo {
   const cert = new x509.X509Certificate(certPem);
   const names = sanOf(cert.extensions);
   const ext = cert.extensions.find((candidate) => candidate.type === "1.3.6.1.5.5.7.1.31");
   if (!ext) throw new Error("no acmeIdentifier extension");
+  const keyUsage = cert.getExtension(x509.KeyUsagesExtension);
   return {
     dnsNames: names.filter((name) => name.type === "dns").map((name) => name.value),
     otherNames: names.filter((name) => name.type !== "dns").length,
     critical: ext.critical,
     value: Buffer.from(ext.value),
+    keyUsage: keyUsage && {
+      usages: KEY_USAGES.filter((name) => (keyUsage.usages & x509.KeyUsageFlags[name]) !== 0),
+      critical: keyUsage.critical,
+    },
   };
 }
 
