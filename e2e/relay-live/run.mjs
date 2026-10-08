@@ -299,6 +299,26 @@ function decodeQr(png) {
   return found?.data ?? null;
 }
 
+/** Where the current document's load time went, in ms, and how many of its fetches opened a new connection. */
+const loadTiming = (page) =>
+  page
+    .evaluate(() => {
+      const nav = performance.getEntriesByType("navigation")[0];
+      const resources = performance.getEntriesByType("resource");
+      return nav
+        ? {
+            dns: Math.round(nav.domainLookupEnd - nav.domainLookupStart),
+            connect: Math.round(nav.connectEnd - nav.connectStart),
+            tls: Math.round(nav.secureConnectionStart ? nav.connectEnd - nav.secureConnectionStart : 0),
+            firstByte: Math.round(nav.responseStart - nav.requestStart),
+            domContentLoaded: Math.round(nav.domContentLoadedEventEnd),
+            resources: resources.length,
+            newConnections: resources.filter((entry) => entry.connectEnd > entry.connectStart).length,
+          }
+        : null;
+    })
+    .catch(() => null);
+
 const isAppData = (host) => (response) => {
   const url = new URL(response.url());
   return url.host === host && url.pathname === "/api/bots" && response.status() === 200;
@@ -397,6 +417,7 @@ async function flow() {
   check("c", "setup code connects this PC", connectedUi !== null && status1.state === "connected", { seconds: connectedUi, states: seen, host: status1.host, base: status1.base });
   if (connectedUi === null) throw new Error("Settings never showed connected");
   const host = status1.host;
+  timings.relayRttMs = await until(async () => (await relayStatus(pc1)).relayRttMs, 20_000, "relay rtt").catch(() => null);
 
   // d. Add a phone > QR. If the QR doesn't decode, the phone still gets the link from the API answer.
   const link = await part(
@@ -427,7 +448,7 @@ async function flow() {
   if (!link) return;
 
   // e. The phone opens the decoded link.
-  let phoneCtx = await phoneContext();
+  const phoneCtx = await phoneContext();
   const phone = await phoneCtx.newPage();
   const paired = await part(
     "e",
@@ -437,12 +458,24 @@ async function flow() {
       appData.catch(() => {});
       const scanned = Date.now();
       await phone.goto(link.url, { waitUntil: "domcontentloaded", timeout: 90_000 });
-      mark("e: pair page loaded", { afterS: since(scanned) });
+      timings.pairPageLoad = await loadTiming(phone);
+      mark("e: pair page loaded", { afterS: since(scanned), timing: timings.pairPageLoad });
       await shot(phone, "e1-phone-pairing");
       await phone.waitForURL((url) => url.pathname === "/", { timeout: 90_000 });
+      const pairedAt = Date.now();
       await appData;
       timings.qrToAppOnPhoneS = since(scanned);
-      check("e", "phone pairs and the app loads its data through the relay", true, { seconds: timings.qrToAppOnPhoneS, origin: new URL(phone.url()).origin });
+      timings.pairedToAppDataS = since(pairedAt);
+      timings.appFirstLoad = await loadTiming(phone);
+      facts.serviceWorker = await phone
+        .evaluate(() => Promise.race([navigator.serviceWorker.ready.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 5_000))]))
+        .catch(() => null);
+      check("e", "phone pairs and the app loads its data through the relay", true, {
+        seconds: timings.qrToAppOnPhoneS,
+        origin: new URL(phone.url()).origin,
+        serviceWorker: facts.serviceWorker,
+        appLoad: timings.appFirstLoad,
+      });
       await phone.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
       await shot(phone, "e2-phone-app-first-open");
       const landed = new URL(phone.url());
@@ -573,14 +606,11 @@ async function flow() {
   );
   await anon.close();
 
-  // f1. Reopen the phone from its saved storage state.
+  // f1. Reopen the phone from its saved storage state. The first phone stays open for the offline page in f2.
   let reopened = null;
   let rp = null;
   if (paired) {
-    const saved = await phoneCtx.storageState();
-    await phoneCtx.close();
-    phoneCtx = null;
-    reopened = await phoneContext({ storageState: saved });
+    reopened = await phoneContext({ storageState: await phoneCtx.storageState() });
     rp = await reopened.newPage();
     await part(
       "f",
@@ -591,16 +621,18 @@ async function flow() {
         const reopenedAt = Date.now();
         await rp.goto(`https://${host}/`, { waitUntil: "domcontentloaded" });
         await reopenData;
+        timings.reopenToAppDataS = since(reopenedAt);
         await rp.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
         await shot(rp, "f1-phone-reopened");
-        check("f", "reopened phone opens the app without pairing", new URL(rp.url()).pathname === "/", { path: new URL(rp.url()).pathname, seconds: since(reopenedAt) });
+        check("f", "reopened phone opens the app without pairing", new URL(rp.url()).pathname === "/", { path: new URL(rp.url()).pathname, seconds: timings.reopenToAppDataS });
       },
       [rp],
     );
   }
-  await phoneCtx?.close();
 
   // f2. Restart on the same data dir: no new code, no new certificate.
+  let recovery = null;
+  let connectedAgainAt = null;
   const restartedOk = await part("f", "restart reconnects with no new code", async () => {
     const certFile = join(home1, ".orbit", "phone-relay", "cert.json");
     const certBefore = fileHash(certFile);
@@ -612,6 +644,7 @@ async function flow() {
       await rp.reload({ waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
       await shot(rp, "f2-phone-while-pc-down");
     }
+    if (paired) recovery = await offlinePage(phone, host);
     const restarted = Date.now();
     pc1 = await startServer("pc1", home1, PC1_PORT, FAKE_ENGINE_ENV);
     stopWatch = watchRelay(pc1);
@@ -619,6 +652,7 @@ async function flow() {
       const status = await relayStatus(pc1);
       return status.state === "connected" ? status : null;
     }, 5 * 60_000, "relay connected after restart");
+    connectedAgainAt = Date.now();
     timings.restartToConnectedS = since(restarted);
     const certAfterRestart = await peerCert(host);
     check("f", "restart reconnects with no new code", back.host === host, { seconds: timings.restartToConnectedS, host: back.host });
@@ -629,6 +663,12 @@ async function flow() {
     });
     return true;
   });
+  if (recovery && restartedOk) {
+    const backAt = await recovery;
+    timings.offlinePageBackInAppS = backAt ? +((backAt - connectedAgainAt) / 1000).toFixed(2) : null;
+    await shot(phone, "f3-offline-page-back-in-app");
+    check("f", "offline page goes back into the app by itself once the PC is back", backAt !== null, { secondsAfterConnected: timings.offlinePageBackInAppS });
+  }
   if (rp && restartedOk) {
     await part(
       "f",
@@ -636,8 +676,10 @@ async function flow() {
       async () => {
         const afterRestartData = rp.waitForResponse(isAppData(host), { timeout: 60_000 });
         afterRestartData.catch(() => {});
+        const reloadedAt = Date.now();
         await rp.goto(`https://${host}/`, { waitUntil: "domcontentloaded" });
         await afterRestartData;
+        timings.afterRestartToAppDataS = since(reloadedAt);
         await rp.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
         await shot(rp, "f3-phone-after-restart");
         check("f", "phone still works after the restart", new URL(rp.url()).pathname === "/", { path: new URL(rp.url()).pathname });
@@ -684,6 +726,7 @@ async function flow() {
     await desk.context.close();
   }
   await reopened?.close();
+  await phoneCtx.close();
 
   // g1. The same code on a second fresh PC. Always staging, so a wrongly accepted code costs no production certificate.
   const home2 = join(WORK, "pc2", "home");
@@ -721,6 +764,20 @@ async function flow() {
   await desk2.context.close();
 }
 
+/** The first phone has the pair page's service worker: with the PC down, a page load gets offline.html, which reloads into the app once the PC is back. */
+async function offlinePage(page, host) {
+  await page.waitForTimeout(3_000);
+  await shot(page, "f2-open-app-while-pc-down");
+  const back = page.waitForResponse(isAppData(host), { timeout: 120_000 }).then(() => Date.now(), () => null);
+  await page.goto(`https://${host}/`, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
+  const message = await page
+    .waitForFunction(() => document.getElementById("detail")?.textContent?.trim(), null, { timeout: 20_000 })
+    .then((handle) => handle.jsonValue(), () => null);
+  await shot(page, "f2-offline-page");
+  check("f", "phone shows the offline page while the PC is down", /asleep or Wink is closed/.test(message ?? ""), { message, serviceWorker: facts.serviceWorker });
+  return message ? back : null;
+}
+
 async function messageRoundTrip(page, created) {
   if (created.status !== 200 && created.status !== 201) return note("h", `skipped: the bot on the fake engine was not created (${created.status} ${created.body?.error ?? ""})`);
   try {
@@ -744,7 +801,8 @@ async function messageRoundTrip(page, created) {
 process.on("unhandledRejection", (error) => log(`unhandled: ${error?.stack ?? error}`));
 
 try {
-  browser = await chromium.launch();
+  // A trusted certificate lets a real phone register the pair page's service worker; staging needs the flag for that.
+  browser = await chromium.launch(PROD ? {} : { args: ["--ignore-certificate-errors"] });
   await flow();
 } catch (error) {
   fatal = { message: redact(error?.message ?? String(error)).split("\n").slice(0, 6).join("\n") };
