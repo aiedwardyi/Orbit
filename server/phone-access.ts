@@ -69,6 +69,7 @@ export interface PhoneAccessOptions {
   clock?: Clock;
   start?(options: PhoneRelayOptions): PhoneRelay;
   enroll?(options: PhoneRelayEnrollOptions): Promise<void>;
+  loadClient?(): Promise<RelayClient>;
 }
 
 interface RelayClient {
@@ -78,7 +79,7 @@ interface RelayClient {
 }
 
 /** Loaded only once the relay is on, so a PC without it never loads the client. */
-async function loadRelayClient(): Promise<RelayClient> {
+export async function loadRelayClient(): Promise<RelayClient> {
   const [client, ingress] = await Promise.all([import("./phone-relay/index.ts"), import("./phone-relay/ingress.ts")]);
   return { start: client.startPhoneRelay, enroll: client.enrollPhoneRelay, peer: ingress.relayPeerForRequest };
 }
@@ -146,6 +147,8 @@ export class PhoneAccess {
   private queue: Promise<void> = Promise.resolve();
   private registry: PhoneDevices | null = null;
   private client: RelayClient | null = null;
+  /** Why the relay client last failed to load or start. */
+  private failure: string | null = null;
   private readonly sockets = new Map<string, Set<Duplex>>();
   private readonly peerLimit: RateLimiter;
   private readonly pcLimit: RateLimiter;
@@ -185,6 +188,7 @@ export class PhoneAccess {
   private async swap(): Promise<void> {
     const old = this.relay;
     this.relay = null;
+    this.failure = null;
     if (old) {
       await old.stop();
       this.options.onChange?.();
@@ -192,21 +196,26 @@ export class PhoneAccess {
     const config = this.options.config() ?? {};
     const handler = this.handler;
     if (!handler || relayMode(config, this.options.env).kind === "off") return;
-    this.client ??= await loadRelayClient();
-    const relay: PhoneRelay = (this.options.start ?? this.client.start)({
-      dataDir: this.options.dataDir,
-      config,
-      handler,
-      onStatus: () => {
-        if (this.relay === relay) this.options.onChange?.();
-      },
-    });
-    this.relay = relay;
+    try {
+      this.client ??= await (this.options.loadClient ?? loadRelayClient)();
+      const relay: PhoneRelay = (this.options.start ?? this.client.start)({
+        dataDir: this.options.dataDir,
+        config,
+        handler,
+        onStatus: () => {
+          if (this.relay === relay) this.options.onChange?.();
+        },
+      });
+      this.relay = relay;
+    } catch (cause) {
+      this.failure = cause instanceof Error ? cause.message : String(cause);
+      console.error(`[phone-relay] start failed: ${this.failure}`);
+    }
     this.options.onChange?.();
   }
 
   status(): PhoneRelayStatus {
-    return this.relay?.status() ?? { ...PHONE_RELAY_OFF };
+    return this.relay?.status() ?? { ...PHONE_RELAY_OFF, lastError: this.failure };
   }
 
   /** This PC's relay host while it holds a ticket, for the device picker. */
@@ -333,7 +342,7 @@ export class PhoneAccess {
   /** Trades `invite` for a ticket. The failure reason, or null once enrolled. */
   private async enroll(invite: string): Promise<string | null> {
     try {
-      this.client ??= await loadRelayClient();
+      this.client ??= await (this.options.loadClient ?? loadRelayClient)();
       await (this.options.enroll ?? this.client.enroll)({ dataDir: this.options.dataDir, config: this.options.config() ?? {}, invite });
       return null;
     } catch (cause) {
