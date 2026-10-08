@@ -33,7 +33,7 @@ const listPrice = (input: number, cachedInput: number, output: number) => ({
   price: { input, cachedInput, output },
 });
 
-export const MODEL_INDEX_AS_OF = "2026-10-04";
+export const MODEL_INDEX_AS_OF = "2026-10-08";
 
 export const MODEL_INDEX_ENTRIES: ModelIndexEntry[] = [
   { provider: "anthropic", model: "claude-fable-5", label: "Claude Fable 5", effort: "max", index: "agentic", score: 42.4, source: "https://artificialanalysis.ai/models/claude-fable-5", sourceLabel: "Artificial Analysis Terminal-Bench 4.0 (% resolved)", date: "2026-10-02" },
