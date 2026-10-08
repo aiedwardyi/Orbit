@@ -299,23 +299,20 @@ function decodeQr(png) {
   return found?.data ?? null;
 }
 
-/** Where the current document's load time went, in ms, and how many of its fetches opened a new connection. */
+/** The current document's load marks in ms from navigation start, and how many of its fetches opened a new connection. */
 const loadTiming = (page) =>
   page
     .evaluate(() => {
       const nav = performance.getEntriesByType("navigation")[0];
+      if (!nav) return null;
+      const marks = ["domainLookupStart", "connectStart", "secureConnectionStart", "connectEnd", "requestStart", "responseStart", "responseEnd", "domInteractive", "domContentLoadedEventEnd"];
       const resources = performance.getEntriesByType("resource");
-      return nav
-        ? {
-            dns: Math.round(nav.domainLookupEnd - nav.domainLookupStart),
-            connect: Math.round(nav.connectEnd - nav.connectStart),
-            tls: Math.round(nav.secureConnectionStart ? nav.connectEnd - nav.secureConnectionStart : 0),
-            firstByte: Math.round(nav.responseStart - nav.requestStart),
-            domContentLoaded: Math.round(nav.domContentLoadedEventEnd),
-            resources: resources.length,
-            newConnections: resources.filter((entry) => entry.connectEnd > entry.connectStart).length,
-          }
-        : null;
+      return {
+        ...Object.fromEntries(marks.map((mark) => [mark, Math.round(nav[mark])])),
+        bytes: nav.encodedBodySize,
+        resources: resources.length,
+        newConnections: resources.filter((entry) => entry.connectEnd > entry.connectStart).length,
+      };
     })
     .catch(() => null);
 
@@ -417,7 +414,6 @@ async function flow() {
   check("c", "setup code connects this PC", connectedUi !== null && status1.state === "connected", { seconds: connectedUi, states: seen, host: status1.host, base: status1.base });
   if (connectedUi === null) throw new Error("Settings never showed connected");
   const host = status1.host;
-  timings.relayRttMs = await until(async () => (await relayStatus(pc1)).relayRttMs, 20_000, "relay rtt").catch(() => null);
 
   // d. Add a phone > QR. If the QR doesn't decode, the phone still gets the link from the API answer.
   const link = await part(
@@ -664,7 +660,7 @@ async function flow() {
     return true;
   });
   if (recovery && restartedOk) {
-    const backAt = await recovery;
+    const backAt = await recovery.back;
     timings.offlinePageBackInAppS = backAt ? +((backAt - connectedAgainAt) / 1000).toFixed(2) : null;
     await shot(phone, "f3-offline-page-back-in-app");
     check("f", "offline page goes back into the app by itself once the PC is back", backAt !== null, { secondsAfterConnected: timings.offlinePageBackInAppS });
@@ -775,7 +771,8 @@ async function offlinePage(page, host) {
     .then((handle) => handle.jsonValue(), () => null);
   await shot(page, "f2-offline-page");
   check("f", "phone shows the offline page while the PC is down", /asleep or Wink is closed/.test(message ?? ""), { message, serviceWorker: facts.serviceWorker });
-  return message ? back : null;
+  // Wrapped: an async function returning the promise itself would wait for the PC to come back.
+  return message ? { back } : null;
 }
 
 async function messageRoundTrip(page, created) {
@@ -812,7 +809,7 @@ try {
   for (const server of [pc1, pc2]) {
     if (!server) continue;
     const final = await relayStatus(server).catch(() => null);
-    if (final) mark(`${server.name}: final relay status`, { state: final.state, lastError: final.lastError, problem: final.problem });
+    if (final) mark(`${server.name}: final relay status`, { state: final.state, lastError: final.lastError, problem: final.problem, rttMs: final.relayRttMs });
   }
   await browser?.close().catch(() => {});
   await stopServer(pc1).catch(() => {});
