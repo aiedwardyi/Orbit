@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en" translate="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="google" content="notranslate" />
+    <meta name="theme-color" content="#121316" />
+    <meta name="referrer" content="no-referrer" />
+    <link rel="icon" type="image/svg+xml" href="/app-icon.svg?v=2" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>Wink</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --app: #121316;
+        --inset: #0f1013;
+        --hairline: #353944;
+        --ink: #eeeff3;
+        --ink-secondary: #a3a7b3;
+        --accent: #929fff;
+        --accent-ink: #121316;
+        --danger: #ff8c98;
+        --success: #7bd8a6;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--app);
+        color: var(--ink);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+        word-break: keep-all;
+        overflow-wrap: anywhere;
+      }
+      main {
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        min-height: 100dvh;
+        padding: 24px 16px;
+      }
+      .panel {
+        width: 100%;
+        max-width: 360px;
+        text-align: center;
+      }
+      img {
+        width: 56px;
+        height: 56px;
+      }
+      h1 {
+        margin: 16px 0 6px;
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      p {
+        margin: 0;
+        color: var(--ink-secondary);
+        font-size: 14px;
+      }
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-top: 24px;
+      }
+      input {
+        width: 100%;
+        padding: 12px;
+        border: 1px solid var(--hairline);
+        border-radius: 12px;
+        background: var(--inset);
+        color: var(--ink);
+        font: 600 24px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        letter-spacing: 0.3em;
+        text-align: center;
+      }
+      input:focus {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+      button {
+        padding: 12px;
+        border: 0;
+        border-radius: 12px;
+        background: var(--accent);
+        color: var(--accent-ink);
+        font: inherit;
+        font-weight: 600;
+      }
+      button:disabled {
+        opacity: 0.5;
+      }
+      .status {
+        min-height: 21px;
+        margin-top: 12px;
+        font-size: 13px;
+      }
+      .error {
+        color: var(--danger);
+      }
+      .ok {
+        color: var(--success);
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="panel">
+        <img src="/app-icon.svg?v=2" alt="" />
+        <h1 id="title"></h1>
+        <p id="help"></p>
+        <form id="form" hidden>
+          <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" spellcheck="false" />
+          <button id="submit" type="submit"></button>
+        </form>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </div>
+    </main>
+    <script>
+      // Pairs this phone with one PC. The QR link carries a 2 minute token in the
+      // fragment, which never reaches the server or a Referer; it is cleared before
+      // anything else runs. The 6 digit code is the fallback for an installed app.
+      (() => {
+        const COPY = {
+          en: {
+            title: "Pair this phone",
+            help: "Enter the 6 digit code from Wink on your PC: Settings, Connections, Phone access.",
+            code: "6 digit code",
+            submit: "Pair",
+            pairing: "Pairing...",
+            paired: "Paired. Opening Wink...",
+            "wrong-credential": "That code is not right. Check the code on your PC.",
+            "too-many-attempts": "Too many wrong codes. Make a new code on your PC.",
+            "no-pairing": "That code expired or was already used. Make a new code on your PC.",
+            "too-many-phones": "This PC already has 20 phones. Remove one in Settings on the PC.",
+            "rate-limited": "Too many tries. Wait a minute and try again.",
+            network: "Could not reach your PC. Check your connection and try again.",
+            failed: "Pairing did not work. Make a new code on your PC.",
+            android: "Android phone",
+            phone: "Phone",
+          },
+          ko: {
+            title: "이 휴대폰 연결",
+            help: "PC의 Wink에서 설정 > 연결 > 휴대폰 접속에 표시된 6자리 코드를 입력하세요.",
+            code: "6자리 코드",
+            submit: "연결",
+            pairing: "연결하는 중...",
+            paired: "연결되었습니다. Wink를 여는 중...",
+            "wrong-credential": "코드가 맞지 않습니다. PC에 표시된 코드를 확인하세요.",
+            "too-many-attempts": "잘못된 코드를 너무 많이 입력했습니다. PC에서 새 코드를 만드세요.",
+            "no-pairing": "코드가 만료되었거나 이미 사용되었습니다. PC에서 새 코드를 만드세요.",
+            "too-many-phones": "이 PC에 이미 휴대폰 20대가 연결되어 있습니다. PC의 설정에서 하나를 삭제하세요.",
+            "rate-limited": "시도가 너무 많습니다. 1분 뒤에 다시 시도하세요.",
+            network: "PC에 연결할 수 없습니다. 네트워크를 확인하고 다시 시도하세요.",
+            failed: "연결하지 못했습니다. PC에서 새 코드를 만드세요.",
+            android: "Android 휴대폰",
+            phone: "휴대폰",
+          },
+        };
+        let lang = "en";
+        try {
+          const saved = localStorage.getItem("omb-locale");
+          const system = /^ko\b/i.test(navigator.language || "") ? "ko" : "en";
+          lang = saved === "ko" ? "ko" : saved === "system" ? system : "en";
+        } catch {}
+        const t = (key) => COPY[lang][key] || COPY.en[key] || COPY.en.failed;
+        document.documentElement.lang = lang;
+
+        const $ = (id) => document.getElementById(id);
+        const form = $("form");
+        const input = $("code");
+        const submit = $("submit");
+        const status = $("status");
+        $("title").textContent = t("title");
+        $("help").textContent = t("help");
+        input.setAttribute("aria-label", t("code"));
+        submit.textContent = t("submit");
+
+        const fragment = new URLSearchParams(location.hash.slice(1)).get("k");
+        if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+
+        const say = (text, tone) => {
+          status.textContent = text;
+          status.className = `status${tone ? ` ${tone}` : ""}`;
+        };
+        const randomId = () => {
+          if (crypto.randomUUID) return crypto.randomUUID();
+          return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+        };
+        const phoneName = () => {
+          const ua = navigator.userAgent;
+          if (/iPhone/.test(ua)) return "iPhone";
+          if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "iPad";
+          return /Android/.test(ua) ? t("android") : t("phone");
+        };
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+        async function finish() {
+          say(t("paired"), "ok");
+          // The worker shows an offline page when this PC can't be reached later.
+          try {
+            await navigator.serviceWorker.register("/sw.js");
+            await Promise.race([navigator.serviceWorker.ready, wait(3000)]);
+          } catch {}
+          location.replace("/");
+        }
+
+        async function pair(credential) {
+          // One request id per attempt, so a retry after a lost answer gets the same phone.
+          const body = JSON.stringify({ credential, name: phoneName(), requestId: randomId() });
+          for (let attempt = 0; ; attempt++) {
+            try {
+              const res = await fetch("/api/phone/pair", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                credentials: "same-origin",
+                cache: "no-store",
+                body,
+              });
+              if (res.ok) return null;
+              const answer = await res.json().catch(() => ({}));
+              return typeof answer.error === "string" ? answer.error : "failed";
+            } catch {
+              if (attempt >= 2) return "network";
+              await wait(1000 * (attempt + 1));
+            }
+          }
+        }
+
+        async function run(credential) {
+          submit.disabled = true;
+          say(t("pairing"));
+          const error = await pair(credential);
+          if (!error) return finish();
+          say(t(error), "error");
+          form.hidden = false;
+          submit.disabled = false;
+          input.value = "";
+          input.focus();
+        }
+
+        input.addEventListener("input", () => {
+          input.value = input.value.replace(/\D/g, "").slice(0, 6);
+        });
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          if (/^\d{6}$/.test(input.value)) void run(input.value);
+        });
+
+        if (fragment) {
+          void run(fragment);
+        } else {
+          form.hidden = false;
+          input.focus();
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -34,6 +34,7 @@ import { LanguagePicker } from "./LanguagePicker";
 import { useI18n } from "@/lib/i18n";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
+import { PhoneAccessSettings } from "./PhoneAccessSettings";
 import { PhoneLinkSettings } from "./PhoneLinkSettings";
 import { PhoneNotificationSettings } from "./PhoneNotificationSettings";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
@@ -702,6 +703,7 @@ export function SettingsModal({
                   <EnginesSettings />
                   <SavedKeys />
                   <PhoneLinkSettings />
+                  <PhoneAccessSettings />
                   {showSettingsMoreServicesSection() && (
                     <>
                   <button
