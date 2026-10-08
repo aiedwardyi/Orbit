@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { serveLinkedFile, type LinkedMessage } from "./linked-files.ts";
+import { requestCredentials } from "./phone-auth.ts";
 import {
   loadThreadSyncLedger,
   markThreadDirty,
@@ -105,6 +106,38 @@ describe("linked files", () => {
       }
     } finally {
       await server.close();
+    }
+  });
+
+  it("serves a relay phone only on its phone session", async () => {
+    const root = temp("linked-relay-");
+    const clip = Buffer.from("relay-clip");
+    writeFileSync(join(root, "clip.mp4"), clip);
+    const base = {
+      threadId: "t1",
+      messages: [{ id: "m1", text: `[clip](${join(root, "clip.mp4")})` }],
+      deviceId: "this-pc",
+      writerDeviceId: () => null,
+      rootsFor: () => [root],
+    };
+    const cases: Array<[ReturnType<typeof requestCredentials>, number]> = [
+      [requestCredentials(true, true, false, "k"), 200],
+      // a relay request with the tailnet cookie or the boot token is still unauthenticated
+      [requestCredentials(true, false, true, "k"), 401],
+      // a phone session counts for nothing off the relay
+      [requestCredentials(false, true, false, undefined), 401],
+    ];
+    for (const [credentials, status] of cases) {
+      const server = await listen((req, res) => serveLinkedFile(req, res, { ...base, ...credentials }));
+      try {
+        const res = await fetch(`${server.url}/api/threads/t1/linked-file?path=${encodeURIComponent(join(root, "clip.mp4"))}`, {
+          headers: { cookie: "orbit_remote=k; __Host-wink_phone=wkd_x" },
+        });
+        expect(res.status).toBe(status);
+        expect(Buffer.from(await res.arrayBuffer()).equals(clip)).toBe(status === 200);
+      } finally {
+        await server.close();
+      }
     }
   });
 

@@ -48,6 +48,8 @@ export interface LinkedMessage {
 export interface ServeLinkedFileOptions {
   bearerOk: boolean;
   remoteKey: string | undefined;
+  /** A valid phone session on a relay request; see requestCredentials. */
+  phoneSession?: boolean;
   threadId: string;
   messages: readonly LinkedMessage[];
   deviceId: string;
@@ -244,7 +246,7 @@ function sendFile(req: IncomingMessage, res: ServerResponse, filePath: string, s
 
 export function serveLinkedFile(req: IncomingMessage, res: ServerResponse, options: ServeLinkedFileOptions): void {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
-  if (!apiRequestAuthorized(options.bearerOk, header(req.headers.cookie), options.remoteKey, url.pathname)) {
+  if (!options.phoneSession && !apiRequestAuthorized(options.bearerOk, header(req.headers.cookie), options.remoteKey, url.pathname)) {
     sendJson(res, 401, { error: "unauthorized" });
     return;
   }

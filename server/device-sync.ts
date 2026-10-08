@@ -1,11 +1,12 @@
 // Per-PC presence records in the sync folder so a phone can jump between PCs.
-// Records carry only a name, a public tailnet host and a timestamp: never the remote key or cookie.
+// Records carry only a name, a public tailnet or relay host and a timestamp: never a key or cookie.
 import { execFile } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import { z } from "zod";
 
+import { labelFromHost } from "../shared/relay-protocol.ts";
 import { writeFileAtomic } from "./atomic.ts";
 
 export const DEVICE_DIR = "devices";
@@ -20,6 +21,8 @@ const deviceSchema = z.object({
   deviceId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/),
   name: deviceNameSchema,
   host: z.string().max(253).regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/),
+  /** `<label>.<base>` when this PC is enrolled with the phone relay. A relay-only PC repeats it as `host`. */
+  relayHost: z.string().max(253).regex(/^[a-z2-7]{16}(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/).optional().catch(undefined),
   lastSeen: z.number().int().nonnegative(),
   laptop: z.boolean().optional(),
   chatSync: z.literal(2).optional(),
@@ -29,7 +32,7 @@ export type DeviceRecord = z.infer<typeof deviceSchema>;
 export type DeviceListItem = DeviceRecord & { current: boolean; offline: boolean };
 
 export function writeDeviceRecord(folder: string, record: Omit<DeviceRecord, "lastSeen">, now: number): void {
-  const parsed = deviceSchema.parse({ deviceId: record.deviceId, name: record.name, host: record.host, lastSeen: now, laptop: record.laptop, chatSync: record.chatSync });
+  const parsed = deviceSchema.parse({ deviceId: record.deviceId, name: record.name, host: record.host, relayHost: record.relayHost, lastSeen: now, laptop: record.laptop, chatSync: record.chatSync });
   const directory = join(folder, DEVICE_DIR);
   mkdirSync(directory, { recursive: true });
   writeFileAtomic(join(directory, `${parsed.deviceId}.json`), `${JSON.stringify(parsed, null, 2)}\n`);
@@ -95,6 +98,14 @@ export function listDevices(folder: string, currentId: string, now: number, limi
     } catch {}
   }
   return items.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** What the picker may navigate to: relay hosts under this PC's base for a relay phone, tailnet hosts otherwise. */
+export function pickerDevices(items: DeviceListItem[], relayBase: string | null): Omit<DeviceListItem, "relayHost">[] {
+  return items.flatMap(({ relayHost, ...item }) => {
+    if (relayBase === null) return item.host === relayHost ? [] : [item];
+    return relayHost && labelFromHost(relayHost, relayBase) ? [{ ...item, host: relayHost }] : [];
+  });
 }
 
 export interface DeviceScan {

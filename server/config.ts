@@ -17,6 +17,7 @@ import {
 } from "../shared/credential-request.ts";
 import { writeFileAtomic } from "./atomic.ts";
 import type { InstanceConfigMap } from "./contracts.ts";
+import type { PhoneRelayConfig } from "./phone-relay/index.ts";
 import { hostMatchesRemote } from "./remote-access.ts";
 import { parseJson, schemaIssue, type JsonObject, type JsonValue } from "./schema.ts";
 
@@ -96,6 +97,21 @@ const instanceConfigSchema = z.object({
   config: z.json().optional(),
 });
 const instanceConfigMapSchema = z.record(z.string(), instanceConfigSchema);
+/** Private relay settings; never echoed by config or status APIs. */
+const phoneRelayConfigSchema = z.object({
+  base: z.string().optional(),
+  enabled: z.boolean().optional(),
+  acmeDirectories: z.array(z.string()).optional(),
+  acmeAccounts: z
+    .record(
+      z.string(),
+      z.object({
+        eab: z.object({ kid: z.string(), hmacKey: z.string() }).optional(),
+        contact: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
+});
 const appConfigSchema = z.object({
   xai: z.object({ key: optionalText, url: optionalText }).optional(),
   gemini: z.object({ apiKey: optionalText }).optional(),
@@ -125,6 +141,8 @@ const appConfigSchema = z.object({
   features: featureConfigSchema.optional(),
   browserProfiles: browserProfilesSchema.optional(),
   instances: instanceConfigMapSchema.optional(),
+  // A bad section turns the feature off instead of discarding the whole file.
+  phoneRelay: phoneRelayConfigSchema.optional().catch(undefined),
 });
 /** Custom keys by host, validated against their binding. Env and patches only, never config.json. */
 const customKeysSchema = z
@@ -136,7 +154,7 @@ const customKeysSchema = z
 /** call_api sends these as header values; a control character would make Headers throw with the key in its message. */
 const headerSafe = (key = "") => !/[\x00-\x1f\x7f]/.test(key.trim());
 const appConfigPatchSchema = appConfigSchema
-  .omit({ instances: true })
+  .omit({ instances: true, phoneRelay: true })
   .extend({ customKeys: customKeysSchema.optional() })
   .refine(
     (patch) =>
@@ -169,6 +187,7 @@ export interface AppConfig {
   /** Named browser sessions any bot can be pointed at. */
   browserProfiles?: BrowserProfile[];
   instances?: InstanceConfigMap;
+  phoneRelay?: PhoneRelayConfig;
 }
 export type BrowserProfile = z.output<typeof browserProfileSchema>;
 export type ConfigPatch = z.output<typeof appConfigPatchSchema>;
@@ -194,8 +213,11 @@ export function customKeyStorageError(
   headers: IncomingHttpHeaders,
   remoteHost: string | undefined,
   externalSecretStorage: boolean,
+  relay = false,
 ) {
-  if (!patch.customKeys || externalSecretStorage) return undefined;
+  if (!patch.customKeys) return undefined;
+  if (relay) return "Custom keys can only be saved on the PC";
+  if (externalSecretStorage) return undefined;
   const phone = headers["x-openmausbot-companion"] === "1" || hostMatchesRemote(headers.host, remoteHost);
   return phone ? "Custom keys can only be saved on the PC" : "Custom keys need the desktop app's encrypted key store";
 }
@@ -471,7 +493,7 @@ export function saveConfig(patch: Partial<AppConfig>): void {
     /* first write */
   }
   const checkedPatch = appConfigSchema.partial().parse(patch);
-  for (const key of ["xai", "gemini", "openaiCompat", "composio", "box", "tts", "imageGen", "anthropic", "vertex", "profile", "rooms", "localVm", "features"] as const) {
+  for (const key of ["xai", "gemini", "openaiCompat", "composio", "box", "tts", "imageGen", "anthropic", "vertex", "profile", "rooms", "localVm", "features", "phoneRelay"] as const) {
     const section = checkedPatch[key];
     if (!section) continue;
     const current = jsonObjectSchema.safeParse(disk[key]);
