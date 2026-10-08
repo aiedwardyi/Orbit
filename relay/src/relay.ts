@@ -79,7 +79,7 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
 
   const hub = new Hub({ limits, log, now });
   const revoked = new RevocationList(opts.revokedLabelsFile, log);
-  await revoked.reload(true);
+  await revoked.load();
   const store = await InviteStore.open(opts.dataDir, now);
   const ticketTtlSec = opts.ticketTtlSec ?? TICKET_TTL_SEC;
   const enroller = new Enroller({

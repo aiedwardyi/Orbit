@@ -91,7 +91,7 @@ export class Enroller {
     try {
       await this.opts.store.persist(opened.value.nonce, opened.value.exp);
     } catch {
-      // Stays consumed in memory: a failed write never makes an invite reusable.
+      // No ticket without a durable consume, so even if a restart forgets this failed write, an invite yields at most one ticket.
       return fail(503, "store-unavailable");
     }
     return { ok: true, label, ticket };

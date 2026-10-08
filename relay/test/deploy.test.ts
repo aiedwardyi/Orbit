@@ -1,7 +1,21 @@
 import { readFileSync } from "node:fs";
+import { createServer } from "node:https";
+import type { AddressInfo } from "node:net";
+import { getCACertificates, setDefaultCACertificates, type TLSSocket } from "node:tls";
 import { describe, expect, it } from "vitest";
 import { parseOptions, plan } from "../deploy/cli.ts";
-import { discover, execute, manualDns, type Dns, type DnsAccess, type Local, type Resolve4, type Runner } from "../deploy/exec.ts";
+import {
+  discover,
+  execute,
+  manualDns,
+  probeAt,
+  realLocal,
+  type Dns,
+  type DnsAccess,
+  type Local,
+  type Resolve4,
+  type Runner,
+} from "../deploy/exec.ts";
 import {
   PlanError,
   describeStep,
@@ -14,6 +28,7 @@ import {
   type ProjectState,
   type Step,
 } from "../deploy/plan.ts";
+import { makeCa } from "./fixtures.ts";
 
 const BASE = "wink.example.com";
 const opts = (over: Partial<DeployOptions> = {}): DeployOptions => ({
@@ -322,6 +337,44 @@ describe("move plan", () => {
     // DNS changed before any old-project delete ran.
     const firstOldDelete = fx.calls.findIndex((c) => c.includes(" delete ") && c.includes("wink-old-proj"));
     expect(fx.order.indexOf("dns:update")).toBeLessThan(fx.order.indexOf(`gcloud:${firstOldDelete}`));
+  });
+
+  it("probes health at the new reserved address, so a cached old IP cannot pass for it", async () => {
+    const fx = fakes({
+      "wink-new-proj": deployedState("wink-new-proj", "34.64.0.30"),
+      "wink-old-proj": deployedState("wink-old-proj", "34.64.0.20"),
+    });
+    const probes: string[] = [];
+    const local: Local = { ...fx.ctx.local, healthz: async (url, ip) => void probes.push(`${url} ${ip}`) };
+    await execute(planMove(opts(), "wink-old-proj", EMPTY, fx.state["wink-old-proj"]), opts(), { ...fx.ctx, local });
+    expect(probes).toEqual(["https://relay.wink.example.com/v1/healthz 34.64.0.30"]);
+  });
+});
+
+describe("health probe", () => {
+  it("connects to the given IP with SNI, Host and certificate checks for the URL's host", async () => {
+    const ca = await makeCa();
+    const seen: string[] = [];
+    const server = createServer(await ca.issue(`relay.${BASE}`), (req, res) => {
+      // SAFETY: an https server's requests arrive on TLS sockets.
+      seen.push(`${(req.socket as TLSSocket).servername} ${req.headers.host} ${req.method} ${req.url}`);
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    // SAFETY: the server listens on TCP, so address() is an AddressInfo, not a pipe name or null.
+    const { port } = server.address() as AddressInfo;
+    // relay.<base> does not resolve, so only the given IP can reach this server.
+    const url = `https://relay.${BASE}:${port}/v1/healthz`;
+    const defaults = getCACertificates("default");
+    try {
+      expect(await probeAt(url, "127.0.0.1")).toBe(false);
+      setDefaultCACertificates([ca.certPem]);
+      await realLocal("/r", "/b").healthz(url, "127.0.0.1");
+    } finally {
+      setDefaultCACertificates(defaults);
+      server.close();
+    }
+    expect(seen).toEqual([`relay.${BASE} relay.${BASE}:${port} GET /v1/healthz`]);
   });
 });
 

@@ -5,6 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { get } from "node:https";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -61,7 +62,7 @@ export interface Local {
   fetchNode(): Promise<void>;
   writeConfig(opts: DeployOptions): Promise<void>;
   waitDns(fqdn: string, ip: string): Promise<void>;
-  healthz(url: string): Promise<void>;
+  healthz(url: string, ip: string): Promise<void>;
 }
 
 const NOT_FOUND = /was not found|notFound|404/;
@@ -140,6 +141,9 @@ async function resolveIp(ctx: ExecContext, ref: IpRef): Promise<string> {
   return a.address;
 }
 
+const reservedIp = (ctx: ExecContext, opts: DeployOptions) =>
+  resolveIp(ctx, { addressOf: { project: opts.project, region: opts.region, name: names(opts).address } });
+
 function expand(ctx: ExecContext, opts: DeployOptions, arg: string): string {
   if (arg === OPERATOR_KEY_ARG) {
     if (!opts.operatorKeyFile) throw new PlanError("this step needs --operator-key <file>");
@@ -201,10 +205,9 @@ export async function execute(steps: Step[], opts: DeployOptions, ctx: ExecConte
         if (step.action === "build") await ctx.local.build();
         else if (step.action === "fetch-node") await ctx.local.fetchNode();
         else if (step.action === "write-config") await ctx.local.writeConfig(opts);
-        else if (step.action === "wait-dns") {
-          const ip = await resolveIp(ctx, { addressOf: { project: opts.project, region: opts.region, name: names(opts).address } });
-          await ctx.local.waitDns(`relay.${opts.base}`, ip);
-        } else await ctx.local.healthz(`https://relay.${opts.base}/v1/healthz`);
+        else if (step.action === "wait-dns") await ctx.local.waitDns(`relay.${opts.base}`, await reservedIp(ctx, opts));
+        // Pinned to the reserved IP: a resolver still caching the old IP would let the old relay pass a move's check.
+        else await ctx.local.healthz(`https://relay.${opts.base}/v1/healthz`, await reservedIp(ctx, opts));
         break;
     }
   }
@@ -385,13 +388,26 @@ export function realLocal(relayDir: string, buildDir: string): Local {
       }
       throw new Error(`${fqdn} did not resolve to ${ip} within 10 minutes`);
     },
-    async healthz(url) {
+    async healthz(url, ip) {
       for (let attempt = 0; attempt < 40; attempt++) {
-        const ok = await fetch(url, { signal: AbortSignal.timeout(10_000) }).then((r) => r.ok, () => false);
-        if (ok) return;
+        if (await probeAt(url, ip)) return;
         await new Promise((r) => setTimeout(r, 15_000));
       }
-      throw new Error(`${url} did not become healthy`);
+      throw new Error(`${url} at ${ip} did not become healthy`);
     },
   };
+}
+
+/** One GET of `url` from the server at `ip`; SNI, Host and the certificate check all use the URL's host. */
+export function probeAt(url: string, ip: string): Promise<boolean> {
+  const { hostname, host, port, pathname } = new URL(url);
+  return new Promise((resolve) => {
+    get(
+      { host: ip, port: port || 443, path: pathname, servername: hostname, headers: { host }, signal: AbortSignal.timeout(10_000) },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode === 200);
+      },
+    ).on("error", () => resolve(false));
+  });
 }
