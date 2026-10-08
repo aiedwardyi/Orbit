@@ -19,11 +19,13 @@ import { BotAvatar } from "./Avatar";
 import { MessageBoundary, PresenceAnswer, TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
+import { isAskUserCard } from "@/lib/open-question";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { DEFAULT_MAUS_COLOR, normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint, responderControlLabel } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatOptionChips } from "./ChatOptionChips";
+import { AskUserRecord } from "./AskUserRecord";
 import { MemorySaveChip } from "./MemorySaveChip";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
 import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from "@/lib/focus-composer";
@@ -397,6 +399,10 @@ const Transcript = memo(function Transcript({
           ) : m.kind === "options" && m.card?.requestId && m.card.tool ? (
             <div className="flex justify-start">
               <ApprovalCard bot={memberOf(m.from?.botId)} message={m} />
+            </div>
+          ) : isAskUserCard(m) ? (
+            <div className="flex justify-start">
+              <AskUserRecord message={m} transcript={group.messages} askerName={memberOf(m.from?.botId)?.name ?? m.from?.name} />
             </div>
           ) : m.kind === "routine.run" ? (
             <div className="flex justify-start">

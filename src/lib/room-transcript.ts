@@ -32,7 +32,7 @@ export function messageVisible(message: Message, showToolCalls: boolean): boolea
     case "connector":
       return Boolean(message.connector && message.from?.botId);
     case "options":
-      return Boolean(message.card?.requestId && message.card.tool);
+      return Boolean((message.card?.requestId && message.card.tool) || message.card?.askUser);
     case "routine.run":
       return true;
     case "screen":

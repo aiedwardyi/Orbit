@@ -49,6 +49,7 @@ import { liveActivityLabel } from "@/lib/live-activity";
 import { buffersForTurn, turnPhase, turnStageLabel } from "@/lib/turn-stage";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
+import { AskUserRecord } from "./AskUserRecord";
 import { ApprovalCard } from "./ApprovalCard";
 import { Composer } from "./Composer";
 import { ChatPlanMeters } from "./ChatPlanMeters";
@@ -96,6 +97,7 @@ import { timelineEvents } from "@/lib/taskTimeline";
 import { useReplyDraft } from "@/lib/drafts";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { localeTag, useI18n } from "@/lib/i18n";
+import { isAskUserCard } from "@/lib/open-question";
 import { activeRunForBot, routineWorkingElsewhere } from "../../shared/working-thread";
 import { ContextCompactionDivider, TaskRecoveryCard } from "./TaskRecoveryCard";
 
@@ -971,6 +973,7 @@ const MessagesList = memo(function MessagesList({
               if (m.card?.requestId && m.card.tool) {
                 return <ApprovalCard bot={bot} message={m} />;
               }
+              if (m.card && isAskUserCard(m)) return <AskUserRecord message={m} transcript={transcript} askerName={bot.name} />;
               if (shouldHideOnboardingCard(m, transcript)) return null;
               return <OptionCard botId={bot.id} message={m} />;
             case "routine.run": {

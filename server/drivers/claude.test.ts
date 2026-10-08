@@ -6,6 +6,7 @@
 // These used to be POSIX-only: the fake CLI is a shebang script Windows
 // cannot exec, and the broker is a unix socket. Both now go through
 // resolveCliSpawn / permissionSocketPath, so they run everywhere.
+import { spawn as spawnChild } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -2257,5 +2258,57 @@ describe("ClaudeDriver snapshot auth (fake CLI)", () => {
     process.env.FAKE_CLAUDE_AUTH = "inherited-api-key";
     process.env.ANTHROPIC_API_KEY = "sk-should-not-leak";
     expect(await instance.snapshot({ rescan: true })).toMatchObject({ state: "available", authenticated: false });
+  });
+});
+
+describe("permission proxy tool surface", () => {
+  it("offers only approve: questions go through the agents proxy's non-blocking ask_user", async () => {
+    ensureDirs();
+    const socketPath = permissionSocketPath("t-perm-proxy-surface");
+    const asks: unknown[] = [];
+    const broker = createServer((conn) => {
+      conn.on("data", (chunk) => {
+        for (const line of String(chunk).split("\n").filter(Boolean)) {
+          const ask = JSON.parse(line);
+          asks.push(ask);
+          conn.write(JSON.stringify({ t: "answer", id: ask.id, behavior: "allow" }) + "\n");
+        }
+      });
+    });
+    await new Promise<void>((resolve) => broker.listen(socketPath, resolve));
+    const proxyPath = join(dirname(fileURLToPath(import.meta.url)), "..", "permission-proxy.ts");
+    const proxy = spawnChild(process.execPath, [proxyPath, socketPath], { stdio: ["pipe", "pipe", "inherit"], windowsHide: true });
+    const replies = new Map<number, (msg: any) => void>();
+    let buf = "";
+    proxy.stdout!.on("data", (chunk) => {
+      buf += chunk;
+      let nl;
+      while ((nl = buf.indexOf("\n")) !== -1) {
+        const msg = JSON.parse(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+        replies.get(msg.id)?.(msg);
+      }
+    });
+    interface ToolCall {
+      name: string;
+      arguments: { question?: string; tool_name?: string; input?: { command: string } };
+    }
+    const rpc = (id: number, method: string, params?: ToolCall) =>
+      new Promise<any>((resolve) => {
+        replies.set(id, resolve);
+        proxy.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+      });
+    try {
+      const list = await rpc(1, "tools/list");
+      expect(list.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["approve"]);
+      const question = await rpc(2, "tools/call", { name: "ask_user", arguments: { question: "which?" } });
+      expect(question.error.message).toContain("Unknown tool: ask_user");
+      const approve = await rpc(3, "tools/call", { name: "approve", arguments: { tool_name: "Bash", input: { command: "ls" } } });
+      expect(JSON.parse(approve.result.content[0].text)).toMatchObject({ behavior: "allow", updatedInput: { command: "ls" } });
+      expect(asks).toEqual([expect.objectContaining({ t: "ask", tool: "Bash", input: { command: "ls" } })]);
+    } finally {
+      proxy.kill();
+      await new Promise<void>((resolve) => broker.close(() => resolve()));
+    }
   });
 });
