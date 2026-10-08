@@ -1,0 +1,33 @@
+{
+  "name": "@openmausbot/wink-relay",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Encrypted byte relay for phone access from anywhere (docs/phone-relay-design.md).",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "acme-client": "5.4.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@peculiar/x509": "1.14.3",
+    "@types/node": "24.19.1",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "build": "node scripts/build.mjs",
+    "mint-invite": "node scripts/build.mjs && node dist/mint-invite.mjs",
+    "deploy": "node deploy/cli.ts"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
