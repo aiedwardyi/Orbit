@@ -34,6 +34,7 @@ import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup
 import { TaskRecoveryCard } from "./TaskRecoveryCard";
 import { roomRecoveryBusy, roomRecoveryPacket } from "@/lib/task-recovery";
 import { ChatFindBar } from "./ChatFindBar";
+import { ReconnectingCue } from "./ReconnectingCue";
 import { GroupTaskPicker } from "./TaskPicker";
 import { showChannelCallControl, showChannelNewTaskControl } from "@/lib/friends-chrome";
 import { ReplyQuote } from "./ReplyQuote";
@@ -1519,6 +1520,8 @@ export function GroupView({ group }: { group: Group }) {
           </div>
         );
       })()}
+
+      <ReconnectingCue />
 
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div
