@@ -1,6 +1,6 @@
 # Phone from anywhere: relay design
 
-Status: design only, nothing built. Base: `review-base` at f825bdfa. Owner: Edward.
+Status: built. Relay service in `relay/` (#325), PC client and Phone access UI in #326; deploy commands in `relay/README.md`. Base: `review-base` at f825bdfa. Owner: Edward.
 Code references are `file:line` at f825bdfa. "Unverified" marks claims not checked against a primary source or real hardware.
 
 ## 1. Summary of decisions
@@ -34,7 +34,7 @@ PC: Wink Node server (harness) <-- tls.Server (PC cert) <-- unwrap <------------
 **Choice: control channel plus pooled per-connection data channels.** Reasons:
 
 - Latency: a phone connection costs one TCP handshake phone to relay, then its TLS handshake flows end to end over an already-open data channel. No extra round trip versus a multiplexer, and none per request in steady state (keep-alive inside the phone's TLS).
-- Flow control for free: each phone connection maps to its own TCP connection relay to PC, so kernel TCP windows plus `stream.pipeline` give per-connection backpressure. A 1 GB download fills only its own socket buffers; chat on another connection is unaffected. A multiplexer over one TCP connection (yamux, HTTP/2 tunnel) adds TCP head-of-line blocking across all phone connections on packet loss and needs a hand-written credit window in TypeScript, the riskiest code in the design.
+- Flow control for free: each phone connection maps to its own TCP connection relay to PC, so kernel TCP windows plus `pipe()` give per-connection backpressure. A 1 GB download fills only its own socket buffers; chat on another connection is unaffected. A multiplexer over one TCP connection (yamux, HTTP/2 tunnel) adds TCP head-of-line blocking across all phone connections on packet loss and needs a hand-written credit window in TypeScript, the riskiest code in the design.
 - Cost: idle pooled sockets on the relay (cheap) and a refill handshake when a burst drains the pool.
 
 **Channels.** Everything goes to `relay.<base>:443` with SNI `relay.<base>`, so it passes work-network firewalls that only allow 443. The relay terminates this outer TLS with its own WebPKI cert and branches on ALPN:
@@ -54,7 +54,7 @@ Data: PC sends `join {session, poolToken}` once (token compared with `timingSafe
 
 **Pool.** PC keeps `min=3` idle channels, refills one per `go`, and raises to `max=8` for 60 s after a burst (a browser opens up to 6 HTTP/1.1 connections at page load). If the pool is empty the relay holds the phone socket up to 5 s and sends `want`; that case costs one PC to relay TCP plus TLS 1.3 setup (measure it, section 15).
 
-**Byte path rules.** `setNoDelay(true)` on every socket on both hops so small SSE frames are not held by Nagle. No application buffering: the relay uses `stream.pipeline` per direction; SSE already disables proxy buffering (`server/index.ts:7254`) and heartbeats every 15 s (`server/index.ts:2141`), so relay idle timeout is 10 min. Newest valid control connection for a label wins; the old one gets `superseded`.
+**Byte path rules.** `setNoDelay(true)` on every socket on both hops so small SSE frames are not held by Nagle. No application buffering: the relay uses `pipe()` per direction, and an end propagates as a half close; SSE already disables proxy buffering (`server/index.ts:7254`) and heartbeats every 15 s (`server/index.ts:2141`), so relay idle timeout is 10 min. Newest valid control connection for a label wins; the old one gets `superseded`.
 
 **HTTP/2.** Phone to PC is end to end, so h2 is a PC-side choice. v1 offers only `http/1.1`: `handleRequest` uses `IncomingMessage`/`ServerResponse` semantics and the http2 compat layer is not identical (forbidden connection headers, `req.socket`). HTTP/1.1 also keeps per-connection TCP isolation. Card B measures; turning on `h2` via `http2.createSecureServer({allowHTTP1:true})` is a follow-up if page load suffers. The ingress `http.Server` sets `keepAliveTimeout` to 65 s so a phone does not redo TLS between taps.
 
@@ -147,7 +147,7 @@ Whoever controls DNS for `<base>`, or simply runs the relay, can pass TLS-ALPN-0
 |---|---|
 | `shared/relay-protocol.ts` | Frame codec, message types, ALPN ids, label derivation, ticket sign/verify. Imported by relay and server. |
 | `shared/tls-client-hello.ts` | `parseClientHello(buf) -> {sni, alpn} \| "more" \| "invalid"`. |
-| `relay/` (new workspace package, like `cloudflare/control-plane/`) | `src/` router, pools, control, enroll, status, limits; `scripts/mint-invite.ts`; `deploy/provision.sh`, `deploy/update.sh`, `deploy/teardown.sh`, `deploy/wink-relay.service`; own vitest config. |
+| `relay/` (own package, outside the pnpm workspace) | `src/` router, pools, control, enroll, status, limits; `scripts/mint-invite.ts`; `deploy/` planner and CLI (`plan.ts`, `exec.ts`, `cli.ts`) behind `wink-relay.ps1` / `wink-relay.sh`, plus `wink-relay-install.sh` and `wink-relay.service`; own vitest config. |
 | `server/phone-relay/` | `client.ts` (control, pool, backoff), `ingress.ts` (tls.Server, ALPN peek, http.Server), `acme.ts`, `ct-watch.ts`, `via.ts` (`markRelaySocket`, `isRelayRequest`). |
 | `server/phone-devices.ts` | Ported `DeviceRegistry`. |
 | `src/components/PhoneAccessSettings.tsx`, `public/pair.html`, `public/offline.html`, `public/sw.js` | UI. |
@@ -156,10 +156,10 @@ Config (`~/.orbit/config.json`, `server/config.ts:1`): `phoneRelay.base` (empty 
 
 ## 13. Relay deploy, update, move, pause
 
-- `relay/deploy/provision.sh --project P --base wink.edwardyi.dev --operator-key FILE [--machine e2-small]` with `NAMECOM_USER`/`NAMECOM_TOKEN` in env: enables Compute, reserves a regional static IP with `--network-tier=STANDARD` in asia-northeast3, firewall 443 from anywhere and 22 only from IAP, creates a Debian 12 VM (10 GiB pd-balanced, Standard tier NIC), installs a pinned Node 24 tarball after checking SHASUMS256, copies an esbuild bundle of `relay/`, installs `wink-relay.service` (DynamicUser, NoNewPrivileges, `AmbientCapabilities=CAP_NET_BIND_SERVICE`, `LimitNOFILE=1048576`, `LoadCredential=operator.key`), upserts `*.<base>` A record TTL 300 via the name.com API (endpoint details unverified), waits for DNS, curls `https://relay.<base>/v1/healthz`.
-- Update: `update.sh` rebuilds, copies, `systemctl restart`; on SIGTERM the relay sends `draining`, PCs reconnect in about 2 s, phones see one SSE reconnect.
-- Move to a new account: run `provision.sh` on the new project, then `teardown.sh` on the old one. Nothing on PCs changes.
-- Pause: `teardown.sh` deletes VM, IP, firewall and the DNS records (so a recycled IP never answers for `<base>`). PCs back off to 15 min retries; Wink works as today. Shipped builds keep `phoneRelay.base` empty until launch.
+- `wink-relay provision --project P --base wink.edwardyi.dev --dns-zone edwardyi.dev --operator-key FILE --accept-acme-terms [--machine e2-small]` with `NAMECOM_USER`/`NAMECOM_TOKEN` in env: enables Compute, reserves a regional static IP with `--network-tier=STANDARD` in asia-northeast3, firewall 443 from anywhere and 22 only from IAP, creates a Debian 12 VM (10 GiB pd-balanced, Standard tier NIC), installs a pinned Node 24 tarball after checking SHASUMS256, copies an esbuild bundle of `relay/`, installs `wink-relay.service` (DynamicUser, NoNewPrivileges, `AmbientCapabilities=CAP_NET_BIND_SERVICE`, `LimitNOFILE=1048576`, `LoadCredential=operator.key`), upserts `*.<base>` A record TTL 300 via the name.com API (endpoint details unverified), waits for DNS, curls `https://relay.<base>/v1/healthz`.
+- Update: `wink-relay update` rebuilds, copies, `systemctl restart`, then checks health; on SIGTERM the relay sends `draining`, PCs reconnect in about 2 s, phones see one SSE reconnect.
+- Move to a new account: `wink-relay move` provisions the new project, then pauses the old one. Nothing on PCs changes.
+- Pause: `wink-relay pause` deletes the DNS records first (so a recycled IP never answers for `<base>`), then VM, firewall and IP. It needs `--dns namecom`: manual DNS cannot list every PC record. PCs back off to 15 min retries; Wink works as today. Shipped builds keep `phoneRelay.base` empty until launch.
 - Standard tier availability in asia-northeast3 is unverified; if absent, Premium pricing applies (section 14).
 
 ## 14. Launch limits and cost

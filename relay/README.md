@@ -59,7 +59,7 @@ Dry run unless `--apply` (`-Apply`). Every run prints the full plan first.
 
 ```powershell
 .\relay\deploy\wink-relay.ps1 provision -Project <project> -Base <base> -DnsZone <zone> -OperatorKey <file> -AcceptAcmeTerms
-.\relay\deploy\wink-relay.ps1 update    -Project <project> -Base <base> -DnsZone <zone>
+.\relay\deploy\wink-relay.ps1 update    -Project <project> -Base <base> -DnsZone <zone> -AcceptAcmeTerms
 .\relay\deploy\wink-relay.ps1 move      -FromProject <old> -Project <new> -Base <base> -DnsZone <zone> -OperatorKey <file> -AcceptAcmeTerms
 .\relay\deploy\wink-relay.ps1 pause     -Project <project> -Base <base> -DnsZone <zone>
 ```

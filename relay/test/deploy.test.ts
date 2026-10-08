@@ -23,6 +23,7 @@ import {
   planMove,
   planPause,
   planProvision,
+  planUpdate,
   type DeployOptions,
   type DnsRecord,
   type ProjectState,
@@ -131,6 +132,10 @@ describe("provision plan", () => {
     expect(() => planProvision(opts({ base: "wink.other.org" }), EMPTY)).toThrow(/dns-zone/);
     expect(() => planProvision(opts({ project: "Bad Project" }), EMPTY)).toThrow(/project/);
     expect(() => planProvision(opts({ zone: "us-central1-a" }), EMPTY)).toThrow(/zone/);
+  });
+
+  it("update needs explicit ACME terms too, since it rewrites the relay config", () => {
+    expect(() => planUpdate(opts({ acceptAcmeTerms: false }), deployedState("wink-new-proj", "34.64.0.10"))).toThrow(/accept-acme-terms/);
   });
 });
 
@@ -271,10 +276,12 @@ describe("manual DNS", () => {
     const dns = manualDns(manual, r.resolve4);
     const discovered = await discover(manual, fx.ctx.runner, dns);
     expect(discovered.dns).toEqual([{ id: 0, host: "*.wink", type: "A", answer: "34.64.0.10" }]);
-    const steps = planPause(manual, discovered);
-    expect(lines(steps)[0]).toBe("dns delete (manual) print the record to remove by hand: A *.wink -> 34.64.0.10 (zone example.com)");
-    const out: string[] = [];
-    await expect(execute(steps, manual, { ...fx.ctx, dns, out: (l) => out.push(l) })).rejects.toThrow(/manual DNS cannot verify/);
+    expect(() => planPause(manual, discovered)).toThrow(/manual DNS cannot verify/);
+    expect(() => planMove(manual, "wink-old-proj", EMPTY, deployedState("wink-old-proj", "34.64.0.20"))).toThrow(
+      /manual DNS cannot verify/,
+    );
+    const step: Step = { kind: "dns-delete", zone: "example.com", host: "*.wink", fqdn: "*.wink.example.com", onlyValue: "34.64.0.10", manual: true };
+    await expect(execute([step], manual, { ...fx.ctx, dns, out: () => {} })).rejects.toThrow(/manual DNS cannot verify/);
     expect(fx.calls.some((c) => c.includes(" delete "))).toBe(false);
     expect(fx.dnsOps).toEqual([]);
   });
