@@ -49,7 +49,7 @@ WINK_SIZING=500 NODE_OPTIONS=--expose-gc pnpm vitest run test/sizing.test.ts --d
 
 The operator key comes from systemd `LoadCredential=operator.key` (`$CREDENTIALS_DIRECTORY`), or `operatorKeyFile` outside systemd.
 `SIGHUP` (`systemctl reload wink-relay`) re-reads the revoked labels; the file is also polled every minute.
-Missing or unreadable revocation files retain the last good list and log `revocation-reload-failed`.
+A missing or unreadable revocation file stops startup (exit 1); on reload it retains the last good list and logs `revocation-reload-failed`.
 An explicit empty file clears the list. Used invite hashes expire after the clock-skew window;
 runtime writes compact the journal without dropping unexpired consumes.
 

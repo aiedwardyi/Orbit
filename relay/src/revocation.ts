@@ -24,8 +24,17 @@ export class RevocationList {
     return this.labels.size;
   }
 
+  /** The startup read: a configured file that cannot be read throws, so a restart never serves an empty list. */
+  async load(): Promise<void> {
+    await this.read(true, true);
+  }
+
   /** Reload failures retain the last good list. */
-  async reload(force = false): Promise<string[]> {
+  reload(force = false): Promise<string[]> {
+    return this.read(force, false);
+  }
+
+  private async read(force: boolean, required: boolean): Promise<string[]> {
     if (!this.path) return [];
     let text: string;
     let mtimeMs: number;
@@ -38,6 +47,7 @@ export class RevocationList {
     } catch (error) {
       // SAFETY: fs rejects with Node errno errors.
       const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
+      if (required) throw new Error(missing ? "revocation file is missing" : "revocation file cannot be read");
       this.log.log("revocation-reload-failed", { reason: missing ? "missing" : "read-failed" });
       this.mtimeMs = -1;
       return [];

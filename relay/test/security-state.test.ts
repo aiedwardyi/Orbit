@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { CLOCK_SKEW_SEC } from "../../shared/relay-protocol.ts";
 import { InviteStore, nonceHash } from "../src/invites.ts";
-import { makePc, openControl, startRelay, type Harness } from "./fixtures.ts";
+import { createRelay } from "../src/relay.ts";
+import { BASE, makeCa, makeOperator, makePc, openControl, startRelay, type Harness } from "./fixtures.ts";
 
 let h: Harness | undefined;
 const dirs: string[] = [];
@@ -32,6 +33,20 @@ it("keeps a revoked identity blocked after the revocation file disappears", asyn
   const control = await openControl(h, pc);
   expect(h.relay.hub.status(pc.label).online).toBe(true);
   control.socket.destroy();
+});
+
+it("refuses to start when the configured revocation file cannot be read", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "wink-security-"));
+  dirs.push(dir);
+  const file = join(dir, "revoked-labels");
+  const certificate = await (await makeCa()).issue(`relay.${BASE}`);
+  const start = () => createRelay({ base: BASE, operatorPrivateKey: makeOperator(), dataDir: dir, revokedLabelsFile: file, certificate });
+  await expect(start()).rejects.toThrow("revocation file is missing");
+  await mkdir(file);
+  await expect(start()).rejects.toThrow("revocation file cannot be read");
+  await rm(file, { recursive: true });
+  await writeFile(file, "#".repeat(4 * 1024 * 1024 + 1));
+  await expect(start()).rejects.toThrow("revocation file cannot be read");
 });
 
 it("prunes expired invite entries while the service stays running", async () => {
