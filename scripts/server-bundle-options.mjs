@@ -23,5 +23,8 @@ export const serverBundleOptions = {
   platform: "node",
   target: "node20",
   format: "esm",
+  // ESM has no require, so without this every CommonJS dependency that loads a
+  // builtin (acme-client, axios, node-forge) throws `Dynamic require of "crypto"`.
+  banner: { js: 'import { createRequire as __winkCreateRequire } from "node:module"; const require = __winkCreateRequire(import.meta.url);' },
   plugins: [yamlEsmPlugin],
 };

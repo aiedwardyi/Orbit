@@ -18,9 +18,12 @@
 // drivers/ nested; import.meta.url still resolves to the same location, so
 // that lookup is unaffected.
 import { build } from "esbuild";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 
 import { serverBundleOptions } from "./server-bundle-options.mjs";
 
@@ -94,3 +97,14 @@ const piMcpExtSrc = join(server, "drivers", "pi-mcp-extension.ts");
 const piMcpExtDest = join(root, "dist-server", "drivers", "pi-mcp-extension.ts");
 mkdirSync(dirname(piMcpExtDest), { recursive: true });
 copyFileSync(piMcpExtSrc, piMcpExtDest);
+
+// A bundle that declares its own top-level `require` collides with the banner,
+// and that only shows when the file is parsed, so parse every file now.
+const dist = join(root, "dist-server");
+const unchecked = readdirSync(dist, { recursive: true }).filter((file) => file.endsWith(".js"));
+const check = promisify(execFile);
+await Promise.all(
+  Array.from({ length: availableParallelism() }, async () => {
+    for (let file = unchecked.pop(); file; file = unchecked.pop()) await check(process.execPath, ["--check", join(dist, file)]);
+  }),
+);
