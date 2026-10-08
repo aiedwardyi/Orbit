@@ -45,14 +45,16 @@ describe("pair page", () => {
   });
 
   it.each([
-    ["en", en],
-    ["ko", ko],
-  ])("names the Settings button that makes a new code (%s)", async (locale, catalog) => {
+    ["en", en, "Get a new code on your PC: Settings, Connections, Phone access."],
+    ["ko", ko, "PC의 설정 > 연결 > 휴대폰 접속에서 새 코드를 받으세요."],
+  ])("sends a refused phone to Phone access for a new code (%s)", async (locale, catalog, next) => {
     localStorage.setItem("omb-locale", locale);
     for (const error of ["no-pairing", "too-many-attempts", "something-else"]) {
       const page = open("/pair#k=wkp_token", async () => new Response(JSON.stringify({ error }), { status: 409 }));
       await vi.waitFor(() => expect(page.status.className).toBe("status error"));
-      expect(page.status.textContent, error).toContain(catalog["settings.phoneAccess.addPhone"]);
+      // The PC shows Add a phone or Make a new code depending on its state, so name neither.
+      expect(page.status.textContent, error).toContain(next);
+      expect(page.status.textContent, error).not.toContain(catalog["settings.phoneAccess.addPhone"]);
       expect(page.help.hidden).toBe(false);
       expect(page.form.hidden).toBe(false);
     }
