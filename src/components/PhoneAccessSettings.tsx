@@ -192,30 +192,34 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
       () => t("settings.phoneAccess.removeError"),
     );
 
+  const setupForm = (
+    <form
+      data-phone-access-setup
+      className="flex gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (code.trim()) void setUp();
+      }}
+    >
+      <input
+        value={code}
+        onChange={(event) => setCode(event.target.value)}
+        aria-label={t("settings.phoneAccess.setup.code")}
+        placeholder={t("settings.phoneAccess.setup.code")}
+        autoComplete="off"
+        spellCheck={false}
+        className="min-w-0 flex-1 rounded-lg border border-hairline bg-inset px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-accent"
+      />
+      <button type="submit" disabled={busy || !code.trim()} className={button}>
+        {t("settings.phoneAccess.setup.submit")}
+      </button>
+    </form>
+  );
+
   if (!status.configured) {
     return (
       <Section title={t("settings.phoneAccess.title")} subtitle={t("settings.phoneAccess.setup.help")}>
-        <form
-          data-phone-access-setup
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (code.trim()) void setUp();
-          }}
-        >
-          <input
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-            aria-label={t("settings.phoneAccess.setup.code")}
-            placeholder={t("settings.phoneAccess.setup.code")}
-            autoComplete="off"
-            spellCheck={false}
-            className="min-w-0 flex-1 rounded-lg border border-hairline bg-inset px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-accent"
-          />
-          <button type="submit" disabled={busy || !code.trim()} className={button}>
-            {t("settings.phoneAccess.setup.submit")}
-          </button>
-        </form>
+        {setupForm}
         {error ? (
           <p role="alert" className="mt-2 text-[12.5px] text-danger">
             {error}
@@ -237,6 +241,8 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
         ? t("settings.phoneAccess.state.certError")
         : t(`settings.phoneAccess.state.${status.state}`);
   const needsInvite = enabled && (status.state === "enrolling" || status.problem === "revoked" || status.problem === "ticket-expired");
+  // Off with an error: the relay client failed to load or start.
+  const failed = enabled && status.state === "off" && status.lastError !== null;
   const left = pairing ? Math.max(0, pairing.expiresAt - now) : 0;
 
   return (
@@ -276,6 +282,8 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
             {t(PROBLEM[status.problem])}
           </div>
         ) : null}
+
+        {failed ? setupForm : null}
 
         {needsInvite ? (
           <form

@@ -8,6 +8,8 @@
 #   - packaged-server smoke    -> 0.1.24 died on launch (unbundled zod import)
 #   - proxy-path probe         -> the 0.1.24 fix broke every helper while
 #                                 /api/health stayed green
+#   - relay setup smoke        -> 1.0.146 could not load the lazily imported
+#                                 relay client while /api/health stayed green
 #   - staple, THEN hash        -> stapling rewrites bytes; stale feeds make
 #                                 electron-updater reject every update
 #   - blockmap regeneration    -> stale differential maps waste every updater's
@@ -105,6 +107,7 @@ jobs:
           if grep -q "publisherName" "$res/app-update.yml"; then
             echo "::error::publisherName on an unsigned build breaks every update"; exit 1
           fi
+          node scripts/smoke-packaged-relay.mjs "$res"
           HOME="$RUNNER_TEMP/smoke" USERPROFILE="$RUNNER_TEMP/smoke" OMB_PORT=21987 \
             node "$res/server/index.js" > "$RUNNER_TEMP/server.log" 2>&1 &
           pid=$!

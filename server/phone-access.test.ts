@@ -14,7 +14,7 @@ import { z } from "zod";
 import { PHONE_RELAY_OFF, buildSetupCode, mintInvite } from "../shared/relay-protocol.ts";
 import * as atomic from "./atomic.ts";
 import { serveLinkedFile } from "./linked-files.ts";
-import { PhoneAccess } from "./phone-access.ts";
+import { PhoneAccess, loadRelayClient, type PhoneAccessOptions } from "./phone-access.ts";
 import { phoneSetCookie, requestCredentials } from "./phone-auth.ts";
 import { PAIRING_TTL_MS, PhoneDevices } from "./phone-devices.ts";
 import type { PhoneRelayConfig } from "./phone-relay/index.ts";
@@ -723,10 +723,12 @@ describe("no relay configured", () => {
 
 describe("setup codes", () => {
   /** A PC set up from a setup code, enrolling through the fake relay. */
-  async function fresh(options: { enrolled?: boolean; env?: NodeJS.ProcessEnv } = {}) {
+  async function fresh(
+    options: { enrolled?: boolean; env?: NodeJS.ProcessEnv; config?: PhoneRelayConfig; loadClient?: PhoneAccessOptions["loadClient"] } = {},
+  ) {
     const r = await rig({ enroll: options.enrolled === true });
     const env = options.env ?? {};
-    const config: PhoneRelayConfig = options.enrolled ? { ...r.config } : { acmeDirectories: r.config.acmeDirectories };
+    const config: PhoneRelayConfig = { ...(options.enrolled ? r.config : { acmeDirectories: r.config.acmeDirectories }), ...options.config };
     const saves: string[] = [];
     const statuses = new StatusLog();
     const access: PhoneAccess = new PhoneAccess({
@@ -745,25 +747,28 @@ describe("setup codes", () => {
       start: (relayOptions) =>
         createPhoneRelay(relayOptions, { clock: new FakeClock(), env: {}, connector: r.relay.connector(), ctSource: null, acmeInsecureDirectories: true }),
       enroll: (enrollOptions) => enrollWith(enrollOptions, { https: { ca: r.relay.ca.certPem, port: r.relay.port, lookup: loopbackLookup }, env }),
+      loadClient: options.loadClient,
     });
     await access.start(() => {});
     worlds.push(async () => {
       await access.stop();
       await r.close();
     });
-    const post = async (path: string, body: JsonObject) => {
+    const call = async (method: string, path: string, body?: JsonObject) => {
       const server = createServer(async (req, res) => {
-        if (!(await access.handle(req, res, path, "POST", true))) send(res, 404, { error: "no route" });
+        if (!(await access.handle(req, res, path, method, true))) send(res, 404, { error: "no route" });
       });
       const port = await listenLocal(server);
       try {
-        const res = await fetch(`http://127.0.0.1:${port}${path}`, { method: "POST", body: JSON.stringify(body) });
+        const res = await fetch(`http://127.0.0.1:${port}${path}`, { method, body: body && JSON.stringify(body) });
         return { status: res.status, body: z.record(z.string(), z.unknown()).parse(await res.json()) };
       } finally {
         server.close();
       }
     };
-    return { r, access, config, saves, statuses, post, invite: () => mintInvite(r.relay.operatorKey) };
+    const post = (path: string, body: JsonObject) => call("POST", path, body);
+    const status = async () => (await call("GET", "/api/phone-relay/status")).body;
+    return { r, access, config, saves, statuses, post, status, invite: () => mintInvite(r.relay.operatorKey) };
   }
 
   it("saves the base, turns access on and enrolls with the invite inside the code", async () => {
@@ -822,6 +827,29 @@ describe("setup codes", () => {
     expect(readTicket(pc.r.dataDir).kind).toBe("missing");
     const again = await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, pc.invite()) });
     expect(again.status).toBe(200);
+  });
+
+  it("shows why the relay client failed to load and takes a setup code again", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const problem = 'Dynamic require of "crypto" is not supported';
+    let broken = true;
+    const pc = await fresh({ config: { base: BASE, enabled: true }, loadClient: () => (broken ? Promise.reject(new Error(problem)) : loadRelayClient()) });
+    expect(await pc.status()).toMatchObject({ configured: true, enabled: true, state: "off", lastError: problem, problem: null });
+    expect(await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, pc.invite()) })).toEqual({ status: 400, body: { error: problem } });
+    expect(logged).toHaveBeenCalledWith(`[phone-relay] start failed: ${problem}`);
+    broken = false;
+    const connected = pc.statuses.until((s) => s.state === "connected");
+    expect((await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, pc.invite()) })).status).toBe(200);
+    await connected;
+  });
+
+  it("brings back a PC that a failed setup left on with no identity", async () => {
+    const pc = await fresh({ config: { base: BASE, enabled: true } });
+    expect(readdirSync(pc.r.dataDir)).toEqual([]);
+    expect(await pc.status()).toMatchObject({ configured: true, enabled: true, state: "enrolling", lastError: null });
+    const connected = pc.statuses.until((s) => s.state === "connected");
+    expect((await pc.post("/api/phone-relay/enroll", { invite: buildSetupCode(BASE, pc.invite()) })).status).toBe(200);
+    await connected;
   });
 
   it("takes a setup code for the same base in the invite field", async () => {

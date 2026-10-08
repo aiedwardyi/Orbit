@@ -109,6 +109,26 @@ describe("PhoneAccessSettings", () => {
     await act(async () => off.root.unmount());
   });
 
+  it("shows why the relay client could not start next to a setup code box", async () => {
+    const CODE = "wks1:wink.test:wki1.invite.sig";
+    const setup = vi.fn(() => status({ state: "reconnecting", host: null, base: "wink.test" }));
+    serve({
+      "GET /api/phone-relay/status": () =>
+        status({ available: true, base: "wink.test", state: "off", host: null, lastError: 'Dynamic require of "crypto" is not supported' }),
+      "GET /api/phone/devices": () => ({ phones: [] }),
+      "POST /api/phone-relay/setup": setup,
+    });
+    const { host, root } = await renderView();
+    expect(host.querySelector("[data-phone-access-error]")?.textContent).toBe('Dynamic require of "crypto" is not supported');
+    expect(host.querySelector("[data-phone-access-setup]")).not.toBeNull();
+    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!, CODE));
+    await act(async () => click(button(host, "Set up")));
+    expect(setup).toHaveBeenCalledWith({ method: "POST", body: JSON.stringify({ code: CODE }) });
+    expect(host.querySelector("[data-phone-access-setup]")).toBeNull();
+    expect(host.textContent).toContain("Connecting to the relay...");
+    await act(async () => root.unmount());
+  });
+
   it("takes a setup code in the invite field", async () => {
     const CODE = "wks1:wink.test:wki1.invite.sig";
     const enroll = vi.fn(() => status({ base: "wink.test" }));
