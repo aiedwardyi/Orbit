@@ -396,6 +396,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_RATE_LIMITS;
     delete process.env.FAKE_CLAUDE_USER_ALLOW;
     delete process.env.FAKE_CLAUDE_TASK_GATE;
+    delete process.env.FAKE_CLAUDE_AUTH_GATE;
     delete process.env.FAKE_CLAUDE_STEER_LOG;
     delete process.env.FAKE_CLAUDE_NARRATION_TEXT;
     delete process.env.FAKE_CLAUDE_PROMPT_LOG;
@@ -1147,6 +1148,41 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(readFileSync(dump, "utf8")).toBe(dumpBefore);
     expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(2);
     expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(2);
+  });
+
+  it("reloads login after an auth error while resuming the same conversation", async () => {
+    const gate = join(scratch, "signed-in");
+    process.env.FAKE_CLAUDE_AUTH_GATE = gate;
+    await create("auth-recovery");
+    const dump = join(scratch, "auth-dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-auth", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const first = JSON.parse(readFileSync(dump, "utf8"));
+    const cursor = (recorder.events.find((e) => e.type === "session.started") as { sessionId: string }).sessionId;
+    writeFileSync(gate, "ready");
+    const second = await instance.adapter.sendTurn({ threadId: "t-auth", text: "two", resumeCursor: cursor });
+    const done = await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(done).toMatchObject({ ok: true });
+    const resumed = JSON.parse(readFileSync(dump, "utf8"));
+    expect(resumed.pid).not.toBe(first.pid);
+    expect(resumed.argv).toContain("--resume");
+    expect(resumed.argv).toContain(cursor);
+  });
+
+  it("keeps live background work after an auth error", async () => {
+    await create("auth-recovery-background");
+    const dump = join(scratch, "auth-background.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-auth-bg", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const first = readFileSync(dump, "utf8");
+    const cursor = (recorder.events.find((e) => e.type === "session.started") as { sessionId: string }).sessionId;
+    const second = await instance.adapter.sendTurn({ threadId: "t-auth-bg", text: "two", resumeCursor: cursor });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(instance.adapter.hasBackgroundWork!("t-auth-bg")).toBe(true);
+    expect(readFileSync(dump, "utf8")).toBe(first);
+    expect(() => process.kill(JSON.parse(first).pid, 0)).not.toThrow();
   });
 
   it("starts a fresh session when a retained process has no matching resume cursor", async () => {
