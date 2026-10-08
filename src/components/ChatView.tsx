@@ -1242,7 +1242,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   });
   const canSteer = engine?.capabilities?.queueing === true;
   const { listed, queued } = useMemo(
-    () => canSteer ? { listed: windowedMessages, queued: [] } : splitQueuedSends(windowedMessages, accepted, pending),
+    () => splitQueuedSends(windowedMessages, accepted, pending, canSteer),
     [canSteer, windowedMessages, accepted, pending],
   );
   // busy-gated so an entry stranded by a server restart shows nothing
@@ -1772,7 +1772,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             visible={waiting && !jump.messages}
             label={activityLabel}
           />
-          {queued.map((m) => (
+          {queued.map((m, index) => (
             <div key={m.id} className="contents" data-mid={m.id}>
               <Bubble
                 bot={bot}
@@ -1780,7 +1780,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                 transcript={shown}
                 editing={false}
                 isLastBotText={false}
-                sendsNext={sendsNext}
+                sendsNext={sendsNext && index === 0}
                 onStartEdit={startEdit}
                 onCancelEdit={cancelEdit}
                 onSubmitEdit={submitEdit}

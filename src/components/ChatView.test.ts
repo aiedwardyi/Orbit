@@ -772,11 +772,24 @@ describe("ChatView queued sends", () => {
     }
   });
 
-  it("keeps a steered send above the thinking row", async () => {
+  it("puts a send a steering engine queued below the thinking row", async () => {
     const { host, root, order, row } = await mount(true);
     try {
-      expect(order()).toEqual(["ua", "q1", "thinking"]);
-      expect(row("q1")?.textContent).not.toContain("Sends next");
+      expect(order()).toEqual(["ua", "thinking", "q1"]);
+      expect(row("q1")?.textContent).toContain("Sends next");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("marks only the first waiting send as next", async () => {
+    const { host, root, order, row } = await mount(false);
+    try {
+      await act(async () => send({ type: "pendingQueued", threadId: "thread-a", queueId: "q2", text: "waiting C", at: 3 }));
+      expect(order()).toEqual(["ua", "thinking", "q1", "q2"]);
+      expect(row("q1")?.textContent).toContain("Sends next");
+      expect(row("q2")?.textContent).not.toContain("Sends next");
     } finally {
       await act(async () => root.unmount());
       host.remove();

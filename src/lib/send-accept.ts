@@ -43,15 +43,16 @@ export function withAcceptedMessages(
   return added.length ? [...messages, ...added] : messages;
 }
 
-/** An engine that can't steer runs these after the reply, so they render below the turn. */
+/** Sends that run after the reply render below the turn; a steering engine reads an accepted send mid-turn. */
 export function splitQueuedSends(
   messages: Message[],
   accepted: readonly AcceptedSend[] = [],
   pending: readonly { queueId: string }[] = [],
+  canSteer = false,
 ) {
   const ids = new Set([
     ...pending.map((entry) => entry.queueId),
-    ...accepted.filter((entry) => entry.kind === "sends-next").map((entry) => entry.sendId),
+    ...(canSteer ? [] : accepted.filter((entry) => entry.kind === "sends-next").map((entry) => entry.sendId)),
   ]);
   const queued = messages.filter((message) => message.placeholder && ids.has(message.id));
   if (!queued.length) return { listed: messages, queued };

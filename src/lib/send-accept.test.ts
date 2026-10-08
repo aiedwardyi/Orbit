@@ -63,6 +63,14 @@ describe("splitQueuedSends", () => {
     expect(queued.map((message) => message.id)).toEqual(["q1", "s1"]);
   });
 
+  it("keeps a steering engine's accepted send in the list but moves its confirmed queue entry", () => {
+    const accepted = [{ sendId: "s1", kind: "sends-next" as const, text: "steer" }];
+    const messages = withAcceptedMessages([settledReply], accepted, [{ queueId: "q1", text: "queued" }]);
+    const { listed, queued } = splitQueuedSends(messages, accepted, [{ queueId: "q1" }], true);
+    expect(listed.map((message) => message.id)).toEqual(["a1", "s1"]);
+    expect(queued.map((message) => message.id)).toEqual(["q1"]);
+  });
+
   it("never moves a canonical message", () => {
     const landed: Message = { id: "q1", role: "user", kind: "text", text: "queued", at: 2 };
     const messages = [settledReply, landed];
