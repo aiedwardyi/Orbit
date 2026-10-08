@@ -26,6 +26,7 @@ let lastCreateBody: any = null;
 let lastCreateChannelBody: any = null;
 let lastCredentialBody: any = null;
 let lastShowImageBody: any = null;
+let lastAskUserBody: any = null;
 let lastGenerateImageBody: any = null;
 let lastCallApiBody: any = null;
 let lastRoutineQuery = "";
@@ -155,6 +156,20 @@ beforeAll(async () => {
           return res.end(JSON.stringify({ alreadyConfigured: true, label: "OpenAI API key" }));
         }
         res.end(JSON.stringify({ messageId: "msg-key", label: "Gemini API key" }));
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/api/internal/ask-user") {
+      let data = "";
+      req.on("data", (c) => (data += c));
+      req.on("end", () => {
+        lastAskUserBody = JSON.parse(data);
+        if (lastAskUserBody.question === "refuse me") {
+          res.writeHead(403, { "content-type": "application/json" });
+          return res.end(JSON.stringify({ error: "source thread does not belong to sender" }));
+        }
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({ messageId: "msg-ask" }));
       });
       return;
     }
@@ -289,6 +304,7 @@ describe("agents-proxy MCP surface", () => {
       "create_bot",
       "create_channel",
       "react",
+      "ask_user",
       "show_image",
       "generate_image",
       "call_api",
@@ -297,6 +313,31 @@ describe("agents-proxy MCP surface", () => {
       "propose_routine",
       "propose_routine_action",
     ]);
+  });
+
+  it("asks the user through the harness and returns at once without waiting", async () => {
+    const list = await rpc("tools/list");
+    const tool = list.result.tools.find((t: { name: string }) => t.name === "ask_user");
+    expect(tool.description).toContain("It does not pause you");
+    expect(tool.inputSchema.required).toEqual(["question"]);
+    const res = await callTool("ask_user", { question: " Ship to prod or staging? ", choices: ["Prod", 3, "Staging"] });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.content[0].text).toBe("Asked. Their answer will arrive as a new message.");
+    expect(lastAskUserBody).toEqual({
+      fromBotId: "bot-asker",
+      fromThreadId: "thread-asker-routine",
+      question: "Ship to prod or staging?",
+      choices: ["Prod", 3, "Staging"],
+    });
+  });
+
+  it("surfaces ask_user rejections and an empty question as tool errors", async () => {
+    const refused = await callTool("ask_user", { question: "refuse me" });
+    expect(refused.result.isError).toBe(true);
+    expect(refused.result.content[0].text).toContain("source thread does not belong to sender");
+    const empty = await callTool("ask_user", { question: "  " });
+    expect(empty.result.isError).toBe(true);
+    expect(empty.result.content[0].text).toContain("needs a question");
   });
 
   it("publishes a local image into the caller's thread and returns its URL", async () => {
@@ -911,6 +952,6 @@ describe("agents-proxy identity gate", () => {
 
   it("lists every tool once the bot, thread and comms token are all set", async () => {
     const { list } = await probeWithIdentity({ OMB_BOT_ID: "bot-asker", OMB_THREAD_ID: "thread-asker", OMB_COMMS_TOKEN: TOKEN });
-    expect(list.result.tools).toHaveLength(16);
+    expect(list.result.tools).toHaveLength(17);
   });
 });

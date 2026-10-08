@@ -7,8 +7,9 @@
 //   approve   — the CLI calls this for any tool use its permission mode
 //               would deny; the answer is the --permission-prompt-tool
 //               JSON contract ({behavior:"allow"|"deny", …}).
-//   ask_user  — the agent can pose a question mid-run and wait; the
-//               human's words come back verbatim.
+//
+// Questions are not asked here: the agents proxy's ask_user pins one for the
+// user without pausing the bot.
 //
 // stdout is the MCP channel — never console.log here.
 import { connect } from "node:net";
@@ -69,23 +70,6 @@ const TOOLS = [
       required: ["tool_name", "input"],
     },
   },
-  {
-    name: "ask_user",
-    description:
-      "Ask the human who owns this bot a question and wait for their answer. Use whenever you need a decision, a preference, missing information, or sign-off before doing something consequential — do not guess on things the owner would want to decide. Returns their answer as text.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        question: { type: "string", description: "The question, with enough context to answer at a glance" },
-        choices: {
-          type: "array",
-          items: { type: "string" },
-          description: "Optional 2-5 suggested answers, shown as one-tap buttons",
-        },
-      },
-      required: ["question"],
-    },
-  },
 ];
 
 async function handle(msg: any) {
@@ -104,8 +88,10 @@ async function handle(msg: any) {
   if (msg.method === "tools/call") {
     const name = msg.params?.name;
     const args = msg.params?.arguments ?? {};
+    if (name !== "approve") {
+      return send({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: `Unknown tool: ${name}` } });
+    }
     const askId = randomUUID();
-    const isQuestion = name === "ask_user";
     // the CLI may include its own suggested permission rules; on allow we
     // hand them straight back as updatedPermissions so claude stops asking
     // at its own layer — no invented rule syntax (agentcal)
@@ -117,24 +103,20 @@ async function handle(msg: any) {
     const answer: any = await new Promise((resolve) => {
       waiting.set(askId, resolve);
       if (conn.destroyed) return dead();
-      const ask = isQuestion
-        ? { t: "ask", id: askId, kind: "question", tool: "ask_user", input: { question: args.question, choices: args.choices } }
-        : { t: "ask", id: askId, tool: args.tool_name, input: args.input };
+      const ask = { t: "ask", id: askId, tool: args.tool_name, input: args.input };
       try {
         conn.write(JSON.stringify(ask) + "\n");
       } catch {
         dead();
       }
     });
-    let text = answer.message || "No answer was given — use your best judgment.";
-    if (!isQuestion) {
-      if (answer.behavior === "allow") {
-        const result: AllowPermissionResult = { behavior: "allow", updatedInput: args.input ?? {} };
-        if (answer.always && suggestions) result.updatedPermissions = suggestions;
-        text = JSON.stringify(result);
-      } else {
-        text = JSON.stringify({ behavior: "deny", message: answer.message || "Denied from Wink" });
-      }
+    let text: string;
+    if (answer.behavior === "allow") {
+      const result: AllowPermissionResult = { behavior: "allow", updatedInput: args.input ?? {} };
+      if (answer.always && suggestions) result.updatedPermissions = suggestions;
+      text = JSON.stringify(result);
+    } else {
+      text = JSON.stringify({ behavior: "deny", message: answer.message || "Denied from Wink" });
     }
     return send({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }] } });
   }

@@ -109,6 +109,7 @@ import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNote
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
+import { askUserCardPatchSchema, askUserRequestSchema, postAskUser } from "./ask-user.ts";
 import {
   createPingLimiter,
   pingForMailbox,
@@ -3943,7 +3944,7 @@ const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. For a video, audio or other file, link its absolute path in markdown, like [clip.mp4](C:\\path\\clip.mp4) or, when the path contains spaces, in angle brackets like [clip.mp4](<C:\\My Files\\clip.mp4>), so the user can open it with one click. Never end with only a file path. To create a new image, call generate_image.";
 
 const ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS =
-  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in a short visible message (for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary, so keep each mid-turn message to one short line, and put answers, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line.";
+  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in a short visible message (for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary, so keep each mid-turn message to one short line, and put answers, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you.";
 const REPLY_STYLE_INSTRUCTIONS =
   " Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. After tool work, close with a short standalone summary of what you did and found. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
 const ALWAYS_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS + REPLY_STYLE_INSTRUCTIONS;
@@ -6815,6 +6816,26 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!patched) return json(res, 404, { error: "message not found" });
         return json(res, 200, { ok: true });
       }
+      // The ask_user tool: pins a question for the user without pausing the
+      // bot. Never sets waiting-on-you; the answer is the user's next message.
+      if (method === "POST" && path === "/api/internal/ask-user") {
+        const body = await readBody(req);
+        const result = postAskUser(
+          {
+            bot: (id) => store.bot(id),
+            conversation: connectorThread,
+            appendMessage: (threadId, message) => store.appendMessage(threadId, message),
+            notifyQuestion: (bot, threadId, question) => {
+              // A routine run's alert opens the conversation that owns the routine.
+              const run = routines?.activeRunForBot(bot.id);
+              const target = (run?.threadId === threadId && routineSourceThread(run)) || threadId;
+              notify(buildNotification("question", bot, target, question));
+            },
+          },
+          askUserRequestSchema.parse(body),
+        );
+        return json(res, result.status, result.body);
+      }
       // terminal_spawn: a display-only row in the bot's chat. Never a pane note, so no model sees it.
       if (method === "POST" && path === "/api/internal/launch-note") {
         const body = await readBody(req);
@@ -9064,6 +9085,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ...(body.dismissed !== undefined ? { dismissed: body.dismissed } : {}),
         },
       });
+      return json(res, 200, { message: patched });
+    }
+    // rooms: a member's ask_user question persists its answered/dismissed state
+    m = path.match(/^\/api\/groups\/([\w-]+)\/cards\/([\w-]+)$/);
+    if (m && method === "PATCH") {
+      const group = store.group(m[1]);
+      if (!group) return json(res, 404, { error: "no such group" });
+      const existing = store.messagesFor(group.threadId).find((msg) => msg.id === m![2]);
+      if (!existing?.card?.askUser) return json(res, 404, { error: "no such card" });
+      const patch = askUserCardPatchSchema.parse(await readBody(req));
+      const card = { ...existing.card };
+      if (patch.answered !== undefined) card.answered = patch.answered;
+      if (patch.dismissed) card.dismissed = true;
+      const patched = store.patchMessage(group.threadId, m[2], { card });
       return json(res, 200, { message: patched });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/messages$/);

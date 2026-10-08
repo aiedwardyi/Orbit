@@ -61,6 +61,22 @@ describe("Store", () => {
     expect(bot.modelSelection).toEqual(selection());
   });
 
+  it("a typed message hides the first-run quiz but leaves an ask_user question for the client to settle", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const quiz = store.messagesFor(bot.threadId)[0];
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Hi" });
+    const ask = store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "options",
+      card: { title: "Your bot has a question", subtitle: "Which?", options: [], askUser: true },
+    });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "This one" });
+    const after = store.messagesFor(bot.threadId);
+    expect(after.find((message) => message.id === quiz.id)?.card?.dismissed).toBe(true);
+    expect(after.find((message) => message.id === ask.id)?.card?.dismissed).toBeUndefined();
+  });
+
   it("createBot sets Auto mode only when asked", () => {
     const store = new Store(selection);
     expect(store.createBot().autoApprove).toBeUndefined();

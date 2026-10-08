@@ -26,9 +26,12 @@ const HEADERS = [
   "TerminalWorkspace.tsx",
 ];
 
+const MENU_LABEL = 'aria-label={menuAsking ? t("ask.openBotList") : t("chrome.openBotList")}';
+const menuButtonSource = () => app.slice(app.indexOf(MENU_LABEL), app.indexOf("</button>", app.indexOf(MENU_LABEL)));
+
 describe("phone drawer menu button", () => {
   it("sits top-right when the sidebar side is right, top-left otherwise", () => {
-    const button = app.slice(app.indexOf('aria-label={t("chrome.openBotList")}'), app.indexOf("</button>", app.indexOf('aria-label={t("chrome.openBotList")}')));
+    const button = menuButtonSource();
     expect(button).toContain("sidebarOnRight ? DRAWER_BUTTON_RIGHT : DRAWER_BUTTON_LEFT");
     expect(button).toContain("md:hidden");
     // Both sides share one inset and one top, so neither can drift from the header row.
@@ -47,10 +50,15 @@ describe("phone drawer menu button", () => {
   });
 
   it("badges other unread chats, excluding the open one", () => {
-    const button = app.slice(app.indexOf('aria-label={t("chrome.openBotList")}'), app.indexOf("</button>", app.indexOf('aria-label={t("chrome.openBotList")}')));
+    const button = menuButtonSource();
     expect(button).toContain("data-menu-unread");
     expect(button).toContain("{menuUnreadBadge}");
     expect(app).toContain("collapsedUnreadCount(state.bots, state.groups, state.selectedId)");
+  });
+
+  it("glows while another chat has a question or an open approval", () => {
+    expect(menuButtonSource()).toContain('${menuAsking ? " needs-you-glow" : ""}');
+    expect(app).toContain("anyChatNeedsYou([...state.bots, ...state.groups], state.selectedId)");
   });
 
   it("closes when App settings opens from the drawer and stays closed after", async () => {

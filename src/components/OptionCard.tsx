@@ -6,9 +6,10 @@ import { QuestionChoiceCard } from "./QuestionChoiceCard";
 
 const ONBOARDING_OPTIONS: MessageKey[] = ["onboarding.card.work", "onboarding.card.writing", "onboarding.card.life", "onboarding.card.everything"];
 
-/** First-run quiz, not a live provider ask (those carry requestId). */
+/** First-run quiz, not a live provider ask (those carry requestId) and not
+ * a bot's ask_user question (marked askUser). */
 export function isOnboardingCard(message: Message): boolean {
-  return message.kind === "options" && !!message.card && !message.card.requestId;
+  return message.kind === "options" && !!message.card && !message.card.requestId && !message.card.askUser;
 }
 
 /** Hide the quiz once they have talked past it — picked an option, typed in
