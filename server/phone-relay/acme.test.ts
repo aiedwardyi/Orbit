@@ -3,6 +3,7 @@ import { EventEmitter, once } from "node:events";
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage } from "node:http";
 import { join } from "node:path";
+import { createSecureContext } from "node:tls";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CertManager, FALLBACK_AFTER_MS, RENEW_CHECK_MS, RETRY_BASE_MS, STEP_TIMEOUT_MS, type AcmeAccountConfig, type ChallengeTarget } from "./acme.ts";
@@ -128,6 +129,36 @@ describe("ACME certificate manager", () => {
       expect(statSync(relayDir(dir)).mode & 0o777).toBe(0o700);
       for (const name of readdirSync(relayDir(dir))) expect(statSync(join(relayDir(dir), name)).mode & 0o777).toBe(0o600);
     }
+  });
+
+  it("makes a short-lived self-signed challenge certificate that BoringSSL loads", async () => {
+    const { acmes, clock, target, certs, settled } = await setup();
+    const seen: Array<{ keyAuthorization: string; ok: boolean }> = [];
+    acmes[0].validator = directValidator(target, seen);
+    certs.start();
+    const done = settled();
+    certs.setConnected(true);
+    await done;
+
+    expect(seen).toEqual([{ keyAuthorization: expect.any(String), ok: true }]);
+    const [challenge] = target.challenges;
+    expect(() => createSecureContext({ key: challenge.keyPem, cert: challenge.certPem })).not.toThrow();
+    const info = inspectChallengeCert(challenge.certPem);
+    expect(info.keyUsage).toEqual({ usages: ["digitalSignature"], critical: true });
+    expect(info.dnsNames).toEqual([HOST]);
+    expect(info.otherNames).toBe(0);
+    expect(info.critical).toBe(true);
+    const digest = createHash("sha256").update(seen[0].keyAuthorization).digest();
+    expect(info.value).toEqual(Buffer.concat([Buffer.from([0x04, 0x20]), digest]));
+    const cert = new X509Certificate(challenge.certPem);
+    expect(cert.ca).toBe(false);
+    expect(cert.issuer).toBe(cert.subject);
+    expect(cert.verify(cert.publicKey)).toBe(true);
+    expect(cert.publicKey.asymmetricKeyDetails?.namedCurve).toBe("prime256v1");
+    expect(cert.checkPrivateKey(createPrivateKey(challenge.keyPem))).toBe(true);
+    expect(cert.validFromDate.getTime()).toBeLessThanOrEqual(clock.now());
+    expect(cert.validToDate.getTime()).toBeGreaterThan(clock.now());
+    expect(cert.validToDate.getTime() - cert.validFromDate.getTime()).toBeLessThanOrEqual(DAY);
   });
 
   it("keeps the current certificate when renewal fails, then renews without a restart", async () => {

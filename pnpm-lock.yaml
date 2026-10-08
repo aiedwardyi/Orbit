@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@peculiar/x509':
+        specifier: 1.14.3
+        version: 1.14.3
       '@trycua/cua-driver':
         specifier: 0.20.0
         version: 0.20.0
@@ -72,9 +75,6 @@ importers:
       '@oxlint/plugins':
         specifier: 1.80.0
         version: 1.80.0
-      '@peculiar/x509':
-        specifier: 1.14.3
-        version: 1.14.3
       '@tailwindcss/vite':
         specifier: ^4.1.11
         version: 4.3.3(vite@7.3.6(@types/node@26.2.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.16.9)(yaml@2.9.0))
