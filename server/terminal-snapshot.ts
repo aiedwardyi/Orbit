@@ -11,7 +11,7 @@ const CONTROL_BYTES = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/;
 
 const terminalSendSchema = z.union([
   z.object({ sessionId: z.string().min(1), generation: z.number().int(), text: z.string(), paste: z.boolean().optional() }),
-  z.object({ sessionId: z.string().min(1), generation: z.number().int(), key: z.enum(["up", "down", "enter", "esc"]) }),
+  z.object({ sessionId: z.string().min(1), generation: z.number().int(), key: z.enum(["up", "down", "enter", "esc", "clear"]) }),
 ]);
 
 function snapshotBody(snapshot: Record<string, unknown>): Record<string, unknown> {

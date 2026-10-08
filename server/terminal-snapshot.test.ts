@@ -302,6 +302,7 @@ describe("terminal send relay", () => {
     ["down", "\x1b[B"],
     ["enter", "\r"],
     ["esc", "\x1b"],
+    ["clear", "\x15"],
   ])("maps the %s key to its bytes", async (key, text) => {
     const bodies: unknown[] = [];
     const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
