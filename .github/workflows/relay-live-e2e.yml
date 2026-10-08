@@ -250,7 +250,7 @@ jobs:
           app=$(find "$RUNNER_TEMP/nsis" -name 'app-64.7z' | head -n 1)
           [ -n "$app" ] || { echo "::error::no app-64.7z in the installer"; exit 1; }
           7z x -y -o"$RUNNER_TEMP/wink" "$app" > /dev/null
-          [ -f "$RUNNER_TEMP/wink/Wink.exe" ] || { echo "::error::missing Wink.exe"; exit 1; }
+          [ -f "$RUNNER_TEMP/wink/Orbit.exe" ] || { echo "::error::missing Orbit.exe"; exit 1; }
       - name: Install the harness
         working-directory: e2e/relay-live
         shell: bash
@@ -263,7 +263,7 @@ jobs:
         env:
           RELAY_E2E_CODE: ${{ secrets.RELAY_E2E_CODE }}
           ACME_MODE: ${{ inputs.acme }}
-          WINK_EXE: ${{ runner.temp }}/wink/Wink.exe
+          WINK_EXE: ${{ runner.temp }}/wink/Orbit.exe
           OUT_DIR: ${{ runner.temp }}/artifacts
           WORK_DIR: ${{ runner.temp }}/keep-awake
         run: node keep-awake.mjs

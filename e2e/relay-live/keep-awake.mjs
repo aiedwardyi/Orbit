@@ -116,7 +116,7 @@ async function requests(name) {
   return { at: new Date().toISOString(), file: `powercfg/${file}`, ...parsed };
 }
 
-const winkEntries = (capture) => capture.entries.filter((entry) => entry.type === "PROCESS" && basename(entry.source.replaceAll("\\", "/")).toLowerCase() === "wink.exe");
+const winkEntries = (capture) => capture.entries.filter((entry) => entry.type === "PROCESS" && basename(entry.source.replaceAll("\\", "/")).toLowerCase() === "orbit.exe");
 const blockingEntries = (capture) => winkEntries(capture).filter((entry) => ["EXECUTION", "SYSTEM"].includes(entry.section));
 
 async function pollRequests(name, ms, matches) {
