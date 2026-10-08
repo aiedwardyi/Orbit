@@ -570,6 +570,21 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(done).toMatchObject({ usage: { input: 500, output: 35, cachedInput: 300 } });
   });
 
+  it("does not count a repeat of the previous call at the start of a resumed turn", async () => {
+    await create({ mode: "resume" });
+    process.env.FAKE_CODEX_USAGE_REPLAY = JSON.stringify({ last: tokens([300, 100, 20]), total: tokens([1000, 400, 90]) });
+    // a rate-limit-only report repeats the restored total and its last call
+    const done = await usageTurn(
+      "t-repeat-usage",
+      [
+        { last: tokens([300, 100, 20]), total: tokens([1000, 400, 90]) },
+        { last: tokens([200, 100, 10]), total: tokens([1200, 500, 100]) },
+      ],
+      { resumeCursor: "codex-thread-9" },
+    );
+    expect(done).toMatchObject({ usage: { input: 200, output: 10, cachedInput: 100 } });
+  });
+
   it("sums the turn's calls when the app-server sends no thread total", async () => {
     await create();
     const done = await usageTurn("t-no-total", [{ last: tokens([100, 0, 10]) }, { last: tokens([150, 50, 20]) }]);

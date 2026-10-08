@@ -512,10 +512,13 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           case "thread/tokenUsage/updated": {
             // a resumed thread replays its restored usage right after
             // thread/resume, stamped with an earlier turn's id. That report
-            // is history, not this turn's spend. This turn's reports follow
+            // is history, not this turn's spend, but its total is where this
+            // turn starts: a rate-limit-only report can repeat the previous
+            // call before this turn's first one. This turn's reports follow
             // turn/started, so its id is known by the time they land.
             const counts = state.turnRequested && (p.turnId === undefined || p.turnId === nativeTurnId);
             if (counts) state.usage = accrueTurnUsage(state.spend, p.tokenUsage) ?? state.usage;
+            else if (p.tokenUsage?.total && !state.spend.latest) state.spend.baseline = toUsage(p.tokenUsage.total);
             const t = p.tokenUsage?.total;
             if (t) {
               emit({
