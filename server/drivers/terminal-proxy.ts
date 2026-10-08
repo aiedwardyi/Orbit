@@ -27,7 +27,8 @@ const BRACKETED_PASTE_MODE = 2004;
 const PASTED_TEXT = "[Pastedtext";
 // Claude Code's spinner while a turn runs, e.g. "✽ Undulating… (3s · ↓ 75 tokens)"; a done turn reads "✻ Sautéed for 5s".
 const CLAUDE_BUSY_RE = /^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$)/mu;
-const CLAUDE_PROMPT_RE = /^──[^\n]*\n❯/mu;
+// Its input box opens with a rule over a "❯" prompt, or ">" in 2.1.29x on Windows; ">>" is a shell continuation.
+const CLAUDE_PROMPT_RE = /^──[^\n]*\n(?:❯|>(?!>))/mu;
 // Where electron/main.mjs installs orbit-msg; forward slashes survive the JSON inside notify.
 const ORBIT_MSG_PS1 = join(homedir(), ".orbit", "bin", "orbit-msg.ps1").replace(/\\/g, "/");
 // Installed beside orbit-msg; Claude Code refuses to start when --settings names a missing file.
