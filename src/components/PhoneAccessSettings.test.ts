@@ -69,6 +69,63 @@ describe("PhoneAccessSettings", () => {
     await act(async () => refused.root.unmount());
   });
 
+  it("shows a setup card without a base and sets up from a pasted code", async () => {
+    const CODE = "wks1:wink.test:wki1.invite.sig";
+    const setup = vi.fn(() => status({ state: "reconnecting", host: null, base: "wink.test" }));
+    serve({
+      "GET /api/phone-relay/status": () => status({ available: true, configured: false, enabled: false, state: "off", host: null }),
+      "POST /api/phone-relay/setup": setup,
+      "GET /api/phone/devices": () => ({ phones: [] }),
+    });
+    const { host, root } = await renderView();
+    expect(host.querySelector("[data-phone-access-setup]")).not.toBeNull();
+    expect(host.textContent).toContain("Paste the setup code you were sent to reach this PC from your phone.");
+    expect(host.querySelector('[role="switch"]')).toBeNull();
+    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!, ` ${CODE} `));
+    await act(async () => click(button(host, "Set up")));
+    expect(setup).toHaveBeenCalledWith({ method: "POST", body: JSON.stringify({ code: CODE }) });
+    expect(host.querySelector("[data-phone-access-setup]")).toBeNull();
+    expect(host.textContent).toContain("Connecting to the relay...");
+    await act(async () => root.unmount());
+  });
+
+  it("shows a refused setup code inline and nothing at all when the relay is forced off", async () => {
+    serve({
+      "GET /api/phone-relay/status": () => status({ available: true, configured: false, enabled: false, state: "off", host: null }),
+      "POST /api/phone-relay/setup": () => {
+        throw new Error("the setup code names an invalid relay address");
+      },
+    });
+    const refused = await renderView();
+    await act(async () => type(refused.host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!, "wks1:localhost:wki1.a.b"));
+    await act(async () => click(button(refused.host, "Set up")));
+    expect(refused.host.querySelector('[role="alert"]')?.textContent).toBe("Could not set up phone access: the setup code names an invalid relay address");
+    expect(refused.host.querySelector("[data-phone-access-setup]")).not.toBeNull();
+    await act(async () => refused.root.unmount());
+
+    serve({ "GET /api/phone-relay/status": () => status({ available: false, configured: false, enabled: false, state: "off", host: null }) });
+    const off = await renderView();
+    expect(off.host.textContent).toBe("");
+    await act(async () => off.root.unmount());
+  });
+
+  it("takes a setup code in the invite field", async () => {
+    const CODE = "wks1:wink.test:wki1.invite.sig";
+    const enroll = vi.fn(() => status({ base: "wink.test" }));
+    serve({
+      "GET /api/phone-relay/status": () => status({ state: "enrolling", host: null, base: "wink.test" }),
+      "GET /api/phone/devices": () => ({ phones: [] }),
+      "POST /api/phone-relay/enroll": enroll,
+    });
+    const { host, root } = await renderView();
+    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Invite"]')!, CODE));
+    await act(async () => click(button(host, "Join")));
+    expect(enroll).toHaveBeenCalledWith({ method: "POST", body: JSON.stringify({ invite: CODE }) });
+    expect(host.querySelector('input[aria-label="Invite"]')).toBeNull();
+    expect(host.querySelector("[data-phone-access-relay]")?.textContent).toBe("Relay: wink.test");
+    await act(async () => root.unmount());
+  });
+
   it("turns phone access on", async () => {
     const put = vi.fn(() => status({ state: "reconnecting" }));
     serve({ "GET /api/phone-relay/status": () => status({ enabled: false, state: "off", host: null }), "PUT /api/phone-relay": put, "GET /api/phone/devices": () => ({ phones: [] }) });

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { IncomingMessage, ServerResponse, createServer, request, type IncomingHttpHeaders } from "node:http";
@@ -11,17 +11,20 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { PHONE_RELAY_OFF } from "../shared/relay-protocol.ts";
+import { PHONE_RELAY_OFF, buildSetupCode, mintInvite } from "../shared/relay-protocol.ts";
 import * as atomic from "./atomic.ts";
 import { serveLinkedFile } from "./linked-files.ts";
 import { PhoneAccess } from "./phone-access.ts";
 import { phoneSetCookie, requestCredentials } from "./phone-auth.ts";
 import { PAIRING_TTL_MS, PhoneDevices } from "./phone-devices.ts";
 import type { PhoneRelayConfig } from "./phone-relay/index.ts";
+import { enrollWith } from "./phone-relay/enroll.ts";
 import { createPhoneRelay } from "./phone-relay/runtime.ts";
+import { readTicket } from "./phone-relay/store.ts";
 import type { JsonObject } from "./schema.ts";
 import { FakeClock } from "./phone-relay/testing/fake-clock.ts";
-import { StatusLog, rig, tempDataDir, type Rig } from "./phone-relay/testing/harness.ts";
+import { loopbackLookup } from "./phone-relay/testing/fake-relay.ts";
+import { BASE, StatusLog, rig, tempDataDir, type Rig } from "./phone-relay/testing/harness.ts";
 import { listenLocal } from "./phone-relay/testing/net.ts";
 import { isRelayRequest, markRelaySocket } from "./phone-relay/via.ts";
 import { apiRequestAuthorized } from "./remote-access.ts";
@@ -715,5 +718,121 @@ describe("no relay configured", () => {
     };
     expect(clientLoads({ enabled: true })).toEqual([]);
     expect(clientLoads({ base: "wink.test", enabled: true })).toHaveLength(2);
+  });
+});
+
+describe("setup codes", () => {
+  /** A PC set up from a setup code, enrolling through the fake relay. */
+  async function fresh(options: { enrolled?: boolean; env?: NodeJS.ProcessEnv } = {}) {
+    const r = await rig({ enroll: options.enrolled === true });
+    const env = options.env ?? {};
+    const config: PhoneRelayConfig = options.enrolled ? { ...r.config } : { acmeDirectories: r.config.acmeDirectories };
+    const saves: string[] = [];
+    const statuses = new StatusLog();
+    const access: PhoneAccess = new PhoneAccess({
+      dataDir: r.dataDir,
+      env,
+      staticDir: null,
+      config: () => config,
+      saveEnabled: (enabled) => {
+        config.enabled = enabled;
+      },
+      saveSetup: (base) => {
+        saves.push(base);
+        Object.assign(config, { base, enabled: true });
+      },
+      onChange: () => statuses.push(access.status()),
+      start: (relayOptions) =>
+        createPhoneRelay(relayOptions, { clock: new FakeClock(), env: {}, connector: r.relay.connector(), ctSource: null, acmeInsecureDirectories: true }),
+      enroll: (enrollOptions) => enrollWith(enrollOptions, { https: { ca: r.relay.ca.certPem, port: r.relay.port, lookup: loopbackLookup }, env }),
+    });
+    await access.start(() => {});
+    worlds.push(async () => {
+      await access.stop();
+      await r.close();
+    });
+    const post = async (path: string, body: JsonObject) => {
+      const server = createServer(async (req, res) => {
+        if (!(await access.handle(req, res, path, "POST", true))) send(res, 404, { error: "no route" });
+      });
+      const port = await listenLocal(server);
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}${path}`, { method: "POST", body: JSON.stringify(body) });
+        return { status: res.status, body: z.record(z.string(), z.unknown()).parse(await res.json()) };
+      } finally {
+        server.close();
+      }
+    };
+    return { r, access, config, saves, statuses, post, invite: () => mintInvite(r.relay.operatorKey) };
+  }
+
+  it("saves the base, turns access on and enrolls with the invite inside the code", async () => {
+    const pc = await fresh();
+    const connected = pc.statuses.until((s) => s.state === "connected");
+    const res = await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, pc.invite()) });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ available: true, configured: true, enabled: true, base: BASE });
+    expect(pc.saves).toEqual([BASE]);
+    expect(pc.config).toMatchObject({ base: BASE, enabled: true });
+    expect(readTicket(pc.r.dataDir).kind).toBe("ok");
+    await connected;
+  });
+
+  it("refuses a bad prefix, base or invite without writing config", async () => {
+    const pc = await fresh();
+    const invite = pc.invite();
+    for (const [code, error] of [
+      [`wkx1:${BASE}:${invite}`, "that is not a setup code"],
+      [invite, "that is not a setup code"],
+      [`wks1:localhost:${invite}`, "the setup code names an invalid relay address"],
+      [`wks1:${BASE}:wkt1.abc.def`, "the setup code holds an invalid invite"],
+      [`wks1:${BASE}:`, "the setup code holds an invalid invite"],
+    ]) {
+      const res = await pc.post("/api/phone-relay/setup", { code });
+      expect(res, code).toEqual({ status: 400, body: { error } });
+    }
+    expect((await pc.post("/api/phone-relay/setup", {})).status).toBe(400);
+    expect(pc.saves).toEqual([]);
+    expect(pc.config.base).toBeUndefined();
+    expect(readdirSync(pc.r.dataDir)).toEqual([]);
+  });
+
+  it("is refused when ORBIT_RELAY=0", async () => {
+    const pc = await fresh({ env: { ORBIT_RELAY: "0" } });
+    const res = await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, pc.invite()) });
+    expect(res.status).toBe(409);
+    expect(pc.saves).toEqual([]);
+  });
+
+  it("refuses a code for another relay once this PC is enrolled, naming the current one", async () => {
+    const pc = await fresh({ enrolled: true });
+    const res = await pc.post("/api/phone-relay/setup", { code: buildSetupCode("other.example", pc.invite()) });
+    expect(res).toEqual({ status: 409, body: { error: `this PC already uses the relay at ${BASE}` } });
+    expect(pc.saves).toEqual([]);
+    expect(pc.config.base).toBe(BASE);
+  });
+
+  it("keeps the saved base when the invite is refused, so a new code can follow", async () => {
+    const pc = await fresh();
+    const stale = mintInvite(generateKeyPairSync("ed25519").privateKey);
+    const res = await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, stale) });
+    expect(res.status).toBe(400);
+    expect(String(res.body.error)).toMatch(/relay refused enrollment/);
+    expect(pc.config).toMatchObject({ base: BASE, enabled: true });
+    expect(readTicket(pc.r.dataDir).kind).toBe("missing");
+    const again = await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, pc.invite()) });
+    expect(again.status).toBe(200);
+  });
+
+  it("takes a setup code for the same base in the invite field", async () => {
+    const pc = await fresh();
+    Object.assign(pc.config, { base: BASE, enabled: true });
+    expect((await pc.post("/api/phone-relay/enroll", { invite: buildSetupCode("other.example", pc.invite()) })).body).toEqual({
+      error: `this setup code is for other.example, but this PC uses ${BASE}`,
+    });
+    const res = await pc.post("/api/phone-relay/enroll", { invite: buildSetupCode(BASE, pc.invite()) });
+    expect(res.status).toBe(200);
+    expect(readTicket(pc.r.dataDir).kind).toBe("ok");
+    expect(pc.saves).toEqual([]);
   });
 });

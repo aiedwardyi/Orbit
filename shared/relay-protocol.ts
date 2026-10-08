@@ -383,6 +383,43 @@ export function verifyInvite(
   return opened;
 }
 
+// ---------------------------------------------------------------------------
+// Setup codes
+
+/**
+ * What an operator sends a teammate: `wks1:<base>:<invite>`. It carries the
+ * relay's base domain so no build has to name one. Neither part contains ":".
+ */
+export const SETUP_PREFIX = "wks1";
+/** A relay base domain, lowercase: at least two dot-separated DNS labels. */
+export const RELAY_BASE_RE = /^(?=.{3,200}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+const SETUP_INVITE_RE = new RegExp(`^${INVITE_PREFIX}\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$`);
+
+export interface SetupCode {
+  base: string;
+  invite: string;
+}
+
+/** "malformed" covers a wrong prefix or part count. */
+export type SetupCodeProblem = "malformed" | "bad-base" | "bad-invite";
+
+export function parseSetupCode(code: string): { ok: true; value: SetupCode } | { ok: false; reason: SetupCodeProblem } {
+  const parts = code.trim().split(":");
+  if (parts.length !== 3 || parts[0] !== SETUP_PREFIX) return { ok: false, reason: "malformed" };
+  const base = parts[1].toLowerCase();
+  if (!RELAY_BASE_RE.test(base)) return { ok: false, reason: "bad-base" };
+  const invite = parts[2];
+  if (invite.length > MAX_FRAME_BYTES || !SETUP_INVITE_RE.test(invite)) return { ok: false, reason: "bad-invite" };
+  return { ok: true, value: { base, invite } };
+}
+
+export function buildSetupCode(base: string, invite: string): string {
+  const code = `${SETUP_PREFIX}:${base.trim().toLowerCase()}:${invite.trim()}`;
+  const parsed = parseSetupCode(code);
+  if (!parsed.ok) throw new Error(parsed.reason === "bad-base" ? "base is not a domain name" : "invalid invite");
+  return code;
+}
+
 /** Bytes the control `auth` signature covers: "wink-relay-auth/1" | nonce | label. */
 export function authPayload(nonce: string, label: string): Buffer | null {
   const nonceBytes = fromB64url(nonce);

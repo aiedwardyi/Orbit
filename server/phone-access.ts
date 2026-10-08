@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import { z } from "zod";
 
-import { PHONE_RELAY_OFF, type PhoneRelayStatus } from "../shared/relay-protocol.ts";
+import { PHONE_RELAY_OFF, SETUP_PREFIX, parseSetupCode, type PhoneRelayStatus, type SetupCodeProblem } from "../shared/relay-protocol.ts";
 import type { HarnessHandler } from "./early-listen.ts";
 import {
   RateLimiter,
@@ -40,7 +40,7 @@ const PAIR_STATUS = {
   "save-failed": 500,
 } satisfies Record<PairError, number>;
 const DEVICE_ROUTE = /^\/api\/phone\/devices\/([\w-]{1,64})$/;
-const MANAGEMENT_ROUTES = new Set(["/api/phone-relay", "/api/phone-relay/status", "/api/phone-relay/enroll", "/api/phone/pairing", "/api/phone/devices"]);
+const MANAGEMENT_ROUTES = new Set(["/api/phone-relay", "/api/phone-relay/status", "/api/phone-relay/enroll", "/api/phone-relay/setup", "/api/phone/pairing", "/api/phone/devices"]);
 
 const pairBodySchema = z.object({
   credential: z.string(),
@@ -49,6 +49,12 @@ const pairBodySchema = z.object({
 });
 const toggleBodySchema = z.object({ enabled: z.boolean() });
 const enrollBodySchema = z.object({ invite: z.string().trim().min(1).max(4096) });
+const setupBodySchema = z.object({ code: z.string().trim().min(1).max(4096) });
+const SETUP_ERROR = {
+  malformed: "that is not a setup code",
+  "bad-base": "the setup code names an invalid relay address",
+  "bad-invite": "the setup code holds an invalid invite",
+} satisfies Record<SetupCodeProblem, string>;
 
 export interface PhoneAccessOptions {
   dataDir: string;
@@ -56,6 +62,8 @@ export interface PhoneAccessOptions {
   staticDir: string | null;
   config(): PhoneRelayConfig | undefined;
   saveEnabled(enabled: boolean): void;
+  /** Saves `phoneRelay.base` with `enabled: true` and reloads the config. Without it, setup codes are refused. */
+  saveSetup?(base: string): void;
   /** The relay status changed. */
   onChange?(): void;
   clock?: Clock;
@@ -80,7 +88,11 @@ const HANDLED: RelayGate = { handled: true };
 
 /** GET /api/phone-relay/status: the section 7 status plus what Settings needs. Never keys, tickets or invites. */
 export interface PhoneAccessStatus extends PhoneRelayStatus {
+  /** False when ORBIT_RELAY=0: Settings shows nothing, not even the setup card. */
+  available: boolean;
   configured: boolean;
+  /** The configured relay base domain. */
+  base: string | null;
   enabled: boolean;
   problem: RelayProblem | null;
 }
@@ -211,10 +223,14 @@ export class PhoneAccess {
 
   private describe(): PhoneAccessStatus {
     const config = this.options.config() ?? {};
-    const configured = Boolean(config.base?.trim()) && this.options.env.ORBIT_RELAY !== "0";
+    const available = this.options.env.ORBIT_RELAY !== "0";
+    const base = config.base?.trim().toLowerCase() || null;
+    const configured = Boolean(base) && available;
     const status = this.status();
     return {
+      available,
       configured,
+      base: configured ? base : null,
       enabled: configured && config.enabled === true,
       ...status,
       lastError: safeRelayError(status.lastError),
@@ -314,6 +330,23 @@ export class PhoneAccess {
     send(res, 200, { ok: true, phone: { id: result.phone.id, name: result.phone.name } }, { "set-cookie": phoneSetCookie(result.token) });
   }
 
+  /** Trades `invite` for a ticket. The failure reason, or null once enrolled. */
+  private async enroll(invite: string): Promise<string | null> {
+    try {
+      this.client ??= await loadRelayClient();
+      await (this.options.enroll ?? this.client.enroll)({ dataDir: this.options.dataDir, config: this.options.config() ?? {}, invite });
+      return null;
+    } catch (cause) {
+      return safeRelayError(cause instanceof Error ? cause.message : String(cause)) ?? "enrollment failed";
+    }
+  }
+
+  /** Whether this PC stored a ticket from some relay. Reads only; never creates a key. */
+  private async holdsTicket(): Promise<boolean> {
+    const { readTicket } = await import("./phone-relay/store.ts");
+    return readTicket(this.options.dataDir).kind !== "missing";
+  }
+
   /** PC-only management routes. False when `path` is not one of them. */
   async handle(req: IncomingMessage, res: ServerResponse, path: string, method: string, bearerOk: boolean): Promise<boolean> {
     const device = DEVICE_ROUTE.exec(path);
@@ -337,15 +370,35 @@ export class PhoneAccess {
     if (method === "POST" && path === "/api/phone-relay/enroll") {
       const body = await readBody(req, enrollBodySchema);
       if (!body) return reply(400, { error: "enter an invite" });
-      if (!this.describe().enabled) return reply(409, { error: "turn on phone access first" });
-      try {
-        this.client ??= await loadRelayClient();
-        await (this.options.enroll ?? this.client.enroll)({ dataDir: this.options.dataDir, config: this.options.config() ?? {}, invite: body.invite });
-      } catch (cause) {
-        return reply(400, { error: safeRelayError(cause instanceof Error ? cause.message : String(cause)) ?? "enrollment failed" });
+      const status = this.describe();
+      if (!status.enabled) return reply(409, { error: "turn on phone access first" });
+      let invite = body.invite;
+      if (invite.startsWith(`${SETUP_PREFIX}:`)) {
+        const code = parseSetupCode(invite);
+        if (!code.ok) return reply(400, { error: SETUP_ERROR[code.reason] });
+        if (code.value.base !== status.base) return reply(400, { error: `this setup code is for ${code.value.base}, but this PC uses ${status.base}` });
+        invite = code.value.invite;
       }
+      const failed = await this.enroll(invite);
+      if (failed) return reply(400, { error: failed });
       await this.restart();
       return reply(200, this.describe());
+    }
+    if (method === "POST" && path === "/api/phone-relay/setup") {
+      const body = await readBody(req, setupBodySchema);
+      if (!body) return reply(400, { error: "enter a setup code" });
+      if (this.options.env.ORBIT_RELAY === "0" || !this.options.saveSetup) return reply(409, { error: "phone access is turned off on this PC" });
+      const code = parseSetupCode(body.code);
+      if (!code.ok) return reply(400, { error: SETUP_ERROR[code.reason] });
+      const current = this.describe().base;
+      if (current && current !== code.value.base && (await this.holdsTicket())) {
+        return reply(409, { error: `this PC already uses the relay at ${current}` });
+      }
+      this.options.saveSetup(code.value.base);
+      // A failed enroll keeps the saved base, so Settings asks for a new code.
+      const failed = await this.enroll(code.value.invite);
+      await this.restart();
+      return reply(failed ? 400 : 200, failed ? { error: failed } : this.describe());
     }
     if (path === "/api/phone/pairing") {
       if (method === "DELETE") {

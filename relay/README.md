@@ -12,7 +12,7 @@ Node 24 and this package's own lock (`pnpm install --ignore-workspace` inside `r
 pnpm check     # tsc, no emit
 pnpm test      # vitest, loopback TLS only, temp dirs and fixture certificates
 pnpm build     # dist/wink-relay.mjs and dist/mint-invite.mjs (esbuild, self contained)
-pnpm mint-invite --key-file <operator key file> [--ttl-days 7]
+pnpm mint-invite --key-file <operator key file> [--ttl-days 7] [--base <domain>]   # --base prints a setup code
 node scripts/gen-operator-key.ts --out <new private file>
 WINK_SIZING=500 NODE_OPTIONS=--expose-gc pnpm vitest run test/sizing.test.ts --disableConsoleIntercept   # synthetic, capped at 2000 PCs
 ```
@@ -29,6 +29,15 @@ WINK_SIZING=500 NODE_OPTIONS=--expose-gc pnpm vitest run test/sizing.test.ts --d
 | `src/acme.ts` | `relay.<base>` certificate via ACME TLS-ALPN-01 (acme-client 5.4.0 `createAlpnCertificate`). |
 | `src/log.ts` | Allowlisted, shape-checked log fields only. |
 | `deploy/` | Planner, executor, `wink-relay.ps1`, `wink-relay.sh`, VM installer, systemd unit. |
+
+## Setup codes
+
+`pnpm mint-invite --key-file <file> --base wink.example.com` prints one line,
+`wks1:<base>:<invite>`. Send that to a teammate: they paste it in Wink's
+Settings, which saves the base, turns phone access on and enrolls. Without
+`--base` the script prints the bare `wki1.` invite as before, for a PC whose
+base is already set. A base that is not a domain name is refused. The relay
+never sees the setup code, only the invite inside it.
 
 ## Enrollment signature
 

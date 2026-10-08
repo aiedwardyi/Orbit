@@ -474,6 +474,10 @@ const phoneAccess: PhoneAccess = new PhoneAccess({
     saveConfig({ phoneRelay: { enabled } });
     Object.assign(cfg, loadConfig());
   },
+  saveSetup: (base) => {
+    saveConfig({ phoneRelay: { base, enabled: true } });
+    Object.assign(cfg, loadConfig());
+  },
   onChange: () => {
     const host = phoneAccess.presenceHost();
     if (host === relayPresenceHost) return;
