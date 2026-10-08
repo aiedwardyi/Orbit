@@ -62,6 +62,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
+const authReady = Boolean(process.env.FAKE_CLAUDE_AUTH_GATE && existsSync(process.env.FAKE_CLAUDE_AUTH_GATE));
 
 const argv = process.argv.slice(2);
 const argAfter = (flag: string): string | null => {
@@ -466,6 +467,16 @@ const playTurn = (prompt: JsonValue) => {
   if (mode === "exit-early") {
     process.stderr.write("fake-claude: simulated crash before result\n");
     process.exit(3);
+  }
+  if (mode.startsWith("auth-recovery") && !authReady) {
+    out({ type: "system", subtype: "init", session_id: sessionId, model });
+    if (mode === "auth-recovery-background") {
+      out({ type: "system", subtype: "task_started", task_id: "auth-task", is_backgrounded: true });
+    }
+    out({ type: "result", is_error: true, result: "Not logged in · Please run /login", total_cost_usd: 0 });
+    turnRunning = false;
+    finishIfDone();
+    return;
   }
   const resumeDiagnostic = mode === "resume-fails"
     ? "claude: session not found\n"
