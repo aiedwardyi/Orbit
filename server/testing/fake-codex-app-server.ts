@@ -7,6 +7,7 @@
 //   FAKE_CODEX_MODE   happy (default) | approval | resume | stream | windows-command |
 //                     mcp-elicitation | logged-in-stdout | logged-out | unauthorized
 //                     | bench-quiet (no tool items — latency floor)
+//                     | usage-calls (two model calls: `last` per call, `total` the thread)
 //   FAKE_CODEX_DUMP   path to write {argv, env, calls, decision} as JSON
 //   FAKE_CODEX_USAGE  JSON array of tokenUsage payloads, one
 //                     thread/tokenUsage/updated per model call of the turn
@@ -81,6 +82,14 @@ const finishTurn = () => {
     for (const tokenUsage of JSON.parse(process.env.FAKE_CODEX_USAGE)) {
       notify("thread/tokenUsage/updated", { threadId: "codex-thread-1", turnId: "native-turn-1", tokenUsage });
     }
+  } else if (mode === "usage-calls") {
+    const call = (inputTokens: number, cachedInputTokens: number, outputTokens: number) => ({ inputTokens, cachedInputTokens, outputTokens });
+    notify("thread/tokenUsage/updated", {
+      tokenUsage: { total: call(25_881, 11_008, 583), last: call(25_881, 11_008, 583), modelContextWindow: 258_400 },
+    });
+    notify("thread/tokenUsage/updated", {
+      tokenUsage: { total: call(55_238, 36_352, 830), last: call(29_357, 25_344, 247), modelContextWindow: 258_400 },
+    });
   } else {
     notify("thread/tokenUsage/updated", { tokenUsage: { total: { inputTokens: 7, cachedInputTokens: 4, outputTokens: 3 } } });
   }

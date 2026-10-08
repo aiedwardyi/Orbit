@@ -728,6 +728,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         narrationNoticeSent?: boolean;
         /** accounting of a `result` held open for those steers */
         carried?: { cost: number; usage?: TurnUsage };
+        /** the main agent's first and latest call prompts, and its model */
+        prompt?: { first: number; last: number };
+        model?: string;
+        /** that model's window, from the CLI's `result.modelUsage` */
+        contextWindow?: number;
         timer: ReturnType<typeof startTurnTimer>;
       } | null;
       idleTimer: ReturnType<typeof setTimeout> | null;
@@ -990,8 +995,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const cwd = turn.cwd ?? homedir();
       // everything that shapes the process, minus session/turn specifics
       // (the --mcp-config file is a fresh temp path each time; its CONTENT
-      // is what matters and mcpServers carries that)
-      const keyArgs = args.filter((a, i) => a !== "--mcp-config" && args[i - 1] !== "--mcp-config");
+      // is what matters and mcpServers carries that). The system text is
+      // left out too: a resumed session keeps the one it started with, and
+      // the harness sends later changes in the turn text.
+      const unkeyed = new Set(["--mcp-config", "--append-system-prompt"]);
+      const keyArgs = args.filter((a, i) => !unkeyed.has(a) && !unkeyed.has(args[i - 1] ?? ""));
       const argsKey = JSON.stringify({ args: keyArgs, mcpServers, cwd, model: injected.model ?? null, base: env.ANTHROPIC_BASE_URL ?? null });
 
       // Reuse the live process only when it is idle, unchanged, and the
@@ -1111,7 +1119,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (turn.system && mcpConfigPath) {
           const systemPromptPath = join(dirname(mcpConfigPath), "system.txt");
           writeFileSync(systemPromptPath, turn.system, { mode: 0o600 });
-          // Reuse compares the text; only the actual launch uses the file.
           args.splice(args.indexOf("--append-system-prompt"), 2, "--append-system-prompt-file", systemPromptPath);
         }
         child = spawnCli(config.cli, args, {
@@ -1190,6 +1197,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           stopReason,
           cost,
           ...(usage ? { usage } : {}),
+          prompt: t.prompt,
+          contextWindow: t.contextWindow,
           ...(t.promptAccepted ? { promptAccepted: true } : {}),
         });
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
@@ -1342,10 +1351,17 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
             }
             if (msg.usage) {
+              // this call's whole prompt: cache reads and writes fill the window too
+              const prompt = (msg.usage.input_tokens || 0) + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0);
+              // a subagent's calls carry its own context, not this session's
+              if (session.turn && !o.parent_tool_use_id) {
+                session.turn.prompt = { first: session.turn.prompt?.first ?? prompt, last: prompt };
+                if (msg.model) session.turn.model = msg.model;
+              }
               emit({
                 ...base(threadId, currentTurnId()),
                 type: "thread.token-usage.updated",
-                input: (msg.usage.input_tokens || 0) + (msg.usage.cache_read_input_tokens || 0),
+                input: prompt,
                 output: msg.usage.output_tokens || 0,
                 ...(typeof msg.usage.cache_read_input_tokens === "number"
                   ? { cachedInput: msg.usage.cache_read_input_tokens }
@@ -1382,6 +1398,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           }
           case "result":
             if (session.turn) session.turn.narrationNotice = undefined;
+            // a local host's window is the catalog's; the CLI only guesses it
+            if (session.turn && !injected.injected) {
+              const window = o.modelUsage?.[session.turn.model ?? ""]?.contextWindow;
+              if (Number.isSafeInteger(window) && window > 0) session.turn.contextWindow = window;
+            }
             // A steer that missed the last request is answered as its own
             // query right after this `result`. Settling here frees the thread
             // under it, so a queued send races the CLI and lands out of order.
@@ -1718,6 +1739,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           images: true,
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
           queueing: true,
+          pinnedSystem: true,
           localComputerMcp: config.permissionMode !== "bypassPermissions",
           askApproval: config.permissionMode !== "bypassPermissions",
           rateLimits: true,

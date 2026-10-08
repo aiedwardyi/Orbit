@@ -15,8 +15,33 @@ import {
   nativeSessionTokenBudget,
   PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT,
   PRE_COMPACT_TOOL_ROUND_LIMIT,
+  sessionPromptFor,
   shouldRecycleProviderSession,
 } from "./turn-context.ts";
+
+// The recycle check a user send runs, built from the store the way index.ts does.
+function recycleOnSend(store: Store, botId: string, threadId: string, sendId: string, instanceId = "claude", model = "claude-opus-5-5") {
+  const task = store.taskByThread(botId, threadId)!;
+  const messages = store.activePath(threadId);
+  const excludeIds = new Set([sendId]);
+  return shouldRecycleProviderSession({
+    compacted: false,
+    lastTurnToolRounds: countLastTurnToolRounds(messages, excludeIds, task.providerSessionBoundId),
+    sessionToolRounds: countSessionToolRounds(messages, excludeIds, task.providerSessionBoundId),
+    sessionPrompt: sessionPromptFor({
+      report: task.nativePrompt,
+      cursor: task.resumeCursors[instanceId],
+      model,
+      catalogWindow: knownCatalogContextWindow(STATIC_CLAUDE_MODELS, model),
+    }),
+  });
+}
+
+function appendTools(store: Store, threadId: string, count: number) {
+  for (let i = 0; i < count; i++) {
+    store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `Read: file-${i}.ts`, ok: true } });
+  }
+}
 
 describe("provider session recycle after Wink compaction", () => {
   // Close SQLite before wiping DATA_DIR — Windows EPERM-locks an open
@@ -337,5 +362,110 @@ describe("provider session recycle after Wink compaction", () => {
       sessionToolRounds: countSessionToolRounds(messages, undefined, boundId),
       nativeTokenBudget: 0,
     })).toBe(false);
+  });
+});
+
+describe("provider session recycle by native prompt size", () => {
+  beforeEach(async () => {
+    closeMessageDb();
+    await removeTempDir(DATA_DIR);
+    mkdirSync(DATA_DIR, { recursive: true });
+  });
+
+  it("resumes a 30-tool Claude turn whose native prompt is only 80k", () => {
+    const store = new Store(() => ({ instanceId: "claude", model: "claude-opus-5-5" }));
+    const bot = store.createBot({}, { seedMessages: false });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "inspect the tree" });
+    appendTools(store, bot.threadId, 30);
+    store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "tree inspected" });
+    const send = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "now commit" });
+    store.setResumeCursor(bot.id, "claude", "warm-session", bot.threadId);
+    store.markTaskDispatched(bot.id, bot.threadId, "claude", "claude-opus-5-5");
+    store.recordNativePrompt(bot.id, bot.threadId, "claude", { first: 40_000, last: 80_000 }, 1_000_000);
+
+    const recycled = recycleOnSend(store, bot.id, bot.threadId, send.id);
+    const { resume, turnText } = buildTurnContext({
+      text: "now commit",
+      transcript: [],
+      rewound: false,
+      fresh: false,
+      recycled,
+      replaysNatively: false,
+    });
+    expect(recycled).toBe(false);
+    expect(resume).toBe(true);
+    expect(turnText).toBe("now commit");
+  });
+
+  it("recycles a 260k session, and the first send after it never recycles again", () => {
+    const store = new Store(() => ({ instanceId: "claude", model: "claude-opus-5-5" }));
+    const bot = store.createBot({}, { seedMessages: false });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "read the logs" });
+    appendTools(store, bot.threadId, 3);
+    store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "logs read" });
+    store.setResumeCursor(bot.id, "claude", "fat-session", bot.threadId);
+    store.markTaskDispatched(bot.id, bot.threadId, "claude", "claude-opus-5-5");
+    store.recordNativePrompt(bot.id, bot.threadId, "claude", { first: 45_000, last: 260_000 }, 1_000_000);
+
+    const recycling = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "now fix it" });
+    expect(recycleOnSend(store, bot.id, bot.threadId, recycling.id)).toBe(true);
+    // what index.ts does on that recycle
+    store.clearResumeCursors(bot.id, bot.threadId);
+    store.markProviderSessionBound(bot.id, bot.threadId, recycling.id);
+
+    // the replayed turn died before any model call: the 260k belonged to the dropped session
+    const early = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "still there?" });
+    expect(recycleOnSend(store, bot.id, bot.threadId, early.id)).toBe(false);
+
+    // the new session opened on the replay and ran a 30-tool turn
+    store.setResumeCursor(bot.id, "claude", "replay-session", bot.threadId);
+    appendTools(store, bot.threadId, 30);
+    store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "fixed" });
+    store.recordNativePrompt(bot.id, bot.threadId, "claude", { first: 140_000, last: 200_000 }, 1_000_000);
+    const next = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "and test it" });
+    expect(store.taskByThread(bot.id, bot.threadId)?.nativePrompt).toMatchObject({ cursor: "replay-session", first: 140_000 });
+    expect(recycleOnSend(store, bot.id, bot.threadId, next.id)).toBe(false);
+  });
+
+  it("holds the loop guard for a 200k-window model whose replay alone passes the budget", () => {
+    const model = "claude-haiku-4-5";
+    const store = new Store(() => ({ instanceId: "claude", model }));
+    const bot = store.createBot({}, { seedMessages: false });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "pick up the release" });
+    store.setResumeCursor(bot.id, "claude", "replay-1", bot.threadId);
+    store.markTaskDispatched(bot.id, bot.threadId, "claude", model);
+    const send = (text: string) => store.appendMessage(bot.threadId, { role: "user", kind: "text", text }).id;
+
+    // budget 100k; the replay opened this session at 110k
+    store.recordNativePrompt(bot.id, bot.threadId, "claude", { first: 110_000, last: 110_000 }, 200_000);
+    expect(recycleOnSend(store, bot.id, bot.threadId, send("one"), "claude", model)).toBe(false);
+    store.recordNativePrompt(bot.id, bot.threadId, "claude", { first: 150_000, last: 150_000 }, 200_000);
+    expect(store.taskByThread(bot.id, bot.threadId)?.nativePrompt?.first).toBe(110_000);
+    expect(recycleOnSend(store, bot.id, bot.threadId, send("two"), "claude", model)).toBe(false);
+    store.recordNativePrompt(bot.id, bot.threadId, "claude", { first: 152_000, last: 165_000 }, 200_000);
+    const recycling = send("three");
+    expect(recycleOnSend(store, bot.id, bot.threadId, recycling, "claude", model)).toBe(true);
+
+    store.clearResumeCursors(bot.id, bot.threadId);
+    store.markProviderSessionBound(bot.id, bot.threadId, recycling);
+    store.setResumeCursor(bot.id, "claude", "replay-2", bot.threadId);
+    store.recordNativePrompt(bot.id, bot.threadId, "claude", { first: 112_000, last: 118_000 }, 200_000);
+    expect(recycleOnSend(store, bot.id, bot.threadId, send("four"), "claude", model)).toBe(false);
+  });
+
+  it("keeps the 24/48 tool rules for an engine that reports no prompt size", () => {
+    const store = new Store(() => ({ instanceId: "grok", model: "grok-4.6" }));
+    const bot = store.createBot({}, { seedMessages: false });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "inspect the tree" });
+    appendTools(store, bot.threadId, PRE_COMPACT_TOOL_ROUND_LIMIT);
+    store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "tree inspected" });
+    const send = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "now commit" });
+    store.setResumeCursor(bot.id, "grok", "grok-session", bot.threadId);
+    store.setResumeCursor(bot.id, "claude", "claude-session", bot.threadId);
+    store.markTaskDispatched(bot.id, bot.threadId, "claude", "claude-opus-5-5");
+    store.recordNativePrompt(bot.id, bot.threadId, "claude", { first: 40_000, last: 90_000 }, 1_000_000);
+
+    expect(recycleOnSend(store, bot.id, bot.threadId, send.id, "grok", "grok-4.6")).toBe(true);
+    expect(recycleOnSend(store, bot.id, bot.threadId, send.id)).toBe(false);
   });
 });
