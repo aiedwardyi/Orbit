@@ -16,6 +16,10 @@
 </p>
 
 <p align="center">
+  Built by <a href="https://github.com/aiedwardyi">Edward Yi</a>
+</p>
+
+<p align="center">
   <img src="./assets/hero.png" alt="Wink with a team of five bots. Atlas plans in chat, three labeled terminal workers report DONE back into its thread, Sage's row glows because it has a question, and the same chat is open on a phone.">
   <br>
   <sub>Atlas hands out task cards, three terminal workers report back, and Sage's question glows without stopping the work.</sub>
@@ -191,7 +195,9 @@ If Wink is useful to you, a star helps others find it.
 
 ## Credits
 
-Wink (formerly Orbit) is a derivative of [OpenMausBot](https://github.com/milind-soni/OpenMausBot) by Milind Soni, distributed under the Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Wink (formerly Orbit) is designed, built and maintained by [Edward Yi](https://github.com/aiedwardyi).
+
+It started as a fork of [OpenMausBot](https://github.com/milind-soni/OpenMausBot) by Milind Soni (Apache-2.0) and has since been heavily reworked. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 The cross-model picker uses [Ghostex](https://github.com/maddada/Ghostex) (MIT) as its design source.
 
