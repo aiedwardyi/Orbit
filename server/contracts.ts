@@ -107,6 +107,11 @@ export type RuntimeEvent = RuntimeEventBase &
          * is a live indicator whose meaning differs per driver (a per-call
          * delta, a thread total, a per-step figure) and must never be summed. */
         usage?: { input: number; output: number; cachedInput?: number };
+        /** Native prompt of the turn's first and latest main model calls,
+         * cache reads and writes included. One call each, never a sum. */
+        prompt?: { first: number; last: number };
+        /** The model's context window, as the engine itself reports it. */
+        contextWindow?: number;
         /** The provider took this turn's prompt into its session before the
          * turn ended, so the session holds it even when the turn did not. */
         promptAccepted?: boolean;
@@ -263,6 +268,9 @@ export interface ProviderAdapter {
     transcriptReplay?: boolean;
     /** False when session.started IDs cannot resume later turns. */
     resumeCursor?: boolean;
+    /** True when a resumed session keeps following the system text it
+     * started with, so the harness must send later changes in the turn text. */
+    pinnedSystem?: boolean;
     /** True when turn.completed `usage.input` is the final prompt size, so it
      * can be compared against the model window. Opt-in: an agentic CLI reports
      * the invocation total instead (every tool round's cache read summed),

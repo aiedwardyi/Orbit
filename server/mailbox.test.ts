@@ -285,7 +285,9 @@ describe("POST /api/mailbox", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({ error: MAILBOX_STALE_GRANT });
     expect(await (await post({ text: "hi" }, SCOPE, "nope")).json()).toEqual({ error: "unauthorized" });
-    if (process.platform !== "win32") return;
+  });
+
+  it.runIf(process.platform === "win32")("orbit-msg names a stale grant", async () => {
     const bin = (await installOrbitMsg(join(home, "bin")))!;
     const paneEnv = terminalPaneEnv(PANE_BASE, {
       pane: PANE, bot: "worker", teacher: "teacher", mailbox: { url: base, token: "b".repeat(48), binDir: bin },
@@ -293,7 +295,8 @@ describe("POST /api/mailbox", () => {
     const sent = await orbitMsgFile(paneEnv, bin, ["hi"]);
     expect(sent.status).toBe(1);
     expect(sent.stderr).toContain(MAILBOX_STALE_GRANT);
-  }, 30_000);
+    // Often the job's first PowerShell start, which can take over 30 s on CI.
+  }, 120_000);
 
   it("delivers to the live teacher after the granted teacher is deleted", async () => {
     const scope = { pane: PANE, bot: "stale-worker", teacher: "stale-teacher" };

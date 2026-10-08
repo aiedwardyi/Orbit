@@ -6,15 +6,19 @@ import {
   countLastTurnToolRounds,
   countSessionToolRounds,
   engineIsFresh,
+  NATIVE_PROMPT_BUDGET_CAP,
+  nativePromptBudget,
   nativeSessionTokenBudget,
   PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT,
   PRE_COMPACT_TOOL_ROUND_LIMIT,
   resumeSessionUnseeded,
+  sessionPromptFor,
   shouldRecycleProviderSession,
   TASK_RESUME_PROMPT,
   taskRecordBlock,
   TurnSeeds,
   turnSeedsSession,
+  withSystemChanges,
 } from "./turn-context.ts";
 import { recordTaskCompletion, seedTaskResumePacket } from "./task-state-fold.ts";
 
@@ -488,6 +492,71 @@ describe("shouldRecycleProviderSession", () => {
       lastTurnToolRounds: PRE_COMPACT_TOOL_ROUND_LIMIT,
     })).toBe(true);
   });
+
+  it("resumes a 30-tool turn whose native prompt is only 80k", () => {
+    expect(shouldRecycleProviderSession({
+      compacted: false,
+      lastTurnToolRounds: 30,
+      sessionToolRounds: 30,
+      sessionPrompt: { first: 40_000, last: 80_000, contextWindow: 1_000_000 },
+    })).toBe(false);
+  });
+
+  it("recycles a 260k native prompt unless the branch moved or Stop is recovering", () => {
+    const sessionPrompt = { first: 45_000, last: 260_000, contextWindow: 1_000_000 };
+    expect(shouldRecycleProviderSession({ compacted: false, sessionPrompt })).toBe(true);
+    expect(shouldRecycleProviderSession({ compacted: false, sessionPrompt: { ...sessionPrompt, last: 250_000 } })).toBe(false);
+    expect(shouldRecycleProviderSession({ compacted: false, rewound: true, sessionPrompt })).toBe(false);
+    expect(shouldRecycleProviderSession({ compacted: false, recovering: true, sessionPrompt })).toBe(false);
+  });
+
+  it("keeps the 24/48 tool rules only for an engine that reports no prompt size", () => {
+    const soak = { compacted: false, lastTurnToolRounds: PRE_COMPACT_TOOL_ROUND_LIMIT, sessionToolRounds: 0 };
+    const session = { compacted: false, lastTurnToolRounds: 0, sessionToolRounds: PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT };
+    expect(shouldRecycleProviderSession(soak)).toBe(true);
+    expect(shouldRecycleProviderSession(session)).toBe(true);
+    const sessionPrompt = { first: 40_000, last: 120_000, contextWindow: 1_000_000 };
+    expect(shouldRecycleProviderSession({ ...soak, sessionPrompt })).toBe(false);
+    expect(shouldRecycleProviderSession({ ...session, sessionPrompt })).toBe(false);
+  });
+
+  it("lets a session outgrow its own replay before recycling again", () => {
+    // 200k window: the budget is 100k, and the replay alone opened the session past it
+    const opened = { first: 110_000, contextWindow: 200_000 };
+    expect(shouldRecycleProviderSession({ compacted: false, sessionPrompt: { ...opened, last: 110_000 } })).toBe(false);
+    expect(shouldRecycleProviderSession({ compacted: false, sessionPrompt: { ...opened, last: 159_999 } })).toBe(false);
+    expect(shouldRecycleProviderSession({ compacted: false, sessionPrompt: { ...opened, last: 160_000 } })).toBe(true);
+  });
+});
+
+describe("nativePromptBudget", () => {
+  it("is half the window, capped at 250k", () => {
+    expect(nativePromptBudget(1_000_000)).toBe(NATIVE_PROMPT_BUDGET_CAP);
+    expect(nativePromptBudget(258_400)).toBe(129_200);
+    expect(nativePromptBudget(200_000)).toBe(100_000);
+    expect(nativePromptBudget(0)).toBe(0);
+  });
+});
+
+describe("sessionPromptFor", () => {
+  const report = { cursor: "session-1", first: 40_000, last: 90_000, window: { model: "claude-opus-5-5", tokens: 1_000_000 } };
+
+  it("uses the engine's window for the model that reported it", () => {
+    expect(sessionPromptFor({ report, cursor: "session-1", model: "claude-opus-5-5", catalogWindow: 200_000 }))
+      .toEqual({ first: 40_000, last: 90_000, contextWindow: 1_000_000 });
+  });
+
+  it("falls back to the catalog window after a model switch", () => {
+    expect(sessionPromptFor({ report, cursor: "session-1", model: "claude-haiku-4-5", catalogWindow: 200_000 }))
+      .toEqual({ first: 40_000, last: 90_000, contextWindow: 200_000 });
+    expect(sessionPromptFor({ report, cursor: "session-1", model: "local-model", catalogWindow: null })).toBeUndefined();
+  });
+
+  it("ignores figures from any session but the one this send would resume", () => {
+    expect(sessionPromptFor({ report, cursor: "session-2", model: "claude-opus-5-5", catalogWindow: 200_000 })).toBeUndefined();
+    expect(sessionPromptFor({ report, cursor: undefined, model: "claude-opus-5-5", catalogWindow: 200_000 })).toBeUndefined();
+    expect(sessionPromptFor({ report: undefined, cursor: "session-1", model: "claude-opus-5-5", catalogWindow: 200_000 })).toBeUndefined();
+  });
 });
 
 describe("resumeSessionUnseeded", () => {
@@ -784,5 +853,53 @@ describe("TurnSeeds", () => {
     expect(seeds.take("t1", undefined)).toBeUndefined();
     expect(seeds.take("t1", "turn-b")).toBe(replacement);
     expect(seeds.get("t1")).toBeUndefined();
+  });
+});
+
+describe("withSystemChanges", () => {
+  const reminder = (...lines: string[]) => [
+    "<system-reminder>",
+    "[Wink instructions update - your system prompt changed after this session started. Removed lines no longer apply; added lines are current and win over anything older.]",
+    ...lines,
+    "</system-reminder>",
+  ];
+  const withMemory = (...lines: string[]) =>
+    `You are Testy, a personal bot in Wink. Role: Helper.\n\nYour memory (MEMORY.md):\n${lines.join("\n")}`;
+
+  it("puts exactly the changed memory lines at the top of the turn", () => {
+    const delivered = withMemory("- Pet: a cat named Mochi", "- City: Seoul", "- Drinks: tea");
+    const system = withMemory("- Pet: a dog named Mochi", "- City: Seoul", "- Drinks: tea", "- Job: designer");
+    expect(withSystemChanges("what pet do I have?", delivered, system)).toBe(
+      [...reminder("[Removed:]", "- Pet: a cat named Mochi", "[Added:]", "- Pet: a dog named Mochi", "- Job: designer"), "", "what pet do I have?"].join("\n"),
+    );
+  });
+
+  it("sends nothing when the system text did not change", () => {
+    const system = withMemory("- City: Seoul");
+    expect(withSystemChanges("hi", system, system)).toBe("hi");
+    expect(withSystemChanges("hi", `${system}\n\n`, system)).toBe("hi");
+  });
+
+  it("sends nothing for a session whose text is unknown, like a fresh one", () => {
+    expect(withSystemChanges("hi", undefined, withMemory("- City: Seoul"))).toBe("hi");
+  });
+
+  it("names a removed line without inventing an added one", () => {
+    expect(withSystemChanges("hi", withMemory("- City: Seoul", "- Drinks: tea"), withMemory("- City: Seoul"))).toBe(
+      [...reminder("[Removed:]", "- Drinks: tea"), "", "hi"].join("\n"),
+    );
+  });
+
+  it("sends one changed rule out of Wink's long guidance line, not the whole line", () => {
+    const rules = Array.from({ length: 40 }, (_, i) => `Rule ${i} keeps the bot focused on the task the user gave it.`);
+    const line = (changed: string) => [...rules.slice(0, 20), changed, ...rules.slice(20)].join(" ");
+    const out = withSystemChanges("hi", line("Reply in English."), line("Reply in Korean."));
+    expect(out).toBe([...reminder("[Removed:]", "Reply in English.", "[Added:]", "Reply in Korean."), "", "hi"].join("\n"));
+  });
+
+  it("returns null past the cap, so the session recycles instead", () => {
+    const big = (word: string) => withMemory(...Array.from({ length: 200 }, (_, i) => `- ${word} note ${i} ${"x".repeat(40)}`));
+    expect(withSystemChanges("hi", big("old"), big("new"))).toBeNull();
+    expect(withSystemChanges("hi", big("old"), big("new"), Infinity)).toContain("- new note 199");
   });
 });

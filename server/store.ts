@@ -2,7 +2,8 @@
 // thread→instance binding and per-instance resume cursors — upstream's
 // ProviderSessionDirectory, recipe step 6: persist the binding from day
 // one). messages-<threadId>.json holds the folded transcript.
-import { existsSync, readFileSync, mkdirSync, rmSync, unlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, mkdirSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import { writeFileAtomic } from "./atomic.ts";
@@ -15,7 +16,7 @@ import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
 import { redactSecretsInText } from "./redact.ts";
-import type { ResumeSeed } from "./turn-context.ts";
+import type { NativePrompt, ResumeSeed } from "./turn-context.ts";
 import {
   deleteTaskResumePacket,
   readTaskResumePacket,
@@ -274,6 +275,9 @@ export interface TaskRecord {
   /** Newest pane note a dispatched turn carried; `null` once tracked with
    * none yet. Absent on tasks from before the field existed. */
   paneNotesDeliveredId?: string | null;
+  /** Prompt sizes the engine last reported, for the session named by its
+   * cursor. Says nothing once `resumeCursors` no longer holds that cursor. */
+  nativePrompt?: NativePrompt;
 }
 
 export interface TaskUsage {
@@ -558,6 +562,10 @@ export interface InstalledPackageMetadata {
 const BOTS_FILE = join(DATA_DIR, "bots.json");
 const GROUPS_FILE = join(DATA_DIR, "groups.json");
 const messagesFile = (threadId: string) => join(DATA_DIR, `messages-${threadId}.json`);
+// One file per resume cursor, so bots.json never carries a prompt copy.
+const SESSION_SYSTEM_DIR = join(DATA_DIR, "session-system");
+const sessionSystemFile = (instanceId: string, cursor: ResumeSeed["cursor"]) =>
+  `${createHash("sha256").update(`${instanceId}\n${JSON.stringify(cursor)}`).digest("hex").slice(0, 32)}.txt`;
 
 /** Sections are persisted as display labels, so exact trimmed labels are
  * their identity. Missing/blank means the unsectioned (General) team. */
@@ -844,6 +852,30 @@ export class Store {
 
   private saveBots() {
     writeFileAtomic(BOTS_FILE, JSON.stringify(this.bots, null, 2), { mode: 0o600 });
+    this.pruneSessionSystems();
+  }
+
+  /** A dropped resume cursor takes its session's system text with it. */
+  private pruneSessionSystems() {
+    let files: string[];
+    try {
+      files = readdirSync(SESSION_SYSTEM_DIR);
+    } catch {
+      return;
+    }
+    const live = new Set<string>();
+    for (const bot of this.bots) {
+      for (const cursors of [bot.resumeCursors, ...(bot.tasks ?? []).map((task) => task.resumeCursors)]) {
+        for (const [instanceId, cursor] of Object.entries(cursors ?? {})) live.add(sessionSystemFile(instanceId, cursor));
+      }
+    }
+    for (const file of files) {
+      try {
+        if (!live.has(file)) rmSync(join(SESSION_SYSTEM_DIR, file), { force: true });
+      } catch {
+        // the next save retries
+      }
+    }
   }
 
   private saveGroups() {
@@ -1459,6 +1491,22 @@ export class Store {
     this.emit({ type: "bot", botId });
   }
 
+  /** The system text a resumed session holds: what it started with, plus
+   * every change a reminder already brought it. Undefined when unknown. */
+  sessionSystem(instanceId: string, cursor: ResumeSeed["cursor"]): string | undefined {
+    try {
+      return readFileSync(join(SESSION_SYSTEM_DIR, sessionSystemFile(instanceId, cursor)), "utf8");
+    } catch {
+      return undefined;
+    }
+  }
+
+  recordSessionSystem(instanceId: string, cursor: ResumeSeed["cursor"], text: string) {
+    if (cursor === undefined || this.sessionSystem(instanceId, cursor) === text) return;
+    mkdirSync(SESSION_SYSTEM_DIR, { recursive: true, mode: 0o700 });
+    writeFileAtomic(join(SESSION_SYSTEM_DIR, sessionSystemFile(instanceId, cursor)), text, { mode: 0o600 });
+  }
+
   /** Mark the user send that recycled the provider session so later
    * turns count only tools that landed in the new native session. Also
    * drops `lastInput` — that number described the session we just threw
@@ -1539,6 +1587,25 @@ export class Store {
     const current = task.resumeSeed;
     if (current && current.instanceId === seed.instanceId && current.cursor === seed.cursor && current.compactionId === seed.compactionId) return;
     task.resumeSeed = { ...seed };
+    this.saveBots();
+  }
+
+  /** Keep a settled turn's prompt sizes under the session it ran on. A cursor
+   * the record does not name is a new session, so its first report is where
+   * that session started. The window belongs to the model, not the session. */
+  recordNativePrompt(
+    botId: string,
+    threadId: string,
+    instanceId: string,
+    prompt: { first: number; last: number },
+    contextWindow?: number,
+  ) {
+    const task = this.taskByThread(botId, threadId);
+    const cursor = task?.resumeCursors[instanceId];
+    if (!task || cursor === undefined) return;
+    const same = task.nativePrompt?.cursor === cursor ? task.nativePrompt : undefined;
+    const window = contextWindow && task.lastModel ? { model: task.lastModel, tokens: contextWindow } : task.nativePrompt?.window;
+    task.nativePrompt = { cursor, first: same?.first ?? prompt.first, last: prompt.last, window };
     this.saveBots();
   }
 

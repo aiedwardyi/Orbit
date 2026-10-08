@@ -30,6 +30,11 @@
 //                        mid-turn message may arrive between them)
 //                      | narration-tag (FAKE_CLAUDE_NARRATION_TEXT as the
 //                        summary, then a tool_use)
+//                      | usage-calls (two main calls and a subagent's, each
+//                        with its own usage; modelUsage names the windows)
+//   FAKE_CLAUDE_USAGE  path; once it exists, usage-calls reads {first, last,
+//                      window} from it each turn: the two main calls' prompts
+//                      and the main model's window
 //   FAKE_CLAUDE_STEER_LOG  path; those seven modes write
 //                      { beforeRequest: string[] } after the steer window
 //   FAKE_CLAUDE_TASK_GATE  path; once it exists, a background task-1 finishes
@@ -44,10 +49,13 @@
 //                      so a test cannot open it after the fact.
 //   FAKE_CLAUDE_AUTH   in (default) | out | unsupported | malformed |
 //                      inherited-api-key — what `auth status` reports
+//   FAKE_CLAUDE_PROMPT_LOG  path; every stdin message is appended as a JSON
+//                      line {pid, argv, systemPrompt, text}, so a test sees
+//                      what each turn of a retained process was sent
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -524,6 +532,45 @@ const playTurn = (prompt: JsonValue) => {
     return;
   }
 
+  if (mode === "usage-calls") {
+    const usage = (input: number, read: number, written: number, output: number) => ({
+      input_tokens: input,
+      cache_read_input_tokens: read,
+      cache_creation_input_tokens: written,
+      output_tokens: output,
+    });
+    const helper = "claude-haiku-4-5-20251001";
+    // SAFETY: only tests write this file, always as {first, last, window}.
+    const sizes = process.env.FAKE_CLAUDE_USAGE && existsSync(process.env.FAKE_CLAUDE_USAGE)
+      ? JSON.parse(readFileSync(process.env.FAKE_CLAUDE_USAGE, "utf8")) as { first: number; last: number; window: number }
+      : null;
+    out({
+      type: "assistant",
+      message: { id: "msg-u1", model, content: [{ type: "tool_use", id: "tu-u1", name: "Bash", input: { command: "ls" } }], usage: sizes ? usage(0, sizes.first, 0, 50) : usage(3, 40_000, 5_000, 50) },
+    });
+    out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-u1", is_error: false }] } });
+    out({
+      type: "assistant",
+      parent_tool_use_id: "tu-u1",
+      message: { id: "msg-sub", model: helper, content: [{ type: "text", text: "subagent notes" }], usage: usage(1, 900_000, 0, 9) },
+    });
+    out({
+      type: "assistant",
+      message: { id: "msg-u2", model, content: [{ type: "text", text: "listed" }], usage: sizes ? usage(0, sizes.last, 0, 80) : usage(2, 45_000, 1_200, 80) },
+    });
+    out({
+      type: "result",
+      is_error: false,
+      stop_reason: "end_turn",
+      total_cost_usd: 0.01,
+      usage: usage(5, 85_000, 6_200, 130),
+      modelUsage: { [model]: { contextWindow: sizes?.window ?? 1_000_000 }, [helper]: { contextWindow: 200_000 } },
+    });
+    turnRunning = false;
+    finishIfDone();
+    return;
+  }
+
   if (mode === "malformed") {
     process.stdout.write("this is not json\n{broken\n");
   }
@@ -692,6 +739,9 @@ process.stdin.on("data", (c) => {
       prompt = JSON.parse(line);
     } catch {
       continue;
+    }
+    if (process.env.FAKE_CLAUDE_PROMPT_LOG) {
+      appendFileSync(process.env.FAKE_CLAUDE_PROMPT_LOG, JSON.stringify({ pid: process.pid, argv, systemPrompt, text: promptText(prompt) }) + "\n");
     }
     if (turnRunning) {
       steered.push(promptText(prompt));
