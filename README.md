@@ -52,7 +52,7 @@ The installer isn't code-signed yet, so SmartScreen may say "Windows protected y
 2. It opens a labeled terminal pane per worker, on any engine CLI you have. The built-in playbook tells it to give each worker its own git worktree.
 3. Each card ends with `orbit-msg --report DONE <NICK>`. The report lands in Atlas's chat as a note with branch, sha and dirty state, and wakes Atlas.
 4. Atlas checks the work and answers you. If it needs a decision, it asks without stopping.
-5. Context carries over: each bot's `MEMORY.md` (up to 200 lines) goes into every prompt, a task record survives compaction and model switches, and the transcript is never pruned.
+5. Context carries over: each bot's `MEMORY.md` (up to 200 lines or 24,000 bytes) goes into every prompt, a task record survives compaction and model switches, and the transcript is never pruned.
 
 ```mermaid
 flowchart LR
@@ -94,7 +94,7 @@ Wink has no analytics, telemetry or crash upload. This is everything it listens 
 **Listens** (this PC only)
 
 - `127.0.0.1:8799` for the app (falls back to 18799, then 28799), behind a per-launch token and a Host/Origin check. The token lives in memory, and in a Claude turn's temp config until that turn ends.
-- `127.0.0.1:8800` for webhooks, which rejects any request without a webhook's secret.
+- `127.0.0.1:8800` (the app's port + 1) for webhooks, which rejects any request without a webhook's secret.
 - Random token-protected `127.0.0.1` ports for the terminal and browser bridges.
 
 **Sends with no setup**
@@ -109,7 +109,7 @@ Wink has no analytics, telemetry or crash upload. This is everything it listens 
 - Phone relay, after you paste a setup code: a connection to your relay at every launch. TLS runs end to end between phone and PC, so the relay passes bytes it can't read. Wink also gets this PC's certificate from Let's Encrypt and checks crt.sh daily for certificates issued for its relay name.
 - Phone notifications, once you allow them on the phone, go out encrypted through the phone browser's push service.
 - Sync writes only to the folder you choose.
-- Services you add a key for (Composio, ElevenLabs, AssemblyAI, OpenRouter or another OpenAI-compatible API, the xAI or MiniMax APIs, Box (ascii.dev), OpenAI images, and custom providers in your Codex config) are called with that key when you or a bot use them. Composio is also called at every launch once its key is set.
+- Services you add a key for (Composio, ElevenLabs, AssemblyAI, OpenRouter or another OpenAI-compatible API, the xAI or MiniMax APIs, Box (ascii.dev), OpenAI images, and custom providers in your Codex config) are called with that key when you or a bot use them. Composio is also called at every launch once its key is set, and each custom Codex provider is asked for its model list at launch.
 
 **Sends only when you act**
 
@@ -122,11 +122,11 @@ Wink has no analytics, telemetry or crash upload. This is everything it listens 
 
 - `~/.orbit` (or `OMB_DATA_DIR`): bots, chats (`messages.db`), each bot's `MEMORY.md`, task records, attachments, redacted engine event logs, phone pairing keys, a decision log, and checkpoints (a shadow git snapshot before each turn in a project folder). `orbit-msg` lives in `~/.orbit/bin`.
 - `%APPDATA%\orbit-desktop`: Wink's own API keys in `credentials.bin`, encrypted with the Windows credential store through Electron `safeStorage`, the updater's install ID, and logs.
-- Outside those, only while needed: `~/.gemini/config/mcp_config.json` during Antigravity turns (restored after), a temp `mcp.json` per Claude turn (deleted after), and `~/.grok/config.toml` for local Grok models.
+- Outside those, only while needed: `~/.gemini/config/mcp_config.json` during Antigravity turns (restored after) and a temp `mcp.json` per Claude turn (deleted after). Picking a local model for Grok adds it to `~/.grok/config.toml`, with that server's API key if it has one, and the entry stays.
 
 **Approvals**
 
-- New bots start in **Auto**: every tool request in a turn you start is approved, destructive ones included.
+- New bots start in **Auto**: every tool request in a turn you start is approved, destructive ones included. On this PC's own screen, destructive or secret-reading actions still ask.
 - **Ask** asks before any tool call you haven't always-allowed, and always before destructive or secret-reading ones. Codex always runs in its workspace-write sandbox. Antigravity can't ask in print mode, so Ask has no effect there.
 - Engine CLIs start without a shell and without your `*_KEY`, `*_TOKEN` and `*_SECRET` variables, except what a driver needs.
 
