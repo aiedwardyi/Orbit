@@ -2944,7 +2944,11 @@ bus.subscribe((event: RuntimeEvent) => {
         const seed = turnSeeds.get(event.threadId);
         if (seed?.instanceId === event.providerInstanceId) seed.cursor = event.sessionId;
         const systemSeed = systemSeeds.get(event.threadId);
-        if (systemSeed?.instanceId === event.providerInstanceId) systemSeed.cursor = event.sessionId;
+        if (systemSeed?.instanceId === event.providerInstanceId) {
+          // a fresh session holds the system text it launched with, even if this turn stops
+          if (systemSeed.cursor === undefined) store.recordSessionSystem(systemSeed.instanceId, event.sessionId, systemSeed.system);
+          systemSeed.cursor = event.sessionId;
+        }
       }
       break;
     case "item.completed":
@@ -4802,8 +4806,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           // changed since rides at the top of this turn, or recycles the
           // session when too big, unless that would kill background work.
           const delivered = resumeCursor === undefined ? undefined : store.sessionSystem(instanceId, resumeCursor);
-          const updated = withSystemChanges(text, delivered, system)
-            ?? (live.adapter.hasBackgroundWork?.(threadId) === true ? withSystemChanges(text, delivered, system, Infinity) : null);
+          // A cursor with no record (saved before records existed) may hold any older text.
+          const unknown = resumeCursor !== undefined && delivered === undefined;
+          const updated = (unknown ? null : withSystemChanges(text, delivered, system))
+            ?? (live.adapter.hasBackgroundWork?.(threadId) === true ? withSystemChanges(text, delivered ?? "", system, Infinity) : null);
           if (updated !== null) text = updated;
           else {
             store.clearResumeCursors(bot.id, threadId);

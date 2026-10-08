@@ -29,6 +29,7 @@ import { ensureWorkspace, memorySystemPrompt } from "./workspace.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "testing", "fake-claude-cli.ts");
 const FAKE_CODEX = join(dirname(fileURLToPath(import.meta.url)), "testing", "fake-codex-app-server.ts");
+const indexSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
 const reminder = (...lines: string[]) => [
   "<system-reminder>",
   "[Wink instructions update - your system prompt changed after this session started. Removed lines no longer apply; added lines are current and win over anything older.]",
@@ -69,7 +70,10 @@ describe("system text on a resumed session", () => {
       if (event.type === "session.started" && event.sessionId) {
         store.setResumeCursor(bot.id, instanceId, event.sessionId, event.threadId);
         const seed = systemSeeds.get(event.threadId);
-        if (seed) seed.cursor = event.sessionId;
+        if (seed) {
+          if (seed.cursor === undefined) store.recordSessionSystem(seed.instanceId, event.sessionId, seed.system);
+          seed.cursor = event.sessionId;
+        }
       } else if (event.type === "turn.completed") {
         const seed = systemSeeds.take(event.threadId, event.turnId);
         if (seed && turnSeedsSession({
@@ -120,7 +124,11 @@ describe("system text on a resumed session", () => {
     const { turnText: base, resume } = context(recycled ? "session-fat" : undefined);
     let resumeCursor = resume ? task.resumeCursors[instanceId] : undefined;
     const delivered = resumeCursor === undefined ? undefined : store.sessionSystem(instanceId, resumeCursor);
-    let turnText = instance.adapter.capabilities.pinnedSystem === true ? withSystemChanges(base, delivered, systemText) : base;
+    const unknown = resumeCursor !== undefined && delivered === undefined;
+    let turnText = instance.adapter.capabilities.pinnedSystem === true
+      ? (unknown ? null : withSystemChanges(base, delivered, systemText))
+        ?? (instance.adapter.hasBackgroundWork?.(bot.threadId) === true ? withSystemChanges(base, delivered ?? "", systemText, Infinity) : null)
+      : base;
     if (turnText === null) {
       resumeCursor = undefined;
       turnText = context("system").turnText;
@@ -143,6 +151,12 @@ describe("system text on a resumed session", () => {
   const remember = (...notes: string[]) => {
     writeFileSync(join(ensureWorkspace(bot.id), "MEMORY.md"), `# Memory\n${notes.join("\n")}\n`);
     return `You are Testy, a personal bot in Wink.${memorySystemPrompt(bot.id)}`;
+  };
+  /** Drops the session's system record, like a cursor saved before records existed. */
+  const forget = () => {
+    const cursor = session();
+    store.clearResumeCursors(bot.id, bot.threadId);
+    store.setResumeCursor(bot.id, instanceId, cursor, bot.threadId);
   };
   /** What usage-calls reports from its next turn on. */
   const reportUsage = (first: number, last: number, window: number) => writeFileSync(usageFile, JSON.stringify({ first, last, window }));
@@ -252,6 +266,62 @@ describe("system text on a resumed session", () => {
     expect((await send("still there?", system("- City: Busan"))).text).toBe("still there?");
   });
 
+  it("recycles a resumed session with no system record", async () => {
+    await start();
+    const first = await send("hi", system("- City: Seoul"));
+    const opened = session();
+    forget();
+
+    const current = system("- City: Busan");
+    const recycled = await send("which city?", current);
+    expect(recycled.pid).not.toBe(first.pid);
+    expect(recycled.argv).toContain("--session-id");
+    expect(recycled.systemPrompt).toBe(current);
+    expect(recycled.text).not.toContain("<system-reminder>");
+    expect(recycled.text).toContain("because your instructions changed");
+    expect(session()).not.toBe(opened);
+    expect(store.sessionSystem(instanceId, opened)).toBeUndefined();
+
+    const next = await send("thanks", current);
+    expect(next.pid).toBe(recycled.pid);
+    expect(next.text).toBe("thanks");
+  });
+
+  it("sends the whole system text to an unrecorded session with background work", async () => {
+    process.env.FAKE_CLAUDE_MODE = "background-task";
+    await start();
+    const first = await send("start the task", system("- City: Seoul"));
+    const opened = session();
+    forget();
+
+    const current = system("- City: Busan");
+    const reminded = await send("which city?", current);
+    expect(reminded.pid).toBe(first.pid);
+    expect(session()).toBe(opened);
+    expect(reminded.text).toBe(
+      [...reminder("[Added:]", "You are Testy, a personal bot in Wink. Role: Helper.", "Your memory (MEMORY.md):", "- City: Busan"), "", "which city?"].join("\n"),
+    );
+    expect(store.sessionSystem(instanceId, opened)).toBe(current);
+  });
+
+  it("resumes a fresh session whose first turn was stopped, with only what changed", async () => {
+    process.env.FAKE_CLAUDE_MODE = "hang";
+    await start();
+    const stopped = send("hi", system("- City: Seoul"));
+    await recorder.until((e) => e.type === "session.started");
+    await instance.adapter.interruptTurn(bot.threadId);
+    await stopped;
+    const opened = session();
+
+    delete process.env.FAKE_CLAUDE_MODE;
+    const resumed = await send("which city?", system("- City: Busan"));
+    expect(resumed.argv).toContain("--resume");
+    expect(session()).toBe(opened);
+    expect(resumed.text).toBe(
+      [...reminder("[Removed:]", "- City: Seoul", "[Added:]", "- City: Busan"), "", "which city?"].join("\n"),
+    );
+  });
+
   it("carries the change to a resumed Codex thread", async () => {
     process.env.FAKE_CODEX_MODE = "resume";
     await start("codex");
@@ -337,6 +407,24 @@ describe("system text on a resumed session", () => {
     expect(second.methods).toContain("thread/resume");
     expect(second.text).toBe(
       [system("- City: Busan"), "", ...reminder("[Removed:]", "- City: Seoul", "[Added:]", "- City: Busan"), "", "which city?"].join("\n"),
+    );
+  });
+});
+
+describe("startClaimedTurn's system step", () => {
+  it("recycles a resumed session with no system record, or sends it the whole text", () => {
+    expect(indexSource).toContain("const unknown = resumeCursor !== undefined && delivered === undefined;");
+    expect(indexSource).toContain("const updated = (unknown ? null : withSystemChanges(text, delivered, system))");
+    expect(indexSource).toContain('withSystemChanges(text, delivered ?? "", system, Infinity)');
+  });
+
+  it("records a fresh session's system text when the session starts", () => {
+    const started = indexSource.indexOf('case "session.started":');
+    const end = indexSource.indexOf("break;", started);
+    expect(started).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(started);
+    expect(indexSource.slice(started, end)).toContain(
+      "if (systemSeed.cursor === undefined) store.recordSessionSystem(systemSeed.instanceId, event.sessionId, systemSeed.system);",
     );
   });
 });
