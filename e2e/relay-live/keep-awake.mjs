@@ -257,11 +257,20 @@ async function openPhoneAccess() {
 async function connected(section, ms) {
   const started = Date.now();
   const states = [];
+  let last = null;
   while (Date.now() - started < ms) {
     const alert = section.locator('[role="alert"]');
     if (await alert.count()) throw new Error(`Phone access alert: ${redact((await alert.first().textContent())?.trim())}`);
     const state = await section.locator("[data-phone-access-state]").getAttribute("data-phone-access-state", { timeout: 1_000 }).catch(() => null);
     if (state && !states.includes(state)) states.push(state);
+    const error = section.locator("[data-phone-access-error]");
+    const message = await error.count() ? (await error.first().textContent())?.trim() : null;
+    const key = `${state}|${message}`;
+    if (key !== last) {
+      last = key;
+      (facts.relayDiagnostics ??= []).push({ state, message: redact(message ?? ""), at: new Date().toISOString() });
+      console.log(redact(`Phone access: ${state}; ${message ?? ""}`));
+    }
     if (state === "connected") return { elapsedMs: Date.now() - started, states, at: new Date().toISOString() };
     await sleep(250);
   }
@@ -303,7 +312,10 @@ async function flow() {
   if (!response) throw new Error("No setup response within 180s");
   const body = await response.json().catch(() => ({}));
   if (!response.ok()) throw new Error(`Setup HTTP ${response.status()}: ${redact(body.error ?? "unknown error")}`);
-  const firstConnected = await connected(section, 8 * 60_000);
+  const firstConnected = await connected(section, 8 * 60_000).catch((error) => {
+    check("k2", "Setup code connects through Settings", false, { status: response.status(), error: redact(error.message), diagnostics: facts.relayDiagnostics });
+    throw error;
+  });
   check("k2", "Setup code connects through Settings", true, { status: response.status(), ...firstConnected });
 
   const on = await pollRequests("k3-connected", 30_000, (value) => blockingEntries(value).length > 0);
@@ -336,7 +348,7 @@ function collectLogs(root, label, depth = 0) {
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
     const name = `${label}-${entry.name}`;
-    if (entry.isDirectory()) collectLogs(path, name, depth + 1);
+    if (entry.isDirectory() && entry.name === "logs") collectLogs(path, name, depth + 1);
     else if (entry.isFile() && /\.log(?:\.\d+)?$/i.test(entry.name)) write(join(OUT, "logs", redact(name)), readFileSync(path, "utf8"));
   }
 }
