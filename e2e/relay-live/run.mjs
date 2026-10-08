@@ -4,7 +4,7 @@
 // stdout or the artifacts; every line goes through redact().
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { connect as tlsConnect } from "node:tls";
@@ -18,6 +18,7 @@ const RES = process.env.WINK_RESOURCES;
 const OUT = process.env.OUT_DIR;
 const WORK = process.env.WORK_DIR;
 const MODE = (process.env.ACME_MODE || readFileSync(new URL("./acme.txt", import.meta.url), "utf8")).trim();
+const STOP_AFTER_B = process.env.STOP_AFTER_B === "true";
 const STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory";
 const PC1_PORT = 21987;
 const PC2_PORT = 21991;
@@ -55,7 +56,7 @@ const t0 = Date.now();
 const timeline = [];
 const results = {};
 const timings = {};
-const facts = { mode: MODE, host: null };
+const facts = { mode: MODE, bits: process.env.BITS ?? null, serverPatched: process.env.SERVER_PATCHED === "yes", host: null };
 const shots = [];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const since = (start) => +((Date.now() - start) / 1000).toFixed(2);
@@ -311,17 +312,24 @@ let fake = null;
 let stopWatch = () => {};
 let fatal = null;
 
-async function flow() {
-  if (!CODE) {
-    note("c", "skipped: no RELAY_E2E_CODE secret");
-    return;
+/** One part of the flow. A throw fails it and the flow goes on with whatever doesn't need it. */
+async function part(letter, name, run, pages = []) {
+  try {
+    return await run();
+  } catch (error) {
+    for (const [index, page] of pages.entries()) if (page && !page.isClosed()) await shot(page, `${letter}-failed-${name.replace(/\W+/g, "-").slice(0, 40)}-${index}`);
+    check(letter, name, false, { error: redact(error?.message ?? String(error)).split("\n")[0] });
+    return null;
   }
+}
+
+async function flow() {
   if (!["staging", "production"].includes(MODE)) throw new Error(`unknown ACME mode ${MODE}`);
   hide(CODE);
   hide(CODE.split(":").slice(2).join(":"));
   mkdirSync(SHOTS, { recursive: true });
   mkdirSync(WORK, { recursive: true });
-  mark("start", { mode: MODE, node: process.version });
+  mark("start", { mode: MODE, node: process.version, bits: facts.bits, serverPatched: facts.serverPatched });
 
   // b. Fresh data dir, own port, remote auto off. Staging keeps production certificates for the final run.
   const home1 = join(WORK, "pc1", "home");
@@ -337,6 +345,8 @@ async function flow() {
     configured: fresh.configured,
     state: fresh.state,
   });
+  if (STOP_AFTER_B) return note("c", "skipped: stop after b");
+  if (!CODE) return note("c", "skipped: no RELAY_E2E_CODE secret");
   const created = await api(pc1, "/api/bots", { method: "POST", body: JSON.stringify({ name: BOT_NAME, modelSelection: { instanceId: "openaiCompat", model: "fake-model", mode: "pinned" } }) });
   mark("h: bot on the fake engine", { status: created.status, error: created.body?.error ?? null });
 
@@ -388,205 +398,292 @@ async function flow() {
   if (connectedUi === null) throw new Error("Settings never showed connected");
   const host = status1.host;
 
-  // d. Add a phone > QR.
-  const pairingAnswer = desk.page.waitForResponse((r) => r.url().endsWith("/api/phone/pairing") && r.request().method() === "POST");
-  await desk.page.getByRole("button", { name: "Add a phone" }).click();
-  const pairing = await (await pairingAnswer).json();
-  hide(pairing.url);
-  hide(pairing.code);
-  const qrMinted = Date.now();
-  const pairUrl = new URL(pairing.url);
-  const pairToken = hide(new URLSearchParams(pairUrl.hash.slice(1)).get("k") ?? "");
-  const qr = desk.page.locator('[aria-label="Phone pairing QR code"]');
-  await qr.waitFor();
-  const decoded = hide(decodeQr(await qr.screenshot()));
-  await shot(desk.page, "d1-qr-shown", { mask: [qr, desk.page.locator("[data-pairing-code]")] });
-  check("d", "QR decodes to exactly the pairing URL", decoded !== null && decoded === pairing.url, { decoded: decoded !== null });
-  check("d", "pairing URL is https://<host>/pair with the token in the fragment", pairUrl.protocol === "https:" && pairUrl.host === host && pairUrl.pathname === "/pair" && pairToken.startsWith("wkp_") && !pairUrl.search, {
-    host: pairUrl.host,
-    path: pairUrl.pathname,
-  });
-  if (!decoded) throw new Error("QR did not decode");
+  // d. Add a phone > QR. If the QR doesn't decode, the phone still gets the link from the API answer.
+  const link = await part(
+    "d",
+    "Add a phone shows a QR for the pairing link",
+    async () => {
+      const pairingAnswer = desk.page.waitForResponse((r) => r.url().endsWith("/api/phone/pairing") && r.request().method() === "POST");
+      await desk.page.getByRole("button", { name: "Add a phone" }).click();
+      const pairing = await (await pairingAnswer).json();
+      hide(pairing.url);
+      hide(pairing.code);
+      const minted = Date.now();
+      const pairUrl = new URL(pairing.url);
+      const token = hide(new URLSearchParams(pairUrl.hash.slice(1)).get("k") ?? "");
+      const qr = desk.page.locator('[aria-label="Phone pairing QR code"]');
+      await qr.waitFor();
+      const decoded = hide(decodeQr(await qr.screenshot()));
+      await shot(desk.page, "d1-qr-shown", { mask: [qr, desk.page.locator("[data-pairing-code]")] });
+      check("d", "QR decodes to exactly the pairing URL", decoded !== null && decoded === pairing.url, { decoded: decoded !== null });
+      check("d", "pairing URL is https://<host>/pair with the token in the fragment", pairUrl.protocol === "https:" && pairUrl.host === host && pairUrl.pathname === "/pair" && token.startsWith("wkp_") && !pairUrl.search, {
+        host: pairUrl.host,
+        path: pairUrl.pathname,
+      });
+      return { url: decoded ?? pairing.url, minted, token };
+    },
+    [desk.page],
+  );
+  if (!link) return;
 
   // e. The phone opens the decoded link.
-  const phoneCtx = await phoneContext();
+  let phoneCtx = await phoneContext();
   const phone = await phoneCtx.newPage();
-  const appData = phone.waitForResponse(isAppData(host), { timeout: 120_000 });
-  const scanned = Date.now();
-  await phone.goto(decoded, { waitUntil: "domcontentloaded", timeout: 90_000 });
-  mark("e: pair page loaded", { afterS: since(scanned) });
-  await shot(phone, "e1-phone-pairing");
-  await phone.waitForURL((url) => url.pathname === "/", { timeout: 90_000 });
-  await appData;
-  timings.qrToAppOnPhoneS = since(scanned);
-  check("e", "phone pairs and the app loads its data through the relay", true, { seconds: timings.qrToAppOnPhoneS, origin: new URL(phone.url()).origin });
-  await phone.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-  await shot(phone, "e2-phone-app-first-open");
-  const landed = new URL(phone.url());
-  check("e", "token is gone from the URL", !phone.url().includes("#k=") && !phone.url().includes(pairToken) && landed.pathname === "/" && !landed.hash, { path: landed.pathname, hash: Boolean(landed.hash) });
-  const cookie = (await phoneCtx.cookies(`https://${host}`)).find((c) => c.name === "__Host-wink_phone");
-  hide(cookie?.value);
-  check("e", "phone cookie is host-only, HttpOnly, Secure, SameSite=Lax", Boolean(cookie?.httpOnly && cookie.secure && cookie.sameSite === "Lax" && cookie.path === "/" && cookie.domain === host), {
-    present: Boolean(cookie),
-    httpOnly: cookie?.httpOnly,
-    secure: cookie?.secure,
-    sameSite: cookie?.sameSite,
-    domain: cookie?.domain,
-    days: cookie ? Math.round((cookie.expires * 1000 - Date.now()) / 86_400_000) : null,
-  });
-  const desktopNoticed = await desk.page.getByText(/is paired\.$/).first().waitFor({ timeout: 10_000 }).then(() => true, () => false);
-  await shot(desk.page, "e3-desktop-paired", { mask: [qr, desk.page.locator("[data-pairing-code]")] });
-  mark("e: desktop shows the phone as paired", { shown: desktopNoticed });
+  const paired = await part(
+    "e",
+    "phone pairs and the app loads its data through the relay",
+    async () => {
+      const appData = phone.waitForResponse(isAppData(host), { timeout: 120_000 });
+      appData.catch(() => {});
+      const scanned = Date.now();
+      await phone.goto(link.url, { waitUntil: "domcontentloaded", timeout: 90_000 });
+      mark("e: pair page loaded", { afterS: since(scanned) });
+      await shot(phone, "e1-phone-pairing");
+      await phone.waitForURL((url) => url.pathname === "/", { timeout: 90_000 });
+      await appData;
+      timings.qrToAppOnPhoneS = since(scanned);
+      check("e", "phone pairs and the app loads its data through the relay", true, { seconds: timings.qrToAppOnPhoneS, origin: new URL(phone.url()).origin });
+      await phone.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+      await shot(phone, "e2-phone-app-first-open");
+      const landed = new URL(phone.url());
+      check("e", "token is gone from the URL", !phone.url().includes("#k=") && !phone.url().includes(link.token) && landed.pathname === "/" && !landed.hash, { path: landed.pathname, hash: Boolean(landed.hash) });
+      const cookie = (await phoneCtx.cookies(`https://${host}`)).find((c) => c.name === "__Host-wink_phone");
+      hide(cookie?.value);
+      check("e", "phone cookie is host-only, HttpOnly, Secure, SameSite=Lax", Boolean(cookie?.httpOnly && cookie.secure && cookie.sameSite === "Lax" && cookie.path === "/" && cookie.domain === host), {
+        present: Boolean(cookie),
+        httpOnly: cookie?.httpOnly,
+        secure: cookie?.secure,
+        sameSite: cookie?.sameSite,
+        domain: cookie?.domain,
+        days: cookie ? Math.round((cookie.expires * 1000 - Date.now()) / 86_400_000) : null,
+      });
+      const desktopNoticed = await desk.page.getByText(/is paired\.$/).first().waitFor({ timeout: 10_000 }).then(() => true, () => false);
+      await shot(desk.page, "e3-desktop-paired", { mask: [desk.page.locator('[aria-label="Phone pairing QR code"]'), desk.page.locator("[data-pairing-code]")] });
+      mark("e: desktop shows the phone as paired", { shown: desktopNoticed });
+      return true;
+    },
+    [phone, desk.page],
+  );
 
   // g2 now, inside the 2 minute window, so the second try fails for being used, not expired.
-  const second = await phoneContext();
-  const p2 = await second.newPage();
-  const reuse = p2.waitForResponse((r) => r.url().endsWith("/api/phone/pair"), { timeout: 60_000 });
-  await p2.goto(decoded, { waitUntil: "domcontentloaded", timeout: 90_000 });
-  const reused = await reuse;
-  const reusedBody = await reused.json().catch(() => ({}));
-  await p2.locator("#status.error").waitFor({ timeout: 30_000 }).catch(() => {});
-  const reuseText = (await p2.locator("#status").textContent().catch(() => ""))?.trim();
-  await shot(p2, "g2-used-link-refused");
-  const reuseCookie = (await second.cookies()).some((c) => c.name === "__Host-wink_phone");
-  check("g", "used pairing link fails a second time", reused.status() === 409 && reusedBody.error === "no-pairing" && !reuseCookie, {
-    status: reused.status(),
-    error: reusedBody.error,
-    message: reuseText,
-    secondsSinceQr: since(qrMinted),
-    cookie: reuseCookie,
-  });
-  await second.close();
-
-  // Certificate the phone was served.
-  const cert = await peerCert(host);
-  facts.cert = cert;
-  if (PROD) {
-    check("e", "certificate is a trusted Let's Encrypt certificate for exactly the host", cert.authorized && cert.issuerO === "Let's Encrypt" && cert.san === `DNS:${host}`, cert);
-  } else {
-    check("e", "certificate (staging) names exactly the host", cert.san === `DNS:${host}` && /STAGING/.test(`${cert.issuerO} ${cert.issuerCN}`), cert);
+  if (paired) {
+    const second = await phoneContext();
+    const p2 = await second.newPage();
+    await part(
+      "g",
+      "used pairing link fails a second time",
+      async () => {
+        const reuse = p2.waitForResponse((r) => r.url().endsWith("/api/phone/pair"), { timeout: 60_000 });
+        reuse.catch(() => {});
+        await p2.goto(link.url, { waitUntil: "domcontentloaded", timeout: 90_000 });
+        const reused = await reuse;
+        const reusedBody = await reused.json().catch(() => ({}));
+        await p2.locator("#status.error").waitFor({ timeout: 30_000 }).catch(() => {});
+        const reuseText = (await p2.locator("#status").textContent().catch(() => ""))?.trim();
+        await shot(p2, "g2-used-link-refused");
+        const reuseCookie = (await second.cookies()).some((c) => c.name === "__Host-wink_phone");
+        check("g", "used pairing link fails a second time", reused.status() === 409 && reusedBody.error === "no-pairing" && !reuseCookie, {
+          status: reused.status(),
+          error: reusedBody.error,
+          message: reuseText,
+          secondsSinceQr: since(link.minted),
+          cookie: reuseCookie,
+        });
+      },
+      [p2],
+    );
+    await second.close();
   }
 
+  // Certificate the phone was served.
+  const cert = await part("e", "certificate names exactly the host", async () => {
+    const served = await peerCert(host);
+    facts.cert = served;
+    if (PROD) {
+      check("e", "certificate is a trusted Let's Encrypt certificate for exactly the host", served.authorized && served.issuerO === "Let's Encrypt" && served.san === `DNS:${host}`, served);
+    } else {
+      check("e", "certificate (staging) names exactly the host", served.san === `DNS:${host}` && /STAGING/.test(`${served.issuerO} ${served.issuerCN}`), served);
+    }
+    return served;
+  });
+
   // Live update: a change on the desktop reaches the phone's event stream.
-  await phone.evaluate(() => {
-    window.__e2e = [];
-    const source = new EventSource("/api/events?screens=off");
-    source.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        window.__e2e.push({ at: Date.now(), kind: data.kind, name: data.profile?.name ?? null });
-      } catch {}
-    };
-  });
-  await phone.waitForFunction(() => window.__e2e.some((event) => event.kind === "hello"), null, { timeout: 30_000 });
-  const profileName = `Relay check ${Date.now() % 100_000}`;
-  const changed = Date.now();
-  const patched = await api(pc1, "/api/config", { method: "PATCH", body: JSON.stringify({ profile: { name: profileName } }) });
-  const arrivedAt = await phone
-    .waitForFunction((name) => window.__e2e.find((event) => event.kind === "config" && event.name === name)?.at ?? false, profileName, { timeout: 20_000 })
-    .then((handle) => handle.jsonValue(), () => null);
-  timings.liveUpdateMs = arrivedAt ? arrivedAt - changed : null;
-  const kinds = await phone.evaluate((after) => window.__e2e.filter((event) => event.at >= after).map((event) => event.kind), changed);
-  check("e", "a desktop change reaches the phone's /api/events within 5 s", patched.status === 200 && arrivedAt && arrivedAt - changed < 5_000, {
-    ms: timings.liveUpdateMs,
-    patch: patched.status,
-    kindsSeen: [...new Set(kinds)],
-  });
-  await phone.evaluate(() => localStorage.setItem("omb-onboarding-done", "true"));
-  const reloadData = phone.waitForResponse(isAppData(host), { timeout: 60_000 });
-  await phone.reload({ waitUntil: "domcontentloaded" });
-  await reloadData;
-  await phone.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-  await shot(phone, "e4-phone-app");
+  if (paired) {
+    await part(
+      "e",
+      "a desktop change reaches the phone's /api/events within 5 s",
+      async () => {
+        await phone.evaluate(() => {
+          window.__e2e = [];
+          const source = new EventSource("/api/events?screens=off");
+          source.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              window.__e2e.push({ at: Date.now(), kind: data.kind, name: data.profile?.name ?? null });
+            } catch {}
+          };
+        });
+        await phone.waitForFunction(() => window.__e2e.some((event) => event.kind === "hello"), null, { timeout: 30_000 });
+        const profileName = `Relay check ${Date.now() % 100_000}`;
+        const changed = Date.now();
+        const patched = await api(pc1, "/api/config", { method: "PATCH", body: JSON.stringify({ profile: { name: profileName } }) });
+        const arrivedAt = await phone
+          .waitForFunction((name) => window.__e2e.find((event) => event.kind === "config" && event.name === name)?.at ?? false, profileName, { timeout: 20_000 })
+          .then((handle) => handle.jsonValue(), () => null);
+        timings.liveUpdateMs = arrivedAt ? arrivedAt - changed : null;
+        const kinds = await phone.evaluate((after) => window.__e2e.filter((event) => event.at >= after).map((event) => event.kind), changed);
+        check("e", "a desktop change reaches the phone's /api/events within 5 s", patched.status === 200 && arrivedAt && arrivedAt - changed < 5_000, {
+          ms: timings.liveUpdateMs,
+          patch: patched.status,
+          kindsSeen: [...new Set(kinds)],
+        });
+        await phone.evaluate(() => localStorage.setItem("omb-onboarding-done", "true"));
+        const reloadData = phone.waitForResponse(isAppData(host), { timeout: 60_000 });
+        reloadData.catch(() => {});
+        await phone.reload({ waitUntil: "domcontentloaded" });
+        await reloadData;
+        await phone.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+        await shot(phone, "e4-phone-app");
+      },
+      [phone],
+    );
+  }
 
   // g3. A phone without the cookie gets no app data.
   const anon = await phoneContext();
-  const anonApi = await anon.request.get(`https://${host}/api/bots`, { maxRedirects: 0 });
-  const anonApiBody = await anonApi.text();
-  const anonShell = await anon.request.get(`https://${host}/`, { maxRedirects: 0 });
   const anonPage = await anon.newPage();
-  await anonPage.goto(`https://${host}/`, { waitUntil: "domcontentloaded" });
-  await shot(anonPage, "g3-no-cookie");
-  const anonPath = new URL(anonPage.url()).pathname;
-  check("g", "phone without the cookie gets no app data", anonApi.status() === 401 && !anonApiBody.includes(BOT_NAME) && anonShell.status() === 302 && anonPath === "/pair", {
-    api: anonApi.status(),
-    shell: anonShell.status(),
-    location: anonShell.headers().location ?? null,
-    landedOn: anonPath,
-  });
+  await part(
+    "g",
+    "phone without the cookie gets no app data",
+    async () => {
+      const anonApi = await anon.request.get(`https://${host}/api/bots`, { maxRedirects: 0 });
+      const anonApiBody = await anonApi.text();
+      const anonShell = await anon.request.get(`https://${host}/`, { maxRedirects: 0 });
+      await anonPage.goto(`https://${host}/`, { waitUntil: "domcontentloaded" });
+      await shot(anonPage, "g3-no-cookie");
+      const anonPath = new URL(anonPage.url()).pathname;
+      check("g", "phone without the cookie gets no app data", anonApi.status() === 401 && !anonApiBody.includes(BOT_NAME) && anonShell.status() === 302 && anonPath === "/pair", {
+        api: anonApi.status(),
+        shell: anonShell.status(),
+        location: anonShell.headers().location ?? null,
+        landedOn: anonPath,
+      });
+    },
+    [anonPage],
+  );
   await anon.close();
 
   // f1. Reopen the phone from its saved storage state.
-  const saved = await phoneCtx.storageState();
-  await phoneCtx.close();
-  const reopened = await phoneContext({ storageState: saved });
-  const rp = await reopened.newPage();
-  const reopenData = rp.waitForResponse(isAppData(host), { timeout: 60_000 });
-  const reopenedAt = Date.now();
-  await rp.goto(`https://${host}/`, { waitUntil: "domcontentloaded" });
-  await reopenData;
-  await rp.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-  await shot(rp, "f1-phone-reopened");
-  check("f", "reopened phone opens the app without pairing", new URL(rp.url()).pathname === "/", { path: new URL(rp.url()).pathname, seconds: since(reopenedAt) });
+  let reopened = null;
+  let rp = null;
+  if (paired) {
+    const saved = await phoneCtx.storageState();
+    await phoneCtx.close();
+    phoneCtx = null;
+    reopened = await phoneContext({ storageState: saved });
+    rp = await reopened.newPage();
+    await part(
+      "f",
+      "reopened phone opens the app without pairing",
+      async () => {
+        const reopenData = rp.waitForResponse(isAppData(host), { timeout: 60_000 });
+        reopenData.catch(() => {});
+        const reopenedAt = Date.now();
+        await rp.goto(`https://${host}/`, { waitUntil: "domcontentloaded" });
+        await reopenData;
+        await rp.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+        await shot(rp, "f1-phone-reopened");
+        check("f", "reopened phone opens the app without pairing", new URL(rp.url()).pathname === "/", { path: new URL(rp.url()).pathname, seconds: since(reopenedAt) });
+      },
+      [rp],
+    );
+  }
+  await phoneCtx?.close();
 
   // f2. Restart on the same data dir: no new code, no new certificate.
-  const certFile = join(home1, ".orbit", "phone-relay", "cert.json");
-  const certBefore = fileHash(certFile);
-  await desk.context.close();
-  stopWatch();
-  await stopServer(pc1);
-  mark("f: server stopped");
-  await rp.reload({ waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
-  await shot(rp, "f2-phone-while-pc-down");
-  const restarted = Date.now();
-  pc1 = await startServer("pc1", home1, PC1_PORT, FAKE_ENGINE_ENV);
-  stopWatch = watchRelay(pc1);
-  const back = await until(async () => {
-    const status = await relayStatus(pc1);
-    return status.state === "connected" ? status : null;
-  }, 5 * 60_000, "relay connected after restart");
-  timings.restartToConnectedS = since(restarted);
-  const certAfterRestart = await peerCert(host);
-  check("f", "restart reconnects with no new code", back.host === host, { seconds: timings.restartToConnectedS, host: back.host });
-  check("f", "restart keeps the same certificate", certAfterRestart.fingerprint256 === cert.fingerprint256 && fileHash(certFile) === certBefore, {
-    sameServed: certAfterRestart.fingerprint256 === cert.fingerprint256,
-    sameStored: fileHash(certFile) === certBefore,
+  const restartedOk = await part("f", "restart reconnects with no new code", async () => {
+    const certFile = join(home1, ".orbit", "phone-relay", "cert.json");
+    const certBefore = fileHash(certFile);
+    await desk.context.close();
+    stopWatch();
+    await stopServer(pc1);
+    mark("f: server stopped");
+    if (rp) {
+      await rp.reload({ waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+      await shot(rp, "f2-phone-while-pc-down");
+    }
+    const restarted = Date.now();
+    pc1 = await startServer("pc1", home1, PC1_PORT, FAKE_ENGINE_ENV);
+    stopWatch = watchRelay(pc1);
+    const back = await until(async () => {
+      const status = await relayStatus(pc1);
+      return status.state === "connected" ? status : null;
+    }, 5 * 60_000, "relay connected after restart");
+    timings.restartToConnectedS = since(restarted);
+    const certAfterRestart = await peerCert(host);
+    check("f", "restart reconnects with no new code", back.host === host, { seconds: timings.restartToConnectedS, host: back.host });
+    check("f", "restart keeps the same certificate", certAfterRestart.fingerprint256 === cert?.fingerprint256 && fileHash(certFile) === certBefore, {
+      sameServed: certAfterRestart.fingerprint256 === cert?.fingerprint256,
+      sameStored: fileHash(certFile) === certBefore,
+      stored: certBefore !== null,
+    });
+    return true;
   });
-  const afterRestartData = rp.waitForResponse(isAppData(host), { timeout: 60_000 });
-  await rp.goto(`https://${host}/`, { waitUntil: "domcontentloaded" });
-  await afterRestartData;
-  await rp.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-  await shot(rp, "f3-phone-after-restart");
-  check("f", "phone still works after the restart", new URL(rp.url()).pathname === "/", { path: new URL(rp.url()).pathname });
+  if (rp && restartedOk) {
+    await part(
+      "f",
+      "phone still works after the restart",
+      async () => {
+        const afterRestartData = rp.waitForResponse(isAppData(host), { timeout: 60_000 });
+        afterRestartData.catch(() => {});
+        await rp.goto(`https://${host}/`, { waitUntil: "domcontentloaded" });
+        await afterRestartData;
+        await rp.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+        await shot(rp, "f3-phone-after-restart");
+        check("f", "phone still works after the restart", new URL(rp.url()).pathname === "/", { path: new URL(rp.url()).pathname });
+      },
+      [rp],
+    );
+  }
 
   // h. Message round trip from the phone, on the fake engine.
-  await messageRoundTrip(rp, created);
+  if (rp && restartedOk) await messageRoundTrip(rp, created);
+  else note("h", "skipped: no paired phone or no server after the restart");
 
   // g4. Remove the phone in Settings.
-  desk = await desktop(pc1);
-  await openPhoneAccess(desk.page);
-  const phones = (await api(pc1, "/api/phone/devices")).body.phones ?? [];
-  const remove = desk.page.getByRole("button", { name: `Remove ${phones[0]?.name}` });
-  await remove.waitFor({ timeout: 30_000 });
-  await remove.scrollIntoViewIfNeeded();
-  await shot(desk.page, "g4-before-remove");
-  const removal = desk.page.waitForResponse((r) => r.url().includes("/api/phone/devices/") && r.request().method() === "DELETE");
-  await remove.click();
-  const removed = await removal;
-  await desk.page.waitForTimeout(500);
-  await shot(desk.page, "g4-after-remove");
-  const refusedApi = await reopened.request.get(`https://${host}/api/bots`, { maxRedirects: 0 });
-  await rp.goto(`https://${host}/`, { waitUntil: "domcontentloaded" });
-  await shot(rp, "g4-removed-phone");
-  const removedPath = new URL(rp.url()).pathname;
-  check("g", "removed phone's next request is refused", removed.status() === 200 && refusedApi.status() === 401 && removedPath === "/pair", {
-    remove: removed.status(),
-    api: refusedApi.status(),
-    landedOn: removedPath,
-    phonesLeft: ((await api(pc1, "/api/phone/devices")).body.phones ?? []).length,
-  });
-  await reopened.close();
-  await desk.context.close();
+  if (rp && restartedOk) {
+    desk = await desktop(pc1);
+    await part(
+      "g",
+      "removed phone's next request is refused",
+      async () => {
+        await openPhoneAccess(desk.page);
+        const phones = (await api(pc1, "/api/phone/devices")).body.phones ?? [];
+        const remove = desk.page.getByRole("button", { name: `Remove ${phones[0]?.name}` });
+        await remove.waitFor({ timeout: 30_000 });
+        await remove.scrollIntoViewIfNeeded();
+        await shot(desk.page, "g4-before-remove");
+        const removal = desk.page.waitForResponse((r) => r.url().includes("/api/phone/devices/") && r.request().method() === "DELETE");
+        await remove.click();
+        const removed = await removal;
+        await desk.page.waitForTimeout(500);
+        await shot(desk.page, "g4-after-remove");
+        const refusedApi = await reopened.request.get(`https://${host}/api/bots`, { maxRedirects: 0 });
+        await rp.goto(`https://${host}/`, { waitUntil: "domcontentloaded" });
+        await shot(rp, "g4-removed-phone");
+        const removedPath = new URL(rp.url()).pathname;
+        check("g", "removed phone's next request is refused", removed.status() === 200 && refusedApi.status() === 401 && removedPath === "/pair", {
+          remove: removed.status(),
+          api: refusedApi.status(),
+          landedOn: removedPath,
+          phonesLeft: ((await api(pc1, "/api/phone/devices")).body.phones ?? []).length,
+        });
+      },
+      [desk.page, rp],
+    );
+    await desk.context.close();
+  }
+  await reopened?.close();
 
   // g1. The same code on a second fresh PC. Always staging, so a wrongly accepted code costs no production certificate.
   const home2 = join(WORK, "pc2", "home");
@@ -594,26 +691,33 @@ async function flow() {
   writeFileSync(join(home2, ".orbit", "config.json"), `${JSON.stringify({ phoneRelay: { acmeDirectories: [STAGING] } }, null, 2)}\n`);
   pc2 = await startServer("pc2", home2, PC2_PORT);
   const desk2 = await desktop(pc2);
-  const section2 = await openPhoneAccess(desk2.page);
-  const input2 = desk2.page.getByLabel("Setup code");
-  await input2.fill(CODE);
-  const secondSetup = desk2.page.waitForResponse((r) => r.url().endsWith("/api/phone-relay/setup"), { timeout: 120_000 });
-  await desk2.page.locator("form[data-phone-access-setup] button[type=submit]").click();
-  const secondAnswer = await secondSetup;
-  const secondBody = await secondAnswer.json().catch(() => ({}));
-  const refusal = section2.locator('[role="alert"]').first();
-  await refusal.waitFor({ timeout: 30_000 }).catch(() => {});
-  await desk2.page.waitForTimeout(3_500);
-  const refusalText = (await refusal.textContent().catch(() => ""))?.trim();
-  await section2.scrollIntoViewIfNeeded().catch(() => {});
-  await shot(desk2.page, "g1-second-pc-refused", { mask: [input2] });
-  const pc2Status = await relayStatus(pc2);
-  check("g", "same code on a second fresh PC is refused with a clear message", secondAnswer.status() === 400 && Boolean(refusalText) && pc2Status.state !== "connected", {
-    status: secondAnswer.status(),
-    error: secondBody.error ?? null,
-    message: refusalText,
-    state: pc2Status.state,
-  });
+  await part(
+    "g",
+    "same code on a second fresh PC is refused with a clear message",
+    async () => {
+      const section2 = await openPhoneAccess(desk2.page);
+      const input2 = desk2.page.getByLabel("Setup code");
+      await input2.fill(CODE);
+      const secondSetup = desk2.page.waitForResponse((r) => r.url().endsWith("/api/phone-relay/setup"), { timeout: 120_000 });
+      await desk2.page.locator("form[data-phone-access-setup] button[type=submit]").click();
+      const secondAnswer = await secondSetup;
+      const secondBody = await secondAnswer.json().catch(() => ({}));
+      const refusal = section2.locator('[role="alert"]').first();
+      await refusal.waitFor({ timeout: 30_000 }).catch(() => {});
+      await desk2.page.waitForTimeout(3_500);
+      const refusalText = (await refusal.textContent().catch(() => ""))?.trim();
+      await section2.scrollIntoViewIfNeeded().catch(() => {});
+      await shot(desk2.page, "g1-second-pc-refused", { mask: [input2] });
+      const pc2Status = await relayStatus(pc2);
+      check("g", "same code on a second fresh PC is refused with a clear message", secondAnswer.status() === 400 && Boolean(refusalText) && pc2Status.state !== "connected", {
+        status: secondAnswer.status(),
+        error: secondBody.error ?? null,
+        message: refusalText,
+        state: pc2Status.state,
+      });
+    },
+    [desk2.page],
+  );
   await desk2.context.close();
 }
 
@@ -673,6 +777,25 @@ try {
   };
   writeFileSync(join(OUT, "summary.json"), `${redact(JSON.stringify(summary, null, 2))}\n`);
   writeFileSync(join(OUT, "timeline.json"), `${redact(JSON.stringify(timeline, null, 2))}\n`);
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const rows = Object.keys(results)
+      .sort()
+      .flatMap((letter) => [...results[letter].checks.map((entry) => `| ${letter} | ${entry.pass ? "PASS" : "FAIL"} | ${entry.name} |`), ...(results[letter].note ? [`| ${letter} | - | ${results[letter].note} |`] : [])]);
+    const lines = [
+      "",
+      `### Phone access flow: ${summary.pass ? "PASS" : "FAIL"}`,
+      `${facts.serverPatched ? "**Patched server, not the released bits.** " : ""}Bits: ${facts.bits ?? "?"}. ACME: ${MODE}.`,
+      "",
+      "| Step | Result | Check |",
+      "|---|---|---|",
+      ...rows,
+      "",
+      `Timings: ${JSON.stringify(timings)}`,
+      ...(fatal ? ["", `Fatal: ${fatal.message.split("\n")[0]}`] : []),
+      "",
+    ];
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, redact(lines.join("\n")));
+  }
   log(`\n${summary.pass ? "PASS" : "FAIL"}: ${failed.length} failed checks${fatal ? `, fatal: ${fatal.message}` : ""}`);
   process.exit(summary.pass ? 0 : 1);
 }

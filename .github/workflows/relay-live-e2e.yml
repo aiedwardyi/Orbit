@@ -2,6 +2,8 @@
 # installer, the packaged server, the live relay and a phone-sized browser.
 # Pushes run the mode in e2e/relay-live/acme.txt; staging certificates keep
 # the shared Let's Encrypt production limit for the final run.
+# simulate-fix.txt (pushes) or simulate_fix patches the released server bundle,
+# so those runs test patched bits. release_run tests a release.yml build as built.
 name: Relay live E2E
 
 on:
@@ -15,12 +17,29 @@ on:
         type: choice
         options: [staging, production]
         default: staging
+      simulate_fix:
+        description: "Prepend the createRequire line to the released server bundle (patched bits)"
+        required: false
+        type: boolean
+        default: false
+      release_run:
+        description: "release.yml run id in aiedwardyi/Orbit: test its windows-release artifact, unpatched"
+        required: false
+        type: string
+        default: ""
+      stop_after_b:
+        description: "Stop once the packaged server is up (steps a and b)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  actions: read
 
+# Runs that stop after b never reach the relay, so they don't wait for one that does.
 concurrency:
-  group: relay-live-e2e
+  group: relay-live-e2e${{ inputs.stop_after_b && '-boot' || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -30,6 +49,7 @@ jobs:
     timeout-minutes: 45
     env:
       VERSION: 1.0.147
+      RELEASE_RUN: ${{ inputs.release_run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,26 +57,37 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-      - name: Download the release and check it against latest.yml
+      - name: Download the installer and check it against latest.yml
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/release" "$RUNNER_TEMP/artifacts"
           cd "$RUNNER_TEMP/release"
-          base="https://github.com/aiedwardyi/orbit-releases/releases/download/v$VERSION"
-          curl -fsSL --retry 3 -o "Wink-$VERSION-setup.exe" "$base/Wink-$VERSION-setup.exe"
-          curl -fsSL --retry 3 -o latest.yml "$base/latest.yml"
+          if [ -n "$RELEASE_RUN" ]; then
+            gh run download "$RELEASE_RUN" -R aiedwardyi/Orbit -n windows-release -D .
+          else
+            base="https://github.com/aiedwardyi/orbit-releases/releases/download/v$VERSION"
+            curl -fsSL --retry 3 -o "Wink-$VERSION-setup.exe" "$base/Wink-$VERSION-setup.exe"
+            curl -fsSL --retry 3 -o latest.yml "$base/latest.yml"
+          fi
+          ls -l
           node --input-type=module - <<'EOF'
           import { createHash } from "node:crypto";
-          import { readFileSync, statSync, writeFileSync } from "node:fs";
-          const exe = `Wink-${process.env.VERSION}-setup.exe`;
+          import { appendFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
           const feed = readFileSync("latest.yml", "utf8");
+          const version = /^version:\s+(\S+)/m.exec(feed)?.[1] ?? null;
+          const run = process.env.RELEASE_RUN;
+          const exe = `Wink-${run ? version : process.env.VERSION}-setup.exe`;
           const entry = [...feed.matchAll(/url:\s+(\S+)[\s\S]*?sha512:\s+(\S+)\n\s+size:\s+(\d+)/g)].find(([, url]) => url === exe);
           if (!entry) { console.error(`latest.yml does not list ${exe}`); process.exit(1); }
           const actual = createHash("sha512").update(readFileSync(exe)).digest("base64");
           const size = statSync(exe).size;
           const result = {
+            source: run ? `release.yml run ${run} (windows-release artifact)` : `orbit-releases v${process.env.VERSION}`,
             exe,
-            version: /^version:\s+(\S+)/m.exec(feed)?.[1] ?? null,
+            version,
             sha512Match: actual === entry[2],
             sizeMatch: size === Number(entry[3]),
             size,
@@ -64,12 +95,14 @@ jobs:
           };
           writeFileSync(`${process.env.RUNNER_TEMP}/artifacts/a-release.json`, `${JSON.stringify(result, null, 2)}\n`);
           console.log(JSON.stringify(result));
-          if (!result.sha512Match || !result.sizeMatch || result.version !== process.env.VERSION) process.exit(1);
+          if (!result.sha512Match || !result.sizeMatch || !version || (!run && version !== process.env.VERSION)) process.exit(1);
+          appendFileSync(process.env.GITHUB_ENV, `INSTALLER=${join(process.cwd(), exe)}\nBITS=${result.source}, Wink ${version}\n`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `**Bits:** ${result.source}, \`${exe}\` (Wink ${version}), sha512 and size match its latest.yml\n\n`);
           EOF
       - name: Extract the installer
         shell: bash
         run: |
-          7z x -y -o"$RUNNER_TEMP/nsis" "$RUNNER_TEMP/release/Wink-$VERSION-setup.exe" > /dev/null
+          7z x -y -o"$RUNNER_TEMP/nsis" "$INSTALLER" > /dev/null
           app=$(find "$RUNNER_TEMP/nsis" -name 'app-64.7z' | head -n 1)
           [ -n "$app" ] || { echo "::error::no app-64.7z in the installer"; find "$RUNNER_TEMP/nsis" -maxdepth 2; exit 1; }
           7z x -y -o"$RUNNER_TEMP/wink" "$app" > /dev/null
@@ -78,6 +111,37 @@ jobs:
             [ -f "$res/$f" ] || { echo "::error::missing $f"; exit 1; }
           done
           ls "$RUNNER_TEMP/wink"
+      - name: Simulate the relay client fix
+        shell: bash
+        env:
+          SIMULATE_FIX: ${{ inputs.simulate_fix }}
+        run: |
+          [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || SIMULATE_FIX=$(tr -d '[:space:]' < e2e/relay-live/simulate-fix.txt)
+          if [ "$SIMULATE_FIX" != true ] || [ -n "$RELEASE_RUN" ]; then
+            [ "$SIMULATE_FIX" = true ] && echo "::notice::simulate_fix ignored: a release_run build is tested as built"
+            echo "SERVER_PATCHED=no" >> "$GITHUB_ENV"
+            echo "**Server:** as shipped, not patched" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          line='import { createRequire as __winkCreateRequire } from "node:module"; const require = __winkCreateRequire(import.meta.url);'
+          for f in index.js packaged-boot.js; do
+            file="$RUNNER_TEMP/wink/resources/server/$f"
+            if awk 'NR > 5 { exit } /createRequire/ { found = 1 } END { exit !found }' "$file"; then
+              echo "::error::$f already starts with a createRequire banner; run this build without simulate_fix"; exit 1
+            fi
+            { printf '%s\n' "$line"; cat "$file"; } > "$file.patched"
+            mv "$file.patched" "$file"
+            head -n 2 "$file" | cut -c 1-160
+          done
+          echo "SERVER_PATCHED=yes" >> "$GITHUB_ENV"
+          echo "::warning::Patched bits, not the release: the createRequire line was prepended to resources/server/index.js and packaged-boot.js"
+          {
+            echo "## Patched server, not the released bits"
+            echo "After extracting the installer, this line was prepended to \`resources/server/index.js\` and \`resources/server/packaged-boot.js\`:"
+            echo '```js'
+            echo "$line"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Install the harness
         working-directory: e2e/relay-live
         shell: bash
@@ -98,6 +162,7 @@ jobs:
         env:
           RELAY_E2E_CODE: ${{ secrets.RELAY_E2E_CODE }}
           ACME_MODE: ${{ inputs.acme }}
+          STOP_AFTER_B: ${{ inputs.stop_after_b }}
           WINK_RESOURCES: ${{ runner.temp }}/wink/resources
           OUT_DIR: ${{ runner.temp }}/artifacts
           WORK_DIR: ${{ runner.temp }}/work
