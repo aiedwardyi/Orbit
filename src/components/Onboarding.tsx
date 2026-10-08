@@ -5,6 +5,7 @@ import { EngineSetup } from "./EngineSetup";
 import { OrbitMark } from "./OrbitMark";
 import { firstLaunchConnectInstances, isEmptyEngineLaunch } from "@/lib/engine-rail";
 import { useI18n } from "@/lib/i18n";
+import { isPhone } from "@/lib/phone-swipe";
 import { ProviderMark } from "./ProviderIcons";
 
 const CORE_DRIVERS = new Set(["grokAgent", "claudeAgent", "codex", "geminiAgent"]);
@@ -99,6 +100,8 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const [signedOut, setSignedOut] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const dialogRef = useRef<HTMLDivElement>(null);
+  // A phone opens a PC that is already set up, so it only ever needs the sign-in.
+  const phone = !window.ogb && isPhone();
 
   useEffect(() => {
     let active = true;
@@ -115,6 +118,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         })
         .then((data) => {
           if (!active || request !== latestRequest) return;
+          if (data && phone) return onDone();
           setSignedOut(!data);
           if (data) setInstances(data.instances ?? []);
         })
@@ -157,6 +161,8 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     dialog.addEventListener("keydown", onKey);
     return () => dialog.removeEventListener("keydown", onKey);
   }, [step, instances, instancesError, signedOut]);
+
+  if (phone && !signedOut && !instancesError) return null;
 
   const emptyConnect = instances !== null && isEmptyEngineLaunch(instances);
 
