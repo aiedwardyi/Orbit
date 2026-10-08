@@ -687,4 +687,33 @@ describe("no relay configured", () => {
       await world.access.stop();
     }
   });
+
+  it("imports the relay client only once the relay is on", () => {
+    const { dir, cleanup } = tempDataDir();
+    worlds.push(async () => cleanup());
+    const clientLoads = (config: PhoneRelayConfig) => {
+      const script = `
+        import { registerHooks } from "node:module";
+        const loaded = [];
+        registerHooks({ load: (url, context, next) => (loaded.push(url), next(url, context)) });
+        const { PhoneAccess } = await import(${JSON.stringify(new URL("./phone-access.ts", import.meta.url).href)});
+        const access = new PhoneAccess({
+          dataDir: ${JSON.stringify(dir)},
+          env: {},
+          staticDir: null,
+          config: () => (${JSON.stringify(config)}),
+          saveEnabled() {},
+          start: () => ({ status: () => ({}), stop: async () => {} }),
+        });
+        await access.start(() => {});
+        await access.stop();
+        console.log(JSON.stringify(loaded.filter((url) => /\\/phone-relay\\/(index|ingress)\\.ts$/.test(url))));
+      `;
+      const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8" });
+      expect(run.status, run.stderr).toBe(0);
+      return z.array(z.string()).parse(JSON.parse(run.stdout));
+    };
+    expect(clientLoads({ enabled: true })).toEqual([]);
+    expect(clientLoads({ base: "wink.test", enabled: true })).toHaveLength(2);
+  });
 });
