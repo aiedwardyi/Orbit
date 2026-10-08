@@ -35,14 +35,20 @@ const SPIN_MS = 500;
 const REFRESH_TIMEOUT_MS = 5_000;
 const SEND_MAY_HAVE_RUN = "Send may have run. Check the screen before resending.";
 
-type TerminalKey = "up" | "down" | "enter" | "esc";
+type TerminalKey = "up" | "down" | "enter" | "esc" | "clear";
 // Menus and yes/no prompts need keys a phone keyboard does not have.
-const TERMINAL_KEY_BUTTONS: Array<{ key: TerminalKey; label: string; aria?: MessageKey }> = [
+const TERMINAL_KEY_BUTTONS: Array<{ key: TerminalKey; label?: string; aria?: MessageKey }> = [
   { key: "up", label: "↑", aria: "terminal.keyUp" },
   { key: "down", label: "↓", aria: "terminal.keyDown" },
   { key: "enter", label: "Enter" },
   { key: "esc", label: "Esc" },
+  { key: "clear", aria: "terminal.keyClear" },
 ];
+
+// A phone pops its keyboard on focus, so only a fine pointer takes focus unasked.
+function focusInput(input: HTMLTextAreaElement | null) {
+  if (!window.matchMedia?.("(pointer: coarse)").matches) input?.focus({ preventScroll: true });
+}
 
 // A dropped fetch, a timeout or a bridge 5xx can fail a send the pty already ran.
 function sendMayHaveRun(cause: unknown): boolean {
@@ -201,6 +207,10 @@ export function RemoteTerminalView({
   }, [text]);
 
   useEffect(() => {
+    if (visible && canType) focusInput(inputRef.current);
+  }, [visible, canType]);
+
+  useEffect(() => {
     const el = outputRef.current;
     if (!el) return;
     // the phone keyboard shrinks the output; keep the prompt line in view
@@ -228,6 +238,7 @@ export function RemoteTerminalView({
   const post = async (input: ReturnType<typeof terminalSendInput> | { key: TerminalKey }) => {
     if (sending || !canType || !shown?.sessionId || shown.generation === undefined) return;
     const line = draft;
+    focusInput(inputRef.current);
     setSending(true);
     setSendError(null);
     try {
@@ -308,7 +319,10 @@ export function RemoteTerminalView({
               type="button"
               role="tab"
               aria-selected={activePaneId === pane.sessionId}
-              onClick={() => setSelectedPane(pane.main ? null : pane.sessionId)}
+              onClick={() => {
+                setSelectedPane(pane.main ? null : pane.sessionId);
+                focusInput(inputRef.current);
+              }}
               title={paneLabel(pane)}
               className={`min-w-[56px] max-w-full shrink-0 truncate rounded-md border px-1.5 py-0.5 font-mono text-[11px] ${
                 activePaneId === pane.sessionId ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"
@@ -339,6 +353,10 @@ export function RemoteTerminalView({
           onScroll={(event) => {
             const el = event.currentTarget;
             pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+          }}
+          onClick={() => {
+            // Focusing the input would drop a drag selection before it is copied.
+            if (!window.getSelection()?.toString()) focusInput(inputRef.current);
           }}
           className="orbit-remote-terminal min-h-0 flex-1 overflow-auto overscroll-contain whitespace-pre p-4 text-[12px] leading-relaxed select-text"
         >
@@ -374,7 +392,7 @@ export function RemoteTerminalView({
                 aria-label={aria ? t(aria) : undefined}
                 className="flex min-h-9 min-w-11 items-center justify-center rounded-md border border-hairline bg-inset px-3 font-mono text-[13px] text-ink-secondary hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text disabled:opacity-50"
               >
-                {label}
+                {label ?? (aria && t(aria))}
               </button>
             ))}
           </div>

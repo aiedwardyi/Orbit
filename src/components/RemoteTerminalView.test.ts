@@ -509,6 +509,109 @@ describe("RemoteTerminalView", () => {
     }
   });
 
+  it("focuses the input when the view opens on a live terminal", async () => {
+    pointer(false);
+    store.api.mockImplementation(typingSnapshot);
+    const { host, root } = await renderView();
+    const view = (visible: boolean) =>
+      createElement(I18nProvider, null, createElement(RemoteTerminalView, { bot: { id: "bot-1", name: "Ada" }, visible, onClose: () => {} }));
+    try {
+      expect(document.activeElement).toBe(composer(host));
+      composer(host)!.blur();
+      await act(async () => root.render(view(false)));
+      await act(async () => root.render(view(true)));
+      expect(document.activeElement).toBe(composer(host));
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("focuses the input after picking a pane tab", async () => {
+    pointer(false);
+    const panes = [{ sessionId: "main", label: "Main", main: true }, { sessionId: "worker", label: "Worker", main: false }];
+    store.api.mockImplementation(async (path: string) => {
+      const sessionId = path.includes("sessionId=worker") ? "worker" : "main";
+      return { screenText: `$ ${sessionId}`, sessionId, generation: 1, panes };
+    });
+    const { host, root } = await renderView();
+    try {
+      const worker = () => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((el) => el.textContent === "Worker")!;
+      worker().focus();
+      await act(async () => click(worker()));
+      expect(host.querySelector("pre")?.textContent).toBe("$ worker");
+      expect(document.activeElement).toBe(composer(host));
+      worker().focus();
+      await act(async () => click(worker()));
+      expect(document.activeElement).toBe(composer(host));
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it.each(["Send", "Up arrow"])("focuses the input after tapping %s", async (label) => {
+    pointer(false);
+    store.api.mockImplementation(typingSnapshot);
+    const { host, root } = await renderView();
+    try {
+      composer(host)!.blur();
+      await act(async () => click(button(host, label)));
+      expect(sends()).toHaveLength(1);
+      expect(document.activeElement).toBe(composer(host));
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("focuses the input on a screen click but not on one that selected text", async () => {
+    pointer(false);
+    store.api.mockResolvedValue({ screenText: "$ ls\nREADME.md", sessionId: "s1", generation: 2 });
+    const { host, root } = await renderView();
+    try {
+      const pre = host.querySelector("pre")!;
+      composer(host)!.blur();
+      await act(async () => click(pre));
+      expect(document.activeElement).toBe(composer(host));
+      composer(host)!.blur();
+      document.getSelection()!.selectAllChildren(pre);
+      await act(async () => click(pre));
+      expect(document.activeElement).not.toBe(composer(host));
+      expect(document.getSelection()!.toString()).toBe("$ ls\nREADME.md");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("never focuses the input on a coarse pointer", async () => {
+    pointer(true);
+    store.api.mockImplementation(typingSnapshot);
+    const { host, root } = await renderView();
+    try {
+      expect(document.activeElement).toBe(document.body);
+      await act(async () => click(button(host, "Up arrow")));
+      await act(async () => click(button(host, "Send")));
+      await act(async () => click(host.querySelector("pre")!));
+      expect(sends()).toHaveLength(2);
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("posts the clear key from the Clear line button", async () => {
+    store.api.mockImplementation(typingSnapshot);
+    const { host, root } = await renderView();
+    try {
+      expect(button(host, "Clear line").textContent).toBe("Clear line");
+      await act(async () => click(button(host, "Clear line")));
+      expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal/send", {
+        method: "POST",
+        body: JSON.stringify({ sessionId: "s1", generation: 2, key: "clear" }),
+      });
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("refreshes without resending on a stale generation", async () => {
     let generation = 2;
     store.api.mockImplementation(async (path: string) => {
