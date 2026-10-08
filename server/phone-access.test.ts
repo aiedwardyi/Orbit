@@ -818,11 +818,11 @@ describe("setup codes", () => {
   });
 
   it("keeps the saved base when the invite is refused, so a new code can follow", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     const pc = await fresh();
     const stale = mintInvite(generateKeyPairSync("ed25519").privateKey);
     const res = await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, stale) });
-    expect(res.status).toBe(400);
-    expect(String(res.body.error)).toMatch(/relay refused enrollment/);
+    expect(res).toEqual({ status: 400, body: { error: "enroll-failed" } });
     expect(pc.config).toMatchObject({ base: BASE, enabled: true });
     expect(readTicket(pc.r.dataDir).kind).toBe("missing");
     const again = await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, pc.invite()) });
@@ -835,12 +835,29 @@ describe("setup codes", () => {
     let broken = true;
     const pc = await fresh({ config: { base: BASE, enabled: true }, loadClient: () => (broken ? Promise.reject(new Error(problem)) : loadRelayClient()) });
     expect(await pc.status()).toMatchObject({ configured: true, enabled: true, state: "off", lastError: problem, problem: null });
-    expect(await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, pc.invite()) })).toEqual({ status: 400, body: { error: problem } });
+    expect(await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, pc.invite()) })).toEqual({ status: 400, body: { error: "enroll-failed" } });
+    expect(logged).toHaveBeenCalledWith(`[phone-relay] enroll failed: ${problem}`);
     expect(logged).toHaveBeenCalledWith(`[phone-relay] start failed: ${problem}`);
     broken = false;
     const connected = pc.statuses.until((s) => s.state === "connected");
     expect((await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, pc.invite()) })).status).toBe(200);
     await connected;
+  });
+
+  it("answers a used or expired code by name and keeps the relay's own reason in the log", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const pc = await fresh();
+    for (const [status, refusal, error] of [
+      [409, "invite-used", "invite-used"],
+      [403, "invite-expired", "invite-expired"],
+      [403, "invite-invalid", "enroll-failed"],
+    ] as const) {
+      pc.r.relay.enrollAnswer = () => ({ status, body: JSON.stringify({ error: refusal }) });
+      expect(await pc.post("/api/phone-relay/setup", { code: buildSetupCode(BASE, pc.invite()) })).toEqual({ status: 400, body: { error } });
+      expect(logged).toHaveBeenLastCalledWith(`[phone-relay] enroll failed: relay refused enrollment (${status} ${refusal})`);
+    }
+    pc.r.relay.enrollAnswer = () => ({ status: 409, body: JSON.stringify({ error: "invite-used" }) });
+    expect(await pc.post("/api/phone-relay/enroll", { invite: buildSetupCode(BASE, pc.invite()) })).toEqual({ status: 400, body: { error: "invite-used" } });
   });
 
   it("brings back a PC that a failed setup left on with no identity", async () => {
