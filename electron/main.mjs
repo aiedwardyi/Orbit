@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Notification, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
+import { app, BrowserWindow, Notification, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
 import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
@@ -28,6 +28,7 @@ import { completeQuitAfterCleanup } from "./app-quit.mjs";
 import { applyStartFresh, requestStartFresh } from "./start-fresh.mjs";
 import { installMainCrashLogging } from "./crash-log.mjs";
 import { companionParkedOnDesktop } from "./companion-policy.mjs";
+import { createKeepAwakeController } from "./keep-awake.mjs";
 import { createAppAuthorization, waitForAppToken } from "./local-api-auth.mjs";
 import { stopUtilityChild } from "./utility-child.mjs";
 import { buildDiagnosticsReport, decodeLogTail, diagnosticsFileName, redactSecretsInLine } from "./diagnostics.mjs";
@@ -538,20 +539,14 @@ import {
   stopCompanion,
 } from "./companion.mjs";
 
-let companionPowerBlocker = null;
+const keepAwake = createKeepAwakeController(powerSaveBlocker);
 
 function companionParked() {
   return companionParkedOnDesktop({ platform: process.platform, packaged: app.isPackaged });
 }
 
-function syncCompanionKeepAwake(companionEnabled, keepAwake) {
-  const shouldBlock = companionEnabled && keepAwake;
-  if (shouldBlock && companionPowerBlocker === null) {
-    companionPowerBlocker = powerSaveBlocker.start("prevent-app-suspension");
-  } else if (!shouldBlock && companionPowerBlocker !== null) {
-    if (powerSaveBlocker.isStarted(companionPowerBlocker)) powerSaveBlocker.stop(companionPowerBlocker);
-    companionPowerBlocker = null;
-  }
+function syncCompanionKeepAwake(companionEnabled, requested) {
+  keepAwake.setCompanion(companionEnabled, requested);
 }
 
 function slog(line) {
@@ -904,6 +899,7 @@ async function startServerOn(port) {
     env: childEnv,
     stdio: ["ignore", "pipe", "pipe"],
   });
+  keepAwake.setPhoneServer(proc);
   const tokenReady = waitForAppToken(proc, SERVER_BOOT_TIMEOUT_MS);
   proc.stdout?.on("data", (d) => slog(`[out] ${String(d).trimEnd()}`));
   proc.stderr?.on("data", (d) => slog(`[err] ${String(d).trimEnd()}`));
@@ -2202,6 +2198,9 @@ setCuaStateListener((connection) => {
 });
 
 app.whenReady().then(async () => {
+  keepAwake.setOnBattery(powerMonitor.isOnBatteryPower());
+  powerMonitor.on("on-ac", () => keepAwake.setOnBattery(false));
+  powerMonitor.on("on-battery", () => keepAwake.setOnBattery(true));
   let resetFailed = false;
   if (app.isPackaged) {
     try {
@@ -2385,7 +2384,7 @@ app.on("before-quit", (e) => {
   if (cuaCleanedUp) return;
   e.preventDefault();
   // Release the sleep blocker synchronously; child shutdown is awaited below.
-  syncCompanionKeepAwake(false, false);
+  keepAwake.stop();
   // a live dictation session runs its own helper child that holds the mic —
   // stop it here so quitting never orphans a recording process
   if (nativeActions.appleSpeech) stopSpeech();
