@@ -65,6 +65,7 @@ describe("Store", () => {
     const store = new Store(selection);
     const bot = store.createBot();
     const quiz = store.messagesFor(bot.threadId)[0];
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Hi" });
     const ask = store.appendMessage(bot.threadId, {
       role: "bot",
       kind: "options",
