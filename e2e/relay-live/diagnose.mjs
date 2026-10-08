@@ -1,4 +1,4 @@
-// Loads the relay client in the shipped server under Node and under Wink.exe's
+// Loads the relay client in the shipped server under Node and under Orbit.exe's
 // own runtime, with a placeholder setup code for example.invalid: no secret,
 // no relay traffic, no certificate. Also finds the CommonJS requires esbuild
 // left in the bundle.
@@ -58,9 +58,12 @@ async function start(name, runtime, home, port) {
   const fd = openSync(logPath, "a");
   const child = spawn(runtime.exe, [join(RES, "server", "packaged-boot.js")], { env, stdio: ["ignore", fd, fd], windowsHide: true });
   closeSync(fd);
+  let spawnError = null;
+  child.once("error", (error) => (spawnError = error));
   const server = { name, child, token, port, logPath, origin: `http://127.0.0.1:${port}` };
   const deadline = Date.now() + 180_000;
   while ((await call(server, "/api/phone-relay/status").catch(() => null))?.status !== 200) {
+    if (spawnError) throw spawnError;
     if (child.exitCode !== null) throw new Error(`${name} exited (${child.exitCode})`);
     if (Date.now() > deadline) throw new Error(`${name} never answered`);
     await sleep(500);
@@ -116,7 +119,7 @@ console.log(JSON.stringify(report.bundle, null, 2));
 
 const runtimes = [
   { name: "node", exe: process.execPath, env: {} },
-  { name: "electron", exe: join(RES, "..", "Wink.exe"), env: { ELECTRON_RUN_AS_NODE: "1" } },
+  { name: "electron", exe: join(RES, "..", "Orbit.exe"), env: { ELECTRON_RUN_AS_NODE: "1" } },
 ];
 let port = 22101;
 for (const runtime of runtimes) {
