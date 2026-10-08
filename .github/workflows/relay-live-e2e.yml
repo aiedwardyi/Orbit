@@ -32,6 +32,16 @@ on:
         required: false
         type: boolean
         default: false
+      keep_awake:
+        description: "Test the full Wink app's Windows power request only"
+        required: false
+        type: boolean
+        default: false
+      version:
+        description: "Published installer version when release_run is empty"
+        required: false
+        type: string
+        default: "1.0.147"
 
 permissions:
   contents: read
@@ -39,16 +49,17 @@ permissions:
 
 # Runs that stop after b never reach the relay, so they don't wait for one that does.
 concurrency:
-  group: relay-live-e2e${{ inputs.stop_after_b && '-boot' || '' }}
+  group: relay-live-e2e${{ inputs.stop_after_b && !inputs.keep_awake && '-boot' || '' }}
   cancel-in-progress: false
 
 jobs:
   flow:
     name: Phone access flow
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.keep_awake }}
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      VERSION: 1.0.147
+      VERSION: ${{ inputs.version || '1.0.147' }}
       RELEASE_RUN: ${{ inputs.release_run }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -171,6 +182,95 @@ jobs:
         if: always()
         with:
           name: relay-live-e2e
+          path: ${{ runner.temp }}/artifacts
+          if-no-files-found: warn
+          retention-days: 7
+
+  keep-awake:
+    name: Full app keep awake
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.keep_awake }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ inputs.version || '1.0.147' }}
+      RELEASE_RUN: ${{ inputs.release_run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Download the installer and check it against latest.yml
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/release" "$RUNNER_TEMP/artifacts"
+          cd "$RUNNER_TEMP/release"
+          if [ -n "$RELEASE_RUN" ]; then
+            gh run download "$RELEASE_RUN" -R aiedwardyi/Orbit -n windows-release -D .
+          else
+            base="https://github.com/aiedwardyi/orbit-releases/releases/download/v$VERSION"
+            curl -fsSL --retry 3 -o "Wink-$VERSION-setup.exe" "$base/Wink-$VERSION-setup.exe"
+            curl -fsSL --retry 3 -o latest.yml "$base/latest.yml"
+          fi
+          ls -l
+          node --input-type=module - <<'EOF'
+          import { createHash } from "node:crypto";
+          import { appendFileSync, readFileSync, statSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
+          const feed = readFileSync("latest.yml", "utf8");
+          const version = /^version:\s+(\S+)/m.exec(feed)?.[1] ?? null;
+          const run = process.env.RELEASE_RUN;
+          const exe = `Wink-${run ? version : process.env.VERSION}-setup.exe`;
+          const entry = [...feed.matchAll(/url:\s+(\S+)[\s\S]*?sha512:\s+(\S+)\n\s+size:\s+(\d+)/g)].find(([, url]) => url === exe);
+          if (!entry) { console.error(`latest.yml does not list ${exe}`); process.exit(1); }
+          const actual = createHash("sha512").update(readFileSync(exe)).digest("base64");
+          const size = statSync(exe).size;
+          const result = {
+            source: run ? `release.yml run ${run} (windows-release artifact)` : `orbit-releases v${process.env.VERSION}`,
+            exe,
+            version,
+            sha512Match: actual === entry[2],
+            sizeMatch: size === Number(entry[3]),
+            size,
+            sha512Prefix: actual.slice(0, 16),
+          };
+          writeFileSync(`${process.env.RUNNER_TEMP}/artifacts/a-release.json`, `${JSON.stringify(result, null, 2)}\n`);
+          console.log(JSON.stringify(result));
+          if (!result.sha512Match || !result.sizeMatch || !version || (!run && version !== process.env.VERSION)) process.exit(1);
+          appendFileSync(process.env.GITHUB_ENV, `INSTALLER=${join(process.cwd(), exe)}\nBITS=${result.source}, Wink ${version}\n`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `**Bits:** ${result.source}, \`${exe}\` (Wink ${version}), sha512 and size match its latest.yml\n\n`);
+          EOF
+      - name: Extract the installer
+        shell: bash
+        run: |
+          7z x -y -o"$RUNNER_TEMP/nsis" "$INSTALLER" > /dev/null
+          app=$(find "$RUNNER_TEMP/nsis" -name 'app-64.7z' | head -n 1)
+          [ -n "$app" ] || { echo "::error::no app-64.7z in the installer"; exit 1; }
+          7z x -y -o"$RUNNER_TEMP/wink" "$app" > /dev/null
+          [ -f "$RUNNER_TEMP/wink/Wink.exe" ] || { echo "::error::missing Wink.exe"; exit 1; }
+      - name: Install the harness
+        working-directory: e2e/relay-live
+        shell: bash
+        run: |
+          node --check keep-awake.mjs
+          npm install --no-audit --no-fund
+      - name: Check the full app's Windows power request
+        working-directory: e2e/relay-live
+        shell: bash
+        env:
+          RELAY_E2E_CODE: ${{ secrets.RELAY_E2E_CODE }}
+          ACME_MODE: ${{ inputs.acme }}
+          WINK_EXE: ${{ runner.temp }}/wink/Wink.exe
+          OUT_DIR: ${{ runner.temp }}/artifacts
+          WORK_DIR: ${{ runner.temp }}/keep-awake
+        run: node keep-awake.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() && env.KEEP_AWAKE_ARTIFACTS_SAFE == 'true' }}
+        with:
+          name: relay-keep-awake-e2e
           path: ${{ runner.temp }}/artifacts
           if-no-files-found: warn
           retention-days: 7
