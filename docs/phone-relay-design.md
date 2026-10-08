@@ -14,7 +14,7 @@ Code references are `file:line` at f825bdfa. "Unverified" marks claims not check
 | Certificates | Each PC runs ACME in-process with TLS-ALPN-01. The challenge rides the normal SNI route. Key never leaves the PC. |
 | Phone TLS | Terminated in Wink's Node server: tunneled socket fed to an in-process `tls.Server`, then `http.Server.emit('connection')` into the existing `handleRequest`. HTTP/1.1 in v1, HTTP/2 after measurement. |
 | Phone auth | QR holds a 2 minute single-use pairing token in the URL fragment. Redeeming it sets `__Host-wink_phone`, a per-phone device token, hashed at rest, revocable per phone. |
-| Off switch | No `phoneRelay.base` in config means the feature does not exist at runtime. Tailscale path untouched. |
+| Off switch | No `phoneRelay.base` in config means the feature does not exist at runtime: nothing opens a socket, starts a timer or creates a key. Settings then shows only a setup card; pasting the operator's setup code (`wks1:<base>:<invite>`) saves the base, turns the toggle on and enrolls in one step. `ORBIT_RELAY=0` hides even that. Tailscale path untouched. |
 
 ## 2. Architecture
 
@@ -152,7 +152,7 @@ Whoever controls DNS for `<base>`, or simply runs the relay, can pass TLS-ALPN-0
 | `server/phone-devices.ts` | Ported `DeviceRegistry`. |
 | `src/components/PhoneAccessSettings.tsx`, `public/pair.html`, `public/offline.html`, `public/sw.js` | UI. |
 
-Config (`~/.orbit/config.json`, `server/config.ts:1`): `phoneRelay.base` (empty means feature absent; shipped builds default empty), `phoneRelay.enabled` (user toggle), `phoneRelay.acmeDirectories` (default Let's Encrypt, then Google Trust Services with EAB). Env `ORBIT_RELAY=0` forces off. The base domain is never hardcoded.
+Config (`~/.orbit/config.json`, `server/config.ts:1`): `phoneRelay.base` (empty means feature absent; shipped builds default empty), `phoneRelay.enabled` (user toggle), `phoneRelay.acmeDirectories` (default Let's Encrypt, then Google Trust Services with EAB). Env `ORBIT_RELAY=0` forces off. The base domain is never hardcoded: it arrives in the setup code (`mint-invite --base`), and `POST /api/phone-relay/setup` {code} writes `base` and `enabled: true`, then enrolls with the invite inside it. A PC enrolled with one base refuses a code for another (409). If enrolling fails the base stays, so Settings asks for a new code.
 
 ## 13. Relay deploy, update, move, pause
 

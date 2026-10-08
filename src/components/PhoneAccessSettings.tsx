@@ -9,7 +9,11 @@ type RelayState = "off" | "enrolling" | "certifying" | "connected" | "reconnecti
 type RelayProblem = "superseded" | "revoked" | "ticket-expired" | "unknown-certificate";
 
 export interface RelayStatus {
+  /** False when ORBIT_RELAY=0; absent from a PC that takes no setup codes. */
+  available?: boolean;
   configured: boolean;
+  /** The configured relay base domain. */
+  base?: string | null;
   enabled: boolean;
   state: RelayState;
   host: string | null;
@@ -56,7 +60,7 @@ function countdown(ms: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-/** Phone access from anywhere through the relay. Absent unless this PC has a relay configured. */
+/** Phone access from anywhere through the relay. Without a configured relay, only a setup code card. */
 export function PhoneAccessSettings({ request = api }: { request?: typeof api }) {
   const { t, locale } = useI18n();
   const [status, setStatus] = useState<RelayStatus | null>(null);
@@ -65,6 +69,7 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
   const [paired, setPaired] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [invite, setInvite] = useState("");
+  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -128,7 +133,7 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
     return () => window.clearInterval(tick);
   }, [retrying]);
 
-  if (!status?.configured) return null;
+  if (!status || (!status.configured && status.available !== true)) return null;
 
   const run = async (work: () => Promise<void>, failure: (cause: unknown) => string) => {
     if (busy) return;
@@ -156,6 +161,14 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
       },
       (cause) => t("settings.phoneAccess.joinError", { message: cause instanceof Error ? cause.message : String(cause) }),
     );
+  const setUp = () =>
+    run(
+      async () => {
+        setStatus(await request("/api/phone-relay/setup", { method: "POST", body: JSON.stringify({ code: code.trim() }) }));
+        setCode("");
+      },
+      (cause) => t("settings.phoneAccess.setup.error", { message: cause instanceof Error ? cause.message : String(cause) }),
+    );
   const addPhone = () =>
     run(
       async () => {
@@ -178,6 +191,39 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
       },
       () => t("settings.phoneAccess.removeError"),
     );
+
+  if (!status.configured) {
+    return (
+      <Section title={t("settings.phoneAccess.title")} subtitle={t("settings.phoneAccess.setup.help")}>
+        <form
+          data-phone-access-setup
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (code.trim()) void setUp();
+          }}
+        >
+          <input
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            aria-label={t("settings.phoneAccess.setup.code")}
+            placeholder={t("settings.phoneAccess.setup.code")}
+            autoComplete="off"
+            spellCheck={false}
+            className="min-w-0 flex-1 rounded-lg border border-hairline bg-inset px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-accent"
+          />
+          <button type="submit" disabled={busy || !code.trim()} className={button}>
+            {t("settings.phoneAccess.setup.submit")}
+          </button>
+        </form>
+        {error ? (
+          <p role="alert" className="mt-2 text-[12.5px] text-danger">
+            {error}
+          </p>
+        ) : null}
+      </Section>
+    );
+  }
 
   const tag = localeTag(locale);
   const day = (ms: number) => new Date(ms).toLocaleDateString(tag, { month: "short", day: "numeric" });
@@ -212,6 +258,12 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
             <span className={cnKnob(enabled)} />
           </button>
         </div>
+
+        {enabled && status.state === "connected" && status.base ? (
+          <p data-phone-access-relay className="-mt-2 break-all text-[12px] text-ink-secondary">
+            {t("settings.phoneAccess.relay", { base: status.base })}
+          </p>
+        ) : null}
 
         {enabled && !status.problem && status.lastError ? (
           <p data-phone-access-error className="-mt-2 break-words text-[12px] text-ink-secondary">

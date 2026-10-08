@@ -3,8 +3,8 @@ import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { verifyInvite } from "../../shared/relay-protocol.ts";
-import { mintInviteFromFile } from "../scripts/mint-invite.ts";
+import { INVITE_PREFIX, parseSetupCode, verifyInvite } from "../../shared/relay-protocol.ts";
+import { mintFromFile, mintInviteFromFile } from "../scripts/mint-invite.ts";
 import { loadConfig, operatorKeyPath, readOperatorKey } from "../src/config.ts";
 
 async function keyFile(mode: number, key = generateKeyPairSync("ed25519").privateKey) {
@@ -24,6 +24,23 @@ describe("mint-invite", () => {
     expect(opened.ok).toBe(true);
     expect(opened.ok && opened.value.exp).toBe(Math.floor(now / 1000) + 2 * 86400);
     expect(invite).not.toContain("PRIVATE KEY");
+  });
+
+  it("with --base prints a setup code carrying that base and a verifying invite, and the bare invite without it", async () => {
+    const { path, key } = await keyFile(0o600);
+    const now = Date.now();
+    const code = await mintFromFile(path, { base: "Wink.Example.com", now });
+    expect(code).toMatch(/^wks1:wink\.example\.com:wki1\./);
+    const parsed = parseSetupCode(code);
+    if (!parsed.ok) throw new Error(parsed.reason);
+    expect(parsed.value.base).toBe("wink.example.com");
+    expect(verifyInvite(parsed.value.invite, createPublicKey(key), { now }).ok).toBe(true);
+    const bare = await mintFromFile(path, { now });
+    expect(bare.startsWith(`${INVITE_PREFIX}.`)).toBe(true);
+    expect(verifyInvite(bare, createPublicKey(key), { now }).ok).toBe(true);
+    for (const base of ["localhost", "wink.example.com:443", "-bad.example", ""]) {
+      await expect(mintFromFile(path, { base })).rejects.toThrow(/--base must be a domain name/);
+    }
   });
 
   it.skipIf(process.platform === "win32")("refuses a key file other users can read", async () => {
