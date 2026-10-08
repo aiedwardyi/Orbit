@@ -129,7 +129,52 @@ describe("PhoneAccessSettings", () => {
     await act(async () => root.unmount());
   });
 
-  it("takes a setup code in the invite field", async () => {
+  it("names a used, expired or failed setup code in plain words", async () => {
+    let answer = "invite-used";
+    serve({
+      "GET /api/phone-relay/status": () => status({ available: true, configured: false, enabled: false, state: "off", host: null }),
+      "POST /api/phone-relay/setup": () => {
+        throw new Error(answer);
+      },
+    });
+    const { host, root } = await renderView();
+    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!, "wks1:wink.test:wki1.invite.sig"));
+    for (const [code, text] of [
+      ["invite-used", "This setup code was already used. Ask for a new one."],
+      ["invite-expired", "This setup code has expired. Ask for a new one."],
+      ["enroll-failed", "Could not set up phone access. Try again, or ask for a new setup code."],
+    ]) {
+      answer = code;
+      await act(async () => click(button(host, "Set up")));
+      expect(host.querySelector('[role="alert"]')?.textContent).toBe(text);
+    }
+    await act(async () => root.unmount());
+  });
+
+  it("clears a refusal as soon as the code is edited, in either setup box", async () => {
+    for (const [relay, route] of [
+      [status({ available: true, configured: false, enabled: false, state: "off", host: null }), "POST /api/phone-relay/setup"],
+      [status({ state: "enrolling", host: null }), "POST /api/phone-relay/enroll"],
+    ] as const) {
+      serve({
+        "GET /api/phone-relay/status": () => relay,
+        "GET /api/phone/devices": () => ({ phones: [] }),
+        [route]: () => {
+          throw new Error("the setup code names an invalid relay address");
+        },
+      });
+      const { host, root } = await renderView();
+      const input = host.querySelector("input")!;
+      await act(async () => type(input, "wks1:localhost:wki1.a.b"));
+      await act(async () => click(host.querySelector('button[type="submit"]')!));
+      expect(host.querySelector('[role="alert"]'), route).not.toBeNull();
+      await act(async () => type(input, "wks1:wink.test:wki1.a.b"));
+      expect(host.querySelector('[role="alert"]'), route).toBeNull();
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("takes a setup code in the retry box", async () => {
     const CODE = "wks1:wink.test:wki1.invite.sig";
     const enroll = vi.fn(() => status({ base: "wink.test" }));
     serve({
@@ -138,10 +183,10 @@ describe("PhoneAccessSettings", () => {
       "POST /api/phone-relay/enroll": enroll,
     });
     const { host, root } = await renderView();
-    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Invite"]')!, CODE));
-    await act(async () => click(button(host, "Join")));
+    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!, CODE));
+    await act(async () => click(button(host, "Set up")));
     expect(enroll).toHaveBeenCalledWith({ method: "POST", body: JSON.stringify({ invite: CODE }) });
-    expect(host.querySelector('input[aria-label="Invite"]')).toBeNull();
+    expect(host.querySelector('input[aria-label="Setup code"]')).toBeNull();
     expect(host.querySelector("[data-phone-access-relay]")?.textContent).toBe("Relay: wink.test");
     await act(async () => root.unmount());
   });
@@ -160,9 +205,9 @@ describe("PhoneAccessSettings", () => {
     await act(async () => root.unmount());
   });
 
-  it("asks for an invite while enrolling and shows a refusal without echoing the invite", async () => {
+  it("asks for a setup code again after a refused one, by the same name", async () => {
     const enroll = vi.fn(() => {
-      throw new Error("relay refused enrollment (403 invite-expired)");
+      throw new Error("invite-used");
     });
     serve({
       "GET /api/phone-relay/status": () => status({ state: "enrolling", host: null }),
@@ -170,12 +215,13 @@ describe("PhoneAccessSettings", () => {
       "POST /api/phone-relay/enroll": enroll,
     });
     const { host, root } = await renderView();
-    expect(host.textContent).toContain("Enter an invite to set up this PC.");
-    const input = host.querySelector<HTMLInputElement>('input[aria-label="Invite"]')!;
+    expect(host.querySelector("[data-phone-access-state]")?.textContent).toBe("Paste the setup code you were sent to reach this PC from your phone.");
+    expect(host.textContent).not.toMatch(/invite|join/i);
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!;
     await act(async () => type(input, " wki1.invite.sig "));
-    await act(async () => click(button(host, "Join")));
+    await act(async () => click(button(host, "Set up")));
     expect(enroll).toHaveBeenCalledWith({ method: "POST", body: JSON.stringify({ invite: "wki1.invite.sig" }) });
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe("Could not join the relay: relay refused enrollment (403 invite-expired)");
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe("This setup code was already used. Ask for a new one.");
     await act(async () => root.unmount());
   });
 
@@ -252,10 +298,13 @@ describe("PhoneAccessSettings", () => {
       "POST /api/phone/pairing": () => ({ url, code: "123456", expiresAt: Date.now() + 120_000 }),
       "DELETE /api/phone/pairing": cancel,
     });
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
     const { host, root } = await renderView();
     await act(async () => click(button(host, "Add a phone")));
     const qr = host.querySelector('[aria-label="Phone pairing QR code"]');
     expect(qr?.querySelector("svg")).not.toBeNull();
+    expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
+    expect(scroll.mock.contexts).toEqual([qr?.parentElement]);
     expect(host.querySelector("[data-pairing-code]")?.textContent).toBe("123456");
     expect(host.textContent).toMatch(/Expires in [12]:\d\d/);
     expect(host.textContent).not.toContain("wkp_");

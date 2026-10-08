@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   PHONE_COOKIE,
   RateLimiter,
+  enrollError,
   phoneCookieToken,
   phoneSetCookie,
   rateKey,
@@ -198,5 +199,18 @@ describe("relay status for Settings", () => {
     expect(relayProblem("rejected", "ticket expired, enter an invite")).toBe("ticket-expired");
     expect(relayProblem("connected", "CT log shows a certificate for x with a key this PC never made (crt.sh id 1)")).toBe("unknown-certificate");
     expect(relayProblem("reconnecting", "connection to relay closed")).toBeNull();
+  });
+
+  it("names only the enrollment refusals a teammate can act on", () => {
+    expect(enrollError("relay refused enrollment (409 invite-used)")).toBe("invite-used");
+    expect(enrollError("relay refused enrollment (403 invite-expired)")).toBe("invite-expired");
+    for (const reason of [
+      "relay refused enrollment (403 invite-invalid)",
+      "relay refused enrollment (429 rate-limited)",
+      "relay refused enrollment (500)",
+      "getaddrinfo ENOTFOUND relay.example.invalid",
+    ]) {
+      expect(enrollError(reason), reason).toBe("enroll-failed");
+    }
   });
 });

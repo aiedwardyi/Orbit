@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
 import { localeTag, useI18n, type MessageKey } from "@/lib/i18n";
@@ -49,6 +49,13 @@ const PROBLEM = {
   "unknown-certificate": "settings.phoneAccess.problem.unknownCertificate",
 } satisfies Record<RelayProblem, MessageKey>;
 
+// What the PC answers a refused setup code with. Any other error is the PC's own words.
+const REFUSED = new Map<string, MessageKey>([
+  ["invite-used", "settings.phoneAccess.setup.used"],
+  ["invite-expired", "settings.phoneAccess.setup.expired"],
+  ["enroll-failed", "settings.phoneAccess.setup.failed"],
+]);
+
 const cnSwitch = (on: boolean) =>
   `relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${on ? "bg-accent" : "bg-control"}`;
 const cnKnob = (on: boolean) =>
@@ -72,6 +79,7 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const qrRef = useRef<HTMLDivElement>(null);
 
   const loadPhones = useCallback(
     () =>
@@ -125,6 +133,11 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
     };
   }, [pairing, loadPhones]);
 
+  // A new code opens at the bottom of Settings, below the fold.
+  useEffect(() => {
+    if (pairing) qrRef.current?.scrollIntoView({ block: "nearest" });
+  }, [pairing]);
+
   // While a retry is scheduled: tick its countdown.
   const retrying = status?.state === "reconnecting" && status.nextRetryAt !== null;
   useEffect(() => {
@@ -153,13 +166,18 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
       async () => setStatus(await request("/api/phone-relay", { method: "PUT", body: JSON.stringify({ enabled: !enabled }) })),
       () => t("settings.phoneAccess.saveError"),
     );
+  const setupError = (cause: unknown) => {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    const refused = REFUSED.get(message);
+    return refused ? t(refused) : t("settings.phoneAccess.setup.error", { message });
+  };
   const join = () =>
     run(
       async () => {
         setStatus(await request("/api/phone-relay/enroll", { method: "POST", body: JSON.stringify({ invite: invite.trim() }) }));
         setInvite("");
       },
-      (cause) => t("settings.phoneAccess.joinError", { message: cause instanceof Error ? cause.message : String(cause) }),
+      setupError,
     );
   const setUp = () =>
     run(
@@ -167,7 +185,7 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
         setStatus(await request("/api/phone-relay/setup", { method: "POST", body: JSON.stringify({ code: code.trim() }) }));
         setCode("");
       },
-      (cause) => t("settings.phoneAccess.setup.error", { message: cause instanceof Error ? cause.message : String(cause) }),
+      setupError,
     );
   const addPhone = () =>
     run(
@@ -203,7 +221,10 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
     >
       <input
         value={code}
-        onChange={(event) => setCode(event.target.value)}
+        onChange={(event) => {
+          setCode(event.target.value);
+          setError(null);
+        }}
         aria-label={t("settings.phoneAccess.setup.code")}
         placeholder={t("settings.phoneAccess.setup.code")}
         autoComplete="off"
@@ -239,7 +260,9 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
         : t("settings.phoneAccess.state.connecting")
       : status.state === "cert-error"
         ? t("settings.phoneAccess.state.certError")
-        : t(`settings.phoneAccess.state.${status.state}`);
+        : status.state === "enrolling"
+          ? t("settings.phoneAccess.setup.help")
+          : t(`settings.phoneAccess.state.${status.state}`);
   const needsInvite = enabled && (status.state === "enrolling" || status.problem === "revoked" || status.problem === "ticket-expired");
   // Off with an error: the relay client failed to load or start.
   const failed = enabled && status.state === "off" && status.lastError !== null;
@@ -295,15 +318,18 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
           >
             <input
               value={invite}
-              onChange={(event) => setInvite(event.target.value)}
-              aria-label={t("settings.phoneAccess.invite")}
-              placeholder={t("settings.phoneAccess.invite")}
+              onChange={(event) => {
+                setInvite(event.target.value);
+                setError(null);
+              }}
+              aria-label={t("settings.phoneAccess.setup.code")}
+              placeholder={t("settings.phoneAccess.setup.code")}
               autoComplete="off"
               spellCheck={false}
               className="min-w-0 flex-1 rounded-lg border border-hairline bg-inset px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-accent"
             />
             <button type="submit" disabled={busy || !invite.trim()} className={button}>
-              {t("settings.phoneAccess.join")}
+              {t("settings.phoneAccess.setup.submit")}
             </button>
           </form>
         ) : null}
@@ -320,7 +346,7 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
         ) : null}
 
         {pairing ? (
-          <div className="flex flex-col items-center rounded-xl bg-inset px-4 py-4 text-center">
+          <div ref={qrRef} className="flex flex-col items-center rounded-xl bg-inset px-4 py-4 text-center">
             {left > 0 ? (
               <>
                 <div className="rounded-2xl bg-white p-3" aria-label={t("settings.phoneAccess.qrLabel")}>
