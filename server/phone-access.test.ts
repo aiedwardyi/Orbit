@@ -2,25 +2,28 @@ import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { createServer, request, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from "node:http";
+import { IncomingMessage, ServerResponse, createServer, request, type IncomingHttpHeaders } from "node:http";
+import { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TLSSocket } from "node:tls";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { PHONE_RELAY_OFF } from "../shared/relay-protocol.ts";
+import * as atomic from "./atomic.ts";
 import { serveLinkedFile } from "./linked-files.ts";
 import { PhoneAccess } from "./phone-access.ts";
-import { requestCredentials } from "./phone-auth.ts";
-import { PAIRING_TTL_MS } from "./phone-devices.ts";
+import { phoneSetCookie, requestCredentials } from "./phone-auth.ts";
+import { PAIRING_TTL_MS, PhoneDevices } from "./phone-devices.ts";
 import type { PhoneRelayConfig } from "./phone-relay/index.ts";
 import { createPhoneRelay } from "./phone-relay/runtime.ts";
 import type { JsonObject } from "./schema.ts";
 import { FakeClock } from "./phone-relay/testing/fake-clock.ts";
 import { StatusLog, rig, tempDataDir, type Rig } from "./phone-relay/testing/harness.ts";
 import { listenLocal } from "./phone-relay/testing/net.ts";
-import { isRelayRequest } from "./phone-relay/via.ts";
+import { isRelayRequest, markRelaySocket } from "./phone-relay/via.ts";
 import { apiRequestAuthorized } from "./remote-access.ts";
 
 const COMMS = "c".repeat(48);
@@ -51,6 +54,7 @@ interface World {
 
 const worlds: Array<() => Promise<void>> = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const close of worlds.splice(0)) await close();
 });
 
@@ -549,6 +553,67 @@ describe("phone management", () => {
     expect(enrolled.status).toBe(400);
     expect(enrolled.body).not.toContain("I".repeat(60));
     expect(enrolled.body).not.toContain("wki1.");
+  });
+});
+
+describe("phone removal that fails to save", () => {
+  const HOST = "abcdefghijklmnop.wink.test";
+
+  function exchange(path: string, method = "GET") {
+    const socket = new Socket();
+    worlds.push(async () => {
+      socket.destroy();
+    });
+    const req = new IncomingMessage(socket);
+    req.url = path;
+    req.method = method;
+    req.headers = { host: HOST };
+    req.rawHeaders = ["host", HOST];
+    return { req, res: new ServerResponse(req), socket };
+  }
+
+  it("cuts the phone, refuses its cookie and succeeds on retry", async () => {
+    const { dir, cleanup } = tempDataDir();
+    worlds.push(async () => cleanup());
+    const clock = new FakeClock();
+    const phones = new PhoneDevices(dir, clock);
+    const paired = phones.redeem(phones.openPairing().token, "Lost phone", undefined);
+    if (!paired.ok) throw new Error(paired.error);
+    const access = new PhoneAccess({
+      dataDir: dir,
+      env: {},
+      staticDir: null,
+      config: () => ({ base: "wink.test", enabled: true }),
+      saveEnabled: () => {},
+      clock,
+      start: () => ({ status: () => ({ ...PHONE_RELAY_OFF, state: "connected", host: HOST }), stop: async () => {} }),
+    });
+    worlds.push(() => access.stop());
+    await access.start(() => {});
+    const cookie = phoneSetCookie(paired.token).split(";")[0];
+    const phone = exchange("/api/events");
+    phone.req.headers.cookie = cookie;
+    markRelaySocket(phone.socket);
+    expect(await access.gate(phone.req, phone.res)).toMatchObject({ handled: false, phone: { id: paired.phone.id } });
+
+    vi.spyOn(atomic, "writeFileAtomic").mockImplementationOnce(() => {
+      throw Object.assign(new Error("phone registry is busy"), { code: "EBUSY" });
+    });
+    const path = `/api/phone/devices/${paired.phone.id}`;
+    const first = exchange(path, "DELETE");
+    await expect(access.handle(first.req, first.res, path, "DELETE", true)).rejects.toThrow("phone registry is busy");
+    expect(phone.socket.destroyed).toBe(true);
+
+    const again = exchange("/api/events");
+    again.req.headers.cookie = cookie;
+    markRelaySocket(again.socket);
+    expect(await access.gate(again.req, again.res)).toEqual({ handled: true });
+    expect(again.res.statusCode).toBe(401);
+
+    const retry = exchange(path, "DELETE");
+    expect(await access.handle(retry.req, retry.res, path, "DELETE", true)).toBe(true);
+    expect(retry.res.statusCode).toBe(200);
+    expect(new PhoneDevices(dir, clock).authenticate(paired.token)).toBeNull();
   });
 });
 

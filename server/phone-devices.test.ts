@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import * as atomic from "./atomic.ts";
 import {
   COOKIE_REFRESH_MS,
   MAX_PHONES,
@@ -16,6 +17,7 @@ import { FakeClock } from "./phone-relay/testing/fake-clock.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -192,6 +194,20 @@ describe("phone devices", () => {
     expect(phones.authenticate(b.token)?.phone.name).toBe("b");
     expect(phones.authenticate(null)).toBeNull();
     expect(phones.authenticate("wkd_unknown")).toBeNull();
+  });
+
+  it("keeps a failed removal listed and refused until a write drops it", () => {
+    const { dir, clock, phones } = registry();
+    const lost = pairOne(phones, "lost");
+    vi.spyOn(atomic, "writeFileAtomic").mockImplementationOnce(() => {
+      throw new Error("disk busy");
+    });
+    expect(() => phones.revoke(lost.phone.id)).toThrow("disk busy");
+    expect(phones.list().map((phone) => phone.name)).toEqual(["lost"]);
+    expect(phones.authenticate(lost.token)).toBeNull();
+    pairOne(phones, "next");
+    expect(phones.list().map((phone) => phone.name)).toEqual(["next"]);
+    expect(new PhoneDevices(dir, clock).authenticate(lost.token)).toBeNull();
   });
 
   it("issues exactly one phone to concurrent redemptions", async () => {

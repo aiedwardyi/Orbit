@@ -361,9 +361,13 @@ export class PhoneAccess {
     if (method === "GET" && path === "/api/phone/devices") return reply(200, { phones: this.describe().enabled ? this.phones.list() : [] });
     if (method === "DELETE" && device) {
       const id = device[1]!;
-      if (!this.phones.revoke(id)) return reply(404, { error: "no such phone" });
-      for (const socket of this.sockets.get(id) ?? []) socket.destroy();
-      this.sockets.delete(id);
+      try {
+        if (!this.phones.revoke(id)) return reply(404, { error: "no such phone" });
+      } finally {
+        // A revoke whose write failed still refuses the phone, so cut it either way.
+        for (const socket of this.sockets.get(id) ?? []) socket.destroy();
+        this.sockets.delete(id);
+      }
       return reply(200, { ok: true });
     }
     return reply(405, { error: "method not allowed" });

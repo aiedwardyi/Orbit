@@ -44,6 +44,8 @@ interface PhoneRecord {
   createdAt: number;
   lastSeenAt: number;
   cookieAt: number;
+  /** Refused, but kept until a write leaves it out, so a failed removal can be retried. */
+  revoked?: boolean;
 }
 
 export interface PublicPhone {
@@ -122,8 +124,10 @@ export class PhoneDevices {
   }
 
   private persist(): void {
+    const phones = this.phones.filter((phone) => !phone.revoked);
     mkdirSync(this.dataDir, { recursive: true });
-    writeFileAtomic(join(this.dataDir, PHONES_FILE), `${JSON.stringify({ phones: this.phones }, null, 2)}\n`, { mode: 0o600 });
+    writeFileAtomic(join(this.dataDir, PHONES_FILE), `${JSON.stringify({ phones }, null, 2)}\n`, { mode: 0o600 });
+    this.phones = phones;
   }
 
   list(): PublicPhone[] {
@@ -206,7 +210,7 @@ export class PhoneDevices {
     if (!token?.startsWith(TOKEN_PREFIX)) return null;
     const hash = sha256(token);
     const record = this.phones.find((phone) => sameText(phone.tokenHash, hash));
-    if (!record) return null;
+    if (!record || record.revoked) return null;
     const now = this.clock.now();
     if (now - record.lastSeenAt >= PHONE_IDLE_MS) {
       this.phones = this.phones.filter((phone) => phone !== record);
@@ -234,9 +238,9 @@ export class PhoneDevices {
   }
 
   revoke(id: string): boolean {
-    const before = this.phones.length;
-    this.phones = this.phones.filter((phone) => phone.id !== id);
-    if (this.phones.length === before) return false;
+    const record = this.phones.find((phone) => phone.id === id);
+    if (!record) return false;
+    record.revoked = true;
     this.lastSeenWrites.delete(id);
     this.persist();
     return true;
