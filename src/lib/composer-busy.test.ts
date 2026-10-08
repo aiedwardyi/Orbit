@@ -116,7 +116,6 @@ describe("Composer wiring", () => {
     expect(composer).toContain("disabled={Boolean(approval) || locked}");
     expect(composer).not.toMatch(/disabled=\{[^}]*busy/);
     expect(composer).not.toContain("pendingSteer.map");
-    expect(chatView).not.toContain('t("chat.queuedSendsNext")');
   });
   it("uses composerBusyChrome and does not hard-code the 1:1 wait lecture", () => {
     expect(composer).toContain("composerBusyChrome");
@@ -260,7 +259,7 @@ describe("queued follow-up copy", () => {
     expect(en["composer.queuedUntil"]).not.toMatch(/working|turn finishes/i);
     expect(en["chat.queuedSendsNext"]).toBe("Sends next");
     expect(ko["chat.queuedSendsNext"]).toBe("다음에 보내집니다");
-    expect(chatView).not.toContain('t("chat.queuedSendsNext")');
+    expect(chatView).toContain('t("chat.queuedSendsNext")');
     expect(chatView).not.toMatch(/Queued — sends when this turn finishes/);
   });
 });

@@ -684,3 +684,115 @@ describe("ChatView reconnecting cue", () => {
     }
   });
 });
+
+describe("ChatView queued sends", () => {
+  const instance = (queueing: boolean): InstanceInfo => ({
+    instanceId: "inst",
+    driverKind: "antigravityAgent",
+    displayName: "Engine",
+    models: { default: "m", options: [] },
+    snapshot: { state: "available" },
+    capabilities: { queueing },
+  });
+  const replyA: Message = { id: "reply-a", parentId: "ua", at: 2, role: "bot", kind: "text", text: "answer for A" };
+  const drained: Message = { id: "ub", parentId: "reply-a", queueId: "q1", at: 3, role: "user", kind: "text", text: "waiting B" };
+  let show: (bot: Bot) => void = () => {};
+  let send: ReturnType<typeof useStore>["dispatch"] = () => {};
+
+  function Queued({ queueing }: { queueing: boolean }) {
+    const { dispatch } = useStore();
+    const [bot, setBot] = useState<Bot>(botA);
+    show = setBot;
+    send = dispatch;
+    useEffect(() => {
+      dispatch({ type: "instances", instances: [instance(queueing)] });
+      dispatch({ type: "pendingQueued", threadId: "thread-a", queueId: "q1", text: "waiting B", at: 2 });
+    }, [dispatch, queueing]);
+    return createElement(ChatView, { bot });
+  }
+
+  const mount = async (queueing: boolean) => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    live.current = { streaming: {}, reasoning: {}, signal: { "thread-a": "started" }, turn: {} };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(Queued, { queueing }))));
+    const order = () =>
+      [...host.querySelectorAll("[data-mid], .thinking-shimmer")].map((el) =>
+        el.classList.contains("thinking-shimmer") ? "thinking" : el.getAttribute("data-mid"));
+    const row = (id: string) => host.querySelector(`[data-mid="${id}"]`);
+    return { host, root, order, row };
+  };
+
+  it("keeps a waiting send below the thinking row and the reply above it", async () => {
+    const { host, root, order, row } = await mount(false);
+    try {
+      expect(order()).toEqual(["ua", "thinking", "q1"]);
+      expect(row("q1")?.textContent).toContain("Sends next");
+      const waiting = row("q1");
+
+      live.current = { streaming: { "thread-a": "answer for A" }, reasoning: {}, signal: { "thread-a": "started" }, turn: { "thread-a": "0:ua" } };
+      await act(async () => show({ ...botA }));
+      expect(order()).toEqual(["ua", "stream:thread-a:ua", "thinking", "q1"]);
+      expect(row("q1")).toBe(waiting);
+
+      live.current = { streaming: {}, reasoning: {}, signal: { "thread-a": "started" }, turn: {} };
+      await act(async () => show({ ...botA, messages: [...botA.messages, replyA], activeLeafId: "reply-a" }));
+      expect(order()).toEqual(["ua", "reply-a", "thinking", "q1"]);
+      expect(row("q1")).toBe(waiting);
+      expect(row("q1")?.textContent).toContain("Sends next");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("puts the next thinking row below the drained send", async () => {
+    const { host, root, order, row } = await mount(false);
+    try {
+      await act(async () => show({ ...botA, messages: [...botA.messages, replyA], activeLeafId: "reply-a" }));
+      expect(order()).toEqual(["ua", "reply-a", "thinking", "q1"]);
+      await act(async () => {
+        send({ type: "consumePendingQueued", threadId: "thread-a", queueId: "q1" });
+        show({ ...botA, messages: [...botA.messages, replyA, drained], activeLeafId: "ub" });
+      });
+      expect(order()).toEqual(["ua", "reply-a", "ub", "thinking"]);
+      expect(row("ub")?.textContent).not.toContain("Sends next");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("puts a send a steering engine queued below the thinking row", async () => {
+    const { host, root, order, row } = await mount(true);
+    try {
+      expect(order()).toEqual(["ua", "thinking", "q1"]);
+      expect(row("q1")?.textContent).toContain("Sends next");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("marks only the first waiting send as next", async () => {
+    const { host, root, order, row } = await mount(false);
+    try {
+      await act(async () => send({ type: "pendingQueued", threadId: "thread-a", queueId: "q2", text: "waiting C", at: 3 }));
+      expect(order()).toEqual(["ua", "thinking", "q1", "q2"]);
+      expect(row("q1")?.textContent).toContain("Sends next");
+      expect(row("q2")?.textContent).not.toContain("Sends next");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});

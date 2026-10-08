@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Copy,
   Crown,
   Gauge,
@@ -44,7 +45,7 @@ import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
 import { stateForBot } from "@/lib/mascot";
 import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
-import { turnPresenceWaiting, withAcceptedMessages } from "@/lib/send-accept";
+import { composerIsBusy, splitQueuedSends, turnPresenceWaiting, withAcceptedMessages } from "@/lib/send-accept";
 import { liveActivityLabel } from "@/lib/live-activity";
 import { buffersForTurn, turnPhase, turnStageLabel } from "@/lib/turn-stage";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -435,6 +436,7 @@ const Bubble = memo(function Bubble({
   editing,
   isLastBotText,
   streaming = false,
+  sendsNext = false,
   onStartEdit,
   onCancelEdit,
   onSubmitEdit,
@@ -449,6 +451,7 @@ const Bubble = memo(function Bubble({
   editing: boolean;
   isLastBotText: boolean;
   streaming?: boolean;
+  sendsNext?: boolean;
   onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
   onSubmitEdit: (id: string, text: string) => void;
@@ -693,6 +696,12 @@ const Bubble = memo(function Bubble({
         />
       )}
       <TimestampLabel at={message.at} hidden={streaming} />
+      {sendsNext && (
+        <div className="mt-1 flex items-center gap-1 pr-1 text-[11px] text-ink-secondary/70">
+          <Clock size={11} aria-hidden="true" />
+          <span>{t("chat.queuedSendsNext")}</span>
+        </div>
+      )}
       {!message.placeholder && versions.length > 1 && (
         <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
           <button
@@ -1231,6 +1240,13 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   useLayoutEffect(() => {
     windowAnchor.current = { id: windowedMessages[0]?.id, index: startIndex };
   });
+  const canSteer = engine?.capabilities?.queueing === true;
+  const { listed, queued } = useMemo(
+    () => splitQueuedSends(windowedMessages, accepted, pending, canSteer),
+    [canSteer, windowedMessages, accepted, pending],
+  );
+  // busy-gated so an entry stranded by a server restart shows nothing
+  const sendsNext = composerIsBusy(Boolean(bot.busy), accepted);
 
   const lastBotTextId = useMemo(
     () => [...messages].reverse().find((m) => m.role === "bot" && m.kind === "text")?.id,
@@ -1706,7 +1722,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           )}
           <MessagesList
             bot={bot}
-            messages={windowedMessages}
+            messages={listed}
             transcript={shown}
             editingId={editingId}
             lastBotTextId={lastBotTextId}
@@ -1756,6 +1772,23 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             visible={waiting && !jump.messages}
             label={activityLabel}
           />
+          {queued.map((m, index) => (
+            <div key={m.id} className="contents" data-mid={m.id}>
+              <Bubble
+                bot={bot}
+                message={m}
+                transcript={shown}
+                editing={false}
+                isLastBotText={false}
+                sendsNext={sendsNext && index === 0}
+                onStartEdit={startEdit}
+                onCancelEdit={cancelEdit}
+                onSubmitEdit={submitEdit}
+                onReply={selectReply}
+                onFocusComposer={focusComposer}
+              />
+            </div>
+          ))}
         </div>
       </div>
 
