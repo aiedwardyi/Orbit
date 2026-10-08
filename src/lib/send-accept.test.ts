@@ -14,6 +14,7 @@ import {
   rememberAcceptedSend,
   settleAcceptedSend,
   shouldDropQueueChip,
+  splitQueuedSends,
   turnPresenceWaiting,
   visibleSteerEntries,
   withAcceptedMessages,
@@ -47,6 +48,25 @@ describe("withAcceptedMessages", () => {
     expect(withAcceptedMessages([settledReply], accepted).at(-1)?.at).toBe(42);
     expect(withAcceptedMessages([{ ...settledReply, at: 99 }], accepted).at(-1)?.at).toBe(42);
     expect(withAcceptedMessages([settledReply], [], [{ queueId: "q1", text: "extra", at: 42 }]).at(-1)?.at).toBe(42);
+  });
+});
+
+describe("splitQueuedSends", () => {
+  it("moves waiting sends out of the list and keeps a starting send in it", () => {
+    const accepted = [
+      { sendId: "t1", kind: "thinking" as const, text: "first" },
+      { sendId: "s1", kind: "sends-next" as const, text: "next" },
+    ];
+    const messages = withAcceptedMessages([settledReply], accepted, [{ queueId: "q1", text: "queued" }]);
+    const { listed, queued } = splitQueuedSends(messages, accepted, [{ queueId: "q1" }]);
+    expect(listed.map((message) => message.id)).toEqual(["a1", "t1"]);
+    expect(queued.map((message) => message.id)).toEqual(["q1", "s1"]);
+  });
+
+  it("never moves a canonical message", () => {
+    const landed: Message = { id: "q1", role: "user", kind: "text", text: "queued", at: 2 };
+    const messages = [settledReply, landed];
+    expect(splitQueuedSends(messages, [], [{ queueId: "q1" }])).toEqual({ listed: messages, queued: [] });
   });
 });
 
