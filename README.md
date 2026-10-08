@@ -94,7 +94,7 @@ Wink has no analytics, telemetry or crash upload. This is everything it listens 
 **Listens** (this PC only)
 
 - `127.0.0.1:8799` for the app (falls back to 18799, then 28799), behind a per-launch token and a Host/Origin check. The token lives in memory, and in a Claude turn's temp config until that turn ends.
-- `127.0.0.1:8800` (the app's port + 1) for webhooks, which rejects any request without a webhook's secret.
+- `127.0.0.1:8800` for webhooks (the app's port + 1, so 18800 or 28800 on a fallback), which rejects any request without a webhook's secret.
 - Random token-protected `127.0.0.1` ports for the terminal and browser bridges.
 
 **Sends with no setup**
@@ -121,20 +121,20 @@ Wink has no analytics, telemetry or crash upload. This is everything it listens 
 **Stores**
 
 - `~/.orbit` (or `OMB_DATA_DIR`): bots, chats (`messages.db`), each bot's `MEMORY.md`, task records, attachments, redacted engine event logs, phone pairing keys, a decision log, and checkpoints (a shadow git snapshot before each turn in a project folder). `orbit-msg` lives in `~/.orbit/bin`.
-- `%APPDATA%\orbit-desktop`: Wink's own API keys in `credentials.bin`, encrypted with the Windows credential store through Electron `safeStorage`, the updater's install ID, and logs.
+- `%APPDATA%\orbit-desktop`: Wink's own API keys in `credentials.bin`, encrypted with the Windows credential store through Electron `safeStorage`, the updater's install ID, and logs. It also holds Electron's browser data: local storage (UI settings and unsent drafts), plus the cookies and logins of the bots' built-in browser and of the windows that open your other PCs.
 - Outside those, only while needed: `~/.gemini/config/mcp_config.json` during Antigravity turns (restored after) and a temp `mcp.json` per Claude turn (deleted after). Picking a local model for Grok adds it to `~/.grok/config.toml`, with that server's API key if it has one, and the entry stays.
 
 **Approvals**
 
 - New bots start in **Auto**: every tool request in a turn you start is approved, destructive ones included. On this PC's own screen, destructive or secret-reading actions still ask.
-- **Ask** asks before any tool call you haven't always-allowed, and always before destructive or secret-reading ones. Codex always runs in its workspace-write sandbox. Antigravity can't ask in print mode, so Ask has no effect there.
+- **Ask** asks before any tool call you haven't always-allowed, and always before destructive or secret-reading ones. Codex runs in its workspace-write sandbox, unless you hand-edit an instance's config to `fullAuto` (no Settings screen does), which turns the sandbox off. Antigravity can't ask in print mode, so Ask has no effect there.
 - Engine CLIs start without a shell and without your `*_KEY`, `*_TOKEN` and `*_SECRET` variables, except what a driver needs.
 
 **Workers**
 
 - Workers run with their CLI's permission prompts off: `claude --dangerously-skip-permissions`, `codex --dangerously-bypass-approvals-and-sandbox`, `muse --yolo`, `grok --always-approve`.
 - The built-in playbook tells bots to run each worker in its own git worktree, never your checkout. That is an instruction to the bot, not something Wink enforces.
-- Pane shells don't inherit Wink's tokens or secrets. Panes close when Wink quits.
+- Pane shells don't inherit Wink's tokens or secrets, except `ORBIT_MSG_AUTH`: a token that only lets that one pane post its report to the bot that opened it. Panes close when Wink quits.
 
 Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
