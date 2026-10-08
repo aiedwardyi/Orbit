@@ -37,12 +37,24 @@ describe("picker catalogs", () => {
   it("orders the model column frontier-first without changing the catalog default", () => {
     const instance: InstanceInfo = {
       instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude", snapshot: { state: "available" },
-      models: { default: "claude-sonnet-5-5", options: ["claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"].map((id) => ({ id, label: id })) },
+      models: { default: "claude-sonnet-5-5", options: ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"].map((id) => ({ id, label: id })) },
     };
     const before = JSON.stringify(instance.models);
     const rows = pickerRows([instance], { instanceId: "claude", model: "claude-opus-5-5", mode: "pinned" });
-    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-sonnet-5-5"]);
+    expect(rows[0]!.cells.map((cell) => cell.options[0]!.id)).toEqual(["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]);
     expect(JSON.stringify(instance.models)).toBe(before);
+  });
+
+  it("defaults a Haiku 5.5 pick to high effort and keeps Haiku 4.5 off the grid", () => {
+    const instance: InstanceInfo = {
+      instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude", snapshot: { state: "available" },
+      models: { default: "claude-sonnet-5-5", options: ["claude-haiku-5-5", "claude-haiku-4-5"].map((id) => ({ id, label: id })) },
+      capabilities: { effortLevels: ["low", "medium", "high", "xhigh", "max"] },
+    };
+    const row = pickerRows([instance], { instanceId: "claude", model: "claude-haiku-4-5", mode: "pinned" })[0]!;
+    expect(row.cells.filter((cell) => !cell.offList).map((cell) => cell.options[0]!.id)).toEqual(["claude-haiku-5-5"]);
+    expect(row.cells.find((cell) => cell.offList)?.options[0]!.id).toBe("claude-haiku-4-5");
+    expect(withPickerEffort(instance, { instanceId: "claude", model: "claude-haiku-5-5", mode: "pinned" }).effort).toBe("high");
   });
 
   it.each(["ArrowUp", "ArrowDown"])("wraps past the boundary with %s and skips empty rows", (key) => {

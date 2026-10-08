@@ -2161,6 +2161,17 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     for (const name of names) expect(seen.env[name]).toBeUndefined();
   });
 
+  it("runs one-shot generateText on Haiku 5.5", async () => {
+    await create();
+    const dump = join(scratch, "generate-text-model.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.generateText?.("summarize");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv[seen.argv.indexOf("--model") + 1]).toBe("claude-haiku-5-5");
+  });
+
   it("declares safe same-provider permission review", async () => {
     await create();
     await expect(instance.reviewPermission?.("review this request")).resolves.toBe("fake generated text");

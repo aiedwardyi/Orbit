@@ -77,7 +77,7 @@ describe("model filter", () => {
   it("charts only picker models on every tab", () => {
     for (let i = 0; i < 6; i++) {
       const named = [...host.querySelectorAll('[tabindex="0"]')].map((el) => el.getAttribute("aria-label") ?? el.textContent ?? "").join("|");
-      expect(named, tab() ?? "").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Argon|Haiku/);
+      expect(named, tab() ?? "").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Argon|Haiku 4\.5/);
       press(window);
     }
   });
