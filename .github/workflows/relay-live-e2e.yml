@@ -1,0 +1,103 @@
+# Phone access end to end on a fresh Windows machine: the released 1.0.147
+# installer, the packaged server, the live relay and a phone-sized browser.
+# Pushes run the mode in e2e/relay-live/acme.txt; staging certificates keep
+# the shared Let's Encrypt production limit for the final run.
+name: Relay live E2E
+
+on:
+  push:
+    branches: [e2e/relay-live]
+  workflow_dispatch:
+    inputs:
+      acme:
+        description: "Certificate authority for this run"
+        required: false
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: relay-live-e2e
+  cancel-in-progress: false
+
+jobs:
+  flow:
+    name: Phone access flow
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      VERSION: 1.0.147
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Download the release and check it against latest.yml
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/release" "$RUNNER_TEMP/artifacts"
+          cd "$RUNNER_TEMP/release"
+          base="https://github.com/aiedwardyi/orbit-releases/releases/download/v$VERSION"
+          curl -fsSL --retry 3 -o "Wink-$VERSION-setup.exe" "$base/Wink-$VERSION-setup.exe"
+          curl -fsSL --retry 3 -o latest.yml "$base/latest.yml"
+          node --input-type=module - <<'EOF'
+          import { createHash } from "node:crypto";
+          import { readFileSync, statSync, writeFileSync } from "node:fs";
+          const exe = `Wink-${process.env.VERSION}-setup.exe`;
+          const feed = readFileSync("latest.yml", "utf8");
+          const entry = [...feed.matchAll(/url:\s+(\S+)[\s\S]*?sha512:\s+(\S+)\n\s+size:\s+(\d+)/g)].find(([, url]) => url === exe);
+          if (!entry) { console.error(`latest.yml does not list ${exe}`); process.exit(1); }
+          const actual = createHash("sha512").update(readFileSync(exe)).digest("base64");
+          const size = statSync(exe).size;
+          const result = {
+            exe,
+            version: /^version:\s+(\S+)/m.exec(feed)?.[1] ?? null,
+            sha512Match: actual === entry[2],
+            sizeMatch: size === Number(entry[3]),
+            size,
+            sha512Prefix: actual.slice(0, 16),
+          };
+          writeFileSync(`${process.env.RUNNER_TEMP}/artifacts/a-release.json`, `${JSON.stringify(result, null, 2)}\n`);
+          console.log(JSON.stringify(result));
+          if (!result.sha512Match || !result.sizeMatch || result.version !== process.env.VERSION) process.exit(1);
+          EOF
+      - name: Extract the installer
+        shell: bash
+        run: |
+          7z x -y -o"$RUNNER_TEMP/nsis" "$RUNNER_TEMP/release/Wink-$VERSION-setup.exe" > /dev/null
+          app=$(find "$RUNNER_TEMP/nsis" -name 'app-64.7z' | head -n 1)
+          [ -n "$app" ] || { echo "::error::no app-64.7z in the installer"; find "$RUNNER_TEMP/nsis" -maxdepth 2; exit 1; }
+          7z x -y -o"$RUNNER_TEMP/wink" "$app" > /dev/null
+          res="$RUNNER_TEMP/wink/resources"
+          for f in server/packaged-boot.js server/index.js ui/index.html ui/pair.html; do
+            [ -f "$res/$f" ] || { echo "::error::missing $f"; exit 1; }
+          done
+          ls "$RUNNER_TEMP/wink"
+      - name: Install the harness
+        working-directory: e2e/relay-live
+        shell: bash
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install chromium
+      - name: Run the phone access flow
+        working-directory: e2e/relay-live
+        shell: bash
+        env:
+          RELAY_E2E_CODE: ${{ secrets.RELAY_E2E_CODE }}
+          ACME_MODE: ${{ inputs.acme }}
+          WINK_RESOURCES: ${{ runner.temp }}/wink/resources
+          OUT_DIR: ${{ runner.temp }}/artifacts
+          WORK_DIR: ${{ runner.temp }}/work
+        run: node run.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: relay-live-e2e
+          path: ${{ runner.temp }}/artifacts
+          if-no-files-found: warn
+          retention-days: 7
