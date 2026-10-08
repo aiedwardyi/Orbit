@@ -1066,7 +1066,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
   });
 
   it("a message sent mid-turn is steered into the running turn", async () => {
-    await create("slow");
+    // hold the slow gap open until the steer lands instead of racing 800 ms
+    await create("slow", { FAKE_CLAUDE_SLOW_UNTIL_STEER: "1" });
     const { turnId } = await instance.adapter.sendTurn({ threadId: "t-steer", text: "first" });
     await recorder.until((e) => e.type === "item.completed" && e.itemType === "tool");
     expect(instance.adapter.capabilities.queueing).toBe(true);
@@ -1084,7 +1085,10 @@ describe("ClaudeDriver turns (fake CLI)", () => {
   it("holds the turn open for a steer that missed the final request", async () => {
     await create("late-steer");
     const { turnId } = await instance.adapter.sendTurn({ threadId: "t-late-steer", text: "first" });
-    await recorder.until((e) => e.type === "content.delta");
+    // steer after the final request's own delta: the earlier "hello" text
+    // also emits a delta, and a steer written before the CLI's `requesting`
+    // status is counted as already sent
+    await recorder.until((e) => e.type === "content.delta" && e.delta === "reply");
     await expect(instance.adapter.steer!("t-late-steer", "and also this")).resolves.toBe(true);
     const done = await recorder.until((e) => e.type === "turn.completed");
     // settling on the first `result` would free the thread before the CLI
@@ -1098,14 +1102,21 @@ describe("ClaudeDriver turns (fake CLI)", () => {
   });
 
   it("keeps a held result's cost when the follow-up is interrupted", async () => {
-    await create("late-steer");
+    // the follow-up stays open until interrupted instead of racing 800 ms
+    await create("late-steer", { FAKE_CLAUDE_LATE_STEER_HOLD: "1" });
     const { turnId } = await instance.adapter.sendTurn({ threadId: "t-late-int", text: "first" });
-    await recorder.until((e) => e.type === "content.delta");
+    // steer after the final request's own delta: the earlier "hello" text
+    // also emits a delta, and a steer written before the CLI's `requesting`
+    // status is counted as already sent
+    await recorder.until((e) => e.type === "content.delta" && e.delta === "reply");
     await expect(instance.adapter.steer!("t-late-int", "and also this")).resolves.toBe(true);
-    await recorder.until((e) => e.type === "item.completed" && e.itemType === "assistant_text" && e.text === "reply to: first");
-    // the next delta is the CLI answering the steer, after its first `result`
-    const seen = recorder.events.filter((e) => e.type === "content.delta").length;
-    await recorder.until(() => recorder.events.filter((e) => e.type === "content.delta").length > seen);
+    const isFirstReply = (e: (typeof recorder.events)[number]) =>
+      e.type === "item.completed" && e.itemType === "assistant_text" && e.text === "reply to: first";
+    await recorder.until(isFirstReply);
+    // the next delta is the CLI answering the steer, after its first `result`;
+    // it can land in the same chunk as the reply, so look past the reply
+    // rather than counting from now
+    await recorder.until(() => recorder.events.slice(recorder.events.findIndex(isFirstReply)).some((e) => e.type === "content.delta"));
     await instance.adapter.interruptTurn("t-late-int");
     const done = await recorder.until((e) => e.type === "turn.completed");
     expect(done).toMatchObject({ turnId, ok: false, stopReason: "exit_before_result", cost: 0.01, usage: { input: 12, output: 5, cachedInput: 2 } });
