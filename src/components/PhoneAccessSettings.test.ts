@@ -57,6 +57,30 @@ function type(input: HTMLInputElement, value: string) {
 }
 
 describe("PhoneAccessSettings", () => {
+  it.each([
+    ["en", "This PC stays awake while plugged in, so your phone can always reach it."],
+    ["ko", "전원에 연결된 동안 이 PC가 절전 모드로 전환되지 않아 휴대폰에서 언제든 접속할 수 있습니다."],
+  ])("shows the AC keep-awake line only while phone access is on in %s", async (locale, copy) => {
+    localStorage.setItem("omb-locale", locale);
+    let relay = status();
+    serve({
+      "GET /api/phone-relay/status": () => relay,
+      "GET /api/phone/devices": () => ({ phones: [] }),
+      "PUT /api/phone-relay": () => { relay = status({ enabled: !relay.enabled, state: relay.enabled ? "off" : "reconnecting" }); return relay; },
+    });
+    const { host, root } = await renderView();
+    try {
+      expect(host.textContent).toContain(copy);
+      expect(host.querySelectorAll('[role="switch"]')).toHaveLength(1);
+      await act(async () => click(host.querySelector('[role="switch"]')!));
+      expect(host.textContent).not.toContain(copy);
+      await act(async () => click(host.querySelector('[role="switch"]')!));
+      expect(host.textContent).toContain(copy);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("renders nothing without a configured relay, or when the PC refuses the status", async () => {
     serve({ "GET /api/phone-relay/status": () => status({ configured: false, enabled: false, state: "off", host: null }) });
     const off = await renderView();

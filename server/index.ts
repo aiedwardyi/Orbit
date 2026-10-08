@@ -292,6 +292,7 @@ import {
   writeDeviceRecord,
 } from "./device-sync.ts";
 import { PhoneAccess } from "./phone-access.ts";
+import { postPhoneKeepAwake, type PhoneKeepAwakeMessage } from "./phone-keep-awake.ts";
 import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
 import type { PublicPhone } from "./phone-devices.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
@@ -410,7 +411,7 @@ const availableSkills = () => mergeSkills(bundledSkills, loadUserSkills(join(DAT
 // restarting the embedded server. Plain Node/dev launches have no parentPort.
 type UtilityParentPort = {
   on(event: "message", listener: (event: { data?: unknown }) => void): void;
-  postMessage(message: { type: string; token: string }): void;
+  postMessage(message: { type: string; token: string } | PhoneKeepAwakeMessage): void;
 };
 const utilityParentPort = (process as NodeJS.Process & { parentPort?: UtilityParentPort }).parentPort;
 let hostShutdown = () => {};
@@ -480,12 +481,14 @@ const phoneAccess: PhoneAccess = new PhoneAccess({
     Object.assign(cfg, loadConfig());
   },
   onChange: () => {
+    postPhoneKeepAwake(phoneAccess, utilityParentPort);
     const host = phoneAccess.presenceHost();
     if (host === relayPresenceHost) return;
     relayPresenceHost = host;
     startDevicePresence();
   },
 });
+postPhoneKeepAwake(phoneAccess, utilityParentPort);
 
 /** Constant-time bearer check for the internal comms endpoints. The token
  * is high-entropy and loopback-only, so a timing oracle is a long shot —

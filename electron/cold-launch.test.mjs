@@ -16,6 +16,25 @@ function sourceBetween(source, start, end) {
 }
 
 describe("packaged cold launch does not hide the window behind the harness", () => {
+  it("wires phone keep-awake before waiting for server readiness", () => {
+    const startOn = sourceBetween(main, "async function startServerOn(", "async function startServerPackaged(");
+    expect(startOn).toContain("keepAwake.setPhoneServer(proc)");
+    expect(startOn.indexOf("keepAwake.setPhoneServer(proc)")).toBeLessThan(startOn.indexOf("await pollServerIdentity("));
+  });
+
+  it("reads AC power and tracks battery changes after Electron is ready", () => {
+    const ready = sourceBetween(main, "app.whenReady().then(async () => {", "app.on(\"window-all-closed\"");
+    expect(ready).toContain("keepAwake.setOnBattery(powerMonitor.isOnBatteryPower())");
+    expect(ready).toContain('powerMonitor.on("on-ac", () => keepAwake.setOnBattery(false))');
+    expect(ready).toContain('powerMonitor.on("on-battery", () => keepAwake.setOnBattery(true))');
+  });
+
+  it("releases every keep-awake reason before quit cleanup", () => {
+    const quit = main.slice(main.indexOf('app.on("before-quit"'));
+    expect(quit).toContain("keepAwake.stop()");
+    expect(quit.indexOf("keepAwake.stop()")).toBeLessThan(quit.indexOf("const cleanup = Promise.race("));
+  });
+
   it("creates and shows the window before awaiting startServerPackaged", () => {
     const ready = sourceBetween(main, "app.whenReady().then(async () => {", "app.on(\"window-all-closed\"");
     const windowAt = ready.indexOf("createWindow()");

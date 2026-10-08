@@ -64,7 +64,7 @@ vi.mock("electron", () => {
   const stub = { app, safeStorage, BrowserWindow };
   for (const name of [
     "Notification", "WebContentsView", "clipboard", "desktopCapturer", "dialog", "ipcMain",
-    "Menu", "nativeImage", "nativeTheme", "powerSaveBlocker", "screen", "session", "shell",
+    "Menu", "nativeImage", "nativeTheme", "powerMonitor", "powerSaveBlocker", "screen", "session", "shell",
     "systemPreferences", "utilityProcess",
   ]) {
     stub[name] = auto();

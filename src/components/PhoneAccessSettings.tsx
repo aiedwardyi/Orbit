@@ -288,6 +288,10 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
           </button>
         </div>
 
+        {enabled ? (
+          <p className="text-[12px] leading-relaxed text-ink-secondary">{t("settings.phoneAccess.keepAwake")}</p>
+        ) : null}
+
         {enabled && status.state === "connected" && status.base ? (
           <p data-phone-access-relay className="-mt-2 break-all text-[12px] text-ink-secondary">
             {t("settings.phoneAccess.relay", { base: status.base })}

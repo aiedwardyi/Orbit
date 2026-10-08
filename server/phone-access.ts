@@ -177,6 +177,7 @@ export class PhoneAccess {
 
   stop(): Promise<void> {
     this.handler = null;
+    this.options.onChange?.();
     return this.restart();
   }
 
@@ -191,9 +192,9 @@ export class PhoneAccess {
     const old = this.relay;
     this.relay = null;
     this.failure = null;
+    this.options.onChange?.();
     if (old) {
       await old.stop();
-      this.options.onChange?.();
     }
     const config = this.options.config() ?? {};
     const handler = this.handler;
@@ -224,6 +225,10 @@ export class PhoneAccess {
   presenceHost(): string | null {
     const status = this.status();
     return status.host && ENROLLED.has(status.state) ? status.host : null;
+  }
+
+  keepAwake(): boolean {
+    return this.handler !== null && relayMode(this.options.config() ?? {}, this.options.env).kind === "on" && this.presenceHost() !== null;
   }
 
   /** The base a relay phone's device picker is limited to. */
@@ -377,6 +382,7 @@ export class PhoneAccess {
       if (!body) return reply(400, { error: "enabled must be a boolean" });
       if (!this.describe().configured) return reply(409, { error: "phone access is not set up on this PC" });
       this.options.saveEnabled(body.enabled);
+      this.options.onChange?.();
       await this.restart();
       return reply(200, this.describe());
     }
