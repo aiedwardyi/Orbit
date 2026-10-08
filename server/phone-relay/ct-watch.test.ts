@@ -2,6 +2,7 @@ import { X509Certificate, createPrivateKey } from "node:crypto";
 import { createServer } from "node:https";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { relayProblem } from "../phone-auth.ts";
 import { CT_FIRST_CHECK_MS, CT_INTERVAL_MS, CT_MAX_CERTS_PER_RUN, CtWatch, crtShSource, type CtSource } from "./ct-watch.ts";
 import { rememberCertKey, spkiFingerprint } from "./store.ts";
 import { FakeClock } from "./testing/fake-clock.ts";
@@ -123,6 +124,16 @@ describe("certificate transparency watch", () => {
     cleanups.push(() => watch.stop());
     expect((await watch.run()).kind).toBe("alert");
     expect(alerts).toHaveLength(1);
+  });
+
+  it("classifies every alert as a Settings certificate warning", async () => {
+    const ca = await TestCa.create();
+    for (const [kind, name] of [["wildcard", "*.wink.test"], ["unknown key", HOST]] as const) {
+      const { watch, alerts } = await setup(new Map([[1, (await ca.issue(name)).certPem]]));
+      expect((await watch.run()).kind, kind).toBe("alert");
+      expect(alerts, kind).toHaveLength(1);
+      expect(relayProblem("connected", alerts[0]!), kind).toBe("unknown-certificate");
+    }
   });
 
   it("runs on its schedule and stops cleanly", async () => {

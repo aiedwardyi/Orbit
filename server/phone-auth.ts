@@ -150,10 +150,13 @@ export function safeRelayError(text: string | null): string | null {
 
 export type RelayProblem = "superseded" | "revoked" | "ticket-expired" | "unknown-certificate";
 
+/** Starts every CtWatch alert. Kept here so the harness can match it without loading the relay client. */
+export const CT_ALERT_PREFIX = "CT log shows";
+
 /** Problems that need the user, from the client's status text. */
 export function relayProblem(state: PhoneRelayState, lastError: string | null): RelayProblem | null {
   if (!lastError) return null;
-  if (lastError.startsWith("CT log shows a certificate")) return "unknown-certificate";
+  if (lastError.startsWith(CT_ALERT_PREFIX)) return "unknown-certificate";
   if (state !== "rejected") return null;
   if (lastError.startsWith("superseded:")) return "superseded";
   if (lastError.startsWith("revoked:")) return "revoked";

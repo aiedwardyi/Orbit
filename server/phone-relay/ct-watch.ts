@@ -8,6 +8,7 @@
 import { X509Certificate } from "node:crypto";
 import { z } from "zod";
 
+import { CT_ALERT_PREFIX } from "../phone-auth.ts";
 import type { Cancel, Clock } from "./clock.ts";
 import { httpsRequest, type HttpsDeps } from "./https.ts";
 import { readKeyHistory, spkiFingerprint } from "./store.ts";
@@ -146,12 +147,12 @@ export class CtWatch {
         // This PC never asks for a wildcard, so any wildcard for the base is someone else's.
         const names = (cert.subjectAltName ?? "").split(", ");
         if (wildcard && names.includes(`DNS:${wildcard}`)) {
-          const message = `CT log shows a wildcard certificate ${wildcard} covering ${host} (crt.sh id ${id})`;
+          const message = `${CT_ALERT_PREFIX} a wildcard certificate ${wildcard} covering ${host} (crt.sh id ${id})`;
           this.opts.onAlert(message);
           return { kind: "alert", message };
         }
         if (!known.includes(spkiFingerprint(cert.publicKey))) {
-          const message = `CT log shows a certificate for ${host} with a key this PC never made (crt.sh id ${id})`;
+          const message = `${CT_ALERT_PREFIX} a certificate for ${host} with a key this PC never made (crt.sh id ${id})`;
           this.opts.onAlert(message);
           return { kind: "alert", message };
         }
