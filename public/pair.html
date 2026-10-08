@@ -116,7 +116,7 @@
       <div class="panel">
         <img src="/app-icon.svg?v=2" alt="" />
         <h1 id="title"></h1>
-        <p id="help"></p>
+        <p id="help" hidden></p>
         <form id="form" hidden>
           <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" spellcheck="false" />
           <button id="submit" type="submit"></button>
@@ -138,12 +138,12 @@
             pairing: "Pairing...",
             paired: "Paired. Opening Wink...",
             "wrong-credential": "That code is not right. Check the code on your PC.",
-            "too-many-attempts": "Too many wrong codes. Make a new code on your PC.",
-            "no-pairing": "That code expired or was already used. Make a new code on your PC.",
+            "too-many-attempts": "Too many wrong codes. Get a new code on your PC: Settings, Connections, Phone access.",
+            "no-pairing": "That code expired or was already used. Get a new code on your PC: Settings, Connections, Phone access.",
             "too-many-phones": "This PC already has 20 phones. Remove one in Settings on the PC.",
             "rate-limited": "Too many tries. Wait a minute and try again.",
             network: "Could not reach your PC. Check your connection and try again.",
-            failed: "Pairing did not work. Make a new code on your PC.",
+            failed: "Pairing did not work. Get a new code on your PC: Settings, Connections, Phone access.",
             android: "Android phone",
             phone: "Phone",
           },
@@ -155,12 +155,12 @@
             pairing: "연결하는 중...",
             paired: "연결되었습니다. Wink를 여는 중...",
             "wrong-credential": "코드가 맞지 않습니다. PC에 표시된 코드를 확인하세요.",
-            "too-many-attempts": "잘못된 코드를 너무 많이 입력했습니다. PC에서 새 코드를 만드세요.",
-            "no-pairing": "코드가 만료되었거나 이미 사용되었습니다. PC에서 새 코드를 만드세요.",
+            "too-many-attempts": "잘못된 코드를 너무 많이 입력했습니다. PC의 설정 > 연결 > 휴대폰 접속에서 새 코드를 받으세요.",
+            "no-pairing": "코드가 만료되었거나 이미 사용되었습니다. PC의 설정 > 연결 > 휴대폰 접속에서 새 코드를 받으세요.",
             "too-many-phones": "이 PC에 이미 휴대폰 20대가 연결되어 있습니다. PC의 설정에서 하나를 삭제하세요.",
             "rate-limited": "시도가 너무 많습니다. 1분 뒤에 다시 시도하세요.",
             network: "PC에 연결할 수 없습니다. 네트워크를 확인하고 다시 시도하세요.",
-            failed: "연결하지 못했습니다. PC에서 새 코드를 만드세요.",
+            failed: "연결하지 못했습니다. PC의 설정 > 연결 > 휴대폰 접속에서 새 코드를 받으세요.",
             android: "Android 휴대폰",
             phone: "휴대폰",
           },
@@ -171,16 +171,17 @@
           const system = /^ko\b/i.test(navigator.language || "") ? "ko" : "en";
           lang = saved === "ko" ? "ko" : saved === "system" ? system : "en";
         } catch {}
-        const t = (key) => COPY[lang][key] || COPY.en[key] || COPY.en.failed;
+        const t = (key) => COPY[lang][key] || COPY.en[key] || COPY[lang].failed;
         document.documentElement.lang = lang;
 
         const $ = (id) => document.getElementById(id);
+        const help = $("help");
         const form = $("form");
         const input = $("code");
         const submit = $("submit");
         const status = $("status");
         $("title").textContent = t("title");
-        $("help").textContent = t("help");
+        help.textContent = t("help");
         input.setAttribute("aria-label", t("code"));
         submit.textContent = t("submit");
 
@@ -241,6 +242,7 @@
           const error = await pair(credential);
           if (!error) return finish();
           say(t(error), "error");
+          help.hidden = false;
           form.hidden = false;
           submit.disabled = false;
           input.value = "";
@@ -258,6 +260,7 @@
         if (fragment) {
           void run(fragment);
         } else {
+          help.hidden = false;
           form.hidden = false;
           input.focus();
         }

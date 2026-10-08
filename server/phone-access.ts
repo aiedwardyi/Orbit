@@ -12,6 +12,7 @@ import { PHONE_RELAY_OFF, SETUP_PREFIX, parseSetupCode, type PhoneRelayStatus, t
 import type { HarnessHandler } from "./early-listen.ts";
 import {
   RateLimiter,
+  enrollError,
   phoneCookieToken,
   phoneSetCookie,
   rateKey,
@@ -19,6 +20,7 @@ import {
   relayVerdict,
   safeRelayError,
   shellNavigation,
+  type EnrollError,
   type RelayProblem,
 } from "./phone-auth.ts";
 import { PhoneDevices, type PairError, type PublicPhone } from "./phone-devices.ts";
@@ -340,13 +342,15 @@ export class PhoneAccess {
   }
 
   /** Trades `invite` for a ticket. The failure reason, or null once enrolled. */
-  private async enroll(invite: string): Promise<string | null> {
+  private async enroll(invite: string): Promise<EnrollError | null> {
     try {
       this.client ??= await (this.options.loadClient ?? loadRelayClient)();
       await (this.options.enroll ?? this.client.enroll)({ dataDir: this.options.dataDir, config: this.options.config() ?? {}, invite });
       return null;
     } catch (cause) {
-      return safeRelayError(cause instanceof Error ? cause.message : String(cause)) ?? "enrollment failed";
+      const reason = safeRelayError(cause instanceof Error ? cause.message : String(cause)) ?? "enrollment failed";
+      console.error(`[phone-relay] enroll failed: ${reason}`);
+      return enrollError(reason);
     }
   }
 

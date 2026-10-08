@@ -163,3 +163,11 @@ export function relayProblem(state: PhoneRelayState, lastError: string | null): 
   if (lastError.startsWith("ticket expired")) return "ticket-expired";
   return null;
 }
+
+export type EnrollError = "invite-used" | "invite-expired" | "enroll-failed";
+
+/** What a failed enrollment answers Settings with: the relay's reason only when a teammate can act on it. */
+export function enrollError(reason: string): EnrollError {
+  const code = /^relay refused enrollment \(\d+ ([a-z0-9-]+)\)$/.exec(reason)?.[1];
+  return code === "invite-used" || code === "invite-expired" ? code : "enroll-failed";
+}

@@ -55,6 +55,7 @@ import { Composer } from "./Composer";
 import { ChatPlanMeters } from "./ChatPlanMeters";
 import { useNow } from "./PlanUsageBar";
 import { ChatFindBar } from "./ChatFindBar";
+import { ReconnectingCue } from "./ReconnectingCue";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
@@ -1601,6 +1602,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           </div>
         </div>
       )}
+
+      <ReconnectingCue />
 
       {elsewhere && (
         <div className="w-full px-5">

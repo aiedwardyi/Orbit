@@ -640,3 +640,47 @@ describe("agy sign-in error bubble", () => {
     }
   });
 });
+
+describe("ChatView reconnecting cue", () => {
+  it("says it is reconnecting once this window has lost its PC for a moment", async () => {
+    vi.useFakeTimers();
+    const sources: Array<{ onopen: (() => void) | null; onerror: (() => void) | null }> = [];
+    vi.stubGlobal("EventSource", class {
+      onopen = null;
+      onerror = null;
+      onmessage = null;
+      close = vi.fn();
+      constructor() {
+        sources.push(this);
+      }
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const cue = () => host.textContent?.includes("Reconnecting");
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: botB }))));
+      await act(async () => sources[0]!.onopen?.());
+      await act(() => vi.advanceTimersByTimeAsync(5_000));
+      expect(cue()).toBe(false);
+      await act(async () => sources[0]!.onerror?.());
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      expect(cue()).toBe(false);
+      await act(() => vi.advanceTimersByTimeAsync(1_500));
+      expect(cue()).toBe(true);
+      await act(async () => sources.at(-1)!.onopen?.());
+      expect(cue()).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      vi.useRealTimers();
+    }
+  });
+});
