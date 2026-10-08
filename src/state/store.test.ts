@@ -508,6 +508,35 @@ describe("onboarding quiz", () => {
     expect(next.bots[0]?.messages.find((message) => message.id === "ask")?.card?.dismissed).toBeUndefined();
     expect(next.bots[0]?.messages.find((message) => message.id === "q")?.card?.dismissed).toBe(true);
   });
+
+  it("settles a tapped ask_user question as answered, never dismissed, and a send leaves it to the derivation", () => {
+    const askCard = { title: "Your bot has a question", subtitle: "Prod?", options: ["Prod"], askUser: true as const };
+    const askBot: Bot = {
+      ...bot,
+      messages: [...bot.messages, { id: "ask", role: "bot", kind: "options", card: askCard, at: 3 }],
+      activeLeafId: "ask",
+    };
+    const state = { ...initialState, bots: [askBot], selectedId: askBot.id };
+    const tapped = reducer(state, { type: "answerCard", botId: askBot.id, messageId: "ask", answer: "Prod" });
+    expect(tapped.bots[0]?.messages.find((message) => message.id === "ask")?.card).toMatchObject({ answered: "Prod" });
+    expect(tapped.bots[0]?.messages.find((message) => message.id === "ask")?.card?.dismissed).toBeUndefined();
+    const sent = reducer(state, { type: "send", botId: askBot.id, text: "Prod" });
+    expect(sent.bots[0]?.messages.find((message) => message.id === "ask")?.card?.dismissed).toBeUndefined();
+    expect(sent.bots[0]?.messages.find((message) => message.id === "q")?.card?.dismissed).toBe(true);
+  });
+
+  it("settles a room member's ask_user question on tap or dismiss", () => {
+    const group = {
+      id: "room", threadId: "room-thread", name: "Room", memberIds: [], bulletin: "",
+      defaultResponder: { kind: "everyone" as const }, unread: false, createdAt: 1,
+      messages: [{ id: "ask", role: "bot" as const, kind: "options" as const, at: 1, card: { title: "Q", subtitle: "Prod?", options: [], askUser: true as const } }],
+    };
+    const state = { ...initialState, groups: [group] };
+    const answered = reducer(state, { type: "answerGroupCard", groupId: "room", messageId: "ask", answer: "Prod" });
+    expect(answered.groups[0]?.messages[0]?.card).toMatchObject({ answered: "Prod" });
+    const dismissed = reducer(state, { type: "dismissGroupCard", groupId: "room", messageId: "ask" });
+    expect(dismissed.groups[0]?.messages[0]?.card?.dismissed).toBe(true);
+  });
 });
 
 describe("cross-client bot creation", () => {

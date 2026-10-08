@@ -65,6 +65,9 @@ export interface OptionCardData {
   dismissed?: boolean;
   /** Present when this card is a live provider ask (approval/question). */
   requestId?: string;
+  /** A bot's non-blocking ask_user question. Answered by the user's next
+   * message; never has a requestId. */
+  askUser?: true;
   /** permission cards: the tool being requested, so the card can show what
    * is actually being asked and offer "always allow this tool". */
   tool?: string;
@@ -1216,7 +1219,8 @@ export class Store {
   dismissOnboardingCard(threadId: string): Message | null {
     const t = this.thread(threadId);
     const card = t.messages.find(
-      (message) => message.kind === "options" && message.card && !message.card.requestId && !message.card.dismissed,
+      (message) =>
+        message.kind === "options" && message.card && !message.card.requestId && !message.card.askUser && !message.card.dismissed,
     );
     if (!card?.card) return null;
     return this.patchMessage(threadId, card.id, { card: { ...card.card, dismissed: true } });

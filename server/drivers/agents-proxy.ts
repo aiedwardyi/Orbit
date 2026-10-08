@@ -15,6 +15,8 @@
 //   create_channel(name, member_ids, …)  → open a shared room with existing
 //                                          bots (self is added automatically)
 //   react(emoji)                          → react to the user's latest message
+//   ask_user(question, choices?)          → pin a question for the user and keep
+//                                          working; the answer is their next message
 //   show_image(path, caption?)            → post a local image into this chat
 //   generate_image(prompt, …)             → create a PNG with the saved image key
 //   call_api(credential_id, method, url)  → call a service with its saved key
@@ -357,6 +359,24 @@ const TOOLS = [
         emoji: { type: "string", enum: [...EXTENDED_REACTIONS], description: "One emoji from Wink's reaction set." },
       },
       required: ["emoji"],
+    },
+  },
+  {
+    name: "ask_user",
+    description:
+      "Ask the user something you need to keep going: a decision, a preference, missing information, or sign-off before something consequential. It does not pause you: the question is pinned above their text box, your row in their bot list glows, and they get an alert. Their answer arrives as their next message. Keep working on anything that does not depend on it; if nothing is left, end your turn. Give choices only for quick picks and leave them out for open questions. A new question replaces your earlier unanswered one, so include anything still open. Never use it for optional offers like 'want me to...?'.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        question: { type: "string", description: "The question, with enough context to answer at a glance." },
+        choices: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional 2-5 short answers, shown as one-tap buttons.",
+        },
+      },
+      required: ["question"],
     },
   },
   {
@@ -741,6 +761,19 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     });
     if (r.error) return { text: `Couldn't react: ${r.error}`, isError: true };
     return { text: `Reacted ${emoji} to the user's message.` };
+  }
+  if (name === "ask_user") {
+    const question = String(args.question ?? "").trim();
+    if (!question) return { text: "ask_user needs a question.", isError: true };
+    if (!THREAD_ID) return { text: "Couldn't ask: no active thread.", isError: true };
+    // the harness trims, dedupes and caps the choices
+    const body = JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, question, choices: args.choices });
+    try {
+      await api("/api/internal/ask-user", { method: "POST", body });
+      return { text: "Asked. Their answer will arrive as a new message." };
+    } catch (e) {
+      return { text: `Couldn't ask: ${e instanceof Error ? e.message : String(e)}`, isError: true };
+    }
   }
   if (name === "show_image") {
     const path = String(args.path ?? "").trim();

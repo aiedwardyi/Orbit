@@ -13,6 +13,7 @@ import {
   type TerminalAttention,
 } from "@/state/store";
 import { collapsedUnreadCount, formatCollapsedUnreadBadge, unreadConversationCount } from "@/lib/unread";
+import { anyChatNeedsYou } from "@/lib/open-question";
 import { preferredStartupSelectionId } from "@/lib/sidebar-order";
 import { DRAWER_BUTTON_LEFT, DRAWER_BUTTON_RIGHT } from "@/lib/drawer-button";
 import { loadSidebarOrder, useSidebarSide } from "@/lib/sidebar-preferences";
@@ -86,6 +87,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   }, [state]);
   const unreadCount = unreadConversationCount(state.bots, state.groups) + terminalAttentionCount(state.terminalAttention);
   const menuUnreadBadge = formatCollapsedUnreadBadge(collapsedUnreadCount(state.bots, state.groups, state.selectedId));
+  const menuAsking = anyChatNeedsYou([...state.bots, ...state.groups], state.selectedId);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
   // cancelling them with md:, which would still emit a translate value and
@@ -588,10 +590,11 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       <button
         type="button"
         ref={menuButtonRef}
-        aria-label={t("chrome.openBotList")}
+        aria-label={menuAsking ? t("ask.openBotList") : t("chrome.openBotList")}
         aria-expanded={drawerOpen}
         onClick={() => setDrawerOpen(true)}
-        className={`absolute z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden ${sidebarOnRight ? DRAWER_BUTTON_RIGHT : DRAWER_BUTTON_LEFT}`}
+        data-menu-needs-you={menuAsking || undefined}
+        className={`absolute z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden ${sidebarOnRight ? DRAWER_BUTTON_RIGHT : DRAWER_BUTTON_LEFT}${menuAsking ? " needs-you-glow" : ""}`}
       >
         <Menu size={18} />
         {menuUnreadBadge != null && (

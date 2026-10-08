@@ -11,6 +11,7 @@ export function SidebarSectionHeader({
   collapsed = false,
   hiddenCount = 0,
   unreadBadge = null,
+  needsYou = false,
   onToggle,
   onDragStart,
   onDragEnd,
@@ -24,6 +25,8 @@ export function SidebarSectionHeader({
   collapsed?: boolean;
   hiddenCount?: number;
   unreadBadge?: string | null;
+  /** a hidden row's chat is waiting on the person: the toggle glows */
+  needsYou?: boolean;
   onToggle?: () => void;
   onDragStart?: (event: DragEvent<HTMLButtonElement>) => void;
   onDragEnd?: () => void;
@@ -43,11 +46,13 @@ export function SidebarSectionHeader({
       onMove?.(1);
     }
   };
-  const label = !collapsed
+  const baseLabel = !collapsed
     ? name
     : unreadBadge != null
       ? t("chrome.sectionCollapsedUnread", { name, count: hiddenCount, unread: unreadBadge })
       : t("chrome.sectionCollapsed", { name, count: hiddenCount });
+  const asking = collapsed && needsYou;
+  const label = asking ? t("ask.sectionHasQuestion", { label: baseLabel }) : baseLabel;
   const content = (
     <>
       {onToggle && (
@@ -112,9 +117,11 @@ export function SidebarSectionHeader({
           }}
           onDragEnd={onDragEnd}
           onKeyDown={onHeaderKeyDown}
+          data-sidebar-needs-you={asking || undefined}
           className={cn(
             "flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-raised/50",
             dragging && "opacity-40",
+            asking && "relative needs-you-glow",
           )}
           title="Alt+Up/Down to reorder"
         >
@@ -127,7 +134,11 @@ export function SidebarSectionHeader({
           aria-label={label}
           aria-expanded={!collapsed}
           onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-raised/50"
+          data-sidebar-needs-you={asking || undefined}
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-raised/50",
+            asking && "relative needs-you-glow",
+          )}
         >
           {content}
         </button>

@@ -4017,3 +4017,32 @@ button:disabled.bg-danger {
 :is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#e6edf3" i],
 :is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#f0f6fc" i],
 :is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#161b22" i] { color: var(--color-syntax-fg) !important; }
+
+/* A sidebar row (or the control hiding it) whose chat is waiting on the
+   person: the theme accent as a thin ring plus a soft outer glow that
+   breathes. Box shadows only, so the row never changes size, and no
+   `filter`, so provider model dots keep their own colors on every skin. */
+/* The glow's ::after anchors to the element, so callers keep it positioned
+   (`relative`, or the `absolute` it already has). */
+.needs-you-glow {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-accent) 70%, transparent);
+}
+
+.needs-you-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 12px 2px color-mix(in oklab, var(--color-accent) 45%, transparent);
+  animation: needs-you-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes needs-you-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .needs-you-glow::after { animation: none; }
+}

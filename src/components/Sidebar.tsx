@@ -110,6 +110,7 @@ import { sidebarConversationRowTone } from "@/lib/sidebar-row";
 import { useTouchDrag, type TouchDropMark } from "@/lib/use-touch-drag";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
+import { anyChatNeedsYou, chatNeedsYou } from "@/lib/open-question";
 import { DeviceSwitcher } from "./DeviceSwitcher";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { localeTag, t, useI18n } from "@/lib/i18n";
@@ -266,7 +267,7 @@ function GroupListItem({
   drag?: SidebarRowDrag;
   onReselect?: () => void;
 }) {
-  const { locale } = useI18n();
+  const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const selected = state.activeView === "chat" && state.selectedId === group.id;
@@ -274,6 +275,7 @@ function GroupListItem({
     .map((id) => state.bots.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
   const last = group.messages.at(-1);
+  const asking = chatNeedsYou(group.messages);
   const select = () => {
     if (selected) onReselect?.();
     dispatch({ type: "select", id: group.id });
@@ -317,6 +319,7 @@ function GroupListItem({
       data-sidebar-row
       data-sidebar-row-kind="group"
       data-sidebar-row-id={group.id}
+      data-sidebar-needs-you={asking || undefined}
       title={density === "icons" ? group.name : undefined}
       {...dragProps}
     >
@@ -374,14 +377,18 @@ function GroupListItem({
           "flex w-full items-center rounded-xl text-left",
           density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 px-2 py-1.5" : "gap-2 px-3 py-1.5",
           selected ? "bg-raised" : "hover:bg-raised/50",
+          asking && "relative needs-you-glow",
         )}
-        aria-label={density === "icons" ? group.name : undefined}
+        aria-label={density === "icons" ? (asking ? t("ask.rowHasQuestion", { name: group.name }) : group.name) : undefined}
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
       >
         <StackedMauses members={members} density={density} />
         <div className={cn("@container/rowtext min-w-0 flex-1", density === "icons" && "hidden")}>
           <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
-            <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">{group.name}</span>
+            <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">
+              {group.name}
+              {asking && <span className="sr-only">{t("ask.hasQuestionSuffix")}</span>}
+            </span>
             {last && (
               <span
                 className={cn(
@@ -836,6 +843,7 @@ function BotListItem({
     ? t(workerPanes === 1 ? "chrome.workerPanesOne" : "chrome.workerPanesMany", { count: workerPanes })
     : null;
   const workerPanesTitle = workerPanesLabel && [workerPanesLabel, ...paneLabels.filter(Boolean)].join("\n");
+  const asking = chatNeedsYou(bot.messages);
   const rowClass = cn(
     "flex w-full items-center rounded-xl border text-left",
     iconOnly
@@ -844,7 +852,9 @@ function BotListItem({
         ? "gap-2 px-2 py-1 pr-10"
         : "gap-2 px-3 py-1.5 pr-12",
     sidebarConversationRowTone(selected),
+    asking && "relative needs-you-glow",
   );
+  const iconLabel = modelLabel ? `${bot.name} · ${modelLabel}` : bot.name;
   const body = (
     <>
       <span className={cn("relative shrink-0", iconOnly && "inline-flex")}>
@@ -950,6 +960,7 @@ function BotListItem({
                 density === "compact" ? "text-[13px] font-medium" : "text-[15px] font-semibold",
               )}
             />
+            {asking && <span className="sr-only">{t("ask.hasQuestionSuffix")}</span>}
           </span>
           {last && !renaming && (
             <span
@@ -1042,7 +1053,8 @@ function BotListItem({
       data-sidebar-row
       data-sidebar-row-kind="bot"
       data-sidebar-row-id={bot.id}
-      title={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined}
+      data-sidebar-needs-you={asking || undefined}
+      title={iconOnly ? iconLabel : undefined}
       {...dragProps}
     >
       {drag?.edge && (
@@ -1057,7 +1069,7 @@ function BotListItem({
       <div
         role="button"
         tabIndex={0}
-        aria-label={iconOnly ? (modelLabel ? `${bot.name} · ${modelLabel}` : bot.name) : undefined}
+        aria-label={iconOnly ? (asking ? t("ask.rowHasQuestion", { name: iconLabel }) : iconLabel) : undefined}
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onClick={(event) => {
           select();
@@ -1287,6 +1299,7 @@ export function Sidebar({
   const sidebarOnRight = sidebarSide === "right";
   const collapsedUnread = sidebarCollapsed ? collapsedUnreadCount(state.bots, state.groups, state.selectedId) : 0;
   const collapsedUnreadBadge = formatCollapsedUnreadBadge(collapsedUnread);
+  const collapsedAsking = sidebarCollapsed && anyChatNeedsYou([...state.bots, ...state.groups], state.selectedId);
   const collapsedBadgeRef = useRef<HTMLSpanElement>(null);
   const lastCollapsedUnread = useRef(collapsedUnread);
   useEffect(() => {
@@ -2183,12 +2196,18 @@ export function Sidebar({
             onClick={toggleCollapsed}
             aria-label={
               density === "icons"
-                ? collapsedUnreadBadge != null
-                  ? t("chrome.expandSidebarUnread", { count: collapsedUnreadBadge })
-                  : t("chrome.expandSidebar")
+                ? collapsedAsking
+                  ? t("ask.expandSidebar")
+                  : collapsedUnreadBadge != null
+                    ? t("chrome.expandSidebarUnread", { count: collapsedUnreadBadge })
+                    : t("chrome.expandSidebar")
                 : t("chrome.collapseSidebar")
             }
-            className="relative flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
+            data-sidebar-needs-you={collapsedAsking || undefined}
+            className={cn(
+              "relative flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink",
+              collapsedAsking && "needs-you-glow",
+            )}
             title={density === "icons" ? t("chrome.expandSidebar") : t("chrome.collapseSidebar")}
           >
             {density === "icons"
@@ -2397,6 +2416,7 @@ export function Sidebar({
               hiddenItems.flatMap((item) => item.bot ? [item.bot] : []),
               hiddenItems.flatMap((item) => item.group ? [item.group] : []),
             );
+            const hiddenAsking = anyChatNeedsYou(hiddenItems.flatMap((item) => item.bot ?? item.group ?? []));
             return (
               <div
                 key={id}
@@ -2422,6 +2442,7 @@ export function Sidebar({
                     collapsed={collapsed}
                     hiddenCount={hiddenItems.length}
                     unreadBadge={formatCollapsedUnreadBadge(hiddenUnread)}
+                    needsYou={hiddenAsking}
                     onToggle={sectionsCollapsible ? () => toggleSection(id) : undefined}
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = "move";

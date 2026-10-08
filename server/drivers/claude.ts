@@ -963,8 +963,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         allowed.push("mcp__dweb");
       }
       // permission broker: anything acceptEdits would silently deny becomes
-      // an Allow/Deny card in chat, and the agent gets ask_user. Skipped in
-      // bypassPermissions (fullAuto) — nothing would ever ask.
+      // an Allow/Deny card in chat. Questions go through the agents proxy's
+      // ask_user, which never waits. Skipped in bypassPermissions (fullAuto),
+      // where nothing would ever ask.
       let broker: ReturnType<typeof createPermissionBroker> | undefined;
       let socketPath: string | null = null;
       const ogbArgs = [PERM_PROXY_PATH, ""];

@@ -77,6 +77,8 @@ export interface OptionCardData {
   dismissed?: boolean;
   /** Present when this card is a live provider ask (approval/question). */
   requestId?: string;
+  /** A bot's non-blocking ask_user question; see lib/open-question. */
+  askUser?: true;
   /** permission asks: the tool being requested (drives the approval box) */
   tool?: string;
   /** why auto mode stopped to ask anyway */
@@ -807,6 +809,9 @@ export type Action =
   | { type: "threadActive"; threadId: string; activeLeafId: string }
   | { type: "answerCard"; botId: string; messageId: string; answer: string }
   | { type: "dismissCard"; botId: string; messageId: string }
+  /** rooms: a member's ask_user question, answered by a room message */
+  | { type: "answerGroupCard"; groupId: string; messageId: string; answer: string }
+  | { type: "dismissGroupCard"; groupId: string; messageId: string }
   // permission cards answer by THREAD, so a request raised inside a room
   // can be answered the same way as one in a 1:1 chat
   | {
@@ -1006,10 +1011,22 @@ function patchCard(state: AppState, botId: string, messageId: string, patch: Par
   }));
 }
 
+function patchGroupCard(state: AppState, groupId: string, messageId: string, patch: Partial<OptionCardData>): AppState {
+  return {
+    ...state,
+    groups: state.groups.map((g) =>
+      g.id === groupId
+        ? { ...g, messages: g.messages.map((m) => (m.id === messageId && m.card ? { ...m, card: { ...m.card, ...patch } } : m)) }
+        : g,
+    ),
+  };
+}
+
 /** First-run quiz still sitting on this bot's thread. */
 function openOnboardingCard(bot: Bot): Message | undefined {
   return bot.messages.find(
-    (message) => message.kind === "options" && message.card && !message.card.requestId && !message.card.dismissed,
+    (message) =>
+      message.kind === "options" && message.card && !message.card.requestId && !message.card.askUser && !message.card.dismissed,
   );
 }
 
@@ -1222,18 +1239,18 @@ export function reducer(state: AppState, action: Action): AppState {
     case "answerCard": {
       const bot = state.bots.find((candidate) => candidate.id === action.botId);
       const card = bot?.messages.find((message) => message.id === action.messageId)?.card;
-      return withMascotMotion(
-        patchCard(state, action.botId, action.messageId, {
-          answered: action.answer,
-          // talking past the first-run quiz hides it; live asks stay until resolved
-          ...(card?.requestId ? {} : { dismissed: true }),
-        }),
-        action.botId,
-        "working",
-      );
+      const patch: Partial<OptionCardData> = { answered: action.answer };
+      // talking past the first-run quiz hides it; live asks stay until
+      // resolved, and an ask_user question reads as answered, not dismissed
+      if (!card?.requestId && !card?.askUser) patch.dismissed = true;
+      return withMascotMotion(patchCard(state, action.botId, action.messageId, patch), action.botId, "working");
     }
     case "dismissCard":
       return patchCard(state, action.botId, action.messageId, { dismissed: true });
+    case "answerGroupCard":
+      return patchGroupCard(state, action.groupId, action.messageId, { answered: action.answer });
+    case "dismissGroupCard":
+      return patchGroupCard(state, action.groupId, action.messageId, { dismissed: true });
     case "decideRequest":
       return state; // the server's request.resolved patch settles the card
     case "botAdded": {
@@ -2226,6 +2243,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }).catch(() => {});
     };
 
+    const persistGroupCard = (groupId: string, messageId: string, patch: Partial<OptionCardData>) => {
+      fetch(`/api/groups/${groupId}/cards/${messageId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      }).catch(() => {});
+    };
+
     const wrapped: React.Dispatch<Action> = (rawAction) => {
       const action =
         (rawAction.type === "send" || rawAction.type === "sendGroup") && !rawAction.sendId
@@ -2469,7 +2494,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               }),
             }).catch(showError);
           } else {
-            persistCard(action.botId, action.messageId, { answered: action.answer, dismissed: true });
+            persistCard(action.botId, action.messageId, card?.askUser ? { answered: action.answer } : { answered: action.answer, dismissed: true });
             api(`/api/bots/${action.botId}/messages`, {
               method: "POST",
               body: JSON.stringify({ text: action.answer }),
@@ -2490,6 +2515,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           break;
         }
+        case "answerGroupCard":
+          persistGroupCard(action.groupId, action.messageId, { answered: action.answer });
+          wrapped({ type: "sendGroup", groupId: action.groupId, text: action.answer });
+          break;
+        case "dismissGroupCard":
+          persistGroupCard(action.groupId, action.messageId, { dismissed: true });
+          break;
         case "duplicateBot": {
           const source = stateRef.current.bots.find((b) => b.id === action.botId);
           if (!source) break;
