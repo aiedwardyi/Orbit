@@ -22,21 +22,10 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+import { serverBundleOptions } from "./server-bundle-options.mjs";
+
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const server = join(root, "server");
-
-// yaml's Node export is CommonJS and contains dynamic requires that cannot run
-// after it is inlined into our ESM-only packaged server. Its browser export is
-// the same pure-JS parser without those Node shims, so resolve only this package
-// to that entry while leaving every other dependency on the Node condition.
-const yamlEsmPlugin = {
-  name: "yaml-esm",
-  setup(build) {
-    build.onResolve({ filter: /^yaml$/ }, () => ({
-      path: join(root, "node_modules", "yaml", "browser", "index.js"),
-    }));
-  },
-};
 
 // Every file run as its own process. Keep in sync with the spawn sites above.
 const ENTRY_POINTS = [
@@ -63,33 +52,25 @@ const ENTRY_POINTS = [
 ];
 
 await build({
+  ...serverBundleOptions,
   entryPoints: ENTRY_POINTS.map((entry) => join(server, entry)),
-  bundle: true,
-  platform: "node",
-  target: "node20",
-  format: "esm",
   outbase: server,
   outdir: join(root, "dist-server"),
   // Written after tsc, replacing its output for these entry points.
   allowOverwrite: true,
   logLevel: "info",
-  plugins: [yamlEsmPlugin],
 });
 
 // Thin packaged entry: listen first, then dynamically import the fat
 // harness. Must stay a sibling of index.js and must NOT bundle index, or
 // health waits on the 1.7mb parse again.
 await build({
+  ...serverBundleOptions,
   entryPoints: [join(server, "packaged-boot.ts")],
-  bundle: true,
-  platform: "node",
-  target: "node20",
-  format: "esm",
   outfile: join(root, "dist-server", "packaged-boot.js"),
   external: ["./index.js"],
   allowOverwrite: true,
   logLevel: "info",
-  plugins: [yamlEsmPlugin],
 });
 
 // External MCP clients launch this as an independent stdio process. Keep its
@@ -97,11 +78,8 @@ await build({
 // the bundled output beside the packaged harness so release users do not need
 // the repository, TypeScript, pnpm, or node_modules.
 await build({
+  ...serverBundleOptions,
   entryPoints: [join(root, "scripts", "mcp-server.ts")],
-  bundle: true,
-  platform: "node",
-  target: "node20",
-  format: "esm",
   outfile: join(root, "dist-server", "mcp-server.js"),
   allowOverwrite: true,
   logLevel: "info",
