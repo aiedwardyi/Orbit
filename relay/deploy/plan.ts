@@ -340,6 +340,7 @@ export function planProvision(opts: DeployOptions, state: ProjectState): Step[] 
 
 export function planUpdate(opts: DeployOptions, state: ProjectState): Step[] {
   validate(opts);
+  if (!opts.acceptAcmeTerms) throw new PlanError("update needs --accept-acme-terms (CA subscriber agreement)");
   if (!state.instance) throw new PlanError(`instance ${names(opts).vm} not found in ${opts.project}`);
   checkOwned(opts.base, "instance", state.instance);
   return [
@@ -359,7 +360,10 @@ export function planPause(opts: DeployOptions, state: ProjectState, protect?: Ip
   const oldIp = state.address?.ip ?? state.instance?.ip;
   const { host, fqdn } = dnsName(opts);
   if (oldIp) {
-    steps.push({ kind: "dns-delete", zone: opts.dnsZone, host, fqdn, onlyValue: oldIp, protect, manual: opts.dnsMode === "manual" });
+    if (opts.dnsMode === "manual") {
+      throw new PlanError("manual DNS cannot verify all relay/PC A records; use --dns namecom to pause or move");
+    }
+    steps.push({ kind: "dns-delete", zone: opts.dnsZone, host, fqdn, onlyValue: oldIp, protect, manual: false });
   }
 
   if (state.instance) {
