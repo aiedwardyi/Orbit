@@ -243,6 +243,42 @@ describe("ChatView note collapse", () => {
       host.remove();
     }
   });
+
+  it("keeps a pane closed when its close lands before the snapshot", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pane = (sessionId: string) => ({ sessionId, generation: 1, label: null, cwd: "C:\\repo", main: false, exited: false });
+    let resolveSnapshot: (value: { panes: ReturnType<typeof pane>[] }) => void = () => {};
+    let opened: (event: { botId: string; id: string }) => void = () => {};
+    let closed: (event: { botId: string; id: string }) => void = () => {};
+    vi.stubGlobal("ogb", { platform: "win32", terminal: {
+      readBot: vi.fn(() => new Promise((resolve) => { resolveSnapshot = resolve; })),
+      onOpened: vi.fn((cb: typeof opened) => { opened = cb; return () => {}; }),
+      onClosed: vi.fn((cb: typeof closed) => { closed = cb; return () => {}; }),
+    } });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const launch = (id: string, label: string): Message => ({ id, at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${id}` });
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [userMsg("ua", "go"), launch("p1", "A"), launch("p2", "B"), launch("p3", "C")] } as Bot;
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current, onOpenTerminalPane: vi.fn() }))));
+      await act(async () => { closed({ botId: botA.id, id: "p1" }); opened({ botId: botA.id, id: "p2" }); });
+      await act(async () => { resolveSnapshot({ panes: [pane("p1"), pane("p3")] }); });
+      const labels = Array.from(host.querySelectorAll("button")).map((b) => b.textContent).filter((t) => t?.startsWith("Launched"));
+      expect(labels).toEqual(["Launched A · closed", "Launched B", "Launched C"]);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
 });
 
 describe("ChatView bot switch while busy", () => {
