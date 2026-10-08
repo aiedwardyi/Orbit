@@ -84,6 +84,14 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npx playwright install chromium
+      - name: Load the relay client under Node and Wink.exe
+        working-directory: e2e/relay-live
+        shell: bash
+        env:
+          WINK_RESOURCES: ${{ runner.temp }}/wink/resources
+          OUT_DIR: ${{ runner.temp }}/artifacts
+          WORK_DIR: ${{ runner.temp }}/work
+        run: node diagnose.mjs
       - name: Run the phone access flow
         working-directory: e2e/relay-live
         shell: bash

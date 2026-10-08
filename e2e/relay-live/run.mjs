@@ -79,9 +79,12 @@ function note(letter, text) {
   mark(`${letter}: ${text}`);
 }
 
+/** Boxes that can hold a setup code, an invite, the QR or the pairing code; masked in every screenshot. */
+const SENSITIVE = '[aria-label="Setup code"], [aria-label="Invite"], [aria-label="Phone pairing QR code"], [data-pairing-code]';
+
 async function shot(page, name, options = {}) {
   try {
-    await page.screenshot({ path: join(SHOTS, `${name}.png`), ...options });
+    await page.screenshot({ path: join(SHOTS, `${name}.png`), ...options, mask: [...(options.mask ?? []), page.locator(SENSITIVE)] });
     shots.push(`${name}.png`);
   } catch (error) {
     log(`screenshot ${name} failed: ${error.message}`);
@@ -309,7 +312,10 @@ let stopWatch = () => {};
 let fatal = null;
 
 async function flow() {
-  if (!CODE) throw new Error("RELAY_E2E_CODE is empty");
+  if (!CODE) {
+    note("c", "skipped: no RELAY_E2E_CODE secret");
+    return;
+  }
   if (!["staging", "production"].includes(MODE)) throw new Error(`unknown ACME mode ${MODE}`);
   hide(CODE);
   hide(CODE.split(":").slice(2).join(":"));
