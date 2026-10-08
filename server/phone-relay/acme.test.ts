@@ -1,9 +1,9 @@
 import { X509Certificate, createHash, createPrivateKey } from "node:crypto";
 import { EventEmitter, once } from "node:events";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage } from "node:http";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CertManager, FALLBACK_AFTER_MS, RENEW_CHECK_MS, RETRY_BASE_MS, STEP_TIMEOUT_MS, type AcmeAccountConfig, type ChallengeTarget } from "./acme.ts";
 import { readCert, readKeyHistory, relayDir, spkiFingerprint, writeCert } from "./store.ts";
@@ -158,6 +158,18 @@ describe("ACME certificate manager", () => {
     expect(certs.snapshot().error).toBeNull();
     expect(target.installs).toHaveLength(2);
     expect(target.installs[1]).not.toBe(target.installs[0]);
+  });
+
+  it("logs a corrupt retry state file instead of reporting it as a certificate error", async () => {
+    const { dir, ca, certs } = await setup();
+    const current = await ca.issue(HOST);
+    writeCert(dir, current.keyPem, current.certPem);
+    writeFileSync(join(relayDir(dir), "acme-state.json"), "{");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    cleanups.push(() => warn.mockRestore());
+    certs.start();
+    expect(certs.snapshot()).toMatchObject({ valid: true, error: null });
+    expect(warn).toHaveBeenCalledWith("phone relay: ACME retry state not loaded (ACME state file is corrupt)");
   });
 
   it("keeps the current certificate when the CA hands back an expired one", async () => {

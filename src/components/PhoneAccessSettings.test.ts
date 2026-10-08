@@ -113,6 +113,38 @@ describe("PhoneAccessSettings", () => {
     await act(async () => root.unmount());
   });
 
+  it("counts a retry down from when it was scheduled, however long Settings has been open", async () => {
+    vi.useFakeTimers();
+    let relay = status();
+    serve({ "GET /api/phone-relay/status": () => relay, "GET /api/phone/devices": () => ({ phones: [] }) });
+    const { host, root } = await renderView();
+    const state = () => host.querySelector("[data-phone-access-state]")?.textContent;
+    try {
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      relay = status({ state: "reconnecting", lastError: "connection to relay closed", nextRetryAt: Date.now() + 9_500 });
+      await act(() => vi.advanceTimersByTimeAsync(3_000));
+      expect(state()).toBe("Relay unreachable, retrying in 7s");
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      expect(state()).toBe("Relay unreachable, retrying in 6s");
+    } finally {
+      await act(async () => root.unmount());
+      vi.useRealTimers();
+    }
+  });
+
+  it("warns about a failing certificate renewal while still connected", async () => {
+    serve({
+      "GET /api/phone-relay/status": () => status({ lastError: "certificate request failed: CA did not answer in time" }),
+      "GET /api/phone/devices": () => ({ phones: [] }),
+    });
+    const { host, root } = await renderView();
+    expect(host.querySelector("[data-phone-access-state]")?.textContent).toBe("Ready. Paired phones can reach this PC.");
+    expect(host.querySelector("[data-phone-access-error]")?.textContent).toBe(
+      "Certificate renewal failed, will retry: certificate request failed: CA did not answer in time",
+    );
+    await act(async () => root.unmount());
+  });
+
   it("explains a superseded address and an unknown certificate", async () => {
     serve({
       "GET /api/phone-relay/status": () => status({ state: "rejected", problem: "superseded", lastError: "superseded: this phone address is in use on another computer" }),

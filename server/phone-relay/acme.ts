@@ -265,7 +265,8 @@ export class CertManager {
       this.failingSince = state.value.failingSince;
       this.failures = state.value.failures;
     } else if (state.kind === "invalid") {
-      this.error ??= state.reason;
+      // Logged, not this.error: Settings reads that as a failed renewal, and fresh retry state is safe.
+      console.warn(`phone relay: ACME retry state not loaded (${state.reason})`);
     }
     this.scheduleCheck(RENEW_CHECK_MS);
   }

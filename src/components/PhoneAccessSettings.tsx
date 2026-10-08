@@ -82,7 +82,9 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
     const load = () =>
       request("/api/phone-relay/status")
         .then((body: RelayStatus) => {
-          if (live) setStatus(body);
+          if (!live) return;
+          setStatus(body);
+          setNow(Date.now());
         })
         .catch(() => {});
     void load();
@@ -117,6 +119,14 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
       window.clearInterval(poll);
     };
   }, [pairing, loadPhones]);
+
+  // While a retry is scheduled: tick its countdown.
+  const retrying = status?.state === "reconnecting" && status.nextRetryAt !== null;
+  useEffect(() => {
+    if (!retrying) return;
+    const tick = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(tick);
+  }, [retrying]);
 
   if (!status?.configured) return null;
 
@@ -203,9 +213,9 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
           </button>
         </div>
 
-        {enabled && !status.problem && status.lastError && status.state !== "connected" ? (
+        {enabled && !status.problem && status.lastError ? (
           <p data-phone-access-error className="-mt-2 break-words text-[12px] text-ink-secondary">
-            {status.lastError}
+            {status.state === "connected" ? t("settings.phoneAccess.renewalError", { message: status.lastError }) : status.lastError}
           </p>
         ) : null}
 
