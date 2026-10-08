@@ -56,7 +56,7 @@ const t0 = Date.now();
 const timeline = [];
 const results = {};
 const timings = {};
-const facts = { mode: MODE, bits: process.env.BITS ?? null, serverPatched: process.env.SERVER_PATCHED === "yes", host: null };
+const facts = { mode: MODE, bits: process.env.BITS ?? null, serverPatched: process.env.SERVER_PATCHED === "yes", host: null, serverRuntime: join(RES, "..", "Orbit.exe") };
 const shots = [];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const since = (start) => +((Date.now() - start) / 1000).toFixed(2);
@@ -142,8 +142,8 @@ async function startServer(name, home, port, extra = {}) {
   mkdirSync(home, { recursive: true });
   const logPath = join(WORK, `${name}.log`);
   const fd = openSync(logPath, "a");
-  const child = spawn(process.execPath, [join(RES, "server", "packaged-boot.js")], {
-    env: serverEnv(home, port, extra),
+  const child = spawn(facts.serverRuntime, [join(RES, "server", "packaged-boot.js")], {
+    env: { ...serverEnv(home, port, extra), ELECTRON_RUN_AS_NODE: "1" },
     stdio: ["ignore", fd, fd, "ipc"],
     windowsHide: true,
   });
