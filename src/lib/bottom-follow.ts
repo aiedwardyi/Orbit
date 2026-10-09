@@ -20,3 +20,15 @@ export function shouldResumeBottomFollow({
 }): boolean {
   return !following && scrollTop > previousScrollTop && distanceFromBottom < BOTTOM_FOLLOW_THRESHOLD;
 }
+
+type ScrollBox = Pick<HTMLElement, "scrollHeight" | "scrollTop" | "clientHeight">;
+
+/** The newest row is under the fold, so Jump to latest has somewhere to go. */
+export function newestBelowView(el: ScrollBox): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight >= BOTTOM_FOLLOW_THRESHOLD;
+}
+
+/** Nothing to scroll; a transcript that isn't laid out (hidden, test DOM) reads 0 and never counts. */
+export function transcriptUnderfilled(el: ScrollBox): boolean {
+  return el.clientHeight > 0 && el.scrollHeight <= el.clientHeight;
+}

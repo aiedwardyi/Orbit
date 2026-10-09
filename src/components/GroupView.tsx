@@ -57,7 +57,7 @@ import { useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { shortPath } from "@/lib/short-path";
-import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow } from "@/lib/bottom-follow";
+import { BOTTOM_FOLLOW_THRESHOLD, newestBelowView, shouldResumeBottomFollow, transcriptUnderfilled } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
 import { TRANSCRIPT_GAP, useComposerDockPad } from "@/lib/composer-dock";
 import { turnPresenceWaiting } from "@/lib/send-accept";
@@ -1255,6 +1255,14 @@ export function GroupView({ group }: { group: Group }) {
     const start = followedTailStart(transcriptWindow.start, group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
     if (start !== transcriptWindow.start) setTranscriptWindow((w) => ({ ...w, start }));
   }, [follow, jump.messages, group.messages.length, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded]);
+  // A plain tail holds at least the newest window of visible rows - see ChatView.
+  const tailStart = useMemo(() => tailWindowStart(group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders), [group.messages.length, renders]);
+  const preExpandHeight = useRef<number | null>(null);
+  if (!jump.messages && transcriptWindow.key === transcriptKey && transcriptWindow.end === null && !transcriptWindow.expanded && transcriptWindow.start > tailStart) {
+    // rows land above a reader in scrollback: the expand restore keeps their row put
+    if (!followRef.current) preExpandHeight.current ??= scrollRef.current?.scrollHeight ?? null;
+    setTranscriptWindow((w) => (w.end === null && !w.expanded ? { ...w, start: Math.min(w.start, tailStart) } : w));
+  }
 
   // an open draft outranks an incoming bulletin patch — resyncing under the cursor loses the edit
   useEffect(() => {
@@ -1274,23 +1282,42 @@ export function GroupView({ group }: { group: Group }) {
     previousScrollTop.current = el.scrollTop;
   }, [group.id, group.messages.length, streaming, group.busyBotId, composerDock.pad, popping]);
 
+  // Late layout, images and viewport changes fire no scroll event, so the pill and fill read geometry here too.
+  const [newestBelow, setNewestBelow] = useState(false);
+  const [underfilled, setUnderfilled] = useState(false);
+  const measure = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setNewestBelow(newestBelowView(el));
+    setUnderfilled(transcriptUnderfilled(el));
+  }, []);
   useEffect(() => {
     const content = contentRef.current;
     if (!content) return;
     const observer = new ResizeObserver(() => {
       const el = scrollRef.current;
-      if (!el || !followRef.current) return;
-      el.scrollTo({ top: el.scrollHeight });
-      previousScrollTop.current = el.scrollTop;
+      if (el && followRef.current) {
+        el.scrollTo({ top: el.scrollHeight });
+        previousScrollTop.current = el.scrollTop;
+      }
+      measure();
     });
     observer.observe(content);
+    // a growing composer shrinks the viewport; re-pin before paint
+    if (scrollRef.current) observer.observe(scrollRef.current);
     return () => observer.disconnect();
-  }, [setupPending]);
+  }, [measure, setupPending]);
+
+  // A plain tail too short to scroll pages older rows in until it fills or the thread runs out.
+  const fillPaging = Boolean(group.hasMore) && !jump.messages && transcriptWindow.end === null && !transcriptWindow.expanded;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (fillPaging && el && transcriptUnderfilled(el)) loadOlder();
+  }, [fillPaging, loadOlder, underfilled]);
 
   // Expanding prepends rows: capture the height first, then after the commit
   // shift scrollTop by the growth so the message under the cursor stays put
   // (browser scroll anchoring is disabled on this container).
-  const preExpandHeight = useRef<number | null>(null);
   const showEarlier = () => {
     // expanding means reading scrollback — never let a mid-expand stream
     // event pin the viewport back to the bottom
@@ -1326,6 +1353,10 @@ export function GroupView({ group }: { group: Group }) {
   const atEnd = () => {
     const el = scrollRef.current;
     return !el || el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_FOLLOW_THRESHOLD;
+  };
+  // an upward swipe on a transcript already at its top scrolls nothing, so there is no scrollback to read
+  const breakFollow = () => {
+    if (scrollRef.current?.scrollTop) setBottomFollow(false);
   };
 
   // Own send re-anchors even from scrollback; incoming content never yanks.
@@ -1534,13 +1565,13 @@ export function GroupView({ group }: { group: Group }) {
         data-orbit-transcript
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
         onWheel={(e) => {
-          if (e.deltaY < 0) setBottomFollow(false);
+          if (e.deltaY < 0) breakFollow();
           else if (atEnd()) setBottomFollow(true);
         }}
         onTouchStart={(e) => (touchY.current = e.touches[0]?.clientY ?? 0)}
         onTouchMove={(e) => {
           const y = e.touches[0]?.clientY ?? 0;
-          if (y > touchY.current + 4) setBottomFollow(false);
+          if (y > touchY.current + 4) breakFollow();
           else if (atEnd()) setBottomFollow(true);
         }}
         onScroll={() => {
@@ -1555,6 +1586,7 @@ export function GroupView({ group }: { group: Group }) {
           });
           previousScrollTop.current = scrollTop;
           if (resume) setBottomFollow(true);
+          measure();
         }}
         onClick={(e) => {
           if (findOpen) return;
@@ -1656,7 +1688,7 @@ export function GroupView({ group }: { group: Group }) {
         )}
       </div>
 
-      {(!follow || jump.messages) && (
+      {(jump.messages || laterCount > 0 || (!follow && newestBelow)) && (
         <button
           onClick={jumpToLatest}
           aria-label={t("chat.jumpToLatest")}
