@@ -7,25 +7,27 @@
 // sends a starting turn folds in. Pane notes, narration notices and other
 // control-plane steers never call takeOverPeerTurn.
 
-const peerTurns = new Map<string, () => void>(); // target threadId → takeover
+const peerTurns = new Map<string, Set<() => void>>(); // target threadId → takeovers
 
-/** Watch one peer-started turn on `threadId` for a user takeover. */
-export function onPeerTakeover(threadId: string, handler: () => void): void {
-  peerTurns.set(threadId, handler);
-}
-
-/** The peer turn on `threadId` ended; a later message is not a takeover. */
-export function endPeerTurn(threadId: string): void {
-  peerTurns.delete(threadId);
+/** Watch one peer-started turn on `threadId` for a user takeover. Call the
+ * returned function when that turn ends; other watches on the thread stay. */
+export function onPeerTakeover(threadId: string, handler: () => void): () => void {
+  const handlers = peerTurns.get(threadId) ?? new Set();
+  handlers.add(handler);
+  peerTurns.set(threadId, handlers);
+  return () => {
+    handlers.delete(handler);
+    if (!handlers.size && peerTurns.get(threadId) === handlers) peerTurns.delete(threadId);
+  };
 }
 
 /** The user's message joined the running turn on `threadId`. True when that
  * turn was a teammate's. */
 export function takeOverPeerTurn(threadId: string): boolean {
-  const handler = peerTurns.get(threadId);
-  if (!handler) return false;
+  const handlers = peerTurns.get(threadId);
+  if (!handlers) return false;
   peerTurns.delete(threadId);
-  handler();
+  for (const handler of handlers) handler();
   return true;
 }
 
@@ -41,10 +43,10 @@ export function peerAnswer(
   const finish = (out: string) => {
     if (done) return;
     done = true;
-    endPeerTurn(threadId);
+    endTakeover();
     resolve(out);
   };
-  onPeerTakeover(threadId, () =>
+  const endTakeover = onPeerTakeover(threadId, () =>
     finish(text || `${botName} switched to ${userName()}'s message before answering. Ask again later.`),
   );
   return {

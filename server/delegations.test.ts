@@ -12,6 +12,7 @@ import { DATA_DIR } from "./config.ts";
 import type { ModelSelection } from "./contracts.ts";
 import {
   drainDelegations,
+  drainWaitingOn,
   findDelegationReceipt,
   finishDelegatedTurn,
   MAX_BUSY_ATTEMPTS,
@@ -1143,5 +1144,73 @@ describe("user takeover of a delegated turn", () => {
     store.patchBot(wink.id, { busy: false });
     drain();
     await waitFor(() => dispatched.length === 2 && _pendingCount(career.threadId) === 0);
+  });
+
+  it("asks before a rerun whose handoff was never approved", async () => {
+    const { taskId } = await takenOverOnce();
+    store.patchBot(career.id, { approvePeerComms: true });
+    drain();
+    const card = await waitFor(() => store.messagesFor(career.threadId).find((m) => m.card?.requestId));
+    expect(card.card?.tool).toBe("delegate_bot");
+    expect(dispatched).toHaveLength(1);
+
+    resolvePeerComms(approvalBus, card.card!.requestId!, "deny");
+    await waitFor(() => findDelegationReceipt(taskId)?.status === "denied");
+    expect(dispatched).toHaveLength(1);
+    expect(pendingDelegationInfo(taskId)).toBeNull();
+  });
+
+  it("skips the card on a rerun of an approved handoff", async () => {
+    store.patchBot(career.id, { approvePeerComms: true });
+    queueDelegation(commsBus, career, { toBotId: wink.id, message: "What changed in the resume?", depth: 0 }, 1);
+    drain();
+    const card = await waitFor(() => store.messagesFor(career.threadId).find((m) => m.card?.requestId));
+    resolvePeerComms(approvalBus, card.card!.requestId!, "allow");
+    await waitFor(() => dispatched.length === 1 && _pendingCount(career.threadId) === 0);
+    const turn = turnOf(dispatched[0]!);
+    takeOverDelegatedTurn(commsBus, turn, "Edward");
+    finishDelegatedTurn(commsBus, turn, true, "Edward, 1.0.157 is out.");
+
+    drain();
+    await waitFor(() => dispatched.length === 2 && _pendingCount(career.threadId) === 0);
+    expect(store.messagesFor(career.threadId).filter((m) => m.card?.requestId)).toHaveLength(1);
+  });
+
+  it("drains only the handoffs waiting on a settling target", async () => {
+    store.patchBot(wink.id, { busy: true });
+    const waiting = queueDelegation(commsBus, career, { toBotId: wink.id, message: "First", depth: 0 }, 1);
+    drain();
+    await waitFor(() => pendingDelegationInfo(waiting.id!)?.attempts === 1);
+    await new Promise((r) => setTimeout(r, 50));
+    // queued by Career's still-running turn: it waits for that turn to end
+    const fresh = queueDelegation(commsBus, career, { toBotId: wink.id, message: "Second", depth: 0 }, 1);
+    store.patchBot(wink.id, { busy: false });
+
+    drainDelegations(commsBus, approvalBus, career.threadId, runTarget, undefined, wink.id);
+    await waitFor(() => dispatched.length === 1 && pendingDelegationInfo(waiting.id!) === null);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(dispatched.map((call) => call.taskId)).toEqual([waiting.id]);
+    expect(pendingDelegationInfo(fresh.id!)).toMatchObject({ attempts: 0 });
+  });
+
+  it("reruns a taken-over handoff when the user's queued send never starts", async () => {
+    const { taskId } = await takenOverOnce();
+    const waiting = queueSteeredMessage(wink.id, wink.threadId, "one more thing");
+    drainWaitingOn(commsBus, approvalBus, wink.id, runTarget);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(dispatched).toHaveLength(1);
+
+    // the send left the queue but its turn never started, so no turn.completed follows
+    cancelSteeredMessage(wink.id, waiting.id);
+    drainWaitingOn(commsBus, approvalBus, wink.id, runTarget);
+    await waitFor(() => dispatched.length === 2 && pendingDelegationInfo(taskId) === null);
+
+    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const drainSends = index.slice(index.indexOf("function drainQueuedSends() {"));
+    const body = drainSends.slice(0, drainSends.indexOf("\n}"));
+    expect(body).toContain("drainWaitingOn(commsBus, approvalBus, botId, runDelegatedTurn)");
+    expect(body).toContain("onDispatchError: rerunIfIdle,");
+    expect(body).toContain(".then(rerunIfIdle)");
+    expect(body).toMatch(/continueQueuedDrainIfIdle\(store, botId, drainQueuedSends, botHasActiveTurn\);\r?\n\s*rerunIfIdle\(\);/);
   });
 });

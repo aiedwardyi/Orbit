@@ -57,6 +57,8 @@ interface PendingDelegationItem extends DelegationItem {
   attempts: number;
   /** Set on the rerun of a handoff the user took over: whose message it was. */
   takenOverBy?: string;
+  /** The user allowed this handoff once; its rerun does not ask again. */
+  approved?: boolean;
 }
 
 export type DelegationOutcome = "done" | "failed" | "denied" | "busy_gave_up" | "dropped" | "error";
@@ -102,6 +104,8 @@ const drainingThreads = new Set<string>();
  * Dropping such a request loses real work: the waiting-on retry fires the
  * moment a busy target settles, and that can land mid-drain. */
 const queuedRedrains = new Set<string>();
+/** Same, for drains scoped to the handoffs waiting on one bot. */
+const queuedWaitingRedrains = new Map<string, Set<string>>();
 const DELEGATIONS_FILE = join(DATA_DIR, "delegations.json");
 const RECEIPTS_FILE = join(DATA_DIR, "delegation-receipts.json");
 const MAX_RECEIPTS = 100;
@@ -178,8 +182,25 @@ export function pendingDelegationInfo(id: string): { sourceThreadId: string; toB
  * draining them early would start the peer before the delegator finished. */
 export function threadsWaitingOn(toBotId: string): string[] {
   return [...pendingDelegations.entries()]
-    .filter(([, items]) => items.some((item) => item.toBotId === toBotId && (item.attempts > 0 || item.takenOverBy !== undefined)))
+    .filter(([, items]) => items.some((item) => waitsOn(item, toBotId)))
     .map(([threadId]) => threadId);
+}
+
+const waitsOn = (item: PendingDelegationItem, toBotId: string) =>
+  item.toBotId === toBotId && (item.attempts > 0 || item.takenOverBy !== undefined);
+
+/** `toBotId` is idle again: run only the handoffs waiting on it, never a
+ * source's fresh ones. */
+export function drainWaitingOn(
+  bus: CommsBus,
+  approvalBus: ApprovalBus,
+  toBotId: string,
+  runTarget: Parameters<typeof drainDelegations>[3],
+  exceptThreadId?: string,
+): void {
+  for (const threadId of threadsWaitingOn(toBotId)) {
+    if (threadId !== exceptThreadId) drainDelegations(bus, approvalBus, threadId, runTarget, undefined, toBotId);
+  }
 }
 
 function savePending(): void {
@@ -354,18 +375,20 @@ export function drainDelegations(
     transcriptText?: string,
   ) => void | Promise<void>,
   sourceBotId?: string,
+  waitingOn?: string,
 ): void {
   if (drainingThreads.has(threadId)) {
-    queuedRedrains.add(threadId);
+    if (waitingOn) queuedWaitingRedrains.set(threadId, (queuedWaitingRedrains.get(threadId) ?? new Set()).add(waitingOn));
+    else queuedRedrains.add(threadId);
     return;
   }
   const list = pendingDelegations.get(threadId);
   if (!list?.length) return;
   const privateSourceId = bus.store.botByThread(threadId)?.id;
   const itemSourceId = (item: PendingDelegationItem) => item.fromBotId ?? privateSourceId;
-  const snapshot = sourceBotId
-    ? list.filter((item) => itemSourceId(item) === sourceBotId)
-    : [...list];
+  const inScope = (item: PendingDelegationItem) =>
+    (!sourceBotId || itemSourceId(item) === sourceBotId) && (!waitingOn || waitsOn(item, waitingOn));
+  const snapshot = list.filter(inScope);
   if (!snapshot.length) return;
   drainingThreads.add(threadId);
   void (async () => {
@@ -415,13 +438,18 @@ export function drainDelegations(
     // drain — re-draining a just-requeued item would burn its bounded busy
     // retries in milliseconds instead of once per target settle.
     const redrainRequested = queuedRedrains.delete(threadId);
+    const waitingRedrains = queuedWaitingRedrains.get(threadId) ?? [];
+    queuedWaitingRedrains.delete(threadId);
     const snapshotIds = new Set(snapshot.map((item) => item.id));
     const hasNewItems = pendingDelegations.get(threadId)?.some(
-      (item) => (!sourceBotId || itemSourceId(item) === sourceBotId) && !snapshotIds.has(item.id),
+      (item) => inScope(item) && !snapshotIds.has(item.id),
     ) ?? false;
-    if (redrainRequested || hasNewItems) {
+    if (redrainRequested) {
       drainDelegations(bus, approvalBus, threadId, runTarget, sourceBotId);
+    } else if (hasNewItems) {
+      drainDelegations(bus, approvalBus, threadId, runTarget, sourceBotId, waitingOn);
     }
+    for (const toBotId of waitingRedrains) drainDelegations(bus, approvalBus, threadId, runTarget, undefined, toBotId);
   });
 }
 
@@ -539,16 +567,10 @@ async function processOne(
     );
     return "settled";
   }
-  if (item.takenOverBy !== undefined) {
-    // the user's own queued words go first, and waiting here costs no retry
-    if (target.busy || hasQueuedSends(target.id)) return "requeued";
-    const channel = getOrCreateChannel(bus.store, sender, target);
-    const prompt = `${delegatedPrompt(sender, item)}\n\nYour earlier reply went to ${item.takenOverBy} because they messaged you mid-turn, so answer @${sender.name} now.`;
-    runningDelegations.set(item.id, { sourceThreadId, item });
-    await runTarget(item.toBotId, prompt, item.depth + 1, sourceThreadId, channel, item.id, sender.id, `Answering ${sender.name}'s earlier request`);
-    return "settled";
-  }
-  if (target.busy) {
+  const rerun = item.takenOverBy !== undefined;
+  // the user's own queued words go first, and waiting here costs no retry
+  if (rerun && (target.busy || hasQueuedSends(target.id))) return "requeued";
+  if (!rerun && target.busy) {
     item.attempts += 1;
     if (item.attempts < MAX_BUSY_ATTEMPTS) {
       savePending();
@@ -578,7 +600,7 @@ async function processOne(
     );
     return "settled";
   }
-  if (sender.approvePeerComms) {
+  if (sender.approvePeerComms && !(rerun && item.approved)) {
     const verdict = await requestPeerApproval(
       approvalBus,
       sender,
@@ -608,6 +630,7 @@ async function processOne(
       );
       return "settled";
     }
+    item.approved = true;
     // The approval could have been sitting for up to 15 minutes. Everything
     // checked above is a stale snapshot now: re-read both bots and re-check
     // busy, or an allow can start a second turn on a bot that is mid-turn —
@@ -615,6 +638,7 @@ async function processOne(
     const current = bus.store.bot(item.toBotId);
     const currentSender = bus.store.conversationForBot(from.id, sourceThreadId)?.bot;
     if (!current || !currentSender) return "settled";
+    if (rerun && (current.busy || hasQueuedSends(current.id))) return "requeued";
     if (current.busy) {
       item.attempts += 1;
       if (item.attempts < MAX_BUSY_ATTEMPTS) {
@@ -647,6 +671,13 @@ async function processOne(
     }
     sender = currentSender;
     target = current;
+  }
+  if (rerun) {
+    const channel = getOrCreateChannel(bus.store, sender, target);
+    const prompt = `${delegatedPrompt(sender, item)}\n\nYour earlier reply went to ${item.takenOverBy} because they messaged you mid-turn, so answer @${sender.name} now.`;
+    runningDelegations.set(item.id, { sourceThreadId, item });
+    await runTarget(item.toBotId, prompt, item.depth + 1, sourceThreadId, channel, item.id, sender.id, `Answering ${sender.name}'s earlier request`);
+    return "settled";
   }
   const channel = getOrCreateChannel(bus.store, sender, target);
   const delivered = patchDelegationChip(bus, item.id, { name: `Delivered to @${target.name}` }, commLink(channel, target));
@@ -759,6 +790,7 @@ export function _resetPending(): void {
   pendingDelegations.clear();
   drainingThreads.clear();
   queuedRedrains.clear();
+  queuedWaitingRedrains.clear();
   runningDelegations.clear();
   receipts = [];
 }

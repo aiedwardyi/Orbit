@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { endPeerTurn, onPeerTakeover, peerAnswer, takeOverPeerTurn } from "./peer-takeover.ts";
+import { onPeerTakeover, peerAnswer, takeOverPeerTurn } from "./peer-takeover.ts";
 
 function ask(threadId: string) {
   const answers: string[] = [];
@@ -49,10 +49,31 @@ describe("peer turn registry", () => {
 
   it("forgets a turn once it ends", () => {
     let calls = 0;
-    onPeerTakeover("t-reg-2", () => calls++);
-    endPeerTurn("t-reg-2");
+    const end = onPeerTakeover("t-reg-2", () => calls++);
+    end();
     expect(takeOverPeerTurn("t-reg-2")).toBe(false);
     expect(calls).toBe(0);
+  });
+
+  it("keeps a delegated turn's watch when an ask on the same bot fails to start", () => {
+    let calls = 0;
+    onPeerTakeover("t-reg-3", () => calls++);
+    const { answer, answers } = ask("t-reg-3");
+    answer.end("(couldn't start that bot: the bot is already working)");
+    expect(takeOverPeerTurn("t-reg-3")).toBe(true);
+    expect(calls).toBe(1);
+    expect(answers).toEqual(["(couldn't start that bot: the bot is already working)"]);
+  });
+
+  it("takes over every turn watching the thread", () => {
+    let calls = 0;
+    onPeerTakeover("t-reg-4", () => calls++);
+    const { answer, answers } = ask("t-reg-4");
+    expect(takeOverPeerTurn("t-reg-4")).toBe(true);
+    answer.end("(the bot finished without a text reply)");
+    expect(calls).toBe(1);
+    expect(answers).toEqual(["Wink switched to Edward's message before answering. Ask again later."]);
+    expect(takeOverPeerTurn("t-reg-4")).toBe(false);
   });
 
   it("a control-plane steer doesn't take over", () => {

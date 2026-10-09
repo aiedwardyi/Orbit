@@ -142,8 +142,8 @@ import { getOrCreateChannel, mirrorExchange, mirrorReply, type CommsBus } from "
 import { searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
-import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, findDelegationReceipt, finishDelegatedTurn, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, threadsWaitingOn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
-import { endPeerTurn, onPeerTakeover, peerAnswer, takeOverPeerTurn } from "./peer-takeover.ts";
+import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, findDelegationReceipt, finishDelegatedTurn, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
+import { onPeerTakeover, peerAnswer, takeOverPeerTurn } from "./peer-takeover.ts";
 import {
   cancelQueuedRoomParticipations,
   cancelSteeredMessage,
@@ -3546,7 +3546,7 @@ bus.subscribe((event: RuntimeEvent) => {
 // (target threadId → channel) lets the main fold mirror the delegated
 // turn's TERMINAL state into the A⇄B channel when it completes — the
 // channel stays the full record of the handoff, not just its request.
-const delegationWatch = new Map<string, DelegatedTurn>();
+const delegationWatch = new Map<string, DelegatedTurn & { endTakeover?: () => void }>();
 
 /** Consume one delegated-turn watch and mirror exactly one terminal state.
  * Some harness paths settle a busy bot without a provider turn.completed
@@ -3561,7 +3561,7 @@ function finalizeDelegationWatch(
   const watched = delegationWatch.get(threadId);
   if (!watched) return false;
   delegationWatch.delete(threadId);
-  endPeerTurn(threadId);
+  watched.endTakeover?.();
   return finishDelegatedTurn(commsBus, watched, ok, reply, failureName);
 }
 
@@ -3600,10 +3600,10 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
     // child. Every delegation failure has to land as a chip instead.
     const targetThreadId = store.bot(toBotId)?.threadId;
     if (targetThreadId) {
-      const watched: DelegatedTurn = { channelId: channel?.id, toBotId, taskId, sourceThreadId, sourceBotId };
+      const watched: DelegatedTurn & { endTakeover?: () => void } = { channelId: channel?.id, toBotId, taskId, sourceThreadId, sourceBotId };
       delegationWatch.set(targetThreadId, watched);
       peerTurnSource.set(targetThreadId, sourceThreadId);
-      onPeerTakeover(targetThreadId, () => {
+      watched.endTakeover = onPeerTakeover(targetThreadId, () => {
         peerTurnSource.delete(targetThreadId);
         takeOverDelegatedTurn(commsBus, watched, cfg.profile?.name?.trim() || "User");
       });
@@ -3668,11 +3668,7 @@ bus.subscribe((event: RuntimeEvent) => {
   // found it busy earlier were kept queued (bounded retries) on their own
   // source threads, and this is the moment they get their retry.
   const settledBot = store.botByThread(event.threadId);
-  if (settledBot) {
-    for (const waitingThread of threadsWaitingOn(settledBot.id)) {
-      if (waitingThread !== event.threadId) drainDelegations(commsBus, approvalBus, waitingThread, runDelegatedTurn);
-    }
-  }
+  if (settledBot) drainWaitingOn(commsBus, approvalBus, settledBot.id, runDelegatedTurn, event.threadId);
 });
 
 // ── steer-queue drain: messages sent while the bot was busy ────────────
@@ -3756,11 +3752,15 @@ function drainQueuedSends() {
         { queueId: userMessage.queueId },
       );
     }
+    // a send that never runs leaves no turn.completed to rerun a taken-over handoff
+    const rerunIfIdle = () =>
+      continueQueuedDrainIfIdle(store, botId, () => drainWaitingOn(commsBus, approvalBus, botId, runDelegatedTurn), botHasActiveTurn);
     startTurn(botId, prompt, {
       threadId,
       userMessage: userMessage ?? undefined,
       excludeMessageIds: excludeIds,
-    }).then(() => undefined).catch((err) => {
+      onDispatchError: rerunIfIdle,
+    }).then(rerunIfIdle).catch((err) => {
       store.appendMessage(threadId, {
         role: "bot",
         kind: "activity",
@@ -3772,6 +3772,7 @@ function drainQueuedSends() {
       // This send is already off the queue. If the bot is still idle, the
       // next queued line should get its own turn instead of waiting forever.
       continueQueuedDrainIfIdle(store, botId, drainQueuedSends, botHasActiveTurn);
+      rerunIfIdle();
     });
   }, botHasActiveTurn);
 }
