@@ -2082,6 +2082,8 @@ const StoreContext = createContext<{
 
 type PendingDeltas = StreamBuffers & { tail: string; ramps?: StreamRamp[] };
 
+const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, rawDispatch] = useReducer(reducer, initialState, withCachedSnapshot);
   const stateRef = useRef(state);
@@ -2102,6 +2104,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [stream, setStream] = useState<TurnStreamState>(EMPTY_STREAM);
   const deltaBuffer = useRef(new Map<string, PendingDeltas>());
   const deltaFlush = useRef<number | null>(null);
+  // A settled reply waits for its live text to finish typing; the thread's
+  // later frames queue behind it so nothing lands out of order.
+  const settling = useRef(new Map<string, (() => void)[]>());
+  const releaseSettled = () => {
+    for (const [threadId, held] of settling.current) {
+      if (deltaBuffer.current.has(threadId)) continue;
+      settling.current.delete(threadId);
+      for (const replay of held) replay();
+    }
+  };
   // `reason` is what ended the stream, not just that it ended: only a turn
   // boundary or a rewind may also drop the thread's staging signal.
   const clearStream = (threadId: string, reason: TurnEvent = "settled-message") => {
@@ -2117,6 +2129,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const next = nextStreamState(prev, threadId, reason);
       return next === prev ? prev : next;
     });
+    releaseSettled();
   };
   // A tool call ends the model's reasoning block without ending the stream.
   // The buffer is what tells the presence label reasoning is live, so it has
@@ -2187,12 +2200,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
     }
     if (buf.size) scheduleDeltaFlush();
+    releaseSettled();
   };
   const scheduleDeltaFlush = () => {
     if (deltaFlush.current !== null) return;
     deltaFlush.current = requestAnimationFrame(() => {
       deltaFlush.current = null;
-      flushDeltas(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? undefined : performance.now());
+      flushDeltas(reducedMotion() ? undefined : performance.now());
     });
   };
 
@@ -3020,6 +3034,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // server replays what we missed when it can, and re-downloading every
     // transcript on a reconnect it already covered is pure waste.
     handleFrame = (frame) => {
+      const frameThread: string | undefined = frame.threadId ?? frame.event?.threadId ?? frame.bot?.threadId ?? frame.group?.threadId;
+      const held = frameThread === undefined ? undefined : settling.current.get(frameThread);
+      if (held) {
+        held.push(() => handleFrame(frame));
+        return;
+      }
+      // At most STREAM_REVEAL_MS: the tail types out, then the settled reply takes over.
+      if (
+        frame.kind === "message" &&
+        frame.message?.role === "bot" &&
+        frame.message.kind === "text" &&
+        deltaBuffer.current.get(frame.threadId)?.ramps?.length &&
+        document.visibilityState === "visible" &&
+        !reducedMotion()
+      ) {
+        settling.current.set(frame.threadId, [() => handleFrame(frame)]);
+        return;
+      }
       if (frame.kind === "config") bumpPeripheralVersion("config", "instances");
       else if (frame.kind === "routine" || frame.kind === "routine.deleted" || frame.kind === "routine.run") {
         bumpPeripheralVersion("routines");
@@ -3252,6 +3284,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Frames buffered before this non-resumable stream belong to an
         // abandoned generation. Keep the new generation behind hydrate().
         pendingFrames.splice(0);
+        settling.current.clear();
         return hydrate();
       },
       onFrame: (frame) => {
@@ -3265,11 +3298,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
     });
     // rAF never fires while hidden, so text streamed meanwhile would miss the
-    // restored window's first frame.
-    const flushOnShow = () => {
-      if (document.visibilityState === "visible") flushDeltas();
-    };
-    document.addEventListener("visibilitychange", flushOnShow);
+    // restored window's first frame, and a reply waiting on its tail would never settle.
+    const flushOnVisibility = () => flushDeltas();
+    document.addEventListener("visibilitychange", flushOnVisibility);
     const instancesPart = partByKey.get("instances");
     const stopDeferredInstances = instancesPart
       ? scheduleDeferredInstancesLoad(() => {
@@ -3281,7 +3312,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       : () => {};
     return () => {
       alive = false;
-      document.removeEventListener("visibilitychange", flushOnShow);
+      document.removeEventListener("visibilitychange", flushOnVisibility);
       stopDeferredInstances();
       clearTimeout(hydrationFallback);
       for (const refresh of peripheralRefresh.values()) {
