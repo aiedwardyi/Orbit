@@ -193,6 +193,28 @@ export async function paneLabel(
   }
 }
 
+const closedPanesSchema = z.object({ closedPanes: z.array(z.string()) });
+
+/** Panes the bot closed with terminal_close; null when the bridge can't say. User closes are never listed. */
+export async function botClosedPanes(
+  access: TerminalBridgeAccess | null,
+  botId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string[] | null> {
+  if (!access) return null;
+  try {
+    const res = await fetchImpl(`${access.url}/v1/bots/${encodeURIComponent(botId)}/terminal`, {
+      headers: { authorization: `Bearer ${terminalReadGrant(access.token, botId)}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return null;
+    const parsed = closedPanesSchema.safeParse(await res.json().catch(() => ({})));
+    return parsed.success ? parsed.data.closedPanes : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function raisePaneAttention(
   access: TerminalBridgeAccess | null,
   botId: string,

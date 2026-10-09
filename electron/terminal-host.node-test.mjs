@@ -857,6 +857,22 @@ test("closeForBot on an already-closed pane succeeds instead of erroring", async
   assert.deepEqual(alsoAgain, { alreadyClosed: true });
 });
 
+test("readBot lists panes the bot closed itself, never ones the user closed", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  const byBot = await f.host.openForBot("bot-1", { label: "w1" });
+  const byUser = await f.host.openForBot("bot-1", { label: "w2" });
+  const open = await f.host.openForBot("bot-1", { label: "w3" });
+  await f.host.closeForBot("bot-1", byBot.sessionId);
+  await f.host.close(f.event, byUser.sessionId);
+  assert.deepEqual(f.host.readBot("bot-1").closedPanes, [byBot.sessionId]);
+  await f.host.closeForBot("bot-1", open.sessionId);
+  assert.equal(f.host.readBot("bot-1").state, "no-terminal");
+  assert.deepEqual(f.host.readBot("bot-1").closedPanes, [byBot.sessionId, open.sessionId]);
+  assert.deepEqual(f.host.readBot("bot-2").closedPanes, []);
+});
+
 test("terminal_read, terminal_send and terminal_close accept a unique pane id prefix", async () => {
   let owner;
   const f = fixture({ owner: () => owner });

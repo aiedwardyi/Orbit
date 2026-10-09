@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { terminalPaneCountsGrant, terminalReadGrant, terminalSendGrant } from "./terminal-grant.ts";
-import { acceptedPaneCounts, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
+import { acceptedPaneCounts, botClosedPanes, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
 
 const ACCESS = { url: "http://127.0.0.1:52150", token: "bridge-secret" };
@@ -380,5 +380,34 @@ describe("pane attention relay", () => {
   it("raises attention with the note kind after the mailbox stores a pane note", () => {
     const route = server.slice(server.indexOf('path === "/api/mailbox"'), server.indexOf('path === "/api/mailbox"') + 1600);
     expect(route).toContain("raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, parsed.data.kind)");
+  });
+});
+
+describe("bot-closed panes", () => {
+  it("reads the bridge's bot-closed list with the per-bot grant and answers null when it can't say", async () => {
+    const calls: Array<{ url: string; auth: string | null }> = [];
+    const reply = (body: { closedPanes?: string[]; panes?: string[]; error?: string }, status = 200): typeof fetch => async (url, init) => {
+      calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization") });
+      return new Response(JSON.stringify(body), { status });
+    };
+    expect(await botClosedPanes(null, "bot-1", reply({ closedPanes: ["pane-1"] }))).toBeNull();
+    expect(await botClosedPanes(ACCESS, "bot-1", reply({ panes: [], closedPanes: ["pane-1"] }))).toEqual(["pane-1"]);
+    expect(calls).toEqual([{ url: "http://127.0.0.1:52150/v1/bots/bot-1/terminal", auth: `Bearer ${terminalReadGrant(ACCESS.token, "bot-1")}` }]);
+    expect(await botClosedPanes(ACCESS, "bot-1", reply({ panes: [] }))).toBeNull();
+    expect(await botClosedPanes(ACCESS, "bot-1", reply({ error: "Unauthorized" }, 401))).toBeNull();
+    const down: typeof fetch = async () => { throw new TypeError("fetch failed"); };
+    expect(await botClosedPanes(ACCESS, "bot-1", down)).toBeNull();
+  });
+
+  it("keeps the closed list out of the remote snapshot relay", async () => {
+    const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({ sessionId: "s1", generation: 1, screenText: "$", closedPanes: ["pane-1"] }));
+    const result = await terminalSnapshotResponse(ACCESS, "bot-1", null, fetchImpl);
+    expect(result.body).not.toHaveProperty("closedPanes");
+  });
+
+  it("tells the pane wake which notes came from a pane and which panes the bot closed", () => {
+    const route = server.slice(server.indexOf('path === "/api/mailbox"'), server.indexOf('path === "/api/mailbox"') + 1600);
+    expect(route).toContain("paneWake.noteArrived(teacher.id, teacher.threadId, scope.pane)");
+    expect(server).toContain("botClosedPanes(terminalBridgeAccess, botId)");
   });
 });

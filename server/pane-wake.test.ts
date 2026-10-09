@@ -9,18 +9,23 @@ import { Store, type Message } from "./store.ts";
 
 function harness(overrides: { enabled?: boolean; busy?: boolean; hasNotes?: boolean; paused?: boolean } = {}) {
   const state = { enabled: true, busy: false, hasNotes: true, paused: false, ...overrides };
+  const closed = new Set<string>();
   const wake = vi.fn();
   const warn = vi.fn();
+  const skipped = vi.fn();
+  const closedByBot = vi.fn(async (_botId: string, paneIds: string[]) => paneIds.every((id) => closed.has(id)));
   const scheduler = new PaneWakeScheduler({
     enabled: () => state.enabled,
     busy: () => state.busy,
     paused: () => state.paused,
     hasNotes: () => state.hasNotes,
+    closedByBot,
+    skipped,
     wake,
     warn,
     now: () => Date.now(),
   });
-  return { state, wake, warn, scheduler };
+  return { state, closed, closedByBot, skipped, wake, warn, scheduler };
 }
 
 describe("PaneWakeScheduler", () => {
@@ -215,6 +220,133 @@ describe("PaneWakeScheduler", () => {
     expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP + 1);
   });
 
+  it("skips the wake when the bot closed every pane in the burst", async () => {
+    const { closed, closedByBot, skipped, wake, scheduler } = harness();
+    closed.add("p1").add("p2");
+    scheduler.noteArrived("teacher", "t1", "p1");
+    scheduler.noteArrived("teacher", "t1", "p2");
+    scheduler.noteArrived("teacher", "t1", "p1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(closedByBot).toHaveBeenCalledExactlyOnceWith("teacher", ["p1", "p2"]);
+    expect(wake).not.toHaveBeenCalled();
+    expect(skipped).toHaveBeenCalledExactlyOnceWith("teacher", "t1");
+    scheduler.settled();
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).not.toHaveBeenCalled();
+  });
+
+  it("wakes when any pane in the burst is still open", async () => {
+    const { closed, skipped, wake, scheduler } = harness();
+    closed.add("p1");
+    scheduler.noteArrived("teacher", "t1", "p1");
+    scheduler.noteArrived("teacher", "t1", "p2");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledExactlyOnceWith("teacher", "t1");
+    expect(skipped).not.toHaveBeenCalled();
+  });
+
+  it("wakes when the user closed the pane", async () => {
+    const { closedByBot, skipped, wake, scheduler } = harness();
+    scheduler.noteArrived("teacher", "t1", "p1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(closedByBot).toHaveBeenCalledOnce();
+    expect(wake).toHaveBeenCalledExactlyOnceWith("teacher", "t1");
+    expect(skipped).not.toHaveBeenCalled();
+  });
+
+  it("wakes for a note with no pane id", async () => {
+    const { closed, closedByBot, wake, scheduler } = harness();
+    closed.add("p1");
+    scheduler.noteArrived("teacher", "t1", "p1");
+    scheduler.noteArrived("teacher", "t1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(closedByBot).not.toHaveBeenCalled();
+    expect(wake).toHaveBeenCalledExactlyOnceWith("teacher", "t1");
+  });
+
+  it("wakes when the bridge check throws", async () => {
+    const { closed, closedByBot, skipped, wake, scheduler } = harness();
+    closed.add("p1");
+    closedByBot.mockRejectedValueOnce(new Error("terminal bridge unreachable"));
+    scheduler.noteArrived("teacher", "t1", "p1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledExactlyOnceWith("teacher", "t1");
+    expect(skipped).not.toHaveBeenCalled();
+  });
+
+  it("wakes for a note that arrives during the bridge check", async () => {
+    const { closed, closedByBot, skipped, wake, scheduler } = harness();
+    closed.add("p1");
+    let answer!: (closed: boolean) => void;
+    closedByBot.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    scheduler.noteArrived("teacher", "t1", "p1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    scheduler.noteArrived("teacher", "t1", "p2");
+    answer(true);
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(closedByBot).toHaveBeenLastCalledWith("teacher", ["p1", "p2"]);
+    expect(skipped).not.toHaveBeenCalled();
+    expect(wake).toHaveBeenCalledExactlyOnceWith("teacher", "t1");
+  });
+
+  it("holds the burst when the bot turns busy or paused during the check", async () => {
+    const { state, closedByBot, wake, scheduler } = harness();
+    let answer!: (closed: boolean) => void;
+    closedByBot.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    scheduler.noteArrived("teacher", "t1", "p1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    state.busy = true;
+    answer(false);
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).not.toHaveBeenCalled();
+    state.busy = false;
+    scheduler.settled();
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledOnce();
+
+    closedByBot.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    scheduler.noteArrived("teacher", "t1", "p1");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    state.paused = true;
+    answer(false);
+    scheduler.settled();
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledOnce();
+  });
+
+  it("holds a bot-closed burst while paused without asking the bridge", async () => {
+    const { state, closed, closedByBot, skipped, wake, scheduler } = harness({ busy: true });
+    closed.add("p1");
+    scheduler.noteArrived("teacher", "t1", "p1");
+    state.paused = true;
+    state.busy = false;
+    scheduler.settled();
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(closedByBot).not.toHaveBeenCalled();
+    expect(skipped).not.toHaveBeenCalled();
+    expect(wake).not.toHaveBeenCalled();
+  });
+
+  it("does not count a skip toward the hourly cap", async () => {
+    const { closed, skipped, wake, warn, scheduler } = harness();
+    closed.add("p1");
+    for (let i = 0; i < PANE_WAKE_HOURLY_CAP; i++) {
+      scheduler.noteArrived("teacher", "t1", "p1");
+      await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    }
+    expect(skipped).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP);
+    for (let i = 0; i < PANE_WAKE_HOURLY_CAP; i++) {
+      scheduler.noteArrived("teacher", "t1", "p2");
+      await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    }
+    expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP);
+    expect(warn).not.toHaveBeenCalled();
+    scheduler.noteArrived("teacher", "t1", "p2");
+    await vi.advanceTimersByTimeAsync(PANE_WAKE_DEBOUNCE_MS);
+    expect(wake).toHaveBeenCalledTimes(PANE_WAKE_HOURLY_CAP);
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
   it("forgetBot cancels a capped retry", async () => {
     const { wake, scheduler } = harness();
     for (let i = 0; i < PANE_WAKE_HOURLY_CAP + 1; i++) {
@@ -265,6 +397,31 @@ describe("hasLocalUndeliveredPaneNote", () => {
 
   it("does not wake when the local note was already delivered", () => {
     expect(hasLocalUndeliveredPaneNote(messages, "local", "home")).toBe(false);
+  });
+
+  it("does not wake for a note a skipped wake settled, but does for a newer one", () => {
+    expect(hasLocalUndeliveredPaneNote(messages, undefined, "home", "local")).toBe(false);
+    const newer: Message[] = [...messages, { id: "newer", role: "bot", kind: "note", text: "newer result", origin: "home", at: 3 }];
+    expect(hasLocalUndeliveredPaneNote(newer, undefined, "home", "local")).toBe(true);
+  });
+
+  it("keeps a skipped wake's marker across restart and still delivers the note on the next turn", () => {
+    const selection = () => ({ instanceId: "claude", model: "claude-sonnet-5" });
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Run worker" });
+    store.markPaneNotesDelivered(bot.id, bot.threadId, undefined);
+    const note = store.appendMessage(bot.threadId, { role: "bot", kind: "note", text: "[pane worker01] DONE: verified", origin: "home" });
+    store.markPaneNotesSkipped(bot.id, bot.threadId, note.id);
+
+    const reopened = new Store(selection);
+    const task = reopened.taskByThread(bot.id, bot.threadId);
+    expect(task?.paneNotesSkippedId).toBe(note.id);
+    expect(hasLocalUndeliveredPaneNote(reopened.activePath(bot.threadId), task?.paneNotesDeliveredId ?? undefined, "home", task?.paneNotesSkippedId ?? undefined)).toBe(false);
+    const user = reopened.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Continue" });
+    const pending = paneNotesForTurn(reopened.activePath(bot.threadId), new Set([user.id]), task?.paneNotesDeliveredId ?? undefined, false);
+    expect(pending.newestId).toBe(note.id);
+    expect(pending.notes.some((text) => text.includes("DONE: verified"))).toBe(true);
   });
 });
 
