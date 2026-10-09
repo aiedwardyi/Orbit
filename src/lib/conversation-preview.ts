@@ -7,7 +7,9 @@ import { isOnboardingCard, shouldHideOnboardingCard } from "@/components/OptionC
 import { activityVisibleInChat } from "@/lib/activity-runs";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import { t, type Translate } from "@/lib/i18n";
+import { notePreview } from "@/lib/pane-note";
 import { previewMessages, type Bot, type Group, type OptionCardData } from "@/state/store";
+import { parsePaneNote } from "../../shared/pane-note";
 
 export type PreviewBot = Pick<Bot, "activity" | "busy" | "messages" | "activeLeafId">;
 
@@ -72,6 +74,8 @@ export function conversationPreview(
       if (!showToolCalls) continue;
       return translate("chrome.screenFrame");
     }
+    if (last.kind === "note" && last.text) return notePreview(parsePaneNote(last.text), translate);
+    if (last.kind === "launch" && last.text) return last.text.split("\n", 1)[0] ?? "";
     if (last.text) return splitAttachedImages(last.text).display;
   }
   return "";

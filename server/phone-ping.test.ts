@@ -28,19 +28,21 @@ describe("pingForNotification", () => {
 });
 
 describe("pingForMailbox", () => {
-  it("pings FAIL and BLOCKED reports with the first line", () => {
-    expect(pingForMailbox("Scout", "FAIL PHONE-PING branch=x sha=abc dirty=no\nlong detail")).toEqual({
-      title: "Scout: worker FAIL",
-      message: "FAIL PHONE-PING branch=x sha=abc dirty=no",
+  it("pings FAIL and BLOCKED reports in plain words with the first sentence", () => {
+    expect(pingForMailbox("Scout", "FAIL PHONE-PING branch=x sha=abc dirty=no\nThe build broke on Windows. Logs are in out.txt.")).toEqual({
+      title: "Scout: worker failed",
+      message: "PHONE-PING failed: The build broke on Windows.",
       tags: ["warning"],
     });
-    expect(pingForMailbox("Scout", "BLOCKED NICK branch=none\r\nwhy")?.title).toBe("Scout: worker BLOCKED");
+    expect(pingForMailbox("Scout", "BLOCKED NICK branch=none\r\nwhy")).toMatchObject({ title: "Scout: worker needs an answer", message: "NICK needs an answer: why" });
+    expect(pingForMailbox("Scout", "FAIL NICK branch=x sha=y dirty=no")?.message).toBe("NICK failed.");
   });
 
   it("stays quiet for DONE reports and plain notes", () => {
     expect(pingForMailbox("Scout", "DONE NICK branch=x sha=y dirty=no\nall good")).toBeNull();
     expect(pingForMailbox("Scout", "the build FAILed")).toBeNull();
     expect(pingForMailbox("Scout", "FAILED to start")).toBeNull();
+    expect(pingForMailbox("Scout", "FAIL to start the docs build")).toBeNull();
     expect(pingForMailbox("Scout", "")).toBeNull();
   });
 });

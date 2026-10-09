@@ -220,3 +220,16 @@ describe("sidebar preview strips pasted-text wrapper", () => {
     expect(roomConversationPreview(room)).toBe("You: room paste preview");
   });
 });
+
+describe("sidebar preview of worker rows", () => {
+  it("previews a note in plain words, never the mailbox header", () => {
+    const note: Message = { id: "n1", role: "bot", kind: "note", at: 1, text: "[pane bc9c674b] [QCARD-FIX | Opus 5.5 | high] from Wink (61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b): FAIL QCARD-FIX branch=fix/q sha=3623665c dirty=no\nThe build broke." };
+    expect(conversationPreview(bot([note]))).toBe("Failed: The build broke.");
+    expect(conversationPreview(bot([note]), (key, vars) => translate("ko", key, vars))).toBe("실패: The build broke.");
+  });
+
+  it("previews a launch by its header line only", () => {
+    const launch: Message = { id: "l1", role: "bot", kind: "launch", at: 1, text: "Launched QCARD-FIX | Opus 5.5 | high\nLabel: QCARD-FIX | Opus 5.5 | high\nWorking folder: C:/repo\nSession: bc9c674b-2844-43b0-982e-88305df70570" };
+    expect(conversationPreview(bot([launch]))).toBe("Launched QCARD-FIX | Opus 5.5 | high");
+  });
+});
