@@ -843,3 +843,174 @@ describe("ChatView queued sends", () => {
     }
   });
 });
+
+describe("docked reply mascot", () => {
+  const mount = async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = (bot: Bot) => act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot }))));
+    const mascots = () => host.querySelectorAll("[data-turn-mascot]");
+    const unmount = async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    };
+    return { host, render, mascots, unmount };
+  };
+  const working = (thread: string, streaming?: string, tail = "ua"): TurnStreamState => ({
+    streaming: streaming ? { [thread]: streaming } : {},
+    reasoning: {},
+    signal: { [thread]: "started" },
+    turn: streaming ? { [thread]: `0:${tail}` } : {},
+  });
+
+  it("renders the mascot standalone before any text, then docks it in the live reply's action strip", async () => {
+    const { host, render, mascots, unmount } = await mount();
+    try {
+      live.current = working("thread-a");
+      await render(botA);
+      expect(host.querySelector('[data-orbit-message="bot"]')).toBeNull();
+      expect(host.querySelector(".turn-presence [data-turn-mascot]")).not.toBeNull();
+
+      live.current = working("thread-a", "Shoelaces were patented in 1790");
+      await render({ ...botA });
+      const body = host.querySelector('[data-orbit-message="bot"] [data-orbit-message-body]');
+      expect(body?.textContent).toContain("Shoelaces were patented in 1790");
+      expect(body?.querySelector("[data-turn-mascot]")?.className).toContain("turn-mascot-in");
+      expect(host.querySelector(".turn-presence")).toBeNull();
+      expect(mascots()).toHaveLength(1);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("leaves the strip in place with the reply actions at turn end", async () => {
+    const { host, render, mascots, unmount } = await mount();
+    const reply: Message = { id: "reply-a", parentId: "ua", at: 2, role: "bot", kind: "text", text: "Shoelaces were patented in 1790." };
+    try {
+      live.current = working("thread-a", "Shoelaces were patented in 1790.");
+      await render(botA);
+      const body = host.querySelector('[data-orbit-message="bot"] [data-orbit-message-body]');
+      const strip = body?.className;
+      expect(strip).toContain("pb-8");
+      expect(body?.querySelector("[data-turn-mascot]")).not.toBeNull();
+      expect(body?.querySelector("[data-message-hover-actions]")).toBeNull();
+
+      live.current = { streaming: {}, reasoning: {}, signal: {}, turn: {} };
+      await render({ ...botA, busy: false, activity: "idle", messages: [...botA.messages, reply], activeLeafId: "reply-a" });
+      const settled = host.querySelector('[data-orbit-message="bot"] [data-orbit-message-body]');
+      expect(settled).toBe(body);
+      expect(settled?.className).toBe(strip);
+      expect(settled?.querySelector("[data-message-hover-actions]")).not.toBeNull();
+      expect(settled?.querySelector("[data-turn-mascot]")?.className).toContain("turn-mascot-out");
+      expect(host.querySelector(".turn-presence")).toBeNull();
+      expect(mascots()).toHaveLength(1);
+
+      await act(async () => { await sleep(320); });
+      expect(mascots()).toHaveLength(0);
+      expect(host.querySelector('[data-orbit-message="bot"] [data-orbit-message-body]')).toBe(body);
+      expect(body?.className).toBe(strip);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("keeps one mascot at the bottom of the turn across a tool step", async () => {
+    const { host, render, mascots, unmount } = await mount();
+    const first: Message = { id: "reply-1", parentId: "ua", at: 2, role: "bot", kind: "text", text: "Checking the logs." };
+    const tool: Message = { id: "tool-1", parentId: "reply-1", at: 3, role: "bot", kind: "activity", tool: { name: "Read" } };
+    const dockedIn = () => host.querySelector("[data-turn-mascot]")?.closest("[data-mid]")?.getAttribute("data-mid");
+    try {
+      live.current = working("thread-a", "Checking the logs.");
+      await render(botA);
+      expect(dockedIn()).toBe("stream:thread-a:ua");
+
+      live.current = working("thread-a");
+      await render({ ...botA, messages: [...botA.messages, first], activeLeafId: "reply-1" });
+      expect(dockedIn()).toBe("reply-1");
+      expect(host.querySelector(".turn-presence")).toBeNull();
+
+      await render({ ...botA, messages: [...botA.messages, first, tool], activeLeafId: "tool-1" });
+      expect(dockedIn()).toBe("reply-1");
+      expect(mascots()).toHaveLength(1);
+
+      live.current = working("thread-a", "All clear.", "tool-1");
+      await render({ ...botA, messages: [...botA.messages, first, tool], activeLeafId: "tool-1" });
+      expect(dockedIn()).toBe("stream:thread-a:tool-1");
+      expect(host.querySelector(".turn-presence")).toBeNull();
+      expect(mascots()).toHaveLength(1);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("renders a room's live answer as a transcript row with its name label", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const from: Message["from"] = { botId: "a", name: "A", color: "blue" };
+    const group: Group = {
+      id: "g",
+      threadId: "thread-g",
+      name: "Room",
+      memberIds: ["a"],
+      defaultResponder: { kind: "everyone" },
+      bulletin: "",
+      unread: false,
+      createdAt: 1,
+      setupCompletedAt: 1,
+      hasMore: false,
+      busyBotId: "a",
+      messages: [userMsg("ug", "room question")],
+    };
+    let show: (group: Group) => void = () => {};
+    function Room() {
+      const { dispatch } = useStore();
+      const [current, setCurrent] = useState(group);
+      show = setCurrent;
+      useEffect(() => {
+        dispatch({ type: "hydrate", bots: [botA], groups: [group], computerControl: {}, sidebarOrder: { sectionOrder: [], itemOrder: {} } });
+      }, [dispatch]);
+      return createElement(GroupView, { group: current });
+    }
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      live.current = working("thread-g", "Room answer so far", "ug");
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(Room))));
+      const slot = host.querySelector('[data-mid="stream:thread-g:ug"]');
+      const label = slot?.firstElementChild;
+      const row = slot?.querySelector('[data-orbit-message="bot"]');
+      expect(row?.textContent).toContain("Room answer so far");
+      expect(label).not.toBe(row);
+      expect(label?.lastElementChild?.textContent).toBe("A");
+      expect(row?.querySelector("[data-turn-mascot]")).not.toBeNull();
+      expect(host.querySelector(".turn-presence")).toBeNull();
+
+      const reply: Message = { id: "reply-g", parentId: "ug", at: 2, role: "bot", kind: "text", text: "Room answer so far, done.", from };
+      live.current = { streaming: {}, reasoning: {}, signal: {}, turn: {} };
+      await act(async () => show({ ...group, busyBotId: undefined, messages: [...group.messages, reply] }));
+      const settled = host.querySelector('[data-mid="reply-g"]');
+      expect(settled?.querySelector('[data-orbit-message="bot"]')).toBe(row);
+      expect(settled?.firstElementChild).toBe(label);
+      expect(host.querySelectorAll('[data-orbit-message="bot"]')).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});

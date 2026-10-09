@@ -16,7 +16,7 @@ import {
   type Message,
 } from "@/state/store";
 import { BotAvatar } from "./Avatar";
-import { MessageBoundary, PresenceAnswer, TurnPresence } from "./TurnPresence";
+import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
@@ -63,6 +63,7 @@ import { TRANSCRIPT_GAP, useComposerDockPad } from "@/lib/composer-dock";
 import { turnPresenceWaiting } from "@/lib/send-accept";
 import { activeLocale, localeTag, t, useI18n } from "@/lib/i18n";
 import { liveActivityLabel } from "@/lib/live-activity";
+import { buffersForTurn } from "@/lib/turn-stage";
 import { usageLimitReset } from "@/lib/usage";
 import { useNow } from "./PlanUsageBar";
 import { splitAttachedImages } from "@/lib/composer-attachments";
@@ -294,7 +295,8 @@ const Transcript = memo(function Transcript({
   members,
   messages,
   transcript,
-  emergingId,
+  streamingMessage,
+  dock,
   onReply,
   onFocusComposer,
 }: {
@@ -304,7 +306,8 @@ const Transcript = memo(function Transcript({
   messages: Message[];
   /** Full room transcript, used to resolve quoted messages outside the mounted window. */
   transcript: Message[];
-  emergingId?: string | null;
+  streamingMessage: Message | null;
+  dock: ReplyDock | null;
   onReply: (message: Message) => void;
   onFocusComposer: () => void;
 }) {
@@ -314,10 +317,13 @@ const Transcript = memo(function Transcript({
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   // Several bots working at once turn a room into a wall of chips; fold the
   // finished ones the same way a 1:1 chat does.
-  const items = useMemo(() => groupActivityRuns(messages), [messages]);
+  const items = useMemo(
+    () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages),
+    [messages, streamingMessage],
+  );
   const rows = useMemo(
-    () => roomTranscriptRows(items, { showToolCalls, emergingId }),
-    [items, showToolCalls, emergingId],
+    () => roomTranscriptRows(items, { showToolCalls }),
+    [items, showToolCalls],
   );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
@@ -337,6 +343,15 @@ const Transcript = memo(function Transcript({
           });
         }
       : undefined;
+  const slots = new Set<string>();
+  // Two branches can share a reply slot; only the newest visible reply takes the dock.
+  const dockTargetId = dock
+    ? items.reduce<string | null>(
+        (target, item, i) =>
+          rows[i].visible && item.kind !== "run" && item.message.role === "bot" && item.message.kind === "text" ? item.message.id : target,
+        null,
+      )
+    : null;
   return (
     <>
       {items.map((item, i) => {
@@ -371,9 +386,15 @@ const Transcript = memo(function Transcript({
         }
         const m = item.message;
         const user = m.role === "user";
+        const streaming = m === streamingMessage;
+        // rooms ship every branch, so two replies can share a parent
+        const slot = !user && m.kind === "text" ? replySlot(group.threadId, m, transcript) : null;
+        const key = slot && !slots.has(slot) ? slot : m.id;
+        slots.add(key);
+        const docked = dock && dock.slot === slot && m.id === dockTargetId ? dock : null;
         const attachedImages = user && m.text ? splitAttachedImages(m.text) : null;
         const detectedOptions =
-          !user && m.kind === "text" ? detectChatOptions(m.text ?? "") : null;
+          !user && !streaming && m.kind === "text" ? detectChatOptions(m.text ?? "") : null;
         const answeredChoice = detectedOptions ? laterUserAnswer(transcript, m.id) : null;
         const optionChoices =
           detectedOptions && (answeredChoice != null || m.id === lastBotTextId)
@@ -483,14 +504,18 @@ const Transcript = memo(function Transcript({
                       )}
                       {attachedImages?.display ?? m.text}
                     </>
-                  ) : markdownText.trim() ? <ChatMarkdown text={markdownText} baseDir={botFolder} threadId={group.threadId} /> : null}
+                  ) : markdownText.trim() ? (
+                    <MessageBoundary fallbackText={markdownText}>
+                      <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} threadId={group.threadId} />
+                    </MessageBoundary>
+                  ) : null}
                   {!user && m.summarized && (
                     <div className="mt-1 text-[11px] text-ink-secondary/70" title="Claude shortened this mid-task note. Its exact words weren't kept.">
                       summarized
                     </div>
                   )}
                 </div>
-                {!user && (
+                {!user && !streaming && !docked?.live && (
                   <div
                     data-message-hover-actions
                     className="pointer-events-none absolute top-1/2 left-full z-20 ml-0.5 flex -translate-y-1/2 items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100"
@@ -526,14 +551,17 @@ const Transcript = memo(function Transcript({
                   onWriteOwn={onFocusComposer}
                 />
               )}
-              <span className="mt-0.5 text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                {formatTime(m.at, localeTag(locale))}
-              </span>
+              <div className="relative mt-0.5 flex">
+                <span className={cn("text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100", streaming && "invisible")}>
+                  {formatTime(m.at, localeTag(locale))}
+                </span>
+                {docked && <DockedPresence avatar={docked.avatar} label={docked.label} live={docked.live} className="absolute inset-y-0 left-0" />}
+              </div>
             </div>
           ) : null;
         if (!row) return null;
         return (
-          <div key={m.id} className="contents" data-mid={m.id}>
+          <div key={key} className="contents" data-mid={m.id}>
             {newDay && (
               <div className="py-3 text-center text-[13px] text-ink-secondary">
                 {dayLabel(m.at)} {formatTime(m.at, localeTag(locale))}
@@ -1120,8 +1148,8 @@ export function GroupView({ group }: { group: Group }) {
     : undefined;
   const setupPending = roomNeedsSetup(group);
 
-  // Mascot stays while a member works, with the reply growing above it:
-  // partial text paints incrementally, the finished reply takes over.
+  // Mascot stays while a member works. Live reply text is a transcript row
+  // the settled reply takes over, with the mascot docked under it.
   const lastGroupMessage = group.messages.at(-1);
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
   const showToolCalls = showToolCallsEnabled(state.config);
@@ -1134,38 +1162,18 @@ export function GroupView({ group }: { group: Group }) {
     speakerBotId: speaker?.id,
     accepted: state.acceptedSends[group.threadId],
   });
-  const wasWaiting = useRef(false);
-  const [popping, setPopping] = useState<{ id: string; text: string; botId?: string } | null>(null);
-  useEffect(() => {
-    wasWaiting.current = false;
-    setPopping(null);
-  }, [group.id, group.threadId]);
-  useEffect(() => {
-    if (waiting) wasWaiting.current = true;
-  }, [waiting]);
-  useEffect(() => {
-    if (lastGroupMessage?.role !== "bot" || lastGroupMessage.kind !== "text" || !wasWaiting.current) return;
-    wasWaiting.current = false;
-    setPopping({
-      id: lastGroupMessage.id,
-      text: lastGroupMessage.text ?? "",
-      botId: lastGroupMessage.from?.botId,
-    });
-    const timer = setTimeout(() => setPopping(null), 520);
-    return () => clearTimeout(timer);
-  }, [
-    lastGroupMessage?.id,
-    lastGroupMessage?.role,
-    lastGroupMessage?.kind,
-    lastGroupMessage?.text,
-    lastGroupMessage?.from?.botId,
-  ]);
-  const presenceVisible = waiting || popping !== null;
-  // Settled pop-in wins; while the member works, the live partial paints
-  // above the still-shimmering wait label.
-  const partialText = !popping && waiting && streaming ? streaming : null;
-  const answerText = popping?.text ?? partialText;
-  const presenceSpeaker = speaker ?? members.find((member) => member.id === popping?.botId) ?? members[0];
+  const liveText = buffersForTurn(stream, group.threadId, lastGroupMessage?.id).streaming;
+  const streamingMessage = useMemo<Message | null>(() => waiting && liveText ? {
+    id: `stream:${group.threadId}:${lastGroupMessage?.id ?? ""}`,
+    parentId: lastGroupMessage?.id,
+    role: "bot",
+    kind: "text",
+    text: liveText,
+    at: lastGroupMessage?.at ?? 0,
+    placeholder: true,
+    from: speaker ? { botId: speaker.id, name: speaker.name, color: speaker.color } : undefined,
+  } : null, [waiting, liveText, group.threadId, lastGroupMessage?.id, lastGroupMessage?.at, speaker]);
+  const presenceSpeaker = speaker ?? members[0];
 
   // Windowed transcript, mirroring ChatView: only a tail of the room mounts;
   // the anchored boundary re-tails on a render-phase reset when the room (or
@@ -1223,6 +1231,33 @@ export function GroupView({ group }: { group: Group }) {
 
   useEffect(() => setBottomFollow(true), [transcriptKey, setBottomFollow]);
 
+  // Docks like a 1:1 chat: under the live reply, kept until a row lands below it.
+  const liveTail = laterCount === 0 && !jump.messages;
+  const listedStreaming = liveTail ? streamingMessage : null;
+  let tail: Message | null = listedStreaming;
+  for (let i = windowedMessages.length - 1; liveTail && !tail && i >= 0; i--) {
+    if (messageVisible(windowedMessages[i], showToolCalls)) tail = windowedMessages[i];
+  }
+  const tailSlot = tail?.role === "bot" && tail.kind === "text" ? replySlot(group.threadId, tail, shown) : null;
+  const docked = useReplyDock(listedStreaming ? tailSlot : null, tailSlot, waiting);
+  const dockSlot = docked?.slot;
+  const dockLive = docked?.live ?? false;
+  const dock = useMemo<ReplyDock | null>(() => dockSlot ? {
+    slot: dockSlot,
+    live: dockLive,
+    label: activityLabel,
+    avatar: (
+      <BotAvatar
+        bot={presenceSpeaker ?? { name: group.name, color: DEFAULT_MAUS_COLOR }}
+        state={toolInFlight ? "working" : "thinking"}
+        size={16}
+        forward={false}
+        lookAround={1}
+        trackPointer={false}
+      />
+    ),
+  } : null, [dockSlot, dockLive, activityLabel, presenceSpeaker, group.name, toolInFlight]);
+
   const appliedFocus = useRef<number | null>(null);
   const requestedFocus = useRef<number | null>(null);
   const { open: openJump, close: closeJump } = jump;
@@ -1275,7 +1310,7 @@ export function GroupView({ group }: { group: Group }) {
     if (!el || !followRef.current) return;
     el.scrollTo({ top: el.scrollHeight });
     previousScrollTop.current = el.scrollTop;
-  }, [group.id, group.messages.length, streaming, group.busyBotId, composerDock.pad, popping]);
+  }, [group.id, group.messages.length, streaming, group.busyBotId, composerDock.pad]);
 
   // Late layout, images and viewport changes fire no scroll event, so the pill and fill read geometry here too.
   const [newestBelow, setNewestBelow] = useState(false);
@@ -1653,7 +1688,8 @@ export function GroupView({ group }: { group: Group }) {
             members={members}
             messages={windowedMessages}
             transcript={shown}
-            emergingId={popping?.id}
+            streamingMessage={listedStreaming}
+            dock={dock}
             onReply={selectReply}
             onFocusComposer={focusComposer}
           />
@@ -1667,7 +1703,7 @@ export function GroupView({ group }: { group: Group }) {
               </button>
             </div>
           )}
-          {(speaker || presenceVisible) && !jump.messages && (
+          {(speaker || waiting) && !jump.messages && (
             <TurnPresence
               avatar={
                 <BotAvatar
@@ -1679,17 +1715,10 @@ export function GroupView({ group }: { group: Group }) {
                   trackPointer={false}
                 />
               }
-              visible={presenceVisible}
+              visible={waiting && !dockLive}
+              docked={dockLive}
               label={activityLabel}
-              answering={popping !== null}
-              streaming={partialText !== null}
-            >
-              {answerText ? (
-                <MessageBoundary fallbackText={answerText}>
-                  <PresenceAnswer text={answerText} streaming={partialText !== null} />
-                </MessageBoundary>
-              ) : null}
-            </TurnPresence>
+            />
           )}
         </div>
         )}

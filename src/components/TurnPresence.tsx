@@ -1,9 +1,9 @@
 // Left-edge tail: mascot looks around while it works, with a live activity
-// sheen beside it. Partial reply text paints incrementally above it; the
-// moment the reply settles, the full bubble takes over (same left edge).
-import { Component, useEffect, useRef, useState, type ReactNode } from "react";
+// sheen beside it. Once reply text shows, it docks in that reply's action
+// strip instead, and fades out there when the turn ends.
+import { Component, useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { ChatMarkdown } from "./ChatMarkdown";
+import type { Message } from "@/state/store";
 
 /** One bad markdown node must not white-screen the app — the bubble
  * degrades to plain text instead. Partial fence runs make this the rule
@@ -33,86 +33,93 @@ export class MessageBoundary extends Component<{ children: ReactNode; fallbackTe
   }
 }
 
-/** The answer bubble above the mascot: settled pop-in text wins, live
- * partial text paints while the turn still works. Nothing until either
- * exists. Shared by 1:1 chat and rooms so both stream identically. */
-export function PresenceAnswer({ text, streaming = false }: { text: string | null; streaming?: boolean }) {
-  if (!text) return null;
-  return (
-    // Skin hooks: open-transcript skins drop the card on settled bot rows, so the pop-in must too.
-    <div data-orbit-message="bot" className="contents">
-      <div data-orbit-message-content className="w-fit max-w-[min(42rem,78%)] rounded-2xl bg-card px-4 py-2.5 text-[15px] leading-relaxed text-ink">
-        <ChatMarkdown text={text} streaming={streaming} />
-      </div>
-    </div>
-  );
+export type ReplyDock = { slot: string; live: boolean; avatar: ReactNode; label: string };
+
+// The parent identifies a reply slot before the server assigns its message id.
+export function replySlot(threadId: string, message: Message, transcript: Message[]) {
+  return `reply:${threadId}:${message.parentId ?? transcript[transcript.indexOf(message) - 1]?.id ?? ""}`;
+}
+
+/** The reply slot the mascot docks in: the live reply once its text shows,
+ * kept until a row lands below it, and no longer live once the turn ends. */
+export function useReplyDock(liveSlot: string | null, tailSlot: string | null, waiting: boolean) {
+  const [dock, setDock] = useState<{ slot: string; live: boolean } | null>(null);
+  const next = liveSlot
+    ? { slot: liveSlot, live: true }
+    : dock && dock.slot === tailSlot ? { slot: dock.slot, live: dock.live && waiting } : null;
+  // Render-phase setState: React re-renders at once with the new dock.
+  if (next?.slot !== dock?.slot || next?.live !== dock?.live) setDock(next);
+  return next;
 }
 
 export function TurnPresence({
   avatar,
   visible,
+  docked = false,
   label = "Thinking",
-  answering = false,
-  streaming = false,
-  children,
 }: {
   avatar: ReactNode;
   visible: boolean;
+  /** The mascot moved under live reply text: leave at once, no exit fade. */
+  docked?: boolean;
   label?: string;
-  answering?: boolean;
-  /** Live partial text is staged in children: paint it while the think-phase
-   * label keeps shimmering. Settled answers use `answering`, which takes
-   * over the label slot as before. */
-  streaming?: boolean;
-  children?: ReactNode;
 }) {
-  const [mounted, setMounted] = useState(visible);
-  const [phase, setPhase] = useState<"think" | "answer" | "out">(answering ? "answer" : "think");
-  const wasAnswering = useRef(answering);
+  const [wasVisible, setWasVisible] = useState(visible);
+  const [fading, setFading] = useState(false);
+  if (visible !== wasVisible) {
+    setWasVisible(visible);
+    setFading(!visible && !docked);
+  }
 
   useEffect(() => {
-    if (visible) {
-      setMounted(true);
-      setPhase(answering ? "answer" : "think");
-      wasAnswering.current = answering;
-      return;
-    }
-    if (!mounted) return;
-    const handoff = wasAnswering.current;
-    wasAnswering.current = false;
-    if (handoff) {
-      setMounted(false);
-      return;
-    }
-    setPhase("out");
-    const timer = setTimeout(() => setMounted(false), 280);
+    if (!fading) return;
+    const timer = setTimeout(() => setFading(false), 280);
     return () => clearTimeout(timer);
-  }, [visible, answering, mounted]);
+  }, [fading]);
 
-  if (!mounted) return null;
-  const showAnswer = (phase === "answer" || streaming) && children;
-  const showWorking = phase === "think";
+  if (docked || (!visible && !fading)) return null;
   return (
     <div className="turn-presence flex flex-col items-start">
-      {showAnswer ? <div className="turn-answer">{children}</div> : null}
-      <div
-        className={cn(
-          "flex items-center gap-2",
-          showAnswer && "turn-mascot-tight",
-          phase === "think" && "turn-mascot-in",
-          phase === "out" && "turn-mascot-out",
-        )}
-      >
+      <div data-turn-mascot className={cn("flex items-center gap-2", visible ? "turn-mascot-in" : "turn-mascot-out")}>
         {avatar}
-        {showWorking ? (
-          <span className="thinking-shimmer text-[13px] leading-none" aria-live="polite">
-            {label}
-            <span className="thinking-sheen" aria-hidden="true">
-              <span>{label}</span>
-            </span>
-          </span>
-        ) : null}
+        {visible ? <WorkingLabel label={label} /> : null}
       </div>
     </div>
+  );
+}
+
+/** The mascot docked in a live reply's action strip. It fades out in place
+ * when the turn ends, so the reply's own actions take the strip unmoved. */
+export function DockedPresence({ avatar, label, live, className }: { avatar: ReactNode; label: string; live: boolean; className?: string }) {
+  const [gone, setGone] = useState(!live);
+  if (live && gone) setGone(false);
+
+  useEffect(() => {
+    if (live) return;
+    const timer = setTimeout(() => setGone(true), 280);
+    return () => clearTimeout(timer);
+  }, [live]);
+
+  if (gone) return null;
+  return (
+    <div
+      data-turn-mascot
+      aria-hidden={!live}
+      className={cn("turn-mascot-docked pointer-events-none flex items-center gap-1.5", live ? "turn-mascot-in" : "turn-mascot-out", className)}
+    >
+      {avatar}
+      {live ? <WorkingLabel label={label} /> : null}
+    </div>
+  );
+}
+
+function WorkingLabel({ label }: { label: string }) {
+  return (
+    <span className="thinking-shimmer text-[13px] leading-none" aria-live="polite">
+      {label}
+      <span className="thinking-sheen" aria-hidden="true">
+        <span>{label}</span>
+      </span>
+    </span>
   );
 }

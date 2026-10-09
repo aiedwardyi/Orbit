@@ -3366,17 +3366,6 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   from { opacity: 1; transform: scale(1); }
   to { opacity: 0; transform: scale(0.88); }
 }
-/* the reply grows up from the mascot, staying on the left edge */
-@keyframes turn-answer-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.84);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 .turn-mascot-in {
   transform-origin: 18px 18px;
   animation: turn-mascot-in 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -3385,13 +3374,8 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   transform-origin: 18px 18px;
   animation: turn-mascot-out 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-.turn-answer {
-  transform-origin: 18px 100%;
-  animation: turn-answer-in 0.48s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-/* last line of text → mascot ≈ 5mm (bubble py-2.5 already contributes 10px) */
-.turn-mascot-tight {
-  margin-top: max(0px, calc(5mm - 10px));
+.turn-mascot-docked {
+  transform-origin: 0 50%;
 }
 
 /* Cute mascot idle: Grok-style blink + soft eye drift. No body bounce. */
@@ -3477,7 +3461,7 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
 @media (prefers-reduced-motion: reduce) {
   .animate-caret, .animate-msg-in, .animate-pop-in, .animate-panel-in, .animate-fade-in { animation: none; }
   .thinking-sheen { display: none; }
-  .turn-mascot-in, .turn-mascot-out, .turn-answer { animation: none; }
+  .turn-mascot-in, .turn-mascot-out { animation: none; }
   .mascot-avatar .mascot-idle,
   .mascot-avatar .mascot-blink,
   .mascot-avatar.mascot-avatar--nudge .mascot-blink { animation: none; }

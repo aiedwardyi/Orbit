@@ -1,54 +1,48 @@
-import { createElement } from "react";
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { MessageBoundary, PresenceAnswer, TurnPresence } from "./TurnPresence";
+import { DockedPresence, TurnPresence } from "./TurnPresence";
 
-function presence(text: string | null, settled: boolean) {
-  return renderToStaticMarkup(
-    createElement(
-      TurnPresence,
-      {
-        avatar: null,
-        visible: true,
-        label: "Responding",
-        answering: settled,
-        streaming: !settled && text !== null,
-      },
-      text
-        ? createElement(MessageBoundary, { fallbackText: text, children: createElement(PresenceAnswer, { text }) })
-        : null,
-    ),
-  );
-}
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-describe("presence answer streaming", () => {
-  it("paints live partial text above the still-shimmering wait label", () => {
-    const markup = presence("Shoelaces were patented in 1790", false);
-    expect(markup).toContain("Shoelaces were patented in 1790");
-    expect(markup).toContain("turn-answer");
+describe("turn presence", () => {
+  it("keeps the wait label while no text has arrived", () => {
+    const markup = renderToStaticMarkup(createElement(TurnPresence, { avatar: null, visible: true, label: "Responding" }));
+    expect(markup).toContain("turn-presence");
     expect(markup).toContain("Responding");
   });
 
-  it("paints settled pop-in text while the label yields", () => {
-    const markup = presence("The complete reply.", true);
-    expect(markup).toContain("The complete reply.");
-    expect(markup).not.toContain("Responding");
+  it("leaves at once when the mascot docks under live text", () => {
+    expect(renderToStaticMarkup(createElement(TurnPresence, { avatar: null, visible: false, docked: true }))).toBe("");
   });
 
-  it("renders no bubble until the first text arrives", () => {
-    expect(renderToStaticMarkup(createElement(PresenceAnswer, { text: null }))).toBe("");
-    expect(presence(null, false)).not.toContain("turn-answer");
+  it("docks with its activity label while the reply types out", () => {
+    const markup = renderToStaticMarkup(createElement(DockedPresence, { avatar: null, label: "Responding", live: true }));
+    expect(markup).toContain("data-turn-mascot");
+    expect(markup).toContain("turn-mascot-in");
+    expect(markup).toContain("Responding");
   });
 
-  it("carries the skin hooks of a settled bot row so skins restyle it the same", () => {
-    const markup = renderToStaticMarkup(createElement(PresenceAnswer, { text: "Reply" }));
-    const row = markup.indexOf('data-orbit-message="bot"');
-    expect(row).toBeGreaterThanOrEqual(0);
-    expect(markup.indexOf("data-orbit-message-content")).toBeGreaterThan(row);
-  });
-
-  it("keeps the wait label while no text has arrived", () => {
-    expect(presence(null, false)).toContain("Responding");
+  it("fades out in place at turn end, then leaves", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    const render = (live: boolean) => act(async () => root.render(createElement(DockedPresence, { avatar: null, label: "Responding", live })));
+    try {
+      await render(true);
+      await render(false);
+      const mascot = host.querySelector("[data-turn-mascot]");
+      expect(mascot?.className).toContain("turn-mascot-out");
+      expect(mascot?.getAttribute("aria-hidden")).toBe("true");
+      expect(host.textContent).not.toContain("Responding");
+      await act(async () => { await sleep(320); });
+      expect(host.innerHTML).toBe("");
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
   });
 });

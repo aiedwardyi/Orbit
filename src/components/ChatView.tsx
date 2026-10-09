@@ -38,7 +38,7 @@ import {
 } from "@/state/store";
 import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
 import { BotAvatar } from "./Avatar";
-import { MessageBoundary, TurnPresence } from "./TurnPresence";
+import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
@@ -436,6 +436,7 @@ const Bubble = memo(function Bubble({
   editing,
   isLastBotText,
   streaming = false,
+  dock,
   sendsNext = false,
   onStartEdit,
   onCancelEdit,
@@ -451,6 +452,7 @@ const Bubble = memo(function Bubble({
   editing: boolean;
   isLastBotText: boolean;
   streaming?: boolean;
+  dock?: ReplyDock;
   sendsNext?: boolean;
   onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
@@ -630,7 +632,8 @@ const Bubble = memo(function Bubble({
             </div>
           )}
         </div>
-        {!user && !streaming && (
+        {dock && <DockedPresence avatar={dock.avatar} label={dock.label} live={dock.live} className="absolute bottom-0 left-0 h-[26px]" />}
+        {!user && !streaming && !dock?.live && (
           <div
             data-message-hover-actions
             // left, not right: the row is wider than a short bot bubble, and
@@ -900,6 +903,7 @@ const MessagesList = memo(function MessagesList({
   lastBotTextId,
   canonicalLastMessageId,
   streamingMessage,
+  dock,
   canRetryLast,
   engine,
   onStartEdit,
@@ -918,6 +922,7 @@ const MessagesList = memo(function MessagesList({
   lastBotTextId: string | undefined;
   canonicalLastMessageId: string | undefined;
   streamingMessage: Message | null;
+  dock: ReplyDock | null;
   canRetryLast: boolean;
   /** This bot's engine, for rendering setup help on a `setup` error. */
   engine: InstanceInfo | undefined;
@@ -1056,6 +1061,7 @@ const MessagesList = memo(function MessagesList({
                   editing={editingId === m.id}
                   isLastBotText={m.id === lastBotTextId}
                   streaming={m === streamingMessage}
+                  dock={dock?.slot === replySlot(bot.threadId, m, transcript) ? dock : undefined}
                   onStartEdit={onStartEdit}
                   onCancelEdit={onCancelEdit}
                   onSubmitEdit={onSubmitEdit}
@@ -1068,10 +1074,7 @@ const MessagesList = memo(function MessagesList({
           }
         })();
         if (!row) return null;
-        // The parent identifies a reply slot before the server assigns its message id.
-        const key = m.role === "bot" && m.kind === "text"
-          ? `reply:${bot.threadId}:${m.parentId ?? transcript[transcript.indexOf(m) - 1]?.id ?? ""}`
-          : m.sendId ?? m.id;
+        const key = m.role === "bot" && m.kind === "text" ? replySlot(bot.threadId, m, transcript) : m.sendId ?? m.id;
         return (
           <div key={key} className="contents" data-mid={m.id}>
             {newDay && <DaySeparator at={m.at} />}
@@ -1379,6 +1382,34 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     at: lastMessage?.at ?? 0,
     placeholder: true,
   } : null, [waiting, streaming, bot.threadId, lastMessage?.id, lastMessage?.at]);
+  const liveTail = laterCount === 0 && !jump.messages;
+  const listedStreaming = liveTail ? streamingMessage : null;
+
+  // Once reply text shows, the mascot docks in that reply's action strip and
+  // stays until a row lands below it. At turn end it fades out in place.
+  let tail: Message | null = listedStreaming;
+  for (let i = listed.length - 1; liveTail && !tail && i >= 0; i--) {
+    if (messageVisible(listed[i], { showToolCalls, transcript: messages })) tail = listed[i];
+  }
+  const tailSlot = tail?.role === "bot" && tail.kind === "text" ? replySlot(bot.threadId, tail, shown) : null;
+  const docked = useReplyDock(listedStreaming ? tailSlot : null, tailSlot, waiting);
+  const dockSlot = docked?.slot;
+  const dockLive = docked?.live ?? false;
+  const dock = useMemo<ReplyDock | null>(() => dockSlot ? {
+    slot: dockSlot,
+    live: dockLive,
+    label: activityLabel,
+    avatar: (
+      <BotAvatar
+        bot={bot}
+        state={toolInFlight ? "working" : "thinking"}
+        size={24}
+        forward={false}
+        lookAround={1}
+        trackPointer={false}
+      />
+    ),
+  } : null, [dockSlot, dockLive, activityLabel, bot, toolInFlight]);
 
   // regenerate = fork the last user message with the same text — reuses the
   // existing branch machinery, so the old answer stays reachable via ‹ ›
@@ -1783,7 +1814,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             editingId={editingId}
             lastBotTextId={lastBotTextId}
             canonicalLastMessageId={lastMessage?.id}
-            streamingMessage={laterCount === 0 && !jump.messages ? streamingMessage : null}
+            streamingMessage={listedStreaming}
+            dock={dock}
             canRetryLast={!bot.busy && Boolean(lastUserMessage)}
             engine={engine}
             onStartEdit={startEdit}
@@ -1825,7 +1857,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                 trackPointer={false}
               />
             }
-            visible={waiting && !jump.messages}
+            visible={waiting && !jump.messages && !dockLive}
+            docked={dockLive}
             label={activityLabel}
           />
           {queued.map((m, index) => (

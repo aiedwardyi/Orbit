@@ -7,8 +7,6 @@ import type { Message } from "@/state/store";
 
 export interface RoomTranscriptOptions {
   showToolCalls: boolean;
-  /** the newest reply, animating in above the transcript instead of inside it */
-  emergingId?: string | null;
 }
 
 export interface RoomTranscriptRow {
@@ -52,7 +50,7 @@ export function roomTranscriptRows(
     const visible =
       item.kind === "run"
         ? activityRunVisible(item.messages, options.showToolCalls)
-        : first.id !== options.emergingId && messageVisible(first, options.showToolCalls);
+        : messageVisible(first, options.showToolCalls);
     if (!visible) return { visible, newDay: false, cluster: false };
     const newDay = !prev || new Date(prev.at).toDateString() !== new Date(first.at).toDateString();
     const cluster = !prev || prev.role !== first.role || prev.from?.botId !== first.from?.botId || newDay;
