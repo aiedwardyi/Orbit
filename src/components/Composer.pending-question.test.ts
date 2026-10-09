@@ -102,6 +102,15 @@ describe("pinned ask_user question", () => {
     expect(textarea()?.disabled).toBe(false);
   });
 
+  it("styles the choices as filled pills with a 36px touch height", async () => {
+    await mount({ bot: bot([question]) });
+    const choice = pinButton("Prod").className;
+    expect(choice).toContain("rounded-full");
+    expect(choice).toContain("bg-control");
+    expect(choice).toContain("border-hairline ");
+    expect(choice).toContain("pointer-coarse:min-h-9");
+  });
+
   it("sends a tapped choice as the answer and persists answered, not dismissed", async () => {
     await mount({ bot: bot([question]) });
     await act(async () => pinButton("Prod").click());

@@ -56,7 +56,7 @@ export const PendingQuestionPanel = memo(function PendingQuestionPanel({
                 key={choice}
                 type="button"
                 onClick={() => onPick(choice)}
-                className="max-w-full break-words rounded-full border border-hairline/50 px-3.5 py-1.5 text-left text-[13px] text-ink hover:bg-control"
+                className="max-w-full break-words rounded-full border border-hairline bg-control px-3.5 py-1.5 text-left text-[13px] text-ink transition-colors hover:bg-raised-hover pointer-coarse:min-h-9"
               >
                 {choice}
               </button>

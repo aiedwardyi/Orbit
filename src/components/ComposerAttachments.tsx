@@ -217,11 +217,12 @@ function Chip({
         </span>
       </div>
       {/* hover reveals it, but so must focus: `hidden` would take the only
-          way to drop a chip out of reach of the keyboard */}
+          way to drop a chip out of reach of the keyboard. Touch has no hover, and
+          the overflow-x-auto row would clip the -top corner. */}
       <button
         onClick={onRemove}
         aria-label={t(kind === "PASTED" ? "composer.removePasted" : kind === "IMAGE" ? "composer.removeImage" : "composer.removeFile")}
-        className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-hairline/60 bg-panel text-ink-secondary opacity-0 transition-opacity hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
+        className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-hairline/60 bg-panel text-ink-secondary opacity-0 transition-opacity hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:right-1 pointer-coarse:top-1 pointer-coarse:size-6 pointer-coarse:opacity-100"
       >
         <X size={11} />
       </button>
