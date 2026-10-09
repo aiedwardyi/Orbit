@@ -138,11 +138,12 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
-import { getOrCreateChannel, mirrorActivity, mirrorExchange, mirrorReply, settleDelegationChip, type CommsBus } from "./comms-visibility.ts";
+import { getOrCreateChannel, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
-import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, findDelegationReceipt, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, recordDelegationReceipt, resolveDelegationId, threadsWaitingOn, type QueueResult } from "./delegations.ts";
+import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, findDelegationReceipt, finishDelegatedTurn, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, threadsWaitingOn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
+import { endPeerTurn, onPeerTakeover, peerAnswer, takeOverPeerTurn } from "./peer-takeover.ts";
 import {
   cancelQueuedRoomParticipations,
   cancelSteeredMessage,
@@ -702,24 +703,20 @@ function askBotAndWait(
   if (!target) return Promise.resolve("(no such bot)");
   const threadId = target.threadId;
   return new Promise((resolve) => {
-    let text = "";
-    let done = false;
-    const finish = (out: string) => {
-      if (done) return;
-      done = true;
+    const answer = peerAnswer(threadId, target.name, () => cfg.profile?.name?.trim() || "User", (out) => {
       clearTimeout(timer);
       unsub();
       peerTurnSource.delete(threadId);
       resolve(out);
-    };
+    });
     const reply = ownTurnReply(staleTurnEvent);
     const unsub = bus.subscribe((e: RuntimeEvent) => {
       if (e.threadId !== threadId) return;
       const step = reply.fold(e);
-      if (step === "completed") finish(text || "(the bot finished without a text reply)");
-      else if (step) text += (text ? "\n" : "") + step.text;
+      if (step === "completed") answer.end("(the bot finished without a text reply)");
+      else if (step) answer.add(step.text);
     });
-    const timer = setTimeout(() => finish(text || "(timed out waiting for the bot to reply)"), 4 * 60_000);
+    const timer = setTimeout(() => answer.end("(timed out waiting for the bot to reply)"), 4 * 60_000);
     if (peer) peerTurnSource.set(threadId, peer.sourceThreadId);
     startTurn(targetBotId, message, {
       commsDepth: depth + 1,
@@ -727,7 +724,7 @@ function askBotAndWait(
       transcriptText: peer?.transcriptText,
       ...peerAttribution(peer?.sender, peer?.channel),
     }).catch((err) =>
-      finish(`(couldn't start that bot: ${err instanceof Error ? err.message : String(err)})`),
+      answer.end(`(couldn't start that bot: ${err instanceof Error ? err.message : String(err)})`),
     );
   });
 }
@@ -3549,7 +3546,7 @@ bus.subscribe((event: RuntimeEvent) => {
 // (target threadId → channel) lets the main fold mirror the delegated
 // turn's TERMINAL state into the A⇄B channel when it completes — the
 // channel stays the full record of the handoff, not just its request.
-const delegationWatch = new Map<string, { channelId?: string; toBotId: string; taskId?: string; sourceThreadId?: string; sourceBotId?: string }>();
+const delegationWatch = new Map<string, DelegatedTurn>();
 
 /** Consume one delegated-turn watch and mirror exactly one terminal state.
  * Some harness paths settle a busy bot without a provider turn.completed
@@ -3564,41 +3561,8 @@ function finalizeDelegationWatch(
   const watched = delegationWatch.get(threadId);
   if (!watched) return false;
   delegationWatch.delete(threadId);
-  // The receipt is written before any mirror short-circuits: the delegating
-  // bot's check/wait_delegation must see a terminal state even when the
-  // channel or target is gone.
-  if (watched.taskId && watched.sourceThreadId) {
-    recordDelegationReceipt({
-      id: watched.taskId,
-      sourceThreadId: watched.sourceThreadId,
-      toBotId: watched.toBotId,
-      toBotName: store.bot(watched.toBotId)?.name ?? watched.toBotId,
-      status: ok ? "done" : "failed",
-      result: ok ? reply : failureName,
-    });
-  }
-  const target = store.bot(watched.toBotId);
-  const channel = watched.channelId ? store.group(watched.channelId) : undefined;
-  if (!target) return false;
-  // The sender's chip is where the human is waiting, and the target runs in
-  // its own 1:1 - so the sender never hears back without this.
-  let reported = false;
-  if (watched.sourceThreadId) {
-    reported = settleDelegationChip(
-      commsBus,
-      target,
-      watched.sourceThreadId,
-      channel,
-      watched.taskId,
-      ok ? `@${target.name} replied` : failureName,
-      ok,
-    );
-  }
-  if (!channel) return reported;
-  if (ok && reply.trim()) mirrorReply(commsBus, target, reply, channel);
-  else if (ok) mirrorActivity(commsBus, target, channel, "Delegated turn completed", true);
-  else mirrorActivity(commsBus, target, channel, failureName, false);
-  return reported;
+  endPeerTurn(threadId);
+  return finishDelegatedTurn(commsBus, watched, ok, reply, failureName);
 }
 
 // A bot going in circles — the same call with the same arguments, over and
@@ -3636,8 +3600,13 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
     // child. Every delegation failure has to land as a chip instead.
     const targetThreadId = store.bot(toBotId)?.threadId;
     if (targetThreadId) {
-      delegationWatch.set(targetThreadId, { channelId: channel?.id, toBotId, taskId, sourceThreadId, sourceBotId });
+      const watched: DelegatedTurn = { channelId: channel?.id, toBotId, taskId, sourceThreadId, sourceBotId };
+      delegationWatch.set(targetThreadId, watched);
       peerTurnSource.set(targetThreadId, sourceThreadId);
+      onPeerTakeover(targetThreadId, () => {
+        peerTurnSource.delete(targetThreadId);
+        takeOverDelegatedTurn(commsBus, watched, cfg.profile?.name?.trim() || "User");
+      });
     }
     let failureReported = false;
     const reportStartFailure = (error: unknown) => {
@@ -4360,6 +4329,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   if (folded.length) {
     clearUnattended(bot.id);
     resumePaneWakes(bot.id);
+    takeOverPeerTurn(threadId);
   }
   const currentPrompt = [
     composeUserTurnPrompt(text, {
@@ -4796,6 +4766,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         if (late.length) {
           clearUnattended(bot.id);
           resumePaneWakes(bot.id);
+          takeOverPeerTurn(threadId);
         }
         const withLate = (base: string) => [base, ...late].join("\n\n");
         const system =
@@ -9227,6 +9198,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               }
               clearUnattended(current.id);
               resumePaneWakes(current.id);
+              takeOverPeerTurn(threadId);
               const message = store.appendMessage(threadId, {
                 role: "user",
                 kind: "text",
