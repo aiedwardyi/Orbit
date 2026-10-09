@@ -47,6 +47,7 @@ export function useReplyDock(liveSlot: string | null, tailSlot: string | null, w
   const next = liveSlot
     ? { slot: liveSlot, live: true }
     : dock && dock.slot === tailSlot ? { slot: dock.slot, live: dock.live && waiting } : null;
+  // Render-phase setState: React re-renders at once with the new dock.
   if (next?.slot !== dock?.slot || next?.live !== dock?.live) setDock(next);
   return next;
 }

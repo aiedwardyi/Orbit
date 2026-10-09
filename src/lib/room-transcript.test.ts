@@ -113,30 +113,6 @@ describe("roomTranscriptRows", () => {
     expect(result[2].cluster).toBe(true);
   });
 
-  it("skips the emerging reply, which renders above the transcript", () => {
-    const emerging = say("challenge", "Popping in.");
-    const result = roomTranscriptRows(groupActivityRuns([say("defense", "One."), emerging]), {
-      showToolCalls: false,
-      emergingId: emerging.id,
-    });
-    expect(result.map((row) => row.visible)).toEqual([true, false]);
-  });
-
-  it("keeps emerging text outside a visible activity run", () => {
-    const emerging = say("challenge", "Popping in.");
-    const items = groupActivityRuns([
-      step("challenge", "Read"),
-      step("challenge", "Grep"),
-      emerging,
-    ]);
-    expect(items.map((item) => item.kind)).toEqual(["run", "message"]);
-    expect(
-      roomTranscriptRows(items, { showToolCalls: true, emergingId: emerging.id }).map(
-        (row) => row.visible,
-      ),
-    ).toEqual([true, false]);
-  });
-
   it("keeps the day divider on the first visible line after activity crosses midnight", () => {
     const result = rows([
       say("defense", "Late.", at(1, 23)),

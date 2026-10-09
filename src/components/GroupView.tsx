@@ -344,6 +344,14 @@ const Transcript = memo(function Transcript({
         }
       : undefined;
   const slots = new Set<string>();
+  // Two branches can share a reply slot; only the newest visible reply takes the dock.
+  const dockTargetId = dock
+    ? items.reduce<string | null>(
+        (target, item, i) =>
+          rows[i].visible && item.kind !== "run" && item.message.role === "bot" && item.message.kind === "text" ? item.message.id : target,
+        null,
+      )
+    : null;
   return (
     <>
       {items.map((item, i) => {
@@ -383,7 +391,7 @@ const Transcript = memo(function Transcript({
         const slot = !user && m.kind === "text" ? replySlot(group.threadId, m, transcript) : null;
         const key = slot && !slots.has(slot) ? slot : m.id;
         slots.add(key);
-        const docked = dock && dock.slot === key ? dock : null;
+        const docked = dock && dock.slot === slot && m.id === dockTargetId ? dock : null;
         const attachedImages = user && m.text ? splitAttachedImages(m.text) : null;
         const detectedOptions =
           !user && !streaming && m.kind === "text" ? detectChatOptions(m.text ?? "") : null;
