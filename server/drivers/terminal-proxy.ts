@@ -4,7 +4,12 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import type { ModelCatalog } from "../contracts.ts";
 import { TERMINAL_KEYS, type TerminalKey } from "../terminal-keys.ts";
+import { STATIC_GROK_MODELS } from "./acp/grok.ts";
+import { STATIC_CLAUDE_MODELS } from "./claude.ts";
+import { STATIC_CODEX_MODELS } from "./codex-catalog.ts";
+import { MSP_MUSE_EFFORT_LEVELS, MSP_MUSE_MODELS } from "./msp/muse.ts";
 export { terminalReadGrant } from "../terminal-grant.ts";
 
 const HOST = process.env.OMB_TERMINAL_URL?.replace(/\/$/, "") ?? "";
@@ -57,6 +62,19 @@ export function workerReportText(platform: NodeJS.Platform, claudeSettings = exi
 
 const REPORT_TEXT = workerReportText(process.platform);
 
+// Picker rows only; "Claude " and "Meta " prefixes are dropped to keep the list short.
+function workerModelsText(): string {
+  const line = (engine: string, catalog: ModelCatalog, effort = "") =>
+    `${engine}: ${catalog.options.map((option) => `${option.label.replace(/^(Claude|Meta) /, "")} = ${option.id}`).join(", ")}${effort}.`;
+  return [
+    "Worker models to launch in panes (not bots):",
+    line("Claude", STATIC_CLAUDE_MODELS),
+    line("Codex", STATIC_CODEX_MODELS),
+    line("Muse", MSP_MUSE_MODELS, ` (effort ${MSP_MUSE_EFFORT_LEVELS.join("/")})`),
+    line("Grok", STATIC_GROK_MODELS),
+  ].join(" ");
+}
+
 function normalizeTerminalText(text: string): string {
   return text.replace(/\r\n/g, "\r").replace(/\n/g, "\r");
 }
@@ -106,11 +124,12 @@ export const TOOLS = [
     name: "terminal_spawn",
     description:
       "Open a labeled pane (a terminal-view tab) in cwd and type command plus Enter if given. Returns sessionId and generation. Max 8 live panes. The shell is PowerShell on Windows. " +
-      "To run a worker: cwd is a git worktree, never the live checkout; label is \"NICKNAME | MODEL | EFFORT\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
+      "To run a worker: cwd is a git worktree, never the live checkout (or a plain folder, for a read-only review whose card forbids edits); label is \"NICKNAME | MODEL | EFFORT\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
       `Claude: claude --model <model-id> --dangerously-skip-permissions ${REPORT_TEXT.claude}'Read <card path> and do it.' then terminal_send the effort. If it shows a folder-trust menu, read it and pick Yes with terminal_send key presses; Enter alone may pick No. ` +
       `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox ${REPORT_TEXT.env}${REPORT_TEXT.notify}'<prompt>' (a new folder shows a trust prompt first; send Enter). ` +
       "Muse: muse --model <model-id> --reasoning-effort <effort> --yolo '<prompt>'. " +
       "Grok: grok -m <model-id> --effort <effort> --always-approve '<prompt>' (it may ask a y/n trust question first; send y). " +
+      `${workerModelsText()} ` +
       "Engine CLIs run in the PowerShell pane; check them there, not from another shell. " +
       REPORT_TEXT.spawn,
     inputSchema: {

@@ -3,6 +3,10 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi, type Mock } from "vitest";
+import { STATIC_GROK_MODELS } from "./acp/grok.ts";
+import { STATIC_CLAUDE_MODELS } from "./claude.ts";
+import { STATIC_CODEX_MODELS } from "./codex-catalog.ts";
+import { MSP_MUSE_EFFORT_LEVELS, MSP_MUSE_MODELS } from "./msp/muse.ts";
 import { TOOLS, callTool, claudeState, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText, workerReportText } from "./terminal-proxy.ts";
 
 const CONFIG = { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" };
@@ -60,7 +64,21 @@ describe("terminal proxy", () => {
     expect(TOOLS[0].description).toContain(workerReportText(process.platform).read);
     expect(TOOLS[2].description).toContain("NICKNAME | MODEL | EFFORT");
     expect(TOOLS[2].description).toContain("git worktree");
+    expect(TOOLS[2].description).toMatch(/plain folder, for a read-only review whose card forbids edits/);
     expect(TOOLS[1].description).toContain("terminal_read with waitFor set to the Claude prompt text, then send \"/effort <level>\\n\"");
+  });
+
+  it("lists every picker model of the four worker engines with its name and --model id", () => {
+    const description = TOOLS[2].description;
+    const names = (catalog: { options: { id: string; label: string }[] }) => catalog.options.map((option) => [option.label.replace(/^(Claude|Meta) /, ""), option.id]);
+    for (const [name, id] of [STATIC_CLAUDE_MODELS, STATIC_CODEX_MODELS, MSP_MUSE_MODELS, STATIC_GROK_MODELS].flatMap(names)) {
+      expect(description, id).toContain(`${name} = ${id}`);
+    }
+    expect(description).toContain("Astra = gpt-6-astra");
+    expect(description).toContain(`effort ${MSP_MUSE_EFFORT_LEVELS.join("/")}`);
+    expect(description).toMatch(/models to launch in panes \(not bots\)/i);
+    const list = description.slice(description.indexOf("Worker models"), description.indexOf("Engine CLIs run"));
+    expect(list.length).toBeLessThan(700);
   });
 
   it("adds Codex pane env, notify and orbit-msg reports on Windows only", () => {
