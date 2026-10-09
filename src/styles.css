@@ -3158,6 +3158,8 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
+  /* hidden still scrolls on focus(): the closed phone drawer would slide the app sideways */
+  overflow: clip;
   overscroll-behavior: none;
 }
 
