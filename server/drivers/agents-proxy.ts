@@ -364,7 +364,7 @@ const TOOLS = [
   {
     name: "ask_user",
     description:
-      "Ask the user something you need to keep going: a decision, a preference, missing information, or sign-off before something consequential. It does not pause you: the question is pinned above their text box, your row in their bot list glows, and they get an alert. Their answer arrives as their next message. Keep working on anything that does not depend on it; if nothing is left, end your turn. Give choices only for quick picks and leave them out for open questions. A new question replaces your earlier unanswered one, so include anything still open. Never use it for optional offers like 'want me to...?'.",
+      "Ask the user something you need to keep going: a decision, a preference, missing information, or sign-off before something consequential. It does not pause you: the question is pinned above their text box, your row in their bot list glows, and they get an alert. Their answer arrives as their next message. Keep working on anything that does not depend on it; if nothing is left, end your turn. Give choices for quick picks, including yes/no and permission questions, and leave them out for open questions. A new question replaces your earlier unanswered one, so include anything still open. Never use it for optional offers like 'want me to...?'.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

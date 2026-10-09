@@ -319,6 +319,7 @@ describe("agents-proxy MCP surface", () => {
     const list = await rpc("tools/list");
     const tool = list.result.tools.find((t: { name: string }) => t.name === "ask_user");
     expect(tool.description).toContain("It does not pause you");
+    expect(tool.description).toContain("including yes/no and permission questions");
     expect(tool.inputSchema.required).toEqual(["question"]);
     const res = await callTool("ask_user", { question: " Ship to prod or staging? ", choices: ["Prod", 3, "Staging"] });
     expect(res.result.isError).toBe(false);
