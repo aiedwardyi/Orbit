@@ -49,6 +49,7 @@ describe("parsePaneNote", () => {
     expect(parsePaneNote(stored("halfway, tests running"))).toMatchObject({ status: null, alert: null, nick: null, body: "halfway, tests running" });
     expect(parsePaneNote(stored("WAITING: on CI")).body).toBe("WAITING: on CI");
     expect(parsePaneNote(stored("FAIL to build the docs")).status).toBeNull();
+    expect(parsePaneNote(stored("FAIL BUILD"))).toMatchObject({ status: null, nick: null, body: "FAIL BUILD" });
   });
 
   it("reads a note without a label", () => {

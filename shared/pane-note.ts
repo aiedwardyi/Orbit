@@ -14,8 +14,8 @@ export type PaneNote = {
 
 // mailboxNoteText: `[pane <8>] [<label>] from <name> (<bot id>): <text>`
 const PREFIX = /^\[pane ([0-9a-f]{1,8})\](?: \[([^\]]+)\])?(?: from [^\n]*? \([^()\s]*\):)?[ \t]*/;
-// orbit-msg --report: `<STATUS> <NICK> branch=<b> sha=<s> dirty=<d>`
-const REPORT = /^(DONE|FAIL|BLOCKED) (\S+)((?: [a-z]+=\S*)*)[ \t]*(?:\r?\n|$)/;
+// orbit-msg --report: `<STATUS> <NICK> branch=<b> sha=<s> dirty=<d>`; the key=value part tells it from free text like "FAIL BUILD"
+const REPORT = /^(DONE|FAIL|BLOCKED) (\S+)((?: [a-z]+=\S*)+)[ \t]*(?:\r?\n|$)/;
 const STATUS = { DONE: "done", FAIL: "failed", BLOCKED: "blocked" } as const;
 // electron/terminal-host.mjs stallNoteText and electron/terminal-mailbox.mjs WAITING_NOTE
 const STALLED = /^STALLED: no screen change for (\d+) min and no report\./;

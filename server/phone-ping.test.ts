@@ -43,6 +43,7 @@ describe("pingForMailbox", () => {
     expect(pingForMailbox("Scout", "the build FAILed")).toBeNull();
     expect(pingForMailbox("Scout", "FAILED to start")).toBeNull();
     expect(pingForMailbox("Scout", "FAIL to start the docs build")).toBeNull();
+    expect(pingForMailbox("Scout", "FAIL BUILD")).toBeNull();
     expect(pingForMailbox("Scout", "")).toBeNull();
   });
 });

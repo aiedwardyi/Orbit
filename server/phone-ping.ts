@@ -24,7 +24,8 @@ export function pingForMailbox(botName: string, text: string): PhonePing | null 
   if (note.status !== "failed" && note.status !== "blocked") return null;
   const status = PING_STATUS[note.status];
   const sentence = note.body.split(/(?<=[.!?])\s|\n/, 1)[0]?.trim();
-  return { title: `${botName}: worker ${status}`, message: summarize(sentence ? `${note.nick} ${status}: ${sentence}` : `${note.nick} ${status}.`), tags: ["warning"] };
+  const who = note.nick ?? "A worker";
+  return { title: `${botName}: worker ${status}`, message: summarize(sentence ? `${who} ${status}: ${sentence}` : `${who} ${status}.`), tags: ["warning"] };
 }
 
 /** True when this bot/title/message triple has not pinged within the window,
