@@ -749,11 +749,11 @@ function ActivityChip({ message }: { message: Message }) {
         <button
           onClick={() => dispatch({ type: "select", id: comm.groupId })}
           title={`Open the conversation with ${comm.withName}`}
-          className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
+          className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
           <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} />
-          <span className="max-w-[480px] truncate">{tool.name}</span>
-          <ChevronRight size={13} />
+          <span className="min-w-0 max-w-[480px] truncate">{tool.name}</span>
+          <ChevronRight size={13} className="shrink-0" />
         </button>
       </div>
     );
@@ -763,16 +763,16 @@ function ActivityChip({ message }: { message: Message }) {
     <div className="flex justify-start">
       <div
         title={failed ? t("chat.stepDidNotComplete") : undefined}
-        className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary"
+        className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary"
       >
         {tool.ok === undefined ? (
-          <Loader2 size={13} className="animate-spin" />
+          <Loader2 size={13} className="shrink-0 animate-spin" />
         ) : failed ? (
-          <X size={13} strokeWidth={1.5} />
+          <X size={13} strokeWidth={1.5} className="shrink-0" />
         ) : (
-          <Check size={13} className="text-success" />
+          <Check size={13} className="shrink-0 text-success" />
         )}
-        <span className="max-w-[480px] truncate font-mono">
+        <span className="min-w-0 max-w-[480px] truncate font-mono">
           {tool.name}
           {tool.summary && ` ${tool.summary}`}
         </span>

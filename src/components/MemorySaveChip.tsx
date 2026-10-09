@@ -16,9 +16,9 @@ export function MemorySaveChip({ summary, at }: { summary: string; at: number })
   }, [at]);
   return (
     <div className="flex justify-start">
-      <div className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary">
-        {saved ? <Check size={13} className="text-success" /> : <Loader2 size={13} className="animate-spin" />}
-        <span className="max-w-[480px] truncate">
+      <div className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary">
+        {saved ? <Check size={13} className="shrink-0 text-success" /> : <Loader2 size={13} className="shrink-0 animate-spin" />}
+        <span className="min-w-0 max-w-[480px] truncate">
           {saved ? t("chat.savedMemory", { summary }) : t("chat.savingMemory")}
         </span>
       </div>

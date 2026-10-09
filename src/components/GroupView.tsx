@@ -168,11 +168,11 @@ export function RoomToolChip({
           type="button"
           onClick={() => dispatch({ type: "select", id: comm.groupId })}
           title={`Open the conversation with ${comm.withName}`}
-          className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
+          className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
           <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
-          <span className="max-w-[480px] truncate">{tool.name}</span>
-          <ChevronRight size={13} />
+          <span className="min-w-0 max-w-[480px] truncate">{tool.name}</span>
+          <ChevronRight size={13} className="shrink-0" />
         </button>
       </div>
     );
@@ -188,10 +188,10 @@ export function RoomToolChip({
 
   return (
     <div className="flex justify-start">
-      <div className="flex flex-col items-start">
+      <div className="flex min-w-0 max-w-full flex-col items-start">
         <div
           className={cn(
-            "flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
+            "flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
             // Only turn-level `error:` rows go red; a plain failed step the
             // bot retried past renders like any other.
             tool.name.startsWith("error:") ? "text-danger" : "text-ink-secondary",
@@ -200,7 +200,7 @@ export function RoomToolChip({
           <span
             className={tool.ok === false && expanded
               ? "break-words whitespace-pre-wrap font-mono"
-              : "max-w-[480px] truncate font-mono"}
+              : "min-w-0 max-w-[480px] truncate font-mono"}
           >
             {tool.name}
           </span>
