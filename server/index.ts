@@ -228,7 +228,7 @@ import { foldContinuationStart } from "./continuation-turn.ts";
 import { ownTurnReply } from "./turn-reply.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
-import { paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
+import { botClosedPanes, paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
 import { launchNoteText } from "./launch-note.ts";
 import { MailboxAutoDedup, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
@@ -1126,6 +1126,7 @@ const wireTask = ({
   providerSessionBoundId: _providerSessionBoundId,
   resumeSeed: _resumeSeed,
   paneNotesDeliveredId: _paneNotesDeliveredId,
+  paneNotesSkippedId: _paneNotesSkippedId,
   ...task
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
@@ -3741,6 +3742,15 @@ const paneWake = new PaneWakeScheduler({
   paused: (botId) => store.bot(botId)?.paneWakePaused === true,
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
   hasNotes: paneNotesPending,
+  closedByBot: async (botId, paneIds) => {
+    const closed = await botClosedPanes(terminalBridgeAccess, botId);
+    return closed !== null && paneIds.every((id) => closed.includes(id));
+  },
+  // The note stays undelivered for the next user turn; the marker only keeps a restart from waking for it.
+  skipped: (botId, threadId) => {
+    const newest = store.activePath(threadId).findLast((message) => message.kind === "note");
+    if (newest) store.markPaneNotesSkipped(botId, threadId, newest.id);
+  },
   wake: (botId, threadId) => {
     startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true }).then(() => undefined).catch((err) => {
       if (isBusyRejection(err)) paneWake.noteArrived(botId, threadId);
@@ -6533,7 +6543,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note, origin: profileSyncSettings.deviceId });
       if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text), { botId: teacher.id, threadId: teacher.threadId });
       void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, parsed.data.kind);
-      paneWake.noteArrived(teacher.id, teacher.threadId);
+      paneWake.noteArrived(teacher.id, teacher.threadId, scope.pane);
       return json(res, 200, { ok: true, id: message.id });
     }
     if (path.startsWith("/api/") && !(method === "GET" && path === "/api/health") && !credentials.phoneSession &&
@@ -10336,8 +10346,9 @@ syncAllThreads();
 // Wake timers die with the process; re-arm teachers whose stored notes are
 // undelivered. Untracked legacy tasks wait for the next send, as before.
 for (const bot of store.bots) {
-  const deliveredId = store.taskByThread(bot.id, bot.threadId)?.paneNotesDeliveredId;
-  if (deliveredId !== undefined && hasLocalUndeliveredPaneNote(store.activePath(bot.threadId), deliveredId ?? undefined, profileSyncSettings.deviceId)) {
+  const task = store.taskByThread(bot.id, bot.threadId);
+  const deliveredId = task?.paneNotesDeliveredId;
+  if (deliveredId !== undefined && hasLocalUndeliveredPaneNote(store.activePath(bot.threadId), deliveredId ?? undefined, profileSyncSettings.deviceId, task?.paneNotesSkippedId)) {
     paneWake.noteArrived(bot.id, bot.threadId);
   }
 }

@@ -278,6 +278,9 @@ export interface TaskRecord {
   /** Newest pane note a dispatched turn carried; `null` once tracked with
    * none yet. Absent on tasks from before the field existed. */
   paneNotesDeliveredId?: string | null;
+  /** Newest pane note a skipped wake settled. Only the startup re-arm reads
+   * it; the next turn still carries the note. */
+  paneNotesSkippedId?: string;
   /** Prompt sizes the engine last reported, for the session named by its
    * cursor. Says nothing once `resumeCursors` no longer holds that cursor. */
   nativePrompt?: NativePrompt;
@@ -1634,6 +1637,13 @@ export class Store {
     const next = noteId ?? task?.paneNotesDeliveredId ?? null;
     if (!task || task.paneNotesDeliveredId === next) return;
     task.paneNotesDeliveredId = next;
+    this.saveBots();
+  }
+
+  markPaneNotesSkipped(botId: string, threadId: string, noteId: string) {
+    const task = this.taskByThread(botId, threadId);
+    if (!task || task.paneNotesSkippedId === noteId) return;
+    task.paneNotesSkippedId = noteId;
     this.saveBots();
   }
 

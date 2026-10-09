@@ -720,6 +720,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
       const buildSnapshot = () => {
         const live = botSessions(botId);
+        // A user close or app quit never lands here, so notes from those panes still wake the bot.
+        const closedPanes = [...(closedBotPanes.get(botId) ?? [])];
         let session;
         if (options.sessionId) {
           const match = resolveBotSession(live, options.sessionId);
@@ -728,7 +730,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         } else {
           session = live.find((candidate) => !candidate.botPane) ?? live[0];
         }
-        if (!session) return { botId, state: "no-terminal", screenText: "", recentText: "", seq: 0, capturedAt: now(), exitCode: null, exited: false, truncated: false, panes: [] };
+        if (!session) return { botId, state: "no-terminal", screenText: "", recentText: "", seq: 0, capturedAt: now(), exitCode: null, exited: false, truncated: false, panes: [], closedPanes };
         const maxScreenChars = Number.isInteger(options.maxScreenChars) ? Math.max(1, Math.min(options.maxScreenChars, 64 * 1024)) : 64 * 1024;
         const maxScrollbackChars = Number.isInteger(options.maxScrollbackChars) ? Math.max(0, Math.min(options.maxScrollbackChars, 16 * 1024)) : 16 * 1024;
         return {
@@ -743,6 +745,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           exited: session.exitCode !== null,
           ...session.screen.snapshot({ maxScreenChars, maxScrollbackChars }),
           panes: live.map((pane) => ({ ...paneSummary(pane), screenText: pane.screen.text() })),
+          closedPanes,
         };
       };
       const first = buildSnapshot();
