@@ -166,7 +166,7 @@ export function useDrawerSwipe(open: boolean, side: SidebarSide, close: () => vo
       drag = null;
       const touch = e.touches[0];
       if (e.touches.length !== 1 || !touch || !isPhone() || !(e.target instanceof Node)) return;
-      if (!drawer.contains(e.target) && e.target !== scrim) return;
+      if (!drawer.contains(e.target) && !scrim?.contains(e.target)) return;
       if (swipeBlocked(e.target, touch.clientX)) return;
       drag = { x: touch.clientX, y: touch.clientY, lastX: touch.clientX, lastT: e.timeStamp, velocity: 0, axis: null, drawer, scrim };
     };

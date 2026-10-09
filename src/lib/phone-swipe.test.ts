@@ -544,10 +544,17 @@ describe("useDrawerSwipe", () => {
 
   it("wires the App drawer, scrim and sidebar side", () => {
     const app = readFileSync(join(here, "../App.tsx"), "utf8");
-    expect(app).toContain('useDrawerSwipe(drawerOpen, sidebarOnRight ? "right" : "left", () => setDrawerOpen(false))');
+    expect(app).toContain('useDrawerSwipe(drawerOpen && !sidebarOverlay, sidebarOnRight ? "right" : "left", closeDrawer)');
     expect(app).toContain('<div ref={drawerShellRef} className="relative flex min-h-0 flex-1">');
     expect(app).toContain("data-phone-drawer-scrim");
     const sidebar = readFileSync(join(here, "../components/Sidebar.tsx"), "utf8");
     expect(sidebar).toContain('aria-label={t("chrome.navAria")}\n      data-phone-drawer\n');
+  });
+
+  it("stays off while a sidebar menu is open and restores focus to the menu button like the Sidebar's own close", () => {
+    const app = readFileSync(join(here, "../App.tsx"), "utf8");
+    expect(app).toContain("const closeDrawer = () => {\n    setDrawerOpen(false);\n    menuButtonRef.current?.focus();\n  };");
+    expect(app).toContain("onClose={closeDrawer}");
+    expect(app).toContain("useDrawerSwipe(drawerOpen && !sidebarOverlay,");
   });
 });

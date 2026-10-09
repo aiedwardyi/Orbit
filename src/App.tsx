@@ -452,7 +452,11 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     state.createBotOpen;
 
   const swipeStageRef = usePhoneSwipe(bot?.id, !terminalOpen && !nativeViewOverlayOpen, (id) => dispatch({ type: "select", id }));
-  const drawerShellRef = useDrawerSwipe(drawerOpen, sidebarOnRight ? "right" : "left", () => setDrawerOpen(false));
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    menuButtonRef.current?.focus();
+  };
+  const drawerShellRef = useDrawerSwipe(drawerOpen && !sidebarOverlay, sidebarOnRight ? "right" : "left", closeDrawer);
 
   const chatShown = Boolean(bot && state.activeView === "chat" && !terminalOpen);
   useEffect(() => {
@@ -617,10 +621,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       <Sidebar
         open={drawerOpen}
         onOverlayChange={setSidebarOverlay}
-        onClose={() => {
-          setDrawerOpen(false);
-          menuButtonRef.current?.focus();
-        }}
+        onClose={closeDrawer}
         onTerminalAttention={openTerminalAttention}
         rigidView={Boolean(browserWorkspaceBotId || localVmWorkspaceBotId || (bot && terminalViews[bot.id] !== undefined))}
       />
