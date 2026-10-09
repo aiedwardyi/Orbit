@@ -436,7 +436,12 @@ function RoomContextMenu({
   const { state, dispatch } = useStore();
   const group = state.groups.find((g) => g.id === menu.groupId);
   const [renaming, setRenaming] = useState(false);
+  const renameRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState(group?.name ?? "");
+
+  useEffect(() => {
+    if (!closing) renameRef.current?.focus();
+  }, [closing]);
 
   useEffect(() => {
     if (closing) return;
@@ -473,6 +478,7 @@ function RoomContextMenu({
       {renaming ? (
         <div className="flex items-center gap-1 px-2 py-1">
           <input
+            ref={renameRef}
             autoFocus
             value={draft}
             maxLength={100}
@@ -580,6 +586,11 @@ function SectionPicker({
   const { state } = useStore();
   const [name, setName] = useState("");
   const trimmed = name.trim();
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!closing) nameRef.current?.focus();
+  }, [closing]);
 
   useEffect(() => {
     if (closing) return;
@@ -651,6 +662,7 @@ function SectionPicker({
         }}
       >
         <input
+          ref={nameRef}
           autoFocus
           maxLength={60}
           value={name}

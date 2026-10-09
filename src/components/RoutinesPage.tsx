@@ -368,6 +368,10 @@ export function RoutineEditor({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const nameRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!closing) nameRef.current?.focus();
+  }, [closing]);
   const cloudInstance = state.instances.find((instance) => instance.driverKind === "boxAgent");
   const cloudReady = Boolean(state.config?.box.configured && cloudInstance?.snapshot.state === "available");
 
@@ -412,7 +416,7 @@ export function RoutineEditor({
         <div className="space-y-5 p-5">
           <label className="block">
             <span className="mb-1.5 block text-[12px] font-medium text-ink-secondary">Routine name</span>
-            <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Morning research brief" className="w-full rounded-xl border border-hairline/60 bg-inset px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-secondary/60 focus:border-accent/70" />
+            <input ref={nameRef} autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Morning research brief" className="w-full rounded-xl border border-hairline/60 bg-inset px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-secondary/60 focus:border-accent/70" />
           </label>
           <div>
             <div className="mb-2 text-[12px] font-medium text-ink-secondary">Where does it run?</div>

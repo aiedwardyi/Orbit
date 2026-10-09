@@ -270,6 +270,8 @@ export function ModelPickerControl({
         tabIndex={-1}
         className="model-cross-dialog"
         onKeyDown={(event) => {
+          // focus lingers in the fading dialog for a frame; let Alt+M through to reopen it
+          if (presence.closing) return;
           event.stopPropagation();
           if (event.nativeEvent.isComposing) return;
           if (event.key === "Escape" || (event.altKey && !event.ctrlKey && !event.shiftKey && event.code === "KeyM")) {

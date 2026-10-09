@@ -33,6 +33,7 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
   const [messageHits, setMessageHits] = useState<SearchHit[]>([]);
   const [cursor, setCursor] = useState(0);
   const selectedRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // The chord fires from anywhere — Shell's app-wide shortcuts (⌘N, ⌘1–9)
   // set the precedent of not guarding against focused inputs, and a
@@ -54,6 +55,8 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
     setQuery("");
     setMessageHits([]);
     setCursor(0);
+    // a reopen during the fade reuses the input, so autoFocus does not run again
+    inputRef.current?.focus();
   }, [open]);
 
   useEffect(() => {
@@ -199,6 +202,7 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
         <div className="flex items-center gap-3 border-b border-hairline/40 px-4 py-3">
           <Search size={16} className="shrink-0 text-ink-secondary" />
           <input
+            ref={inputRef}
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}

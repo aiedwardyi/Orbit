@@ -48,6 +48,11 @@ export function GroupWizard({
   const [addedNew, setAddedNew] = useState(0);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!closing) nameRef.current?.focus();
+  }, [closing]);
 
   useEffect(() => {
     void refreshInstances?.();
@@ -144,6 +149,7 @@ export function GroupWizard({
             <div className="mb-1 mt-2 text-[14px] font-medium text-ink">{t("groupWizard.nameTitle")}</div>
             <p className="mb-2 text-[12.5px] text-ink-secondary">{t("groupWizard.nameHelper")}</p>
             <input
+              ref={nameRef}
               autoFocus
               maxLength={100}
               value={name}
