@@ -29,9 +29,9 @@ export function newestBelowView(el: ScrollBox, after = 0): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight - after >= BOTTOM_FOLLOW_THRESHOLD;
 }
 
-/** Height of the transcript below its newest message row. Rows are display:contents wrappers, so their children carry the boxes. */
+/** Height of the transcript below its newest message row or folded run. Rows are display:contents wrappers, so their children carry the boxes. */
 export function spaceAfterNewestRow(content: HTMLElement): number {
-  const rows = content.querySelectorAll("[data-mid]");
+  const rows = content.querySelectorAll("[data-mid], [data-run]");
   const newest = rows[rows.length - 1];
   if (!newest) return 0;
   const bottoms = [newest, ...newest.children].map((el) => el.getBoundingClientRect()).filter((box) => box.height > 0).map((box) => box.bottom);

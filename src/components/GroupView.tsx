@@ -344,7 +344,7 @@ const Transcript = memo(function Transcript({
         if (item.kind === "run") {
           const first = item.messages[0];
           return (
-            <div key={item.id} className="contents">
+            <div key={item.id} className="contents" data-run={item.id}>
               {newDay && (
                 <div className="py-3 text-center text-[13px] text-ink-secondary">
                   {dayLabel(first.at)} {formatTime(first.at, localeTag(locale))}
@@ -1359,9 +1359,10 @@ export function GroupView({ group }: { group: Group }) {
     const el = scrollRef.current;
     return !el || el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_FOLLOW_THRESHOLD;
   };
-  // an upward swipe on a transcript already at its top scrolls nothing, so there is no scrollback to read
+  // a transcript too short to scroll has no scrollback to read, so an upward swipe there keeps follow
   const breakFollow = () => {
-    if ((scrollRef.current?.scrollTop ?? 0) > 0) setBottomFollow(false);
+    const el = scrollRef.current;
+    if (el && el.scrollHeight > el.clientHeight) setBottomFollow(false);
   };
 
   // Own send re-anchors even from scrollback; incoming content never yanks.

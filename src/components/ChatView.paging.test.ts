@@ -851,4 +851,64 @@ describe("open window and jump pill", () => {
     await act(async () => scroller.dispatchEvent(new Event("scroll")));
     expect(pill(host)).toBeDefined();
   });
+
+  it("fills a chat switched to while another chat's jump lookup is still pending", async () => {
+    const restore = stubTranscriptLayout(400, 100);
+    try {
+      const a = bot(lettered("a", 200), true);
+      const b = { ...bot(lettered("b", 2), true), id: "b", threadId: "thread-b", name: "B" };
+      const calls = pagedServer("thread-b", lettered("b", 2), { bots: [a, b], groups: [] });
+      const host = await mount("chat");
+      await act(async () => store.dispatch({ type: "select", id: "a" }));
+      await vi.waitFor(() => expect(host.textContent).toContain("a row 199;"));
+      await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "a-old" }));
+      await vi.waitFor(() => expect(calls.some((call) => call.includes("around=a-old"))).toBe(true));
+      await act(async () => store.dispatch({ type: "select", id: "b" }));
+      await vi.waitFor(() => expect(host.textContent).toContain("b row 1;"));
+      await vi.waitFor(() => expect(calls.some((call) => call.includes("/thread-b/messages?limit=200&before="))).toBe(true));
+    } finally {
+      restore();
+    }
+  });
+
+  it.each(["chat", "room"] as const)("shows Jump to latest in a %s while a collapsed tool run is under the fold", async (view) => {
+    const tools = ["t0", "t1", "t2"].map((id, i): Message => ({ id, parentId: i ? `t${i - 1}` : "x149", at: 1, role: "bot", kind: "activity", tool: { name: "Read", ok: true } }));
+    const thread = [...lettered("x", 150).map((message, i) => ({ ...message, parentId: i ? `x${i - 1}` : null })), ...tools];
+    pagedServer("thread-x", [], snapshotOf(view, thread, false));
+    const served = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn((url: string) => (url === "/api/config" ? Promise.resolve(Response.json({ features: { showToolCalls: true } })) : served(url))));
+    const host = await mount(view);
+    const runHeader = () => [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("3 steps"))?.parentElement;
+    await vi.waitFor(() => expect(runHeader()).toBeDefined());
+    const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+    layout(scroller, { client: 400, scroll: 1000 });
+    // the last text row ends 100 px above the log's end; the collapsed run below it ends 12 px above
+    const box = (bottom: number) => DOMRect.fromRect({ y: bottom - 40, height: 40, width: 100 });
+    const log = scroller.querySelector<HTMLElement>("[role=log]")!;
+    Object.defineProperty(log, "getBoundingClientRect", { configurable: true, value: () => box(1000 - scroller.scrollTop) });
+    const text = log.querySelector('[data-mid="x149"]')!.firstElementChild!;
+    Object.defineProperty(text, "getBoundingClientRect", { configurable: true, value: () => box(1000 - scroller.scrollTop - 100) });
+    const run = runHeader()!;
+    Object.defineProperty(run, "getBoundingClientRect", { configurable: true, value: () => box(1000 - scroller.scrollTop - 12) });
+
+    scroller.scrollTop = 600;
+    await act(async () => scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -10, bubbles: true })));
+    scroller.scrollTop = 560;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
+    expect(pill(host)).toBeDefined();
+  });
+
+  it.each(["chat", "room"] as const)("stops following after an upward wheel at the top of a long %s", async (view) => {
+    pagedServer("thread-x", [], snapshotOf(view, lettered("x", 150), false));
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.textContent).toContain("x row 149;"));
+    const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+    const size = { client: 400, scroll: 1000 };
+    layout(scroller, size);
+    scroller.scrollTop = 0;
+    await act(async () => scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -10, bubbles: true })));
+    size.scroll = 1100;
+    await arrive(threadOf(view), { id: "x150", at: 1, role: "user", kind: "text", text: "x row 150;" });
+    expect(scroller.scrollTop).toBe(0);
+  });
 });
