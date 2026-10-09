@@ -369,11 +369,11 @@ const TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
-        question: { type: "string", description: "The question, with enough context to answer at a glance." },
+        question: { type: "string", description: "One short question, 1-2 lines on a phone. Background goes in your message, not here." },
         choices: {
           type: "array",
           items: { type: "string" },
-          description: "Optional 2-5 short answers, shown as one-tap buttons.",
+          description: "Optional 2-5 answers of a few words each, shown as one-tap buttons.",
         },
       },
       required: ["question"],
