@@ -20,3 +20,25 @@ export function shouldResumeBottomFollow({
 }): boolean {
   return !following && scrollTop > previousScrollTop && distanceFromBottom < BOTTOM_FOLLOW_THRESHOLD;
 }
+
+type ScrollBox = Pick<HTMLElement, "scrollHeight" | "scrollTop" | "clientHeight">;
+
+/** The newest row is under the fold, so Jump to latest has somewhere to go. `after` is what
+ * follows that row (presence row, padding), which can sit under the fold while the row shows. */
+export function newestBelowView(el: ScrollBox, after = 0): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight - after >= BOTTOM_FOLLOW_THRESHOLD;
+}
+
+/** Height of the transcript below its newest message row or folded run. Rows are display:contents wrappers, so their children carry the boxes. */
+export function spaceAfterNewestRow(content: HTMLElement): number {
+  const rows = content.querySelectorAll("[data-mid], [data-run]");
+  const newest = rows[rows.length - 1];
+  if (!newest) return 0;
+  const bottoms = [newest, ...newest.children].map((el) => el.getBoundingClientRect()).filter((box) => box.height > 0).map((box) => box.bottom);
+  return bottoms.length ? Math.max(0, content.getBoundingClientRect().bottom - Math.max(...bottoms)) : 0;
+}
+
+/** Nothing to scroll; a transcript that isn't laid out (hidden, test DOM) reads 0 and never counts. */
+export function transcriptUnderfilled(el: ScrollBox): boolean {
+  return el.clientHeight > 0 && el.scrollHeight <= el.clientHeight;
+}

@@ -455,6 +455,11 @@ describe("ChatView transcript window", () => {
       await render({ ...botA, messages });
       await act(async () => button(host, "Show earlier messages")!.click());
       expect(host.textContent).toContain("row 130;");
+      const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+      Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => VIEWPORT_PX });
+      Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => TRANSCRIPT_PX });
+      scroller.scrollTop = 0;
+      await act(async () => scroller.dispatchEvent(new Event("scroll")));
       await act(async () => button(host, "Jump to latest")!.click());
       expect(host.textContent).not.toContain("row 130;");
       expect(host.textContent).toContain("row 250;");

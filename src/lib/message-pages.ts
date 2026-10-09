@@ -87,7 +87,8 @@ export function useJumpWindow(
   snapshot: number,
 ) {
   const [held, setHeld] = useState<JumpWindow | null>(null);
-  const [pending, setPending] = useState(false);
+  // keyed: a lookup still hanging in one chat must not read as pending in the next
+  const [pending, setPending] = useState<string | null>(null);
   const inflight = useRef(false);
   const latest = useRef(0);
   // own counter, so a snapshot refetch never strands a jump still in flight
@@ -108,7 +109,7 @@ export function useJumpWindow(
   const open = useCallback(
     (messageId: string) => {
       const generation = ++latest.current;
-      setPending(true);
+      setPending(key);
       fetchAround(threadId, messageId)
         .then(({ rows, hasMore }) => {
           if (generation !== latest.current) return;
@@ -119,7 +120,7 @@ export function useJumpWindow(
         })
         .catch(() => {})
         .finally(() => {
-          if (generation === latest.current) setPending(false);
+          if (generation === latest.current) setPending(null);
         });
     },
     [dispatch, key, threadId, head, snapshot],
@@ -156,11 +157,11 @@ export function useJumpWindow(
     [current, key, threadId],
   );
   const close = useCallback(() => setHeld(null), []);
-  return { messages, hasMore: Boolean(current?.hasMore), pending, open, older, close };
+  return { messages, hasMore: Boolean(current?.hasMore), pending: pending === key, open, older, close };
 }
 
-/** Loads the page before `oldestId`, one request at a time. `beforeCommit`
- * runs just before the page lands, so a caller can measure the old layout. */
+/** Loads the page before `oldestId`, one request at a time; a call while one loads joins it.
+ * `beforeCommit` runs just before the page lands, so a caller can measure the old layout. */
 export function useOlderMessages(
   dispatch: React.Dispatch<Action>,
   threadId: string,
@@ -168,17 +169,24 @@ export function useOlderMessages(
   hasMore: boolean | undefined,
 ) {
   // One view serves many threads; a page still loading for one must not block another.
-  const inflight = useRef(new Set<string>());
+  const inflight = useRef(new Map<string, { measures: (() => void)[]; fails: (() => void)[] }>());
   return useCallback(
     (beforeCommit?: () => void, onFail?: () => void) => {
-      if (!hasMore || !oldestId || inflight.current.has(threadId)) return;
-      inflight.current.add(threadId);
+      if (!hasMore || !oldestId) return;
+      const joined = inflight.current.get(threadId);
+      const waiting = joined ?? { measures: [], fails: [] };
+      if (beforeCommit) waiting.measures.push(beforeCommit);
+      if (onFail) waiting.fails.push(onFail);
+      if (joined) return;
+      inflight.current.set(threadId, waiting);
       fetchOlderPage(threadId, oldestId)
         .then((page) => {
-          beforeCommit?.();
+          for (const measure of waiting.measures) measure();
           dispatch({ type: "olderMessages", threadId, before: oldestId, ...page });
         })
-        .catch(() => onFail?.())
+        .catch(() => {
+          for (const fail of waiting.fails) fail();
+        })
         .finally(() => inflight.current.delete(threadId));
     },
     [dispatch, threadId, oldestId, hasMore],
