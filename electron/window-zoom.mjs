@@ -14,12 +14,15 @@ export function zoomShortcut(input) {
   return null;
 }
 
+// Chromium zooms 1.2x per level, so half a level is about 10% per press.
+const ZOOM_STEP = 0.5;
+
 export function applyZoomShortcut(webContents, input) {
   const action = zoomShortcut(input);
   if (!action || !webContents) return false;
   try {
-    if (action === "in") webContents.setZoomLevel(webContents.getZoomLevel() + 1);
-    else if (action === "out") webContents.setZoomLevel(webContents.getZoomLevel() - 1);
+    if (action === "in") webContents.setZoomLevel(webContents.getZoomLevel() + ZOOM_STEP);
+    else if (action === "out") webContents.setZoomLevel(webContents.getZoomLevel() - ZOOM_STEP);
     else webContents.setZoomLevel(0);
     return true;
   } catch {

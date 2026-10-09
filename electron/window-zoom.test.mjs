@@ -38,11 +38,11 @@ describe("zoom shortcuts", () => {
       },
     };
     expect(applyZoomShortcut(contents, { type: "keyDown", control: true, key: "=" })).toBe(true);
-    expect(level).toBe(1);
+    expect(level).toBe(0.5);
     expect(applyZoomShortcut(contents, { type: "keyDown", control: true, key: "-" })).toBe(true);
     expect(level).toBe(0);
     expect(applyZoomShortcut(contents, { type: "keyDown", control: true, key: "-" })).toBe(true);
-    expect(level).toBe(-1);
+    expect(level).toBe(-0.5);
     expect(applyZoomShortcut(contents, { type: "keyDown", control: true, key: "=" })).toBe(true);
     expect(level).toBe(0);
     expect(applyZoomShortcut(contents, { type: "keyDown", control: true, key: "0" })).toBe(true);
