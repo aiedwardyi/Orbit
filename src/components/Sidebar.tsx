@@ -108,6 +108,7 @@ import {
 } from "@/lib/sidebar-order";
 import { sidebarConversationRowTone } from "@/lib/sidebar-row";
 import { useTouchDrag, type TouchDropMark } from "@/lib/use-touch-drag";
+import { Presence, usePresence } from "@/lib/use-presence";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { anyChatNeedsYou, chatNeedsYou } from "@/lib/open-question";
@@ -422,10 +423,12 @@ function GroupListItem({
 
 function RoomContextMenu({
   menu,
+  closing,
   onClose,
   onMoveToSection,
 }: {
   menu: { groupId: string; x: number; y: number };
+  closing: boolean;
   onClose: () => void;
   onMoveToSection: (groupId: string) => void;
 }) {
@@ -436,6 +439,7 @@ function RoomContextMenu({
   const [draft, setDraft] = useState(group?.name ?? "");
 
   useEffect(() => {
+    if (closing) return;
     const onDown = (e: MouseEvent) => {
       if (!(e.target instanceof Element) || !e.target.closest("[data-room-menu]")) onClose();
     };
@@ -448,7 +452,7 @@ function RoomContextMenu({
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("blur", onClose);
     };
-  }, [onClose]);
+  }, [closing, onClose]);
 
   if (!group) return null;
   const saveRename = () => {
@@ -461,8 +465,10 @@ function RoomContextMenu({
   return createPortal(
     <div
       data-room-menu
+      data-closing={closing || undefined}
+      inert={closing}
       style={{ top, left }}
-      className="fixed z-40 w-[228px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60"
+      className="animate-pop-in fixed z-40 w-[228px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60"
     >
       {renaming ? (
         <div className="flex items-center gap-1 px-2 py-1">
@@ -558,12 +564,14 @@ function RoomContextMenu({
 function SectionPicker({
   current,
   anchor,
+  closing,
   onClose,
   onAssign,
 }: {
   /** the target's current section; undefined = none */
   current: string | undefined;
   anchor: { x: number; y: number };
+  closing: boolean;
   onClose: () => void;
   /** "" clears — the server drops an empty section */
   onAssign: (section: string) => void;
@@ -574,6 +582,7 @@ function SectionPicker({
   const trimmed = name.trim();
 
   useEffect(() => {
+    if (closing) return;
     const onDown = (e: MouseEvent) => {
       if (!(e.target instanceof Element) || !e.target.closest("[data-section-picker]")) onClose();
     };
@@ -586,7 +595,7 @@ function SectionPicker({
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("blur", onClose);
     };
-  }, [onClose]);
+  }, [closing, onClose]);
 
   // Hidden bots can carry a stale assignment; don't offer it as a context.
   // Channels and bots share one namespace, so Work or Personal can hold both.
@@ -608,8 +617,10 @@ function SectionPicker({
   return (
     <div
       data-section-picker
+      data-closing={closing || undefined}
+      inert={closing}
       style={{ top, left }}
-      className="fixed z-40 w-[236px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-2 shadow-2xl shadow-black/60"
+      className="animate-pop-in fixed z-40 w-[236px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-2 shadow-2xl shadow-black/60"
     >
       <div className="px-3.5 pb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
         {t("chrome.moveToContext")}
@@ -677,12 +688,14 @@ function SectionPicker({
 
 function BotContextMenu({
   menu,
+  closing,
   onClose,
   onMoveToSection,
   onMakeGroup,
   onDeleteRequest,
 }: {
   menu: MenuState;
+  closing: boolean;
   onClose: () => void;
   onMoveToSection: (botId: string) => void;
   onMakeGroup: (botId: string) => void;
@@ -693,6 +706,7 @@ function BotContextMenu({
   const bot = state.bots.find((b) => b.id === menu.botId);
 
   useEffect(() => {
+    if (closing) return;
     const onDown = (e: MouseEvent) => {
       if (!(e.target instanceof Element) || !e.target.closest("[data-bot-menu]")) onClose();
     };
@@ -705,7 +719,7 @@ function BotContextMenu({
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("blur", onClose);
     };
-  }, [onClose]);
+  }, [closing, onClose]);
 
   if (!bot) return null;
   const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId);
@@ -747,8 +761,10 @@ function BotContextMenu({
   return (
     <div
       data-bot-menu
+      data-closing={closing || undefined}
+      inert={closing}
       style={{ top, left }}
-      className="fixed z-40 w-[280px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60"
+      className="animate-pop-in fixed z-40 w-[280px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60"
     >
       {[
         item(
@@ -1107,10 +1123,12 @@ function BotListItem({
 
 function ArchivedBotsPanel({
   bots,
+  closing,
   onClose,
   onRestored,
 }: {
   bots: Bot[];
+  closing: boolean;
   onClose: () => void;
   onRestored: (message: string) => void;
 }) {
@@ -1122,13 +1140,14 @@ function ArchivedBotsPanel({
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (closing) return;
     dialogRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !busyId && !restoringAll) onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [busyId, onClose, restoringAll]);
+  }, [busyId, closing, onClose, restoringAll]);
 
   const restore = async (bot: Bot) => {
     setBusyId(bot.id);
@@ -1175,13 +1194,15 @@ function ArchivedBotsPanel({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:p-6"
+      data-closing={closing || undefined}
+      inert={closing}
+      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:p-6"
       onMouseDown={(event) => event.target === event.currentTarget && !busyId && !restoringAll && onClose()}
     >
       <div
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
+        role={closing ? undefined : "dialog"}
+        aria-modal={!closing || undefined}
         aria-labelledby="archived-bots-title"
         tabIndex={-1}
         className="animate-pop-in flex max-h-[min(680px,calc(100dvh-2rem))] w-full max-w-[760px] flex-col overflow-hidden rounded-[24px] border border-hairline/50 bg-panel shadow-2xl shadow-black/50 outline-none"
@@ -1291,6 +1312,12 @@ export function Sidebar({
     undo?: TeamImportResult;
   } | null>(null);
   const [deleteReach, setDeleteReach] = useState<"local" | "every-pc" | null>(null);
+  const deletePresence = usePresence(deleteTarget);
+  const menuPresence = usePresence(menu);
+  const sectionPickerPresence = usePresence(sectionPicker);
+  const roomMenuPresence = usePresence(roomMenu);
+  const roomSectionPickerPresence = usePresence(roomSectionPicker);
+  const wizardPresence = usePresence(wizard);
   const [query, setQuery] = useState("");
   const [densityState, setDensityState] = useState<SidebarDensity>(() => loadSidebarDensity());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadSidebarCollapsed());
@@ -1610,10 +1637,7 @@ export function Sidebar({
   }, [teamFeedback]);
 
   useEffect(() => {
-    if (!deleteTarget) {
-      setDeleteReach(null);
-      return;
-    }
+    if (!deleteTarget) return;
     let live = true;
     setDeleteReach(null);
     void api("/api/profile-sync")
@@ -2241,34 +2265,36 @@ export function Sidebar({
                 <span className="h-px w-3.5 rounded-full bg-current" />
               </span>
             </button>
-            {densityOpen && (
-              <>
-                <div className="fixed inset-0 z-30" onMouseDown={() => setDensityOpen(false)} />
-                <div className={cn(
-                  "absolute top-full z-40 mt-1 w-40 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
-                  density === "icons" && !sidebarOnRight ? "left-0" : "right-0",
-                )}>
-                  {(["comfortable", "compact", "icons"] as const).map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => setDensity(option)}
-                      className={cn(
-                        "flex w-full items-center justify-between px-3 py-2 text-left text-[13px] hover:bg-raised/70",
-                        density === option ? "text-accent" : "text-ink",
-                      )}
-                    >
-                      {option === "icons"
-                        ? t("chrome.densityAvatars")
-                        : option === "compact"
-                          ? t("chrome.densityCompact")
-                          : t("chrome.densityComfortable")}
-                      {density === option && <Check size={14} />}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+            <Presence open={densityOpen}>
+              {(closing) => (
+                <>
+                  {!closing && <div className="fixed inset-0 z-30" onMouseDown={() => setDensityOpen(false)} />}
+                  <div data-closing={closing || undefined} inert={closing} className={cn(
+                    "animate-pop-in absolute top-full z-40 mt-1 w-40 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
+                    density === "icons" && !sidebarOnRight ? "left-0" : "right-0",
+                  )}>
+                    {(["comfortable", "compact", "icons"] as const).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => setDensity(option)}
+                        className={cn(
+                          "flex w-full items-center justify-between px-3 py-2 text-left text-[13px] hover:bg-raised/70",
+                          density === option ? "text-accent" : "text-ink",
+                        )}
+                      >
+                        {option === "icons"
+                          ? t("chrome.densityAvatars")
+                          : option === "compact"
+                            ? t("chrome.densityCompact")
+                            : t("chrome.densityComfortable")}
+                        {density === option && <Check size={14} />}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </Presence>
           </div>
           )}
           <button
@@ -2280,70 +2306,72 @@ export function Sidebar({
           >
             <Plus size={20} strokeWidth={2} />
           </button>
-          {plusOpen && (
-            <>
-              <div className="fixed inset-0 z-30" onMouseDown={() => setPlusOpen(false)} />
-              <div className={cn(
-                "absolute top-full z-40 mt-1 w-44 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
-                density === "icons" && !sidebarOnRight ? "left-0" : "right-0",
-              )}>
-                <button
-                  onClick={() => {
-                    setPlusOpen(false);
-                    dispatch({ type: "newBot" });
-                  }}
-                  className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
-                >
-                  <BotIcon size={16} className="text-ink-secondary" />
-                  {t("chrome.newBot")}
-                </button>
-                <button
-                  onClick={() => {
-                    setPlusOpen(false);
-                    setWizard({});
-                  }}
-                  className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
-                >
-                  <Users size={16} className="text-ink-secondary" />
-                  {t("chrome.newChannel")}
-                </button>
-                <button
-                  onClick={() => {
-                    setPlusOpen(false);
-                    void exportAllBots();
-                  }}
-                  disabled={exportingTeam}
-                  className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
-                >
-                  {exportingTeam ? <Loader2 size={16} className="animate-spin text-ink-secondary" /> : <ArrowDownToLine size={16} className="text-ink-secondary" />}
-                  {exportingTeam ? t("chrome.exporting") : t("chrome.exportAllBots")}
-                </button>
-                <button
-                  onClick={() => {
-                    setPlusOpen(false);
-                    setTeamLibraryOpen(true);
-                  }}
-                  className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
-                >
-                  <Library size={16} className="text-ink-secondary" />
-                  {t("chrome.teams")}
-                </button>
-                {archivedBots.length > 0 && (
+          <Presence open={plusOpen}>
+            {(closing) => (
+              <>
+                {!closing && <div className="fixed inset-0 z-30" onMouseDown={() => setPlusOpen(false)} />}
+                <div data-closing={closing || undefined} inert={closing} className={cn(
+                  "animate-pop-in absolute top-full z-40 mt-1 w-44 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
+                  density === "icons" && !sidebarOnRight ? "left-0" : "right-0",
+                )}>
                   <button
                     onClick={() => {
                       setPlusOpen(false);
-                      setArchivedBotsOpen(true);
+                      dispatch({ type: "newBot" });
                     }}
                     className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
                   >
-                    <Archive size={16} className="text-ink-secondary" />
-                    <span className="flex-1">{t("chrome.archivedBots")}</span>
-                    <span className="text-[11.5px] text-ink-secondary">{archivedBots.length}</span>
+                    <BotIcon size={16} className="text-ink-secondary" />
+                    {t("chrome.newBot")}
                   </button>
-                )}
-              </div>
-            </>
-          )}
+                  <button
+                    onClick={() => {
+                      setPlusOpen(false);
+                      setWizard({});
+                    }}
+                    className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
+                  >
+                    <Users size={16} className="text-ink-secondary" />
+                    {t("chrome.newChannel")}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPlusOpen(false);
+                      void exportAllBots();
+                    }}
+                    disabled={exportingTeam}
+                    className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
+                  >
+                    {exportingTeam ? <Loader2 size={16} className="animate-spin text-ink-secondary" /> : <ArrowDownToLine size={16} className="text-ink-secondary" />}
+                    {exportingTeam ? t("chrome.exporting") : t("chrome.exportAllBots")}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPlusOpen(false);
+                      setTeamLibraryOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
+                  >
+                    <Library size={16} className="text-ink-secondary" />
+                    {t("chrome.teams")}
+                  </button>
+                  {archivedBots.length > 0 && (
+                    <button
+                      onClick={() => {
+                        setPlusOpen(false);
+                        setArchivedBotsOpen(true);
+                      }}
+                      className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
+                    >
+                      <Archive size={16} className="text-ink-secondary" />
+                      <span className="flex-1">{t("chrome.archivedBots")}</span>
+                      <span className="text-[11.5px] text-ink-secondary">{archivedBots.length}</span>
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </Presence>
         </div>
       </div>
 
@@ -2569,87 +2597,100 @@ export function Sidebar({
         </div>
       </div>
 
-      {menu && (
+      {menuPresence.value && (
         <BotContextMenu
-          menu={menu}
+          menu={menuPresence.value}
+          closing={menuPresence.closing}
           onClose={() => setMenu(null)}
-          onMoveToSection={(botId) => setSectionPicker({ botId, x: menu.x, y: menu.y })}
+          onMoveToSection={(botId) => menu && setSectionPicker({ botId, x: menu.x, y: menu.y })}
           onMakeGroup={(botId) => setWizard({ preselectBotId: botId })}
           onDeleteRequest={(bot) => setDeleteTarget(bot)}
         />
       )}
-      {deleteTarget && (
+      {deletePresence.value && (
         <ConfirmDialog
+          closing={deletePresence.closing}
           title={t("chrome.deleteBotTitle")}
-          body={t(deleteReach === "every-pc" ? "chrome.deleteBotBodyAllPcs" : "chrome.deleteBotBody", { name: deleteTarget.name })}
+          body={t(deleteReach === "every-pc" ? "chrome.deleteBotBodyAllPcs" : "chrome.deleteBotBody", { name: deletePresence.value.name })}
           confirmLabel={t("chrome.delete")}
           onConfirm={() => {
-            dispatch({ type: "deleteBot", botId: deleteTarget.id });
+            if (deleteTarget) dispatch({ type: "deleteBot", botId: deleteTarget.id });
             setDeleteTarget(null);
           }}
           onCancel={() => setDeleteTarget(null)}
         />
       )}
-      {sectionPicker && (
+      {sectionPickerPresence.value && (
         <SectionPicker
-          current={state.bots.find((b) => b.id === sectionPicker.botId)?.section}
-          anchor={sectionPicker}
+          current={state.bots.find((b) => b.id === sectionPickerPresence.value?.botId)?.section}
+          anchor={sectionPickerPresence.value}
+          closing={sectionPickerPresence.closing}
           onClose={() => setSectionPicker(null)}
-          onAssign={(section) => dispatch({ type: "updateBot", botId: sectionPicker.botId, patch: { section } })}
+          onAssign={(section) => sectionPicker && dispatch({ type: "updateBot", botId: sectionPicker.botId, patch: { section } })}
         />
       )}
-      {roomMenu && (
+      {roomMenuPresence.value && (
         <RoomContextMenu
-          key={roomMenu.groupId}
-          menu={roomMenu}
+          key={roomMenuPresence.value.groupId}
+          menu={roomMenuPresence.value}
+          closing={roomMenuPresence.closing}
           onClose={() => setRoomMenu(null)}
-          onMoveToSection={(groupId) => setRoomSectionPicker({ groupId, x: roomMenu.x, y: roomMenu.y })}
+          onMoveToSection={(groupId) => roomMenu && setRoomSectionPicker({ groupId, x: roomMenu.x, y: roomMenu.y })}
         />
       )}
-      {roomSectionPicker && (
+      {roomSectionPickerPresence.value && (
         <SectionPicker
-          current={state.groups.find((g) => g.id === roomSectionPicker.groupId)?.section}
-          anchor={roomSectionPicker}
+          current={state.groups.find((g) => g.id === roomSectionPickerPresence.value?.groupId)?.section}
+          anchor={roomSectionPickerPresence.value}
+          closing={roomSectionPickerPresence.closing}
           onClose={() => setRoomSectionPicker(null)}
           onAssign={(section) =>
-            dispatch({ type: "patchGroup", groupId: roomSectionPicker.groupId, patch: { section } })
+            roomSectionPicker && dispatch({ type: "patchGroup", groupId: roomSectionPicker.groupId, patch: { section } })
           }
         />
       )}
-      {wizard && <GroupWizard preselectBotId={wizard.preselectBotId} onClose={() => setWizard(null)} />}
-      {archivedBotsOpen && (
-        <ArchivedBotsPanel
-          bots={archivedBots}
-          onClose={() => setArchivedBotsOpen(false)}
-          onRestored={(message) => setTeamFeedback({ error: false, text: message })}
-        />
+      {wizardPresence.value && (
+        <GroupWizard preselectBotId={wizardPresence.value.preselectBotId} closing={wizardPresence.closing} onClose={() => setWizard(null)} />
       )}
-      {teamLibraryOpen && (
-        <TeamLibraryPanel
-          returnFocusRef={importReturnRef}
-          initialUrl={teamInstallUrl ?? undefined}
-          onClose={() => {
-            setTeamLibraryOpen(false);
-            setTeamInstallUrl(null);
-          }}
-          onImported={(result) => {
-            setTeamLibraryOpen(false);
-            setTeamInstallUrl(null);
-            setTeamFeedback(
-              result.archived.length > 0
-                ? {
-                    error: false,
-                    text: t(result.members === 1 ? "chrome.teamLoadedOne" : "chrome.teamLoadedMany", { name: result.name, count: result.members }),
-                    undo: result,
-                  }
-                : {
-                    error: false,
-                    text: t(result.members === 1 ? "chrome.teamLoadedOne" : "chrome.teamLoadedMany", { name: result.name, count: result.members }),
-                  },
-            );
-          }}
-        />
-      )}
+      <Presence open={archivedBotsOpen}>
+        {(closing) => (
+          <ArchivedBotsPanel
+            bots={archivedBots}
+            closing={closing}
+            onClose={() => setArchivedBotsOpen(false)}
+            onRestored={(message) => setTeamFeedback({ error: false, text: message })}
+          />
+        )}
+      </Presence>
+      <Presence open={teamLibraryOpen}>
+        {(closing) => (
+          <TeamLibraryPanel
+            closing={closing}
+            returnFocusRef={importReturnRef}
+            initialUrl={teamInstallUrl ?? undefined}
+            onClose={() => {
+              setTeamLibraryOpen(false);
+              setTeamInstallUrl(null);
+            }}
+            onImported={(result) => {
+              setTeamLibraryOpen(false);
+              setTeamInstallUrl(null);
+              setTeamFeedback(
+                result.archived.length > 0
+                  ? {
+                      error: false,
+                      text: t(result.members === 1 ? "chrome.teamLoadedOne" : "chrome.teamLoadedMany", { name: result.name, count: result.members }),
+                      undo: result,
+                    }
+                  : {
+                      error: false,
+                      text: t(result.members === 1 ? "chrome.teamLoadedOne" : "chrome.teamLoadedMany", { name: result.name, count: result.members }),
+                    },
+              );
+            }}
+          />
+        )}
+      </Presence>
       {teamFeedback &&
         createPortal(
           <div

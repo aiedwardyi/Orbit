@@ -181,7 +181,7 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
             // Hidden for the one commit it takes to measure the grid, so it
             // never paints in the corner on the way to its real place.
             style={{ top: box?.top ?? 0, left: box?.left ?? 0, visibility: box ? "visible" : "hidden" }}
-            className="fixed z-40 w-[218px] rounded-xl border border-hairline/50 bg-card p-2 shadow-2xl shadow-black/60"
+            className="animate-pop-in fixed z-40 w-[218px] rounded-xl border border-hairline/50 bg-card p-2 shadow-2xl shadow-black/60"
           >
             <div className="grid grid-cols-6 gap-0.5">
               {EXTENDED_REACTIONS.map((emoji) => {

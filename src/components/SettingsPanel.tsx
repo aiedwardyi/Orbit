@@ -344,9 +344,11 @@ function MemoryCard({ bot }: { bot: Bot }) {
 
 export function SettingsPanel({
   bot,
+  closing = false,
   defaultAdvancedOpen = false,
 }: {
   bot: Bot;
+  closing?: boolean;
   /** Start with Advanced expanded (tests). */
   defaultAdvancedOpen?: boolean;
 }) {
@@ -354,7 +356,7 @@ export function SettingsPanel({
   const { t } = useI18n();
   const { capabilities } = useDesktopCapabilities();
   const panelRef = useRef<HTMLElement>(null);
-  const restoreFocusOnUnmount = useRef(false);
+  const restoreFocusOnClose = useRef(false);
   const avatarRequest = state.settingsAvatarRequest ?? 0;
   const [avatarOpen, setAvatarOpen] = useState(avatarRequest > 0);
   const seenAvatarRequest = useRef(0);
@@ -417,11 +419,13 @@ export function SettingsPanel({
   }, [avatarRequest]);
 
   const closeSettings = () => {
-    restoreFocusOnUnmount.current = true;
+    restoreFocusOnClose.current = true;
     dispatch({ type: "toggleSettings", open: false });
   };
 
   useEffect(() => {
+    if (closing) return;
+    restoreFocusOnClose.current = false;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
@@ -429,15 +433,16 @@ export function SettingsPanel({
       if (target?.closest('[role="dialog"][aria-modal="true"]')) return;
       if (panelRef.current?.querySelector("[data-model-picker-content]")) return;
       event.preventDefault();
-      restoreFocusOnUnmount.current = true;
+      restoreFocusOnClose.current = true;
       dispatch({ type: "toggleSettings", open: false });
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => {
       window.removeEventListener("keydown", closeOnEscape);
-      if (!restoreFocusOnUnmount.current) return;
+      if (!restoreFocusOnClose.current) return;
       requestAnimationFrame(() => {
-        if (document.activeElement !== document.body) return;
+        const active = document.activeElement;
+        if (active !== document.body && !panelRef.current?.contains(active)) return;
         const target = previousFocus && previousFocus !== document.body && previousFocus.isConnected
           ? previousFocus
           : document.querySelector<HTMLElement>("[data-orbit-composer]:not(:disabled)") ??
@@ -445,14 +450,14 @@ export function SettingsPanel({
         target?.focus();
       });
     };
-  }, [dispatch]);
+  }, [closing, dispatch]);
 
   return (
     <>
     {/* Below md the sidebar is already a drawer, so docking here would leave a
         ~200px chat column at the window floor. Take the content area instead,
         z-30 to cover the drawer button, still under the drawer itself at z-40. */}
-    <aside ref={panelRef} data-settings-panel="" className="animate-panel-in relative z-20 flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-30 max-md:w-full">
+    <aside ref={panelRef} data-settings-panel="" data-closing={closing || undefined} inert={closing} className="animate-panel-in relative z-20 flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-30 max-md:w-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <button

@@ -5,6 +5,7 @@ import { leaveFor } from "@/lib/back-navigation";
 import { useI18n } from "@/lib/i18n";
 import { isPhone } from "@/lib/phone-swipe";
 import { cn } from "@/lib/cn";
+import { usePresence } from "@/lib/use-presence";
 import { api } from "@/state/store";
 
 export interface DeviceItem {
@@ -71,6 +72,7 @@ export function DeviceSwitcher({
   // The chat header clips overflow, so the phone menu is pinned to the viewport.
   const [pinned, setPinned] = useState<CSSProperties>();
   const [renaming, setRenaming] = useState(false);
+  const presence = usePresence(open);
 
   const here = devices.find((device) => device.current);
   if (devices.length < 2 || !visible || (compact && !here)) return null;
@@ -114,12 +116,14 @@ export function DeviceSwitcher({
       >
         {here ? <DeviceIcon device={here} size={compact ? 18 : 20} /> : <Monitor size={20} />}
       </button>
-      {open && (
+      {presence.mounted && (
         <>
-          <div className="fixed inset-0 z-30" onMouseDown={close} />
+          {!presence.closing && <div className="fixed inset-0 z-30" onMouseDown={close} />}
           <ul
+            data-closing={presence.closing || undefined}
+            inert={presence.closing}
             className={cn(
-              "z-40 mt-1 w-60 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
+              "animate-pop-in z-40 mt-1 w-60 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
               compact ? "fixed" : "absolute right-0 top-full",
             )}
             style={compact ? pinned : undefined}

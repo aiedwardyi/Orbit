@@ -26,6 +26,7 @@ import { useI18n } from "@/lib/i18n";
 import { MAUS_COLORS, type MausState } from "@/lib/mascot";
 import type { Routine, RoutineInput, RoutineRun, RoutineRunOn, RoutineRunStatus } from "@/lib/routines";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
+import { usePresence } from "@/lib/use-presence";
 import { api, useStore, type Bot } from "@/state/store";
 import {
   activeRunForRoutine,
@@ -342,12 +343,14 @@ export function RoutineEditor({
   bots,
   lockedBotId,
   defaultRunOn,
+  closing = false,
   onClose,
 }: {
   routine?: Routine;
   bots: Bot[];
   lockedBotId?: string;
   defaultRunOn?: RoutineRunOn;
+  closing?: boolean;
   onClose: () => void;
 }) {
   const { state, dispatch } = useStore();
@@ -397,8 +400,8 @@ export function RoutineEditor({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="max-h-[90vh] w-full max-w-[620px] overflow-y-auto rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
+    <div data-closing={closing || undefined} inert={closing} className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="animate-pop-in max-h-[90vh] w-full max-w-[620px] overflow-y-auto rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-hairline/40 bg-panel/95 px-5 py-4 backdrop-blur">
           <div>
             <div className="text-[17px] font-semibold text-ink">{routine ? "Edit routine" : "New routine"}</div>
@@ -498,12 +501,14 @@ export function RoutineEditor({
 function RoutineDetails({
   item,
   bot,
+  closing,
   onClose,
   onEdit,
   onShowRun,
 }: {
   item: CalendarItem;
   bot: Bot;
+  closing: boolean;
   onClose: () => void;
   onEdit: (routine: Routine) => void;
   onShowRun: (run: RoutineRun) => void;
@@ -574,8 +579,8 @@ function RoutineDetails({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
+    <div data-closing={closing || undefined} inert={closing} className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="animate-pop-in w-full max-w-[520px] overflow-hidden rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
         <div className="relative overflow-hidden border-b border-hairline/40 px-5 py-5" style={{ background: `linear-gradient(135deg, color-mix(in srgb, ${MAUS_COLORS[bot.color]} 28%, #111), #111)` }}>
           <button onClick={onClose} className="absolute right-3 top-3 rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-white"><X size={18} /></button>
           <div className="flex items-center gap-4 pr-10">
@@ -635,11 +640,11 @@ function RoutineDetails({
   );
 }
 
-function PausedRoutines({ routines, bots, onClose, onEdit }: { routines: Routine[]; bots: Bot[]; onClose: () => void; onEdit: (routine: Routine) => void }) {
+function PausedRoutines({ routines, bots, closing, onClose, onEdit }: { routines: Routine[]; bots: Bot[]; closing: boolean; onClose: () => void; onEdit: (routine: Routine) => void }) {
   const { dispatch } = useStore();
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="w-full max-w-[560px] overflow-hidden rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
+    <div data-closing={closing || undefined} inert={closing} className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="animate-pop-in w-full max-w-[560px] overflow-hidden rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
         <div className="flex items-center justify-between border-b border-hairline/40 px-5 py-4">
           <div><div className="text-[17px] font-semibold text-ink">Paused routines</div><div className="mt-0.5 text-[12px] text-ink-secondary">They keep their history and will not create new runs.</div></div>
           <button onClick={onClose} className="rounded-lg p-2 text-ink-secondary hover:bg-raised hover:text-ink"><X size={18} /></button>
@@ -693,6 +698,10 @@ export function RoutinesPage() {
   useEffect(() => {
     if (pausedOpen && paused.length === 0) setPausedOpen(false);
   }, [pausedOpen, paused.length]);
+  const editorPresence = usePresence(editor);
+  const detailsPresence = usePresence(liveSelected && selectedBot ? { item: liveSelected, bot: selectedBot } : null);
+  const details = detailsPresence.value;
+  const pausedPresence = usePresence(pausedOpen);
 
   const move = (direction: number) => setAnchor((current) => addDays(current, direction * viewDays));
   const goToday = () => setAnchor(viewDays === 7 ? startOfWeek(Date.now()) : startOfDay(Date.now()));
@@ -766,9 +775,9 @@ export function RoutinesPage() {
         <CalendarGrid anchor={rangeStart} days={viewDays} items={items} bots={state.bots} onOpen={openItem} />
       )}
 
-      {editor && <RoutineEditor routine={editor === "new" ? undefined : editor} bots={visibleBots} onClose={() => setEditor(null)} />}
-      {liveSelected && selectedBot && <RoutineDetails item={liveSelected} bot={selectedBot} onClose={() => setSelected(null)} onEdit={(routine) => { setSelected(null); setEditor(routine); }} onShowRun={(run) => setSelected({ id: `run-${run.id}`, at: run.scheduledFor, routine: state.routines.find((candidate) => candidate.id === run.routineId) ?? liveSelected.routine, run })} />}
-      {pausedOpen && <PausedRoutines routines={paused} bots={state.bots} onClose={() => setPausedOpen(false)} onEdit={(routine) => { setPausedOpen(false); setEditor(routine); }} />}
+      {editorPresence.value && <RoutineEditor key={editorPresence.value === "new" ? "new" : editorPresence.value.id} routine={editorPresence.value === "new" ? undefined : editorPresence.value} bots={visibleBots} closing={editorPresence.closing} onClose={() => setEditor(null)} />}
+      {details && <RoutineDetails item={details.item} bot={details.bot} closing={detailsPresence.closing} onClose={() => setSelected(null)} onEdit={(routine) => { setSelected(null); setEditor(routine); }} onShowRun={(run) => setSelected({ id: `run-${run.id}`, at: run.scheduledFor, routine: state.routines.find((candidate) => candidate.id === run.routineId) ?? details.item.routine, run })} />}
+      {pausedPresence.mounted && <PausedRoutines routines={paused} bots={state.bots} closing={pausedPresence.closing} onClose={() => setPausedOpen(false)} onEdit={(routine) => { setPausedOpen(false); setEditor(routine); }} />}
     </main>
   );
 }

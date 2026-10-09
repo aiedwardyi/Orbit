@@ -54,6 +54,7 @@ import { hapticTick } from "@/lib/phone-swipe";
 import { useRainbowBox } from "@/lib/rainbow-box";
 import { useI18n } from "@/lib/i18n";
 import { pinnedQuestion } from "@/lib/open-question";
+import { usePresence } from "@/lib/use-presence";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -291,6 +292,7 @@ export function Composer({
   const [recording, setRecording] = useState(false);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [terminalSendPreview, setTerminalSendPreview] = useState<TerminalSendPreview | null>(null);
+  const sendPreview = usePresence(terminalSendPreview);
   const [terminalSendBusy, setTerminalSendBusy] = useState(false);
   const [terminalSendError, setTerminalSendError] = useState<string | null>(null);
   const [caret, setCaret] = useState(0);
@@ -1107,17 +1109,18 @@ export function Composer({
         </div>
         </div>
       </div>
-      {terminalSendPreview && (
+      {sendPreview.value && (
         <ConfirmDialog
+          closing={sendPreview.closing}
           title={t("terminal.sendToTerminalTitle", { name: bot?.name ?? "" })}
           body={
             <span className="block">
               <span className="block">{t("terminal.sendToTerminalHelp")}</span>
               <span className="mt-2 block text-[11px] text-ink-secondary">
-                {terminalSendPreview.snapshot.cwd} · session {terminalSendPreview.snapshot.sessionId.slice(0, 8)} · generation {terminalSendPreview.snapshot.generation}
+                {sendPreview.value.snapshot.cwd} · session {sendPreview.value.snapshot.sessionId.slice(0, 8)} · generation {sendPreview.value.snapshot.generation}
               </span>
               <span className="mt-3 block max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-raised px-3 py-2 font-mono text-[12px] text-ink">
-                {terminalSendPreview.text}
+                {sendPreview.value.text}
               </span>
             </span>
           }

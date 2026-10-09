@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { AlertTriangle } from "lucide-react";
 
+import { usePresence } from "@/lib/use-presence";
+
 export const LOCAL_COMPUTER_AUTO_WARNING =
   "Auto mode will let this bot click, type, and run tools on this computer without asking first. Destructive and sensitive actions still stop. Continue only if you are watching.";
 
@@ -14,6 +16,7 @@ export function LocalComputerAutoWarning({
   onConfirm: () => void;
 }) {
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const presence = usePresence(open);
 
   useEffect(() => {
     if (!open) return;
@@ -28,19 +31,21 @@ export function LocalComputerAutoWarning({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onCancel]);
 
-  if (!open) return null;
+  if (!presence.mounted) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
+      data-closing={presence.closing || undefined}
+      inert={presence.closing}
+      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
       onMouseDown={(event) => event.target === event.currentTarget && onCancel()}
     >
       <div
-        role="dialog"
-        aria-modal="true"
+        role={presence.closing ? undefined : "dialog"}
+        aria-modal={!presence.closing || undefined}
         aria-labelledby="local-auto-warning-title"
         aria-describedby="local-auto-warning-body"
-        className="w-full max-w-[420px] rounded-2xl border border-hairline/50 bg-panel p-5 shadow-2xl"
+        className="animate-pop-in w-full max-w-[420px] rounded-2xl border border-hairline/50 bg-panel p-5 shadow-2xl"
       >
         <div className="flex items-start gap-3">
           <AlertTriangle size={18} className="mt-0.5 shrink-0 text-warning" />

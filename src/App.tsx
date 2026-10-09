@@ -35,6 +35,7 @@ import { webPushTarget } from "@/lib/web-push";
 import { useDrawerSwipe, usePhoneSwipe } from "@/lib/use-phone-swipe";
 import { BackNavigation, backDepth, followSelection, trailTarget, type BackLayer } from "@/lib/back-navigation";
 import { SKINS, applySkin, nextSkin, readSkin, type SkinId } from "@/lib/skins";
+import { Presence } from "@/lib/use-presence";
 
 const Onboarding = lazy(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsPanel = lazy(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -690,11 +691,13 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           }
         />
       )}
-      {state.settingsOpen && bot && (
-        <Suspense fallback={null}>
-          <SettingsPanel key={bot.id} bot={bot} />
-        </Suspense>
-      )}
+      <Presence open={Boolean(state.settingsOpen && bot)}>
+        {(closing) => bot && (
+          <Suspense fallback={null}>
+            <SettingsPanel key={bot.id} bot={bot} closing={closing} />
+          </Suspense>
+        )}
+      </Presence>
       {showComputerPanelChrome() && state.computerOpen && bot && (
         <Suspense fallback={null}>
           <ComputerPanel bot={bot} onOpenVmWorkspace={openLocalVmWorkspace} onExpandBrowser={openBrowserWorkspace} />
@@ -705,21 +708,27 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           <InspectorPanel bot={bot} />
         </Suspense>
       )}
-      {state.appSettingsOpen && (
-        <Suspense fallback={null}>
-          <SettingsModal />
-        </Suspense>
-      )}
-      {state.pluginsOpen && (
-        <Suspense fallback={null}>
-          <PluginsPanel />
-        </Suspense>
-      )}
-      {!onboardingOpen && !noEngines && state.connected && state.hydrated && (state.createBotOpen || state.bots.length === 0) && (
-        <Suspense fallback={null}>
-          <CreateBotSheet required={state.bots.length === 0} />
-        </Suspense>
-      )}
+      <Presence open={state.appSettingsOpen}>
+        {(closing) => (
+          <Suspense fallback={null}>
+            <SettingsModal closing={closing} />
+          </Suspense>
+        )}
+      </Presence>
+      <Presence open={state.pluginsOpen}>
+        {(closing) => (
+          <Suspense fallback={null}>
+            <PluginsPanel closing={closing} />
+          </Suspense>
+        )}
+      </Presence>
+      <Presence open={!onboardingOpen && !noEngines && state.connected && state.hydrated && (state.createBotOpen || state.bots.length === 0)}>
+        {(closing) => (
+          <Suspense fallback={null}>
+            <CreateBotSheet required={state.bots.length === 0} closing={closing} />
+          </Suspense>
+        )}
+      </Presence>
       {/* mounted after the modals: same z-50 tier, so DOM order keeps the
           palette on top when one of them is open underneath */}
       <Suspense fallback={null}>

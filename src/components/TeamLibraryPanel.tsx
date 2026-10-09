@@ -117,11 +117,13 @@ function TeamGlyph({ index }: { index: number }) {
 }
 
 export function TeamLibraryPanel({
+  closing = false,
   onClose,
   onImported,
   returnFocusRef,
   initialUrl,
 }: {
+  closing?: boolean;
   onClose: () => void;
   onImported: (result: TeamImportResult) => void;
   returnFocusRef: React.RefObject<HTMLButtonElement | null>;
@@ -179,11 +181,13 @@ export function TeamLibraryPanel({
   }, [loadCatalog]);
 
   useEffect(() => {
+    if (closing) return;
     dialogRef.current?.focus();
     return () => returnFocusRef.current?.focus();
-  }, [returnFocusRef]);
+  }, [closing, returnFocusRef]);
 
   useEffect(() => {
+    if (closing) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !importing) {
         event.preventDefault();
@@ -212,7 +216,7 @@ export function TeamLibraryPanel({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [importing, onClose, pending]);
+  }, [closing, importing, onClose, pending]);
 
   const previewManifest = (preview: PendingTeamImport) => {
     setPending(preview);
@@ -418,13 +422,15 @@ export function TeamLibraryPanel({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:p-6"
+      data-closing={closing || undefined}
+      inert={closing}
+      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:p-6"
       onMouseDown={(event) => event.target === event.currentTarget && !importing && onClose()}
     >
       <div
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
+        role={closing ? undefined : "dialog"}
+        aria-modal={!closing || undefined}
         aria-labelledby="team-library-title"
         tabIndex={-1}
         className="animate-pop-in flex h-[min(780px,calc(100dvh-2rem))] w-full max-w-[1040px] flex-col overflow-hidden rounded-[24px] border border-hairline/50 bg-panel shadow-2xl shadow-black/50 outline-none"

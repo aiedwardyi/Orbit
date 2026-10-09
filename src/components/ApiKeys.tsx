@@ -14,6 +14,7 @@ import {
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+import { usePresence } from "@/lib/use-presence";
 import { Section } from "./SettingsPrimitives";
 
 export type ConfigSection = "composio" | "gemini" | "box";
@@ -83,6 +84,7 @@ function CredentialHelp({ section }: { section: ConfigSection }) {
   const { t } = useI18n();
   const credential = CREDENTIALS[section];
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverId = useId();
@@ -120,9 +122,11 @@ function CredentialHelp({ section }: { section: ConfigSection }) {
       >
         <CircleHelp size={14} aria-hidden="true" />
       </button>
-      {open && (
+      {presence.mounted && (
         <div
           id={popoverId}
+          data-closing={presence.closing || undefined}
+          inert={presence.closing}
           role="group"
           aria-label={t("connections.helpAria", { label: t(credential.label) })}
           className="animate-pop-in absolute right-0 z-30 mt-1.5 w-[270px] rounded-xl border border-hairline bg-panel p-3 text-left shadow-2xl"
