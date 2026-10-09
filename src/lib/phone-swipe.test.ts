@@ -548,12 +548,12 @@ describe("useDrawerSwipe", () => {
     expect(app).toContain('<div ref={drawerShellRef} className="relative flex min-h-0 flex-1">');
     expect(app).toContain("data-phone-drawer-scrim");
     const sidebar = readFileSync(join(here, "../components/Sidebar.tsx"), "utf8");
-    expect(sidebar).toContain('aria-label={t("chrome.navAria")}\n      data-phone-drawer\n');
+    expect(sidebar).toMatch(/aria-label=\{t\("chrome\.navAria"\)\}\r?\n\s+data-phone-drawer\r?\n/);
   });
 
   it("stays off while a sidebar menu is open and restores focus to the menu button like the Sidebar's own close", () => {
     const app = readFileSync(join(here, "../App.tsx"), "utf8");
-    expect(app).toContain("const closeDrawer = () => {\n    setDrawerOpen(false);\n    menuButtonRef.current?.focus();\n  };");
+    expect(app).toMatch(/const closeDrawer = \(\) => \{\r?\n\s+setDrawerOpen\(false\);\r?\n\s+menuButtonRef\.current\?\.focus\(\);\r?\n\s+\};/);
     expect(app).toContain("onClose={closeDrawer}");
     expect(app).toContain("useDrawerSwipe(drawerOpen && !sidebarOverlay,");
   });
