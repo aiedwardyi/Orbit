@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { anyChatNeedsYou, askUserStatus, chatNeedsYou, needsYou, openQuestion } from "./open-question";
+import { anyChatNeedsYou, askUserStatus, chatNeedsYou, needsYou, openQuestion, pinnedQuestion } from "./open-question";
 import type { Message } from "@/state/store";
 
 let at = 0;
@@ -89,6 +89,16 @@ describe("open ask_user question", () => {
     expect(chatNeedsYou([ask("q1")])).toBe(true);
     expect(chatNeedsYou([ask("q1"), typed("u1")])).toBe(false);
     expect(chatNeedsYou([])).toBe(false);
+  });
+
+  it("pins the open question unless an open approval on the shown branch holds the composer", () => {
+    const question = ask("q1");
+    expect(pinnedQuestion([question])).toBe(question);
+    expect(pinnedQuestion([question, approval()])).toBeNull();
+    expect(pinnedQuestion([question, approval({ answered: "allow" })])).toBe(question);
+    expect(pinnedQuestion([question, approval()], [question])).toBe(question);
+    expect(pinnedQuestion([question, ask("q2", { requestId: "native-1", askUser: undefined })])).toBe(question);
+    expect(pinnedQuestion([question, typed("u1")])).toBeNull();
   });
 
   it("memoizes per message array so rows stay cheap", () => {

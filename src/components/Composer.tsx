@@ -53,7 +53,7 @@ import { composerNeedsTap } from "@/lib/focus-composer";
 import { hapticTick } from "@/lib/phone-swipe";
 import { useRainbowBox } from "@/lib/rainbow-box";
 import { useI18n } from "@/lib/i18n";
-import { openQuestion } from "@/lib/open-question";
+import { pinnedQuestion } from "@/lib/open-question";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -196,7 +196,7 @@ export function Composer({
   const approval = approvals[0];
   // A bot's open ask_user question pins above the composer but never locks
   // it; a pending approval keeps its takeover and the pin waits behind it.
-  const question = approval ? null : openQuestion(group ? group.messages : (bot?.messages ?? []));
+  const question = pinnedQuestion(group ? group.messages : (bot?.messages ?? []), threadMessages);
   const questionAsker = question
     ? group
       ? (members?.find((member) => member.id === question.from?.botId)?.name ?? question.from?.name ?? t("chrome.aBot"))
@@ -1025,6 +1025,8 @@ export function Composer({
               ? t("composer.answerApproval")
               : recording
               ? t("composer.listening")
+              : question && !question.card?.options.length
+              ? t("ask.typeAnswer")
               : busyChrome.placeholder
           }
           aria-label={t("composer.messageAria", { name: group ? group.name : (bot?.name ?? "") })}

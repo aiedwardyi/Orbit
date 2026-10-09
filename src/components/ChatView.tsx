@@ -99,7 +99,7 @@ import { timelineEvents } from "@/lib/taskTimeline";
 import { useReplyDraft } from "@/lib/drafts";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { localeTag, useI18n } from "@/lib/i18n";
-import { isAskUserCard } from "@/lib/open-question";
+import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { activeRunForBot, routineWorkingElsewhere } from "../../shared/working-thread";
 import { ContextCompactionDivider, TaskRecoveryCard } from "./TaskRecoveryCard";
 
@@ -983,7 +983,10 @@ const MessagesList = memo(function MessagesList({
               if (m.card?.requestId && m.card.tool) {
                 return <ApprovalCard bot={bot} message={m} />;
               }
-              if (m.card && isAskUserCard(m)) return <AskUserRecord message={m} transcript={transcript} askerName={bot.name} />;
+              if (m.card && isAskUserCard(m)) {
+                const pinned = pinnedQuestion(bot.messages, visibleMessages(bot))?.id === m.id;
+                return <AskUserRecord message={m} transcript={transcript} askerName={bot.name} pinned={pinned} />;
+              }
               if (shouldHideOnboardingCard(m, transcript)) return null;
               return <OptionCard botId={bot.id} message={m} />;
             case "routine.run": {
