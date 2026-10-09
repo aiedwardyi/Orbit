@@ -119,22 +119,33 @@ function backtickRunAt(line: string, length: number, from: number) {
     let n = 1;
     while (line[at + n] === "`") n++;
     if (n === length) return at;
-    at += n;
+    at += n - 1;
   }
   return -1;
 }
 
-// The growing tail paints as if its open `**` or backtick were already closed,
-// and leaves out a marker with nothing after it yet, so raw markdown never flashes.
+const isSpace = (c: string | undefined) => c === undefined || /\s/.test(c);
+const isPunct = (c: string | undefined) => c !== undefined && /[\p{P}\p{S}]/u.test(c);
+
+// The growing tail paints as if an unambiguous open `**` or backtick were
+// already closed, and leaves out a marker with nothing after it yet, so raw
+// markdown never flashes. Anything less certain stays raw, as it settles.
 export function settleStreamTail(block: string): string {
-  if ((block.match(/^\s*(?:```|~~~)/gm)?.length ?? 0) % 2) return block;
+  let fence = "";
+  for (const row of block.split("\n")) {
+    const mark = FENCE.exec(row);
+    if (!fence) fence = mark?.[2] ?? "";
+    else if (mark && mark[2][0] === fence[0] && mark[2].length >= fence.length && !row.slice(mark[0].length).trim()) fence = "";
+  }
+  if (fence) return block;
   const start = block.lastIndexOf("\n") + 1;
-  // A trailing run could be an opener, half a closer or a bullet: unknown until the next character.
-  const line = block.slice(start).replace(/[*`]+$/, "");
-  if (/^\s*(?:[-*+>]|\d{1,9}[.)]?|#{1,6})\s*$/.test(line)) return block.slice(0, start);
-  let star = "";
+  const line = block.slice(start);
+  // Indented code, or a list continuation that reads the same: never rewrite code.
+  if (/^(?: {4}|\t)/.test(line)) return block;
+  if (/^\s*(?:[-*+>]|\d{1,9}[.)]|#{1,6})\s*$/.test(line)) return block.slice(0, start);
+  const open: { at: number; n: number }[] = [];
+  let visible = line.length;
   let tick = "";
-  let body = line;
   for (let at = 0; at < line.length; at++) {
     const c = line[at];
     if (c === "\\") {
@@ -144,26 +155,37 @@ export function settleStreamTail(block: string): string {
     if (c !== "`" && c !== "*") continue;
     let n = 1;
     while (line[at + n] === c) n++;
+    const prev = line[at - 1];
+    const next = line[at + n];
     if (c === "`") {
       const close = backtickRunAt(line, n, at + n);
-      if (close < 0) {
-        tick = line.slice(at, at + n);
-        if (!line.slice(at + n).trim()) [body, tick] = [line.slice(0, at), ""];
-        break;
+      if (close >= 0) {
+        at = close + n - 1;
+        continue;
       }
-      at = close + n - 1;
-      continue;
+      if (line.slice(at + n).trim()) tick = line.slice(at, at + n);
+      else visible = at;
+      break;
     }
-    // An opener leans on the word after it, a closer on the word before.
-    if (!star) {
-      if (!/\s/.test(line[at + n])) star = line.slice(at, at + n);
-    } else if (!/\s/.test(line[at - 1])) {
-      star = "";
+    // A trailing run is an opener, half a closer or a bullet: unknown until the next character.
+    if (next === undefined) {
+      if (open.at(-1)?.n === n && !isSpace(prev)) open.pop();
+      else visible = at;
+      break;
     }
+    // CommonMark flanking: an opener leans on the text after it, a closer on the text before.
+    const opens = !isSpace(next) && (!isPunct(next) || isSpace(prev) || isPunct(prev));
+    const closes = !isSpace(prev) && (!isPunct(prev) || isSpace(next) || isPunct(next));
+    if (closes && open.at(-1)?.n === n) open.pop();
+    else if (opens) open.push({ at, n });
     at += n - 1;
   }
-  const kept = body.trimEnd();
-  return block.slice(0, start) + kept + tick + star + body.slice(kept.length);
+  // Only `**` opening a word is safe to close early; a lone `*` is as often `*.ts` or `*args` as italics.
+  const strong = open.length === 1 && open[0].n === 2 && (open[0].at === 0 || /[\s([{"']/.test(line[open[0].at - 1]))
+    && /[\p{L}\p{N}]/u.test(line[open[0].at + 2]);
+  const shown = line.slice(0, visible);
+  const kept = shown.trimEnd();
+  return block.slice(0, start) + kept + tick + (strong ? "**" : "") + shown.slice(kept.length);
 }
 
 export function streamBlocks(text: string): string[] {
