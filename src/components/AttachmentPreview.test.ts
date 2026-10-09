@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 import { ShownImage } from "./AttachmentPreview";
 
 // SAFETY: happy-dom has no act flag; the test sets the one React reads.
@@ -40,6 +41,19 @@ describe("ShownImage", () => {
 
       await act(async () => click(dialog()!.querySelector('[aria-label="Close image preview"]')!));
       expect(dialog()).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("stays closed after the preview fades out", async () => {
+    const { host, root } = await renderShownImage("/a/b/abc-123.png");
+    try {
+      await act(async () => click(host.querySelector("button")!));
+      await act(async () => click(dialog()!.querySelector('[aria-label="Close image preview"]')!));
+      await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
+      expect(document.body.querySelector('[aria-label="Preview abc-123.png"]')).toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();

@@ -15,6 +15,7 @@ import {
   type Attachment,
   type PasteAttachment,
 } from "@/lib/composer-attachments";
+import { usePresence } from "@/lib/use-presence";
 import { AttachmentPreviewDialog, previewImage, type PreviewImage } from "./AttachmentPreview";
 
 /** Electron 32 removed File.path — only the preload can name a file. */
@@ -43,6 +44,7 @@ export function ComposerAttachments({
   const { t } = useI18n();
   const [dragging, setDragging] = useState(false);
   const [preview, setPreview] = useState<PreviewImage | null>(null);
+  const previewPresence = usePresence(preview);
   // dragenter/dragleave fire once per element crossed, so the overlay
   // tracks depth rather than the last event it happened to see
   const depth = useRef(0);
@@ -182,7 +184,9 @@ export function ComposerAttachments({
           )}
         </div>
       )}
-      {preview && <AttachmentPreviewDialog image={preview} onClose={() => setPreview(null)} />}
+      {previewPresence.value && (
+        <AttachmentPreviewDialog image={previewPresence.value} closing={previewPresence.closing} onClose={() => setPreview(null)} />
+      )}
     </>
   );
 }

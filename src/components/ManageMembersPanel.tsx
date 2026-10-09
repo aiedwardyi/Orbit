@@ -13,10 +13,12 @@ import { useI18n } from "@/lib/i18n";
 
 export function ManageMembersPanel({
   group,
+  closing = false,
   onClose,
   triggerRef,
 }: {
   group: Group;
+  closing?: boolean;
   onClose: () => void;
   triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
@@ -49,6 +51,7 @@ export function ManageMembersPanel({
   );
 
   useEffect(() => {
+    if (closing) return;
     const dialog = dialogRef.current;
     if (!dialog) return;
     const focusable = () =>
@@ -81,7 +84,7 @@ export function ManageMembersPanel({
       dialog.removeEventListener("keydown", onKey);
       triggerRef.current?.focus();
     };
-  }, [onClose, triggerRef]);
+  }, [closing, onClose, triggerRef]);
 
   const toggle = (id: string) =>
     setPicked((prev) => {
@@ -152,15 +155,17 @@ export function ManageMembersPanel({
   return (
     <>
       <div
-        className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
+        data-closing={closing || undefined}
+        inert={closing}
+        className="animate-fade-in fixed inset-0 z-40 flex items-center justify-center bg-black/40"
         onMouseDown={(e) => e.target === e.currentTarget && !pendingRows && onClose()}
       >
         <div
           ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
+          role={closing ? undefined : "dialog"}
+          aria-modal={!closing || undefined}
           aria-label={t("room.manageMembersOf", { name: group.name })}
-          className="w-[340px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl"
+          className="animate-pop-in w-[340px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl"
         >
           <div className="mb-1 text-[15px] font-semibold text-ink first-letter:uppercase">{t("room.manageMembers")}</div>
           <div className="mb-3 truncate text-[13px] text-ink-secondary">{group.name}</div>

@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import type { SearchHit } from "@/lib/search-hit";
 import { landOnSearchHit } from "@/lib/focus-message";
 import { useI18n } from "@/lib/i18n";
+import { usePresence } from "@/lib/use-presence";
 
 type PaletteCommand = {
   kind: "command";
@@ -27,10 +28,12 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open);
   const [query, setQuery] = useState("");
   const [messageHits, setMessageHits] = useState<SearchHit[]>([]);
   const [cursor, setCursor] = useState(0);
   const selectedRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // The chord fires from anywhere — Shell's app-wide shortcuts (⌘N, ⌘1–9)
   // set the precedent of not guarding against focused inputs, and a
@@ -52,6 +55,8 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
     setQuery("");
     setMessageHits([]);
     setCursor(0);
+    // a reopen during the fade reuses the input, so autoFocus does not run again
+    inputRef.current?.focus();
   }, [open]);
 
   useEffect(() => {
@@ -96,7 +101,7 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
     selectedRef.current?.scrollIntoView({ block: "nearest" });
   }, [cursor, messageHits]);
 
-  if (!open) return null;
+  if (!presence.mounted) return null;
 
   const bots = rankByName(state.bots.filter((b) => !b.hidden), q);
   const rooms = rankByName(state.groups, q);
@@ -182,19 +187,22 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-6 pt-[14vh]"
+      data-closing={presence.closing || undefined}
+      inert={presence.closing}
+      className="animate-fade-in fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-6 pt-[14vh]"
       onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}
       onKeyDown={onKeyDown}
     >
       <div
-        role="dialog"
-        aria-modal="true"
+        role={presence.closing ? undefined : "dialog"}
+        aria-modal={!presence.closing || undefined}
         aria-label={t("palette.aria")}
-        className="flex max-h-[min(480px,70vh)] w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-hairline/50 bg-card shadow-2xl shadow-black/60"
+        className="animate-pop-in flex max-h-[min(480px,70vh)] w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-hairline/50 bg-card shadow-2xl shadow-black/60"
       >
         <div className="flex items-center gap-3 border-b border-hairline/40 px-4 py-3">
           <Search size={16} className="shrink-0 text-ink-secondary" />
           <input
+            ref={inputRef}
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}

@@ -7,6 +7,7 @@ import { Download, ImageOff, Maximize2, X } from "lucide-react";
 
 import { attachmentBasename, attachmentImageUrl } from "@/lib/composer-attachments";
 import { cn } from "@/lib/cn";
+import { usePresence } from "@/lib/use-presence";
 
 export interface PreviewImage {
   src: string;
@@ -55,7 +56,15 @@ function usePictureRetry(src: string) {
   return { src: pictureSrc(src, attempt), failed: waiting, onError, retryNow };
 }
 
-export function AttachmentPreviewDialog({ image, onClose }: { image: PreviewImage; onClose: () => void }) {
+export function AttachmentPreviewDialog({
+  image,
+  closing = false,
+  onClose,
+}: {
+  image: PreviewImage;
+  closing?: boolean;
+  onClose: () => void;
+}) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   const retry = usePictureRetry(image.src);
@@ -65,6 +74,7 @@ export function AttachmentPreviewDialog({ image, onClose }: { image: PreviewImag
   }, [onClose]);
 
   useEffect(() => {
+    if (closing) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialogRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
@@ -99,17 +109,19 @@ export function AttachmentPreviewDialog({ image, onClose }: { image: PreviewImag
       window.removeEventListener("keydown", onKey);
       previousFocus?.focus();
     };
-  }, []);
+  }, [closing]);
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm sm:p-6"
+      data-closing={closing || undefined}
+      inert={closing}
+      className="animate-fade-in fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm sm:p-6"
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
       <div
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
+        role={closing ? undefined : "dialog"}
+        aria-modal={!closing || undefined}
         aria-label={`Preview ${image.name}`}
         tabIndex={-1}
         className="animate-pop-in flex h-full max-h-[900px] w-full max-w-[1200px] flex-col overflow-hidden rounded-2xl border border-white/15 bg-black/70 shadow-2xl outline-none"
@@ -204,6 +216,7 @@ export function AttachedImageGallery({ paths, className }: { paths: string[]; cl
     return image ? [image] : [];
   }), [paths]);
   const [selected, setSelected] = useState<PreviewImage | null>(null);
+  const preview = usePresence(selected);
   if (images.length === 0) return null;
   return (
     <>
@@ -212,7 +225,7 @@ export function AttachedImageGallery({ paths, className }: { paths: string[]; cl
           <Thumbnail key={`${image.src}:${index}`} image={image} onPreview={() => setSelected(image)} />
         ))}
       </div>
-      {selected && <AttachmentPreviewDialog image={selected} onClose={() => setSelected(null)} />}
+      {preview.value && <AttachmentPreviewDialog image={preview.value} closing={preview.closing} onClose={() => setSelected(null)} />}
     </>
   );
 }
@@ -222,6 +235,7 @@ export function ShownImage({ name, caption }: { name: string; caption?: string }
   const image = useMemo(() => previewImage(name), [name]);
   const retry = usePictureRetry(image?.src ?? "");
   const [open, setOpen] = useState(false);
+  const preview = usePresence(open && image);
   return (
     <div className="flex flex-col items-start gap-1">
       {image && !retry.failed ? (
@@ -259,7 +273,7 @@ export function ShownImage({ name, caption }: { name: string; caption?: string }
         </div>
       )}
       {caption && <p className="max-w-[min(42rem,78%)] px-1 text-[13px] text-ink-secondary">{caption}</p>}
-      {open && image && <AttachmentPreviewDialog image={image} onClose={() => setOpen(false)} />}
+      {preview.value && <AttachmentPreviewDialog image={preview.value} closing={preview.closing} onClose={() => setOpen(false)} />}
     </div>
   );
 }

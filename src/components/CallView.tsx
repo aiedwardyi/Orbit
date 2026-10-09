@@ -29,6 +29,7 @@ import { MausAvatar } from "./Avatar";
 import { isRoutineApproval, pendingApprovals, spokenApprovalPrompt } from "./PendingApproval";
 import { cn } from "@/lib/cn";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
+import { usePresence } from "@/lib/use-presence";
 
 /** Spoken answers to a permission card. Anything else is read as a reply
  * to the bot, not as consent — an approval must never be granted by a
@@ -79,6 +80,7 @@ export function CallTargetButton({
   const unavailable = !active && (!capabilitiesReady || !supported || !voiceReady);
   const voiceSetupRequired = capabilitiesReady && supported && !voiceReady;
   const [helpOpen, setHelpOpen] = useState(false);
+  const help = usePresence(unavailable && helpOpen);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const helpId = useId();
@@ -155,9 +157,11 @@ export function CallTargetButton({
         {active ? <PhoneOff size={17} /> : <Phone size={17} />}
       </button>
 
-      {unavailable && helpOpen && (
+      {help.mounted && (
         <div
           id={helpId}
+          data-closing={help.closing || undefined}
+          inert={help.closing}
           role="group"
           aria-label="Call unavailable"
           className="animate-pop-in absolute right-0 z-30 mt-1.5 w-[280px] rounded-xl border border-hairline bg-panel p-3 text-left shadow-2xl"

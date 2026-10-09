@@ -167,8 +167,9 @@
    re-runs that check.
    ───────────────────────────────────────────────────────────────────────── */
 @theme {
-  --animate-panel-in: panel-in 0.24s cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-pop-in: pop-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-panel-in: panel-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-pop-in: pop-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-fade-in: fade-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
   --animate-caret: caret-blink 1s step-end infinite;
   --animate-msg-in: msg-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 
@@ -3331,6 +3332,21 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   from { transform: scale(0.96) translateY(6px); opacity: 0; }
   to { transform: scale(1) translateY(0); opacity: 1; }
 }
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+@keyframes fade-out {
+  to { opacity: 0; }
+}
+/* usePresence keeps a closed surface mounted this long; it must not catch taps meanwhile */
+[data-closing] {
+  animation: fade-out 0.13s ease-out forwards;
+  pointer-events: none;
+}
+/* docked, a fading details column would hold the chat narrow while the sidebar re-widens */
+@media (min-width: 768px) {
+  [data-settings-panel][data-closing] { display: none; }
+}
 /* streaming caret: a true typing blink (step, not fade) */
 @keyframes caret-blink {
   0%, 100% { opacity: 1; }
@@ -3459,7 +3475,7 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-caret, .animate-msg-in { animation: none; }
+  .animate-caret, .animate-msg-in, .animate-pop-in, .animate-panel-in, .animate-fade-in { animation: none; }
   .thinking-sheen { display: none; }
   .turn-mascot-in, .turn-mascot-out, .turn-answer { animation: none; }
   .mascot-avatar .mascot-idle,

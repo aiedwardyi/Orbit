@@ -30,7 +30,15 @@ export interface NewRow {
 const PREFERS = [["codex"], ["museAgent"]];
 let nextRowKey = 1;
 
-export function GroupWizard({ onClose, preselectBotId }: { onClose: () => void; preselectBotId?: string }) {
+export function GroupWizard({
+  onClose,
+  preselectBotId,
+  closing = false,
+}: {
+  onClose: () => void;
+  preselectBotId?: string;
+  closing?: boolean;
+}) {
   const { t } = useI18n();
   const { state, dispatch, refreshInstances } = useStore();
   const [step, setStep] = useState<1 | 2>(1);
@@ -40,6 +48,11 @@ export function GroupWizard({ onClose, preselectBotId }: { onClose: () => void; 
   const [addedNew, setAddedNew] = useState(0);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!closing) nameRef.current?.focus();
+  }, [closing]);
 
   useEffect(() => {
     void refreshInstances?.();
@@ -114,15 +127,17 @@ export function GroupWizard({ onClose, preselectBotId }: { onClose: () => void; 
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
+      data-closing={closing || undefined}
+      inert={closing}
+      className="animate-fade-in fixed inset-0 z-40 flex items-center justify-center bg-black/40"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
       onKeyDown={onKey}
     >
       <div
-        role="dialog"
-        aria-modal="true"
+        role={closing ? undefined : "dialog"}
+        aria-modal={!closing || undefined}
         aria-labelledby="group-wizard-title"
-        className="w-[380px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl"
+        className="animate-pop-in w-[380px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl"
       >
         <div className="mb-1 flex items-center justify-between">
           <div id="group-wizard-title" className="text-[15px] font-semibold text-ink">{t("groupWizard.title")}</div>
@@ -134,6 +149,7 @@ export function GroupWizard({ onClose, preselectBotId }: { onClose: () => void; 
             <div className="mb-1 mt-2 text-[14px] font-medium text-ink">{t("groupWizard.nameTitle")}</div>
             <p className="mb-2 text-[12.5px] text-ink-secondary">{t("groupWizard.nameHelper")}</p>
             <input
+              ref={nameRef}
               autoFocus
               maxLength={100}
               value={name}

@@ -191,7 +191,7 @@ function ServiceIcon({ card }: { card: ToolkitCard }) {
   );
 }
 
-export function PluginsPanel() {
+export function PluginsPanel({ closing = false }: { closing?: boolean }) {
   const { dispatch } = useStore();
   const { t } = useI18n();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -339,6 +339,7 @@ export function PluginsPanel() {
   }, [loadConnectionInventory]);
 
   useEffect(() => {
+    if (closing) return;
     const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     const focusable = () =>
@@ -378,7 +379,7 @@ export function PluginsPanel() {
       window.removeEventListener("keydown", onKeyDown);
       returnFocus?.focus();
     };
-  }, [dispatch]);
+  }, [closing, dispatch]);
 
   const openConnectUrl = async (url: string) => {
     if (window.ogb?.openExternal) {
@@ -471,13 +472,15 @@ export function PluginsPanel() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:p-6"
+      data-closing={closing || undefined}
+      inert={closing}
+      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:p-6"
       onMouseDown={(event) => event.target === event.currentTarget && close()}
     >
       <div
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
+        role={closing ? undefined : "dialog"}
+        aria-modal={!closing || undefined}
         aria-labelledby="connected-apps-title"
         tabIndex={-1}
         className="animate-pop-in flex h-[min(780px,calc(100dvh-2rem))] w-full max-w-[1040px] flex-col overflow-hidden rounded-[24px] border border-hairline/50 bg-panel shadow-2xl shadow-black/50"

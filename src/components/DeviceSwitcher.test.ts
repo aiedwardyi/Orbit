@@ -82,7 +82,7 @@ describe("DeviceSwitcher", () => {
     expect(host.textContent).toContain("Offline");
     await act(async () => click(host.querySelector("[data-device-id=home]")!));
     expect(navigate).not.toHaveBeenCalled();
-    expect(host.querySelector("ul")).toBeNull();
+    expect(host.querySelector("ul:not([inert])")).toBeNull();
     await act(async () => click(toggle));
     await act(async () => click(host.querySelector("[data-device-id=laptop]")!));
     expect(navigate).toHaveBeenCalledWith("https://laptop.tail396477.ts.net/");
@@ -150,12 +150,12 @@ describe("DeviceSwitcher", () => {
     await act(async () => click(toggle));
     await act(async () => click(host.querySelector("[data-device-id=home]")!));
     expect(open).not.toHaveBeenCalled();
-    expect(host.querySelector("ul")).toBeNull();
+    expect(host.querySelector("ul:not([inert])")).toBeNull();
     await act(async () => click(toggle));
     await act(async () => click(host.querySelector("[data-device-id=work]")!));
     expect(open).toHaveBeenCalledWith("work.tail396477.ts.net", "Work");
     expect(navigate).not.toHaveBeenCalled();
-    expect(host.querySelector("ul")).toBeNull();
+    expect(host.querySelector("ul:not([inert])")).toBeNull();
   });
 });
 

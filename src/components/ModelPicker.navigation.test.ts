@@ -143,6 +143,18 @@ describe("ModelPicker cross navigation", () => {
     expect(mock.dispatch).not.toHaveBeenCalled();
   });
 
+  it("reopens on Alt+M pressed while focus is still in the fading dialog", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.7", "grok-4.6"])];
+    await mount({ instanceId: "grok", model: "grok-4.7", mode: "pinned" });
+    const altM = () => new KeyboardEvent("keydown", { code: "KeyM", altKey: true, bubbles: true });
+    const dialog = document.querySelector(".model-cross-dialog")!;
+    await act(async () => dialog.dispatchEvent(altM()));
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => dialog.dispatchEvent(altM()));
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.activeElement).toBe(document.querySelector('[role="dialog"]'));
+  });
+
   it("counts wheel notches delivered before the next render", async () => {
     mock.instances = [engine("claude", "claudeAgent", ["claude-fable-5-1", "claude-fable-5", "claude-opus-5-5"], ["low", "medium", "high"])];
     await mount({ instanceId: "claude", model: "claude-fable-5-1", mode: "pinned", effort: "medium" });

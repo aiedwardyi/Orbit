@@ -28,6 +28,7 @@ import {
   webhookCredentialStore,
 } from "@/lib/webhook-credentials";
 import { webhookActivationDefaults, type WebhookAttempt, type WebhookCredential, type WebhookTrigger, type WebhookTriggerInput } from "@/lib/webhooks";
+import { usePresence } from "@/lib/use-presence";
 import { api, useStore, type Bot } from "@/state/store";
 
 function relativeTime(at?: number) {
@@ -79,7 +80,7 @@ function terminalCommand(credential: WebhookCredential) {
   return `curl -sS '${credential.url}' --json '{"task":"A customer wrote: This app saved me hours. Write a short thank-you reply."}'`;
 }
 
-function WebhookEditor({ webhook, bots, onClose, onCredential }: { webhook?: WebhookTrigger; bots: Bot[]; onClose: () => void; onCredential: (credential: WebhookCredential, webhookId: string) => void }) {
+function WebhookEditor({ webhook, bots, closing, onClose, onCredential }: { webhook?: WebhookTrigger; bots: Bot[]; closing: boolean; onClose: () => void; onCredential: (credential: WebhookCredential, webhookId: string) => void }) {
   const { state, dispatch } = useStore();
   const [botId, setBotId] = useState(webhook?.botId ?? bots[0]?.id ?? "");
   const [name, setName] = useState(webhook?.name ?? "");
@@ -109,8 +110,8 @@ function WebhookEditor({ webhook, bots, onClose, onCredential }: { webhook?: Web
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="flex max-h-[90vh] w-full max-w-[590px] flex-col overflow-hidden rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
+    <div data-closing={closing || undefined} inert={closing} className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="animate-pop-in flex max-h-[90vh] w-full max-w-[590px] flex-col overflow-hidden rounded-2xl border border-hairline/60 bg-panel shadow-2xl">
         <div className="flex items-start justify-between border-b border-hairline/40 px-5 py-4"><div><div className="text-[17px] font-semibold text-ink">{webhook ? "Edit webhook" : "New local webhook"}</div><div className="mt-1 text-[12px] text-ink-secondary">Each request starts a new task in the bot chat.</div></div><button onClick={onClose} className="rounded-lg p-2 text-ink-secondary hover:bg-raised hover:text-ink"><X size={18} /></button></div>
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
           <div><div className="mb-2 text-[12px] font-medium text-ink-secondary">Who receives the tasks?</div><div className="grid grid-cols-2 gap-2 sm:grid-cols-3">{bots.map((bot) => <button key={bot.id} type="button" onClick={() => setBotId(bot.id)} className={cn("flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-left", botId === bot.id ? "border-accent/70 bg-accent/10" : "border-hairline/50 bg-inset hover:bg-raised/60")}><BotAvatar bot={bot} state={botId === bot.id ? "happy" : "idle"} size={38} animated={false} /><span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{bot.name}</span></button>)}</div></div>
@@ -139,6 +140,7 @@ interface ActivityItem { id: string; at: number; outcome: WebhookAttempt["outcom
 export function WebhooksPanel({ bots }: { bots: Bot[] }) {
   const { state, dispatch } = useStore();
   const [editor, setEditor] = useState<WebhookTrigger | "new" | null>(null);
+  const editorPresence = usePresence(editor);
   const [credentials, setCredentials] = useState<Record<string, WebhookCredential>>(() =>
     loadWebhookCredentials(webhookCredentialStore()),
   );
@@ -356,7 +358,7 @@ export function WebhooksPanel({ bots }: { bots: Bot[] }) {
           </div>
         )}
       </div>
-      {editor && <WebhookEditor webhook={editor === "new" ? undefined : editor} bots={bots} onClose={() => setEditor(null)} onCredential={(newCredential, webhookId) => { saveWebhookCredential(webhookCredentialStore(), webhookId, newCredential); setCredentials((current) => ({ ...current, [webhookId]: newCredential })); setSelectedId(webhookId); setTab("setup"); }} />}
+      {editorPresence.value && <WebhookEditor key={editorPresence.value === "new" ? "new" : editorPresence.value.id} webhook={editorPresence.value === "new" ? undefined : editorPresence.value} bots={bots} closing={editorPresence.closing} onClose={() => setEditor(null)} onCredential={(newCredential, webhookId) => { saveWebhookCredential(webhookCredentialStore(), webhookId, newCredential); setCredentials((current) => ({ ...current, [webhookId]: newCredential })); setSelectedId(webhookId); setTab("setup"); }} />}
     </div>
   );
 }

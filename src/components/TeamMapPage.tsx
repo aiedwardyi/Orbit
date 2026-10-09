@@ -17,6 +17,7 @@ import {
   type TeamMapSnapshot,
 } from "@/lib/team-map";
 import { cn } from "@/lib/cn";
+import { usePresence } from "@/lib/use-presence";
 
 const statusTone = {
   success: "bg-success",
@@ -105,7 +106,17 @@ interface SectionContextResponse {
   maxBytes: number;
 }
 
-function SectionContextDialog({ section, label, onClose }: { section: string; label: string; onClose: () => void }) {
+function SectionContextDialog({
+  section,
+  label,
+  closing,
+  onClose,
+}: {
+  section: string;
+  label: string;
+  closing: boolean;
+  onClose: () => void;
+}) {
   const { locale, t } = useI18n();
   const dialogRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -132,6 +143,7 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
   }, [t]);
 
   useEffect(() => {
+    if (closing) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialogRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
@@ -166,7 +178,7 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
       window.removeEventListener("keydown", onKey);
       previousFocus?.focus();
     };
-  }, [requestClose]);
+  }, [closing, requestClose]);
 
   useEffect(() => {
     let cancelled = false;
@@ -214,13 +226,15 @@ function SectionContextDialog({ section, label, onClose }: { section: string; la
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:p-6"
+      data-closing={closing || undefined}
+      inert={closing}
+      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px] sm:p-6"
       onMouseDown={(event) => event.target === event.currentTarget && requestClose()}
     >
       <div
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
+        role={closing ? undefined : "dialog"}
+        aria-modal={!closing || undefined}
         aria-labelledby="section-context-title"
         tabIndex={-1}
         className="animate-pop-in flex max-h-[min(680px,calc(100dvh-2rem))] w-full max-w-[680px] flex-col overflow-hidden rounded-[24px] border border-hairline/50 bg-panel shadow-2xl shadow-black/50 outline-none"
@@ -303,6 +317,7 @@ export function TeamMapPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [contextEditor, setContextEditor] = useState<{ section: string; label: string } | null>(null);
+  const contextPresence = usePresence(contextEditor);
   const bots = useMemo(() => state.bots.filter((bot) => !bot.hidden), [state.bots]);
   const sections = useMemo(() => buildTeamMapSections(bots), [bots]);
   const edges = useMemo(() => buildTeamMapEdges(bots, snapshot), [bots, snapshot]);
@@ -422,10 +437,12 @@ export function TeamMapPage() {
           </div>
         </section>
       </div>
-      {contextEditor && (
+      {contextPresence.value && (
         <SectionContextDialog
-          section={contextEditor.section}
-          label={contextEditor.label}
+          key={contextPresence.value.section}
+          section={contextPresence.value.section}
+          label={contextPresence.value.label}
+          closing={contextPresence.closing}
           onClose={() => setContextEditor(null)}
         />
       )}

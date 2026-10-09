@@ -6,6 +6,7 @@ import { filterCustomModels } from "@/lib/custom-models";
 import { chipEffortLabel, chipEffortShortLabel, chipPhoneName,displayedChipEffort, engineBadgeText, modelChipText, modelChipTitle, modelEffortLabel, modelFamilyAccent } from "@/lib/model-chip";
 import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, selectPickerEffort, selectPickerModel, withPickerEffort } from "@/lib/cross-model-picker";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
+import { usePresence } from "@/lib/use-presence";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
@@ -42,6 +43,7 @@ export function ModelPickerControl({
   const selection = bot.modelSelection;
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
   const [open, setOpen] = useState(defaultOpen);
+  const presence = usePresence(open);
   const [draftSelection, setDraft] = useState(selection);
   const draft = withPickerEffort(state.instances.find((instance) => instance.instanceId === draftSelection.instanceId), draftSelection);
   const [customOpen, setCustomOpen] = useState(false);
@@ -255,19 +257,21 @@ export function ModelPickerControl({
   );
 
   const dialog = (
-    <div className="model-cross-backdrop" data-picker-family={family} data-contained={contained || undefined} onMouseDown={(event) => {
+    <div className="model-cross-backdrop animate-fade-in" data-picker-family={family} data-contained={contained || undefined} data-closing={presence.closing || undefined} inert={presence.closing} onMouseDown={(event) => {
       if (event.target === event.currentTarget || (event.target instanceof Element && event.target.matches(".model-cross-plane, .model-cross-stage"))) close();
     }}>
       <div
         ref={dialogRef}
-        data-model-picker-content
-        role="dialog"
-        aria-modal="true"
+        data-model-picker-content={!presence.closing || undefined}
+        role={presence.closing ? undefined : "dialog"}
+        aria-modal={!presence.closing || undefined}
         aria-label={t("model.choose")}
         aria-describedby={bindingsId}
         tabIndex={-1}
         className="model-cross-dialog"
         onKeyDown={(event) => {
+          // focus lingers in the fading dialog for a frame; let Alt+M through to reopen it
+          if (presence.closing) return;
           event.stopPropagation();
           if (event.nativeEvent.isComposing) return;
           if (event.key === "Escape" || (event.altKey && !event.ctrlKey && !event.shiftKey && event.code === "KeyM")) {
@@ -423,7 +427,7 @@ export function ModelPickerControl({
           <div className="flex">{trigger}</div>
         </div>
       ) : trigger}
-      {open && (globalThis.document ? createPortal(dialog, document.body) : dialog)}
+      {presence.mounted && (globalThis.document ? createPortal(dialog, document.body) : dialog)}
     </div>
   );
 }

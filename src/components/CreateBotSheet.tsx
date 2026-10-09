@@ -9,11 +9,13 @@ import { useI18n } from "@/lib/i18n";
 
 export function CreateBotSheet({
   required,
+  closing = false,
   initialSection,
   onCreated,
   onClose,
 }: {
   required: boolean;
+  closing?: boolean;
   initialSection?: string;
   onCreated?: (bot: Bot) => void;
   onClose?: () => void;
@@ -36,6 +38,7 @@ export function CreateBotSheet({
   };
 
   useEffect(() => {
+    if (closing) return;
     inputRef.current?.focus();
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -62,7 +65,7 @@ export function CreateBotSheet({
     };
     dialog.addEventListener("keydown", onKey);
     return () => dialog.removeEventListener("keydown", onKey);
-  }, [required, saving]);
+  }, [closing, required, saving]);
 
   const pick = async () => {
     let chosen: string | null | undefined;
@@ -106,15 +109,17 @@ export function CreateBotSheet({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-app/90 p-6 backdrop-blur-lg"
+      data-closing={closing || undefined}
+      inert={closing}
+      className="animate-fade-in fixed inset-0 z-40 flex items-center justify-center bg-app/90 p-6 backdrop-blur-lg"
       onMouseDown={(event) => event.target === event.currentTarget && close()}
     >
       <div
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
+        role={closing ? undefined : "dialog"}
+        aria-modal={!closing || undefined}
         aria-labelledby="create-bot-title"
-        className="max-h-[min(680px,calc(100dvh-2rem))] w-full max-w-[560px] overflow-y-auto rounded-2xl border border-hairline/50 bg-panel p-5 shadow-2xl shadow-black/60 sm:p-7"
+        className="animate-pop-in max-h-[min(680px,calc(100dvh-2rem))] w-full max-w-[560px] overflow-y-auto rounded-2xl border border-hairline/50 bg-panel p-5 shadow-2xl shadow-black/60 sm:p-7"
       >
         {/* Stacked below sm so the title shares the form's left edge. */}
         <div className="flex items-center gap-4 max-sm:flex-col max-sm:items-start max-sm:gap-3">

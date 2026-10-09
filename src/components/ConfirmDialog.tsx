@@ -15,6 +15,7 @@ export function ConfirmDialog({
   cancelLabel,
   danger = true,
   confirmDisabled = false,
+  closing = false,
   onConfirm,
   onCancel,
   children,
@@ -25,6 +26,7 @@ export function ConfirmDialog({
   cancelLabel?: string;
   danger?: boolean;
   confirmDisabled?: boolean;
+  closing?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   children?: ReactNode;
@@ -42,21 +44,23 @@ export function ConfirmDialog({
     onCancelRef.current = onCancel;
   });
 
-  // Mount-only: remember who had focus, start on Cancel, give focus back on
+  // While open: remember who had focus, start on Cancel, give focus back on
   // close when that owner is still in the document.
   useEffect(() => {
+    if (closing) return;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     cancelRef.current?.focus();
     return () => {
       if (previouslyFocused && document.contains(previouslyFocused)) previouslyFocused.focus();
     };
-  }, []);
+  }, [closing]);
 
-  // Mount-only: the dialog owns the keyboard while open. Escape cancels from
+  // The dialog owns the keyboard while open. Escape cancels from
   // the capture phase and stops there, so one press never also closes the
   // sidebar (or anything else) underneath; Tab cycles inside the panel, and
   // focus that somehow left is pulled back in.
   useEffect(() => {
+    if (closing) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -88,19 +92,21 @@ export function ConfirmDialog({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+  }, [closing]);
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
+      data-closing={closing || undefined}
+      inert={closing}
+      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onCancel();
       }}
     >
       <div
         ref={panelRef}
-        role="dialog"
-        aria-modal="true"
+        role={closing ? undefined : "dialog"}
+        aria-modal={!closing || undefined}
         aria-labelledby={titleId}
         aria-describedby={body ? bodyId : undefined}
         className="animate-pop-in w-full max-w-[400px] rounded-[24px] border border-hairline/50 bg-panel p-6 shadow-2xl shadow-black/50"

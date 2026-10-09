@@ -9,6 +9,7 @@ import { useI18n } from "@/lib/i18n";
 import { readTerminalMatch, terminalTheme, TERMINAL_APPEARANCE_EVENT } from "@/lib/terminal-appearance";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
+import { Presence } from "@/lib/use-presence";
 import { ConfirmDialog } from "./ConfirmDialog";
 import "@xterm/xterm/css/xterm.css";
 
@@ -761,22 +762,25 @@ export function TerminalWorkspace({
           <span>{t("terminal.lifetime")}</span>
         )}
       </footer>
-      {confirmRestart && (
-        <ConfirmDialog
-          title={t("terminal.restartConfirmTitle", { folder: folderLabel })}
-          body={t("terminal.restartConfirmBody")}
-          confirmLabel={t("terminal.restartConfirmAction")}
-          danger
-          onCancel={() => setConfirmRestart(false)}
-          onConfirm={() => {
-            setConfirmRestart(false);
-            setBannerDismissed(false);
-            // In-place restart keeps painted scrollback; fallback can skip re-dump when session id matches.
-            if (openShellRef.current) openShellRef.current(true);
-            else setGeneration((value) => value + 1);
-          }}
-        />
-      )}
+      <Presence open={confirmRestart}>
+        {(closing) => (
+          <ConfirmDialog
+            closing={closing}
+            title={t("terminal.restartConfirmTitle", { folder: folderLabel })}
+            body={t("terminal.restartConfirmBody")}
+            confirmLabel={t("terminal.restartConfirmAction")}
+            danger
+            onCancel={() => setConfirmRestart(false)}
+            onConfirm={() => {
+              setConfirmRestart(false);
+              setBannerDismissed(false);
+              // In-place restart keeps painted scrollback; fallback can skip re-dump when session id matches.
+              if (openShellRef.current) openShellRef.current(true);
+              else setGeneration((value) => value + 1);
+            }}
+          />
+        )}
+      </Presence>
     </main>
   );
 }

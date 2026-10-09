@@ -76,6 +76,7 @@ import {
   tailWindowStart,
 } from "@/lib/transcript-window";
 import { useReplyDraft } from "@/lib/drafts";
+import { Presence } from "@/lib/use-presence";
 
 function dayLabel(at: number): string {
   const d = new Date(at);
@@ -1408,9 +1409,9 @@ export function GroupView({ group }: { group: Group }) {
   return (
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
       <GroupCallOverlay group={group} members={members} />
-      {membersOpen && !group.dm && (
-        <ManageMembersPanel group={group} onClose={closeMembers} triggerRef={membersTriggerRef} />
-      )}
+      <Presence open={membersOpen && !group.dm}>
+        {(closing) => <ManageMembersPanel group={group} closing={closing} onClose={closeMembers} triggerRef={membersTriggerRef} />}
+      </Presence>
       {/* Header: static member mauses; a ring + dot marks the working bot. */}
       <div
         className={cn(

@@ -483,9 +483,11 @@ function DiagnosticsRow() {
 }
 
 export function SettingsModal({
+  closing = false,
   defaultAdvancedOpen = false,
   defaultMoreServicesOpen = false,
 }: {
+  closing?: boolean;
   /** Start with Advanced expanded (tests). */
   defaultAdvancedOpen?: boolean;
   /** Start with More services expanded (tests). */
@@ -506,13 +508,15 @@ export function SettingsModal({
   const visibleSections = SECTIONS.filter((entry) => sectionNavVisible(entry, q, phoneAvailable));
 
   useEffect(() => {
+    if (closing) return;
     const visible = SECTIONS.filter((entry) => sectionNavVisible(entry, q, phoneAvailable));
     if (visible.some((entry) => entry.id === section)) return;
     const first = visible[0];
     if (first) dispatch({ type: "toggleAppSettings", open: true, section: first.id });
-  }, [dispatch, phoneAvailable, q, section]);
+  }, [closing, dispatch, phoneAvailable, q, section]);
 
   useEffect(() => {
+    if (closing) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     dialog?.focus();
@@ -553,24 +557,26 @@ export function SettingsModal({
       window.removeEventListener("keydown", onKey);
       previousFocus?.focus();
     };
-  }, [dispatch]);
+  }, [closing, dispatch]);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
+      data-closing={closing || undefined}
+      inert={closing}
+      className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6"
       onMouseDown={(e) => e.target === e.currentTarget && dispatch({ type: "toggleAppSettings", open: false })}
     >
       <div
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
+        role={closing ? undefined : "dialog"}
+        aria-modal={!closing || undefined}
         aria-labelledby="app-settings-title"
         tabIndex={-1}
         // h-* alone overflows the 600x480 window floor above and below; max-h-full
         // hands the excess to the content pane, which is the only thing that scrolls.
         // Below md the nav collapses to a horizontal icon strip above the content —
         // side by side at 190px fixed left the content pane too narrow to fit a card.
-        className="flex h-[560px] max-h-full w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none max-md:flex-col"
+        className="animate-pop-in flex h-[560px] max-h-full w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none max-md:flex-col"
       >
         {/* section nav */}
         <nav className="flex w-[190px] shrink-0 flex-col gap-0.5 border-r border-hairline/40 p-3 max-md:w-full max-md:border-r-0 max-md:border-b max-md:p-2">
