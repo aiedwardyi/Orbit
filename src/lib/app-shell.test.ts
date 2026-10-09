@@ -149,6 +149,11 @@ describe("home-screen app shell", () => {
     expect(html).toContain('<meta name="google" content="notranslate" />');
   });
 
+  it("clips the app shell so focus into the closed phone drawer cannot scroll it sideways", () => {
+    const shell = css.match(/html,\r?\nbody,\r?\n#root \{([^}]*)\}/)?.[1] ?? "";
+    expect(shell).toMatch(/overflow: clip;/);
+  });
+
   it("styles scrollbars only off touch screens, so phones keep their own thin ones", () => {
     const touchless = css.match(/@media not all and \(pointer: coarse\) \{\r?\n([\s\S]*?)\r?\n\}/)?.[1] ?? "";
     expect(touchless).toContain("::-webkit-scrollbar {");
