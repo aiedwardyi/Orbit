@@ -113,6 +113,59 @@ const StreamingContext = createContext(false);
 const LIST_ITEM = /^(?:[-+*]|\d{1,9}[.)]?)(?:[ \t]|$)/;
 const FENCE = /^( {0,3})(`{3,}(?=[^`]*$)|~{3,})/;
 
+function backtickRunAt(line: string, length: number, from: number) {
+  for (let at = from; at < line.length; at++) {
+    if (line[at] !== "`") continue;
+    let n = 1;
+    while (line[at + n] === "`") n++;
+    if (n === length) return at;
+    at += n;
+  }
+  return -1;
+}
+
+// The growing tail paints as if its open `**` or backtick were already closed,
+// and leaves out a marker with nothing after it yet, so raw markdown never flashes.
+export function settleStreamTail(block: string): string {
+  if ((block.match(/^\s*(?:```|~~~)/gm)?.length ?? 0) % 2) return block;
+  const start = block.lastIndexOf("\n") + 1;
+  // A trailing run could be an opener, half a closer or a bullet: unknown until the next character.
+  const line = block.slice(start).replace(/[*`]+$/, "");
+  if (/^\s*(?:[-*+>]|\d{1,9}[.)]?|#{1,6})\s*$/.test(line)) return block.slice(0, start);
+  let star = "";
+  let tick = "";
+  let body = line;
+  for (let at = 0; at < line.length; at++) {
+    const c = line[at];
+    if (c === "\\") {
+      at++;
+      continue;
+    }
+    if (c !== "`" && c !== "*") continue;
+    let n = 1;
+    while (line[at + n] === c) n++;
+    if (c === "`") {
+      const close = backtickRunAt(line, n, at + n);
+      if (close < 0) {
+        tick = line.slice(at, at + n);
+        if (!line.slice(at + n).trim()) [body, tick] = [line.slice(0, at), ""];
+        break;
+      }
+      at = close + n - 1;
+      continue;
+    }
+    // An opener leans on the word after it, a closer on the word before.
+    if (!star) {
+      if (!/\s/.test(line[at + n])) star = line.slice(at, at + n);
+    } else if (!/\s/.test(line[at - 1])) {
+      star = "";
+    }
+    at += n - 1;
+  }
+  const kept = body.trimEnd();
+  return block.slice(0, start) + kept + tick + star + body.slice(kept.length);
+}
+
 export function streamBlocks(text: string): string[] {
   if (/^ {0,3}\[[^\]\n]+\]:/m.test(text)) return [text];
   const blocks: string[] = [];
@@ -495,7 +548,12 @@ function ChatMarkdownComponent({
   // A streamed reply keeps its blocks once settled, so settling re-parses nothing.
   const [split, setSplit] = useState(streaming);
   if (streaming && !split) setSplit(true);
-  const blocks = useMemo(() => (split ? streamBlocks(text) : [text]), [split, text]);
+  const blocks = useMemo(() => {
+    if (!split) return [text];
+    const parts = streamBlocks(text);
+    if (streaming) parts[parts.length - 1] = settleStreamTail(parts[parts.length - 1]);
+    return parts;
+  }, [split, text, streaming]);
   const components = useMemo(() => ({
     pre({ children }: { children?: ReactNode }) {
       // fenced code arrives as <pre><code class="language-x">…</code></pre>
