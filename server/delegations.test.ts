@@ -13,6 +13,7 @@ import type { ModelSelection } from "./contracts.ts";
 import {
   drainDelegations,
   drainWaitingOn,
+  failUnwatchedDelegation,
   findDelegationReceipt,
   finishDelegatedTurn,
   MAX_BUSY_ATTEMPTS,
@@ -27,7 +28,7 @@ import {
   type DelegatedTurn,
 } from "./delegations.ts";
 import { peerAllowKey, resolvePeerComms } from "./peer-approval.ts";
-import { _resetSteerQueue, cancelSteeredMessage, queueSteeredMessage } from "./steer-queue.ts";
+import { _resetSteerQueue, cancelSteeredMessage, drainSteeredMessages, queueRoomParticipation, queueSteeredMessage } from "./steer-queue.ts";
 import { Store, type BotRecord, type GroupRecord } from "./store.ts";
 
 const selection = (): ModelSelection => ({ instanceId: "claude", model: "fake-model" });
@@ -1212,5 +1213,41 @@ describe("user takeover of a delegated turn", () => {
     expect(body).toContain("onDispatchError: rerunIfIdle,");
     expect(body).toContain(".then(rerunIfIdle)");
     expect(body).toMatch(/continueQueuedDrainIfIdle\(store, botId, drainQueuedSends, botHasActiveTurn\);\r?\n\s*rerunIfIdle\(\);/);
+  });
+
+  it("reruns a taken-over handoff when a queued room turn never starts", async () => {
+    const { taskId } = await takenOverOnce();
+    queueRoomParticipation(wink.id, "room-thread", { groupId: "room" });
+    drainWaitingOn(commsBus, approvalBus, wink.id, runTarget);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(dispatched).toHaveLength(1);
+
+    // the room item left the queue, but its turn aborted before a provider turn
+    drainSteeredMessages(store, () => {});
+    drainWaitingOn(commsBus, approvalBus, wink.id, runTarget);
+    await waitFor(() => dispatched.length === 2 && pendingDelegationInfo(taskId) === null);
+
+    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const drainSends = index.slice(index.indexOf("function drainQueuedSends() {"));
+    const body = drainSends.slice(0, drainSends.indexOf("\n}"));
+    expect(body.indexOf("const rerunIfIdle")).toBeLessThan(body.indexOf("if (room) {"));
+    expect(body).toMatch(/if \(room\) \{\r?\n(\s*\/\/.*\r?\n)?\s*void enqueueDrainedRoomTurn\(botId, threadId, room\)\.then\(rerunIfIdle\);/);
+    const enqueue = index.slice(index.indexOf("function enqueueDrainedRoomTurn("));
+    expect(enqueue.slice(0, enqueue.indexOf("\n}"))).toMatch(/return groupQueues\.get\(room\.groupId\) \?\? Promise\.resolve\(\);\r?$/);
+  });
+
+  it("fails a dispatched handoff whose target has no thread to watch", async () => {
+    const queued = queueDelegation(commsBus, career, { toBotId: wink.id, message: "What changed in the resume?", depth: 0 }, 1);
+    drain();
+    await waitFor(() => dispatched.length === 1 && _pendingCount(career.threadId) === 0);
+    failUnwatchedDelegation(queued.id!, career.threadId, wink.id, "Wink", "Delegated turn could not start: no such bot");
+    expect(findDelegationReceipt(queued.id!)).toMatchObject({ status: "failed", result: "Delegated turn could not start: no such bot" });
+
+    // the running entry is gone, so a stray settle cannot queue it again
+    finishDelegatedTurn(commsBus, { ...turnOf(dispatched[0]!), takenOverBy: "Edward" }, true, "late");
+    expect(pendingDelegationInfo(queued.id!)).toBeNull();
+
+    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    expect(index).toMatch(/\);\r?\n\s*if \(!targetThreadId\) failUnwatchedDelegation\(taskId, sourceThreadId, toBotId, bot\?\.name \?\? toBotId, /);
   });
 });

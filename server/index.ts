@@ -142,7 +142,7 @@ import { getOrCreateChannel, mirrorExchange, mirrorReply, type CommsBus } from "
 import { searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
-import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, findDelegationReceipt, finishDelegatedTurn, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
+import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, findDelegationReceipt, finishDelegatedTurn, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
 import { onPeerTakeover, peerAnswer, takeOverPeerTurn } from "./peer-takeover.ts";
 import {
   cancelQueuedRoomParticipations,
@@ -3625,6 +3625,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
           "",
           `Delegated turn could not start — ${why.slice(0, 120)}`,
         );
+      if (!targetThreadId) failUnwatchedDelegation(taskId, sourceThreadId, toBotId, bot?.name ?? toBotId, `Delegated turn could not start: ${why.slice(0, 120)}`);
       const source = store.conversationForBot(sourceBotId, sourceThreadId)?.bot;
       if (!source) return;
       // a second row after one was written is the same dead handoff twice
@@ -3735,8 +3736,12 @@ function resumePaneWakes(botId: string) {
 
 function drainQueuedSends() {
   drainSteeredMessages(store, (botId, threadId, prompt, userMessage, excludeIds, room) => {
+    // a send that never runs leaves no turn.completed to rerun a taken-over handoff
+    const rerunIfIdle = () =>
+      continueQueuedDrainIfIdle(store, botId, () => drainWaitingOn(commsBus, approvalBus, botId, runDelegatedTurn), botHasActiveTurn);
     if (room) {
-      enqueueDrainedRoomTurn(botId, threadId, room);
+      // a room thread's turn.completed never re-drains this bot either
+      void enqueueDrainedRoomTurn(botId, threadId, room).then(rerunIfIdle);
       return;
     }
     // A plain attended turn — no automationSource, no unattended, no comms
@@ -3752,9 +3757,6 @@ function drainQueuedSends() {
         { queueId: userMessage.queueId },
       );
     }
-    // a send that never runs leaves no turn.completed to rerun a taken-over handoff
-    const rerunIfIdle = () =>
-      continueQueuedDrainIfIdle(store, botId, () => drainWaitingOn(commsBus, approvalBus, botId, runDelegatedTurn), botHasActiveTurn);
     startTurn(botId, prompt, {
       threadId,
       userMessage: userMessage ?? undefined,
@@ -5274,11 +5276,11 @@ function enqueueDrainedRoomTurn(
   botId: string,
   threadId: string,
   room: { groupId: string; hop: number; cardContinuation?: string; onDispatchError?: (message: string) => void; instructionId?: string },
-) {
+): Promise<void> {
   const fail = (message: string) => room.onDispatchError?.(message);
   if (!roomTurnStillAssigned(room.groupId, threadId, botId)) {
     fail("the room is no longer available");
-    return;
+    return Promise.resolve();
   }
   const operation = beginGroupTurnOperation(room.groupId, threadId, room.instructionId);
   const previous = groupQueues.get(room.groupId) ?? Promise.resolve();
@@ -5324,6 +5326,7 @@ function enqueueDrainedRoomTurn(
       });
     }),
   );
+  return groupQueues.get(room.groupId) ?? Promise.resolve();
 }
 
 

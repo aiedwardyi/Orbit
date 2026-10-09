@@ -780,6 +780,12 @@ export function finishDelegatedTurn(
   return reported;
 }
 
+/** A dispatched handoff whose target had no thread to watch: settle it as failed. */
+export function failUnwatchedDelegation(taskId: string, sourceThreadId: string, toBotId: string, toBotName: string, result: string): void {
+  runningDelegations.delete(taskId);
+  recordDelegationReceipt({ id: taskId, sourceThreadId, toBotId, toBotName, status: "failed", result });
+}
+
 /** Test helper: how many items remain queued for a thread. */
 export function _pendingCount(threadId: string): number {
   return pendingDelegations.get(threadId)?.length ?? 0;
