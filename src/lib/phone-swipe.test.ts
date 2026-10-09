@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SWIPE_EDGE,
   dragOffset,
+  drawerOffset,
+  drawerSwipeCloses,
   hapticTick,
   lockAxis,
   neighborId,
@@ -18,7 +20,7 @@ import {
   swipeStep,
   vibrationEnabled,
 } from "./phone-swipe";
-import { usePhoneSwipe } from "./use-phone-swipe";
+import { useDrawerSwipe, usePhoneSwipe } from "./use-phone-swipe";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -73,6 +75,41 @@ describe("swipeStep", () => {
 
   it("cancels when the release flicks back the other way", () => {
     expect(swipeStep(-200, 0.6, 400)).toBe(0);
+  });
+});
+
+describe("drawerSwipeCloses", () => {
+  it("closes past the distance threshold toward the drawer's edge", () => {
+    expect(drawerSwipeCloses(-128, -0.1, 320, "left")).toBe(true);
+    expect(drawerSwipeCloses(128, 0.1, 320, "right")).toBe(true);
+  });
+
+  it("springs back from a short slow drag", () => {
+    expect(drawerSwipeCloses(-32, -0.1, 320, "left")).toBe(false);
+    expect(drawerSwipeCloses(32, 0.1, 320, "right")).toBe(false);
+  });
+
+  it("closes on a short fast flick", () => {
+    expect(drawerSwipeCloses(-40, -0.8, 320, "left")).toBe(true);
+    expect(drawerSwipeCloses(40, 0.8, 320, "right")).toBe(true);
+  });
+
+  it("never closes on a drag toward the open side", () => {
+    expect(drawerSwipeCloses(200, 0.8, 320, "left")).toBe(false);
+    expect(drawerSwipeCloses(-200, -0.8, 320, "right")).toBe(false);
+  });
+
+  it("springs back when the release flicks the other way", () => {
+    expect(drawerSwipeCloses(-200, 0.6, 320, "left")).toBe(false);
+  });
+});
+
+describe("drawerOffset", () => {
+  it("follows the finger toward the drawer's edge only", () => {
+    expect(drawerOffset(-90, "left")).toBe(-90);
+    expect(drawerOffset(90, "left")).toBe(0);
+    expect(drawerOffset(90, "right")).toBe(90);
+    expect(drawerOffset(-90, "right")).toBe(0);
   });
 });
 
@@ -344,6 +381,26 @@ describe("usePhoneSwipe", () => {
     expect(vibrate).toHaveBeenCalledWith(10);
   });
 
+  it("stays off while disabled (drawer open) and works again once enabled", () => {
+    function Gated({ enabled }: { enabled: boolean }) {
+      const stage = usePhoneSwipe("a", enabled, select);
+      return createElement("div", { ref: stage, id: "stage" }, createElement("p", { id: "msg" }, "hello"));
+    }
+    act(() => root.render(createElement(Gated, { enabled: false })));
+    swipe([[300, 200], [260, 202], [200, 204], [150, 205]]);
+    expect(select).not.toHaveBeenCalled();
+    act(() => root.render(createElement(Gated, { enabled: true })));
+    swipe([[300, 200], [260, 202], [200, 204], [150, 205]]);
+    expect(select).toHaveBeenCalledWith("b");
+  });
+
+  it("is turned off by the open drawer in App", () => {
+    const app = readFileSync(join(here, "../App.tsx"), "utf8");
+    const overlay = app.slice(app.indexOf("const nativeViewOverlayOpen ="), app.indexOf("const swipeStageRef"));
+    expect(overlay).toContain("drawerOpen ||");
+    expect(app).toContain("usePhoneSwipe(bot?.id, !terminalOpen && !nativeViewOverlayOpen,");
+  });
+
   it("rebinds after the stage node is replaced (e.g. Back from another view)", () => {
     act(() => root.render(createElement(Harness, { botId: "a" })));
     swipe([[300, 200], [260, 202], [200, 204], [150, 205]]);
@@ -355,5 +412,149 @@ describe("usePhoneSwipe", () => {
 
     swipe([[300, 200], [260, 202], [200, 204], [150, 205]]);
     expect(select).toHaveBeenCalledWith("b");
+  });
+});
+
+describe("useDrawerSwipe", () => {
+  let host: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+  let close: ReturnType<typeof vi.fn<() => void>>;
+  let vibrate: ReturnType<typeof vi.fn>;
+
+  function Harness({ open, side }: { open: boolean; side: "left" | "right" }) {
+    const shell = useDrawerSwipe(open, side, close);
+    return createElement(
+      "div",
+      { ref: shell },
+      createElement("div", { id: "scrim", "data-phone-drawer-scrim": "" }),
+      createElement("aside", { id: "drawer", "data-phone-drawer": "" }, createElement("p", { id: "row" }, "chat")),
+      createElement("p", { id: "chat" }, "transcript"),
+    );
+  }
+
+  function render(open: boolean, side: "left" | "right" = "left") {
+    act(() => root.render(createElement(Harness, { open, side })));
+  }
+
+  function touch(target: string, type: string, x: number, y: number, timeStamp: number) {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [{ clientX: x, clientY: y }] });
+    Object.defineProperty(event, "timeStamp", { value: timeStamp });
+    document.querySelector(target)!.dispatchEvent(event);
+    return event;
+  }
+
+  function swipe(target: string, points: [number, number][]) {
+    points.forEach(([x, y], index) => touch(target, index === 0 ? "touchstart" : "touchmove", x, y, index * 16));
+    return touch(target, "touchend", 0, 0, points.length * 16);
+  }
+
+  const drawer = () => document.querySelector<HTMLElement>("#drawer")!;
+
+  beforeEach(() => {
+    setWidth(400);
+    close = vi.fn<() => void>();
+    vibrate = vi.fn();
+    Object.defineProperty(window.navigator, "vibrate", { configurable: true, value: vibrate });
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    document.body.innerHTML = "";
+    setWidth(1024);
+    vi.restoreAllMocks();
+  });
+
+  it("closes a left drawer on a long left drag, with a haptic, and swallows the click", () => {
+    render(true);
+    const end = swipe("#row", [[300, 200], [280, 201], [220, 202], [150, 203]]);
+    expect(close).toHaveBeenCalledOnce();
+    expect(vibrate).toHaveBeenCalledWith(10);
+    expect(end.defaultPrevented).toBe(true);
+  });
+
+  it("closes a right drawer on a long right drag from the scrim", () => {
+    render(true, "right");
+    swipe("#scrim", [[100, 200], [120, 200], [180, 200], [250, 200]]);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("springs back from a short slow drag and follows the finger meanwhile", () => {
+    render(true);
+    touch("#row", "touchstart", 300, 200, 0);
+    touch("#row", "touchmove", 285, 200, 100);
+    touch("#row", "touchmove", 270, 200, 200);
+    expect(drawer().style.translate).toBe("-30px");
+    touch("#row", "touchend", 0, 0, 300);
+    expect(close).not.toHaveBeenCalled();
+    expect(drawer().style.translate).toBe("0px");
+  });
+
+  it("ignores a drag toward the open side and a vertical scroll", () => {
+    render(true);
+    swipe("#row", [[100, 200], [120, 200], [180, 200], [250, 200]]);
+    swipe("#row", [[300, 200], [298, 240], [200, 260], [120, 270]]);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("leaves a tap alone", () => {
+    render(true);
+    const end = swipe("#row", [[300, 200]]);
+    expect(end.defaultPrevented).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("does nothing while closed, outside the drawer, or on desktop widths", () => {
+    render(false);
+    swipe("#row", [[300, 200], [280, 201], [220, 202], [150, 203]]);
+    render(true);
+    swipe("#chat", [[300, 200], [280, 201], [220, 202], [150, 203]]);
+    setWidth(1200);
+    swipe("#row", [[300, 200], [280, 201], [220, 202], [150, 203]]);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("closes without following the finger under reduced motion", () => {
+    const matchMedia = window.matchMedia.bind(window);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      ...matchMedia(query),
+      matches: query === "(prefers-reduced-motion: reduce)" || matchMedia(query).matches,
+    }));
+    render(true);
+    touch("#row", "touchstart", 300, 200, 0);
+    touch("#row", "touchmove", 220, 201, 16);
+    touch("#row", "touchmove", 150, 202, 32);
+    expect(drawer().style.translate).toBe("");
+    touch("#row", "touchend", 0, 0, 48);
+    expect(close).toHaveBeenCalledOnce();
+    expect(drawer().style.translate).toBe("");
+  });
+
+  it("clears its inline styles once the drawer closes", () => {
+    render(true);
+    swipe("#row", [[300, 200], [280, 201], [220, 202], [150, 203]]);
+    expect(drawer().style.translate).toBe("-100%");
+    render(false);
+    expect(drawer().style.translate).toBe("");
+    expect(document.querySelector<HTMLElement>("#scrim")!.style.opacity).toBe("");
+  });
+
+  it("wires the App drawer, scrim and sidebar side", () => {
+    const app = readFileSync(join(here, "../App.tsx"), "utf8");
+    expect(app).toContain('useDrawerSwipe(drawerOpen && !sidebarOverlay, sidebarOnRight ? "right" : "left", closeDrawer)');
+    expect(app).toContain('<div ref={drawerShellRef} className="relative flex min-h-0 flex-1">');
+    expect(app).toContain("data-phone-drawer-scrim");
+    const sidebar = readFileSync(join(here, "../components/Sidebar.tsx"), "utf8");
+    expect(sidebar).toMatch(/aria-label=\{t\("chrome\.navAria"\)\}\r?\n\s+data-phone-drawer\r?\n/);
+  });
+
+  it("stays off while a sidebar menu is open and restores focus to the menu button like the Sidebar's own close", () => {
+    const app = readFileSync(join(here, "../App.tsx"), "utf8");
+    expect(app).toMatch(/const closeDrawer = \(\) => \{\r?\n\s+setDrawerOpen\(false\);\r?\n\s+menuButtonRef\.current\?\.focus\(\);\r?\n\s+\};/);
+    expect(app).toContain("onClose={closeDrawer}");
+    expect(app).toContain("useDrawerSwipe(drawerOpen && !sidebarOverlay,");
   });
 });

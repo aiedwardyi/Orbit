@@ -32,7 +32,7 @@ import { useTerminalPanes } from "@/lib/terminal-panes";
 import { rememberTerminalOpened, schedulePrestart } from "@/lib/terminal-prestart";
 import { composerNeedsTap, focusComposerOnActivation } from "@/lib/focus-composer";
 import { webPushTarget } from "@/lib/web-push";
-import { usePhoneSwipe } from "@/lib/use-phone-swipe";
+import { useDrawerSwipe, usePhoneSwipe } from "@/lib/use-phone-swipe";
 import { BackNavigation, backDepth, followSelection, trailTarget, type BackLayer } from "@/lib/back-navigation";
 import { SKINS, applySkin, nextSkin, readSkin, type SkinId } from "@/lib/skins";
 
@@ -452,6 +452,11 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     state.createBotOpen;
 
   const swipeStageRef = usePhoneSwipe(bot?.id, !terminalOpen && !nativeViewOverlayOpen, (id) => dispatch({ type: "select", id }));
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    menuButtonRef.current?.focus();
+  };
+  const drawerShellRef = useDrawerSwipe(drawerOpen && !sidebarOverlay, sidebarOnRight ? "right" : "left", closeDrawer);
 
   const chatShown = Boolean(bot && state.activeView === "chat" && !terminalOpen);
   useEffect(() => {
@@ -586,7 +591,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           {themeToast}
         </div>
       )}
-      <div className="relative flex min-h-0 flex-1">
+      <div ref={drawerShellRef} className="relative flex min-h-0 flex-1">
       <button
         type="button"
         ref={menuButtonRef}
@@ -609,16 +614,14 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       </button>
       <div
         aria-hidden
+        data-phone-drawer-scrim
         onMouseDown={(e) => e.target === e.currentTarget && setDrawerOpen(false)}
         className={`absolute inset-0 z-30 bg-black/50 transition-opacity duration-[260ms] ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none md:hidden ${drawerOpen ? "opacity-100" : "pointer-events-none opacity-0"}`}
       />
       <Sidebar
         open={drawerOpen}
         onOverlayChange={setSidebarOverlay}
-        onClose={() => {
-          setDrawerOpen(false);
-          menuButtonRef.current?.focus();
-        }}
+        onClose={closeDrawer}
         onTerminalAttention={openTerminalAttention}
         rigidView={Boolean(browserWorkspaceBotId || localVmWorkspaceBotId || (bot && terminalViews[bot.id] !== undefined))}
       />
