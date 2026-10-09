@@ -2130,6 +2130,7 @@ export function Sidebar({
     <aside
       ref={asideRef}
       aria-label={t("chrome.navAria")}
+      data-phone-drawer
       className={cn(
         "relative flex h-full min-w-0 shrink-0 flex-col border-r border-hairline/40 bg-panel",
         // Below md only: the sidebar leaves the flow and slides in over the chat.

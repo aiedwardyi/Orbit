@@ -1,4 +1,4 @@
-import { SIDEBAR_INLINE_BREAKPOINT } from "./sidebar-preferences";
+import { SIDEBAR_INLINE_BREAKPOINT, type SidebarSide } from "./sidebar-preferences";
 
 export const SWIPE_SLOP = 10;
 export const SWIPE_EDGE = 24;
@@ -32,6 +32,16 @@ export function swipeStep(dx: number, velocity: number, width: number): SwipeSte
   if (fast && Math.sign(velocity) !== Math.sign(dx)) return 0;
   if (!(fast && Math.abs(dx) >= SWIPE_SLOP * 2) && Math.abs(dx) < width * SWIPE_DISTANCE) return 0;
   return dx < 0 ? 1 : -1;
+}
+
+/** The phone drawer closes toward its own edge on the same thresholds, measured against its width. */
+export function drawerSwipeCloses(dx: number, velocity: number, width: number, side: SidebarSide): boolean {
+  return swipeStep(dx, velocity, width) === (side === "left" ? 1 : -1);
+}
+
+/** The drawer follows the finger toward its edge only. */
+export function drawerOffset(dx: number, side: SidebarSide): number {
+  return side === "left" ? Math.min(0, dx) : Math.max(0, dx);
 }
 
 /** Stops at both ends, no wrap. */
