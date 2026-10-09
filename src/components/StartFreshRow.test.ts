@@ -45,6 +45,27 @@ it("cancel does nothing and repeated confirm calls reset only once", async () =>
   }
 });
 
+it("cancel clears a half-typed confirmation word", async () => {
+  Object.defineProperty(window, "ogb", { value: { startFresh: vi.fn() }, configurable: true });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const click = (button: Element) => button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  try {
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(StartFreshRow))));
+    await act(async () => click(host.querySelector("button")!));
+    const field = document.querySelector('[role="dialog"] input');
+    if (!(field instanceof HTMLInputElement)) throw new Error("missing confirm field");
+    await act(async () => typeReset(field, "RESE"));
+    const cancel = [...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent === "Cancel")!;
+    await act(async () => click(cancel));
+    expect(field.value).toBe("");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 it("stays disabled until the typed word matches, then Enter confirms and Escape cancels", async () => {
   const startFresh = vi.fn(() => Promise.resolve());
   Object.defineProperty(window, "ogb", { value: { startFresh }, configurable: true });

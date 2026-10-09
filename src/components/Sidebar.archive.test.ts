@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "@/lib/i18n";
 import { en, ko } from "@/lib/i18n-catalog";
+import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 import type { Bot } from "@/state/store";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -188,6 +189,22 @@ describe("bot archive is not a user action", () => {
         buttonByText("New or share").click();
       });
       expect([...document.querySelectorAll("button")].some((node) => node.textContent?.includes("Archived bots"))).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("keeps the bot menu closed after it fades out", async () => {
+    bots = [bot("ada", "Ada", false)];
+    const { root } = await renderSidebar();
+    try {
+      await openMenu("Ada");
+      expect(document.querySelector("[data-bot-menu]")).not.toBeNull();
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
+      expect(document.querySelector("[data-bot-menu]")).toBeNull();
     } finally {
       await act(async () => root.unmount());
     }

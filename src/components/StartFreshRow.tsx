@@ -54,7 +54,10 @@ export function StartFreshRow() {
             cancelLabel={t("settings.startFresh.cancel")}
             confirmDisabled={!matches}
             onConfirm={() => void reset()}
-            onCancel={() => setConfirming(false)}
+            onCancel={() => {
+              setDraft("");
+              setConfirming(false);
+            }}
           >
             <input
               value={draft}

@@ -7,7 +7,7 @@ export const PRESENCE_EXIT_MS = 130;
 
 export type Presence<T> = { mounted: boolean; closing: boolean; value: T };
 
-/** Keeps a closed surface mounted, marked closing, for its exit fade; `value` holds the last open one. */
+/** Keeps a closed surface mounted, marked closing, for its exit fade; `value` holds the last open one until it unmounts. */
 export function usePresence<T>(when: T): Presence<T> {
   const open = Boolean(when);
   const [shown, setShown] = useState(open);
@@ -20,7 +20,7 @@ export function usePresence<T>(when: T): Presence<T> {
     const timer = setTimeout(() => setShown(false), PRESENCE_EXIT_MS);
     return () => clearTimeout(timer);
   }, [open, shown]);
-  return { mounted: open || shown, closing: !open && shown, value: open ? when : last.current };
+  return { mounted: open || shown, closing: !open && shown, value: open || !shown ? when : last.current };
 }
 
 export function Presence({ open, children }: { open: boolean; children: (closing: boolean) => ReactNode }) {

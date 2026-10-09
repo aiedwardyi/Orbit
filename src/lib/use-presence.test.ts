@@ -94,7 +94,22 @@ describe("usePresence", () => {
     expect(probe()?.hasAttribute("data-closing")).toBe(false);
     await render(null);
     expect(probe()).toBeNull();
-    expect(seen.at(-1)).toEqual({ mounted: false, closing: false, value: "settings" });
+    expect(seen.at(-1)).toEqual({ mounted: false, closing: false, value: null });
+  });
+
+  it("hands back the falsy value once an object surface has faded out", async () => {
+    function Holder({ when }: { when: { id: string } | null }) {
+      const presence = usePresence(when);
+      return presence.value ? createElement("div", { "data-holder": presence.value.id }) : null;
+    }
+    const show = (when: { id: string } | null) => act(async () => root.render(createElement(Holder, { when })));
+    await show({ id: "menu" });
+    await show(null);
+    expect(host.querySelector("[data-holder]")?.getAttribute("data-holder")).toBe("menu");
+    await act(async () => vi.advanceTimersByTime(PRESENCE_EXIT_MS));
+    expect(host.querySelector("[data-holder]")).toBeNull();
+    await act(async () => vi.advanceTimersByTime(PRESENCE_EXIT_MS * 3));
+    expect(host.querySelector("[data-holder]")).toBeNull();
   });
 
   it("renders the Presence child with the closing flag", async () => {

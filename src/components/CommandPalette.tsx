@@ -73,8 +73,7 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
   // from local state, transcript hits arrive a beat later, and a stale
   // response for an outdated query is dropped.
   useEffect(() => {
-    if (!open) return;
-    if (!q) {
+    if (!open || !q) {
       setMessageHits([]);
       return;
     }

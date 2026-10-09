@@ -1637,7 +1637,10 @@ export function Sidebar({
   }, [teamFeedback]);
 
   useEffect(() => {
-    if (!deleteTarget) return;
+    if (!deleteTarget) {
+      setDeleteReach(null);
+      return;
+    }
     let live = true;
     setDeleteReach(null);
     void api("/api/profile-sync")
