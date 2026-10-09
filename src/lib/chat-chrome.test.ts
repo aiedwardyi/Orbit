@@ -149,7 +149,7 @@ describe("transcript pills on a phone", () => {
   const memoryChip = readFileSync(join(components, "MemorySaveChip.tsx"), "utf8");
   const classStrings = (source: string, needle: RegExp) =>
     [...source.matchAll(/"([^"\n]*)"/g)].map((m) => m[1]).filter((value) => needle.test(value));
-  const PILL = /rounded-full border border-hairline\/40 bg-panel px-3 py-1\.5/;
+  const PILL = /rounded-full border border-(?:hairline\/40 bg-panel|warning\/30 bg-warning\/10) px-3 py-1\.5/;
   const LABEL = /max-w-\[480px\] truncate/;
 
   it("lets the memory row shrink to the screen and keeps its icons whole", () => {
@@ -167,15 +167,21 @@ describe("transcript pills on a phone", () => {
     ["GroupView", slice(groupView, "export function RoomToolChip", "function ClusterLabel")],
   ])("lets every truncating row in %s shrink", (_name, source) => {
     const pills = classStrings(source, PILL);
-    // the usage-limit row is fixed copy in its own warning pill
-    const labels = classStrings(source, LABEL).filter((value) => value !== "max-w-[480px] truncate");
+    const labels = classStrings(source, LABEL);
     expect(pills.length).toBeGreaterThan(1);
     expect(labels.length).toBeGreaterThan(1);
     for (const value of pills) expect(value).toMatch(/\bmin-w-0 max-w-full\b/);
     for (const value of labels) expect(value).toMatch(/\bmin-w-0\b/);
   });
 
-  it("lets the room's step wrapper shrink with its pill", () => {
-    expect(groupView).toContain('className="flex min-w-0 max-w-full flex-col items-start"');
+  it("lets the room's step and usage-limit wrappers shrink with their pill", () => {
+    const wrapper = 'className="flex min-w-0 max-w-full flex-col items-start"';
+    expect(groupView.split(wrapper).length - 1).toBe(2);
+  });
+
+  it("wraps an expanded room error inside the pill", () => {
+    const [expanded] = classStrings(groupView, /whitespace-pre-wrap/).map((value) => new Set(value.split(/\s+/)));
+    expect(expanded.has("min-w-0")).toBe(true);
+    expect(expanded.has("break-words")).toBe(true);
   });
 });

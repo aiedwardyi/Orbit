@@ -132,13 +132,13 @@ export function RoomToolChip({
     const reset = usageLimitReset(tool.usageLimit.resetsAt, now);
     return (
       <div className="flex justify-start">
-        <div className="flex flex-col items-start">
+        <div className="flex min-w-0 max-w-full flex-col items-start">
           <div
             title={tool.name}
-            className="flex items-center gap-2 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-[13px] text-warning"
+            className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-[13px] text-warning"
           >
             <Gauge size={13} className="shrink-0" />
-            <span className="max-w-[480px] truncate">
+            <span className="min-w-0 max-w-[480px] truncate">
               {reset ? `${t("chat.usageLimit")} · ${t(reset.key, reset.vars)}` : t("chat.usageLimit")}
             </span>
           </div>
@@ -199,7 +199,7 @@ export function RoomToolChip({
         >
           <span
             className={tool.ok === false && expanded
-              ? "break-words whitespace-pre-wrap font-mono"
+              ? "min-w-0 max-w-full break-words whitespace-pre-wrap font-mono"
               : "min-w-0 max-w-[480px] truncate font-mono"}
           >
             {tool.name}
