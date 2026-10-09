@@ -101,6 +101,8 @@ import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { activeRunForBot, routineWorkingElsewhere } from "../../shared/working-thread";
+import { parsePaneNote, type PaneNote } from "../../shared/pane-note";
+import { LAUNCH_STATUS_KEY, NOTE_STATUS_KEY, noteText, paneReports } from "@/lib/pane-note";
 import { ContextCompactionDivider, TaskRecoveryCard } from "./TaskRecoveryCard";
 
 /** Long user messages collapse behind a fade so pasted walls of text don't
@@ -112,8 +114,6 @@ const PROMPT_PAGES = 3;
 /** Tries at a scrollback page during an edit join before it waits for Show earlier. */
 const JOIN_TRIES = 3;
 const JOIN_RETRY_MS = 1000;
-
-const NOTE_HEADER = /^\[pane ([0-9a-f]{1,8})\](?: \[([^\]]+)\])?/;
 
 /** "Today" / "Yesterday" / "Mon, Aug 11" — real dates, not a hardcoded label. */
 function dayLabel(at: number, t: (key: import("@/lib/i18n").MessageKey) => string, locale: import("@/lib/i18n").LocaleId): string {
@@ -791,11 +791,21 @@ function ScreenFrame({ src, caption }: { src: string; caption?: string }) {
   );
 }
 
+function NoteReport({ note }: { note: PaneNote }) {
+  const { t } = useI18n();
+  return (
+    <>
+      {note.status && <div className="font-medium text-ink">{t(NOTE_STATUS_KEY[note.status])}</div>}
+      {noteText(note, t)}
+    </>
+  );
+}
+
 function NoteMessage({ message }: { message: Message }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const text = message.text ?? "";
-  const match = NOTE_HEADER.exec(text);
-  const label = match ? (match[2] ?? `pane ${match[1]}`) : null;
+  const note = parsePaneNote(message.text ?? "");
+  const title = note.label ? t("chat.noteFrom", { label: note.label }) : t(note.pane8 ? "chat.noteFromWorker" : "chat.note");
   return (
     <div className="flex w-full flex-col items-start gap-1">
       <button
@@ -805,12 +815,12 @@ function NoteMessage({ message }: { message: Message }) {
         className="flex items-center gap-1 rounded-lg border border-hairline/30 bg-inset/25 px-3 py-1.5 text-[12.5px] text-ink-secondary hover:text-ink"
       >
         <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
-        {label ? `Note from ${label}` : "Note"}
+        {title}
       </button>
       {open && (
         // pane text is untrusted; plain text only, never markdown
         <div data-orbit-note className="w-full max-w-2xl whitespace-pre-wrap break-words rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-[12.5px] leading-relaxed text-ink-secondary">
-          {text}
+          <NoteReport note={note} />
         </div>
       )}
     </div>
@@ -844,13 +854,18 @@ function useLivePanes(botId: string, enabled: boolean): Set<string> | null {
   return live;
 }
 
-function LaunchMessage({ message, livePanes, onOpenTerminalPane }: { message: Message; livePanes: Set<string> | null; onOpenTerminalPane?: (sessionId: string) => void }) {
+function LaunchMessage({ message, livePanes, reports, onOpenTerminalPane }: { message: Message; livePanes: Set<string> | null; reports: Map<string, PaneNote>; onOpenTerminalPane?: (sessionId: string) => void }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [header, ...details] = (message.text ?? "").split("\n");
-  const sessionId = details.find((l) => l.startsWith("Session: "))?.slice("Session: ".length).trim();
-  // unknown (no bridge answer yet) behaves like closed minus the label: expand only
+  const [header = "", ...details] = (message.text ?? "").split("\n");
+  const field = (name: string) => details.find((l) => l.startsWith(`${name}: `))?.slice(name.length + 2).trim();
+  const sessionId = field("Session");
+  // unknown (no bridge answer yet, or a phone) behaves like closed minus the label: expand only
   const live = livePanes && sessionId ? livePanes.has(sessionId) : null;
   const jump = live && sessionId && onOpenTerminalPane ? () => onOpenTerminalPane(sessionId) : null;
+  const report = !live && sessionId ? reports.get(sessionId.slice(0, 8)) : undefined;
+  const title = report?.status ? t(LAUNCH_STATUS_KEY[report.status], { header }) : live === false ? t("chat.launchClosed", { header }) : header;
+  const where = live ? "chat.launchRunningIn" : live === false ? "chat.launchRanIn" : "chat.launchFolder";
   const rowClass = "flex items-center gap-1 rounded-lg border border-hairline/30 bg-inset/25 text-[12.5px] text-ink-secondary";
   return (
     <div className="flex w-full flex-col items-start gap-1">
@@ -864,12 +879,12 @@ function LaunchMessage({ message, livePanes, onOpenTerminalPane }: { message: Me
       ) : (
         <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className={cn(rowClass, "px-3 py-1.5 hover:text-ink")}>
           <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
-          {live === false ? `${header} · closed` : header}
+          {title}
         </button>
       )}
       {open && (
         <div data-orbit-launch className="w-full max-w-2xl whitespace-pre-wrap break-words rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-[12.5px] leading-relaxed text-ink-secondary">
-          {details.join("\n")}
+          {report ? <NoteReport note={report} /> : t(where, { folder: field("Working folder") ?? "" })}
         </div>
       )}
     </div>
@@ -918,6 +933,7 @@ const MessagesList = memo(function MessagesList({
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const livePanes = useLivePanes(bot.id, useMemo(() => messages.some((m) => m.kind === "launch"), [messages]));
+  const reports = useMemo(() => paneReports(transcript), [transcript]);
   // Fold finished tool chips into runs, so a stretch of them cannot bury
   // what the bot actually said. Hidden unless Settings → Tool calls is on.
   const items = useMemo(
@@ -1030,7 +1046,7 @@ const MessagesList = memo(function MessagesList({
             case "note":
               return <NoteMessage message={m} />;
             case "launch":
-              return <LaunchMessage message={m} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} />;
+              return <LaunchMessage message={m} livePanes={livePanes} reports={reports} onOpenTerminalPane={onOpenTerminalPane} />;
             default:
               return (
                 <Bubble

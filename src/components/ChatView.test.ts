@@ -148,7 +148,7 @@ describe("ChatView reply settle", () => {
 });
 
 describe("ChatView note collapse", () => {
-  it("collapses a note to its header and expands the full text on click", async () => {
+  it("collapses a note to its header and expands the status and the worker's words", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     vi.stubGlobal("ResizeObserver", class {
@@ -160,16 +160,18 @@ describe("ChatView note collapse", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    const labeled: Message = { id: "note-1", at: 1, role: "bot", kind: "note", text: "[pane 0f3c9a1e] [OPUS | MED] from worker (w1): tests pass" };
+    const labeled: Message = { id: "note-1", at: 1, role: "bot", kind: "note", text: "[pane 0f3c9a1e] [OPUS | MED] from Wink (61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b): DONE OPUS branch=fix/x sha=3623665c dirty=no\ntests pass" };
     const unlabeled: Message = { id: "note-2", at: 2, role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker (w1): still running" };
     const current = { ...botA, messages: [userMsg("ua", "go"), labeled, unlabeled] } as Bot;
     try {
       await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current }))));
       const buttons = Array.from(host.querySelectorAll("button")).filter((b) => b.textContent?.startsWith("Note from"));
-      expect(buttons.map((b) => b.textContent)).toEqual(["Note from OPUS | MED", "Note from pane 0f3c9a1e"]);
+      expect(buttons.map((b) => b.textContent)).toEqual(["Note from OPUS | MED", "Note from a worker"]);
       expect(host.querySelector("[data-orbit-note]")).toBeNull();
       await act(async () => { buttons[0]!.click(); });
-      expect(host.querySelector("[data-orbit-note]")?.textContent).toBe("[pane 0f3c9a1e] [OPUS | MED] from worker (w1): tests pass");
+      const shown = host.querySelector("[data-orbit-note]")?.textContent ?? "";
+      expect(shown).toBe("Finishedtests pass");
+      for (const machine of ["[pane", "61902933", "branch=", "sha=", "dirty="]) expect(shown).not.toContain(machine);
       await act(async () => { buttons[0]!.click(); });
       expect(host.querySelector("[data-orbit-note]")).toBeNull();
     } finally {
@@ -178,7 +180,7 @@ describe("ChatView note collapse", () => {
     }
   });
 
-  it("collapses a launch row to its header and expands label, folder and session", async () => {
+  it("collapses a launch row to its header and expands only the folder", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     vi.stubGlobal("ResizeObserver", class {
@@ -198,7 +200,7 @@ describe("ChatView note collapse", () => {
       expect(buttons.map((b) => b.textContent)).toEqual(["Launched THEME-CYCLE | Sonnet 5.5 | medium", "Launched B", "Launched C"]);
       expect(host.querySelector("[data-orbit-launch]")).toBeNull();
       await act(async () => { buttons[0]!.click(); });
-      expect(host.querySelector("[data-orbit-launch]")?.textContent).toBe("Label: THEME-CYCLE | Sonnet 5.5 | medium\nWorking folder: C:\\repo\nSession: p1");
+      expect(host.querySelector("[data-orbit-launch]")?.textContent).toBe("Folder: C:\\repo");
       await act(async () => { buttons[0]!.click(); });
       expect(host.querySelector("[data-orbit-launch]")).toBeNull();
     } finally {
@@ -232,12 +234,52 @@ describe("ChatView note collapse", () => {
       expect(onOpenTerminalPane).toHaveBeenCalledWith("p1");
       expect(host.querySelector("[data-orbit-launch]")).toBeNull();
       await act(async () => { host.querySelector<HTMLButtonElement>("button[aria-label='Details']")!.click(); });
-      expect(host.querySelector("[data-orbit-launch]")?.textContent).toContain("Session: p1");
+      expect(host.querySelector("[data-orbit-launch]")?.textContent).toBe("Running in C:\\repo");
       const closed = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Launched B · closed")!;
       await act(async () => { closed.click(); });
       expect(onOpenTerminalPane).toHaveBeenCalledTimes(1);
-      expect(host.textContent).toContain("Session: p2");
+      expect(host.textContent).toContain("Ran in C:\\repo");
+      expect(host.textContent).not.toContain("Session:");
+      expect(host.textContent).not.toContain("Label:");
       expect(readBot).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("shows a closed launch's newest report as its status and words", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("ogb", { platform: "win32", terminal: { readBot: vi.fn(async () => ({ panes: [] })) } });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const done = "bc9c674b-2844-43b0-982e-88305df70570";
+    const failed = "0f3c9a1e-1111-4222-8333-944455556666";
+    const launch = (id: string, label: string): Message => ({ id, at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${id}` });
+    const note = (id: string, pane: string, text: string): Message => ({ id, at: 2, role: "bot", kind: "note", text: `[pane ${pane.slice(0, 8)}] [X] from Wink (61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b): ${text}` });
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [
+      userMsg("ua", "go"), launch(done, "A"), launch(failed, "B"),
+      note("n1", done, "FAIL A branch=x sha=y dirty=no\nfirst try broke"),
+      note("n2", done, "DONE A branch=fix/a sha=3623665c dirty=no\nAll green."),
+      note("n3", failed, "FAIL B branch=x sha=y dirty=yes\nThe build broke."),
+    ] } as Bot;
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current, onOpenTerminalPane: vi.fn() }))));
+      const rows = Array.from(host.querySelectorAll("button")).filter((b) => b.textContent?.startsWith("Launched"));
+      expect(rows.map((b) => b.textContent)).toEqual(["Launched A · finished", "Launched B · failed"]);
+      await act(async () => { rows[0]!.click(); });
+      const shown = host.querySelector("[data-orbit-launch]")?.textContent ?? "";
+      expect(shown).toBe("FinishedAll green.");
+      for (const machine of ["Session", "Label", "branch=", "sha=", "dirty=", done]) expect(shown).not.toContain(machine);
     } finally {
       await act(async () => root.unmount());
       host.remove();
