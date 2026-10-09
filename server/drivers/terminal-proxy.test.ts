@@ -7,7 +7,7 @@ import { STATIC_GROK_MODELS } from "./acp/grok.ts";
 import { STATIC_CLAUDE_MODELS } from "./claude.ts";
 import { STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 import { MSP_MUSE_EFFORT_LEVELS, MSP_MUSE_MODELS } from "./msp/muse.ts";
-import { TOOLS, callTool, claudeState, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText, workerReportText } from "./terminal-proxy.ts";
+import { TOOLS, callTool, claudeState, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText, workerModelsText, workerReportText } from "./terminal-proxy.ts";
 
 const CONFIG = { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" };
 const BUSY = "● Working on it\n✽ Undulating… (3s · ↓ 75 tokens · thought for 2s)\n────────────────────\n❯\n────────────────────";
@@ -77,8 +77,8 @@ describe("terminal proxy", () => {
     expect(description).toContain("Astra = gpt-6-astra");
     expect(description).toContain(`effort ${MSP_MUSE_EFFORT_LEVELS.join("/")}`);
     expect(description).toMatch(/models to launch in panes \(not bots\)/i);
-    const list = description.slice(description.indexOf("Worker models"), description.indexOf("Engine CLIs run"));
-    expect(list.length).toBeLessThan(700);
+    expect(description).toContain(workerModelsText());
+    expect(workerModelsText().length).toBeLessThan(700);
   });
 
   it("adds Codex pane env, notify and orbit-msg reports on Windows only", () => {

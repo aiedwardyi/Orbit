@@ -63,7 +63,7 @@ export function workerReportText(platform: NodeJS.Platform, claudeSettings = exi
 const REPORT_TEXT = workerReportText(process.platform);
 
 // Picker rows only; "Claude " and "Meta " prefixes are dropped to keep the list short.
-function workerModelsText(): string {
+export function workerModelsText(): string {
   const line = (engine: string, catalog: ModelCatalog, effort = "") =>
     `${engine}: ${catalog.options.map((option) => `${option.label.replace(/^(Claude|Meta) /, "")} = ${option.id}`).join(", ")}${effort}.`;
   return [
