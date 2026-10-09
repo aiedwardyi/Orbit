@@ -101,6 +101,12 @@ async function setVisible(visible: boolean) {
   await act(async () => document.dispatchEvent(new Event("visibilitychange")));
 }
 
+// The Claude driver sends the settled reply and the turn end right after the last delta.
+async function settle(text = BURST) {
+  await emit({ kind: "message", threadId: "t1", message: { id: "a1", parentId: "u1", at: 2, role: "bot", kind: "text", text } });
+  await emit({ kind: "runtime", event: { type: "turn.completed", threadId: "t1", turnId: "turn1" } });
+}
+
 async function typingBurst() {
   await live();
   await delta(BURST);
@@ -158,17 +164,72 @@ describe("live reply typing", () => {
     expect(shown()).toBe(500);
   });
 
-  it("shows a settled reply whole, even mid-typing", async () => {
+  it("lets the tail finish typing before the settled reply takes over", async () => {
     await typingBurst();
-    await emit({
-      kind: "message",
-      threadId: "t1",
-      message: { id: "a1", parentId: "u1", at: 2, role: "bot", kind: "text", text: BURST },
-    });
+    const typed = shown();
+    await settle();
+    expect(store.state.bots[0].messages.at(-1)?.id).toBe("u1");
+    expect(shown()).toBe(typed);
+    await advance(16);
+    expect(shown()).toBeGreaterThan(typed);
+    await advance(150);
     expect(stream.streaming.t1).toBeUndefined();
     expect(store.state.bots[0].messages.at(-1)).toMatchObject({ id: "a1", text: BURST });
+    expect(stream.signal.t1).toBeUndefined();
+  });
+
+  it("keeps the thread's later frames behind a reply that is still typing", async () => {
+    await typingBurst();
+    await settle();
+    await emit({ kind: "message", threadId: "t1", message: { id: "n1", parentId: "a1", at: 3, role: "bot", kind: "note", text: "after" } });
     await advance(200);
-    expect(stream.streaming.t1).toBeUndefined();
+    expect(store.state.bots[0].messages.map((m) => m.id)).toEqual(["u1", "a1", "n1"]);
+  });
+
+  it("settles at once when nothing is left to type", async () => {
+    await live();
+    await delta("Hi");
+    await advance(200);
+    await settle("Hi");
+    expect(store.state.bots[0].messages.at(-1)?.id).toBe("a1");
+  });
+
+  it("settles at once after the turn ended", async () => {
+    await typingBurst();
+    await emit({ kind: "runtime", event: { type: "turn.completed", threadId: "t1", turnId: "turn1" } });
+    await delta("late ".repeat(100));
+    await emit({ kind: "message", threadId: "t1", message: { id: "a1", parentId: "u1", at: 2, role: "bot", kind: "text", text: BURST } });
+    expect(store.state.bots[0].messages.at(-1)?.id).toBe("a1");
+  });
+
+  it("settles at once under reduced motion", async () => {
+    await typingBurst();
+    reducedMotion = true;
+    await settle();
+    expect(store.state.bots[0].messages.at(-1)?.id).toBe("a1");
+  });
+
+  it("settles a waiting reply when the window hides", async () => {
+    await typingBurst();
+    await settle();
+    await setVisible(false);
+    expect(store.state.bots[0].messages.at(-1)?.id).toBe("a1");
+  });
+
+  it("settles a reply held behind the history load at once", async () => {
+    let release!: () => void;
+    const loaded = new Promise<void>((resolve) => (release = resolve));
+    await mount(async () => {
+      await loaded;
+      return Response.json({ bots: [bot], groups: [], computerControl: {} });
+    });
+    await emit(started);
+    await delta(BURST);
+    await emit({ kind: "message", threadId: "t1", message: { id: "a1", parentId: "u1", at: 2, role: "bot", kind: "text", text: BURST } });
+    release();
+    for (let i = 0; i < 20 && !store.state.hydrated; i++) await act(async () => {});
+    expect(store.state.hydrated).toBe(true);
+    expect(store.state.bots[0].messages.at(-1)?.id).toBe("a1");
   });
 
   it("lands frames held behind the history load whole", async () => {

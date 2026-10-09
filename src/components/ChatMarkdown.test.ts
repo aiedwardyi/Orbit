@@ -6,7 +6,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { describe, expect, it, vi } from "vitest";
 
-import { ChatMarkdown, isRelativeHref, resolveRelativePath, streamBlocks } from "./ChatMarkdown";
+import { ChatMarkdown, isRelativeHref, resolveRelativePath, settleStreamTail, streamBlocks } from "./ChatMarkdown";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -67,6 +67,91 @@ describe("streaming blocks", () => {
     expect(split).toHaveLength(blocks);
     expect(split.join("")).toBe(text);
     expect(split.map(markup).join("")).toBe(markup(text));
+  });
+});
+
+describe("streaming tail", () => {
+  it.each([
+    ["First I will **check the con", "First I will **check the con**"],
+    ["make sure the `stag", "make sure the `stag`"],
+    ["**bold `code", "**bold `code`**"],
+    ["**check the config*", "**check the config**"],
+    ["clean. Then **", "clean. Then "],
+    ["the `staging` branch `", "the `staging` branch "],
+    ["Done.\n\n- ", "Done.\n\n"],
+    ["Done.\n2.", "Done.\n"],
+    ["- **Run", "- **Run**"],
+  ])("paints %j as %j", (tail, painted) => {
+    expect(settleStreamTail(tail)).toBe(painted);
+  });
+
+  it.each([
+    "First I will **check the config** and",
+    "the `staging` branch",
+    "- Check the env",
+    "5 * 3 is fifteen",
+    "an escaped \\*star",
+    "```bash\necho `date` **",
+    "Use *.ts files in the build",
+    "2*3 equals six",
+    "glob **/*.md",
+    "use *args and **kwar",
+    "Use `a*`",
+    "Use `a*` and",
+    "1",
+    "42",
+    "2026",
+    "Done.\n2026",
+    "Keep \\*",
+    "type \\`",
+    "````md\n```\n**not closed",
+    "~~~\n```\n**not closed",
+    "    indented **code",
+    "\t**tabbed",
+    "**first\nsecond",
+  ])("leaves %j alone", (tail) => {
+    expect(settleStreamTail(tail)).toBe(tail);
+  });
+
+  it("never paints styling the settled reply does not have", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const reply = "Use *.ts files, 2*3 equals six, glob **/*.md and `a*` here.\n\n2026\n\n```js\nconst x = 2 * 3; // **not bold**\n```\n\n    indented **code\n\nThen **check the config** and `staging`, then *done*.";
+    const styled = () => [...host.querySelectorAll(".chat-md :is(em, strong, code)")].map((el) => [el.tagName, el.textContent ?? ""] as const);
+    try {
+      await act(async () => root.render(createElement(ChatMarkdown, { text: reply, streaming: false })));
+      const settled = styled();
+      for (let at = 1; at <= reply.length; at++) {
+        await act(async () => root.render(createElement(ChatMarkdown, { text: reply.slice(0, at), streaming: true })));
+        for (const [tag, text] of styled()) {
+          expect.soft(settled.some(([t, full]) => t === tag && full.startsWith(text)), `${tag} ${JSON.stringify(text)} at ${at}`).toBe(true);
+        }
+      }
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("never shows a raw marker or an empty bullet while a reply types out", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const reply = "First I will **check the config** and make sure the `staging` branch is clean.\n\n- Check the environment\n- Run the build";
+    try {
+      for (let at = 1; at <= reply.length; at++) {
+        await act(async () => root.render(createElement(ChatMarkdown, { text: reply.slice(0, at), streaming: true })));
+        const md = host.querySelector(".chat-md")!;
+        expect.soft(md.textContent, reply.slice(0, at)).not.toMatch(/[*`]/);
+        expect.soft([...md.querySelectorAll("li")].filter((li) => !li.textContent?.trim()), reply.slice(0, at)).toHaveLength(0);
+      }
+      await act(async () => root.render(createElement(ChatMarkdown, { text: reply, streaming: false })));
+      expect(host.querySelector(".chat-md strong")?.textContent).toBe("check the config");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
   });
 });
 
