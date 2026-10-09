@@ -194,13 +194,16 @@ export function mirrorActivity(
   channel: GroupRecord | undefined,
   name: string,
   ok: boolean,
+  comm?: CommLink,
 ): void {
   if (!channel) return;
-  bus.store.appendMessage(channel.threadId, {
+  const row: Omit<Message, "id" | "at"> = {
     role: "bot",
     kind: "activity",
     tool: { name, ok },
     from: { botId: from.id, name: from.name, color: from.color },
-  });
+  };
+  if (comm) row.comm = comm;
+  bus.store.appendMessage(channel.threadId, row);
   bus.store.patchGroup(channel.id, { unread: true });
 }

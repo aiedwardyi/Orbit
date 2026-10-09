@@ -344,6 +344,15 @@ export function queuedSteeredMessage(
   return item ? { id: item.messageId, text: item.text, replyToId: item.replyToId } : null;
 }
 
+/** Whether any of this bot's sends or room turns still wait to drain. */
+export function hasQueuedSends(botId: string): boolean {
+  for (const entry of queues.values()) {
+    if (entry.botId !== botId) continue;
+    if (entry.items.some((item) => isRoomItem(item) || !isSendCancelled(item.sendId))) return true;
+  }
+  return false;
+}
+
 /** Drop one waiting send owned by this bot so it never drains. Matches the
  * queue message id or the client sendId. A sendId that is not queued yet is
  * remembered so a late POST cannot start it. Returns `running` when that
