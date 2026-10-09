@@ -61,7 +61,7 @@ git -C <repo> worktree add {{WORKTREE}} -b <branch> <base>
 - Create it before the spawn and pass it as the pane cwd.
 - `<name>` matches the nickname in lowercase.
 - Remove it once the branch has landed: `git -C <repo> worktree remove <path>`.
-- A read-only review of a plain folder that is not a repo skips the worktree: pass the folder as cwd, and the card forbids edits.
+- A read-only review of a plain folder that is not a repo runs in a scratch copy of it, never the original: workers run unsandboxed, so a stray edit there could not be undone.
 
 ## Verify before push
 

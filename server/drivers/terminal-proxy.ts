@@ -124,7 +124,7 @@ export const TOOLS = [
     name: "terminal_spawn",
     description:
       "Open a labeled pane (a terminal-view tab) in cwd and type command plus Enter if given. Returns sessionId and generation. Max 8 live panes. The shell is PowerShell on Windows. " +
-      "To run a worker: cwd is a git worktree, never the live checkout (or a plain folder, for a read-only review whose card forbids edits); label is \"NICKNAME | MODEL | EFFORT\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
+      "To run a worker: cwd is a git worktree, never the live checkout (a read-only review of a plain folder runs in a scratch copy of it, never the original); label is \"NICKNAME | MODEL | EFFORT\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
       `Claude: claude --model <model-id> --dangerously-skip-permissions ${REPORT_TEXT.claude}'Read <card path> and do it.' then terminal_send the effort. If it shows a folder-trust menu, read it and pick Yes with terminal_send key presses; Enter alone may pick No. ` +
       `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox ${REPORT_TEXT.env}${REPORT_TEXT.notify}'<prompt>' (a new folder shows a trust prompt first; send Enter). ` +
       "Muse: muse --model <model-id> --reasoning-effort <effort> --yolo '<prompt>'. " +
