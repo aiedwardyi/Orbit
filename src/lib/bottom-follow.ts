@@ -23,9 +23,19 @@ export function shouldResumeBottomFollow({
 
 type ScrollBox = Pick<HTMLElement, "scrollHeight" | "scrollTop" | "clientHeight">;
 
-/** The newest row is under the fold, so Jump to latest has somewhere to go. */
-export function newestBelowView(el: ScrollBox): boolean {
-  return el.scrollHeight - el.scrollTop - el.clientHeight >= BOTTOM_FOLLOW_THRESHOLD;
+/** The newest row is under the fold, so Jump to latest has somewhere to go. `after` is what
+ * follows that row (presence row, padding), which can sit under the fold while the row shows. */
+export function newestBelowView(el: ScrollBox, after = 0): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight - after >= BOTTOM_FOLLOW_THRESHOLD;
+}
+
+/** Height of the transcript below its newest message row. Rows are display:contents wrappers, so their children carry the boxes. */
+export function spaceAfterNewestRow(content: HTMLElement): number {
+  const rows = content.querySelectorAll("[data-mid]");
+  const newest = rows[rows.length - 1];
+  if (!newest) return 0;
+  const bottoms = [newest, ...newest.children].map((el) => el.getBoundingClientRect()).filter((box) => box.height > 0).map((box) => box.bottom);
+  return bottoms.length ? Math.max(0, content.getBoundingClientRect().bottom - Math.max(...bottoms)) : 0;
 }
 
 /** Nothing to scroll; a transcript that isn't laid out (hidden, test DOM) reads 0 and never counts. */

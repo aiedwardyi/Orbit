@@ -159,8 +159,8 @@ export function useJumpWindow(
   return { messages, hasMore: Boolean(current?.hasMore), pending, open, older, close };
 }
 
-/** Loads the page before `oldestId`, one request at a time. `beforeCommit`
- * runs just before the page lands, so a caller can measure the old layout. */
+/** Loads the page before `oldestId`, one request at a time; a call while one loads joins it.
+ * `beforeCommit` runs just before the page lands, so a caller can measure the old layout. */
 export function useOlderMessages(
   dispatch: React.Dispatch<Action>,
   threadId: string,
@@ -168,14 +168,20 @@ export function useOlderMessages(
   hasMore: boolean | undefined,
 ) {
   // One view serves many threads; a page still loading for one must not block another.
-  const inflight = useRef(new Set<string>());
+  const inflight = useRef(new Map<string, (() => void)[]>());
   return useCallback(
     (beforeCommit?: () => void, onFail?: () => void) => {
-      if (!hasMore || !oldestId || inflight.current.has(threadId)) return;
-      inflight.current.add(threadId);
+      if (!hasMore || !oldestId) return;
+      const joined = inflight.current.get(threadId);
+      if (joined) {
+        if (beforeCommit) joined.push(beforeCommit);
+        return;
+      }
+      const measures = beforeCommit ? [beforeCommit] : [];
+      inflight.current.set(threadId, measures);
       fetchOlderPage(threadId, oldestId)
         .then((page) => {
-          beforeCommit?.();
+          for (const measure of measures) measure();
           dispatch({ type: "olderMessages", threadId, before: oldestId, ...page });
         })
         .catch(() => onFail?.())

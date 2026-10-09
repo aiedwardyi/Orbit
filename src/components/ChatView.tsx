@@ -82,7 +82,7 @@ import { MemorySaveChip } from "./MemorySaveChip";
 import { ActivityRun, ActivityStep } from "./ActivityRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
-import { BOTTOM_FOLLOW_THRESHOLD, newestBelowView, shouldResumeBottomFollow, transcriptUnderfilled } from "@/lib/bottom-follow";
+import { BOTTOM_FOLLOW_THRESHOLD, newestBelowView, shouldResumeBottomFollow, spaceAfterNewestRow, transcriptUnderfilled } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
 import { placeTooltip } from "@/lib/tooltip-position";
 import { TRANSCRIPT_GAP, useComposerDockPad } from "@/lib/composer-dock";
@@ -1434,12 +1434,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   // A plain tail holds at least the newest window of visible rows. Shifting it
   // for an auto-paged older page would leave a tool-heavy tail nearly blank.
   const tailStart = useMemo(() => tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), [messages.length, renders]);
-  const preExpandHeight = useRef<number | null>(null);
-  if (!jump.messages && transcriptWindow.key === transcriptKey && transcriptWindow.end === null && !transcriptWindow.expanded && transcriptWindow.start > tailStart) {
-    // rows land above a reader in scrollback: the expand restore keeps their row put
-    if (!followRef.current) preExpandHeight.current ??= scrollRef.current?.scrollHeight ?? null;
-    setTranscriptWindow((w) => (w.end === null && !w.expanded ? { ...w, start: Math.min(w.start, tailStart) } : w));
-  }
 
   // deps track the FULL messages.length, so expanding the window (which only
   // changes windowedMessages) can never re-trigger this bottom scrollTo.
@@ -1460,7 +1454,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const measure = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    setNewestBelow(newestBelowView(el));
+    setNewestBelow(newestBelowView(el, contentRef.current ? spaceAfterNewestRow(contentRef.current) : 0));
     setUnderfilled(transcriptUnderfilled(el));
   }, []);
   useEffect(() => {
@@ -1481,7 +1475,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   }, [measure]);
 
   // A plain tail too short to scroll pages older rows in until it fills or the thread runs out.
-  const fillPaging = Boolean(bot.hasMore) && !jump.messages && transcriptWindow.end === null && !transcriptWindow.expanded;
+  // A widening window still to commit is not short of rows.
+  const fillPaging =
+    Boolean(bot.hasMore) && !jump.messages && !jump.pending && transcriptWindow.end === null && !transcriptWindow.expanded && transcriptWindow.start <= tailStart;
   useEffect(() => {
     const el = scrollRef.current;
     if (fillPaging && el && transcriptUnderfilled(el)) loadOlder();
@@ -1490,6 +1486,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   // Expanding prepends rows: capture the height first, then after the commit
   // shift scrollTop by the growth so the message under the cursor stays put
   // (browser scroll anchoring is disabled on this container).
+  const preExpandHeight = useRef<number | null>(null);
   const showEarlier = () => {
     // expanding means reading scrollback — never let a mid-expand stream
     // event pin the viewport back to the bottom
@@ -1515,6 +1512,14 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     // downward user scroll
     previousScrollTop.current = el.scrollTop;
   }, [transcriptWindow.start, head]);
+  // After commit and after the restore above: the height read is the committed
+  // layout, and the widened window's commit runs the restore.
+  useLayoutEffect(() => {
+    if (jump.messages || transcriptWindow.end !== null || transcriptWindow.expanded || transcriptWindow.start <= tailStart) return;
+    // rows land above a reader in scrollback: the expand restore keeps their row put
+    if (!followRef.current) preExpandHeight.current ??= scrollRef.current?.scrollHeight ?? null;
+    setTranscriptWindow((w) => (w.end === null && !w.expanded ? { ...w, start: Math.min(w.start, tailStart) } : w));
+  }, [jump.messages, tailStart, transcriptWindow]);
 
   const showLater = () => {
     setBottomFollow(false);
@@ -1540,7 +1545,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   };
   // an upward swipe on a transcript already at its top scrolls nothing, so there is no scrollback to read
   const breakFollow = () => {
-    if (scrollRef.current?.scrollTop) setBottomFollow(false);
+    if ((scrollRef.current?.scrollTop ?? 0) > 0) setBottomFollow(false);
   };
   const jumpToLatest = () => {
     closeJump();
