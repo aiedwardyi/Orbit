@@ -38,7 +38,7 @@ export const PendingQuestionPanel = memo(function PendingQuestionPanel({
             onClick={onDismiss}
             aria-label={t("chat.dismissQuestion")}
             title={t("chat.dismissQuestion")}
-            className="-mr-1 -mt-0.5 shrink-0 rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
+            className="-mr-1 -mt-0.5 shrink-0 rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink pointer-coarse:-my-3 pointer-coarse:-ml-[11px] pointer-coarse:-mr-[15px] pointer-coarse:px-[15px] pointer-coarse:pt-[14px] pointer-coarse:pb-4"
           >
             <X size={14} aria-hidden="true" />
           </button>
@@ -56,7 +56,7 @@ export const PendingQuestionPanel = memo(function PendingQuestionPanel({
                 key={choice}
                 type="button"
                 onClick={() => onPick(choice)}
-                className="max-w-full break-words rounded-full border border-hairline bg-control px-3.5 py-1.5 text-left text-[13px] text-ink transition-colors hover:bg-raised-hover pointer-coarse:min-h-9"
+                className="max-w-full break-words rounded-full border border-ink-secondary bg-control px-3.5 py-1.5 text-left text-[13px] text-ink transition-colors hover:bg-raised-hover pointer-coarse:min-h-11"
               >
                 {choice}
               </button>

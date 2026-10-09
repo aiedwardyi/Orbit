@@ -102,13 +102,31 @@ describe("pinned ask_user question", () => {
     expect(textarea()?.disabled).toBe(false);
   });
 
-  it("styles the choices as filled pills with a 36px touch height", async () => {
+  it("outlines the choices in secondary ink with a 44px touch height", async () => {
     await mount({ bot: bot([question]) });
     const choice = pinButton("Prod").className;
     expect(choice).toContain("rounded-full");
     expect(choice).toContain("bg-control");
-    expect(choice).toContain("border-hairline ");
-    expect(choice).toContain("pointer-coarse:min-h-9");
+    expect(choice).toContain("border-ink-secondary ");
+    expect(choice).toContain("pointer-coarse:min-h-11");
+  });
+
+  it("gives the x a 44px touch target without growing the card", async () => {
+    await mount({ bot: bot([question]) });
+    const dismiss = pinButton("Dismiss question").className;
+    expect(dismiss).toContain("p-1 ");
+    expect(dismiss).toContain("pointer-coarse:-my-3");
+    expect(dismiss).toContain("pointer-coarse:px-[15px] pointer-coarse:pt-[14px] pointer-coarse:pb-4");
+  });
+
+  it("asks to type the answer while an open question is pinned", async () => {
+    await mount({ bot: bot([{ ...question, card: { ...question.card!, options: [] } }]) });
+    expect(textarea()?.placeholder).toBe("Type your answer");
+  });
+
+  it("keeps the usual placeholder for a question with choices", async () => {
+    await mount({ bot: bot([question]) });
+    expect(textarea()?.placeholder).toBe("Message Ada");
   });
 
   it("sends a tapped choice as the answer and persists answered, not dismissed", async () => {

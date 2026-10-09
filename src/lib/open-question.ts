@@ -56,6 +56,17 @@ export function openQuestion(messages: readonly Message[]): Message | null {
   return needsYou(messages).question;
 }
 
+/** An open permission ask: it takes the composer over, so it hides the pin. */
+function isOpenApproval(message: Message): boolean {
+  return isOpenRequest(message) && Boolean(message.card?.tool);
+}
+
+/** The question pinned above the composer. `visible` is the shown branch,
+ * where an approval waits; the question comes from the whole chat. */
+export function pinnedQuestion(messages: readonly Message[], visible: readonly Message[] = messages): Message | null {
+  return visible.some(isOpenApproval) ? null : openQuestion(messages);
+}
+
 /** True when a sidebar row for this chat should glow. */
 export function chatNeedsYou(messages: readonly Message[]): boolean {
   const state = needsYou(messages);

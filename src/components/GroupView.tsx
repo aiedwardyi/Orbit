@@ -19,7 +19,7 @@ import { BotAvatar } from "./Avatar";
 import { MessageBoundary, PresenceAnswer, TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
-import { isAskUserCard } from "@/lib/open-question";
+import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { DEFAULT_MAUS_COLOR, normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint, responderControlLabel } from "@/lib/group-routing";
@@ -403,7 +403,12 @@ const Transcript = memo(function Transcript({
             </div>
           ) : isAskUserCard(m) ? (
             <div className="flex justify-start">
-              <AskUserRecord message={m} transcript={group.messages} askerName={memberOf(m.from?.botId)?.name ?? m.from?.name} />
+              <AskUserRecord
+                message={m}
+                transcript={group.messages}
+                askerName={memberOf(m.from?.botId)?.name ?? m.from?.name}
+                pinned={pinnedQuestion(group.messages)?.id === m.id}
+              />
             </div>
           ) : m.kind === "routine.run" ? (
             <div className="flex justify-start">
