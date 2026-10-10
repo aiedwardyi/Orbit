@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -76,6 +76,41 @@ describe("startEarlyListen", () => {
     expect(await chunk.text()).toContain("location.reload()");
     expect((await fetch(`${base}/assets/SettingsModal-OLDHASH0.css`)).status).toBe(404);
     expect(await (await fetch(`${base}/remote`)).text()).toContain("composer shell");
+  });
+
+  it("caches hashed assets for good and keeps the missing-chunk module no-store", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orbit-early-ui-"));
+    mkdirSync(join(dir, "assets"));
+    writeFileSync(join(dir, "assets", "index-AAAA1111.js"), "export {};");
+    writeFileSync(join(dir, "sw.js"), "self.addEventListener('push', () => {});");
+    const { early, base } = await listen();
+    early.staticDir = dir;
+    const asset = await fetch(`${base}/assets/index-AAAA1111.js`);
+    expect(asset.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect((await fetch(`${base}/sw.js`)).headers.get("cache-control")).toBeNull();
+    const missing = await fetch(`${base}/assets/RemoteTerminalView-OLDHASH0.js`);
+    expect(missing.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("revalidates index.html with an ETag and sees a new build at once", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orbit-early-ui-"));
+    writeFileSync(join(dir, "index.html"), "<html><body>build one</body></html>");
+    const { early, base } = await listen();
+    early.staticDir = dir;
+    const first = await fetch(`${base}/`);
+    const etag = first.headers.get("etag");
+    expect(first.headers.get("cache-control")).toBe("no-cache");
+    expect(etag).toBeTruthy();
+    const same = await fetch(`${base}/`, { headers: { "if-none-match": etag! } });
+    expect(same.status).toBe(304);
+    expect(await same.text()).toBe("");
+    expect((await fetch(`${base}/remote`, { headers: { "if-none-match": etag! } })).status).toBe(304);
+
+    writeFileSync(join(dir, "index.html"), "<html><body>build two, longer</body></html>");
+    const next = await fetch(`${base}/`, { headers: { "if-none-match": etag! } });
+    expect(next.status).toBe(200);
+    expect(next.headers.get("etag")).not.toBe(etag);
+    expect(await next.text()).toContain("build two");
   });
 
   it("holds /api/bots until the harness handler is installed", async () => {
