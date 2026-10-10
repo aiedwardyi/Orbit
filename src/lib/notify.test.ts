@@ -18,6 +18,7 @@ const frame: NotifyFrame = {
   threadId: "thread-1",
   title: "Maus finished",
   body: "All done",
+  icon: "/notify-icons/squircle-white.png",
 };
 
 function installNotification(permission: NotificationPermission, focused = false) {
@@ -35,6 +36,17 @@ function installNotification(permission: NotificationPermission, focused = false
   vi.stubGlobal("document", { hasFocus: () => focused });
   vi.stubGlobal("window", { focus: vi.fn() });
   return { notices, requestPermission };
+}
+
+function installIconRaster(fetchIcon: typeof fetch) {
+  const drawImage = vi.fn();
+  vi.stubGlobal("fetch", fetchIcon);
+  vi.stubGlobal("createImageBitmap", async () => ({ width: 300, height: 200, close: vi.fn() }));
+  vi.stubGlobal("document", {
+    hasFocus: () => false,
+    createElement: () => ({ getContext: () => ({ drawImage }), toDataURL: (type: string) => `data:${type};base64,iVBORw0K` }),
+  });
+  return { drawImage };
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -63,7 +75,7 @@ describe("desktop notifications", () => {
   it("stays quiet only when the exact target thread is already visible", () => {
     const { notices } = installNotification("granted", true);
 
-    showNotification(frame, vi.fn(), undefined, frame.threadId);
+    showNotification(frame, vi.fn(), frame.threadId);
 
     expect(notices).toHaveLength(0);
   });
@@ -71,7 +83,7 @@ describe("desktop notifications", () => {
   it("still alerts a focused app when another task is visible", () => {
     const { notices } = installNotification("granted", true);
 
-    showNotification(frame, vi.fn(), undefined, "another-thread");
+    showNotification(frame, vi.fn(), "another-thread");
 
     expect(notices).toHaveLength(1);
   });
@@ -123,29 +135,32 @@ describe("desktop notifications", () => {
     expect(notices[2]?.options?.tag).toBe(`openmausbot:bot-2`);
   });
 
-  it("carries the bot's avatar when its profile has one", () => {
+  it("shows the frame's bot icon", () => {
     const { notices } = installNotification("granted");
-    const avatarUrl = "/api/attachments/123e4567-e89b-12d3-a456-426614174000.png";
 
-    showNotification(frame, vi.fn(), avatarUrl);
-    expect(notices[0]?.options?.icon).toBe(avatarUrl);
+    showNotification(frame, vi.fn());
+    expect(notices[0]?.options?.icon).toBe("/notify-icons/squircle-white.png");
 
-    showNotification(frame, vi.fn(), null);
+    showNotification({ ...frame, icon: "" }, vi.fn());
     expect(notices[1]?.options?.icon).toBeUndefined();
   });
 
-  it("hands a background toast to the desktop shell instead of the renderer Notification", () => {
+  it("hands a background toast to the desktop shell with the bot icon as a PNG data URL", async () => {
     const { notices } = installNotification("default");
     const showNative = vi.fn();
     vi.stubGlobal("window", { focus: vi.fn(), ogb: { showNotification: showNative } });
+    const fetchIcon = vi.fn(async () => new Response(new Uint8Array([1])));
+    const { drawImage } = installIconRaster(fetchIcon);
 
-    showNotification(frame, vi.fn(), "/avatar.png", "other-thread");
+    showNotification(frame, vi.fn(), "other-thread");
 
-    expect(showNative).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(showNative).toHaveBeenCalledOnce());
+    expect(fetchIcon).toHaveBeenCalledWith("/notify-icons/squircle-white.png");
+    expect(drawImage).toHaveBeenCalledWith(expect.anything(), 50, 0, 200, 200, 0, 0, 200, 200);
     expect(showNative).toHaveBeenCalledWith({
       title: frame.title,
       body: frame.body,
-      icon: "/avatar.png",
+      icon: "data:image/png;base64,iVBORw0K",
       botId: frame.botId,
       threadId: frame.threadId,
       visibleThreadId: "other-thread",
@@ -153,28 +168,40 @@ describe("desktop notifications", () => {
     expect(notices).toHaveLength(0);
   });
 
-  it("still asks the shell to toast when a minimized window reports renderer focus", () => {
+  it("still toasts through the shell, without an icon, when the icon fetch fails", async () => {
+    installNotification("default");
+    const showNative = vi.fn();
+    vi.stubGlobal("window", { focus: vi.fn(), ogb: { showNotification: showNative } });
+    installIconRaster(vi.fn(async () => new Response(null, { status: 404 })));
+
+    showNotification(frame, vi.fn());
+
+    await vi.waitFor(() => expect(showNative).toHaveBeenCalledOnce());
+    expect(showNative.mock.calls[0]?.[0]).not.toHaveProperty("icon");
+  });
+
+  it("still asks the shell to toast when a minimized window reports renderer focus", async () => {
     const { notices } = installNotification("granted", true);
     const showNative = vi.fn();
     vi.stubGlobal("window", { focus: vi.fn(), ogb: { showNotification: showNative } });
 
-    showNotification(frame, vi.fn(), undefined, frame.threadId);
+    showNotification(frame, vi.fn(), frame.threadId);
 
-    expect(showNative).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(showNative).toHaveBeenCalledOnce());
     expect(notices).toHaveLength(0);
   });
 
-  it("carries the terminal session to the native toast", () => {
+  it("carries the terminal session to the native toast", async () => {
     const { notices } = installNotification("default");
     const showNative = vi.fn();
     vi.stubGlobal("window", { focus: vi.fn(), ogb: { showNotification: showNative } });
 
     showNotification({ ...frame, openTerminal: true, terminalSessionId: "session-1" }, vi.fn());
 
-    expect(showNative).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(showNative).toHaveBeenCalledWith(expect.objectContaining({
       openTerminal: true,
       terminalSessionId: "session-1",
-    }));
+    })));
     expect(notices).toHaveLength(0);
   });
 });
@@ -230,6 +257,12 @@ describe("terminal notifications", () => {
       label: "활동",
       tooltip: "터미널에 새 활동이 있습니다.",
     });
+  });
+
+  it("uses the bot's own icon", () => {
+    expect(buildTerminalNotification(bot, "bell")?.icon).toBe("/notify-icons/peach-white.png");
+    expect(buildTerminalNotification({ ...bot, avatarCrop: "mascot", mascotStyle: "icon-05" }, "bell")?.icon)
+      .toBe("/avatars/icon-05-ledger-white.png");
   });
 
   it("honors the bot notification toggle", () => {

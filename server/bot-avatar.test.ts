@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  APP_NOTIFY_ICON,
   BOT_AVATAR_ASSETS,
   BOT_AVATAR_IDS,
   BOT_AVATAR_LABELS,
@@ -11,6 +12,7 @@ import {
   botAvatarCropSchema,
   botAvatarUrlFromStoredPath,
   botAvatarUrlSchema,
+  botNotifyIconPath,
   DEFAULT_MASCOT_STYLE,
   MASCOT_STYLE_ASSETS,
   MASCOT_STYLES,
@@ -149,5 +151,33 @@ describe("mascot style ids", () => {
       avatarCrop: "mascot",
       mascotStyle: "lavender",
     });
+  });
+});
+
+describe("botNotifyIconPath", () => {
+  const avatarUrl = "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp";
+
+  it("uses a built-in icon's PNG, even over an uploaded image", () => {
+    expect(botNotifyIconPath({ avatarCrop: "mascot", mascotStyle: "icon-05", avatarUrl })).toBe("/avatars/icon-05-ledger-white.png");
+  });
+
+  it("uses the pre-rendered PNG for a painted mascot's style and color", () => {
+    expect(botNotifyIconPath({ avatarCrop: "mascot", mascotStyle: "pill", color: "orange" })).toBe("/notify-icons/pill-orange.png");
+    expect(botNotifyIconPath({ mascotStyle: "squircle", color: "not-a-color" })).toBe("/notify-icons/squircle-white.png");
+    expect(botNotifyIconPath({ color: "purple" })).toBe("/notify-icons/lavender-purple.png");
+    expect(botNotifyIconPath({ avatarCrop: "mascot", mascotStyle: "teal", color: "red", avatarUrl })).toBe("/notify-icons/teal-red.png");
+  });
+
+  it("uses an uploaded image's own url", () => {
+    expect(botNotifyIconPath({ avatarCrop: "circle", mascotStyle: "teal", avatarUrl })).toBe(avatarUrl);
+    expect(botNotifyIconPath({ avatarCrop: "square", avatarUrl: "https://tracker.example/a.png", color: "blue" }))
+      .toBe("/notify-icons/lavender-blue.png");
+  });
+
+  it("falls back like BotAvatar, and to the app icon with no bot", () => {
+    expect(botNotifyIconPath({})).toBe("/notify-icons/peach-white.png");
+    expect(botNotifyIconPath({ avatarCrop: "rounded", mascotStyle: "icon-05", color: "green" })).toBe("/notify-icons/teal-green.png");
+    expect(botNotifyIconPath(undefined)).toBe(APP_NOTIFY_ICON);
+    expect(botNotifyIconPath(null)).toBe("/app-icon-192.png?v=2");
   });
 });

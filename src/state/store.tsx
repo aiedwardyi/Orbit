@@ -3183,7 +3183,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           showNotification(
             frame.notification,
             (target) => openNotificationTarget(dispatch, target, stateRef.current),
-            stateRef.current.bots.find((bot) => bot.id === frame.notification.botId)?.avatarUrl,
             visibleNotificationThread(stateRef.current),
           );
           break;

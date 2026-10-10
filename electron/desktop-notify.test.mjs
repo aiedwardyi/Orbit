@@ -11,6 +11,7 @@ import {
   parseNotifyPayload,
   shouldShowDesktopToast,
   taskbarBusyIndicator,
+  toastIconFor,
   windowsAppUserModelId,
   withToastCapability,
 } from "./desktop-notify.mjs";
@@ -262,5 +263,59 @@ describe("handleDesktopNotify", () => {
     });
     notices[0].handlers.click();
     expect(clicks).toEqual([{ botId: "bot-1", threadId: "thread-1", openTerminal: true, terminalSessionId: "session-1" }]);
+  });
+});
+
+describe("toastIconFor", () => {
+  const appIcon = "/orbit/resources/app-icon.png";
+  const png = "data:image/png;base64,iVBORw0KGgo=";
+  const fakeNativeImage = (empty = false) => {
+    const created = [];
+    return {
+      created,
+      createFromDataURL: (url) => {
+        const image = { url, isEmpty: () => empty };
+        created.push(image);
+        return image;
+      },
+    };
+  };
+
+  it("shows the bot's data URL image on Windows", () => {
+    const nativeImage = fakeNativeImage();
+    const icon = toastIconFor({ platform: "win32", icon: png, pageUrl: "http://127.0.0.1:8799/", appIcon, nativeImage });
+    expect(icon).toBe(nativeImage.created[0]);
+    expect(icon.url).toBe(png);
+  });
+
+  it("falls back to the app icon on Windows when the image is missing, empty, or invalid", () => {
+    const base = { platform: "win32", pageUrl: "http://127.0.0.1:8799/", appIcon };
+    expect(toastIconFor({ ...base, icon: undefined, nativeImage: fakeNativeImage() })).toBe(appIcon);
+    expect(toastIconFor({ ...base, icon: "", nativeImage: fakeNativeImage() })).toBe(appIcon);
+    expect(toastIconFor({ ...base, icon: "/notify-icons/pill-orange.png", nativeImage: fakeNativeImage() })).toBe(appIcon);
+    expect(toastIconFor({ ...base, icon: "data:image/png;base64,junk", nativeImage: fakeNativeImage(true) })).toBe(appIcon);
+    const throwing = { createFromDataURL: () => { throw new Error("bad image"); } };
+    expect(toastIconFor({ ...base, icon: png, nativeImage: throwing })).toBe(appIcon);
+  });
+
+  it("resolves a path against the page off Windows, as before", () => {
+    const base = { platform: "darwin", pageUrl: "http://127.0.0.1:8799/", appIcon, nativeImage: fakeNativeImage() };
+    expect(toastIconFor({ ...base, icon: "/avatars/a.png" })).toBe("http://127.0.0.1:8799/avatars/a.png");
+    expect(toastIconFor({ ...base, icon: "" })).toBe(appIcon);
+  });
+
+  it("decodes the bot's data URL image on macOS and Linux too", () => {
+    for (const platform of ["darwin", "linux"]) {
+      const nativeImage = fakeNativeImage();
+      const icon = toastIconFor({ platform, icon: png, pageUrl: "http://127.0.0.1:8799/", appIcon, nativeImage });
+      expect(icon).toBe(nativeImage.created[0]);
+      expect(toastIconFor({ platform, icon: png, pageUrl: "http://127.0.0.1:8799/", appIcon, nativeImage: fakeNativeImage(true) })).toBe(appIcon);
+    }
+  });
+
+  it("is what main hands the toast", () => {
+    const main = readFileSync(path.join(root, "electron/main.mjs"), "utf8");
+    expect(main).toMatch(/icon: toastIconFor\(\{\s*platform: process\.platform,\s*icon: payload\?\.icon,/);
+    expect(main).toContain("appIcon: APP_ICON,");
   });
 });

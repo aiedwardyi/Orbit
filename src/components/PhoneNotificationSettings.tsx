@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 
 import { useI18n } from "@/lib/i18n";
 import { disableWebPush, enableWebPush, readWebPushState, testWebPush, type WebPushState } from "@/lib/web-push";
+import { useStore } from "@/state/store";
 
 export function PhoneNotificationSettings() {
   const { t } = useI18n();
+  const { state: app } = useStore();
   const [state, setState] = useState<WebPushState | null>(null);
   const [note, setNote] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,7 +68,7 @@ export function PhoneNotificationSettings() {
               disabled={busy}
               onClick={() =>
                 void run(async () => {
-                  await testWebPush();
+                  await testWebPush(app.selectedId);
                   setNote({ kind: "ok", message: t("settings.phoneNotifications.testOk") });
                 }, t("settings.phoneNotifications.testError"))
               }
