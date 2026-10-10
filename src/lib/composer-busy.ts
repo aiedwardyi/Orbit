@@ -24,6 +24,14 @@ export function composerBusySendAction(input: {
   return "dispatch";
 }
 
+/** The model a 1:1 send runs on: a send that queues for the next turn runs on the held pick. */
+export function modelForNextSend<T>(
+  bot: { modelSelection: T; pendingModelSelection?: T | null },
+  input: { busy: boolean; canSteer: boolean },
+): T {
+  return input.busy && !input.canSteer ? (bot.pendingModelSelection ?? bot.modelSelection) : bot.modelSelection;
+}
+
 /** Prefer the live textarea. A fill+Enter burst updates the DOM before
  * React re-renders; reading only the rendered draft resends QUEUE-0 or
  * sends "" and drops QUEUE-1..n. An empty live value wins so a second

@@ -1,20 +1,12 @@
 // A model picked mid-reply waits for the turn to end: stop, approvals and
 // steers must keep reaching the engine that is running it.
 import type { ModelSelection } from "./contracts.ts";
+import { sameModelSelection } from "../shared/model-selection.ts";
 
 export interface PendingModelBot {
   modelSelection: ModelSelection;
   pendingModelSelection?: ModelSelection;
   busy?: boolean;
-}
-
-export function sameModelSelection(a: ModelSelection, b: ModelSelection): boolean {
-  return (
-    a.instanceId === b.instanceId &&
-    a.model === b.model &&
-    (a.mode ?? "pinned") === (b.mode ?? "pinned") &&
-    a.effort === b.effort
-  );
 }
 
 /** Bot fields a model pick writes: busy holds it, idle applies it. */

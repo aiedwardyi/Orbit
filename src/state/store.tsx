@@ -16,6 +16,7 @@ import {
 import type { CloudBackend, EffortLevel, RateLimitWindow } from "../../server/contracts.ts";
 import type { MausColor, MausMotion } from "@/lib/mascot";
 import type { BotAvatarChoice, BotAvatarCrop } from "../../shared/bot-avatar";
+import { sameModelSelection } from "../../shared/model-selection";
 import type { RoutineRequestCardData } from "../../shared/routine-request";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
@@ -241,12 +242,6 @@ export interface ModelSelection {
   mode?: "automatic" | "pinned";
   effort?: EffortLevel;
 }
-
-const sameModelSelection = (a: ModelSelection, b: ModelSelection) =>
-  a.instanceId === b.instanceId &&
-  a.model === b.model &&
-  (a.mode ?? "pinned") === (b.mode ?? "pinned") &&
-  a.effort === b.effort;
 
 /** What the UI shows as chosen: a mid-reply pick wins over the running model. */
 export const shownModelSelection = (bot: Pick<Bot, "modelSelection" | "pendingModelSelection">): ModelSelection =>
@@ -2571,7 +2566,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             title: source.title,
             description: source.description,
             notifications: source.notifications,
-            modelSelection: source.modelSelection,
+            modelSelection: shownModelSelection(source),
             computer: source.computer,
             cloudBackend: source.cloudBackend,
             autoStartVps: source.autoStartVps,

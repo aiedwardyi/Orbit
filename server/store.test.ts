@@ -1330,14 +1330,14 @@ describe("Store model picked mid-reply", () => {
     expect(new Store(selection).bot(bot.id)?.pendingModelSelection).toBeUndefined();
   });
 
-  it("a stop during a pending change interrupts the old engine", () => {
+  it("keeps the old instance while busy and switches when the turn settles", () => {
     const store = new Store(selection);
     const bot = store.createBot();
     store.setActivity(bot.id, "working", bot.threadId);
     store.patchBot(bot.id, { pendingModelSelection: next });
-    const interrupted = store.bot(bot.id)!.modelSelection.instanceId;
+    const whileBusy = store.bot(bot.id)!.modelSelection.instanceId;
     store.setActivity(bot.id, "idle");
-    expect(interrupted).toBe(selection().instanceId);
+    expect(whileBusy).toBe(selection().instanceId);
     expect(store.bot(bot.id)?.modelSelection).toEqual(next);
   });
 

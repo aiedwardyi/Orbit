@@ -31,6 +31,7 @@ const botOf = (busy: boolean, pending: ModelSelection | null = null): Bot => ({
   pendingModelSelection: pending,
 });
 
+const duplicatePatch = vi.fn();
 let store: ReturnType<typeof useStore>;
 let unmount: (() => Promise<void>) | null = null;
 
@@ -48,6 +49,11 @@ async function mount(bot: Bot) {
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     if (String(url) === "/api/bots?messages=200") return Response.json({ bots: [bot], groups: [], computerControl: {} });
     if (String(url) === "/api/bots/b1" && init?.method === "PATCH") return patch();
+    if (String(url) === "/api/bots" && init?.method === "POST") return Response.json({ bot: { ...bot, id: "b2", threadId: "t-b2" } });
+    if (String(url) === "/api/bots/b2" && init?.method === "PATCH") {
+      duplicatePatch(JSON.parse(String(init.body)));
+      return Response.json({ bot: { ...bot, id: "b2", threadId: "t-b2" } });
+    }
     return new Promise<Response>(() => {});
   }));
   vi.stubGlobal("EventSource", FakeEventSource);
@@ -85,5 +91,14 @@ describe("setModel", () => {
     await mount(botOf(false, next));
     await act(async () => store.dispatch({ type: "setModel", botId: "b1", selection: running }));
     expect(store.state.bots[0]).toMatchObject({ modelSelection: running, pendingModelSelection: null });
+  });
+});
+
+describe("duplicateBot", () => {
+  it("copies a pending pick, the model the UI shows", async () => {
+    await mount(botOf(true, next));
+    await act(async () => store.dispatch({ type: "duplicateBot", botId: "b1" }));
+    await vi.waitFor(() => expect(duplicatePatch).toHaveBeenCalledOnce());
+    expect(duplicatePatch.mock.calls[0][0].modelSelection).toEqual(next);
   });
 });
