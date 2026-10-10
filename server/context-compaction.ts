@@ -41,6 +41,8 @@ interface ReplayUnit {
   atomic?: boolean;
   /** a user text message, not a pane note */
   turn?: boolean;
+  /** a question card; fallback keeps it beside the answer that follows */
+  card?: true;
   /** a tool chip, until its run is folded into one line */
   chip?: { name: string; ok: boolean; speaker: string; speakerId: string };
 }
@@ -147,10 +149,13 @@ function fallbackSummary(input: {
   summaryTokens: number;
 }): string {
   const contentTokens = Math.max(1, input.summaryTokens - messageTokens(summaryMessage("", 0)) - 2);
-  const userLines = input.history.filter((item) => item.turn).map((item) => item.text).join("\n");
+  const userLines = input.history
+    .filter((item) => item.turn || item.card)
+    .map((item) => item.card ? `${item.label ?? ""}${item.text}` : item.text)
+    .join("\n");
   const toolOutcomes = input.history.filter((item) => item.atomic).map((item) => item.text).join("\n");
   const excerpts = input.history
-    .filter((item) => !item.turn && !item.atomic)
+    .filter((item) => !item.turn && !item.atomic && !item.card)
     .slice(-FALLBACK_EXCERPTS)
     .map((item) => clipText(item.role === "assistant" ? `Assistant: ${item.text}` : item.text, FALLBACK_EXCERPT_TOKENS))
     .join("\n");
@@ -283,17 +288,25 @@ function cardAnswer(card: OptionCardData): string | null {
   return card.answerText ? replyExcerpt(card.answerText, CARD_TEXT_CHARS) : "";
 }
 
+function cardQuestion(card: OptionCardData): string {
+  // Wink's quiz asks in its title; its subtitle is a generic hint.
+  if (!card.requestId && !card.askUser) return card.title;
+  if (card.tool === "ask_bot" || card.tool === "delegate_bot") return `${card.title}: ${card.subtitle}`;
+  return card.subtitle.trim() || card.title;
+}
+
 /** One bounded line. A posted answer is its own user message, so only a native ask carries it here. */
 function cardText(card: OptionCardData): string | null {
   // A routine confirmation never reaches the bot; Wink's own quiz only does once answered.
   if (card.routineRequest || (!card.requestId && !card.askUser && !card.answered)) return null;
   const choices = card.options.slice(0, CARD_CHOICES).map((choice) => replyExcerpt(choice, CARD_CHOICE_CHARS));
   const more = card.options.length - choices.length;
-  const answer = card.requestId ? cardAnswer(card) : null;
+  const closed = card.answered === "unavailable" || (card.dismissed && !card.answered);
+  const answer = card.requestId && !closed ? cardAnswer(card) : null;
   return [
-    `[${card.tool ? "Approval" : "Question"} card] ${replyExcerpt(card.subtitle.trim() || card.title, CARD_TEXT_CHARS)}`,
+    `[${card.tool ? "Approval" : "Question"} card] ${replyExcerpt(cardQuestion(card), CARD_TEXT_CHARS)}`,
     ...(choices.length ? [`[choices: ${choices.join(" | ")}${more > 0 ? ` | +${more} more` : ""}]`] : []),
-    ...(answer === null ? [] : [answer ? `[answered: ${answer}]` : "[answered]"]),
+    ...(closed ? ["[closed, no answer]"] : answer === null ? [] : [answer ? `[answered: ${answer}]` : "[answered]"]),
   ].join(" ");
 }
 
@@ -346,6 +359,7 @@ function replayUnits(
         role: "assistant",
         text: redactSecretsInText(includeSpeakers ? `${speaker}: ${card}` : card),
         label: includeSpeakers ? "" : "Assistant: ",
+        card: true,
       }];
     }
     return [];

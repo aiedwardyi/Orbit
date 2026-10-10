@@ -1556,8 +1556,58 @@ describe("question cards in replay", () => {
       // SAFETY: replay only checks that a routine payload is present, never its fields.
       card("m4", { title: "Create routine", subtitle: "Daily at 9", options: ["Confirm", "Cancel"], requestId: "r2", tool: "routine", answered: "allow", routineRequest: {} as never }),
     ])).toEqual([
-      "[Question card] Pick whatever's closest. [choices: Life admin | Writing]",
+      "[Question card] What do you mostly want help with? [choices: Life admin | Writing]",
       "Life admin",
     ]);
+  });
+
+  it("replays the question each card kind asks", async () => {
+    expect(await replay([
+      card("m1", { title: "What do you mostly want help with?", subtitle: "Pick whatever's closest.", options: ["Life admin"], answered: "Life admin" }),
+      card("m2", { subtitle: "Which region?", options: ["us"], askUser: true }),
+      card("m3", { subtitle: "Which environment?", options: ["Staging"], requestId: "r1" }),
+      card("m4", { title: "Approval needed", subtitle: "rm -rf dist", options: ["Allow", "Deny"], requestId: "r2", tool: "Bash" }),
+      card("m5", { title: "@Scout wants to contact @Atlas", subtitle: "check the logs", options: ["Allow", "Deny"], requestId: "r3", tool: "ask_bot" }),
+    ])).toEqual([
+      "[Question card] What do you mostly want help with? [choices: Life admin]",
+      "[Question card] Which region? [choices: us]",
+      "[Question card] Which environment? [choices: Staging]",
+      "[Approval card] rm -rf dist [choices: Allow | Deny]",
+      "[Approval card] @Scout wants to contact @Atlas: check the logs [choices: Allow | Deny]",
+    ]);
+  });
+
+  it("replays an unavailable or dismissed card as closed", async () => {
+    expect(await replay([
+      card("m1", { subtitle: "Which environment?", options: ["Staging"], requestId: "r1", answered: "unavailable", dismissed: true }),
+      card("m2", { title: "Approval needed", subtitle: "rm -rf dist", options: ["Allow", "Deny"], requestId: "r2", tool: "Bash", answered: "unavailable", dismissed: true }),
+      card("m3", { subtitle: "Which region?", options: ["us"], askUser: true, dismissed: true }),
+    ])).toEqual([
+      "[Question card] Which environment? [choices: Staging] [closed, no answer]",
+      "[Approval card] rm -rf dist [choices: Allow | Deny] [closed, no answer]",
+      "[Question card] Which region? [choices: us] [closed, no answer]",
+    ]);
+  });
+
+  it("keeps a question card beside its answer in the deterministic fallback", async () => {
+    const result = await prepareModelContext({
+      messages: [
+        message("m0", "prepare the release"),
+        card("m1", { subtitle: "Staging or production?", options: ["Staging", "Production"], askUser: true, answered: "Staging" }),
+        message("m2", "Staging"),
+        ...Array.from({ length: 300 }, (_, index) => [
+          card(`q${index}`, { subtitle: `Check ${index}?`, options: ["Yes", "No"], askUser: true }),
+          message(`u${index}`, "please inspect"),
+          message(`a${index}`, "done", { role: "bot" }),
+        ]).flat(),
+      ],
+      contextWindow: 16_384,
+      taskRecordText: "Goal: release",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.compaction!.summary).toContain("\nAssistant: [Question card] Staging or production? [choices: Staging | Production]\nStaging\n");
+    expect(result.estimatedTokens).toBeLessThanOrEqual(result.budgetTokens);
   });
 });

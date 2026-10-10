@@ -1081,6 +1081,7 @@ describe("Store", () => {
     store.patchMessage(bot.threadId, card.id, { card: { ...card.card!, answered: "answer", dismissed: false } });
     store.recordCardAnswer(bot.threadId, card.id, "Production");
 
+    // A fresh Store checks the answer was saved to disk.
     const prepared = await prepareModelContext({ messages: new Store(selection).activePath(bot.threadId), contextWindow: 200_000, taskRecordText: "" });
     expect(prepared.status).toBe("ready");
     if (prepared.status !== "ready") return;
