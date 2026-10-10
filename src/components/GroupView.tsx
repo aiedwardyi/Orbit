@@ -58,7 +58,7 @@ import { useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { shortPath } from "@/lib/short-path";
-import { BOTTOM_FOLLOW_THRESHOLD, newestBelowView, shouldResumeBottomFollow, spaceAfterNewestRow, transcriptUnderfilled } from "@/lib/bottom-follow";
+import { BOTTOM_FOLLOW_THRESHOLD, captureTranscriptScroll, newestBelowView, restoreTranscriptScroll, shouldResumeBottomFollow, spaceAfterNewestRow, transcriptUnderfilled, type TranscriptScroll } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
 import { TRANSCRIPT_GAP, useComposerDockPad } from "@/lib/composer-dock";
 import { turnPresenceWaiting } from "@/lib/send-accept";
@@ -1341,10 +1341,7 @@ export function GroupView({ group }: { group: Group }) {
     if (fillPaging && el && transcriptUnderfilled(el)) loadOlder();
   }, [fillPaging, loadOlder, underfilled]);
 
-  // Expanding prepends rows: capture the height first, then after the commit
-  // shift scrollTop by the growth so the message under the cursor stays put
-  // (browser scroll anchoring is disabled on this container).
-  const preExpandHeight = useRef<number | null>(null);
+  const preExpandScroll = useRef<TranscriptScroll | null>(null);
   const showEarlier = () => {
     // expanding means reading scrollback — never let a mid-expand stream
     // event pin the viewport back to the bottom
@@ -1353,19 +1350,19 @@ export function GroupView({ group }: { group: Group }) {
       revealOlder.current = true;
       setTranscriptWindow((w) => ({ ...w, expanded: true }));
       (jump.messages ? jump.older : loadOlder)(() => {
-        preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
+        preExpandScroll.current = captureTranscriptScroll(scrollRef.current);
       });
       return;
     }
-    preExpandHeight.current = scrollRef.current?.scrollHeight ?? null;
+    preExpandScroll.current = captureTranscriptScroll(scrollRef.current);
     const start = expandWindowStart(startIndex);
     setTranscriptWindow((w) => ({ ...w, start, expanded: true }));
   };
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (preExpandHeight.current === null || !el) return;
-    el.scrollTop += el.scrollHeight - preExpandHeight.current;
-    preExpandHeight.current = null;
+    if (preExpandScroll.current === null || !el) return;
+    restoreTranscriptScroll(el, preExpandScroll.current);
+    preExpandScroll.current = null;
     // keep the resume-follow heuristic from reading the restore as a
     // downward user scroll
     previousScrollTop.current = el.scrollTop;
@@ -1375,7 +1372,7 @@ export function GroupView({ group }: { group: Group }) {
   useLayoutEffect(() => {
     if (jump.messages || transcriptWindow.end !== null || transcriptWindow.expanded || transcriptWindow.start <= tailStart) return;
     // rows land above a reader in scrollback: the expand restore keeps their row put
-    if (!followRef.current) preExpandHeight.current ??= scrollRef.current?.scrollHeight ?? null;
+    if (!followRef.current) preExpandScroll.current ??= captureTranscriptScroll(scrollRef.current);
     setTranscriptWindow((w) => (w.end === null && !w.expanded ? { ...w, start: Math.min(w.start, tailStart) } : w));
   }, [jump.messages, tailStart, transcriptWindow]);
 
@@ -1599,7 +1596,8 @@ export function GroupView({ group }: { group: Group }) {
       <div
         ref={scrollRef}
         data-orbit-transcript
-        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-anchor:none]"
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+        style={{ overflowAnchor: follow ? "none" : "auto" }}
         onWheel={(e) => {
           if (e.deltaY < 0) breakFollow();
           else if (atEnd()) setBottomFollow(true);

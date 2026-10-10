@@ -121,7 +121,7 @@ describe("chat column width", () => {
     // the scroller's own marker, not the selector the tooltip looks it up with
     const column = chatView.indexOf(TRANSCRIPT_COLUMN);
     const scroller = chatView.slice(chatView.lastIndexOf("data-orbit-transcript", column), column);
-    expect(scroller).toContain("[overflow-anchor:none]");
+    expect(scroller).toContain('overflowAnchor: follow ? "none" : "auto"');
     expect(scroller).not.toContain("px-5");
   });
 
