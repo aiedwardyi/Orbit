@@ -12,6 +12,7 @@ import {
   loadSnapshotBoundary,
   openNotificationTarget,
   reducer,
+  switchToNotificationThread,
   terminalAttentionCount,
   terminalAttentionForBot,
   terminalAttentionKey,
@@ -115,7 +116,7 @@ describe("notification routing", () => {
   it("selects the bot and switches to the notification's exact task", () => {
     const dispatch = vi.fn();
 
-    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "detached-thread" }, { bots, groups });
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "detached-thread" }, { bots, groups, hydrated: true });
 
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
       { type: "select", id: "bot-1" },
@@ -128,7 +129,7 @@ describe("notification routing", () => {
     // GROUP's thread id; the exact destination is the room itself
     const dispatch = vi.fn();
 
-    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "room-thread" }, { bots, groups });
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "room-thread" }, { bots, groups, hydrated: true });
 
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "room-1" }]);
   });
@@ -136,7 +137,7 @@ describe("notification routing", () => {
   it("opens the room and restores the exact inactive channel task", () => {
     const dispatch = vi.fn();
 
-    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "older-room-thread" }, { bots, groups });
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "older-room-thread" }, { bots, groups, hydrated: true });
 
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
       { type: "select", id: "room-1" },
@@ -147,9 +148,61 @@ describe("notification routing", () => {
   it("lands on a plain bot select for a thread it cannot place, not an error", () => {
     const dispatch = vi.fn();
 
-    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "deleted-task-thread" }, { bots, groups });
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "deleted-task-thread" }, { bots, groups, hydrated: true });
 
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "bot-1" }]);
+  });
+
+  it("skips the transcript switch when the bot's notification thread is already active", () => {
+    const dispatch = vi.fn();
+
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "main-thread" }, { bots, groups, hydrated: true });
+
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "bot-1" }]);
+  });
+
+  it("selects from a cached snapshot but switches only on fresh state", () => {
+    const dispatch = vi.fn();
+    const target = { botId: "bot-1", threadId: "main-thread" };
+
+    openNotificationTarget(dispatch, target, { bots, groups, hydrated: false });
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+      { type: "select", id: "bot-1" },
+      { type: "notificationSwitchPending", target },
+    ]);
+
+    dispatch.mockClear();
+    const fresh = [{ id: "bot-1", threadId: "detached-thread", tasks: [{ threadId: "main-thread" }] }];
+    switchToNotificationThread(dispatch, target, { bots: fresh, groups });
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+      { type: "switchTask", botId: "bot-1", threadId: "main-thread" },
+    ]);
+
+    dispatch.mockClear();
+    switchToNotificationThread(dispatch, target, { bots, groups });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("selects a room from a cached snapshot but switches only on fresh state", () => {
+    const dispatch = vi.fn();
+    const target = { botId: "bot-1", threadId: "room-thread" };
+
+    openNotificationTarget(dispatch, target, { bots, groups, hydrated: false });
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+      { type: "select", id: "room-1" },
+      { type: "notificationSwitchPending", target },
+    ]);
+
+    dispatch.mockClear();
+    const fresh = [{ ...groups[0]!, threadId: "older-room-thread" }];
+    switchToNotificationThread(dispatch, target, { bots, groups: fresh });
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+      { type: "switchGroupTask", groupId: "room-1", threadId: "room-thread" },
+    ]);
+
+    dispatch.mockClear();
+    switchToNotificationThread(dispatch, target, { bots, groups });
+    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it("identifies only the exact chat thread currently on screen", () => {
