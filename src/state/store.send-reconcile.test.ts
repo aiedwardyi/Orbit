@@ -324,6 +324,23 @@ describe("update reload during a send", () => {
     await act(async () => post.open(Response.json({ ok: true })));
     await vi.waitFor(() => expect(reloadHeld()).toBe(false));
   });
+
+  it.each([
+    { name: "bot", action: { type: "dismissCard", botId: bot.id, messageId: "m-card" }, path: "/api/bots/b1/cards/m-card" },
+    { name: "room", action: { type: "dismissGroupCard", groupId: group.id, messageId: "m-card" }, path: "/api/groups/g1/cards/m-card" },
+  ] as const)("holds the reload until a dismissed $name card is saved", async ({ action, path }) => {
+    const save = gate<Response>();
+    const card: OptionCardData = { title: "Q", subtitle: "", options: [] };
+    const asking: Bot = { ...bot, messages: [{ id: "m-card", at: 1, role: "bot", kind: "options", card }] };
+    const fetch = await mount(() => Response.json({ messages: [], hasMore: false }), undefined, [asking]);
+    const route = fetch.getMockImplementation()!;
+    fetch.mockImplementation((url: string, init?: RequestInit) => (init?.method === "PATCH" ? save.promise : route(url, init)));
+    await act(async () => store.dispatch(action));
+    expect(fetch).toHaveBeenCalledWith(path, expect.objectContaining({ method: "PATCH" }));
+    expect(reloadHeld()).toBe(true);
+    await act(async () => save.open(Response.json({ ok: true })));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+  });
 });
 
 describe("send while the server holds the thread", () => {

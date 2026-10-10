@@ -460,6 +460,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     terminalOpen ||
     Boolean(browserWorkspaceBotId || localVmWorkspaceBotId) ||
     paletteOpen ||
+    Boolean(sidebarOverlay) ||
     state.appSettingsOpen ||
     state.pluginsOpen ||
     createBotSheetOpen ||

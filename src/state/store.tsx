@@ -2257,19 +2257,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     // fire-and-forget card persistence; the route is optional server-side
     const persistCard = (botId: string, messageId: string, patch: Partial<OptionCardData>) => {
-      fetch(`/api/bots/${botId}/cards/${messageId}`, {
+      const saving = fetch(`/api/bots/${botId}/cards/${messageId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(patch),
       }).catch(() => {});
+      void holdReload(saving);
     };
 
     const persistGroupCard = (groupId: string, messageId: string, patch: Partial<OptionCardData>) => {
-      fetch(`/api/groups/${groupId}/cards/${messageId}`, {
+      const saving = fetch(`/api/groups/${groupId}/cards/${messageId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(patch),
       }).catch(() => {});
+      void holdReload(saving);
     };
 
     const wrapped: React.Dispatch<Action> = (rawAction) => {

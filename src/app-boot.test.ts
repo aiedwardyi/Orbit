@@ -57,3 +57,13 @@ describe("first-chat boot keeps off-screen panels out of the initial module grap
     expect(app.match(/<LazyView overlay>/g)?.length).toBeGreaterThanOrEqual(7);
   });
 });
+
+describe("update reload", () => {
+  it("waits while a secondary view or sidebar flow is open", () => {
+    const open = app.match(/const secondaryViewOpen =([\s\S]*?);/)?.[1] ?? "";
+    for (const flag of ["onboardingOpen", 'state.activeView !== "chat"', "terminalOpen", "paletteOpen", "sidebarOverlay", "state.appSettingsOpen", "state.pluginsOpen", "createBotSheetOpen"]) {
+      expect(open).toContain(flag);
+    }
+    expect(app).toContain("useStaleBuildReload(state.connected, secondaryViewOpen)");
+  });
+});
