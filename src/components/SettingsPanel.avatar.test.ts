@@ -117,7 +117,7 @@ async function renderPanel() {
 
 describe("chat avatar opens the avatar picker", () => {
   it("wires the header avatar, not the pencil, and keeps Customize in the catalog", () => {
-    expect(chatView).toContain('onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: true })}');
+    expect(chatView).toContain('onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}');
     expect(chatView).toContain('onActivate={() => dispatch({ type: "toggleSettings", open: true })}');
     expect(settingsPanel).toContain("settingsAvatarRequest");
     expect(settingsPanel).toContain("scrollIntoView");
