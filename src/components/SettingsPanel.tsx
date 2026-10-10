@@ -250,10 +250,13 @@ function MemoryCard({ bot }: { bot: Bot }) {
     unsent.current = null;
     writing.current = true;
     let ok = false;
+    const body = JSON.stringify({ text: sending });
     try {
       const result: { truncated: boolean } = await api(`/api/bots/${botId}/memory`, {
         method: "PUT",
-        body: JSON.stringify({ text: sending }),
+        body,
+        // keepalive outlives a closing page, but the browser rejects bodies over 64 KB
+        keepalive: new TextEncoder().encode(body).length <= 64 * 1024,
       });
       ok = true;
       if (mounted.current) {
@@ -275,6 +278,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
       if (!mounted.current || pause.current === null) void flush();
       return;
     }
+    if (!ok) unsent.current = sending;
     if (!mounted.current) return;
     setStatus(ok ? "saved" : "idle");
     if (ok) savedFade.current = setTimeout(() => setStatus("idle"), 2000);
@@ -308,9 +312,12 @@ function MemoryCard({ bot }: { bot: Bot }) {
     const onHide = () => {
       if (document.visibilityState === "hidden") void flush();
     };
+    const onPageHide = () => void flush();
     document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onPageHide);
       mounted.current = false;
       if (savedFade.current !== null) clearTimeout(savedFade.current);
       void flush();

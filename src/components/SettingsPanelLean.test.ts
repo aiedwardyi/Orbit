@@ -226,6 +226,7 @@ describe("SettingsPanel memory and order", () => {
 interface Put {
   url: string;
   text: string;
+  keepalive?: boolean;
   resolve: (response: Response) => void;
 }
 
@@ -276,7 +277,7 @@ describe("SettingsPanel memory autosave", () => {
         if (init?.method === "PUT") {
           const text: string = JSON.parse(String(init.body)).text;
           return new Promise<Response>((resolve) => {
-            const put = { url, text, resolve };
+            const put = { url, text, keepalive: init.keepalive, resolve };
             puts.push(put);
             if (!held) resolve(ok());
           });
@@ -413,6 +414,41 @@ describe("SettingsPanel memory autosave", () => {
     await type("x".repeat(20));
     await wait(800);
     expect(puts.map((put) => put.text)).toEqual(["x".repeat(40), "x".repeat(20)]);
+  });
+
+  it("retries a failed write on the next blur and on close", async () => {
+    held = true;
+    const down = () => new Response(JSON.stringify({ error: "offline" }), { status: 503 });
+    await render("bot-1");
+    await type("likes tea");
+    await wait(800);
+    await land(puts[0], down());
+    await wait(5000);
+    expect(puts).toHaveLength(1);
+    await act(async () => {
+      box().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(puts.map((put) => put.text)).toEqual(["likes tea", "likes tea"]);
+    await land(puts[1], down());
+    act(() => root.unmount());
+    root = createRoot(host);
+    expect(puts.map((put) => put.text)).toEqual(["likes tea", "likes tea", "likes tea"]);
+  });
+
+  it("saves on pagehide with a write that outlives the page", async () => {
+    await render("bot-1");
+    await type("likes tea");
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(puts.map((put) => [put.text, put.keepalive])).toEqual([["likes tea", true]]);
+  });
+
+  it("drops keepalive for memory over 64 KB", async () => {
+    await render("bot-1");
+    await type("메".repeat(22_000));
+    await wait(800);
+    expect(puts.map((put) => put.keepalive)).toEqual([false]);
   });
 
   it("reports a write that fails after the panel closed", async () => {
