@@ -2,24 +2,25 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE = readFileSync(join(ROOT, "public/sw.js"), "utf8");
 const RELAY = "abcdefghijklmnop.wink.test";
 
 /** Runs public/sw.js for one origin with a fake cache and network. */
-function worker(hostname, network = () => Promise.reject(new TypeError("Failed to fetch"))) {
+function worker(hostname, network = () => Promise.reject(new TypeError("Failed to fetch")), windows = []) {
   const listeners = {};
   const cache = new Map();
   const shown = [];
+  const opened = [];
   const self = {
     location: { hostname, origin: `https://${hostname}` },
     addEventListener: (type, listener) => {
       listeners[type] = listener;
     },
     registration: { showNotification: async (title, options) => shown.push({ title, options }) },
-    clients: { matchAll: async () => [], openWindow: async () => {} },
+    clients: { matchAll: async () => windows, openWindow: async (url) => opened.push(url) },
   };
   const caches = {
     open: async () => ({ add: async (request) => cache.set(request.url, `cached ${request.url}`) }),
@@ -30,8 +31,9 @@ function worker(hostname, network = () => Promise.reject(new TypeError("Failed t
       this.url = url;
     }
   }
-  runInNewContext(SOURCE, { self, caches, fetch: network, Request, Response: { error: () => "browser error" }, URL });
-  return { listeners, cache, shown };
+  const now = 1_800_000_000_000;
+  runInNewContext(SOURCE, { self, caches, fetch: network, Request, Response: { error: () => "browser error" }, URL, Date: { now: () => now } });
+  return { listeners, cache, shown, opened, now };
 }
 
 async function push(listeners, data) {
@@ -43,6 +45,12 @@ async function push(listeners, data) {
 async function install(listeners) {
   let done;
   listeners.install({ waitUntil: (promise) => (done = promise) });
+  await done;
+}
+
+async function click(listeners, url) {
+  let done;
+  listeners.notificationclick({ notification: { data: { url }, close: () => {} }, waitUntil: (promise) => (done = promise) });
   await done;
 }
 
@@ -79,6 +87,52 @@ describe("service worker", () => {
     await push(listeners, { title: "Wink", body: "older server" });
     expect(shown.map(({ options }) => options.icon)).toEqual(["/notify-icons/pill-orange.png", "/app-icon-192.png?v=2"]);
     expect(shown.map(({ options }) => options.badge)).toEqual(["/app-icon-192.png?v=2", "/app-icon-192.png?v=2"]);
+  });
+
+  it("adds the tap time to the url when it opens a window", async () => {
+    const { listeners, opened, now } = worker("home.tail396477.ts.net");
+    await click(listeners, "/?bot=b1&thread=t-new");
+    await click(listeners, undefined);
+    expect(opened).toEqual([
+      `https://home.tail396477.ts.net/?bot=b1&thread=t-new&t0=${now}`,
+      `https://home.tail396477.ts.net/?t0=${now}`,
+    ]);
+  });
+
+  it("sends the tap time with the target to an open window", async () => {
+    const posted = [];
+    const page = { url: "https://home.tail396477.ts.net/", focus: async () => {}, postMessage: (message) => posted.push(message) };
+    const { listeners, opened, now } = worker("home.tail396477.ts.net", undefined, [page]);
+    await click(listeners, "/?bot=b1&thread=t-new");
+    expect(opened).toEqual([]);
+    expect(posted).toEqual([{ type: "orbit-open", url: "https://home.tail396477.ts.net/?bot=b1&thread=t-new", t0: now }]);
+  });
+
+  it("drops the tap time from the offline page address and keeps retry working", async () => {
+    const page = readFileSync(join(ROOT, "public/offline.html"), "utf8");
+    const scripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+    const { listeners, opened, now } = worker(RELAY);
+    await click(listeners, "/?bot=b1&thread=t-new#top");
+    expect(opened).toEqual([`https://${RELAY}/?bot=b1&thread=t-new&t0=${now}#top`]);
+    const location = { hostname: RELAY, href: opened[0], reload: vi.fn() };
+    const history = { state: null, replaceState: (_state, _title, url) => (location.href = new URL(url, location.href).href) };
+    const clicks = [];
+    const element = () => ({ textContent: "", addEventListener: (type, listener) => clicks.push([type, listener]) });
+    for (const script of scripts) {
+      runInNewContext(script, {
+        URL,
+        location,
+        history,
+        navigator: { onLine: false, language: "en" },
+        localStorage: { getItem: () => null },
+        document: { documentElement: {}, getElementById: element },
+        window: { addEventListener() {} },
+        setInterval() {},
+      });
+    }
+    expect(location.href).toBe(`https://${RELAY}/?bot=b1&thread=t-new#top`);
+    clicks.find(([type]) => type === "click")[1]();
+    expect(location.reload).toHaveBeenCalledOnce();
   });
 
   it("lets a reachable PC answer the page load itself", async () => {

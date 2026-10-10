@@ -6,6 +6,16 @@
     <meta name="google" content="notranslate" />
     <meta name="theme-color" content="#121316" />
     <title>Wink</title>
+    <script>
+      // sw.js adds the tap time to the url; it must not outlive this load in the address or a reload.
+      try {
+        const url = new URL(location.href);
+        if (url.searchParams.has("t0")) {
+          url.searchParams.delete("t0");
+          history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+        }
+      } catch {}
+    </script>
     <style>
       :root {
         color-scheme: dark;

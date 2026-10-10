@@ -129,6 +129,7 @@ import {
   sendWebPushToDevices,
   type PushTarget,
 } from "./web-push.ts";
+import { receiveColdOpen } from "./cold-open-diag.ts";
 import {
   isEffortLevel,
   type ModelSelection,
@@ -7556,6 +7557,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const test = { title: "Wink", body: "Test notification. Your phone is set up.", tag: "orbit:test", url: "/", icon };
       const [result] = await sendWebPushToDevices(DATA_DIR, test, webPushSubject(), body.data.endpoint);
       return result?.ok ? json(res, 200, { ok: true }) : json(res, 502, { error: result?.error ?? "push failed" });
+    }
+    if (method === "POST" && path === "/api/diag/cold-open") {
+      const received = await receiveColdOpen(req, DATA_DIR);
+      return received.status === 200 ? json(res, 200, { ok: true }) : json(res, received.status, { error: received.error });
     }
 
     // ── bots ──
