@@ -187,7 +187,7 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain('aria-label="7d: 61% used"');
   });
 
-  it("labels Meta Muse windows with their cached observation age", () => {
+  it("labels Meta Muse windows with their reading age", () => {
     const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
     if (!muse?.rateLimits) throw new Error("muse fixture missing rateLimits");
     const original = muse.rateLimits.observedAt;
@@ -195,22 +195,30 @@ describe("UsageSection friends plan card", () => {
       persistPreference("en");
       muse.rateLimits.observedAt = new Date(Date.now() - 2.5 * 3_600_000).toISOString();
       const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(html).toContain("Cached, as of 2h ago.");
+      expect(html).toContain(">Last seen 2h ago<");
+      expect(html).not.toContain("Cached, as of");
     } finally {
       muse.rateLimits.observedAt = original;
       persistPreference("en");
     }
   });
 
-  it("shows a visible cached caption under a reading older than 60 minutes", () => {
+  it("mutes a Muse reading older than 60 minutes and says when it was last seen", () => {
     const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
     if (!muse?.rateLimits) throw new Error("muse fixture missing rateLimits");
     const original = muse.rateLimits.observedAt;
+    const host = document.createElement("div");
     try {
       persistPreference("en");
+      setUsageMode("used");
       muse.rateLimits.observedAt = new Date(Date.now() - 90 * 60_000).toISOString();
-      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(html).toContain(">Cached, as of 1h ago.<");
+      host.innerHTML = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(host.innerHTML).toContain(">Last seen 1h ago<");
+      for (const label of ["5h: 22% used", "7d: 61% used"]) {
+        const meter = host.querySelector(`[aria-label="${label}"]`);
+        expect(meter?.querySelector(".text-accent, .text-warning, .text-danger")).toBeNull();
+        expect(meter?.querySelector(".text-ink-secondary")).not.toBeNull();
+      }
     } finally {
       muse.rateLimits.observedAt = original;
       persistPreference("en");
@@ -225,23 +233,51 @@ describe("UsageSection friends plan card", () => {
       muse.rateLimits.observedAt = new Date(Date.now() - 50 * 3_600_000).toISOString();
       persistPreference("en");
       const english = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(english).toContain(">Cached, as of 2d ago.<");
+      expect(english).toContain(">Last seen 2d ago<");
       persistPreference("ko");
       const korean = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(korean).toContain(">캐시된 값, 2일 전 기준입니다.<");
+      expect(korean).toContain(">마지막 확인 2일 전<");
     } finally {
       muse.rateLimits.observedAt = original;
       persistPreference("en");
     }
   });
 
-  it("shows no cached caption for a fresh reading", () => {
+  it("shows a fresh Muse reading's age at full tone", () => {
     persistPreference("en");
-    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-    expect(html).not.toContain(">Cached, as of");
+    setUsageMode("used");
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+    expect(host.innerHTML).not.toContain(">Cached, as of");
+    expect(host.innerHTML).not.toContain("Last seen");
+    expect(host.innerHTML).toContain(">As of just now<");
+    expect(host.querySelector('[aria-label="5h: 22% used"] .text-accent')).not.toBeNull();
   });
 
-  it("includes the subscription engines in the single refresh-all", async () => {
+  it("points an expired Muse window at Check now instead of the next message", () => {
+    const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
+    if (!muse?.rateLimits) throw new Error("muse fixture missing rateLimits");
+    const original = muse.rateLimits;
+    try {
+      persistPreference("en");
+      muse.rateLimits = {
+        observedAt: new Date(Date.now() - 4 * 86_400_000).toISOString(),
+        windows: [
+          { id: "five_hour", usedPercent: 0, resetsAt: Date.now() - 3 * 86_400_000 },
+          { id: "seven_day", usedPercent: 100, resetsAt: Date.now() + 86_400_000 },
+        ],
+      };
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(html).toContain("Reset since this reading. Use Check now to update.");
+      expect(html.match(/Updates on the next message/g) ?? []).toHaveLength(1);
+      expect(html).toContain(">Last seen 4d ago<");
+    } finally {
+      muse.rateLimits = original;
+      persistPreference("en");
+    }
+  });
+
+  it("refreshes Claude, Codex, and Grok from refresh-all but never spends a Muse check", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -256,7 +292,8 @@ describe("UsageSection friends plan card", () => {
         refreshAll?.click();
       });
       expect(mockApi).not.toHaveBeenCalledWith("/api/usage/refresh/antigravity", { method: "POST" });
-      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/claude", { method: "POST" });
+      expect(mockApi.mock.calls.map(([path]) => path).filter((path) => path.endsWith("/muse"))).toEqual([]);
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -265,37 +302,8 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
-  it("refreshes Muse once when the Usage page opens without a report", async () => {
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
-    if (!muse) throw new Error("muse fixture missing");
-    const original = muse.rateLimits;
-    mockApi.mockReset();
-    mockApi.mockImplementation(async (path: string) => ({
-      report: path.endsWith("/muse")
-        ? { windows: [{ id: "five_hour", usedPercent: 22 }], observedAt: "2026-09-18T00:00:00.000Z" }
-        : undefined,
-      status: path.endsWith("/muse") ? "fresh" : undefined,
-    }));
-    muse.rateLimits = undefined;
-    try {
-      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
-      expect(mockApi).toHaveBeenCalledTimes(1);
-      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      expect(mockApi).toHaveBeenCalledTimes(1);
-    } finally {
-      muse.rateLimits = original;
-      await act(async () => root.unmount());
-      host.remove();
-      mockApi.mockReset();
-      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
-    }
-  });
-
-  it("refreshes every missing Muse instance on first open", async () => {
+  it("never checks Muse on open or on a timer", async () => {
+    vi.useFakeTimers();
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -304,17 +312,21 @@ describe("UsageSection friends plan card", () => {
     const original = muse.rateLimits;
     const second = { ...muse, instanceId: "muse-two", displayName: "Meta Muse Two", rateLimits: undefined };
     mockApi.mockReset();
-    mockApi.mockImplementation(async () => ({ status: "no_observation" }));
-    muse.rateLimits = undefined;
+    mockApi.mockImplementation(async () => ({ status: "fresh" }));
+    muse.rateLimits = {
+      observedAt: new Date(Date.now() - 4 * 86_400_000).toISOString(),
+      windows: [{ id: "seven_day", usedPercent: 100, resetsAt: Date.now() + 86_400_000 }],
+    };
     mockState.instances.push(second);
     try {
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
-      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse-two", { method: "POST" });
-      expect(mockApi).toHaveBeenCalledTimes(2);
+      await act(async () => { vi.advanceTimersByTime(10 * 60_000); });
+      await act(async () => { await Promise.resolve(); });
+      expect(mockApi).not.toHaveBeenCalled();
     } finally {
       mockState.instances.splice(mockState.instances.indexOf(second), 1);
       muse.rateLimits = original;
+      vi.useRealTimers();
       await act(async () => root.unmount());
       host.remove();
       mockApi.mockReset();
@@ -322,25 +334,103 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
-  it("does not call a retained or empty Muse snapshot freshly updated", async () => {
+  it("checks Muse once per tap, busy with a spinner until the turn returns", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    let finish: (value: { report: { windows: { id: string; usedPercent: number }[]; observedAt: string }; status: string }) => void = () => {};
+    mockApi.mockReset();
+    mockApi.mockImplementation((path: string) => path === "/api/usage/check/muse"
+      ? new Promise((resolve) => { finish = resolve; })
+      : Promise.resolve({ status: "fresh" }));
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const checkNow = () => [...host.querySelectorAll("button")].find((button) => /Check now|Checking/.test(button.textContent ?? ""));
+      expect(checkNow()?.textContent).toBe("Check now (1 Muse message)");
+      await act(async () => {
+        checkNow()?.click();
+        checkNow()?.click();
+      });
+      expect(mockApi).toHaveBeenCalledTimes(1);
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/check/muse", { method: "POST" });
+      expect(checkNow()?.disabled).toBe(true);
+      expect(checkNow()?.getAttribute("aria-busy")).toBe("true");
+      expect(checkNow()?.textContent).toBe("Checking…");
+      expect(checkNow()?.querySelector(".animate-spin")).not.toBeNull();
+      await act(async () => finish({ report: { windows: [{ id: "five_hour", usedPercent: 20 }], observedAt: new Date().toISOString() }, status: "fresh" }));
+      expect(checkNow()?.disabled).toBe(false);
+      expect(checkNow()?.textContent).toBe("Check now (1 Muse message)");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+      persistPreference("en");
+    }
+  });
+
+  it("keeps the old Muse reading and says so when a check reports nothing", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
     mockApi.mockReset();
-    mockApi.mockImplementation(async (path: string) =>
-      path.endsWith("/muse") ? { status: "no_observation" } : { status: "fresh" },
-    );
+    mockApi.mockImplementation(async () => ({ status: "no_observation" }));
     try {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
-      expect(refreshAll).toBeDefined();
       await act(async () => {
-        refreshAll?.click();
-        await Promise.resolve();
+        [...host.querySelectorAll("button")].find((button) => button.textContent === "Check now (1 Muse message)")?.click();
       });
-      await vi.waitFor(() => expect(host.querySelector('button[aria-label="Refresh all"]')).not.toBeNull());
-      expect(host.querySelector('[role="status"]')).toBeNull();
+      expect(host.textContent).toContain("Muse did not report limits. Showing the last good values.");
+      expect(host.querySelector('[aria-label="5h: 78% remaining"]')).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+      persistPreference("en");
+    }
+  });
+
+  it("says when Muse's limit resets after a check hits the quota and mutes the Muse meters", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    let root = createRoot(host);
+    let resetsAt: number | null = Date.now() + 117 * 60_000;
+    mockApi.mockReset();
+    mockApi.mockImplementation(async () => ({ status: "limit_reached", resetsAt }));
+    const tapCheck = () => act(async () => {
+      [...host.querySelectorAll("button")].find((button) => button.textContent === "Check now (1 Muse message)")?.click();
+    });
+    const museMeters = () => ["5h: 78% remaining", "7d: 39% remaining"].map((label) => host.querySelector(`[aria-label="${label}"]`));
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      for (const meter of museMeters()) expect(meter?.querySelector(".text-accent")).not.toBeNull();
+      await tapCheck();
+      expect(host.textContent).toMatch(/Muse limit reached\. Resets in 1h5[678]m\./);
+      for (const meter of museMeters()) {
+        expect(meter?.querySelector(".text-accent, .text-warning, .text-danger")).toBeNull();
+        expect(meter?.querySelector(".text-ink-secondary")).not.toBeNull();
+      }
+      resetsAt = null;
+      await tapCheck();
+      expect(host.textContent).toContain("Muse limit reached.");
+      expect(host.textContent).not.toContain("Resets in 1h");
+      for (const meter of museMeters()) expect(meter?.querySelector(".text-accent")).toBeNull();
+      persistPreference("ko");
+      await act(async () => root.unmount());
+      root = createRoot(host);
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const tapKoCheck = () => act(async () => {
+        [...host.querySelectorAll("button")].find((button) => button.textContent === "지금 확인 (Muse 메시지 1개)")?.click();
+      });
+      await tapKoCheck();
+      expect(host.textContent).toContain("Muse 한도에 도달했습니다.");
+      resetsAt = Date.now() + 117 * 60_000;
+      await tapKoCheck();
+      expect(host.textContent).toMatch(/Muse 한도에 도달했습니다\. 1시간 5[678]분 후 초기화됩니다\./);
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -380,7 +470,7 @@ describe("UsageSection friends plan card", () => {
       const first = send();
       await act(async () => window.dispatchEvent(first));
       expect(first.defaultPrevented).toBe(true);
-      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledTimes(3);
 
       for (const event of [
         send({ repeat: true }),
@@ -392,13 +482,13 @@ describe("UsageSection friends plan card", () => {
         await act(async () => window.dispatchEvent(event));
         expect(event.defaultPrevented).toBe(false);
       }
-      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledTimes(3);
 
       composer.focus();
       const whileTyping = send();
       await act(async () => window.dispatchEvent(whileTyping));
       expect(whileTyping.defaultPrevented).toBe(false);
-      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledTimes(3);
 
       const picker = document.createElement("div");
       picker.setAttribute("data-model-picker-content", "");
@@ -427,14 +517,14 @@ describe("UsageSection friends plan card", () => {
       const besideClosedTerminal = send();
       await act(async () => window.dispatchEvent(besideClosedTerminal));
       expect(besideClosedTerminal.defaultPrevented).toBe(true);
-      expect(mockApi).toHaveBeenCalledTimes(8);
+      expect(mockApi).toHaveBeenCalledTimes(6);
       closedTerminal.remove();
 
       await act(async () => root.unmount());
       const afterClose = send();
       await act(async () => window.dispatchEvent(afterClose));
       expect(afterClose.defaultPrevented).toBe(false);
-      expect(mockApi).toHaveBeenCalledTimes(8);
+      expect(mockApi).toHaveBeenCalledTimes(6);
     } finally {
       host.remove();
       composer.remove();
@@ -455,7 +545,7 @@ describe("UsageSection friends plan card", () => {
       const event = new KeyboardEvent("keydown", { key: "r", altKey: true, bubbles: true, cancelable: true });
       await act(async () => window.dispatchEvent(event));
       expect(event.defaultPrevented).toBe(true);
-      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledTimes(3);
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -716,7 +806,7 @@ describe("UsageSection friends plan card", () => {
         refreshAll?.click();
       });
       // one control refreshes every subscription engine together
-      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledTimes(3);
       const busy = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refreshing…");
       expect(busy).toBeDefined();
       expect(busy?.hasAttribute("disabled")).toBe(true);
@@ -724,7 +814,7 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         busy?.click();
       });
-      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledTimes(3);
       await act(async () => {
         deferred.get("claude")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("codex")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
@@ -757,13 +847,13 @@ describe("UsageSection friends plan card", () => {
       const event = new KeyboardEvent("keydown", { code: "KeyR", altKey: true, bubbles: true, cancelable: true });
       await act(async () => window.dispatchEvent(event));
       expect(event.defaultPrevented).toBe(true);
-      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledTimes(3);
       expect(host.querySelector('button[aria-label="Refreshing…"]')).not.toBeNull();
 
       const second = new KeyboardEvent("keydown", { code: "KeyR", altKey: true, bubbles: true, cancelable: true });
       await act(async () => window.dispatchEvent(second));
       expect(second.defaultPrevented).toBe(true);
-      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledTimes(3);
 
       await act(async () => {
         for (const name of ["claude", "codex", "grok", "muse"]) {
@@ -882,65 +972,6 @@ describe("UsageSection friends plan card", () => {
       koHost.remove();
     } finally {
       persistPreference("en");
-      mockApi.mockReset();
-      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
-    }
-  });
-
-  it("treats a 50s-old Muse report as stale so the first tick refreshes", async () => {
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
-    if (!muse) throw new Error("muse fixture missing");
-    const original = muse.rateLimits;
-    mockApi.mockReset();
-    mockApi.mockImplementation(async () => ({ status: "fresh" }));
-    muse.rateLimits = {
-      observedAt: new Date(Date.now() - 50_000).toISOString(),
-      windows: [{ id: "five_hour", usedPercent: 22, resetsAt: Date.now() + 3_600_000 }],
-    };
-    try {
-      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      await act(async () => { await Promise.resolve(); });
-      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
-    } finally {
-      muse.rateLimits = original;
-      await act(async () => root.unmount());
-      host.remove();
-      mockApi.mockReset();
-      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
-    }
-  });
-
-  it("re-reads stale Muse usage on open and on a 60s background timer", async () => {
-    vi.useFakeTimers();
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
-    if (!muse) throw new Error("muse fixture missing");
-    const original = muse.rateLimits;
-    mockApi.mockReset();
-    mockApi.mockImplementation(async () => ({ status: "fresh" }));
-    muse.rateLimits = {
-      observedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
-      windows: [{ id: "five_hour", usedPercent: 22, resetsAt: Date.now() + 3_600_000 }],
-    };
-    try {
-      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      await act(async () => { await Promise.resolve(); });
-      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
-      const afterOpen = mockApi.mock.calls.length;
-      await act(async () => { vi.advanceTimersByTime(60_000); });
-      await act(async () => { await Promise.resolve(); });
-      expect(mockApi.mock.calls.length).toBeGreaterThan(afterOpen);
-      expect(mockApi).toHaveBeenLastCalledWith("/api/usage/refresh/muse", { method: "POST" });
-    } finally {
-      muse.rateLimits = original;
-      vi.useRealTimers();
-      await act(async () => root.unmount());
-      host.remove();
       mockApi.mockReset();
       mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
     }

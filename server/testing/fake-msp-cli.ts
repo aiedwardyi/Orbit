@@ -6,6 +6,9 @@
 //
 //   FAKE_MSP_MODE   happy (default) | hang | exit-early | fail-after-text
 //                   | auth-failure (turn/completed failed authRequired)
+//                   | quota (turn/completed failed with Muse's 429 quota
+//                     error and its reset time; no usage/changed)
+//                   | quota-no-reset (same, without a reset time)
 //                   | approval (approval/requested, then waits for decide)
 //                   | approval-request (approval/request with id: the client
 //                     must answer the receipt before the card resolves)
@@ -45,7 +48,7 @@
 //                   | usage-transport (usage/read exits before a result)
 //   FAKE_MSP_STATE  path to a JSON file holding per-session models across
 //                   the one-process-per-turn spawns, so a switch sticks.
-//   FAKE_MSP_DUMP   path to write {argv, env} as JSON, so a test can assert
+//   FAKE_MSP_DUMP   path to write {argv, env, cwd} as JSON, so a test can assert
 //                   the spawn shape. session/start params land next to it in
 //                   `<path>.config.json`; turn/start input in `<path>.turn.json`.
 //   FAKE_MSP_COALESCE  1 = buffer every reply/notification produced while
@@ -68,7 +71,7 @@ const dumpEnv = Object.fromEntries(
   ),
 );
 if (process.env.FAKE_MSP_DUMP) {
-  writeFileSync(process.env.FAKE_MSP_DUMP, JSON.stringify({ argv, env: dumpEnv }, null, 2));
+  writeFileSync(process.env.FAKE_MSP_DUMP, JSON.stringify({ argv, env: dumpEnv, cwd: process.cwd() }, null, 2));
 }
 if (argv.includes("--version")) {
   console.log("fake-msp 0.0.0");
@@ -320,6 +323,9 @@ function handle(msg: any) {
         method: "session/start",
         modelId: msg.params?.modelId ?? null,
         ...(sessionMcp(msg) ? { mcpServers: sessionMcp(msg) } : {}),
+        // undefined drops out of the JSON dump: only check sessions send approvalMode
+        approvalMode: msg.params?.approvalMode,
+        workspaceRoot: msg.params?.approvalMode ? msg.params.workspaceRoot : undefined,
       });
       const modelId = typeof msg.params?.modelId === "string" ? msg.params.modelId : "fake-msp-default";
       const models = readModels();
@@ -403,6 +409,22 @@ function handle(msg: any) {
         turnId: TURN_ID,
       });
       if (mode === "hang") return;
+      if (mode === "quota" || mode === "quota-no-reset") {
+        const message = `API error 429 [request_id=fake]: Subscription quota exhausted.${mode === "quota" ? " Your usage window resets at 2026-10-10T17:03:32Z." : ""} (rate_limit_error)`;
+        out({
+          jsonrpc: "2.0",
+          method: "turn/completed",
+          params: {
+            sessionId: SESSION_ID,
+            turnId: TURN_ID,
+            terminal: "failed",
+            error: { kind: "modelError", message, retryable: false },
+            reason: message,
+            viewCursor: "v:5",
+          },
+        });
+        return;
+      }
       usageChanged();
       if (mode === "auth-failure") {
         out({

@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
@@ -13,9 +14,9 @@ import type { RateLimitWindow } from "./contracts.ts";
 import { acpChildEnv } from "./drivers/acp/core.ts";
 import { grokSupport } from "./drivers/acp/grok.ts";
 import { classifyMuseError, museDefaultCli, resolveWslMuseCli, withWslKeySharing } from "./drivers/acp/muse.ts";
-import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows, museUsageReport } from "./drivers/rate-limits.ts";
-import { createMspChannel, MspRpcError } from "./drivers/msp/protocol.ts";
-import { augmentedPath } from "./env-path.ts";
+import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows, museUsageReport, usageLimitFromError } from "./drivers/rate-limits.ts";
+import { createMspChannel, MspRpcError, uuidv7 } from "./drivers/msp/protocol.ts";
+import { augmentedPath, toWslPath } from "./env-path.ts";
 import { execCli, killCliTree, spawnCli } from "./procs.ts";
 import { parseJson, type JsonValue } from "./schema.ts";
 
@@ -25,8 +26,9 @@ export type UsageRefreshStatus =
   | "retained"
   | "no_observation"
   | "transport_error"
-  | "auth_error";
-type Result = { report?: Report; error?: string; retryAt: number; status?: UsageRefreshStatus };
+  | "auth_error"
+  | "limit_reached";
+type Result = { report?: Report; error?: string; retryAt: number; status?: UsageRefreshStatus; resetsAt?: number | null };
 type Options = { instanceId: string; cli?: string; environment?: NodeJS.ProcessEnv };
 const usableReport = (report: Report | undefined): report is Report =>
   Boolean(report && report.windows.length > 0 && Number.isFinite(Date.parse(report.observedAt)));
@@ -58,7 +60,7 @@ const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const rpcMessage = z.object({ id: z.number().optional(), method: z.string().optional(), result: z.json().optional(), error: z.object({ code: z.number() }).optional() });
 
 export function usageRefreshResponse(instanceId: string, result: Result) {
-  return { instanceId, report: result.report, error: result.error, retryAt: result.retryAt, status: result.status };
+  return { instanceId, report: result.report, error: result.error, retryAt: result.retryAt, status: result.status, resetsAt: result.resetsAt };
 }
 
 export function readUsageRpc(cli: string, env: NodeJS.ProcessEnv): Promise<JsonValue> {
@@ -399,25 +401,88 @@ export function readAntigravityQuota(
 }
 
 class MuseUsageFailure extends Error {
-  readonly kind: "transport" | "auth";
+  readonly kind: "transport" | "auth" | "limit";
+  /** A check turn already reached the model: retrying would spend another message. */
+  readonly spent: boolean;
+  readonly resetsAt: number | null;
 
-  constructor(kind: "transport" | "auth") {
+  constructor(kind: "transport" | "auth" | "limit", spent = false, resetsAt: number | null = null) {
     super(kind === "auth" ? "signin" : "refresh");
     this.kind = kind;
+    this.spent = spent;
+    this.resetsAt = resetsAt;
   }
 }
 
-/** Read the stable MSP usage snapshot from a normal `muse serve` host. */
-async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv): Promise<JsonValue> {
-  const child = spawnCli(cli, ["serve"], { cwd: homedir(), env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
+// Check now: limits only arrive inside a model reply, so the check is one
+// tiny turn on the discounted Contributor tier at minimal effort, with tools off.
+const MUSE_CHECK_MODEL = "muse-spark-1.3-contributor";
+const MUSE_CHECK_PROMPT = "Reply with: ok";
+const MUSE_CHECK_TURN_MS = 90_000;
+const MUSE_CHECK_THROTTLE_MS = 60_000;
+const museCheckStarted = z.object({ session: z.object({ sessionId: z.string() }) });
+const museCheckCompleted = z.object({ sessionId: z.string(), terminal: z.string().optional(), error: z.unknown().optional(), reason: z.string().optional() });
+const museErrorMessage = z.object({ message: z.string() });
+
+/** Read the stable MSP usage snapshot from a normal `muse serve` host. With
+ * `check`, a memory-only host in an empty temp folder runs one turn first. */
+async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv, check = false): Promise<JsonValue> {
+  const cwd = check ? mkdtempSync(join(tmpdir(), "omb-muse-check-")) : homedir();
+  const args = check ? ["serve", "--no-session-log", "--disable-shell", "--disable-write"] : ["serve"];
+  const child = spawnCli(cli, args, { cwd, env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
   const channel = createMspChannel(child);
   let failed = false;
+  let spent = false;
   child.once("error", () => {
     failed = true;
     channel.detach();
   });
-  const request = (method: string, params: JsonValue | undefined) =>
-    failed ? Promise.reject(new Error("refresh")) : channel.request(method, params, 15_000);
+  const request = (method: string, params: JsonValue | undefined, timeoutMs = 15_000) =>
+    failed ? Promise.reject(new Error("refresh")) : channel.request(method, params, timeoutMs);
+  const runCheckTurn = async () => {
+    const workspaceRoot = /^\s*wsl(\.exe)?(\s|$)/i.test(cli) ? toWslPath(cwd) : cwd;
+    const started = await request(
+      "session/start",
+      { commandId: uuidv7(), workspaceRoot, modelId: MUSE_CHECK_MODEL, approvalMode: "denyUnmatched" },
+      30_000,
+    );
+    const session = museCheckStarted.safeParse(started);
+    if (!session.success) throw new Error("refresh");
+    const { sessionId } = session.data.session;
+    const cleanup: Array<() => void> = [];
+    try {
+      const completed = new Promise<z.infer<typeof museCheckCompleted>>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("refresh")), MUSE_CHECK_TURN_MS);
+        cleanup.push(() => clearTimeout(timer));
+        cleanup.push(channel.onExit(() => reject(new Error("refresh"))));
+        cleanup.push(channel.onNotification((method, params) => {
+          const turn = museCheckCompleted.safeParse(params);
+          if (method === "turn/completed" && turn.success && turn.data.sessionId === sessionId) resolve(turn.data);
+        }));
+      });
+      completed.catch(() => undefined);
+      const ack = await request(
+        "turn/start",
+        { commandId: uuidv7(), sessionId, input: [{ type: "text", text: MUSE_CHECK_PROMPT }], reasoningEffort: "minimal" },
+        30_000,
+      );
+      if (ack?.status !== "accepted") throw new Error("refresh");
+      spent = true;
+      const result = await completed;
+      if (result.terminal === "failed" && classifyMuseError(result.error) === "invalid_credentials") {
+        throw new MuseUsageFailure("auth", true);
+      }
+      if (result.terminal === "failed") {
+        const message = museErrorMessage.safeParse(result.error).data?.message ?? result.reason ?? "";
+        if (usageLimitFromError(new Error(message), true)) {
+          const resetsAt = /resets at (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/.exec(message)?.[1];
+          throw new MuseUsageFailure("limit", true, resetsAt ? Date.parse(resetsAt) : null);
+        }
+      }
+    } finally {
+      for (const stop of cleanup) stop();
+    }
+  };
   return (async () => {
     try {
       await request(
@@ -430,16 +495,29 @@ async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv): Prom
         },
       );
       channel.notify("initialized", {});
+      if (check) await runCheckTurn();
       return await request("usage/read", undefined) as JsonValue;
     } catch (error) {
+      if (error instanceof MuseUsageFailure) throw error;
       if (
         (error instanceof MspRpcError && (error.code === 401 || error.code === 403)) ||
         classifyMuseError(error) === "invalid_credentials"
-      ) throw new MuseUsageFailure("auth");
-      throw new MuseUsageFailure("transport");
+      ) throw new MuseUsageFailure("auth", spent);
+      throw new MuseUsageFailure("transport", spent);
     } finally {
       channel.detach();
       killCliTree(child);
+      if (check) {
+        const removeCwd = () => {
+          try {
+            rmSync(cwd, { recursive: true, force: true });
+          } catch {
+            // an empty temp folder the OS reclaims
+          }
+        };
+        if (child.exitCode !== null || child.signalCode !== null) removeCwd();
+        else child.once("exit", removeCwd);
+      }
     }
   })();
 }
@@ -447,6 +525,7 @@ async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv): Prom
 type MuseUsageReadOptions = {
   platform?: NodeJS.Platform;
   resolveWsl?: typeof resolveWslMuseCli;
+  check?: boolean;
 };
 
 const isMuseNoObservation = (payload: unknown): boolean => {
@@ -476,9 +555,10 @@ export async function readMuseUsage(
   let lastError: unknown;
   for (const target of targets) {
     try {
-      return await readMuseUsageOnce(target, childEnv);
+      return await readMuseUsageOnce(target, childEnv, options.check);
     } catch (error) {
       if (error instanceof Error && error.message === "signin") throw error;
+      if (error instanceof MuseUsageFailure && error.spent) throw error;
       lastError = error;
     }
   }
@@ -486,9 +566,10 @@ export async function readMuseUsage(
     const wslCli = await resolveWsl(cli, childEnv);
     if (wslCli) {
       try {
-        return await readMuseUsageOnce(wslCli, childEnv);
+        return await readMuseUsageOnce(wslCli, childEnv, options.check);
       } catch (error) {
         if (error instanceof Error && error.message === "signin") throw error;
+        if (error instanceof MuseUsageFailure && error.spent) throw error;
         lastError = error;
       }
     }
@@ -697,6 +778,7 @@ export function createUsageRefresh(deps: {
   muse?: typeof readMuseUsage;
   now?: () => number;
   platform?: NodeJS.Platform;
+  throttleMs?: number;
 } = {}) {
   const request = deps.request ?? fetch;
   const read = deps.read ?? ((path: string) => readFile(path, "utf8"));
@@ -713,7 +795,7 @@ export function createUsageRefresh(deps: {
     if (!name) return { report: previous, error: "Usage refresh is not supported", retryAt: 0 };
     const cached = cache.get(options.instanceId);
     if (cached && clock() < cached.retryAt) return cached.pending;
-    const retryAt = clock() + 30_000;
+    const retryAt = clock() + (deps.throttleMs ?? 30_000);
     const pending = (async (): Promise<Result> => {
       try {
         const env: NodeJS.ProcessEnv = { ...process.env, PATH: augmentedPath(), ...options.environment };
@@ -765,6 +847,9 @@ export function createUsageRefresh(deps: {
         }
         return { report, ...(driver === "museAgent" ? { status: "fresh" as const } : {}), retryAt };
       } catch (error) {
+        if (error instanceof MuseUsageFailure && error.kind === "limit") {
+          return { report: previous, status: "limit_reached", resetsAt: error.resetsAt, retryAt };
+        }
         const auth = error instanceof MuseUsageFailure
           ? error.kind === "auth"
           : error instanceof Error && error.message === "signin";
@@ -779,4 +864,14 @@ export function createUsageRefresh(deps: {
     cache.set(options.instanceId, { retryAt, pending });
     return pending;
   };
+}
+
+/** Check now: one paid Muse turn, at most once a minute per instance. */
+export function createMuseCheck(deps: Parameters<typeof createUsageRefresh>[0] = {}) {
+  const refresh = createUsageRefresh({
+    muse: (cli, env) => readMuseUsage(cli, env, { check: true }),
+    ...deps,
+    throttleMs: MUSE_CHECK_THROTTLE_MS,
+  });
+  return (options: Options, previous?: Report) => refresh("museAgent", options, previous);
 }
