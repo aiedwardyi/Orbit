@@ -28,7 +28,9 @@ const resources = [
   { name: "https://home.example/api/bots/b1/tasks/t-new", startTime: 1500, responseEnd: 2600, transferSize: 900, encodedBodySize: 600 },
 ];
 
-function fakePage(href: string, navType: NavigationTimingType = "navigate") {
+const USER_AGENT = "Mozilla/5.0 (Linux; Android 14; SM-S928N) SamsungBrowser/27.0";
+
+function fakePage(href: string, navType: NavigationTimingType = "navigate", extra: { nav?: object; userAgent?: string } = {}) {
   const sent: any[] = [];
   const paintsQueued: Array<() => void> = [];
   let now = 0;
@@ -37,14 +39,14 @@ function fakePage(href: string, navType: NavigationTimingType = "navigate") {
     href,
     timeOrigin: ORIGIN,
     now: () => now,
-    navigation: () => ({ ...navigation, type: navType }),
+    navigation: () => ({ ...navigation, ...extra.nav, type: navType }),
     paints: () => paints,
     resources: () => resources,
     replaceUrl: (next) => (url = next),
     standalone: () => true,
     visibility: () => "visible",
     build: () => "index-DNyEQLOj.js",
-    userAgent: "Mozilla/5.0 (Linux; Android 14; SM-S928N) SamsungBrowser/27.0",
+    userAgent: extra.userAgent ?? USER_AGENT,
     afterPaint: (done) => paintsQueued.push(done),
     send: (body) => sent.push(JSON.parse(body)),
   };
@@ -166,8 +168,10 @@ describe("cold-open timing", () => {
     expect(fake.sent).toEqual([]);
     fake.at(60_000);
     timing.warm(ORIGIN + 59_950, "t-new");
-    timing.warm(ORIGIN + 59_990, "t-other");
     timing.mark("hello");
+    timing.chatShown("t-other");
+    fake.paint();
+    expect(fake.sent).toEqual([]);
     timing.chatShown("t-new");
     fake.at(60_210);
     fake.paint();
@@ -179,9 +183,106 @@ describe("cold-open timing", () => {
         displayMode: "standalone",
         visibility: "visible",
         build: "index-DNyEQLOj.js",
-        userAgent: "Mozilla/5.0 (Linux; Android 14; SM-S928N) SamsungBrowser/27.0",
+        userAgent: USER_AGENT,
       },
     ]);
+  });
+
+  it.each([
+    { worker: "old", query: "?bot=b1&thread=t-new", label: "open" },
+    { worker: "new", query: `?bot=b1&thread=t-new&t0=${ORIGIN - 100}`, label: "notification" },
+  ])("waits for the target chat's delayed switch when an $worker worker opened it", ({ query, label }) => {
+    const fake = fakePage(`https://home.example/${query}`);
+    const timing = createColdOpenTiming(fake.page);
+    fake.at(2100);
+    timing.chatShown("t-other");
+    fake.paint();
+    expect(fake.sent).toEqual([]);
+    fake.at(6000);
+    timing.chatShown("t-new");
+    fake.paint();
+    fake.expire();
+    expect(fake.sent).toHaveLength(1);
+    expect(fake.sent[0]).toMatchObject({ label, navigationType: "navigate", chatPaint: 6000 });
+  });
+
+  it("still takes any chat on a plain navigation whose address names no thread", () => {
+    const fake = fakePage("https://home.example/?bot=b1");
+    const timing = createColdOpenTiming(fake.page);
+    timing.chatShown("t-other");
+    fake.paint();
+    expect(fake.sent).toHaveLength(1);
+  });
+
+  it("drops a pending open when a warm tap arrives and sends only the warm record", () => {
+    const fake = fakePage("https://home.example/");
+    const timing = createColdOpenTiming(fake.page);
+    fake.at(59_000);
+    timing.warm(ORIGIN + 58_900, "t-new");
+    timing.chatShown("t-old");
+    fake.paint();
+    expect(fake.sent).toEqual([]);
+    fake.at(59_400);
+    timing.chatShown("t-new");
+    fake.paint();
+    fake.expire();
+    expect(fake.sent).toHaveLength(1);
+    expect(fake.sent[0]).toMatchObject({ label: "warm", t0: 58_900, chatPaint: 59_400 });
+  });
+
+  it("lets a newer warm tap replace an older one", () => {
+    const fake = fakePage("https://home.example/", "reload");
+    const timing = createColdOpenTiming(fake.page);
+    fake.at(60_000);
+    timing.warm(ORIGIN + 59_900, "t-a");
+    timing.warm(ORIGIN + 59_950, "t-b");
+    timing.chatShown("t-a");
+    fake.paint();
+    expect(fake.sent).toEqual([]);
+    timing.chatShown("t-b");
+    fake.paint();
+    fake.expire();
+    expect(fake.sent).toHaveLength(1);
+    expect(fake.sent[0]).toMatchObject({ label: "warm", t0: 59_950 });
+  });
+
+  it("drops a measurement already waiting on its frame when a warm tap supersedes it", () => {
+    const fake = fakePage("https://home.example/");
+    const timing = createColdOpenTiming(fake.page);
+    timing.chatShown("t-old");
+    timing.warm(ORIGIN + 1, "t-new");
+    fake.paint();
+    expect(fake.sent).toEqual([]);
+  });
+
+  it("leaves a pending record alone for a tap with no usable time", () => {
+    const fake = fakePage("https://home.example/");
+    const timing = createColdOpenTiming(fake.page);
+    timing.warm(Number(undefined), "t-new");
+    timing.chatShown("t-old");
+    fake.paint();
+    expect(fake.sent).toHaveLength(1);
+    expect(fake.sent[0]).toMatchObject({ label: "open" });
+  });
+
+  it("omits a navigation field the browser left undefined", () => {
+    const fake = fakePage("https://home.example/", "navigate", { nav: { secureConnectionStart: undefined, domInteractive: Number.NaN } });
+    const timing = createColdOpenTiming(fake.page);
+    timing.chatShown("t1");
+    fake.paint();
+    expect(fake.sent[0].nav).not.toHaveProperty("secureConnectionStart");
+    expect(fake.sent[0].nav).not.toHaveProperty("domInteractive");
+    expect(fake.sent[0].nav).toMatchObject({ fetchStart: 3, responseEnd: 310 });
+    expect(Object.values(fake.sent[0].nav)).not.toContain(null);
+  });
+
+  it("cuts the user agent to the server's limit", () => {
+    const fake = fakePage("https://home.example/", "navigate", { userAgent: `Mozilla/5.0 ${"x".repeat(600)}` });
+    const timing = createColdOpenTiming(fake.page);
+    timing.chatShown("t1");
+    fake.paint();
+    expect(fake.sent[0].userAgent).toHaveLength(512);
+    expect(fake.sent[0].userAgent.startsWith("Mozilla/5.0 xxx")).toBe(true);
   });
 
   it("keeps the rest of the address when it strips the tap time", () => {

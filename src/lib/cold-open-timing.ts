@@ -1,6 +1,7 @@
 // Where a phone page's open spends its time, from a notification tap or a plain launch.
 export const COLD_OPEN_PATH = "/api/diag/cold-open";
 export const COLD_OPEN_TIMEOUT_MS = 30_000;
+const USER_AGENT_MAX = 512;
 
 export type ColdOpenLabel = "notification" | "open" | "warm";
 export type ColdOpenMark = "mount" | "sseOpen" | "hello";
@@ -122,7 +123,7 @@ export function createColdOpenTiming(page: ColdOpenPage) {
       displayMode: page.standalone() ? ("standalone" as const) : ("browser" as const),
       visibility: open.visibility,
       build: page.build(),
-      userAgent: page.userAgent,
+      userAgent: page.userAgent.slice(0, USER_AGENT_MAX),
     };
     const t0 = open.t0 === undefined ? undefined : Math.round(open.t0 - page.timeOrigin);
     if (open.label === "warm") return { label: "warm", t0, chatPaint, ...meta };
@@ -133,7 +134,7 @@ export function createColdOpenTiming(page: ColdOpenPage) {
     const resources = page.resources();
     const path = (entry: Resource) => new URL(entry.name, page.href).pathname;
     const nav = navigation
-      ? Object.fromEntries(NAV_FIELDS.map((field) => [field, Math.round(navigation[field])]))
+      ? Object.fromEntries(NAV_FIELDS.flatMap((field) => (Number.isFinite(navigation[field]) ? [[field, Math.round(navigation[field])] as const] : [])))
       : undefined;
     return {
       label: open.label,
@@ -168,8 +169,9 @@ export function createColdOpenTiming(page: ColdOpenPage) {
   const t0 = clickTime(Number(search.get("t0")));
   const stripped = withoutClickTime(page.href);
   if (stripped !== null) page.replaceUrl(stripped);
-  if (t0 !== undefined) begin("notification", t0, search.get("thread") ?? undefined);
-  else if (navigation?.type === "navigate") begin("open", undefined, undefined);
+  const thread = search.get("thread") ?? undefined;
+  if (t0 !== undefined) begin("notification", t0, thread);
+  else if (navigation?.type === "navigate") begin("open", undefined, search.get("bot") ? thread : undefined);
 
   return {
     mark(name: ColdOpenMark) {
@@ -188,7 +190,9 @@ export function createColdOpenTiming(page: ColdOpenPage) {
     },
     warm(t0: number, threadId: string) {
       const at = clickTime(t0);
-      if (pending || at === undefined) return;
+      if (at === undefined) return;
+      // A newer tap drops the unfinished measurement: its end would no longer be what it started from.
+      if (pending) clearTimeout(pending.timer);
       begin("warm", at, threadId);
     },
   };
