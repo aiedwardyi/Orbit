@@ -808,9 +808,9 @@ export function ModelIndexSection() {
     new Date(iso.slice(0, 10))
       .toLocaleDateString(localeTag(locale), { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })
       .replace(/ /g, "\u00a0");
-  const stale = (updated: string) => {
+  const stale = (date: string) => {
     const now = new Date();
-    return Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - Date.parse(updated) > STALE_DAYS * DAY_MS;
+    return Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - Date.parse(date.slice(0, 10)) > STALE_DAYS * DAY_MS;
   };
 
   useEffect(() => {
@@ -1086,9 +1086,9 @@ export function ModelIndexSection() {
                 ? t("modelIndex.updated", { updated: day(source.updated), checked: day(source.retrievedAt) })
                 : t("modelIndex.checked", { date: day(source.retrievedAt) })}
             </span>
-            {source.updated && stale(source.updated) && (
+            {stale(source.updated ?? source.retrievedAt) && (
               <span className="rounded-md border border-warning/30 bg-warning/10 px-1.5 text-[11px] font-medium text-warning">
-                {t("modelIndex.stale", { date: day(source.updated) })}
+                {t(source.updated ? "modelIndex.stale" : "modelIndex.staleChecked", { date: day(source.updated ?? source.retrievedAt) })}
               </span>
             )}
           </div>

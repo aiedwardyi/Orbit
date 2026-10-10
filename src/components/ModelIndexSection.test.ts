@@ -139,6 +139,20 @@ describe("source freshness", () => {
     const badge = [...host.querySelectorAll("span")].find((el) => el.textContent === `${STALE} Sep\u00a022,\u00a02026`);
     expect(badge?.className).toContain("text-warning");
   });
+
+  it("flags a source with no published date once it was last checked more than 14 days ago", async () => {
+    const CHECKED = "Not checked since";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 24, 23, 30));
+    await mount();
+    expect(host.textContent).toContain("Checked Oct 10, 2026");
+    expect(host.textContent).not.toContain(CHECKED);
+    vi.setSystemTime(new Date(2026, 9, 25, 0, 30));
+    await mount();
+    const badge = [...host.querySelectorAll("span")].find((el) => el.textContent === `${CHECKED} Oct 10, 2026`);
+    expect(badge?.className).toContain("text-warning");
+    expect(host.textContent).not.toContain(STALE);
+  });
 });
 
 describe("model filter", () => {
