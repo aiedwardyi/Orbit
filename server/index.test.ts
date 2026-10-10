@@ -4338,7 +4338,7 @@ describe("bot memory API", () => {
     try {
       const fresh = await api("GET", `/api/bots/${bot.id}/memory`);
       expect(fresh.status).toBe(200);
-      expect(fresh.body).toEqual({ text: "", truncated: false, topics: [] });
+      expect(fresh.body).toEqual({ text: "", truncated: false, revision: expect.stringMatching(/^[0-9a-f]{16}$/), topics: [] });
       expect((await api("GET", "/api/bots/does-not-exist/memory")).status).toBe(404);
     } finally {
       await api("DELETE", `/api/bots/${bot.id}`);
@@ -4355,6 +4355,16 @@ describe("bot memory API", () => {
       expect(read.body.text).toBe("# Memory\n- prefers pnpm\n");
       // the write lands in the same file the bot's own tools read
       expect(readFileSync(join(workspaceOf(bot.id), "MEMORY.md"), "utf8")).toContain("prefers pnpm");
+      expect(saved.body.revision).toBe(read.body.revision);
+
+      // a stale base is refused with the newer file and writes nothing
+      const stale = await api("PUT", `/api/bots/${bot.id}/memory`, { text: "stale", baseRevision: "0000000000000000" });
+      expect(stale.status).toBe(409);
+      expect(stale.body).toEqual({ error: "conflict", text: "# Memory\n- prefers pnpm\n", revision: read.body.revision });
+      expect((await api("GET", `/api/bots/${bot.id}/memory`)).body.text).toBe("# Memory\n- prefers pnpm\n");
+      const based = await api("PUT", `/api/bots/${bot.id}/memory`, { text: "# Memory\n- prefers pnpm\n", baseRevision: read.body.revision });
+      expect(based.status).toBe(200);
+      expect(based.body.revision).toBe(read.body.revision);
 
       expect((await api("PUT", `/api/bots/${bot.id}/memory`, { text: 7 })).status).toBe(400);
       expect((await api("PUT", `/api/bots/${bot.id}/memory`, {})).status).toBe(400);

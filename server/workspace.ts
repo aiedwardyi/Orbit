@@ -8,6 +8,7 @@
 // memory/ holds topic files the bot reads on demand with its ordinary
 // file tools. Plain markdown on purpose — the user can open, edit, or
 // delete anything the bot believes.
+import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -101,12 +102,16 @@ export function readMemoryFile(botId: string) {
   try {
     raw = readFileSync(join(workspaceDir(botId), "MEMORY.md"), "utf8");
   } catch {
-    return { text: "", truncated: false };
+    return { text: "", truncated: false, revision: memoryRevision("") };
   }
-  if (!raw.trim() || raw === MEMORY_SEED) return { text: "", truncated: false };
+  if (!raw.trim() || raw === MEMORY_SEED) return { text: "", truncated: false, revision: memoryRevision("") };
   const truncated =
     raw.split("\n").length > MEMORY_MAX_LINES || Buffer.byteLength(raw, "utf8") > MEMORY_MAX_BYTES;
-  return { text: raw, truncated };
+  return { text: raw, truncated, revision: memoryRevision(raw) };
+}
+
+export function memoryRevision(text: string): string {
+  return createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
 /** ensureWorkspace first: the user may edit memory before the bot has ever
@@ -114,6 +119,17 @@ export function readMemoryFile(botId: string) {
 export function writeMemoryFile(botId: string, text: string): void {
   ensureWorkspace(botId);
   writeFileSync(join(workspaceDir(botId), "MEMORY.md"), text, { mode: 0o600 });
+}
+
+/** Writes only while MEMORY.md is still at `baseRevision`, so an editor never
+ * overwrites notes it has not seen. No base writes as before, for older clients. */
+export function saveMemoryFile(botId: string, text: string, baseRevision?: string) {
+  const current = readMemoryFile(botId);
+  if (baseRevision !== undefined && baseRevision !== current.revision) {
+    return { conflict: true as const, text: current.text, revision: current.revision };
+  }
+  writeMemoryFile(botId, text);
+  return { conflict: false as const, ...readMemoryFile(botId) };
 }
 
 /** Raw MEMORY.md bytes, including seed. Missing file is empty. */

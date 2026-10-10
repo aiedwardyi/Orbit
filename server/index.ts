@@ -248,7 +248,7 @@ import {
 import {
   readMemoryFile,
   readMemoryTopic,
-  writeMemoryFile,
+  saveMemoryFile,
   MEMORY_FILE_MAX_BYTES,
 } from "./workspace.ts";
 import { MEMORY_SAVE_TOOL, peekMemory, rememberMemoryWrite } from "./memory-save.ts";
@@ -8987,16 +8987,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (m && method === "PUT") {
       if (!store.bot(m[1])) return json(res, 404, { error: "no such bot" });
-      const parsed = z.object({ text: z.string() }).safeParse(await readBody(req));
+      const parsed = z.object({ text: z.string(), baseRevision: z.string().optional() }).safeParse(await readBody(req));
       if (!parsed.success) return json(res, 400, { error: "text must be a string" });
       if (Buffer.byteLength(parsed.data.text, "utf8") > MEMORY_FILE_MAX_BYTES) {
         return json(res, 400, {
           error: `memory is capped at ${MEMORY_FILE_MAX_BYTES / 1024}KB — move longer notes into memory/<topic>.md files`,
         });
       }
-      writeMemoryFile(m[1], parsed.data.text);
+      const saved = saveMemoryFile(m[1], parsed.data.text, parsed.data.baseRevision);
+      if (saved.conflict) return json(res, 409, { error: "conflict", text: saved.text, revision: saved.revision });
       // truncated echoes back so the editor can warn about the load budget
-      return json(res, 200, { ok: true, truncated: readMemoryFile(m[1]).truncated });
+      return json(res, 200, { ok: true, truncated: saved.truncated, revision: saved.revision });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/memory\/topics\/([^/]+)$/);
     if (m && method === "GET") {

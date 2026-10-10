@@ -226,7 +226,9 @@ describe("SettingsPanel memory and order", () => {
 interface Put {
   url: string;
   text: string;
+  base?: string;
   keepalive?: boolean;
+  response?: Response;
   resolve: (response: Response) => void;
 }
 
@@ -237,7 +239,7 @@ describe("SettingsPanel memory autosave", () => {
   let held: boolean;
   let served: Record<string, string>;
 
-  const ok = () => new Response(JSON.stringify({ ok: true, truncated: false }));
+  const ok = (text: string) => new Response(JSON.stringify({ ok: true, truncated: false, revision: `r:${text}` }));
   const render = async (id: string) => {
     await act(async () => {
       root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: { ...claudeBot, id, threadId: `t-${id}` } })));
@@ -245,6 +247,9 @@ describe("SettingsPanel memory autosave", () => {
   };
   const box = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Memory"]')!;
   const status = () => host.querySelector('[role="status"]')?.textContent ?? "";
+  const notice = () => host.querySelector('[role="alert"]')?.firstElementChild?.textContent ?? "";
+  const button = (label: string) => Array.from(host.querySelectorAll("button")).find((each) => each.textContent === label)!;
+  const stored = (id: string) => JSON.parse(localStorage.getItem(`omb-memory-draft:${id}`) ?? "null");
   const type = async (value: string) => {
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box(), value);
@@ -256,7 +261,7 @@ describe("SettingsPanel memory autosave", () => {
       await vi.advanceTimersByTimeAsync(ms);
     });
   };
-  const land = async (put: Put, response = ok()) => {
+  const land = async (put: Put, response = put.response ?? ok(put.text)) => {
     await act(async () => {
       put.resolve(response);
       await vi.advanceTimersByTimeAsync(0);
@@ -277,24 +282,26 @@ describe("SettingsPanel memory autosave", () => {
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
         if (init?.method === "PUT") {
-          const text: string = JSON.parse(String(init.body)).text;
+          const { text, baseRevision } = JSON.parse(String(init.body));
           return new Promise<Response>((resolve) => {
-            const put = { url, text, keepalive: init.keepalive, resolve };
+            const put = { url, text, base: baseRevision, keepalive: init.keepalive, resolve };
             puts.push(put);
-            if (!held) resolve(ok());
+            if (!held) resolve(ok(text));
           });
         }
         if (url.includes("/memory/topics/")) return new Response(JSON.stringify({ name: "prefs.md", text: "tea" }));
         const id = url.split("/")[3];
-        return new Response(
-          JSON.stringify({ text: served[id] ?? `notes for ${id}`, truncated: false, topics: [{ name: "prefs.md", bytes: 3 }] }),
-        );
+        const text = served[id] ?? `notes for ${id}`;
+        return new Response(JSON.stringify({ text, truncated: false, revision: `r:${text}`, topics: [{ name: "prefs.md", bytes: 3 }] }));
       }),
     );
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     act(() => root.unmount());
+    // drafts and saves outlive a panel, so settle them before the next test
+    for (let i = 0; i < puts.length; i++) await land(puts[i]);
+    localStorage.clear();
     host.remove();
     vi.unstubAllGlobals();
     vi.useRealTimers();
@@ -504,7 +511,7 @@ describe("SettingsPanel memory autosave", () => {
     await land(puts[1]);
   });
 
-  it("drops a failed write when the memory changed since", async () => {
+  it("shows the conflict for a failed write when the memory changed since", async () => {
     held = true;
     const down = () => new Response(JSON.stringify({ error: "offline" }), { status: 503 });
     await render("bot-moved");
@@ -514,9 +521,13 @@ describe("SettingsPanel memory autosave", () => {
     await land(puts[0], down());
     served["bot-moved"] = "likes coffee";
     await render("bot-moved");
-    expect(box().value).toBe("likes coffee");
+    expect(box().value).toBe("likes tea");
+    expect(notice()).toBe("This memory changed somewhere else.");
+    expect(status()).toBe("");
     await wait(5000);
     expect(puts).toHaveLength(1);
+    await act(async () => button("Load latest").click());
+    expect(box().value).toBe("likes coffee");
     await type("likes coffee and jazz");
     act(() => root.unmount());
     root = createRoot(host);
@@ -525,7 +536,11 @@ describe("SettingsPanel memory autosave", () => {
     expect(box().value).toBe("likes coffee and jazz");
     await wait(800);
     await land(puts[2]);
-    expect(puts.map((put) => put.text)).toEqual(["likes tea", "likes coffee and jazz", "likes coffee and jazz"]);
+    expect(puts.map((put) => [put.text, put.base])).toEqual([
+      ["likes tea", "r:notes for bot-moved"],
+      ["likes coffee and jazz", "r:likes coffee"],
+      ["likes coffee and jazz", "r:likes coffee"],
+    ]);
   });
 
   it("shows Saving then Saved then nothing", async () => {
@@ -540,5 +555,239 @@ describe("SettingsPanel memory autosave", () => {
     expect(status()).toBe("Saved");
     await wait(2000);
     expect(status()).toBe("");
+  });
+
+  // the server's own MEMORY.md read and compare-and-write behind fetch; a held save has already written
+  const files = async () => {
+    const workspace = await import("../../server/workspace.ts");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const id = url.split("/")[3];
+        if (init?.method !== "PUT") return new Response(JSON.stringify({ ...workspace.readMemoryFile(id), topics: [] }));
+        const { text, baseRevision } = JSON.parse(String(init.body));
+        const saved = workspace.saveMemoryFile(id, text, baseRevision);
+        const response = saved.conflict
+          ? new Response(JSON.stringify({ error: "conflict", text: saved.text, revision: saved.revision }), { status: 409 })
+          : new Response(JSON.stringify({ ok: true, truncated: saved.truncated, revision: saved.revision }));
+        return new Promise<Response>((resolve) => {
+          puts.push({ url, text, base: baseRevision, keepalive: init.keepalive, response, resolve });
+          if (!held) resolve(response);
+        });
+      }),
+    );
+    return workspace;
+  };
+
+  it("refuses a save over memory that changed on disk and keeps the edit", async () => {
+    const { readMemoryFile, writeMemoryFile } = await files();
+    writeMemoryFile("bot-remote", "base memory");
+    await render("bot-remote");
+    writeMemoryFile("bot-remote", "newer remote memory");
+    await type("base memory plus local edit");
+    await wait(800);
+    expect(readMemoryFile("bot-remote").text).toBe("newer remote memory");
+    expect(box().value).toBe("base memory plus local edit");
+    expect(notice()).toBe("This memory changed somewhere else.");
+    expect(status()).toBe("");
+    await type("base memory plus more");
+    await wait(5000);
+    expect(puts).toHaveLength(1);
+  });
+
+  it("never lets a closed panel's queued save overwrite a newer edit after reopening", async () => {
+    held = true;
+    const { readMemoryFile, writeMemoryFile } = await files();
+    writeMemoryFile("bot-requeue", "base memory");
+    await render("bot-requeue");
+    await type("old in flight");
+    await wait(800);
+    await type("old queued");
+    act(() => root.unmount());
+    root = createRoot(host);
+    await render("bot-requeue");
+    await type("newer edit after reopen");
+    await wait(800);
+    await land(puts[0]);
+    await land(puts[1]);
+    expect(readMemoryFile("bot-requeue").text).toBe("newer edit after reopen");
+    expect(box().value).toBe("newer edit after reopen");
+    expect(status()).toBe("Saved");
+    expect(puts.map((put) => put.text)).toEqual(["old in flight", "newer edit after reopen"]);
+  });
+
+  it("keeps the latest edit stored when the page closes during a save", async () => {
+    held = true;
+    await render("bot-pagehide");
+    await type("old in flight");
+    await wait(800);
+    await type("latest draft");
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(puts.map((put) => put.text)).toEqual(["old in flight"]);
+    expect(stored("bot-pagehide")).toEqual({ text: "latest draft", base: "r:notes for bot-pagehide" });
+    await land(puts[0]);
+    expect(stored("bot-pagehide")).toEqual({ text: "latest draft", base: "r:old in flight" });
+  });
+
+  it("saves a stored draft quietly after a reload when the memory is unchanged", async () => {
+    held = true;
+    localStorage.setItem("omb-memory-draft:bot-reload", JSON.stringify({ text: "likes tea", base: "r:notes for bot-reload" }));
+    await render("bot-reload");
+    expect(box().value).toBe("likes tea");
+    expect(status()).toBe("Saving…");
+    expect(notice()).toBe("");
+    expect(puts.map((put) => [put.text, put.base])).toEqual([["likes tea", "r:notes for bot-reload"]]);
+    await land(puts[0]);
+    expect(status()).toBe("Saved");
+    expect(stored("bot-reload")).toBeNull();
+  });
+
+  it("shows the conflict for a stored draft made from older memory", async () => {
+    localStorage.setItem("omb-memory-draft:bot-stale", JSON.stringify({ text: "likes tea", base: "r:older notes" }));
+    await render("bot-stale");
+    expect(box().value).toBe("likes tea");
+    expect(notice()).toBe("This memory changed somewhere else.");
+    expect(status()).toBe("");
+    await wait(5000);
+    expect(puts).toHaveLength(0);
+    expect(stored("bot-stale")).toEqual({ text: "likes tea", base: "r:older notes" });
+  });
+
+  it("Load latest drops the edit and shows the file", async () => {
+    const { readMemoryFile, writeMemoryFile } = await files();
+    writeMemoryFile("bot-latest", "base memory");
+    await render("bot-latest");
+    writeMemoryFile("bot-latest", "newer remote memory");
+    await type("my edit");
+    await wait(800);
+    await act(async () => button("Load latest").click());
+    expect(box().value).toBe("newer remote memory");
+    expect(notice()).toBe("");
+    expect(stored("bot-latest")).toBeNull();
+    expect(readMemoryFile("bot-latest").text).toBe("newer remote memory");
+    await type("newer remote memory plus mine");
+    await wait(800);
+    expect(readMemoryFile("bot-latest").text).toBe("newer remote memory plus mine");
+    expect(status()).toBe("Saved");
+  });
+
+  it("Keep mine saves the edit over the file", async () => {
+    const { readMemoryFile, writeMemoryFile } = await files();
+    writeMemoryFile("bot-mine", "base memory");
+    await render("bot-mine");
+    writeMemoryFile("bot-mine", "newer remote memory");
+    await type("my edit");
+    await wait(800);
+    await act(async () => button("Keep mine").click());
+    expect(readMemoryFile("bot-mine").text).toBe("my edit");
+    expect(box().value).toBe("my edit");
+    expect(notice()).toBe("");
+    expect(status()).toBe("Saved");
+    expect(stored("bot-mine")).toBeNull();
+  });
+
+  it("re-reads memory on focus or return with nothing unsaved", async () => {
+    await render("bot-fresh");
+    served["bot-fresh"] = "written by the bot";
+    await act(async () => {
+      box().dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(box().value).toBe("written by the bot");
+    served["bot-fresh"] = "synced from the other PC";
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(box().value).toBe("synced from the other PC");
+    await type("my edit");
+    served["bot-fresh"] = "newest";
+    await act(async () => {
+      box().dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(box().value).toBe("my edit");
+    await wait(800);
+    expect(puts.map((put) => [put.text, put.base])).toEqual([["my edit", "r:synced from the other PC"]]);
+  });
+
+  it("ignores a focus read that a save overtook", async () => {
+    const { readMemoryFile, writeMemoryFile } = await files();
+    writeMemoryFile("bot-overtaken", "base notes");
+    await render("bot-overtaken");
+    const before = { ...readMemoryFile("bot-overtaken"), topics: [] };
+    let reply: (response: Response) => void = () => undefined;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>((resolve) => (reply = resolve)));
+    await act(async () => {
+      box().dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    await type("base notes plus saved edit");
+    await wait(800);
+    expect(status()).toBe("Saved");
+    await act(async () => reply(new Response(JSON.stringify(before))));
+    expect(box().value).toBe("base notes plus saved edit");
+    await type("base notes plus another edit");
+    await wait(800);
+    expect(notice()).toBe("");
+    expect(readMemoryFile("bot-overtaken").text).toBe("base notes plus another edit");
+  });
+
+  it("keeps the editor read-only until memory loads, with a Retry", async () => {
+    const { readMemoryFile, writeMemoryFile } = await files();
+    writeMemoryFile("bot-offline", "important synced notes");
+    const serve = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async () => {
+      throw new Error("offline");
+    });
+    await render("bot-offline");
+    expect(box().readOnly).toBe(true);
+    expect(host.querySelector(".text-danger")?.firstChild?.textContent).toBe("Couldn't load memory.");
+    vi.mocked(fetch).mockImplementation(serve);
+    await act(async () => button("Retry").click());
+    expect(box().readOnly).toBe(false);
+    expect(box().value).toBe("important synced notes");
+    expect(host.querySelector(".text-danger")).toBeNull();
+    expect(readMemoryFile("bot-offline").text).toBe("important synced notes");
+  });
+
+  it("treats a 409 without the latest memory as a failed write", async () => {
+    held = true;
+    await render("bot-bad-409");
+    await type("likes tea");
+    await wait(800);
+    await land(puts[0], new Response(JSON.stringify({ error: "conflict" }), { status: 409 }));
+    expect(box().value).toBe("likes tea");
+    expect(host.querySelector(".text-danger")?.textContent).toBe("conflict");
+    expect(notice()).toBe("");
+    expect(stored("bot-bad-409")).toEqual({ text: "likes tea", base: "r:notes for bot-bad-409" });
+    await type("likes tea and jazz");
+    await wait(800);
+    expect(puts.map((put) => [put.text, put.base])).toEqual([
+      ["likes tea", "r:notes for bot-bad-409"],
+      ["likes tea and jazz", "r:notes for bot-bad-409"],
+    ]);
+  });
+
+  it("Load latest reads the file again, or uses the conflict's copy when that read fails", async () => {
+    const { writeMemoryFile } = await files();
+    writeMemoryFile("bot-moving", "base memory");
+    await render("bot-moving");
+    writeMemoryFile("bot-moving", "newer remote memory");
+    await type("my edit");
+    await wait(800);
+    writeMemoryFile("bot-moving", "newest remote memory");
+    await act(async () => button("Load latest").click());
+    expect(box().value).toBe("newest remote memory");
+    writeMemoryFile("bot-moving", "remote again");
+    await type("my second edit");
+    await wait(800);
+    const serve = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (init?.method !== "PUT") throw new Error("offline");
+      return serve(url, init);
+    });
+    await act(async () => button("Load latest").click());
+    expect(box().value).toBe("remote again");
+    expect(notice()).toBe("");
   });
 });
