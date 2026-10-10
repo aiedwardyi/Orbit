@@ -104,7 +104,7 @@ import {
   NATIVE_DIR,
 } from "./config.ts";
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
-import { createUsageRefresh, usageRefreshResponse } from "./usage-refresh.ts";
+import { createMuseCheck, createUsageRefresh, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
 import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext, withoutTurnNotes } from "./context-compaction.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
@@ -2615,6 +2615,7 @@ const turnUsage = new Map<string, { input: number; output: number; cachedInput?:
 // banked on a task. Persisted so a restart keeps the last report until a turn or refresh replaces it.
 const rateLimitsByInstance = loadRateLimits(DATA_DIR);
 const refreshUsage = createUsageRefresh();
+const checkMuseUsage = createMuseCheck();
 
 function withRateLimits<T extends { instanceId: string }>(instances: T[]) {
   return instances.map((instance) => {
@@ -9774,18 +9775,22 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
 
     // ── provider instances (model picker) ──
-    m = path.match(/^\/api\/usage\/refresh\/([\w-]+)$/);
+    // check spends one Muse message; refresh only reads what a host already saw.
+    m = path.match(/^\/api\/usage\/(refresh|check)\/([\w-]+)$/);
     if (m && method === "POST") {
-      const instanceId = m[1];
+      const instanceId = m[2];
       const config = instanceConfigs(cfg)[instanceId];
       const instance = registry.get(instanceId);
-      if (!config || !instance) return json(res, 404, { error: "unknown provider instance" });
+      if (!config || !instance || (m[1] === "check" && instance.driverKind !== "museAgent")) return json(res, 404, { error: "unknown provider instance" });
       const previous = rateLimitsByInstance.get(instanceId);
-      const result = await refreshUsage(instance.driverKind, {
+      const usageOptions = {
         instanceId,
         cli: z.object({ cli: z.string().optional() }).catch({}).parse(config.config).cli,
         environment: config.environment,
-      }, previous);
+      };
+      const result = m[1] === "check"
+        ? await checkMuseUsage(usageOptions, previous)
+        : await refreshUsage(instance.driverKind, usageOptions, previous);
       if (result.report) {
         const current = rateLimitsByInstance.get(instanceId);
         if (!current || Date.parse(result.report.observedAt) >= Date.parse(current.observedAt)) {
@@ -9799,6 +9804,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         error: result.error,
         retryAt: result.retryAt,
         status: result.status,
+        resetsAt: result.resetsAt,
       }));
     }
 

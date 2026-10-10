@@ -5,7 +5,7 @@
 // each engine's subscription window is, straight from the engine's own
 // report from its last turn or refresh, so nobody has to guess from a token count.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, RefreshCw } from "lucide-react";
+import { Check, Loader2, RefreshCw } from "lucide-react";
 import { api, useStore, type InstanceInfo } from "@/state/store";
 import { MausAvatar } from "./Avatar";
 import { Card } from "./SettingsPrimitives";
@@ -21,7 +21,10 @@ import {
   formatTokens,
   formatUsd,
   hasFiniteCost,
+  museReading,
+  readingAge,
   resetCompact,
+  STALE_READING_MS,
   sumUsage,
   usageDetail,
   windowExpired,
@@ -37,21 +40,14 @@ function windowRank(id: string, windowMinutes?: number): number {
   return kind === "session" ? 0 : kind === "weekly" ? 1 : 2;
 }
 
-// Subscription engines with a documented usage surface answer a refresh POST;
-// engines that never report stay off the refresh path entirely.
 const PLAN_USAGE_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent", "museAgent"]);
-const canRefresh = (instance: InstanceInfo) => PLAN_USAGE_DRIVERS.has(instance.driverKind);
-const MUSE_POLL_MS = 60_000;
-// Stale cutoff stays under the poll interval so a report fetched on open
-// is already stale at the first tick; otherwise the refresh slips to ~2min.
-const MUSE_STALE_MS = 30_000;
-function museReportStale(instance: InstanceInfo, now = Date.now()): boolean {
-  if (!instance.rateLimits) return true;
-  const at = Date.parse(instance.rateLimits.observedAt);
-  return !Number.isFinite(at) || now - at >= MUSE_STALE_MS;
-}
-const STALE_READING_MS = 60 * 60_000;
+// Subscription engines with a documented usage surface answer a refresh POST.
+// Muse limits arrive only inside a model reply, so a fresh `muse serve` never
+// has one to read: Muse gets the paid, explicit Check now instead.
+const REFRESH_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent"]);
+const canRefresh = (instance: InstanceInfo) => REFRESH_DRIVERS.has(instance.driverKind);
 type RefreshResult = { error?: string; status?: string };
+type CheckLimits = Record<string, { resetsAt: number | null }>;
 
 // One shared row for every engine in the plan card: the label sits left and
 // the values stack in a single left-aligned column underneath. Every engine
@@ -61,12 +57,23 @@ function EnginePlanRow({
   instance,
   now,
   error,
+  checking = false,
+  onCheck,
+  limit,
 }: {
   instance: InstanceInfo;
   now: number;
   error?: string;
+  checking?: boolean;
+  onCheck?: () => void;
+  limit?: { resetsAt: number | null };
 }) {
   const { t } = useI18n();
+  const muse = instance.driverKind === "museAgent";
+  const reading = museReading(instance.driverKind, instance.rateLimits?.observedAt, now);
+  const limitReset = limit && resetCompact(limit.resetsAt, now);
+  // A reported reset that has passed ends the limit; an unknown one holds until the next check.
+  const limited = limit && (limit.resetsAt === null || Boolean(limitReset));
   // Settings rows never show turn input/output counts - those live only in
   // the chat strip. Freshness stays in the provider tooltip.
   const windows = [...(instance.rateLimits?.windows ?? [])].sort(
@@ -79,12 +86,8 @@ function EnginePlanRow({
     name: instance.displayName,
   });
   const age = (observedAt: string) => {
-    const minutes = Math.max(0, Math.floor((now - Date.parse(observedAt)) / 60_000));
-    return minutes < 60
-      ? t("usage.limits.refreshAgeMinutes", { minutes })
-      : minutes < 48 * 60
-        ? t("usage.limits.refreshAgeHours", { hours: Math.floor(minutes / 60) })
-        : t("usage.limits.refreshAgeDays", { days: Math.floor(minutes / 1_440) });
+    const phrase = readingAge(observedAt, now);
+    return t(phrase.key, phrase.vars);
   };
   // A reading older than an hour says so under the rows: engines like Muse
   // only report what their own host observed, so an old reading can look current.
@@ -109,11 +112,11 @@ function EnginePlanRow({
                 {windowExpired(window.resetsAt, now) ? (
                   <span>
                     {shortLabel}{" "}
-                    <span className="text-ink-secondary">{t("usage.limits.resetPassed")}</span>
+                    <span className="text-ink-secondary">{t(muse ? "usage.limits.resetPassedCheck" : "usage.limits.resetPassed")}</span>
                   </span>
                 ) : (
                   <>
-                    <PlanWindowMeter window={window} now={now} compact />
+                    <PlanWindowMeter window={window} now={now} compact muted={reading?.stale || limited} />
                     {!resetCompact(window.resetsAt, now) && <span className="text-ink-secondary">{t("usage.limits.resetUnknown")}</span>}
                   </>
                 )}
@@ -122,12 +125,32 @@ function EnginePlanRow({
           })}
         </div>
       )}
-      {instance.rateLimits && stale && (
+      {instance.rateLimits && stale && !muse && (
         <div className="mt-1 text-[12px] text-ink-secondary">
           {t("usage.limits.cachedAsOf", { age: age(instance.rateLimits.observedAt) })}
         </div>
       )}
-      {!instance.rateLimits && (
+      {muse && (
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-secondary">
+          <span>{reading ? reading.label(t) : t("usage.limits.museNoReading")}</span>
+          <button
+            type="button"
+            onClick={onCheck}
+            disabled={checking}
+            aria-busy={checking}
+            className="flex items-center gap-1 rounded-md border border-hairline/40 px-2 py-0.5 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            {checking && <Loader2 size={12} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />}
+            {t(checking ? "usage.limits.checking" : "usage.limits.checkNow")}
+          </button>
+        </div>
+      )}
+      {limited && (
+        <div className="mt-1 text-[12px] text-danger">
+          {limitReset ? t("usage.limits.checkLimitResets", { time: t(limitReset.key, limitReset.vars) }) : t("usage.limits.checkLimit")}
+        </div>
+      )}
+      {!instance.rateLimits && !muse && (
         <div className="mt-1 text-[12px] text-ink-secondary">{honestCaption}</div>
       )}
       {error && (
@@ -155,20 +178,27 @@ function PlanUsage() {
     [state.instances],
   );
   const refreshable = useMemo(() => engines.filter(canRefresh), [engines]);
-  const refresh = useCallback(async (instance: InstanceInfo): Promise<RefreshResult> => {
+  const [checking, setChecking] = useState<Record<string, boolean>>({});
+  const [limits, setLimits] = useState<CheckLimits>({});
+  const checkingRef = useRef(new Set<string>());
+  const refresh = useCallback(async (instance: InstanceInfo, action: "refresh" | "check" = "refresh"): Promise<RefreshResult> => {
     try {
-      const result = await api(`/api/usage/refresh/${instance.instanceId}`, { method: "POST" });
+      const result = await api(`/api/usage/${action}/${instance.instanceId}`, { method: "POST" });
       if (result.report) dispatch({ type: "rateLimits", instanceId: instance.instanceId, report: result.report });
-      setRefreshErrors((current) => result.error ? { ...current, [instance.instanceId]: result.error } : Object.fromEntries(Object.entries(current).filter(([id]) => id !== instance.instanceId)));
-      return { error: result.error, status: result.status };
+      const error = result.error ?? (action === "check" && result.status === "no_observation" ? t("usage.limits.checkEmpty") : undefined);
+      setRefreshErrors((current) => error ? { ...current, [instance.instanceId]: error } : Object.fromEntries(Object.entries(current).filter(([id]) => id !== instance.instanceId)));
+      setLimits((current) => result.status === "limit_reached"
+        ? { ...current, [instance.instanceId]: { resetsAt: result.resetsAt ?? null } }
+        : Object.fromEntries(Object.entries(current).filter(([id]) => id !== instance.instanceId)));
+      return { error, status: result.status };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Refresh failed";
       setRefreshErrors((current) => ({ ...current, [instance.instanceId]: message }));
       return { error: message, status: "transport_error" };
     }
-  }, [dispatch]);
+  }, [dispatch, t]);
   // The section's only refresh control: one tap refreshes every engine that
-  // answers a refresh POST (Claude, Codex, Grok, Muse),
+  // answers a refresh POST (Claude, Codex, Grok),
   // never just one of them. A clean run leaves an explicit confirmation
   // behind; the next run clears it.
   const refreshAll = useCallback(async () => {
@@ -177,7 +207,7 @@ function PlanUsage() {
     setRefreshing(true);
     setConfirmed(false);
     try {
-      const results = await Promise.all(refreshable.map(refresh));
+      const results = await Promise.all(refreshable.map((instance) => refresh(instance)));
       setConfirmed(results.every(({ error, status }) => !error && (status === undefined || status === "fresh")));
     } finally {
       refreshingRef.current = false;
@@ -185,35 +215,18 @@ function PlanUsage() {
     }
   }, [refresh, refreshable]);
 
-  const museInstances = useMemo(
-    () => refreshable.filter((instance) => instance.driverKind === "museAgent"),
-    [refreshable],
-  );
-  const museInstancesRef = useRef(museInstances);
-  museInstancesRef.current = museInstances;
-  const refreshRef = useRef(refresh);
-  refreshRef.current = refresh;
-  const initialMuseRefreshes = useRef(new Set<string>());
-  // Muse quota lives server-side, so terminal CLI use only appears when
-  // something re-reads the cached snapshot: missing or stale (>30s) reports
-  // refresh once when Usage opens, then every 60s while it stays open. An
-  // empty response remains pending, so this never fabricates a report.
-  useEffect(() => {
-    for (const instance of museInstances) {
-      if (!museReportStale(instance) || initialMuseRefreshes.current.has(instance.instanceId)) continue;
-      initialMuseRefreshes.current.add(instance.instanceId);
-      void refresh(instance);
+  // Check now spends one Muse message, so it runs only on an explicit tap.
+  const check = useCallback(async (instance: InstanceInfo) => {
+    if (checkingRef.current.has(instance.instanceId)) return;
+    checkingRef.current.add(instance.instanceId);
+    setChecking((current) => ({ ...current, [instance.instanceId]: true }));
+    try {
+      await refresh(instance, "check");
+    } finally {
+      checkingRef.current.delete(instance.instanceId);
+      setChecking((current) => Object.fromEntries(Object.entries(current).filter(([id]) => id !== instance.instanceId)));
     }
-  }, [museInstances, refresh]);
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      if (document.hidden || refreshingRef.current) return;
-      for (const instance of museInstancesRef.current) {
-        if (museReportStale(instance)) void refreshRef.current(instance);
-      }
-    }, MUSE_POLL_MS);
-    return () => window.clearInterval(id);
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -268,7 +281,15 @@ function PlanUsage() {
       ) : (
         <div className="flex flex-col gap-5">
           {engines.map((instance) => (
-            <EnginePlanRow key={instance.instanceId} instance={instance} now={now} error={refreshErrors[instance.instanceId]} />
+            <EnginePlanRow
+              key={instance.instanceId}
+              instance={instance}
+              now={now}
+              error={refreshErrors[instance.instanceId]}
+              checking={checking[instance.instanceId]}
+              limit={limits[instance.instanceId]}
+              onCheck={instance.driverKind === "museAgent" ? () => void check(instance) : undefined}
+            />
           ))}
         </div>
       )}

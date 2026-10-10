@@ -38,6 +38,7 @@ const manageMembers = readFileSync(join(here, "../components/ManageMembersPanel.
 const pluginsPanel = readFileSync(join(here, "../components/PluginsPanel.tsx"), "utf8");
 const usageSection = readFileSync(join(here, "../components/UsageSection.tsx"), "utf8");
 const planUsageBar = readFileSync(join(here, "../components/PlanUsageBar.tsx"), "utf8");
+const usageLib = readFileSync(join(here, "usage.ts"), "utf8");
 const chatPlanMeters = readFileSync(join(here, "../components/ChatPlanMeters.tsx"), "utf8");
 const composer = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
 const routinesPage = readFileSync(join(here, "../components/RoutinesPage.tsx"), "utf8");
@@ -954,8 +955,8 @@ describe("plan usage", () => {
     expect(planUsageBar).toContain('t("usage.limits.percentUsed", { percent })');
     expect(usageSection).toContain('"usage.limits.pending"');
     expect(usageSection).toContain('"usage.limits.notReported"');
-    expect(usageSection).toContain('"usage.limits.refreshAgeMinutes"');
-    expect(usageSection).toContain('"usage.limits.refreshAgeHours"');
+    expect(usageLib).toContain('"usage.limits.refreshAgeMinutes"');
+    expect(usageLib).toContain('"usage.limits.refreshAgeHours"');
     expect(usageSection).toContain('"usage.limits.cachedAsOf"');
     expect(usageSection).not.toContain('"usage.limits.unavailable"');
     expect(planUsageBar).toContain("t(phrase.key, phrase.vars)");

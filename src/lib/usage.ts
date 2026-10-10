@@ -2,6 +2,7 @@
 // Pure, so the numbers can be tested without the components.
 import type { RateLimitWindow } from "../../server/contracts.ts";
 import type { MessageKey } from "./i18n-catalog";
+import type { Translate } from "./i18n";
 import type { Bot, TaskUsage } from "@/state/store";
 
 export const EMPTY_USAGE: TaskUsage = { input: 0, output: 0, costUsd: null, turns: 0 };
@@ -220,4 +221,36 @@ export function planMeterWindows(
   return [pick("session", "five_hour"), pick("weekly", "seven_day")].filter(
     (window): window is RateLimitWindow => window !== undefined,
   );
+}
+
+export const STALE_READING_MS = 60 * 60_000;
+
+/** How old a limits reading is, as `5m` / `2h` / `3d`. */
+export function readingAge(observedAt: string, now = Date.now()): { key: MessageKey; vars: Record<string, number> } {
+  const minutes = Math.max(0, Math.floor((now - Date.parse(observedAt)) / 60_000));
+  return minutes < 60
+    ? { key: "usage.limits.refreshAgeMinutes", vars: { minutes } }
+    : minutes < 48 * 60
+      ? { key: "usage.limits.refreshAgeHours", vars: { hours: Math.floor(minutes / 60) } }
+      : { key: "usage.limits.refreshAgeDays", vars: { days: Math.floor(minutes / 1_440) } };
+}
+
+/** The one honesty rule for Muse: its limits move only when a Wink turn or
+ * Check now reads them, so every surface states the age and mutes past 1h. */
+export function museReading(
+  driverKind: string | undefined,
+  observedAt: string | undefined,
+  now = Date.now(),
+): { stale: boolean; label: (t: Translate) => string } | null {
+  if (driverKind !== "museAgent" || !observedAt) return null;
+  const elapsed = now - Date.parse(observedAt);
+  if (!Number.isFinite(elapsed)) return null;
+  const stale = elapsed > STALE_READING_MS;
+  const age = readingAge(observedAt, now);
+  return {
+    stale,
+    label: (t) => elapsed < 60_000
+      ? t("usage.limits.readJustNow")
+      : t(stale ? "usage.limits.lastSeen" : "usage.limits.readAgo", { age: t(age.key, age.vars) }),
+  };
 }
