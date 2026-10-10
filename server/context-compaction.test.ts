@@ -1462,3 +1462,102 @@ describe("tool line folding", () => {
     ]);
   });
 });
+
+describe("question cards in replay", () => {
+  const card = (id: string, data: Partial<NonNullable<Message["card"]>>, extra: Partial<Message> = {}): Message =>
+    message(id, "", { role: "bot", kind: "options", card: { title: "Your bot has a question", subtitle: "", options: [], ...data }, ...extra });
+  const chip = (id: string, name: string): Message => message(id, "", { role: "bot", kind: "activity", tool: { name, ok: true } });
+  const replay = async (messages: Message[], extra: Partial<Parameters<typeof prepareModelContext>[0]> = {}) => {
+    const result = await prepareModelContext({ messages, contextWindow: 200_000, taskRecordText: "Goal: ship", ...extra });
+    if (result.status !== "ready") throw new Error(result.status);
+    return result.transcript.map((item) => item.text);
+  };
+
+  it("replays an unanswered question card as the question only", async () => {
+    expect(await replay([
+      message("m1", "ship it"),
+      card("m2", { subtitle: "Which region?", options: ["us", "eu"], askUser: true }),
+    ])).toEqual(["ship it", "[Question card] Which region? [choices: us | eu]"]);
+  });
+
+  it("replays a permission card with its verdict", async () => {
+    expect(await replay([
+      message("m1", "clean the build"),
+      card("m2", { title: "Approval needed", subtitle: "rm -rf dist", options: ["Allow", "Deny"], requestId: "r1", tool: "Bash", answered: "deny", dismissed: false }),
+    ])).toEqual(["clean the build", "[Approval card] rm -rf dist [choices: Allow | Deny] [answered: deny]"]);
+  });
+
+  it("attributes a room question to the member who asked", async () => {
+    const scout = { botId: "scout", name: "Scout", color: "blue" };
+    expect(await replay([
+      message("m1", "plan the launch"),
+      card("m2", { subtitle: "Monday or Friday?", options: ["Monday", "Friday"], askUser: true, answered: "Friday" }, { from: scout }),
+      message("m3", "Friday"),
+    ], { userName: "Eddie", includeSpeakers: true })).toEqual([
+      "Eddie: plan the launch",
+      "Scout: [Question card] Monday or Friday? [choices: Monday | Friday]",
+      "Eddie: Friday",
+    ]);
+  });
+
+  it("never folds tool chips across a question card", async () => {
+    expect(await replay([
+      message("m1", "deploy"),
+      chip("m2", "Bash"),
+      card("m3", { subtitle: "Proceed?", options: ["Yes", "No"], requestId: "r1", answered: "answer", answerText: "Yes" }),
+      chip("m4", "Bash"),
+    ])).toEqual([
+      "deploy",
+      "[1 tool call: Bash 1]",
+      "[Question card] Proceed? [choices: Yes | No] [answered: Yes]",
+      "[1 tool call: Bash 1]",
+    ]);
+  });
+
+  it("puts question cards in the summarizer input", async () => {
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nreleased to staging");
+    const result = await prepareModelContext({
+      messages: [
+        message("m0", "prepare the release"),
+        card("m1", { subtitle: "Staging or production?", options: ["Staging", "Production"], askUser: true, answered: "Staging" }),
+        ...longHistory(205, 2),
+      ],
+      contextWindow: 2_048,
+      taskRecordText: "Goal: release",
+      summarize,
+    });
+
+    expect(result.status).toBe("ready");
+    expect(summarize.mock.calls[0]?.[0]).toContain("\nAssistant: [Question card] Staging or production? [choices: Staging | Production]\n");
+  });
+
+  it("bounds a long question and many choices to one line", async () => {
+    const [, line] = await replay([
+      message("m1", "pick one"),
+      card("m2", {
+        subtitle: `Which of these?\n${"very long question ".repeat(200)}`,
+        options: Array.from({ length: 20 }, (_, index) => `choice ${index} ${"x".repeat(100)}`),
+        requestId: "r1",
+        answered: "answer",
+        answerText: `choice 3\n${"y".repeat(1_000)}`,
+      }),
+    ]);
+
+    expect(line).not.toContain("\n");
+    expect(line).toContain("+14 more]");
+    expect(line!.length).toBeLessThan(800);
+  });
+
+  it("replays an answered first-run quiz and skips cards whose answer never reaches the bot", async () => {
+    expect(await replay([
+      card("m1", { title: "What do you mostly want help with?", subtitle: "Pick whatever's closest.", options: ["Life admin", "Writing"], answered: "Life admin", dismissed: true }),
+      message("m2", "Life admin"),
+      card("m3", { title: "What do you mostly want help with?", subtitle: "Pick whatever's closest.", options: ["Life admin"], dismissed: true }),
+      // SAFETY: replay only checks that a routine payload is present, never its fields.
+      card("m4", { title: "Create routine", subtitle: "Daily at 9", options: ["Confirm", "Cancel"], requestId: "r2", tool: "routine", answered: "allow", routineRequest: {} as never }),
+    ])).toEqual([
+      "[Question card] Pick whatever's closest. [choices: Life admin | Writing]",
+      "Life admin",
+    ]);
+  });
+});

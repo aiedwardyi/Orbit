@@ -63,6 +63,8 @@ export interface OptionCardData {
   subtitle: string;
   options: string[];
   answered?: string;
+  /** a provider question's typed answer; `answered` holds only "answer" */
+  answerText?: string;
   dismissed?: boolean;
   /** Present when this card is a live provider ask (approval/question). */
   requestId?: string;
@@ -1233,6 +1235,12 @@ export class Store {
     );
     if (!card?.card) return null;
     return this.patchMessage(threadId, card.id, { card: { ...card.card, dismissed: true } });
+  }
+
+  recordCardAnswer(threadId: string, messageId: string, text: string): Message | null {
+    const card = this.thread(threadId).messages.find((message) => message.id === messageId)?.card;
+    if (!card) return null;
+    return this.patchMessage(threadId, messageId, { card: { ...card, answerText: text } });
   }
 
   /** Screen frames are ~100-500KB of base64 each; keeping every frame of a

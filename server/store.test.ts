@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { postAskUser } from "./ask-user.ts";
 import { DATA_DIR } from "./config.ts";
 import { paneNotesForTurn, prepareModelContext } from "./context-compaction.ts";
 import type { ModelSelection } from "./contracts.ts";
@@ -1041,6 +1042,53 @@ describe("Store", () => {
     expect(prompt).not.toContain("LAUNCH_SENTINEL");
   });
 
+
+  it("replays an ask_user question and its choices before the answer, once", async () => {
+    const store = new Store(selection);
+    const bot = store.createBot({ name: "Wink" });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Prepare the release" });
+    const result = postAskUser({
+      bot: (id) => store.bot(id),
+      conversation: () => ({}),
+      appendMessage: (threadId, message) => store.appendMessage(threadId, message),
+      notifyQuestion: () => {},
+    }, { fromBotId: bot.id, fromThreadId: bot.threadId, question: "Use staging or production for the release?", choices: ["Staging", "Production"] });
+    const posted = result.body;
+    if (!("messageId" in posted)) throw new Error("missing card");
+    const card = store.messagesFor(bot.threadId).find((message) => message.id === posted.messageId)!;
+    store.patchMessage(bot.threadId, card.id, { card: { ...card.card!, answered: "Staging" } });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Staging" });
+
+    const prepared = await prepareModelContext({ messages: store.activePath(bot.threadId), contextWindow: 200_000, taskRecordText: "Prepare the release" });
+    expect(prepared.status).toBe("ready");
+    if (prepared.status !== "ready") return;
+    expect(prepared.transcript).toEqual([
+      { role: "user", text: "Prepare the release" },
+      { role: "assistant", text: "[Question card] Use staging or production for the release? [choices: Staging | Production]" },
+      { role: "user", text: "Staging" },
+    ]);
+  });
+
+  it("replays a provider question answered through respond with its typed answer", async () => {
+    const store = new Store(selection);
+    const bot = store.createBot({ name: "Wink" });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Ship it" });
+    const card = store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "options",
+      card: { title: "Your bot has a question", subtitle: "Which environment?", options: ["Staging", "Production"], requestId: "r1" },
+    });
+    store.patchMessage(bot.threadId, card.id, { card: { ...card.card!, answered: "answer", dismissed: false } });
+    store.recordCardAnswer(bot.threadId, card.id, "Production");
+
+    const prepared = await prepareModelContext({ messages: new Store(selection).activePath(bot.threadId), contextWindow: 200_000, taskRecordText: "" });
+    expect(prepared.status).toBe("ready");
+    if (prepared.status !== "ready") return;
+    expect(prepared.transcript.map((item) => item.text)).toEqual([
+      "Ship it",
+      "[Question card] Which environment? [choices: Staging | Production] [answered: Production]",
+    ]);
+  });
 
   it("tolerates a corrupt bots.json by starting empty", () => {
     const store = new Store(selection);
