@@ -3,6 +3,8 @@
 // send, so every driver receives the same message shape.
 import { z } from "zod";
 
+import { holdReload } from "./reload-hold.js";
+
 export type PasteAttachment = {
   kind: "paste";
   id: string;
@@ -146,11 +148,13 @@ async function uploadAttachmentFile(
   const bytes = new Uint8Array(await file.arrayBuffer());
   const headers = new Headers({ "content-type": file.type || "application/octet-stream" });
   if (document) headers.set("x-attachment-name", encodeURIComponent(file.name));
-  const response = await fetch("/api/attachments", {
-    method: "POST",
-    headers,
-    body: bytes,
-  });
+  const response = await holdReload(
+    fetch("/api/attachments", {
+      method: "POST",
+      headers,
+      body: bytes,
+    }),
+  );
   if (!response.ok) {
     const detail = (await response.json().catch(() => ({ error: response.statusText }))) as { error?: string };
     throw Object.assign(new Error(detail.error ?? "upload failed"), { status: response.status });

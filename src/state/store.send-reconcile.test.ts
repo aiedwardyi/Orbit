@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { withAcceptedMessages } from "@/lib/send-accept";
+import { reloadHeld } from "@/lib/reload-hold";
 import { StoreProvider, useStore, type Bot, type Group, type Message } from "./store";
 
 class FakeEventSource {
@@ -199,6 +200,102 @@ describe("send reject after the server accepted", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("update reload during a send", () => {
+  function gate<T>() {
+    let open!: (value: T | PromiseLike<T>) => void;
+    let fail!: (cause: Error) => void;
+    const promise = new Promise<T>((done, reject) => {
+      open = done;
+      fail = reject;
+    });
+    return { promise, open, fail };
+  }
+  const settled = (threadId: string) => Response.json({ ok: true, threadId, message: accepted(threadId) });
+  const dispatchSend = (name: (typeof sends)[number]["name"], onError: () => void) =>
+    act(async () =>
+      store.dispatch(
+        name === "send"
+          ? { type: "send", botId: bot.id, text: "hello", sendId: "s1", threadId: bot.threadId, onError }
+          : { type: "sendGroup", groupId: group.id, text: "hello", sendId: "s1", threadId: group.threadId, onError },
+      ),
+    );
+
+  it.each(sends)("$name holds the reload until its POST answers", async ({ name, threadId }) => {
+    const post = gate<Response>();
+    await mount(() => Response.json({ messages: [], hasMore: false }), () => post.promise);
+    expect(reloadHeld()).toBe(false);
+    await dispatchSend(name, vi.fn());
+    expect(reloadHeld()).toBe(true);
+    await act(async () => post.open(settled(threadId)));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+    expect(messagesOf(threadId)).toEqual([accepted(threadId)]);
+  });
+
+  it.each(sends)("$name holds the reload through the lookup after a dropped POST", async ({ name, threadId }) => {
+    const lookup = gate<Response>();
+    let asked = false;
+    await mount(() => {
+      asked = true;
+      return lookup.promise;
+    });
+    await dispatchSend(name, vi.fn());
+    await vi.waitFor(() => expect(asked).toBe(true));
+    expect(reloadHeld()).toBe(true);
+    await act(async () => lookup.open(Response.json({ messages: [accepted(threadId)], hasMore: false })));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+    expect(messagesOf(threadId)).toEqual([accepted(threadId)]);
+  });
+
+  it.each(sends)("$name releases the reload only after the draft is restored", async ({ name, threadId }) => {
+    const lookup = gate<Response>();
+    let asked = false;
+    await mount(() => {
+      asked = true;
+      return lookup.promise;
+    });
+    let heldAtRestore: boolean | null = null;
+    const onError = vi.fn(() => {
+      heldAtRestore = reloadHeld();
+    });
+    await dispatchSend(name, onError);
+    await vi.waitFor(() => expect(asked).toBe(true));
+    await act(async () => lookup.open(Response.json({ messages: [], hasMore: false })));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+    expect(onError).toHaveBeenCalledOnce();
+    expect(heldAtRestore).toBe(true);
+    expect(messagesOf(threadId)).toEqual([]);
+  });
+
+  it("holds a 1:1 send through its re-POST", async () => {
+    const posts = [gate<Response>(), gate<Response>(), gate<Response>(), gate<Response>()];
+    let calls = 0;
+    await mount(() => Response.json({ messages: [], hasMore: false }), () => posts[calls++]!.promise);
+    let heldAtRestore: boolean | null = null;
+    const onError = vi.fn(() => {
+      heldAtRestore = reloadHeld();
+    });
+    const send = (sendId: string) =>
+      act(async () => store.dispatch({ type: "send", botId: bot.id, text: "hello", sendId, threadId: bot.threadId, onError }));
+
+    await send("s5");
+    await act(async () => posts[0]!.fail(new TypeError("Load failed")));
+    await vi.waitFor(() => expect(calls).toBe(2));
+    expect(reloadHeld()).toBe(true);
+    await act(async () => posts[1]!.open(settled(bot.threadId)));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+    expect(onError).not.toHaveBeenCalled();
+
+    await send("s6");
+    await act(async () => posts[2]!.fail(new TypeError("Load failed")));
+    await vi.waitFor(() => expect(calls).toBe(4));
+    expect(reloadHeld()).toBe(true);
+    await act(async () => posts[3]!.fail(new TypeError("Load failed")));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+    expect(onError).toHaveBeenCalledOnce();
+    expect(heldAtRestore).toBe(true);
   });
 });
 

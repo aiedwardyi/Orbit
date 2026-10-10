@@ -355,6 +355,7 @@ import { publishUnsyncedPictures, pullSyncedPicture, pruneSyncedPictures } from 
 import { createThreadSyncV2Store } from "./thread-sync-v2-store.ts";
 import { createThreadSyncV2Gate } from "./thread-sync-v2-gate.ts";
 import { serveLinkedFile } from "./linked-files.ts";
+import { missingStaticResponse } from "./static-fallback.ts";
 import { fetchBotDirectory, matchDirectoryBots, type MatchedDirectoryBot } from "./bot-directory.ts";
 import { scoutProject, suggestTeam } from "./project-scout.ts";
 import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-library.ts";
@@ -10300,6 +10301,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
         return res.end(data);
       } catch {
+        const missing = missingStaticResponse(path);
+        if (missing) {
+          res.writeHead(missing.status, missing.headers);
+          return res.end(missing.body);
+        }
         // SPA fallback
         try {
           const data = readFileSync(join(STATIC_DIR, "index.html"));

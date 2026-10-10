@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { missingStaticResponse } from "./static-fallback.ts";
 
 export const EARLY_LISTEN_SLOT = Symbol.for("orbit.earlyListen");
 
@@ -95,6 +96,12 @@ export function serveEarlyRequest(
     res.end(data);
     return true;
   } catch {
+    const missing = missingStaticResponse(pathname);
+    if (missing) {
+      res.writeHead(missing.status, missing.headers);
+      res.end(missing.body);
+      return true;
+    }
     try {
       const data = readFileSync(join(staticDir, "index.html"));
       res.writeHead(200, { "content-type": "text/html" });
