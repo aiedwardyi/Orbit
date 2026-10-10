@@ -156,9 +156,20 @@ describe("notification routing", () => {
   it("skips the transcript switch when the bot's notification thread is already active", () => {
     const dispatch = vi.fn();
 
-    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "main-thread" }, { bots, groups, hydrated: true });
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "main-thread" }, { bots, groups, hydrated: true }, true);
 
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "bot-1" }]);
+  });
+
+  it("still switches on a warm tap whose cached state shows the thread active", () => {
+    const dispatch = vi.fn();
+
+    openNotificationTarget(dispatch, { botId: "bot-1", threadId: "main-thread" }, { bots, groups, hydrated: true });
+
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+      { type: "select", id: "bot-1" },
+      { type: "switchTask", botId: "bot-1", threadId: "main-thread" },
+    ]);
   });
 
   it("selects from a cached snapshot but switches only on fresh state", () => {

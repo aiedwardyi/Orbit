@@ -34,14 +34,16 @@ const group = (threadId: string) => ({
   tasks: [{ threadId: "g-new" }, { threadId: "g-old" }],
 });
 
+const other = { ...bot("t-other"), id: "b2", name: "b2" };
+
 type Snapshot = { bots: Array<ReturnType<typeof bot>>; groups: Array<ReturnType<typeof group>> };
 type Reply = Snapshot | { bot?: ReturnType<typeof bot> } | { group?: ReturnType<typeof group> } | { error: string };
 
 const respond = (body: Reply, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-async function mount(cached: Snapshot, fresh: Snapshot) {
-  localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify({ ...cached, selectedId: "" }));
+async function mount(cached: Snapshot, fresh: Snapshot, selectedId = "") {
+  localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify({ ...cached, selectedId }));
   const switches: string[] = [];
   let hydrate: (() => void) | null = null;
   vi.stubGlobal("EventSource", FakeEventSource);
@@ -65,6 +67,7 @@ async function mount(cached: Snapshot, fresh: Snapshot) {
     state: () => store!.state,
     open: (target: { botId: string; threadId: string }) =>
       act(async () => openNotificationTarget(store!.dispatch, target, store!.state)),
+    select: (id: string) => act(async () => store!.dispatch({ type: "select", id })),
     hydrate: async () => {
       await act(async () => FakeEventSource.current!.onmessage?.({ data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }), lastEventId: "" }));
       await vi.waitFor(() => expect(hydrate).not.toBeNull());
@@ -110,6 +113,36 @@ describe("opening a notification on a cold page", () => {
     expect(store.switches).toEqual([]);
     await store.hydrate();
     expect(store.switches).toEqual([path]);
+    await store.unmount();
+  });
+
+  it("selects and switches to a bot the cached snapshot lacks", async () => {
+    const store = await mount({ bots: [other], groups: [] }, { bots: [bot("t-old"), other], groups: [] }, "b2");
+    await store.open({ botId: "b1", threadId: "t-new" });
+    expect(store.state().selectedId).toBe("b2");
+    await store.hydrate();
+    expect(store.state().selectedId).toBe("b1");
+    expect(store.switches).toEqual(["/api/bots/b1/tasks/t-new"]);
+    await store.unmount();
+  });
+
+  it("selects the room after hydrate when the cache only knows the asker bot", async () => {
+    const store = await mount({ bots: [bot("t-new")], groups: [] }, { bots: [bot("t-new")], groups: [group("g-old")] });
+    await store.open({ botId: "b1", threadId: "g-new" });
+    expect(store.state().selectedId).toBe("b1");
+    await store.hydrate();
+    expect(store.state().selectedId).toBe("g1");
+    expect(store.switches).toEqual(["/api/groups/g1/tasks/g-new"]);
+    await store.unmount();
+  });
+
+  it("drops the target when another chat is picked before hydrate", async () => {
+    const store = await mount({ bots: [bot("t-new"), other], groups: [] }, { bots: [bot("t-new"), other], groups: [] });
+    await store.open({ botId: "b1", threadId: "t-old" });
+    await store.select("b2");
+    await store.hydrate();
+    expect(store.state().selectedId).toBe("b2");
+    expect(store.switches).toEqual([]);
     await store.unmount();
   });
 });
