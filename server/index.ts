@@ -2358,6 +2358,10 @@ async function answerRequest(
       source: "user",
     });
   }
+  // The resolve fold records only the behavior; replay needs the words.
+  if (outcome !== "unavailable" && behavior === "answer" && cardMessage && message) {
+    store.recordCardAnswer(threadId, cardMessage.id, String(message));
+  }
   if (outcome === "unavailable") {
     // The in-flight map is memory-only. After a restart the card is still on
     // the thread, so fall back to the request it carries — otherwise an
