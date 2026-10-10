@@ -38,7 +38,7 @@ describe("QA 17 one Bot-details header entry", () => {
   it("keeps avatar and name as the ChatView header entry that opens Bot details", () => {
     expect(chatHeader).toContain('title={t("chat.openProfile"');
     expect(chatHeader).toContain('onActivate={() => dispatch({ type: "toggleSettings", open: true })}');
-    expect(chatHeader).toContain('onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: true })}');
+    expect(chatHeader).toContain('onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}');
   });
 
   it("keeps the Chief of Staff name when the badge folds to the crown", () => {

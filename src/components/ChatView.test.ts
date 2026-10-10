@@ -527,6 +527,42 @@ describe("ChatView transcript click focus", () => {
   });
 });
 
+describe("ChatView header avatar tap", () => {
+  const tap = async (phone: boolean) => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.stubGlobal("matchMedia", () => ({ matches: phone }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let settings = { open: false, avatar: 0 };
+    function Probe() {
+      const { state } = useStore();
+      settings = { open: state.settingsOpen, avatar: state.settingsAvatarRequest };
+      return null;
+    }
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: botB }), createElement(Probe))));
+    await act(async () => void host.querySelector(`button[aria-label="Open B's profile"]`)!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 })));
+    await act(async () => root.unmount());
+    host.remove();
+    return settings;
+  };
+
+  it("opens bot details without an avatar request on a phone", async () => {
+    expect(await tap(true)).toEqual({ open: true, avatar: 0 });
+  });
+
+  it("opens the avatar picker from the header icon on desktop", async () => {
+    expect(await tap(false)).toEqual({ open: true, avatar: 1 });
+  });
+});
+
 describe("ChatView summarized notes", () => {
   const mount = async (width: number) => {
     vi.stubGlobal("EventSource", FakeEventSource);

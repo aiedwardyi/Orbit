@@ -41,6 +41,7 @@ import { BotAvatar } from "./Avatar";
 import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
+import { isPhone } from "@/lib/phone-swipe";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
 import { stateForBot } from "@/lib/mascot";
@@ -1601,7 +1602,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-1.5 py-1 max-md:flex-[1_0_auto]">
           <button
             data-orbit-chat-focus-fallback=""
-            onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: true })}
+            onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}
             className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised/50"
             title={t("chat.openProfile", { name: bot.name })}
             aria-label={t("chat.openProfile", { name: bot.name })}
