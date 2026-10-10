@@ -235,6 +235,7 @@ describe("SettingsPanel memory autosave", () => {
   let root: ReturnType<typeof createRoot>;
   let puts: Put[];
   let held: boolean;
+  let served: Record<string, string>;
 
   const ok = () => new Response(JSON.stringify({ ok: true, truncated: false }));
   const render = async (id: string) => {
@@ -268,6 +269,7 @@ describe("SettingsPanel memory autosave", () => {
     mockDispatch.mockClear();
     puts = [];
     held = false;
+    served = {};
     host = document.createElement("div");
     document.body.append(host);
     root = createRoot(host);
@@ -283,8 +285,9 @@ describe("SettingsPanel memory autosave", () => {
           });
         }
         if (url.includes("/memory/topics/")) return new Response(JSON.stringify({ name: "prefs.md", text: "tea" }));
+        const id = url.split("/")[3];
         return new Response(
-          JSON.stringify({ text: `notes for ${url.split("/")[3]}`, truncated: false, topics: [{ name: "prefs.md", bytes: 3 }] }),
+          JSON.stringify({ text: served[id] ?? `notes for ${id}`, truncated: false, topics: [{ name: "prefs.md", bytes: 3 }] }),
         );
       }),
     );
@@ -404,7 +407,7 @@ describe("SettingsPanel memory autosave", () => {
 
   it("keeps the text and shows the message when a write fails", async () => {
     held = true;
-    await render("bot-1");
+    await render("bot-cap");
     await type("x".repeat(40));
     await wait(800);
     await land(puts[0], new Response(JSON.stringify({ error: "memory is capped at 256KB" }), { status: 400 }));
@@ -419,7 +422,7 @@ describe("SettingsPanel memory autosave", () => {
   it("retries a failed write on the next blur and on close", async () => {
     held = true;
     const down = () => new Response(JSON.stringify({ error: "offline" }), { status: 503 });
-    await render("bot-1");
+    await render("bot-retry");
     await type("likes tea");
     await wait(800);
     await land(puts[0], down());
@@ -453,12 +456,76 @@ describe("SettingsPanel memory autosave", () => {
 
   it("reports a write that fails after the panel closed", async () => {
     held = true;
-    await render("bot-1");
+    await render("bot-closed");
     await type("likes tea");
     act(() => root.unmount());
     root = createRoot(host);
     await land(puts[0], new Response(JSON.stringify({ error: "disk full" }), { status: 500 }));
     expect(mockDispatch).toHaveBeenCalledWith({ type: "error", message: "disk full" });
+  });
+
+  it("brings back a write that failed after the panel closed and saves it", async () => {
+    held = true;
+    await render("bot-reopen");
+    await type("likes tea");
+    act(() => root.unmount());
+    root = createRoot(host);
+    await land(puts[0], new Response(JSON.stringify({ error: "offline" }), { status: 503 }));
+    await render("bot-reopen");
+    expect(box().value).toBe("likes tea");
+    expect(status()).toBe("Saving…");
+    await wait(800);
+    expect(puts.map((put) => [put.url, put.text])).toEqual([
+      ["/api/bots/bot-reopen/memory", "likes tea"],
+      ["/api/bots/bot-reopen/memory", "likes tea"],
+    ]);
+    await land(puts[1]);
+    expect(status()).toBe("Saved");
+    act(() => root.unmount());
+    root = createRoot(host);
+    await render("bot-reopen");
+    expect(box().value).toBe("notes for bot-reopen");
+  });
+
+  it("brings back a failed write only to its own bot after a switch", async () => {
+    held = true;
+    await render("bot-away");
+    await type("likes tea");
+    await render("bot-2");
+    await land(puts[0], new Response(JSON.stringify({ error: "offline" }), { status: 503 }));
+    expect(box().value).toBe("notes for bot-2");
+    await render("bot-away");
+    expect(box().value).toBe("likes tea");
+    await wait(800);
+    expect(puts.map((put) => [put.url, put.text])).toEqual([
+      ["/api/bots/bot-away/memory", "likes tea"],
+      ["/api/bots/bot-away/memory", "likes tea"],
+    ]);
+    await land(puts[1]);
+  });
+
+  it("drops a failed write when the memory changed since", async () => {
+    held = true;
+    const down = () => new Response(JSON.stringify({ error: "offline" }), { status: 503 });
+    await render("bot-moved");
+    await type("likes tea");
+    act(() => root.unmount());
+    root = createRoot(host);
+    await land(puts[0], down());
+    served["bot-moved"] = "likes coffee";
+    await render("bot-moved");
+    expect(box().value).toBe("likes coffee");
+    await wait(5000);
+    expect(puts).toHaveLength(1);
+    await type("likes coffee and jazz");
+    act(() => root.unmount());
+    root = createRoot(host);
+    await land(puts[1], down());
+    await render("bot-moved");
+    expect(box().value).toBe("likes coffee and jazz");
+    await wait(800);
+    await land(puts[2]);
+    expect(puts.map((put) => put.text)).toEqual(["likes tea", "likes coffee and jazz", "likes coffee and jazz"]);
   });
 
   it("shows Saving then Saved then nothing", async () => {

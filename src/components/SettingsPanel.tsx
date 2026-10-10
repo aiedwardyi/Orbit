@@ -203,6 +203,9 @@ interface MemoryTopic {
 
 const formatBytes = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${Math.round(bytes / 102.4) / 10} KB`);
 
+// outlives the card, so a write that fails after the panel closes comes back on reopen
+const failedMemory = new Map<string, { text: string; base: string }>();
+
 /** MEMORY.md + memory/ topic files, surfaced so the user can read and fix
  * what the bot believes. Fetched on expand, not on mount: settings opens for
  * every bot and most visits never look at memory — and an expand also
@@ -219,6 +222,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [topic, setTopic] = useState<{ name: string; text: string } | null>(null);
   const unsent = useRef<string | null>(null);
+  const base = useRef("");
   const writing = useRef(false);
   const mounted = useRef(true);
   const pause = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -232,9 +236,13 @@ function MemoryCard({ bot }: { bot: Bot }) {
       const result: { text: string; truncated: boolean; topics: MemoryTopic[] } = await api(
         `/api/bots/${bot.id}/memory`,
       );
+      base.current = result.text;
       setText(result.text);
       setTruncated(result.truncated);
       setTopics(result.topics);
+      const failed = failedMemory.get(bot.id);
+      if (failed?.base === result.text) edit(failed.text);
+      else failedMemory.delete(bot.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -259,6 +267,8 @@ function MemoryCard({ bot }: { bot: Bot }) {
         keepalive: new TextEncoder().encode(body).length <= 64 * 1024,
       });
       ok = true;
+      base.current = sending;
+      failedMemory.delete(botId);
       if (mounted.current) {
         setTruncated(result.truncated);
         setError(null);
@@ -278,7 +288,10 @@ function MemoryCard({ bot }: { bot: Bot }) {
       if (!mounted.current || pause.current === null) void flush();
       return;
     }
-    if (!ok) unsent.current = sending;
+    if (!ok) {
+      unsent.current = sending;
+      failedMemory.set(botId, { text: sending, base: base.current });
+    }
     if (!mounted.current) return;
     setStatus(ok ? "saved" : "idle");
     if (ok) savedFade.current = setTimeout(() => setStatus("idle"), 2000);
