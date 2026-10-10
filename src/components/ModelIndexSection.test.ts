@@ -17,6 +17,16 @@ let root: Root;
 let host: HTMLElement;
 
 const tab = () => host.querySelector('[role="radio"][aria-checked="true"]')?.textContent;
+const group = (label: string) => host.querySelector(`[role="radiogroup"][aria-label="${label}"]`);
+const chosen = (label: string) => group(label)?.querySelector('[aria-checked="true"]')?.textContent;
+const pick = (label: string, option: string) =>
+  act(() => [...group(label)!.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((el) => el.textContent === option)!.click());
+const mount = async () => {
+  await act(async () => root.unmount());
+  host.innerHTML = "";
+  root = createRoot(host);
+  await act(async () => root.render(createElement(I18nProvider, null, createElement(ModelIndexSection))));
+};
 const press = (target: EventTarget, init: KeyboardEventInit = {}) => {
   const event = new KeyboardEvent("keydown", { code: "KeyI", altKey: true, shiftKey: true, bubbles: true, cancelable: true, ...init });
   act(() => {
@@ -41,11 +51,11 @@ afterEach(async () => {
 describe("benchmark hotkey", () => {
   it("cycles tabs with Alt+Shift+I and wraps around", () => {
     const seen = [tab()];
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 5; i++) {
       press(window);
       seen.push(tab());
     }
-    expect(seen).toEqual(["Intelligence", "Coding", "Agentic", "General work", "Legal", "Cost", "Intelligence"]);
+    expect(seen).toEqual(["Intelligence", "Coding", "General work", "Legal", "Cost", "Intelligence"]);
   });
 
   it("keeps the keystroke from a focused terminal", () => {
@@ -67,6 +77,84 @@ describe("benchmark hotkey", () => {
   });
 });
 
+describe("coding tabs", () => {
+  it("puts Terminal-Bench first under Coding, DeepSWE second, and no Agentic tab", () => {
+    expect([...group("Benchmark")!.querySelectorAll('[role="radio"]')].map((el) => el.textContent)).toEqual([
+      "Intelligence",
+      "Coding",
+      "General work",
+      "Legal",
+      "Cost",
+    ]);
+    expect(group("Coding benchmark")).toBeNull();
+    pick("Benchmark", "Coding");
+    expect([...group("Coding benchmark")!.querySelectorAll('[role="radio"]')].map((el) => el.textContent)).toEqual(["Terminal-Bench", "DeepSWE"]);
+    expect(chosen("Coding benchmark")).toBe("Terminal-Bench");
+    expect(host.textContent).toContain("Terminal-Bench 4.0, % resolved");
+    pick("Coding benchmark", "DeepSWE");
+    expect(host.textContent).toContain("DeepSWE v1.1, % resolved");
+  });
+
+  it("keeps the chosen coding benchmark across view and tab switches", () => {
+    pick("Benchmark", "Coding");
+    pick("Coding benchmark", "DeepSWE");
+    pick("Chart", "Ranked");
+    expect(chosen("Coding benchmark")).toBe("DeepSWE");
+    pick("Benchmark", "Legal");
+    pick("Benchmark", "Coding");
+    expect(chosen("Coding benchmark")).toBe("DeepSWE");
+    for (let i = 0; i < 5; i++) press(window);
+    expect(chosen("Coding benchmark")).toBe("DeepSWE");
+    expect(host.textContent).toContain("DeepSWE v1.1, % resolved");
+  });
+});
+
+describe("source freshness", () => {
+  const STALE = "Not updated since";
+  afterEach(() => vi.useRealTimers());
+
+  it("says when it was checked when the source publishes no date", () => {
+    expect(host.textContent).toContain("Checked Oct\u00a010,\u00a02026");
+    expect(host.textContent).not.toContain("Source updated");
+  });
+
+  it("shows the source's own date beside the check", () => {
+    pick("Benchmark", "Legal");
+    expect(host.textContent).toContain("Source updated Oct\u00a01,\u00a02026 \u00b7 checked Oct\u00a010,\u00a02026");
+    expect(host.textContent).not.toContain(STALE);
+  });
+
+  it("flags a source not updated for more than 14 days", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 6, 23, 30));
+    await mount();
+    pick("Benchmark", "Coding");
+    pick("Coding benchmark", "DeepSWE");
+    expect(host.textContent).toContain("Source updated Sep\u00a022,\u00a02026");
+    expect(host.textContent).not.toContain(STALE);
+    vi.setSystemTime(new Date(2026, 9, 7, 0, 30));
+    await mount();
+    pick("Benchmark", "Coding");
+    pick("Coding benchmark", "DeepSWE");
+    const badge = [...host.querySelectorAll("span")].find((el) => el.textContent === `${STALE} Sep\u00a022,\u00a02026`);
+    expect(badge?.className).toContain("text-warning");
+  });
+
+  it("flags a source with no published date once it was last checked more than 14 days ago", async () => {
+    const CHECKED = "Not checked since";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 9, 24, 23, 30));
+    await mount();
+    expect(host.textContent).toContain("Checked Oct 10, 2026");
+    expect(host.textContent).not.toContain(CHECKED);
+    vi.setSystemTime(new Date(2026, 9, 25, 0, 30));
+    await mount();
+    const badge = [...host.querySelectorAll("span")].find((el) => el.textContent === `${CHECKED} Oct 10, 2026`);
+    expect(badge?.className).toContain("text-warning");
+    expect(host.textContent).not.toContain(STALE);
+  });
+});
+
 describe("model filter", () => {
   it("has no Show all toggle and draws every point at full strength", () => {
     expect(host.textContent).not.toContain("Show all models");
@@ -75,9 +163,13 @@ describe("model filter", () => {
   });
 
   it("charts only picker models on every tab", () => {
-    for (let i = 0; i < 6; i++) {
-      const named = [...host.querySelectorAll('[tabindex="0"]')].map((el) => el.getAttribute("aria-label") ?? el.textContent ?? "").join("|");
-      expect(named, tab() ?? "").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Argon|Haiku 4\.5/);
+    const named = () => [...host.querySelectorAll('[tabindex="0"]')].map((el) => el.getAttribute("aria-label") ?? el.textContent ?? "").join("|");
+    for (let i = 0; i < 5; i++) {
+      expect(named(), tab() ?? "").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Argon|Haiku 4\.5/);
+      if (tab() === "Coding") {
+        pick("Coding benchmark", "DeepSWE");
+        expect(named(), "DeepSWE").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Argon|Haiku 4\.5/);
+      }
       press(window);
     }
   });
@@ -85,7 +177,7 @@ describe("model filter", () => {
 
 describe("cost tab", () => {
   it("shows input / output list price per 1M tokens", () => {
-    for (let i = 0; i < 5; i++) press(window);
+    for (let i = 0; i < 4; i++) press(window);
     expect(tab()).toBe("Cost");
     const opus = [...host.querySelectorAll('[tabindex="0"]')].find((el) => el.textContent?.includes("Claude Opus 5.5"));
     expect(opus?.textContent).toContain("$4 / $20");
@@ -121,6 +213,18 @@ describe("score hover card", () => {
     expect(cost(max), max).toBeDefined();
     expect(cost(low)).not.toBe(cost(max));
     for (const tip of [low, max]) expect(tip).toContain("Price per 1M, in / out$4 / $20Same at every effort");
+  });
+
+  it("names the coding benchmark and shows the 95% interval and harness when the row has them", () => {
+    pick("Benchmark", "Coding");
+    const terminal = hoverTip("Claude Opus 5.5 high");
+    expect(terminal).toMatch(/%Terminal-Bench/);
+    expect(terminal).toContain("Cost per task");
+    expect(terminal).not.toMatch(/95% CI|Harness/);
+    pick("Coding benchmark", "DeepSWE");
+    const tip = hoverTip("Claude Fable 5 low");
+    expect(tip).toContain("59.6%DeepSWE95% CI 56.8-62.4%");
+    expect(tip).toContain("Harnessmini-swe-agent");
   });
 });
 

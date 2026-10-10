@@ -63,7 +63,7 @@ describe("model index data", () => {
 
   it("keeps one benchmark per tab", () => {
     for (const index of MODEL_INDEXES.filter((index) => index !== "cost")) {
-      const labels = new Set(MODEL_INDEX_ENTRIES.filter((e) => e.index === index && !e.reported).map((e) => e.sourceLabel));
+      const labels = new Set(MODEL_INDEX_ENTRIES.filter((e) => e.index === index).map((e) => e.sourceLabel));
       expect([...labels], index).toHaveLength(1);
     }
   });
@@ -124,7 +124,7 @@ describe("sourced data", () => {
   });
 
   it("has no lab-reported rows", () => {
-    expect(MODEL_INDEX_ENTRIES.filter((e) => e.reported).map((e) => `${e.model} ${e.effort} ${e.index}`)).toEqual([]);
+    expect(MODEL_INDEX_ENTRIES.filter((e) => "reported" in e).map((e) => `${e.model} ${e.effort} ${e.index}`)).toEqual([]);
   });
 
   it("takes each point's cost from its own benchmark, never the Intelligence Index's", () => {
@@ -196,22 +196,9 @@ describe("empty tabs", () => {
   });
 });
 
-describe("lab-reported scores", () => {
-  const lab = { ...entry("claude-opus-5-5", "agentic", 66.4, "xhigh"), reported: "lab" as const };
-
-  it("keep their flag through the view", () => {
-    const view = indexView("agentic", [], [lab, entry("gpt-6-astra", "agentic", 57.9), entry("claude-opus-5-5", "cost", 4000, "xhigh")]);
-    expect(view.points.map((p) => [p.model, p.reported])).toEqual([["claude-opus-5-5", "lab"], ["gpt-6-astra", undefined]]);
-  });
-
-  it("stay off the Pareto frontier", () => {
-    const points = [
-      { score: 40, cost: 100 },
-      { score: 38, cost: 200 },
-      { score: 66, cost: 300, reported: "lab" as const },
-      { score: 55, cost: 900 },
-      { score: 70 },
-    ];
+describe("pareto frontier", () => {
+  it("keeps each priced point no cheaper point beats", () => {
+    const points = [{ score: 40, cost: 100 }, { score: 38, cost: 200 }, { score: 55, cost: 900 }, { score: 70 }];
     expect(paretoFrontier(points).map((p) => p.score)).toEqual([40, 55]);
   });
 });

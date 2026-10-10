@@ -1,10 +1,10 @@
-// App settings → Model index (experimental): lab-published benchmark scores
+// App settings → Model index (experimental): published benchmark scores
 // against cost, per model and effort, so picking a model never needs a web
 // search. Numbers come only from shared/model-index-data.ts; nothing is fetched.
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, X } from "lucide-react";
 import { useStore } from "@/state/store";
-import { useI18n } from "@/lib/i18n";
+import { localeTag, useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n-catalog";
 import { cn } from "@/lib/cn";
 import { isPhone } from "@/lib/phone-swipe";
@@ -26,10 +26,12 @@ import {
   type ChartProvider,
   type ModelIndexPoint,
 } from "@/lib/model-index";
-import { MODEL_INDEX_AS_OF, type ModelIndexKey } from "../../shared/model-index-data.ts";
+import { MODEL_INDEX_SOURCES, type ModelIndexKey } from "../../shared/model-index-data.ts";
 import "./ModelIndexSection.css";
 
 type View = "scatter" | "bars";
+type Tab = Exclude<ModelIndexKey, "agentic">;
+type Coding = "agentic" | "coding";
 type Mark = ReturnType<typeof markUniverse>[number];
 type Box = { x: number; y: number; w: number; h: number };
 type Spot = { x: number; y: number };
@@ -40,6 +42,11 @@ type Translate = ReturnType<typeof useI18n>["t"];
 
 const INDEXES = scoredIndexes();
 const MARKS = markUniverse();
+// Terminal-Bench (the agentic data) sits under Coding and leads it: it covers more of the picker than DeepSWE.
+const TABS = [...new Set(INDEXES.map((index): Tab => (index === "agentic" ? "coding" : index)))];
+const CODING = (["agentic", "coding"] as const).filter((index) => INDEXES.includes(index));
+const STALE_DAYS = 14;
+const DAY_MS = 86_400_000;
 
 const INDEX_KEY: Record<ModelIndexKey, MessageKey> = {
   intelligence: "modelIndex.index.intelligence",
@@ -66,6 +73,11 @@ const COST_KEY = new Map<ModelIndexKey, MessageKey>([
   ["agentic", "modelIndex.axis.costAgentic"],
   ["general", "modelIndex.axis.costGeneral"],
 ]);
+
+const BENCH_KEY = {
+  agentic: "modelIndex.bench.terminalBench",
+  coding: "modelIndex.bench.deepswe",
+} satisfies Record<Coding, MessageKey>;
 
 const PERCENT = new Set<ModelIndexKey>(["coding", "agentic", "legal"]);
 
@@ -101,10 +113,6 @@ const FRONTIER_SLOTS = 16;
 const LEAVE_MS = 600;
 
 const color = (provider: string) => `var(--mi-${chartProvider(provider)})`;
-const labName = (provider: string) => {
-  const slot = chartProvider(provider);
-  return slot === "other" ? provider : PROVIDER_NAME[slot];
-};
 const shortLabel = (label: string) => label.replace(/^Claude /, "");
 const formatCostTick = (usd: number) => `$${usd}`;
 const formatValue = (index: ModelIndexKey, point: ModelIndexPoint) =>
@@ -113,6 +121,8 @@ const formatValue = (index: ModelIndexKey, point: ModelIndexPoint) =>
     : index === "general"
       ? Math.round(point.score).toLocaleString("en-US")
       : `${point.score.toFixed(1)}${PERCENT.has(index) ? "%" : ""}`;
+const formatInterval = (index: ModelIndexKey, { low, high }: { low: number; high: number }) =>
+  `${low.toFixed(1)}-${high.toFixed(1)}${PERCENT.has(index) ? "%" : ""}`;
 const unitOf = (index: ModelIndexKey) => (PERCENT.has(index) ? "%" : index === "general" ? "elo" : "pts");
 const formatTick = (unit: string, value: number) =>
   unit === "elo" ? value.toLocaleString("en-US") : `${value}${unit === "%" ? "%" : ""}`;
@@ -200,11 +210,11 @@ function useLeaving<T extends { key: string }>(items: T[]): T[] {
   return leaving;
 }
 
-function Shape({ model, provider, hollow = false }: { model?: string; provider?: string; hollow?: boolean }) {
+function Shape({ model, provider }: { model?: string; provider?: string }) {
   const paint = provider ? color(provider) : "currentColor";
   return (
     <svg width="10" height="10" viewBox="-5 -5 10 10" aria-hidden className="shrink-0">
-      <path d={model ? shapeOf(model) : SHAPES[0]} style={hollow ? { fill: "none", stroke: paint, strokeWidth: 1.25 } : { fill: paint }} />
+      <path d={model ? shapeOf(model) : SHAPES[0]} style={{ fill: paint }} />
     </svg>
   );
 }
@@ -462,7 +472,6 @@ function Scatter({
   const titleLeaving = useLeaving([{ key: title }]);
 
   const at = new Map(plotted.map((point) => [point.key, { x: x(point.cost!), y: y(point.score) }]));
-  const lab = new Set(plotted.filter((point) => point.reported === "lab").map((point) => point.key));
   const byModel = new Map<string, ModelIndexPoint[]>();
   for (const point of plotted) byModel.set(point.model, [...(byModel.get(point.model) ?? []), point]);
   for (const list of byModel.values()) list.sort((a, b) => effortRank(a.effort) - effortRank(b.effort));
@@ -587,7 +596,6 @@ function Scatter({
               strokeWidth={1.25}
               strokeLinejoin="round"
               strokeLinecap="round"
-              strokeDasharray={list.some((point) => lab.has(point.key)) ? "2.5 2.5" : undefined}
               style={{
                 stroke: color(mark.provider),
                 opacity: list.length > 1 ? 0.8 : 0,
@@ -600,7 +608,6 @@ function Scatter({
       {marks.map((mark) => {
         const spot = at.get(mark.key);
         const { x: px, y: py } = spot ?? rest();
-        const hollow = lab.has(mark.key);
         return (
           <g key={mark.key} data-mi-focus={dim(mark.model)}>
             <g
@@ -623,11 +630,7 @@ function Scatter({
                   data-mi-paint
                   d={shapeOf(mark.model)}
                   paintOrder="stroke"
-                  style={
-                    hollow
-                      ? { fill: "var(--color-card)", stroke: color(mark.provider), strokeWidth: 2.5 }
-                      : { fill: color(mark.provider), stroke: "var(--color-card)", strokeWidth: 3 }
-                  }
+                  style={{ fill: color(mark.provider), stroke: "var(--color-card)", strokeWidth: 3 }}
                 />
               </g>
               <circle
@@ -734,7 +737,6 @@ function Bars({
       <div aria-hidden className="absolute inset-y-0 w-px bg-hairline/70" style={{ left: "calc(40% + 0.625rem)" }} />
       {marks.map((mark) => {
         const point = byKey.get(mark.key);
-        const hollow = point?.reported === "lab";
         return (
           <div
             key={mark.key}
@@ -755,7 +757,7 @@ function Bars({
             <div className="flex w-[40%] min-w-0 shrink-0 items-center justify-end gap-1.5 text-[12px]">
               <span className="truncate font-medium text-ink">{mark.label}</span>
               {mark.effort !== "all" && <span className="shrink-0 text-[11px] text-ink-secondary">{mark.effort}</span>}
-              <Shape provider={mark.provider} model={mark.model} hollow={hollow} />
+              <Shape provider={mark.provider} model={mark.model} />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <div
@@ -763,8 +765,7 @@ function Bars({
                 className="h-3.5 rounded-r-[4px]"
                 style={{
                   width: `calc((100% - ${index === "cost" ? 5.5 : 4}rem) * ${point ? point.score / max : 0})`,
-                  backgroundColor: hollow ? `color-mix(in srgb, ${color(mark.provider)} 16%, transparent)` : color(mark.provider),
-                  boxShadow: hollow ? `inset 0 0 0 1.5px ${color(mark.provider)}` : undefined,
+                  backgroundColor: color(mark.provider),
                 }}
               />
               <span className="shrink-0 text-[12px] tabular-nums text-ink">{point ? formatValue(index, point) : ""}</span>
@@ -777,10 +778,12 @@ function Bars({
 }
 
 export function ModelIndexSection() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { state } = useStore();
   const catalog = useMemo(() => winkCatalog(state.instances ?? []), [state.instances]);
-  const [index, setIndex] = useState<ModelIndexKey>(INDEXES[0] ?? "intelligence");
+  const [tab, setTab] = useState<Tab>(TABS[0] ?? "intelligence");
+  const [coding, setCoding] = useState<Coding>(CODING[0] ?? "agentic");
+  const index: ModelIndexKey = tab === "coding" ? coding : tab;
   const [view, setView] = useState<View>("scatter");
   const [hover, setHover] = useState<Hover | null>(null);
   const [place, setPlace] = useState<{ key: string; left: number; top: number } | null>(null);
@@ -796,10 +799,19 @@ export function ModelIndexSection() {
   const providers = CHART_PROVIDERS.filter((provider) => points.some((point) => chartProvider(point.provider) === provider));
   const sources = [...new Map(points.map((point) => [point.source, point])).values()];
   const hovered = hover ? points.find((point) => point.key === hover.key) : undefined;
-  const labShown = points.some((point) => point.reported === "lab");
   const frontier = shown === "scatter" && paretoFrontier(points).length > 1;
   const charted = shown === "scatter" ? points.filter((point) => point.cost) : points;
   const lines = shown === "scatter" && new Set(charted.map((point) => point.model)).size < charted.length;
+  const source = Object.values(MODEL_INDEX_SOURCES).find((entry) => entry.index === index);
+  // Date-only, read as UTC so no time zone shifts the day; kept on one line.
+  const day = (iso: string) =>
+    new Date(iso.slice(0, 10))
+      .toLocaleDateString(localeTag(locale), { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })
+      .replace(/ /g, "\u00a0");
+  const stale = (date: string) => {
+    const now = new Date();
+    return Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - Date.parse(date.slice(0, 10)) > STALE_DAYS * DAY_MS;
+  };
 
   useEffect(() => {
     // Capture phase, so a focused terminal never sees the keystroke.
@@ -809,7 +821,7 @@ export function ModelIndexSection() {
       e.stopPropagation();
       if (e.repeat || e.isComposing) return;
       setHover(null);
-      setIndex((current) => INDEXES[(INDEXES.indexOf(current) + 1) % INDEXES.length]!);
+      setTab((current) => TABS[(TABS.indexOf(current) + 1) % TABS.length]!);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -869,11 +881,11 @@ export function ModelIndexSection() {
           <div className="flex min-w-0 items-center gap-3">
             <Segmented
               label={t("modelIndex.indexLabel")}
-              value={index}
-              options={INDEXES.map((id) => ({ id, label: t(INDEX_KEY[id]) }))}
+              value={tab}
+              options={TABS.map((id) => ({ id, label: t(INDEX_KEY[id]) }))}
               onChange={(id) => {
                 setHover(null);
-                setIndex(id);
+                setTab(id);
               }}
             />
             <kbd
@@ -883,6 +895,17 @@ export function ModelIndexSection() {
               Alt+Shift+I
             </kbd>
           </div>
+          {tab === "coding" && (
+            <Segmented<Coding>
+              label={t("modelIndex.codingLabel")}
+              value={coding}
+              options={CODING.map((id) => ({ id, label: t(BENCH_KEY[id]) }))}
+              onChange={(id) => {
+                setHover(null);
+                setCoding(id);
+              }}
+            />
+          )}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Segmented<View>
               label={t("modelIndex.viewLabel")}
@@ -920,7 +943,7 @@ export function ModelIndexSection() {
           <div ref={wrapRef} className={full ? "fixed inset-0 z-[60] overflow-y-auto bg-panel px-3 pb-3 pt-12" : "relative min-w-0"}>
             {full && (
               <>
-                <div className="absolute left-4 top-3.5 text-[13px] font-semibold text-ink">{t(INDEX_KEY[index])}</div>
+                <div className="absolute left-4 top-3.5 text-[13px] font-semibold text-ink">{t(INDEX_KEY[tab])}</div>
                 <button
                   type="button"
                   onClick={() => {
@@ -963,7 +986,7 @@ export function ModelIndexSection() {
                 style={{ left: place?.left ?? 0, top: place?.top ?? 0, visibility: place?.key === hover.key ? undefined : "hidden" }}
               >
                 <div className="flex items-center gap-1.5 text-ink">
-                  <Shape provider={hovered.provider} model={hovered.model} hollow={hovered.reported === "lab"} />
+                  <Shape provider={hovered.provider} model={hovered.model} />
                   <span className="truncate font-medium">{hovered.label}</span>
                   {hovered.effort !== "all" && (
                     <span className="shrink-0 rounded bg-inset px-1.5 text-[11px] text-ink-secondary">{hovered.effort}</span>
@@ -971,8 +994,15 @@ export function ModelIndexSection() {
                 </div>
                 <div className="mt-1 flex items-baseline gap-2">
                   <span className="shrink-0 text-[17px] font-semibold leading-tight text-ink">{formatValue(index, hovered)}</span>
-                  <span className="truncate text-ink-secondary">{t(index === "cost" ? "modelIndex.tooltip.cost" : INDEX_KEY[index])}</span>
+                  <span className="truncate text-ink-secondary">
+                    {t(index === "cost" ? "modelIndex.tooltip.cost" : index === "agentic" || index === "coding" ? BENCH_KEY[index] : INDEX_KEY[index])}
+                  </span>
                 </div>
+                {hovered.interval && (
+                  <div className="text-[11px] tabular-nums text-ink-secondary">
+                    {t("modelIndex.tooltip.interval", { range: formatInterval(index, hovered.interval) })}
+                  </div>
+                )}
                 <div className="mt-1 flex justify-between gap-3 tabular-nums">
                   <span className="text-ink-secondary">{t(index === "cost" ? "modelIndex.tooltip.blended" : "modelIndex.tooltip.runCost")}</span>
                   <span className="text-ink">{index === "cost" ? formatUsd(hovered.score) : hovered.cost ? formatCost(hovered.cost) : "-"}</span>
@@ -986,14 +1016,15 @@ export function ModelIndexSection() {
                     <p className="text-[11px] leading-snug text-ink-secondary">{t("modelIndex.tooltip.sameEffort")}</p>
                   </>
                 )}
+                {hovered.harness && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-ink-secondary">{t("modelIndex.tooltip.harness")}</span>
+                    <span className="truncate text-ink">{hovered.harness}</span>
+                  </div>
+                )}
                 <p className="mt-1.5 border-t border-hairline/40 pt-1.5 text-[11px] leading-snug text-ink-secondary">
                   {t("modelIndex.tooltip.source")}: {hovered.sourceLabel} · {hovered.retrievedAt.slice(0, 10)}
                 </p>
-                {hovered.reported === "lab" && (
-                  <p className="mt-1 text-[11px] leading-snug text-ink-secondary">
-                    {t("modelIndex.labReported", { lab: labName(hovered.provider) })}
-                  </p>
-                )}
               </div>
             )}
           </div>
@@ -1027,15 +1058,8 @@ export function ModelIndexSection() {
                   {t("modelIndex.frontier")}
                 </span>
               )}
-              {labShown && (
-                <span className="flex items-center gap-1.5">
-                  <Shape hollow />
-                  {t("modelIndex.hollow")}
-                </span>
-              )}
             </div>
             {noCost > 0 && <p>{t("modelIndex.noCost", { count: noCost })}</p>}
-            {index === "coding" && labShown && <p>{t("modelIndex.labCoding")}</p>}
           </div>
         )}
       </div>
@@ -1055,7 +1079,20 @@ export function ModelIndexSection() {
       )}
 
       <div className="text-[12px] leading-relaxed text-ink-secondary">
-        <div>{t("modelIndex.asOf", { date: MODEL_INDEX_AS_OF })}</div>
+        {source && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>
+              {source.updated
+                ? t("modelIndex.updated", { updated: day(source.updated), checked: day(source.retrievedAt) })
+                : t("modelIndex.checked", { date: day(source.retrievedAt) })}
+            </span>
+            {stale(source.updated ?? source.retrievedAt) && (
+              <span className="rounded-md border border-warning/30 bg-warning/10 px-1.5 text-[11px] font-medium text-warning">
+                {t(source.updated ? "modelIndex.stale" : "modelIndex.staleChecked", { date: day(source.updated ?? source.retrievedAt) })}
+              </span>
+            )}
+          </div>
+        )}
         {sources.length > 0 && (
           <details className="mt-1">
             <summary className="cursor-pointer select-none">

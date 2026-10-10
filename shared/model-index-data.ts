@@ -41,8 +41,6 @@ export interface ModelIndexEntry {
   kind: "independent" | "vendor";
   harness?: string;
   retrievedAt: string;
-  /** The model's own lab published it; nobody independently ran it. */
-  reported?: "lab";
 }
 
 export interface ModelIndexSource {
