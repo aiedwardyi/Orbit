@@ -4027,7 +4027,7 @@ button:disabled.bg-danger {
 /* The glow's ::after anchors to the element, so callers keep it positioned
    (`relative`, or the `absolute` it already has). */
 .needs-you-glow {
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-accent) 70%, transparent);
+  box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--color-accent) 92%, transparent);
 }
 
 .needs-you-glow::after {
@@ -4036,13 +4036,13 @@ button:disabled.bg-danger {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 12px 2px color-mix(in oklab, var(--color-accent) 45%, transparent);
+  box-shadow: 0 0 14px 3px color-mix(in oklab, var(--color-accent) 60%, transparent);
   animation: needs-you-breathe 2.4s ease-in-out infinite;
 }
 
 @keyframes needs-you-breathe {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  50% { opacity: 0.55; }
 }
 
 @media (prefers-reduced-motion: reduce) {
