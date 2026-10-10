@@ -8,6 +8,7 @@ import { activityVisibleInChat } from "@/lib/activity-runs";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import { t, type Translate } from "@/lib/i18n";
 import { notePreview } from "@/lib/pane-note";
+import { isShownMessage } from "@/lib/shown-message";
 import { previewMessages, type Bot, type Group, type OptionCardData } from "@/state/store";
 import { parsePaneNote } from "../../shared/pane-note";
 
@@ -58,6 +59,7 @@ export function conversationPreview(
   const visible = previewMessages(bot);
   for (let i = visible.length - 1; i >= 0; i--) {
     const last = visible[i];
+    if (!isShownMessage(last)) continue;
     if (last.kind === "options" && last.card) {
       if (shouldHideOnboardingCard(last, visible)) {
         if (last.card.answered) return last.card.answered;
@@ -99,6 +101,7 @@ export function roomConversationPreview(
   }
   for (let i = group.messages.length - 1; i >= 0; i--) {
     const last = group.messages[i];
+    if (!isShownMessage(last)) continue;
     if (last.kind === "activity" && last.tool && !activityVisibleInChat(last, showToolCalls)) continue;
     if (last.kind === "screen" && !showToolCalls) continue;
     const text = last.kind === "activity" && last.tool ? last.tool.name : splitAttachedImages(last.text ?? "").display;

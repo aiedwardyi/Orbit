@@ -288,11 +288,12 @@ export function searchMessages(query: string, limit = 40, threadId?: string): Se
   const pattern = `%${needle.replace(/([\\%_])/g, "\\$1")}%`;
   // text messages by their text; activity chips by the tool name — "which
   // bot ran that migration" is a tool-name question. The chip's name lives
-  // in the row's json; a JSON1 extract keeps this one query.
+  // in the row's json; a JSON1 extract keeps this one query. Engine
+  // summaries are never shown, so they never match.
   const scope = threadId ? "thread_id = ? AND " : "";
   const statement = db().prepare(
     "SELECT thread_id, id, at, role, kind, text, json_extract(json, '$.tool.name') AS tool_name, json_extract(json, '$.from.name') AS from_name FROM messages " +
-      `WHERE ${scope}((kind = 'text' AND text IS NOT NULL AND lower(text) LIKE ? ESCAPE '\\') ` +
+      `WHERE ${scope}((kind = 'text' AND text IS NOT NULL AND json_extract(json, '$.summarized') IS NOT 1 AND lower(text) LIKE ? ESCAPE '\\') ` +
       "   OR (kind = 'activity' AND tool_name IS NOT NULL AND lower(tool_name) LIKE ? ESCAPE '\\')) " +
       `ORDER BY ${threadId ? "" : "CASE WHEN kind = 'text' THEN 0 ELSE 1 END, "}at DESC LIMIT ?`,
   );

@@ -25,6 +25,7 @@ import { currentCall, deferCallCleanup, endCall, startCall, useOnCall } from "@/
 import { speaker } from "@/lib/tts";
 import { useSpeech } from "@/lib/tts/useSpeech";
 import { usePushToTalk } from "@/lib/push-to-talk";
+import { isShownMessage } from "@/lib/shown-message";
 import { MausAvatar } from "./Avatar";
 import { isRoutineApproval, pendingApprovals, spokenApprovalPrompt } from "./PendingApproval";
 import { cn } from "@/lib/cn";
@@ -447,7 +448,7 @@ function Call({ bot }: { bot: Bot }) {
       void sayThenListen(`${bot.name} asks: ${detail}${/[.!?]$/.test(detail) ? "" : "."}${choices}`);
       return;
     }
-    const fresh = messages.filter((m) => !spokenIds.current.has(m.id));
+    const fresh = messages.filter((m) => !spokenIds.current.has(m.id) && isShownMessage(m));
     if (!fresh.length) return;
     // only the newest of each kind matters: a burst of tool chips should
     // not queue thirty seconds of narration behind the actual answer

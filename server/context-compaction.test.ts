@@ -134,7 +134,7 @@ describe("provider-neutral context compaction", () => {
     expect(prompt).not.toContain("User: Eddie:");
   });
 
-  const engineSummary = "[Engine summary of a mid-turn note; the exact words were not kept] ";
+  const engineSummary = "[Engine summary of a mid-turn note, not shown to the user; the exact words were not kept] ";
 
   it("prefixes a summarized note in the 1:1 replay and compaction prompt", async () => {
     const ready = await prepareModelContext({

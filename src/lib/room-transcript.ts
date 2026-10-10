@@ -3,6 +3,7 @@
 // so clustering against the previous ITEM drops the label off a bot's first
 // visible line and the bubble reads as the previous speaker's.
 import { activityRunVisible, activityVisibleInChat, type TranscriptItem } from "./activity-runs";
+import { isShownMessage } from "./shown-message";
 import type { Message } from "@/state/store";
 
 export interface RoomTranscriptOptions {
@@ -22,7 +23,7 @@ export interface RoomTranscriptRow {
 export function messageVisible(message: Message, showToolCalls: boolean): boolean {
   switch (message.kind) {
     case "text":
-      return Boolean(message.text);
+      return Boolean(message.text) && isShownMessage(message);
     case "activity":
       return activityVisibleInChat(message, showToolCalls);
     case "secret":

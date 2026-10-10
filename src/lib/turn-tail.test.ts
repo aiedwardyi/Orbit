@@ -24,6 +24,10 @@ describe("showWorkingDots", () => {
     expect(showWorkingDots(true, undefined, msg({}))).toBe(false);
   });
 
+  it("keeps the dots when the tail is a hidden summarized note", () => {
+    expect(showWorkingDots(true, undefined, msg({ summarized: true }))).toBe(true);
+  });
+
   it("rooms: a settled reply only covers the bot that said it", () => {
     const fromA = msg({ from: { botId: "a", name: "A", color: "blue" } });
     expect(showWorkingDots(true, undefined, fromA, "a")).toBe(false);

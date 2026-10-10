@@ -1726,6 +1726,10 @@ describe("auto-speak", () => {
     expect(autoSpeaks({ imported: true, message: { text: "hello" } })).toBe(false);
     expect(autoSpeaks({ message: { text: "  " } })).toBe(false);
   });
+
+  it("never reads a summarized note aloud", () => {
+    expect(autoSpeaks({ message: { role: "bot", text: "Checking the logs.", summarized: true } })).toBe(false);
+  });
 });
 
 describe("reply buzz", () => {
@@ -1738,13 +1742,14 @@ describe("reply buzz", () => {
     expect(buzz).toHaveBeenCalledTimes(1);
   });
 
-  it("stays silent for hidden pages, other chats, own messages, streams and imports", () => {
+  it("stays silent for hidden pages, other chats, own messages, streams, imports and summarized notes", () => {
     const buzz = vi.fn();
     buzzOnReply(reply, screen, false, buzz);
     buzzOnReply({ ...reply, threadId: "t2" }, screen, true, buzz);
     buzzOnReply({ ...reply, message: { role: "user", kind: "text" } }, screen, true, buzz);
     buzzOnReply({ ...reply, message: { role: "bot", kind: "reasoning" } }, screen, true, buzz);
     buzzOnReply({ ...reply, imported: true }, screen, true, buzz);
+    buzzOnReply({ ...reply, message: { role: "bot", kind: "text", summarized: true } }, screen, true, buzz);
     buzzOnReply(reply, { ...screen, activeView: "routines" as const }, true, buzz);
     expect(buzz).not.toHaveBeenCalled();
   });

@@ -34,6 +34,7 @@ import { completedReopenDismissals } from "@/lib/task-recovery";
 import { openLiveEvents } from "@/lib/live-events";
 import { holdReload } from "@/lib/reload-hold";
 import { hapticTick } from "@/lib/phone-swipe";
+import { isShownMessage } from "@/lib/shown-message";
 import {
   acceptedSendPaint,
   applyOptimisticBusy,
@@ -917,19 +918,19 @@ export function visibleNotificationThread(
 }
 
 /** A reply pulled from another PC is history, not a fresh answer. */
-export function autoSpeaks(frame: { imported?: boolean; message?: { text?: string } }): boolean {
-  return !frame.imported && Boolean(frame.message?.text?.trim());
+export function autoSpeaks(frame: { imported?: boolean; message?: { role?: string; text?: string; summarized?: boolean } }): boolean {
+  return !frame.imported && Boolean(frame.message?.text?.trim() && isShownMessage(frame.message));
 }
 
 /** Buzz once for a settled bot reply in the chat on screen, never for imported history. */
 export function buzzOnReply(
-  frame: { threadId: string; imported?: boolean; message?: { role?: string; kind?: string } },
+  frame: { threadId: string; imported?: boolean; message?: { role?: string; kind?: string; summarized?: boolean } },
   state: NotificationRoutingState & Pick<AppState, "activeView" | "selectedId">,
   pageVisible: boolean,
   buzz: () => void = hapticTick,
 ): void {
   if (!pageVisible || frame.imported) return;
-  if (frame.message?.role !== "bot" || frame.message.kind !== "text") return;
+  if (frame.message?.role !== "bot" || frame.message.kind !== "text" || !isShownMessage(frame.message)) return;
   if (visibleNotificationThread(state) === frame.threadId) buzz();
 }
 

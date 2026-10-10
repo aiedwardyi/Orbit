@@ -229,7 +229,7 @@ import { stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
 import { modelPickPatch } from "./pending-model.ts";
-import { ownTurnReply } from "./turn-reply.ts";
+import { ownTurnReply, turnSummaries } from "./turn-reply.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
 import { botClosedPanes, paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
@@ -2403,6 +2403,7 @@ function requestBehavior(value: unknown): "allow" | "deny" | "answer" | null {
 // the last settled assistant text per thread, so a "finished" notification
 // can carry what the bot actually said
 const lastReply = new Map<string, { text: string; messageId: string }>();
+const turnSummary = turnSummaries();
 
 const TASK_PACKET_FLUSH_MS = 30_000;
 const pendingTaskPackets = new Map<
@@ -3003,6 +3004,7 @@ bus.subscribe((event: RuntimeEvent) => {
         // kept so "finished" can say what it finished with, rather than
         // just that something ended; an engine summary is not the bot's words
         if (!event.summarized) lastReply.set(event.threadId, { text: event.text, messageId: message.id });
+        turnSummary.note(event.threadId, event.turnId, message.id, Boolean(event.summarized));
       } else if (event.itemType === "tool" && event.itemId) {
         const itemKey = `${event.threadId}:${event.itemId}`;
         const pending = toolMessageByItem.get(itemKey);
@@ -3396,6 +3398,8 @@ bus.subscribe((event: RuntimeEvent) => {
       const settledReply = lastReply.get(event.threadId);
       const reply = settledReply?.text ?? "";
       lastReply.delete(event.threadId);
+      // summaries are hidden, so a turn that wrote nothing else shows them instead
+      for (const id of turnSummary.settle(event.threadId, event.turnId)) store.patchMessage(event.threadId, id, { summarized: undefined });
       const lastReported = turnUsage.get(event.threadId);
       turnUsage.delete(event.threadId);
       roomTurnInstruction.delete(event.threadId);
@@ -3926,7 +3930,7 @@ const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. For a video, audio or other file, link its absolute path in markdown, like [clip.mp4](C:\\path\\clip.mp4) or, when the path contains spaces, in angle brackets like [clip.mp4](<C:\\My Files\\clip.mp4>), so the user can open it with one click. Never end with only a file path. To create a new image, call generate_image.";
 
 const ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS =
-  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in a short visible message (for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary, so keep each mid-turn message to one short line, and put answers, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you.";
+  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in a short visible message (for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put answers, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you.";
 const REPLY_STYLE_INSTRUCTIONS =
   " Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. After tool work, close with a short standalone summary of what you did and found. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
 const ALWAYS_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS + REPLY_STYLE_INSTRUCTIONS;
@@ -7748,7 +7752,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ? (store.taskByThread(bot.id, threadId)?.title || bot.name)
         : (store.groupTaskByThread(group!.id, threadId)?.title || group!.name);
       const filename = (title.replace(/[^\w\- ]+/g, "").trim() || "conversation").slice(0, 60);
-      const messages = store.activePath(threadId).map(clientMessage);
+      const messages = store.activePath(threadId).filter((message) => !message.summarized).map(clientMessage);
       if (format === "json") {
         // pixels stripped — an export is for reading and archiving, and a
         // base64 desktop frame is neither

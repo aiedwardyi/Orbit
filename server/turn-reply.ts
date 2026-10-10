@@ -25,3 +25,24 @@ export function ownTurnReply(stale: (threadId: string, turnId: string | undefine
     },
   };
 }
+
+/** Per thread, the turn's engine summaries. A turn that wrote no other text
+ * shows them at its end, or it would look empty. */
+export function turnSummaries() {
+  const turns = new Map<string, { turnId?: string; ids: string[]; replied: boolean }>();
+  return {
+    note(threadId: string, turnId: string | undefined, messageId: string, summarized: boolean) {
+      let turn = turns.get(threadId);
+      if (!turn || (turn.turnId && turnId && turn.turnId !== turnId)) turns.set(threadId, (turn = { turnId, ids: [], replied: false }));
+      turn.turnId ??= turnId;
+      if (summarized) turn.ids.push(messageId);
+      else turn.replied = true;
+    },
+    settle(threadId: string, turnId: string | undefined): string[] {
+      const turn = turns.get(threadId);
+      if (!turn || (turn.turnId && turnId && turn.turnId !== turnId)) return [];
+      turns.delete(threadId);
+      return turn.replied ? [] : turn.ids;
+    },
+  };
+}

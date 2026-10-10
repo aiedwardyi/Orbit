@@ -113,6 +113,13 @@ describe("roomTranscriptRows", () => {
     expect(result[2].cluster).toBe(true);
   });
 
+  it("hides a summarized note, so the next speaker still gets the label", () => {
+    const summarized: Message = { ...say("challenge", "Checking the logs."), summarized: true };
+    const result = rows([say("defense", "One."), summarized, say("challenge", "Two.")]);
+    expect(result.map((row) => row.visible)).toEqual([true, false, true]);
+    expect(result[2].cluster).toBe(true);
+  });
+
   it("keeps the day divider on the first visible line after activity crosses midnight", () => {
     const result = rows([
       say("defense", "Late.", at(1, 23)),

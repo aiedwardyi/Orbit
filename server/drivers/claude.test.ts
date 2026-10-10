@@ -518,7 +518,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
   const narrationPart1 = `https://example.com/a/${"a".repeat(478)}`;
   const narrationPart2 = "b".repeat(200);
   const narrationNotice = (summary: string) =>
-    `[Wink note, not from the user] Your last message between tool calls was long, so the user saw only this summary of it: "${summary}". If it held anything they need word for word (links, numbers, commands, steps), send just that again now in one short line, or put it in your final reply. Otherwise ignore this note and don't mention it.`;
+    `[Wink note, not from the user] Your last message between tool calls was long, so the user never saw it; the engine kept only this summary: "${summary}". If it held anything they need (links, numbers, commands, steps), send just that again now in one short line, or put it in your final reply. Otherwise ignore this note and don't mention it.`;
   const armSteerLog = () => {
     process.env.FAKE_CLAUDE_STEER_LOG = join(scratch, "steers.json");
   };

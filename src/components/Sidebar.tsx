@@ -61,6 +61,7 @@ import { modelChipText, modelFamilyAccent } from "@/lib/model-chip";
 import { nextRename } from "@/lib/rename";
 import { downloadAllBots } from "@/lib/team-files";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
+import { isShownMessage } from "@/lib/shown-message";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { MIN_QUERY, SearchResults } from "./SearchResults";
 import { TeamLibraryPanel, type TeamImportResult } from "./TeamLibraryPanel";
@@ -276,7 +277,7 @@ function GroupListItem({
   const members = group.memberIds
     .map((id) => state.bots.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
-  const last = group.messages.at(-1);
+  const last = group.messages.filter(isShownMessage).at(-1);
   const asking = chatNeedsYou(group.messages);
   const select = () => {
     if (selected) onReselect?.();
@@ -858,7 +859,7 @@ function BotListItem({
   const avatarSize = iconOnly ? 44 : density === "compact" ? 32 : 48;
   // the visible branch, so a version switch changes the row with the chat
   const visible = previewMessages(bot);
-  const last = visible.at(-1);
+  const last = visible.filter(isShownMessage).at(-1);
   const shownModel = bot.modelSelection && shownModelSelection(bot);
   const engine = state.instances.find((instance) => instance.instanceId === shownModel?.instanceId);
   const modelLabel = engine && shownModel

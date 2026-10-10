@@ -35,7 +35,7 @@ describe("flat replies", () => {
   it("keeps the engine-summary label on a quoted summary", () => {
     const target = message({ text: "Checking the logs.", summarized: true });
     const reply = message({ id: "m2", role: "user", text: "Why?", replyToId: target.id });
-    const label = "[Engine summary of a mid-turn note; the exact words were not kept] ";
+    const label = "[Engine summary of a mid-turn note, not shown to the user; the exact words were not kept] ";
     expect(transcriptText(reply, new Map([[target.id, target]]), "Milind")).toBe(
       `[replying to Assistant: “${label}Checking the logs.”]\nWhy?`,
     );

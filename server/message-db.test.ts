@@ -199,6 +199,12 @@ describe("message-db", () => {
     expect(searchMessages("railway", 40, "missing")).toEqual([]);
   });
 
+  it("search never matches a summarized bot note", () => {
+    insertMessage("t7", msg("m1", "Checking the deploy logs.", { role: "bot", summarized: true }));
+    insertMessage("t7", msg("m2", "The deploy logs are clean.", { role: "bot" }));
+    expect(searchMessages("deploy logs").map((hit) => hit.messageId)).toEqual(["m2"]);
+  });
+
   it("search reports the match offset for highlighting, and finds activity chips by tool name", () => {
     insertMessage("t7", msg("m1", "please\n\n   run   the migration now"));
     insertMessage("t7", { ...msg("m2", ""), kind: "activity", role: "bot", tool: { name: "Bash: alembic upgrade head", ok: true } } as Message);

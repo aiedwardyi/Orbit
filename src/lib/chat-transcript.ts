@@ -6,6 +6,7 @@
 import { shouldHideOnboardingCard } from "@/components/OptionCard";
 import { readContextCompaction } from "../../shared/context-compaction";
 import { activityRunVisible, activityVisibleInChat, type TranscriptItem } from "./activity-runs";
+import { isShownMessage } from "./shown-message";
 import type { Message } from "@/state/store";
 
 export interface ChatTranscriptOptions {
@@ -23,7 +24,7 @@ export interface ChatTranscriptRow {
 
 /** Mirrors the row ChatView's Transcript renders for one message. */
 export function messageVisible(message: Message, options: ChatTranscriptOptions): boolean {
-  if (message.id === options.emergingId) return false;
+  if (message.id === options.emergingId || !isShownMessage(message)) return false;
   switch (message.kind) {
     case "compaction":
       return readContextCompaction({ value: message.compaction }).status !== "invalid";

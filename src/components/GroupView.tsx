@@ -48,6 +48,7 @@ import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
 import { groupActivityRuns } from "@/lib/activity-runs";
 import { messageVisible, roomTranscriptRows } from "@/lib/room-transcript";
+import { isShownMessage } from "@/lib/shown-message";
 import { roomRetry } from "@/lib/room-retry";
 import { nextBulletin } from "@/lib/room-bulletin";
 import { ActivityRun } from "./ActivityRun";
@@ -327,7 +328,7 @@ const Transcript = memo(function Transcript({
   );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
-  const lastBotTextId = [...transcript].reverse().find((entry) => entry.role === "bot" && entry.kind === "text")?.id;
+  const lastBotTextId = [...transcript].reverse().find((entry) => entry.role === "bot" && entry.kind === "text" && isShownMessage(entry))?.id;
   const target = roomRetry(group.messages, members, group, group.threadId, group.busyBotId, { allowSetup: true });
   const onRetryFor = (messageId: string) =>
     target && messageId === target.messageId
@@ -488,11 +489,7 @@ const Transcript = memo(function Transcript({
                   data-orbit-message-content
                   className={cn(
                     "w-fit max-w-full rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed",
-                    user
-                      ? "whitespace-pre-wrap bg-bubble-user text-ink"
-                      : m.summarized
-                        ? "bg-card text-ink-secondary"
-                        : "bg-card text-ink",
+                    user ? "whitespace-pre-wrap bg-bubble-user text-ink" : "bg-card text-ink",
                   )}
                   title={new Date(m.at).toLocaleString(localeTag(locale))}
                 >
@@ -509,11 +506,6 @@ const Transcript = memo(function Transcript({
                       <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} threadId={group.threadId} />
                     </MessageBoundary>
                   ) : null}
-                  {!user && m.summarized && (
-                    <div className="mt-1 text-[11px] text-ink-secondary/70" title="Claude shortened this mid-task note. Its exact words weren't kept.">
-                      summarized
-                    </div>
-                  )}
                 </div>
                 {!user && !streaming && !docked?.live && (
                   <div
