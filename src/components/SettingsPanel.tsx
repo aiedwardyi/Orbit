@@ -14,6 +14,7 @@ import {
   flushMemory,
   keepMemory,
   memoryDraft,
+  memorySaves,
   openMemory,
   watchMemory,
   type MemoryLatest,
@@ -223,6 +224,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
   const [botId] = useState(bot.id);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [text, setText] = useState("");
   const [truncated, setTruncated] = useState(false);
   const [topics, setTopics] = useState<MemoryTopic[]>([]);
@@ -244,10 +246,11 @@ function MemoryCard({ bot }: { bot: Bot }) {
       setTopics(result.topics);
       const draft = openMemory(botId, result);
       setText(draft?.text ?? result.text);
+      setLoadFailed(false);
       if (draft?.conflict) setConflict(result);
       else if (draft) setStatus("saving");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+    } catch {
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -256,10 +259,13 @@ function MemoryCard({ bot }: { bot: Bot }) {
   // start from the newest memory, so a conflict means a real simultaneous edit
   const refresh = async () => {
     if (memoryDraft(botId) !== null) return;
+    const saves = memorySaves(botId);
     const result = await read().catch(() => null);
-    if (!result || memoryDraft(botId) !== null) return;
+    // a save that started after this read went out is newer than it
+    if (!result || memoryDraft(botId) !== null || memorySaves(botId) !== saves) return;
     openMemory(botId, result);
     setText(result.text);
+    setLoadFailed(false);
     setTruncated(result.truncated);
     setTopics(result.topics);
   };
@@ -278,7 +284,8 @@ function MemoryCard({ bot }: { bot: Bot }) {
     keepMemory(botId, latest);
   };
 
-  const loadLatest = (latest: MemoryLatest) => {
+  const loadLatest = async (conflicted: MemoryLatest) => {
+    const latest = await read().catch(() => conflicted);
     dropMemory(botId, latest);
     setConflict(null);
     setText(latest.text);
@@ -374,6 +381,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
             value={text}
             placeholder={t("bot.memoryPlaceholder")}
             aria-label={t("bot.memory")}
+            readOnly={loadFailed}
             onChange={(e) => edit(e.target.value)}
             onFocus={() => void refresh()}
             onBlur={() => void flushMemory(botId)}
@@ -382,7 +390,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
             <div role="alert" className="mt-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
               <div>{t("bot.memoryConflict")}</div>
               <div className="mt-2 flex flex-wrap gap-2">
-                <button onClick={() => loadLatest(conflict)} className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover">
+                <button onClick={() => void loadLatest(conflict)} className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover">
                   {t("bot.memoryLoadLatest")}
                 </button>
                 <button onClick={() => keepMine(conflict)} className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover">
@@ -418,6 +426,17 @@ function MemoryCard({ bot }: { bot: Bot }) {
         </div>
       )}
 
+      {loadFailed && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 text-[12px] text-danger">
+          {t("bot.memoryLoadFailed")}
+          <button
+            onClick={() => void load()}
+            className="rounded-md px-2 py-1 text-[13px] text-ink-secondary hover:bg-control hover:text-ink"
+          >
+            {t("bot.memoryRetry")}
+          </button>
+        </div>
+      )}
       {error && <div className="mt-2 text-[12px] text-danger">{error}</div>}
     </div>
   );

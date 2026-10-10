@@ -710,4 +710,84 @@ describe("SettingsPanel memory autosave", () => {
     await wait(800);
     expect(puts.map((put) => [put.text, put.base])).toEqual([["my edit", "r:synced from the other PC"]]);
   });
+
+  it("ignores a focus read that a save overtook", async () => {
+    const { readMemoryFile, writeMemoryFile } = await files();
+    writeMemoryFile("bot-overtaken", "base notes");
+    await render("bot-overtaken");
+    const before = { ...readMemoryFile("bot-overtaken"), topics: [] };
+    let reply: (response: Response) => void = () => undefined;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>((resolve) => (reply = resolve)));
+    await act(async () => {
+      box().dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    await type("base notes plus saved edit");
+    await wait(800);
+    expect(status()).toBe("Saved");
+    await act(async () => reply(new Response(JSON.stringify(before))));
+    expect(box().value).toBe("base notes plus saved edit");
+    await type("base notes plus another edit");
+    await wait(800);
+    expect(notice()).toBe("");
+    expect(readMemoryFile("bot-overtaken").text).toBe("base notes plus another edit");
+  });
+
+  it("keeps the editor read-only until memory loads, with a Retry", async () => {
+    const { readMemoryFile, writeMemoryFile } = await files();
+    writeMemoryFile("bot-offline", "important synced notes");
+    const serve = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async () => {
+      throw new Error("offline");
+    });
+    await render("bot-offline");
+    expect(box().readOnly).toBe(true);
+    expect(host.querySelector(".text-danger")?.firstChild?.textContent).toBe("Couldn't load memory.");
+    vi.mocked(fetch).mockImplementation(serve);
+    await act(async () => button("Retry").click());
+    expect(box().readOnly).toBe(false);
+    expect(box().value).toBe("important synced notes");
+    expect(host.querySelector(".text-danger")).toBeNull();
+    expect(readMemoryFile("bot-offline").text).toBe("important synced notes");
+  });
+
+  it("treats a 409 without the latest memory as a failed write", async () => {
+    held = true;
+    await render("bot-bad-409");
+    await type("likes tea");
+    await wait(800);
+    await land(puts[0], new Response(JSON.stringify({ error: "conflict" }), { status: 409 }));
+    expect(box().value).toBe("likes tea");
+    expect(host.querySelector(".text-danger")?.textContent).toBe("conflict");
+    expect(notice()).toBe("");
+    expect(stored("bot-bad-409")).toEqual({ text: "likes tea", base: "r:notes for bot-bad-409" });
+    await type("likes tea and jazz");
+    await wait(800);
+    expect(puts.map((put) => [put.text, put.base])).toEqual([
+      ["likes tea", "r:notes for bot-bad-409"],
+      ["likes tea and jazz", "r:notes for bot-bad-409"],
+    ]);
+  });
+
+  it("Load latest reads the file again, or uses the conflict's copy when that read fails", async () => {
+    const { writeMemoryFile } = await files();
+    writeMemoryFile("bot-moving", "base memory");
+    await render("bot-moving");
+    writeMemoryFile("bot-moving", "newer remote memory");
+    await type("my edit");
+    await wait(800);
+    writeMemoryFile("bot-moving", "newest remote memory");
+    await act(async () => button("Load latest").click());
+    expect(box().value).toBe("newest remote memory");
+    writeMemoryFile("bot-moving", "remote again");
+    await type("my second edit");
+    await wait(800);
+    const serve = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (init?.method !== "PUT") throw new Error("offline");
+      return serve(url, init);
+    });
+    await act(async () => button("Load latest").click());
+    expect(box().value).toBe("remote again");
+    expect(notice()).toBe("");
+  });
 });

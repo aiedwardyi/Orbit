@@ -21,12 +21,14 @@ export interface MemoryView {
 }
 
 const draftSchema = z.object({ text: z.string(), base: z.string().optional() });
+const latestSchema = z.object({ text: z.string(), revision: z.string() });
 type Draft = z.infer<typeof draftSchema>;
 
 interface Slot {
   revision?: string;
   draft: Draft | null;
   sending: boolean;
+  saves: number;
   // a refused save waits for Load latest or Keep mine
   held: boolean;
   pause: ReturnType<typeof setTimeout> | null;
@@ -48,7 +50,7 @@ function readStored(botId: string): Draft | null {
 function slot(botId: string): Slot {
   let found = slots.get(botId);
   if (!found) {
-    found = { draft: readStored(botId), sending: false, held: false, pause: null, view: null };
+    found = { draft: readStored(botId), sending: false, saves: 0, held: false, pause: null, view: null };
     slots.set(botId, found);
   }
   return found;
@@ -66,6 +68,11 @@ function setDraft(botId: string, draft: Draft | null): void {
 
 export function memoryDraft(botId: string): string | null {
   return slot(botId).draft?.text ?? null;
+}
+
+/** Counts saves started, so a read sent before one can be told apart. */
+export function memorySaves(botId: string): number {
+  return slot(botId).saves;
 }
 
 export function watchMemory(botId: string, view: MemoryView | null): void {
@@ -119,8 +126,10 @@ export async function flushMemory(botId: string): Promise<void> {
   if (s.pause !== null) clearTimeout(s.pause);
   s.pause = null;
   const sent = s.draft;
-  if (s.sending || s.held || !sent) return;
+  // a save without a base would overwrite the file unchecked
+  if (s.sending || s.held || !sent || sent.base === undefined) return;
   s.sending = true;
+  s.saves++;
   const body = JSON.stringify({ text: sent.text, baseRevision: sent.base });
   try {
     const res = await holdReload(
@@ -133,16 +142,20 @@ export async function flushMemory(botId: string): Promise<void> {
       }),
     );
     const result = await res.json().catch(() => ({}));
-    if (res.status === 409) {
+    const latest = latestSchema.safeParse(result);
+    if (res.status === 409 && latest.success) {
       s.held = true;
-      s.revision = result.revision;
-      s.view?.conflict({ text: result.text, revision: result.revision });
+      s.revision = latest.data.revision;
+      s.view?.conflict(latest.data);
     } else if (!res.ok) {
       throw new Error(result.error ?? `${res.status} ${res.statusText}`);
     } else {
       s.revision = result.revision;
-      if (s.draft?.text === sent.text) setDraft(botId, null);
-      else if (s.draft) setDraft(botId, { text: s.draft.text, base: result.revision });
+      if (s.draft?.text === sent.text) {
+        // another tab may have stored its own draft since
+        if (readStored(botId)?.text === sent.text) setDraft(botId, null);
+        else s.draft = null;
+      } else if (s.draft) setDraft(botId, { text: s.draft.text, base: result.revision });
       s.view?.saved(result.truncated, s.draft !== null);
     }
   } catch (e) {
