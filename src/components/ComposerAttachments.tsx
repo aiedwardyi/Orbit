@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { ClipboardPaste, File as FileIcon, Image as ImageIcon, MessageSquareText, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
+import { holdReload } from "@/lib/reload-hold";
 import {
   attachmentImageUrl,
   intakeFiles,
@@ -68,7 +69,7 @@ export function ComposerAttachments({
     const onOver = (e: DragEvent) => {
       if (carriesFiles(e)) e.preventDefault();
     };
-    const onDrop = async (e: DragEvent) => {
+    const drop = async (e: DragEvent) => {
       if (!carriesFiles(e)) return;
       e.preventDefault();
       depth.current = 0;
@@ -88,6 +89,7 @@ export function ComposerAttachments({
       // intake from clearing an error before the user can read it.
       if (message) onNotice(message);
     };
+    const onDrop = (e: DragEvent) => void holdReload(drop(e));
 
     window.addEventListener("dragenter", onEnter);
     window.addEventListener("dragleave", onLeave);

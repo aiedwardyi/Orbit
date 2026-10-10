@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { withAcceptedMessages } from "@/lib/send-accept";
 import { reloadHeld } from "@/lib/reload-hold";
-import { StoreProvider, useStore, type Bot, type Group, type Message } from "./store";
+import { api, StoreProvider, useStore, type Bot, type Group, type Message, type OptionCardData } from "./store";
 
 class FakeEventSource {
   static last: FakeEventSource | null = null;
@@ -63,7 +63,7 @@ async function mount(
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url);
     if (path === "/api/bots?messages=200") return Response.json({ bots, groups: [group], computerControl: {} });
-    if (init?.method === "POST" && path.endsWith("/messages")) return post(init);
+    if (init?.method === "POST" && (path.endsWith("/messages") || path.endsWith("/respond"))) return post(init);
     const page = path.match(/^\/api\/threads\/([\w-]+)\/messages\?/);
     if (page) return threadPage(page[1]!, init);
     return Response.json({ error: "not in this test" }, { status: 404 });
@@ -296,6 +296,33 @@ describe("update reload during a send", () => {
     await vi.waitFor(() => expect(reloadHeld()).toBe(false));
     expect(onError).toHaveBeenCalledOnce();
     expect(heldAtRestore).toBe(true);
+  });
+
+  it("holds the reload for a write until it answers, not for a read", async () => {
+    const write = gate<Response>();
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => (init?.method ? write.promise : Promise.resolve(Response.json({})))));
+    const read = api("/api/bots");
+    expect(reloadHeld()).toBe(false);
+    await read;
+    const edit = api("/api/messages/m1", { method: "PATCH", body: "{}" });
+    expect(reloadHeld()).toBe(true);
+    write.open(Response.json({ ok: true }));
+    await edit;
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+  });
+
+  it.each<{ name: string; card: OptionCardData; path: string }>([
+    { name: "live ask", card: { title: "Q", subtitle: "", options: [], requestId: "r1" }, path: "/api/bots/b1/respond" },
+    { name: "quiz", card: { title: "Q", subtitle: "", options: [] }, path: "/api/bots/b1/messages" },
+  ])("holds the reload until a $name answer is posted", async ({ card, path }) => {
+    const post = gate<Response>();
+    const asking: Bot = { ...bot, messages: [{ id: "m-card", at: 1, role: "bot", kind: "options", card }] };
+    const fetch = await mount(() => Response.json({ messages: [], hasMore: false }), () => post.promise, [asking]);
+    await act(async () => store.dispatch({ type: "answerCard", botId: bot.id, messageId: "m-card", answer: "Yes" }));
+    expect(fetch).toHaveBeenCalledWith(path, expect.objectContaining({ method: "POST" }));
+    expect(reloadHeld()).toBe(true);
+    await act(async () => post.open(Response.json({ ok: true })));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
   });
 });
 

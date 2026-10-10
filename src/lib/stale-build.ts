@@ -3,7 +3,7 @@
 // new features until it reloads. Both paths reload once onto the new build.
 import { lazy, useEffect, useRef, type ComponentType } from "react";
 import { STALE_RELOAD_KEY, staleReloadAllowed } from "../../shared/stale-reload";
-import { onHoldReleased, reloadHeld } from "./reload-hold";
+import { holdReload, onHoldReleased, reloadHeld } from "./reload-hold";
 
 type GuardStore = Pick<Storage, "getItem" | "setItem"> | undefined;
 
@@ -92,7 +92,7 @@ export function watchUiBuild(page: UiBuildPage) {
 }
 
 const TEXT_FIELD =
-  'textarea, input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], input[type="password"], input[type="tel"], input[type="number"]';
+  'textarea, input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], input[type="password"], input[type="tel"], input[type="number"], input[type="date"], input[type="time"], input[type="datetime-local"], input[type="month"], input[type="week"], select';
 
 function browserPage(): UiBuildPage {
   return {
@@ -125,7 +125,7 @@ function browserPage(): UiBuildPage {
 }
 
 /** Browser pages only: checks for a newer build on return to the foreground and on every reconnect. */
-export function useStaleBuildReload(connected: boolean) {
+export function useStaleBuildReload(connected: boolean, viewOpen: boolean) {
   const watch = useRef<ReturnType<typeof watchUiBuild> | null>(null);
   const wasConnected = useRef(false);
   useEffect(() => {
@@ -147,4 +147,10 @@ export function useStaleBuildReload(connected: boolean) {
     if (wasConnected.current) void watch.current?.check();
     wasConnected.current = true;
   }, [connected]);
+  useEffect(() => {
+    if (!viewOpen) return;
+    let close!: () => void;
+    void holdReload(new Promise<void>((resolve) => (close = resolve)));
+    return () => close();
+  }, [viewOpen]);
 }

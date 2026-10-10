@@ -88,7 +88,6 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   useLayoutEffect(() => {
     latestState.current = state;
   }, [state]);
-  useStaleBuildReload(state.connected);
   const unreadCount = unreadConversationCount(state.bots, state.groups) + terminalAttentionCount(state.terminalAttention);
   const menuUnreadBadge = formatCollapsedUnreadBadge(collapsedUnreadCount(state.bots, state.groups, state.selectedId));
   const menuAsking = anyChatNeedsYou([...state.bots, ...state.groups], state.selectedId);
@@ -454,6 +453,18 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     state.appSettingsOpen ||
     state.pluginsOpen ||
     state.createBotOpen;
+  const createBotSheetOpen = !onboardingOpen && !noEngines && state.connected && state.hydrated && (state.createBotOpen || state.bots.length === 0);
+  const secondaryViewOpen =
+    onboardingOpen ||
+    state.activeView !== "chat" ||
+    terminalOpen ||
+    Boolean(browserWorkspaceBotId || localVmWorkspaceBotId) ||
+    paletteOpen ||
+    state.appSettingsOpen ||
+    state.pluginsOpen ||
+    createBotSheetOpen ||
+    Boolean(bot && (state.settingsOpen || state.inspectorOpen || (showComputerPanelChrome() && state.computerOpen)));
+  useStaleBuildReload(state.connected, secondaryViewOpen);
 
   const swipeStageRef = usePhoneSwipe(bot?.id, !terminalOpen && !nativeViewOverlayOpen, (id) => dispatch({ type: "select", id }));
   const closeDrawer = () => {
@@ -725,7 +736,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           </LazyView>
         )}
       </Presence>
-      <Presence open={!onboardingOpen && !noEngines && state.connected && state.hydrated && (state.createBotOpen || state.bots.length === 0)}>
+      <Presence open={createBotSheetOpen}>
         {(closing) => (
           <LazyView overlay>
             <CreateBotSheet required={state.bots.length === 0} closing={closing} />
