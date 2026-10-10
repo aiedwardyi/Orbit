@@ -14,7 +14,7 @@ import type { RateLimitWindow } from "./contracts.ts";
 import { acpChildEnv } from "./drivers/acp/core.ts";
 import { grokSupport } from "./drivers/acp/grok.ts";
 import { classifyMuseError, museDefaultCli, resolveWslMuseCli, withWslKeySharing } from "./drivers/acp/muse.ts";
-import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows, museUsageReport } from "./drivers/rate-limits.ts";
+import { antigravityRateLimitWindows, codexRateLimitWindows, grokRateLimitWindows, museUsageReport, usageLimitFromError } from "./drivers/rate-limits.ts";
 import { createMspChannel, MspRpcError, uuidv7 } from "./drivers/msp/protocol.ts";
 import { augmentedPath, toWslPath } from "./env-path.ts";
 import { execCli, killCliTree, spawnCli } from "./procs.ts";
@@ -26,8 +26,9 @@ export type UsageRefreshStatus =
   | "retained"
   | "no_observation"
   | "transport_error"
-  | "auth_error";
-type Result = { report?: Report; error?: string; retryAt: number; status?: UsageRefreshStatus };
+  | "auth_error"
+  | "limit_reached";
+type Result = { report?: Report; error?: string; retryAt: number; status?: UsageRefreshStatus; resetsAt?: number | null };
 type Options = { instanceId: string; cli?: string; environment?: NodeJS.ProcessEnv };
 const usableReport = (report: Report | undefined): report is Report =>
   Boolean(report && report.windows.length > 0 && Number.isFinite(Date.parse(report.observedAt)));
@@ -59,7 +60,7 @@ const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const rpcMessage = z.object({ id: z.number().optional(), method: z.string().optional(), result: z.json().optional(), error: z.object({ code: z.number() }).optional() });
 
 export function usageRefreshResponse(instanceId: string, result: Result) {
-  return { instanceId, report: result.report, error: result.error, retryAt: result.retryAt, status: result.status };
+  return { instanceId, report: result.report, error: result.error, retryAt: result.retryAt, status: result.status, resetsAt: result.resetsAt };
 }
 
 export function readUsageRpc(cli: string, env: NodeJS.ProcessEnv): Promise<JsonValue> {
@@ -400,14 +401,16 @@ export function readAntigravityQuota(
 }
 
 class MuseUsageFailure extends Error {
-  readonly kind: "transport" | "auth";
+  readonly kind: "transport" | "auth" | "limit";
   /** A check turn already reached the model: retrying would spend another message. */
   readonly spent: boolean;
+  readonly resetsAt: number | null;
 
-  constructor(kind: "transport" | "auth", spent = false) {
+  constructor(kind: "transport" | "auth" | "limit", spent = false, resetsAt: number | null = null) {
     super(kind === "auth" ? "signin" : "refresh");
     this.kind = kind;
     this.spent = spent;
+    this.resetsAt = resetsAt;
   }
 }
 
@@ -418,7 +421,8 @@ const MUSE_CHECK_PROMPT = "Reply with: ok";
 const MUSE_CHECK_TURN_MS = 90_000;
 const MUSE_CHECK_THROTTLE_MS = 60_000;
 const museCheckStarted = z.object({ session: z.object({ sessionId: z.string() }) });
-const museCheckCompleted = z.object({ sessionId: z.string(), terminal: z.string().optional(), error: z.unknown().optional() });
+const museCheckCompleted = z.object({ sessionId: z.string(), terminal: z.string().optional(), error: z.unknown().optional(), reason: z.string().optional() });
+const museErrorMessage = z.object({ message: z.string() });
 
 /** Read the stable MSP usage snapshot from a normal `muse serve` host. With
  * `check`, a memory-only host in an empty temp folder runs one turn first. */
@@ -467,6 +471,13 @@ async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv, check
       const result = await completed;
       if (result.terminal === "failed" && classifyMuseError(result.error) === "invalid_credentials") {
         throw new MuseUsageFailure("auth", true);
+      }
+      if (result.terminal === "failed") {
+        const message = museErrorMessage.safeParse(result.error).data?.message ?? result.reason ?? "";
+        if (usageLimitFromError(new Error(message), true)) {
+          const resetsAt = /resets at (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/.exec(message)?.[1];
+          throw new MuseUsageFailure("limit", true, resetsAt ? Date.parse(resetsAt) : null);
+        }
       }
     } finally {
       for (const stop of cleanup) stop();
@@ -558,6 +569,7 @@ export async function readMuseUsage(
         return await readMuseUsageOnce(wslCli, childEnv, options.check);
       } catch (error) {
         if (error instanceof Error && error.message === "signin") throw error;
+        if (error instanceof MuseUsageFailure && error.spent) throw error;
         lastError = error;
       }
     }
@@ -835,6 +847,9 @@ export function createUsageRefresh(deps: {
         }
         return { report, ...(driver === "museAgent" ? { status: "fresh" as const } : {}), retryAt };
       } catch (error) {
+        if (error instanceof MuseUsageFailure && error.kind === "limit") {
+          return { report: previous, status: "limit_reached", resetsAt: error.resetsAt, retryAt };
+        }
         const auth = error instanceof MuseUsageFailure
           ? error.kind === "auth"
           : error instanceof Error && error.message === "signin";

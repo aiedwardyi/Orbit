@@ -9800,6 +9800,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         error: result.error,
         retryAt: result.retryAt,
         status: result.status,
+        resetsAt: result.resetsAt,
       }));
     }
 

@@ -47,6 +47,7 @@ const PLAN_USAGE_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent", "museAg
 const REFRESH_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent"]);
 const canRefresh = (instance: InstanceInfo) => REFRESH_DRIVERS.has(instance.driverKind);
 type RefreshResult = { error?: string; status?: string };
+type CheckLimits = Record<string, { resetsAt: number | null }>;
 
 // One shared row for every engine in the plan card: the label sits left and
 // the values stack in a single left-aligned column underneath. Every engine
@@ -58,16 +59,21 @@ function EnginePlanRow({
   error,
   checking = false,
   onCheck,
+  limit,
 }: {
   instance: InstanceInfo;
   now: number;
   error?: string;
   checking?: boolean;
   onCheck?: () => void;
+  limit?: { resetsAt: number | null };
 }) {
   const { t } = useI18n();
   const muse = instance.driverKind === "museAgent";
   const reading = museReading(instance.driverKind, instance.rateLimits?.observedAt, now);
+  const limitReset = limit && resetCompact(limit.resetsAt, now);
+  // A reported reset that has passed ends the limit; an unknown one holds until the next check.
+  const limited = limit && (limit.resetsAt === null || Boolean(limitReset));
   // Settings rows never show turn input/output counts - those live only in
   // the chat strip. Freshness stays in the provider tooltip.
   const windows = [...(instance.rateLimits?.windows ?? [])].sort(
@@ -110,7 +116,7 @@ function EnginePlanRow({
                   </span>
                 ) : (
                   <>
-                    <PlanWindowMeter window={window} now={now} compact muted={reading?.stale} />
+                    <PlanWindowMeter window={window} now={now} compact muted={reading?.stale || limited} />
                     {!resetCompact(window.resetsAt, now) && <span className="text-ink-secondary">{t("usage.limits.resetUnknown")}</span>}
                   </>
                 )}
@@ -137,6 +143,11 @@ function EnginePlanRow({
             {checking && <Loader2 size={12} aria-hidden="true" className="animate-spin motion-reduce:animate-none" />}
             {t(checking ? "usage.limits.checking" : "usage.limits.checkNow")}
           </button>
+        </div>
+      )}
+      {limited && (
+        <div className="mt-1 text-[12px] text-danger">
+          {limitReset ? t("usage.limits.checkLimitResets", { time: t(limitReset.key, limitReset.vars) }) : t("usage.limits.checkLimit")}
         </div>
       )}
       {!instance.rateLimits && !muse && (
@@ -168,6 +179,7 @@ function PlanUsage() {
   );
   const refreshable = useMemo(() => engines.filter(canRefresh), [engines]);
   const [checking, setChecking] = useState<Record<string, boolean>>({});
+  const [limits, setLimits] = useState<CheckLimits>({});
   const checkingRef = useRef(new Set<string>());
   const refresh = useCallback(async (instance: InstanceInfo, action: "refresh" | "check" = "refresh"): Promise<RefreshResult> => {
     try {
@@ -175,6 +187,9 @@ function PlanUsage() {
       if (result.report) dispatch({ type: "rateLimits", instanceId: instance.instanceId, report: result.report });
       const error = result.error ?? (action === "check" && result.status === "no_observation" ? t("usage.limits.checkEmpty") : undefined);
       setRefreshErrors((current) => error ? { ...current, [instance.instanceId]: error } : Object.fromEntries(Object.entries(current).filter(([id]) => id !== instance.instanceId)));
+      setLimits((current) => result.status === "limit_reached"
+        ? { ...current, [instance.instanceId]: { resetsAt: result.resetsAt ?? null } }
+        : Object.fromEntries(Object.entries(current).filter(([id]) => id !== instance.instanceId)));
       return { error, status: result.status };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Refresh failed";
@@ -272,6 +287,7 @@ function PlanUsage() {
               now={now}
               error={refreshErrors[instance.instanceId]}
               checking={checking[instance.instanceId]}
+              limit={limits[instance.instanceId]}
               onCheck={instance.driverKind === "museAgent" ? () => void check(instance) : undefined}
             />
           ))}

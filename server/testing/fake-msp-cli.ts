@@ -6,6 +6,9 @@
 //
 //   FAKE_MSP_MODE   happy (default) | hang | exit-early | fail-after-text
 //                   | auth-failure (turn/completed failed authRequired)
+//                   | quota (turn/completed failed with Muse's 429 quota
+//                     error and its reset time; no usage/changed)
+//                   | quota-no-reset (same, without a reset time)
 //                   | approval (approval/requested, then waits for decide)
 //                   | approval-request (approval/request with id: the client
 //                     must answer the receipt before the card resolves)
@@ -406,6 +409,22 @@ function handle(msg: any) {
         turnId: TURN_ID,
       });
       if (mode === "hang") return;
+      if (mode === "quota" || mode === "quota-no-reset") {
+        const message = `API error 429 [request_id=fake]: Subscription quota exhausted.${mode === "quota" ? " Your usage window resets at 2026-10-10T17:03:32Z." : ""} (rate_limit_error)`;
+        out({
+          jsonrpc: "2.0",
+          method: "turn/completed",
+          params: {
+            sessionId: SESSION_ID,
+            turnId: TURN_ID,
+            terminal: "failed",
+            error: { kind: "modelError", message, retryable: false },
+            reason: message,
+            viewCursor: "v:5",
+          },
+        });
+        return;
+      }
       usageChanged();
       if (mode === "auth-failure") {
         out({

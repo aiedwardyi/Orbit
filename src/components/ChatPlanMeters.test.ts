@@ -179,4 +179,24 @@ describe("ChatPlanMeters", () => {
     expect(host.textContent).not.toContain("Last seen");
     expect(host.querySelector('[aria-label="7d: 100% used"] .text-danger')).not.toBeNull();
   });
+
+  it("describes the strip with a stale Muse reading's age and keeps its name", () => {
+    applyLocale("en");
+    const windows = [{ id: "five_hour", usedPercent: 10, resetsAt: now + 115 * 60_000 }];
+    const host = document.createElement("div");
+    const draw = (ageMs: number) => {
+      host.innerHTML = renderToStaticMarkup(createElement(ChatPlanMeters, {
+        windows, driverKind: "museAgent", observedAt: new Date(now - ageMs).toISOString(), now, onOpenUsage: () => {},
+      }));
+      return host.querySelector("button");
+    };
+    const stale = draw(4 * 86_400_000);
+    const describedBy = stale?.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(host.querySelector(`[id="${describedBy}"]`)?.textContent).toBe("Last seen 4d ago");
+    expect(stale?.getAttribute("aria-label")).toBe("Open usage settings");
+    const fresh = draw(30 * 60_000);
+    expect(fresh?.hasAttribute("aria-describedby")).toBe(false);
+    expect(fresh?.getAttribute("aria-label")).toBe("Open usage settings");
+  });
 });

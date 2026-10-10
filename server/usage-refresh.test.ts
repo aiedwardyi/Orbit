@@ -410,7 +410,7 @@ describe("usage refresh route result", () => {
       expect(turn.input).toEqual([{ type: "text", text: "Reply with: ok" }]);
       await vi.waitFor(() => expect(existsSync(spawn.cwd)).toBe(false));
     } finally {
-      removeTempDir(scratch);
+      await removeTempDir(scratch);
     }
   });
 
@@ -426,6 +426,35 @@ describe("usage refresh route result", () => {
     const result = await check({ instanceId: "muse" }, report);
     expect(result.report).toEqual(report);
     expect(result.status).toBe("no_observation");
+  });
+
+  it("says when Muse's limit resets after a check turn hits the quota, with one turn and no WSL retry", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-muse-check-quota-"));
+    const rpcDump = join(scratch, "rpc.json");
+    const resolveWsl = vi.fn(async () => FAKE_MSP_CLI);
+    try {
+      const check = createMuseCheck({
+        muse: (_cli, env) => readMuseUsage("wsl muse", { ...env, FAKE_MSP_MODE: "quota", FAKE_MSP_RPC_DUMP: rpcDump }, { platform: "win32", resolveWsl, check: true }),
+      });
+      const report = { windows: [{ id: "five_hour", usedPercent: 41, resetsAt: null }], observedAt: reset };
+      const result = await check({ instanceId: "muse" }, report);
+      expect(result).toMatchObject({ report, status: "limit_reached", resetsAt: Date.parse("2026-10-10T17:03:32Z") });
+      expect(result.error).toBeUndefined();
+      expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize", "initialized", "session/start", "turn/start"]);
+      expect(resolveWsl).toHaveBeenCalledTimes(1);
+      expect(usageRefreshResponse("muse", result).resetsAt).toBe(Date.parse("2026-10-10T17:03:32Z"));
+    } finally {
+      await removeTempDir(scratch);
+    }
+  });
+
+  it("says Muse's limit is reached without a reset time when the quota error has none", async () => {
+    const check = createMuseCheck({
+      muse: (_cli, env) => readMuseUsage(FAKE_MSP_CLI, { ...env, FAKE_MSP_MODE: "quota-no-reset" }, { platform: "linux", check: true }),
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 41, resetsAt: null }], observedAt: reset };
+    const result = await check({ instanceId: "muse" }, report);
+    expect(result).toMatchObject({ report, status: "limit_reached", resetsAt: null });
   });
 
   it.each(["signin", "refresh"] as const)("keeps the old reading after a Muse check %s", async (kind) => {

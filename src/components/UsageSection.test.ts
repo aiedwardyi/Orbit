@@ -393,6 +393,53 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
+  it("says when Muse's limit resets after a check hits the quota and mutes the Muse meters", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    let root = createRoot(host);
+    let resetsAt: number | null = Date.now() + 117 * 60_000;
+    mockApi.mockReset();
+    mockApi.mockImplementation(async () => ({ status: "limit_reached", resetsAt }));
+    const tapCheck = () => act(async () => {
+      [...host.querySelectorAll("button")].find((button) => button.textContent === "Check now (1 Muse message)")?.click();
+    });
+    const museMeters = () => ["5h: 78% remaining", "7d: 39% remaining"].map((label) => host.querySelector(`[aria-label="${label}"]`));
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      for (const meter of museMeters()) expect(meter?.querySelector(".text-accent")).not.toBeNull();
+      await tapCheck();
+      expect(host.textContent).toMatch(/Muse limit reached\. Resets in 1h5[678]m\./);
+      for (const meter of museMeters()) {
+        expect(meter?.querySelector(".text-accent, .text-warning, .text-danger")).toBeNull();
+        expect(meter?.querySelector(".text-ink-secondary")).not.toBeNull();
+      }
+      resetsAt = null;
+      await tapCheck();
+      expect(host.textContent).toContain("Muse limit reached.");
+      expect(host.textContent).not.toContain("Resets in 1h");
+      for (const meter of museMeters()) expect(meter?.querySelector(".text-accent")).toBeNull();
+      persistPreference("ko");
+      await act(async () => root.unmount());
+      root = createRoot(host);
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const tapKoCheck = () => act(async () => {
+        [...host.querySelectorAll("button")].find((button) => button.textContent === "지금 확인 (Muse 메시지 1개)")?.click();
+      });
+      await tapKoCheck();
+      expect(host.textContent).toContain("Muse 한도에 도달했습니다.");
+      resetsAt = Date.now() + 117 * 60_000;
+      await tapKoCheck();
+      expect(host.textContent).toMatch(/Muse 한도에 도달했습니다\. 1시간 5[678]분 후 초기화됩니다\./);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+      persistPreference("en");
+    }
+  });
+
   it("shows exactly one refresh control for the whole section, never per-engine ones", () => {
     try {
       persistPreference("en");
