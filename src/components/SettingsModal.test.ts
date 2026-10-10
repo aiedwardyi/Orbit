@@ -283,7 +283,7 @@ describe("SettingsModal friends chrome", () => {
     const html = markup("models-index");
     expect(html).toContain('aria-keyshortcuts="Alt+I"');
     expect(html).not.toContain("Ctrl+Shift+M");
-    expect(html).toContain("Data as of");
+    expect(html).toContain("Checked ");
   });
 
   it("keeps Skin out of General and on its own Themes tab", () => {

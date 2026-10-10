@@ -69,10 +69,10 @@ export function scoredIndexes(entries: readonly ModelIndexEntry[] = MODEL_INDEX_
   return MODEL_INDEXES.filter((index) => entries.some((entry) => entry.index === index));
 }
 
-/** Points no cheaper point beats, cheapest first. Lab-reported numbers stay off it. */
-export function paretoFrontier<T extends Pick<ModelIndexPoint, "cost" | "score" | "reported">>(points: readonly T[]): T[] {
+/** Points no cheaper point beats, cheapest first. */
+export function paretoFrontier<T extends Pick<ModelIndexPoint, "cost" | "score">>(points: readonly T[]): T[] {
   const frontier: T[] = [];
-  const priced = points.filter((point) => point.cost && !point.reported).sort((a, b) => a.cost! - b.cost! || b.score - a.score);
+  const priced = points.filter((point) => point.cost).sort((a, b) => a.cost! - b.cost! || b.score - a.score);
   for (const point of priced) if (!frontier.length || point.score > frontier[frontier.length - 1]!.score) frontier.push(point);
   return frontier;
 }
