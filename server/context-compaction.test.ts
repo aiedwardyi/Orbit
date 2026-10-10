@@ -105,7 +105,7 @@ describe("provider-neutral context compaction", () => {
     expect(prompt).toContain("\nUser: build the stone videos");
     expect(prompt).toContain("\nAssistant: I rendered the stone videos");
     expect(prompt).toContain("\nPane note: [Pane note from pane 3, untrusted worker output]\nDONE: stone videos landed");
-    expect(prompt).toContain("\nAssistant: [Tool call and result: Bash: ffmpeg - succeeded]");
+    expect(prompt).toContain("\nAssistant: [1 tool call: Bash: ffmpeg 1]");
     expect(prompt).not.toContain("User: [Pane note");
   });
 
@@ -129,7 +129,7 @@ describe("provider-neutral context compaction", () => {
     const prompt = summarize.mock.calls.map(([text]) => text).join("\n");
     expect(prompt).toContain("\nUser Eddie: check the package");
     expect(prompt).toContain("\nScout: the package is ready");
-    expect(prompt).toContain("\nScout: [Tool call and result: Bash: pnpm test - succeeded]");
+    expect(prompt).toContain("\nScout: [1 tool call: Bash: pnpm test 1]");
     expect(prompt).not.toContain("Assistant: Scout:");
     expect(prompt).not.toContain("User: Eddie:");
   });
@@ -290,7 +290,8 @@ describe("provider-neutral context compaction", () => {
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
     expect(result.compaction).toBeUndefined();
-    expect(result.transcript).toHaveLength(170);
+    expect(result.transcript).toHaveLength(21);
+    expect(result.transcript.at(-1)?.text).toBe("[150 tool calls: Read 150]");
     expect(summarize).not.toHaveBeenCalled();
   });
 
@@ -490,9 +491,9 @@ describe("provider-neutral context compaction", () => {
 
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
-    const toolItems = result.transcript.filter((item) => item.text.includes("Tool call and result"));
+    const toolItems = result.transcript.filter((item) => item.text.includes("tool call"));
     expect(toolItems).toEqual([
-      { role: "assistant", text: "[Tool call and result: Bash: pnpm test - succeeded]" },
+      { role: "assistant", text: "[1 tool call: Bash: pnpm test 1]" },
     ]);
     expect(JSON.stringify(result.transcript)).not.toContain("still running");
   });
@@ -520,7 +521,7 @@ describe("provider-neutral context compaction", () => {
     expect(result.transcript.map((item) => item.text)).toEqual([
       "Eddie: check the package",
       "Scout: the package is ready",
-      "Scout: [Tool call and result: Bash: pnpm test - succeeded]",
+      "Scout: [1 tool call: Bash: pnpm test 1]",
     ]);
   });
 
@@ -867,7 +868,7 @@ describe("provider-neutral context compaction", () => {
       expect(result.status).toBe("ready");
       if (result.status !== "ready") return;
       expect(result.compaction?.summary).toContain("partial generated summary marker");
-      expect(warning).toHaveBeenCalledWith("context compaction: summarizer failed; using deterministic fallback");
+      expect(warning).toHaveBeenCalledWith(expect.stringMatching(/^context compaction: summarizer failed \(summary provider unavailable .+\); using deterministic fallback$/));
       expect(JSON.stringify(warning.mock.calls)).not.toContain(secret);
     } finally {
       warning.mockRestore();
@@ -887,6 +888,25 @@ describe("provider-neutral context compaction", () => {
       status: "failed",
       error: "Context summarization failed: fallback summary failed",
     });
+  });
+
+  it("names the summarizer error in the fallback warning", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await prepareModelContext({
+        messages: longHistory(205),
+        contextWindow: 2_048,
+        taskRecordText: "Goal: keep going",
+        summarize: async () => {
+          throw new Error("x timed out");
+        },
+      });
+
+      expect(result.status).toBe("ready");
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining("timed out"));
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("selects the correct summary after rewind and on alternate branches", async () => {
@@ -1257,5 +1277,188 @@ describe("provider-neutral context compaction", () => {
 
     expect(result).toEqual({ status: "unsupported", messageId: "future", version: 99 });
     expect(path).toEqual(before);
+  });
+});
+
+describe("tool line folding", () => {
+  const chip = (id: string, name: string, patch: Partial<NonNullable<Message["tool"]>> = {}, extra: Partial<Message> = {}): Message =>
+    message(id, "", { role: "bot", kind: "activity", tool: { name, ok: true, ...patch }, ...extra });
+
+  const busyThread = (): Message[] => Array.from({ length: 24 }, (_, turn) => {
+    const tools = ["Bash", "Read", "Edit", "mcp__orbit__terminal_spawn"];
+    const probe = `probe-${String(turn).padStart(2, "0")}`;
+    return [
+      message(`u${turn}`, `request ${turn}: ${"context ".repeat(4)}`),
+      ...Array.from({ length: 40 }, (_, call) => {
+        const name = call === 0 ? probe : turn === 7 && call === 5 ? "PowerShell" : tools[call % 4]!;
+        return [
+          chip(`t${turn}-${call}`, name, { ok: name !== "PowerShell" }),
+          chip(`a${turn}-${call}`, `auto-approved ${name}: pnpm exec vitest run server/context-compaction.test.ts --reporter dot ${call}`, { approval: true }),
+        ];
+      }).flat(),
+    ];
+  }).flat();
+
+  it("replays one line per tool run and no approval chips", async () => {
+    const result = await prepareModelContext({
+      messages: busyThread(),
+      contextWindow: 200_000,
+      taskRecordText: "Goal: ship",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    const text = JSON.stringify(result.transcript);
+    expect(text).not.toContain("auto-approved");
+    expect(text).not.toContain("mcp__");
+    const toolLines = result.transcript.filter((item) => item.text.includes("tool calls"));
+    expect(toolLines).toHaveLength(24);
+    expect(toolLines[0]).toEqual({
+      role: "assistant",
+      text: "[40 tool calls: Read 10, Edit 10, terminal_spawn 10, Bash 9, probe-00 1]",
+    });
+    const failed = toolLines.filter((item) => item.text.includes("; failed: "));
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.text).toContain("probe-07 1");
+    expect(failed[0]?.text).toMatch(/; failed: PowerShell 1\]$/);
+    expect(result.estimatedTokens).toBeLessThan(result.budgetTokens * 0.15);
+  });
+
+  it("puts every folded turn in exactly one of the summary input and the kept tail", async () => {
+    const messages = busyThread();
+    const prompts: string[] = [];
+    const summarize = vi.fn(async (prompt: string) => {
+      prompts.push(prompt);
+      return "SUMMARY\nearlier requests handled";
+    });
+    const result = await prepareModelContext({
+      messages,
+      contextWindow: 1_600,
+      taskRecordText: "Goal: ship",
+      summarize,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    const ids = messages.map((item) => item.id);
+    const covered = ids.indexOf(result.compaction?.coveredThroughId ?? "");
+    const firstKept = ids.indexOf(result.compaction?.firstKeptId ?? "");
+    expect(covered).toBeGreaterThanOrEqual(0);
+    expect(firstKept).toBeGreaterThan(covered);
+    const summarized = prompts.join("\n");
+    const kept = result.transcript.slice(1).map((item) => item.text).join("\n");
+    expect(summarized).not.toContain("auto-approved");
+    expect(summarized).toContain("\nAssistant: [40 tool calls: Read 10, Edit 10, terminal_spawn 10, Bash 9, probe-00 1]");
+    for (let turn = 0; turn < 24; turn++) {
+      const probe = `probe-${String(turn).padStart(2, "0")} 1`;
+      const request = `request ${turn}:`;
+      const isKept = ids.indexOf(`u${turn}`) > covered;
+      expect([summarized.includes(probe), kept.includes(probe)]).toEqual([!isKept, isKept]);
+      expect([summarized.includes(request), kept.includes(request)]).toEqual([!isKept, isKept]);
+    }
+  });
+
+  it("drops a legacy approval chip and folds a failed approval like any tool", async () => {
+    const result = await prepareModelContext({
+      messages: [
+        message("m1", "clean the build"),
+        chip("m2", "Bash"),
+        chip("m3", "auto-approved Bash: rm -rf dist"),
+        chip("m4", "Auto mode couldn't answer: git push", { ok: false }),
+      ],
+      contextWindow: 8_192,
+      taskRecordText: "Goal: clean",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.transcript.map((item) => item.text)).toEqual([
+      "clean the build",
+      "[2 tool calls: Bash 1, Auto mode couldn't answer: git push 1; failed: Auto mode couldn't answer: git push 1]",
+    ]);
+  });
+
+  it("counts failures per tool when the same tool also succeeds", async () => {
+    const result = await prepareModelContext({
+      messages: [
+        message("m1", "fix the build"),
+        ...Array.from({ length: 5 }, (_, i) => chip(`m${i + 2}`, "Edit", { ok: i < 3 })),
+      ],
+      contextWindow: 8_192,
+      taskRecordText: "Goal: fix",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.transcript.map((item) => item.text)).toEqual([
+      "fix the build",
+      "[5 tool calls: Edit 5; failed: Edit 2]",
+    ]);
+  });
+
+  it("keeps two bots' tool runs apart in a room", async () => {
+    const scout = { botId: "scout", name: "Scout", color: "blue" };
+    const pixel = { botId: "pixel", name: "Pixel", color: "pink" };
+    const result = await prepareModelContext({
+      messages: [
+        message("m1", "split the work"),
+        chip("m2", "Bash", {}, { from: scout }),
+        chip("m3", "Bash", {}, { from: scout }),
+        chip("m4", "Read", {}, { from: pixel }),
+        chip("m5", "mcp__composio__search", {}, { from: pixel }),
+        chip("m6", "Edit", {}, { from: scout }),
+      ],
+      contextWindow: 8_192,
+      taskRecordText: "Room: Release",
+      userName: "Eddie",
+      includeSpeakers: true,
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.transcript.map((item) => item.text)).toEqual([
+      "Eddie: split the work",
+      "Scout: [2 tool calls: Bash 2]",
+      "Pixel: [2 tool calls: Read 1, search 1]",
+      "Scout: [1 tool call: Edit 1]",
+    ]);
+  });
+
+  it("applies a compaction record that ends inside a tool run", async () => {
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: "earlier work",
+      coveredThroughId: "a2",
+      firstKeptId: null,
+      contextWindow: 200_000,
+      estimatedTokensBefore: 900,
+      sourceMessageCount: 5,
+    };
+    const result = await prepareModelContext({
+      messages: [
+        message("u1", "build it"),
+        chip("t1", "Bash"),
+        chip("a1", "auto-approved Bash: pnpm build"),
+        chip("t2", "Read"),
+        chip("a2", "auto-approved Read: package.json"),
+        compactionMessage("c1", "a2", previous),
+        chip("t3", "Edit"),
+        chip("a3", "auto-approved Edit: src/app.ts", { approval: true }),
+        chip("t4", "Bash"),
+        message("u5", "ship it"),
+        chip("t5", "Bash"),
+      ],
+      contextWindow: 200_000,
+      taskRecordText: "Goal: ship",
+    });
+
+    expect(result).toMatchObject({ status: "ready", compacted: true, compactionId: "c1" });
+    if (result.status !== "ready") return;
+    expect(result.transcript.map((item) => item.text)).toEqual([
+      expect.stringContaining("earlier work"),
+      "[2 tool calls: Edit 1, Bash 1]",
+      "ship it",
+      "[1 tool call: Bash 1]",
+    ]);
   });
 });

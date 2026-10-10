@@ -140,6 +140,8 @@ export interface Message {
     setup?: boolean;
     signIn?: boolean;
     usageLimit?: { resetsAt: number | null };
+    /** an auto-approval chip; the model replay skips it */
+    approval?: boolean;
   };
   /** user messages sent INTO a running turn (capabilities.queueing): the
    * model saw it mid-turn, so the transcript marks it — a reader should

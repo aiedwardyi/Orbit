@@ -753,6 +753,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       ? configuredIdleMinimum
       : 10_000;
     const SESSION_IDLE_MS = Math.max(sessionIdleMinimum, Number(process.env.OMB_CLAUDE_SESSION_IDLE_MS) || 10 * 60_000);
+    const REVIEW_TIMEOUT_MS = Number(process.env.OMB_CLAUDE_REVIEW_TIMEOUT_MS) || 60_000;
+    // A summary runs inside the user's send, so this is how long a reply can wait to start.
+    const SUMMARY_TIMEOUT_MS = Number(process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS) || 90_000;
     // a lost task_notification must not pin a session forever
     const BACKGROUND_TASK_TTL_MS = 2 * 60 * 60_000;
     const liveBackground = (s: Session) =>
@@ -1669,11 +1672,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
      * summaries can contain paths, commands, or secrets, so the generic
      * `claude -p "prompt"` shape is not safe for review. No tools or MCP
      * servers are mounted in this isolated process. */
-    const generateReview = (prompt: string, signal?: AbortSignal): Promise<string> =>
+    const generateReview = (
+      prompt: string,
+      signal?: AbortSignal,
+      timeoutMs = REVIEW_TIMEOUT_MS,
+      effort?: "low",
+    ): Promise<string> =>
       new Promise((resolve, reject) => {
         const child = spawnCli(
           config.cli,
-          ["-p", "--model", "claude-haiku-5-5", "--output-format", "text"],
+          ["-p", "--model", "claude-haiku-5-5", "--output-format", "text", ...(effort ? ["--effort", effort] : [])],
           {
             stdio: ["pipe", "pipe", "pipe"],
             env: claudeEnvironment("claude-haiku-5-5", { ...process.env, ...input.environment }),
@@ -1697,7 +1705,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         const timer = setTimeout(() => {
           killCliTree(child);
           finish(new Error("Claude review timed out"));
-        }, 60_000);
+        }, timeoutMs);
         timer.unref?.();
         child.stdout.setEncoding("utf8");
         child.stderr.setEncoding("utf8");
@@ -1776,8 +1784,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return () => listeners.delete(listener);
         },
       },
-      generateText: (prompt) => generateReview(prompt),
-      reviewPermission: generateReview,
+      generateText: (prompt) => generateReview(prompt, undefined, SUMMARY_TIMEOUT_MS, "low"),
+      reviewPermission: (prompt, signal) => generateReview(prompt, signal),
       dispose: async () => {
         for (const { stop } of active.values()) stop();
         for (const threadId of [...sessions.keys()]) closeSession(threadId, "dispose");
