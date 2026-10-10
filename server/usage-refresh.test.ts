@@ -403,7 +403,7 @@ describe("usage refresh route result", () => {
       expect(spawn.cwd).toContain("omb-muse-check-");
       expect(spawn.cwd).not.toBe(homedir());
       expect(JSON.parse(readFileSync(`${dump}.config.json`, "utf8"))).toEqual([
-        { method: "session/start", modelId: "muse-spark-1.2", approvalMode: "denyUnmatched", workspaceRoot: spawn.cwd },
+        { method: "session/start", modelId: "muse-spark-1.3-contributor", approvalMode: "denyUnmatched", workspaceRoot: spawn.cwd },
       ]);
       const turn = JSON.parse(readFileSync(`${dump}.turn-params.json`, "utf8"));
       expect(turn.reasoningEffort).toBe("minimal");

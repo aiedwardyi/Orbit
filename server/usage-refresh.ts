@@ -412,8 +412,8 @@ class MuseUsageFailure extends Error {
 }
 
 // Check now: limits only arrive inside a model reply, so the check is one
-// tiny turn on the older build at the lowest tier, with tools off.
-const MUSE_CHECK_MODEL = "muse-spark-1.2";
+// tiny turn on the discounted Contributor tier at minimal effort, with tools off.
+const MUSE_CHECK_MODEL = "muse-spark-1.3-contributor";
 const MUSE_CHECK_PROMPT = "Reply with: ok";
 const MUSE_CHECK_TURN_MS = 90_000;
 const MUSE_CHECK_THROTTLE_MS = 60_000;
