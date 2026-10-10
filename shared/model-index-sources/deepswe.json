@@ -1,0 +1,393 @@
+{
+  "benchmark": "deepswe",
+  "version": "1.1",
+  "index": "coding",
+  "label": "Datacurve DeepSWE v1.1 leaderboard, mini-swe-agent (% resolved)",
+  "updated": "2026-09-22",
+  "rows": [
+    {
+      "model": "claude-fable-5",
+      "effort": "low",
+      "value": 59.58429561200924,
+      "interval": {
+        "low": 56.79029016687951,
+        "high": 62.37830105713897
+      },
+      "cost_per_task": 3.757873125874126,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "claude-fable-5",
+      "effort": "medium",
+      "value": 65.36697247706422,
+      "interval": {
+        "low": 60.94504359782605,
+        "high": 69.78890135630239
+      },
+      "cost_per_task": 6.088186528935186,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "claude-fable-5",
+      "effort": "high",
+      "value": 68.6046511627907,
+      "interval": {
+        "low": 67.4838084453603,
+        "high": 69.7254938802211
+      },
+      "cost_per_task": 9.177638214788733,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "claude-fable-5",
+      "effort": "xhigh",
+      "value": 69.91150442477876,
+      "interval": {
+        "low": 66.66658684930744,
+        "high": 73.15642200025007
+      },
+      "cost_per_task": 13.414521495535714,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "claude-fable-5",
+      "effort": "max",
+      "value": 69.72477064220185,
+      "interval": {
+        "low": 65.6912963913939,
+        "high": 73.75824489300977
+      },
+      "cost_per_task": 21.634702092592594,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gemini-3.7-flash",
+      "effort": "low",
+      "value": 53.76106194690266,
+      "interval": {
+        "low": 51.17141286507079,
+        "high": 56.35071102873452
+      },
+      "cost_per_task": 1.8322645629424779,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gemini-3.7-flash",
+      "effort": "medium",
+      "value": 65.48672566371683,
+      "interval": {
+        "low": 62.4001933873013,
+        "high": 68.57325794013234
+      },
+      "cost_per_task": 2.0251351826880533,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gemini-3.7-flash",
+      "effort": "high",
+      "value": 65.2654867256637,
+      "interval": {
+        "low": 63.47762421887939,
+        "high": 67.05334923244803
+      },
+      "cost_per_task": 2.1762860351216813,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "effort": "medium",
+      "value": 71.01769911504425,
+      "interval": {
+        "low": 68.73689454216633,
+        "high": 73.29850368792218
+      },
+      "cost_per_task": 1.9671024789823006,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "effort": "high",
+      "value": 73.8255033557047,
+      "interval": {
+        "low": 72.40819014906883,
+        "high": 75.24281656234058
+      },
+      "cost_per_task": 2.362349413758389,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "effort": "low",
+      "value": 24.053452115812917,
+      "interval": {
+        "low": 23.276690748868134,
+        "high": 24.8302134827577
+      },
+      "cost_per_task": 0.3421962084632517,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "effort": "medium",
+      "value": 35.11111111111111,
+      "interval": {
+        "low": 31.72914680770448,
+        "high": 38.49307541451774
+      },
+      "cost_per_task": 0.46659949511111115,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "effort": "high",
+      "value": 53.76106194690266,
+      "interval": {
+        "low": 49.432091479689106,
+        "high": 58.09003241411621
+      },
+      "cost_per_task": 0.9075010212389382,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "effort": "xhigh",
+      "value": 60.17699115044248,
+      "interval": {
+        "low": 58.05269394851535,
+        "high": 62.30128835236961
+      },
+      "cost_per_task": 1.7017533805309735,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "effort": "max",
+      "value": 69.62305986696231,
+      "interval": {
+        "low": 67.06612091651647,
+        "high": 72.17999881740815
+      },
+      "cost_per_task": 3.956677811086475,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gpt-6-astra",
+      "effort": "low",
+      "value": 67.03539823008849,
+      "interval": {
+        "low": 65.73453717840262,
+        "high": 68.33625928177437
+      },
+      "cost_per_task": 1.595223439159292,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gpt-6-astra",
+      "effort": "medium",
+      "value": 72.78761061946902,
+      "interval": {
+        "low": 70.19796153763716,
+        "high": 75.37725970130089
+      },
+      "cost_per_task": 3.0754742975663714,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "value": 73.23008849557522,
+      "interval": {
+        "low": 69.80659243770221,
+        "high": 76.65358455344823
+      },
+      "cost_per_task": 3.9237237909292038,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gpt-6-astra",
+      "effort": "xhigh",
+      "value": 74.11504424778761,
+      "interval": {
+        "low": 71.24964807371246,
+        "high": 76.98044042186275
+      },
+      "cost_per_task": 4.429117203539823,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "value": 73.23008849557522,
+      "interval": {
+        "low": 72.39976873936956,
+        "high": 74.06040825178087
+      },
+      "cost_per_task": 7.497827996681416,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "grok-4.6",
+      "effort": "low",
+      "value": 41.648106904231625,
+      "interval": {
+        "low": 39.32945513980172,
+        "high": 43.96675866866153
+      },
+      "cost_per_task": 1.0423604231625836,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "grok-4.6",
+      "effort": "medium",
+      "value": 67.47787610619469,
+      "interval": {
+        "low": 65.19707153331677,
+        "high": 69.7586806790726
+      },
+      "cost_per_task": 3.4489837522123894,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "grok-4.6",
+      "effort": "high",
+      "value": 65.18847006651885,
+      "interval": {
+        "low": 63.65486924786155,
+        "high": 66.72207088517614
+      },
+      "cost_per_task": 4.3848732239467845,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    },
+    {
+      "model": "grok-4.6",
+      "effort": "xhigh",
+      "value": 66.74057649667405,
+      "interval": {
+        "low": 64.564892272269,
+        "high": 68.9162607210791
+      },
+      "cost_per_task": 5.497668745011087,
+      "cost_benchmark": "deepswe",
+      "cost_source": "https://deepswe.datacurve.ai/",
+      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "kind": "independent",
+      "harness": "mini-swe-agent"
+    }
+  ]
+}
