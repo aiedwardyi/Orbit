@@ -75,6 +75,7 @@ import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
 import { chatTranscriptRows, messageVisible } from "@/lib/chat-transcript";
+import { isShownMessage } from "@/lib/shown-message";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
 import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from "@/lib/focus-composer";
 import { ChatOptionChips } from "./ChatOptionChips";
@@ -564,9 +565,7 @@ const Bubble = memo(function Bubble({
               ? "overflow-hidden border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
               : user
                 ? "bg-bubble-user px-4 py-2.5 whitespace-pre-wrap text-ink"
-                : message.summarized
-                  ? "bg-card px-4 py-2.5 text-ink-secondary"
-                  : "bg-card px-4 py-2.5 text-ink",
+                : "bg-card px-4 py-2.5 text-ink",
           )}
         >
           {quoted && (
@@ -626,11 +625,6 @@ const Bubble = memo(function Bubble({
               <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} threadId={bot.threadId} />
             </MessageBoundary>
           ) : null}
-          {!user && message.summarized && (
-            <div className="mt-1 text-[11px] text-ink-secondary/70" title="Claude shortened this mid-task note. Its exact words weren't kept.">
-              summarized
-            </div>
-          )}
         </div>
         {dock && <DockedPresence avatar={dock.avatar} label={dock.label} live={dock.live} className="absolute bottom-0 left-0 h-[26px]" />}
         {!user && !streaming && !dock?.live && (
@@ -1271,7 +1265,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const sendsNext = composerIsBusy(Boolean(bot.busy), accepted);
 
   const lastBotTextId = useMemo(
-    () => [...messages].reverse().find((m) => m.role === "bot" && m.kind === "text")?.id,
+    () => [...messages].reverse().find((m) => m.role === "bot" && m.kind === "text" && isShownMessage(m))?.id,
     [messages],
   );
 

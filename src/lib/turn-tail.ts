@@ -1,3 +1,4 @@
+import { isShownMessage } from "./shown-message";
 import type { Message } from "@/state/store";
 
 /** Whether the transcript tail should show the "working" dots.
@@ -22,7 +23,7 @@ export function showWorkingDots(
 ): boolean {
   if (!busy || streaming) return false;
   if (!lastMessage) return true;
-  const settledReply = lastMessage.role === "bot" && lastMessage.kind === "text";
+  const settledReply = lastMessage.role === "bot" && lastMessage.kind === "text" && isShownMessage(lastMessage);
   if (!settledReply) return true;
   return speakerBotId !== undefined && lastMessage.from?.botId !== speakerBotId;
 }

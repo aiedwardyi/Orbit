@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { groupActivityRuns } from "./activity-runs";
-import { chatTranscriptRows } from "./chat-transcript";
+import { chatTranscriptRows, messageVisible } from "./chat-transcript";
+import { tailWindowStart } from "./transcript-window";
 import type { Message } from "@/state/store";
 
 let seq = 0;
@@ -157,5 +158,18 @@ describe("chatTranscriptRows", () => {
     const result = rows([say("Late.", at(1, 23)), quiz, spoken]);
     expect(result.map((row) => row.visible)).toEqual([true, false, true]);
     expect(result[2].newDay).toBe(true);
+  });
+
+  it("hides a summarized note and dates the next visible line against the last shown one", () => {
+    const summarized: Message = { ...say("Checking the logs.", at(2, 0)), summarized: true };
+    const result = rows([say("Late.", at(1, 23)), summarized, say("Early.", at(2, 0))]);
+    expect(result.map((row) => row.visible)).toEqual([true, false, true]);
+    expect(result[2].newDay).toBe(true);
+  });
+
+  it("opens a tail window that holds visible rows past a run of summarized notes", () => {
+    const messages = [user("Go."), say("Done."), ...Array.from({ length: 4 }, () => ({ ...say("Working."), summarized: true }))];
+    const renders = (index: number) => messageVisible(messages[index], { showToolCalls: false, transcript: messages });
+    expect(tailWindowStart(messages.length, 2, renders)).toBe(0);
   });
 });

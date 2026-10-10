@@ -196,6 +196,21 @@ describe("sidebar preview hides tool names when Show tool calls is off", () => {
   });
 });
 
+describe("sidebar preview skips summarized notes", () => {
+  const from = { botId: "wink", name: "Wink", color: "blue" } as const;
+  const reply: Message = { id: "r", role: "bot", kind: "text", text: "Report is ready.", at: 1, from };
+  const note: Message = { id: "s", role: "bot", kind: "text", text: "Reformatting the table.", at: 2, parentId: "r", summarized: true, from };
+
+  it("previews the last real line on a 1:1 row", () => {
+    expect(conversationPreview(bot([reply, note]))).toBe("Report is ready.");
+  });
+
+  it("previews the last real line on a room row", () => {
+    expect(roomConversationPreview({ messages: [reply, note] })).toBe("Wink: Report is ready.");
+    expect(roomConversationPreview({ messages: [note] })).toBe("No messages yet");
+  });
+});
+
 describe("paged preview", () => {
   it("falls back to the newest loaded row while the selected leaf is on an older page", () => {
     const newest: Message = { id: "m9", role: "bot", kind: "text", text: "newest loaded", at: 9 };

@@ -12,6 +12,7 @@ import { normalizeState } from "@/lib/mascot";
 import { speaker } from "@/lib/tts";
 import { useSpeech } from "@/lib/tts/useSpeech";
 import { usePushToTalk } from "@/lib/push-to-talk";
+import { isShownMessage } from "@/lib/shown-message";
 import { useStore, type Bot, type Group, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { MausAvatar } from "./Avatar";
@@ -361,7 +362,7 @@ function GroupCall({ group, members }: { group: Group; members: Bot[] }) {
       );
     }
 
-    const fresh = messages.filter((message) => !spokenIds.current.has(message.id));
+    const fresh = messages.filter((message) => !spokenIds.current.has(message.id) && isShownMessage(message));
     if (!fresh.length) return;
     for (const message of fresh) spokenIds.current.add(message.id);
 

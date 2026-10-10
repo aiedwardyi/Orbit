@@ -509,7 +509,7 @@ const NARRATION_NOTICE_MAX = 600;
 
 function narrationNotice(summary: string): string {
   const quoted = summary.slice(0, NARRATION_NOTICE_MAX);
-  return `[Wink note, not from the user] Your last message between tool calls was long, so the user saw only this summary of it: "${quoted}". If it held anything they need word for word (links, numbers, commands, steps), send just that again now in one short line, or put it in your final reply. Otherwise ignore this note and don't mention it.`;
+  return `[Wink note, not from the user] Your last message between tool calls was long, so the user never saw it; the engine kept only this summary: "${quoted}". If it held anything they need (links, numbers, commands, steps), send just that again now in one short line, or put it in your final reply. Otherwise ignore this note and don't mention it.`;
 }
 
 type TurnUsage = { input: number; output: number; cachedInput?: number };

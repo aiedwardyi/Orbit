@@ -7,7 +7,7 @@ import type { Message } from "./store.ts";
 
 const MAX_REPLY_EXCERPT = 900;
 
-export const ENGINE_SUMMARY_PREFIX = "[Engine summary of a mid-turn note; the exact words were not kept] ";
+export const ENGINE_SUMMARY_PREFIX = "[Engine summary of a mid-turn note, not shown to the user; the exact words were not kept] ";
 
 const summaryLabel = (message: Message) => (message.summarized ? ENGINE_SUMMARY_PREFIX : "");
 
