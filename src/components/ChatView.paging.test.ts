@@ -737,6 +737,71 @@ describe("open window and jump pill", () => {
   const threadOf = (view: "chat" | "room") => (view === "chat" ? "thread-a" : "thread-g");
   const snapshotOf = (view: "chat" | "room", messages: Message[], hasMore: boolean) =>
     view === "chat" ? { bots: [bot(messages, hasMore)], groups: [] } : { bots: [], groups: [room(messages, hasMore)] };
+
+  it.each(["chat", "room"] as const)("lets the browser anchor late layout in %s scrollback without writing scrollTop", async (view) => {
+    pagedServer("thread-x", [], snapshotOf(view, lettered("x", 150), false));
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.textContent).toContain("x row 149;"));
+    const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+    const size = { client: 400, scroll: 2000 };
+    layout(scroller, size);
+    scroller.scrollTop = 1600;
+    await act(async () => {
+      touch(scroller, "touchstart", 100);
+      touch(scroller, "touchmove", 160);
+    });
+    scroller.scrollTop = 500;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
+    expect(scroller.style.overflowAnchor).toBe("auto");
+    const scrollTo = vi.spyOn(scroller, "scrollTo");
+    let top = scroller.scrollTop;
+    const writeTop = vi.fn((value: number) => (top = value));
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, get: () => top, set: writeTop });
+    size.scroll += 384;
+    await resize();
+    size.scroll -= 384;
+    await resize();
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(writeTop).not.toHaveBeenCalled();
+    expect(scroller.scrollTop).toBe(500);
+    expect(pill(host)).toBeDefined();
+
+    scroller.scrollTop = size.scroll - size.client;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
+    expect(scroller.style.overflowAnchor).toBe("none");
+    size.scroll += 120;
+    await resize();
+    expect(scrollTo).toHaveBeenCalled();
+    expect(scroller.scrollTop).toBe(size.scroll);
+  });
+
+  it.each(["chat", "room"] as const)("restores Show earlier once in a %s after native anchoring already moved it", async (view) => {
+    pagedServer("thread-x", [], snapshotOf(view, lettered("x", 150), false));
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.textContent).toContain("x row 149;"));
+    const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+    const height = () => scroller.querySelectorAll("[data-orbit-message]").length * 10;
+    let previousHeight = height();
+    let top = 100;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => 400 });
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: height });
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => {
+        const nextHeight = height();
+        top += nextHeight - previousHeight;
+        previousHeight = nextHeight;
+        return top;
+      },
+      set: (value: number) => {
+        previousHeight = height();
+        top = value;
+      },
+    });
+    await act(async () => button(host, "Show earlier messages")!.click());
+    expect(scroller.scrollTop).toBe(400);
+  });
+
   /** Lays out one transcript at 10 px per text row; `top` is its scroll position. */
   function rowLayout(scroller: HTMLElement, client: number, top = { value: 0 }) {
     Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => client });

@@ -23,6 +23,17 @@ export function shouldResumeBottomFollow({
 
 type ScrollBox = Pick<HTMLElement, "scrollHeight" | "scrollTop" | "clientHeight">;
 
+export type TranscriptScroll = Pick<HTMLElement, "scrollHeight" | "scrollTop">;
+
+export function captureTranscriptScroll(el: TranscriptScroll | null): TranscriptScroll | null {
+  return el ? { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop } : null;
+}
+
+export function restoreTranscriptScroll(el: TranscriptScroll, before: TranscriptScroll) {
+  // Native anchoring may already have moved the viewport after the prepend.
+  el.scrollTop = before.scrollTop + el.scrollHeight - before.scrollHeight;
+}
+
 /** The newest row is under the fold, so Jump to latest has somewhere to go. `after` is what
  * follows that row (presence row, padding), which can sit under the fold while the row shows. */
 export function newestBelowView(el: ScrollBox, after = 0): boolean {
