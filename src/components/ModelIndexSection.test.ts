@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider, applyLocale } from "@/lib/i18n";
-import { MODEL_RUN_COSTS } from "../../shared/model-index-data.ts";
+import { MODEL_INDEX_ENTRIES } from "../../shared/model-index-data.ts";
 
 vi.mock("@/state/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/state/store")>()),
@@ -167,7 +167,7 @@ describe("score vs cost axis", () => {
 
   it("spans the cheapest to the dearest cost per task, with a one-line caption, at the narrowest desktop width", async () => {
     await rebuild(454);
-    const usd = (model: string, effort: string) => MODEL_RUN_COSTS.find((c) => c.model === model && c.effort === effort)!.usd;
+    const usd = (model: string, effort: string) => MODEL_INDEX_ENTRIES.find((e) => e.index === "intelligence" && e.model === model && e.effort === effort)!.cost!;
     const labels = ticks().map((tick) => tick.label);
     const values = labels.map((label) => Number(label.slice(1)));
     expect(labels.join(), "no k suffix").not.toMatch(/k/);

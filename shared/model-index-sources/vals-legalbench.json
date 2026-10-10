@@ -1,0 +1,65 @@
+{
+  "benchmark": "vals-legalbench",
+  "version": "1",
+  "index": "legal",
+  "label": "Vals.ai LegalBench (overall accuracy)",
+  "updated": "2026-10-01",
+  "rows": [
+    {
+      "model": "claude-fable-5",
+      "effort": "all",
+      "value": 88.561,
+      "source_url": "https://www.vals.ai/benchmarks/legal_bench",
+      "retrieved_at": "2026-10-10T21:09:46.711479+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-fable-5-1",
+      "effort": "all",
+      "value": 88.511,
+      "source_url": "https://www.vals.ai/benchmarks/legal_bench",
+      "retrieved_at": "2026-10-10T21:09:46.711479+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "gemini-3.7-flash",
+      "effort": "all",
+      "value": 87.256,
+      "source_url": "https://www.vals.ai/benchmarks/legal_bench",
+      "retrieved_at": "2026-10-10T21:09:46.711479+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "effort": "all",
+      "value": 86.993,
+      "source_url": "https://www.vals.ai/benchmarks/legal_bench",
+      "retrieved_at": "2026-10-10T21:09:46.711479+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "effort": "all",
+      "value": 85.105,
+      "source_url": "https://www.vals.ai/benchmarks/legal_bench",
+      "retrieved_at": "2026-10-10T21:09:46.711479+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "grok-4.6",
+      "effort": "all",
+      "value": 86.307,
+      "source_url": "https://www.vals.ai/benchmarks/legal_bench",
+      "retrieved_at": "2026-10-10T21:09:46.711479+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "grok-4.7",
+      "effort": "all",
+      "value": 84.389,
+      "source_url": "https://www.vals.ai/benchmarks/legal_bench",
+      "retrieved_at": "2026-10-10T21:09:46.711479+09:00",
+      "kind": "independent"
+    }
+  ]
+}

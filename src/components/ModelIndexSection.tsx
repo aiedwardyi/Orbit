@@ -59,6 +59,14 @@ const AXIS_KEY: Record<ModelIndexKey, MessageKey> = {
   cost: "modelIndex.cost.hint",
 };
 
+// Each score's own run cost; Legal and Cost have none.
+const COST_KEY = new Map<ModelIndexKey, MessageKey>([
+  ["intelligence", "modelIndex.axis.cost"],
+  ["coding", "modelIndex.axis.costCoding"],
+  ["agentic", "modelIndex.axis.costAgentic"],
+  ["general", "modelIndex.axis.costGeneral"],
+]);
+
 const PERCENT = new Set<ModelIndexKey>(["coding", "agentic", "legal"]);
 
 const PROVIDER_NAME: Record<Exclude<ChartProvider, "other">, string> = {
@@ -423,7 +431,7 @@ function Scatter({
   const right = width - MARGIN.right;
   const top = MARGIN.top;
   const measure = measurer();
-  const caption = wrapLines(`${t("modelIndex.axis.cost")}\u00a0→`, right - left, (text) => (measure(text) * 11) / 10.5);
+  const caption = wrapLines(`${t(COST_KEY.get(index) ?? "modelIndex.axis.cost")}\u00a0→`, right - left, (text) => (measure(text) * 11) / 10.5);
   const height =
     fitHeight ??
     Math.round(Math.min(420, Math.max(300, width * 0.62, phone ? Math.min(360, width * 1.15) : 0))) + (caption.length - 1) * CAPTION_LINE;
@@ -460,7 +468,7 @@ function Scatter({
   for (const list of byModel.values()) list.sort((a, b) => effortRank(a.effort) - effortRank(b.effort));
   const models = [...new Map(marks.map((mark) => [mark.model, mark])).values()];
   const ends = new Set([...byModel.values()].filter((list) => list.length > 1).map((list) => list[list.length - 1]!.key));
-  const rest = (mark: Mark): Spot => ({ x: mark.cost ? x(mark.cost) : left, y: bottom });
+  const rest = (): Spot => ({ x: left, y: bottom });
   const focus = (hover ? marks.find((mark) => mark.key === hover)?.model : undefined) ?? lineFocus;
   const dim = (model: string) => (focus && focus !== model ? "dim" : "");
   const avoidFor = (key: string): Avoid => {
@@ -583,7 +591,7 @@ function Scatter({
               style={{
                 stroke: color(mark.provider),
                 opacity: list.length > 1 ? 0.8 : 0,
-                d: `path("${padPath(list.length ? list.map((point) => at.get(point.key)!) : [rest(mark)], LINE_SLOTS)}")`,
+                d: `path("${padPath(list.length ? list.map((point) => at.get(point.key)!) : [rest()], LINE_SLOTS)}")`,
               } as React.CSSProperties}
             />
           </g>
@@ -591,7 +599,7 @@ function Scatter({
       })}
       {marks.map((mark) => {
         const spot = at.get(mark.key);
-        const { x: px, y: py } = spot ?? rest(mark);
+        const { x: px, y: py } = spot ?? rest();
         const hollow = lab.has(mark.key);
         return (
           <g key={mark.key} data-mi-focus={dim(mark.model)}>
@@ -673,7 +681,7 @@ function Scatter({
       {models.map((mark) => {
         const list = byModel.get(mark.model);
         const label = labels.get(mark.model);
-        const { x: lx, y: ly } = label ?? (list ? at.get(list[list.length - 1]!.key)! : rest(mark));
+        const { x: lx, y: ly } = label ?? (list ? at.get(list[list.length - 1]!.key)! : rest());
         const [from, to] = label?.leader ?? [{ x: lx, y: ly }, { x: lx, y: ly }];
         return (
           <g key={`label-${mark.model}`} data-mi-focus={dim(mark.model)}>
@@ -781,8 +789,9 @@ export function ModelIndexSection() {
   const tipRef = useRef<HTMLDivElement>(null);
   const phone = isPhone();
 
-  const shown = index === "cost" ? "bars" : view;
   const { points, missing } = useMemo(() => indexView(index, catalog), [index, catalog]);
+  const priced = points.some((point) => point.cost);
+  const shown = priced ? view : "bars";
   const noCost = shown === "scatter" ? points.filter((point) => !point.cost).length : 0;
   const providers = CHART_PROVIDERS.filter((provider) => points.some((point) => chartProvider(point.provider) === provider));
   const sources = [...new Map(points.map((point) => [point.source, point])).values()];
@@ -886,7 +895,7 @@ export function ModelIndexSection() {
                 setHover(null);
                 setView(id);
               }}
-              disabled={(id) => id === "scatter" && index === "cost"}
+              disabled={(id) => id === "scatter" && !priced}
             />
             {phone && shown === "scatter" && points.length > 0 && (
               <button
@@ -978,7 +987,7 @@ export function ModelIndexSection() {
                   </>
                 )}
                 <p className="mt-1.5 border-t border-hairline/40 pt-1.5 text-[11px] leading-snug text-ink-secondary">
-                  {t("modelIndex.tooltip.source")}: {hovered.sourceLabel} · {hovered.date}
+                  {t("modelIndex.tooltip.source")}: {hovered.sourceLabel} · {hovered.retrievedAt.slice(0, 10)}
                 </p>
                 {hovered.reported === "lab" && (
                   <p className="mt-1 text-[11px] leading-snug text-ink-secondary">
