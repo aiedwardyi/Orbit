@@ -836,6 +836,7 @@ export type Action =
       onError?: (message: string) => void;
     }
   | { type: "switchTask"; botId: string; threadId: string; generation?: number }
+  | { type: "notificationSwitchPending"; target: NotificationTarget }
   | { type: "taskSwitched"; bot: Bot; generation?: number }
   | { type: "renameTask"; botId: string; threadId: string; title: string }
   | { type: "deleteTask"; botId: string; threadId: string }
@@ -951,30 +952,53 @@ export function shouldClearSelectedUnread(
   );
 }
 
+/** Selects the notification's conversation at once. Only state hydrated
+ * during this page load may skip the switch to an already active thread: a
+ * cached or frozen page's active thread may have changed on another device. */
 export function openNotificationTarget(
   dispatch: (action: Action) => void,
   target: NotificationTarget,
-  state: NotificationRoutingState,
+  state: NotificationRoutingState & Pick<AppState, "hydrated">,
+  freshState = false,
 ) {
-  // A room's approval/question notification carries the asker bot with the
-  // GROUP's thread id; asking the bot to switch to that thread would 404.
-  // Open the room itself. A thread that is neither a room nor one of the
-  // bot's own lands on a plain bot select instead of an error banner.
-  const group = state.groups.find(
+  const owner = notificationOwner(state, target);
+  if (owner) dispatch({ type: "select", id: owner.id });
+  if (!state.hydrated) dispatch({ type: "notificationSwitchPending", target });
+  else if (owner) switchToNotificationThread(dispatch, target, state, freshState);
+}
+
+// A room's approval/question notification carries the asker bot with the
+// GROUP's thread id; asking the bot to switch to that thread would 404.
+// Open the room itself. A thread that is neither a room nor one of the
+// bot's own lands on a plain bot select instead of an error banner.
+function notificationOwner(state: NotificationRoutingState, target: NotificationTarget) {
+  return notificationGroup(state, target) ?? state.bots.find((candidate) => candidate.id === target.botId);
+}
+
+function notificationGroup(state: NotificationRoutingState, target: NotificationTarget) {
+  return state.groups.find(
     (candidate) =>
       candidate.threadId === target.threadId ||
       (candidate.tasks ?? []).some((task) => task.threadId === target.threadId),
   );
+}
+
+/** Opening the thread that is already active skips the whole-transcript switch. */
+export function switchToNotificationThread(
+  dispatch: (action: Action) => void,
+  target: NotificationTarget,
+  state: NotificationRoutingState,
+  skipActive = true,
+) {
+  const group = notificationGroup(state, target);
   if (group) {
-    dispatch({ type: "select", id: group.id });
     if (group.threadId !== target.threadId) {
       dispatch({ type: "switchGroupTask", groupId: group.id, threadId: target.threadId });
     }
     return;
   }
   const bot = state.bots.find((candidate) => candidate.id === target.botId);
-  if (!bot) return;
-  dispatch({ type: "select", id: target.botId });
+  if (!bot || (skipActive && bot.threadId === target.threadId)) return;
   const known =
     bot.threadId === target.threadId ||
     (bot.tasks ?? []).some((task) => task.threadId === target.threadId);
@@ -1927,6 +1951,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case "runRoutine":
     case "cancelRoutineRun":
     case "markRoutineRunSeen":
+    // the dispatch wrapper holds the target in a ref until hydrate
+    case "notificationSwitchPending":
       return state;
   }
 }
@@ -2118,6 +2144,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const groupPatchLatestSuccess = useRef(new Map<string, Group>());
   const refreshGeneration = useRef(0);
   const taskSwitchGeneration = useRef(0);
+  const pendingNotificationSwitch = useRef<NotificationTarget | null>(null);
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
@@ -2657,6 +2684,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "select": {
+          // a chat picked before hydrate drops a pending notification target
+          pendingNotificationSwitch.current = null;
           if (stateRef.current.workspaceOpen && stateRef.current.selectedId === action.id) break;
           const bot = stateRef.current.bots.find((b) => b.id === action.id);
           const group = stateRef.current.groups.find((g) => g.id === action.id);
@@ -2827,6 +2856,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .then((r: any) => r?.bot && dispatch({ type: "taskSwitched", bot: r.bot, generation: action.generation }))
             .catch(showError);
           break;
+        case "notificationSwitchPending":
+          pendingNotificationSwitch.current = action.target;
+          break;
         case "renameTask":
           api(`/api/bots/${action.botId}/tasks/${action.threadId}`, {
             method: "PATCH",
@@ -2876,6 +2908,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     return wrapped;
   }, [botPatchQueue]);
+
+  useEffect(() => {
+    const target = pendingNotificationSwitch.current;
+    if (!state.hydrated || !target) return;
+    pendingNotificationSwitch.current = null;
+    // the ref, not state: reading state would put it in deps and rerun this on every change
+    const fresh = stateRef.current;
+    const owner = notificationOwner(fresh, target);
+    if (!owner) return;
+    if (owner.id !== fresh.selectedId) dispatch({ type: "select", id: owner.id });
+    switchToNotificationThread(dispatch, target, fresh);
+  }, [dispatch, state.hydrated]);
 
   // ── initial load + SSE fold ──────────────────────────────────────────
   useEffect(() => {
