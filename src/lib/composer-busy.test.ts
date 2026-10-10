@@ -7,10 +7,12 @@ import {
   composerBusyChrome,
   composerBusySendAction,
   composerSendSourceText,
+  modelForNextSend,
   peelNextBusyRoomSend,
   pendingSteerEntries,
   rearmRoomFlushHold,
 } from "./composer-busy";
+import { imageSupportForTargets } from "./composer-attachments";
 import { applyLocale, translate } from "./i18n";
 import { en, ko } from "./i18n-catalog";
 
@@ -261,5 +263,34 @@ describe("queued follow-up copy", () => {
     expect(ko["chat.queuedSendsNext"]).toBe("다음에 보내집니다");
     expect(chatView).toContain('t("chat.queuedSendsNext")');
     expect(chatView).not.toMatch(/Queued — sends when this turn finishes/);
+  });
+});
+
+describe("modelForNextSend", () => {
+  const instances = [
+    { instanceId: "text", capabilities: { images: false } },
+    { instanceId: "vision", capabilities: { images: true } },
+  ];
+  const running = { instanceId: "text", model: "a" };
+  const pending = { instanceId: "vision", model: "b" };
+  const imagesFor = (input: { busy: boolean; canSteer: boolean }) =>
+    imageSupportForTargets(instances, [
+      { modelSelection: modelForNextSend({ modelSelection: running, pendingModelSelection: pending }, input) },
+    ]);
+
+  it("validates a queued image against the pending model", () => {
+    expect(imagesFor({ busy: true, canSteer: false })).toBe("supported");
+  });
+
+  it("validates a steered image against the running model", () => {
+    expect(imagesFor({ busy: true, canSteer: true })).toBe("unsupported");
+  });
+
+  it("uses the running model when idle", () => {
+    expect(imagesFor({ busy: false, canSteer: false })).toBe("unsupported");
+  });
+
+  it("is wired into the composer's image check", () => {
+    expect(composer).toContain("modelForNextSend(bot, { busy, canSteer })");
   });
 });

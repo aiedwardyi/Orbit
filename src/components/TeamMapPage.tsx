@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { ArrowRight, BookOpen, Crown, Loader2, Network, Radio, RefreshCw, Save, X } from "lucide-react";
 
 import { BotAvatar } from "./Avatar";
-import { api, formatTime, useStore, type Bot } from "@/state/store";
+import { api, formatTime, shownModelSelection, useStore, type Bot } from "@/state/store";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { normalizeState } from "@/lib/mascot";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
@@ -48,7 +48,7 @@ function BotNode({ bot, chief = false }: { bot: Bot; chief?: boolean }) {
           <span className="truncate text-[13.5px] font-semibold text-ink">{bot.name}</span>
           {chief && <Crown size={12} className="shrink-0 text-warning" aria-label={t("chrome.chiefOfStaff")} />}
         </span>
-        <span className="block truncate text-[11.5px] text-ink-secondary">{bot.title || bot.modelSelection.model}</span>
+        <span className="block truncate text-[11.5px] text-ink-secondary">{bot.title || shownModelSelection(bot).model}</span>
       </span>
       <span className="flex shrink-0 items-center gap-1.5 text-[10.5px] text-ink-secondary">
         <span className={cn("size-1.5 rounded-full", statusTone[status.tone], status.key === "teamMap.status.working" && "animate-pulse")} />

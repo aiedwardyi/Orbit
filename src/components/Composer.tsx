@@ -44,6 +44,7 @@ import {
   composerBusyChrome,
   composerBusySendAction,
   composerSendSourceText,
+  modelForNextSend,
   peelNextBusyRoomSend,
   rearmRoomFlushHold,
 } from "@/lib/composer-busy";
@@ -360,7 +361,7 @@ export function Composer({
     const responders = group
       ? roomRespondersForComposer(message, members ?? [], group)
       : bot
-        ? [bot]
+        ? [{ modelSelection: modelForNextSend(bot, { busy, canSteer }) }]
         : [];
     return imageSupportForTargets(state.instances, responders);
   };

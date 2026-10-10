@@ -226,6 +226,7 @@ import {
 import { stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
+import { modelPickPatch } from "./pending-model.ts";
 import { ownTurnReply } from "./turn-reply.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
@@ -850,7 +851,7 @@ const botJobSchema = z.string().trim().min(1).max(BOT_PROFILE_LIMITS.description
 
 function checkedModelSelection(
   raw: unknown,
-  current?: { selection: ModelSelection; busy: boolean },
+  existing = false,
   requireAvailableModel = false,
 ): { ok: true; selection: ModelSelection } | { ok: false; status: number; error: string } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -878,15 +879,6 @@ function checkedModelSelection(
     }
     selection.effort = value.effort;
   }
-  const changed = current && (
-    selection.instanceId !== current.selection.instanceId ||
-    selection.model !== current.selection.model ||
-    (selection.mode ?? "pinned") !== (current.selection.mode ?? "pinned") ||
-    selection.effort !== current.selection.effort
-  );
-  if (current?.busy && changed) {
-    return { ok: false, status: 409, error: "the bot is working — stop it before changing models" };
-  }
   const target = registry.get(selection.instanceId);
   // Model IDs remain free-form at the app's general API boundary. Custom
   // engines can accept IDs that are not in their discovery catalog, and
@@ -913,7 +905,7 @@ function checkedModelSelection(
   if (target && selection.effort !== undefined && !isEffortOffered(target.driverKind, selection.model, selection.effort, allowed)) {
     return { ok: false, status: 400, error: `effort "${selection.effort}" is not offered by this bot's engine` };
   }
-  if (!current && target && selection.effort === undefined) {
+  if (!existing && target && selection.effort === undefined) {
     const effort = defaultModelEffort(target.driverKind, selection.model, allowed);
     if (effort) selection.effort = effort;
   }
@@ -1151,6 +1143,8 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     // busy snapshot must not invent a wait on bot.threadId (routines and
     // channels run elsewhere).
     workingThreadId: activeThreadId ?? null,
+    // null, not omitted: an applied pick must clear the client's copy
+    pendingModelSelection: rest.pendingModelSelection ?? null,
     avatarUrl: rest.avatarUrl ?? null,
     // null, not omitted: a cleared folder must overwrite a stale client cwd
     cwd: rest.cwd ?? null,
@@ -8479,7 +8473,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.modelSelection === undefined) {
         selection = await defaultSelection();
       } else {
-        const checked = checkedModelSelection(body.modelSelection, undefined, body.requireAvailableModel === true);
+        const checked = checkedModelSelection(body.modelSelection, false, body.requireAvailableModel === true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         selection = checked.selection;
       }
@@ -8638,11 +8632,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       let normalizedSelection: ModelSelection | undefined;
       if (rawSelection !== undefined) {
-        const checked = checkedModelSelection(
-          rawSelection,
-          existingBot ? { selection: existingBot.modelSelection, busy: Boolean(existingBot.busy) } : undefined,
-          body.requireAvailableModel === true,
-        );
+        const checked = checkedModelSelection(rawSelection, Boolean(existingBot), body.requireAvailableModel === true);
         if (!checked.ok) return json(res, checked.status, { error: checked.error });
         normalizedSelection = checked.selection;
       }
@@ -8683,7 +8673,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           patch.mascotStyle = parsedStyle.data;
         }
       }
-      if (normalizedSelection) patch.modelSelection = normalizedSelection;
       // one pinned message per thread; null/"" clears. The id is not
       // validated against the transcript here — a pin whose message was
       // edited to another branch or deleted simply resolves to nothing.
@@ -8804,6 +8793,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         body.chiefOfStaff !== false &&
         section !== undefined &&
         sectionKey(existingBot?.section) !== sectionKey(section);
+      // After the awaits above, so the pick sees the bot's busy state now.
+      if (normalizedSelection && existingBot) Object.assign(patch, modelPickPatch(existingBot, normalizedSelection));
       const bot = store.patchBot(m[1], patch);
       if (!bot) return json(res, 404, { error: "no such bot" });
       // A changed working folder must reach existing tasks: their pinned

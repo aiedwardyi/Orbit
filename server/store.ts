@@ -15,6 +15,7 @@ import type { SyncChange, SyncMutation } from "./thread-sync-v2.ts";
 import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
+import { applyPendingModel } from "./pending-model.ts";
 import { redactSecretsInText } from "./redact.ts";
 import type { NativePrompt, ResumeSeed } from "./turn-context.ts";
 import {
@@ -455,6 +456,8 @@ export interface BotRecord {
   avatarCrop?: BotAvatarCrop;
   unread: boolean;
   modelSelection: ModelSelection;
+  /** Picked mid-reply; becomes modelSelection when the bot goes idle. */
+  pendingModelSelection?: ModelSelection;
   /** Skip user skills, plugins and plugin MCP servers at startup. Off unless on. */
   leanStartup?: boolean;
   /** provider-native continuation per instance (e.g. claude session id) */
@@ -710,6 +713,7 @@ export class Store {
       }
       b.busy = false;
       b.activity = "idle";
+      if (applyPendingModel(b)) botsMigrated = true;
       if (b.activeThreadId !== undefined) {
         delete b.activeThreadId;
         botsMigrated = true;
@@ -1445,13 +1449,17 @@ export class Store {
     if (!bot) return null;
     const busy = ACTIVITY_BUSY.has(activity);
     const nextThreadId = busy ? activeThreadId ?? bot.activeThreadId : undefined;
+    const settled = !busy && bot.pendingModelSelection !== undefined;
     if (
+      !settled &&
       bot.activity === activity &&
       Boolean(bot.busy) === busy &&
       bot.activeThreadId === nextThreadId
     ) return bot;
     bot.activity = activity;
     bot.busy = busy;
+    // Every next turn checks busy before it reads modelSelection.
+    applyPendingModel(bot);
     if (nextThreadId) bot.activeThreadId = nextThreadId;
     else delete bot.activeThreadId;
     this.saveBots();

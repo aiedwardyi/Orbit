@@ -16,6 +16,7 @@ import {
 import type { CloudBackend, EffortLevel, RateLimitWindow } from "../../server/contracts.ts";
 import type { MausColor, MausMotion } from "@/lib/mascot";
 import type { BotAvatarChoice, BotAvatarCrop } from "../../shared/bot-avatar";
+import { sameModelSelection } from "../../shared/model-selection";
 import type { RoutineRequestCardData } from "../../shared/routine-request";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
@@ -242,6 +243,10 @@ export interface ModelSelection {
   effort?: EffortLevel;
 }
 
+/** What the UI shows as chosen: a mid-reply pick wins over the running model. */
+export const shownModelSelection = (bot: Pick<Bot, "modelSelection" | "pendingModelSelection">): ModelSelection =>
+  bot.pendingModelSelection ?? bot.modelSelection;
+
 /** One of a bot's separate contexts: its own thread, transcript and
  * provider session. The bot's threadId points at the active one. */
 export interface Task {
@@ -312,7 +317,10 @@ export interface Bot {
   workingThreadId?: string | null;
   /** what the bot is doing, as the harness sees it; busy is derived from it */
   activity?: "working" | "waiting-on-you" | "idle" | "no-signal" | "dead";
+  /** The engine running this bot's turns; display reads shownModelSelection. */
   modelSelection: ModelSelection;
+  /** Picked mid-reply; the server applies it when the reply ends. */
+  pendingModelSelection?: ModelSelection | null;
   /** Skip user skills, plugins and plugin MCP servers at startup. */
   leanStartup?: boolean;
   /** Where this bot's computer runs; unset = auto (cloud box if one exists, else local). */
@@ -1482,7 +1490,11 @@ export function reducer(state: AppState, action: Action): AppState {
         },
       };
     case "setModel":
-      return updateBot(state, action.botId, (b) => ({ ...b, modelSelection: action.selection }));
+      return updateBot(state, action.botId, (b) =>
+        b.busy
+          ? { ...b, pendingModelSelection: sameModelSelection(b.modelSelection, action.selection) ? null : action.selection }
+          : { ...b, modelSelection: action.selection, pendingModelSelection: null },
+      );
     case "connected":
       return state.connected === action.value ? state : { ...state, connected: action.value };
     case "error":
@@ -2554,7 +2566,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             title: source.title,
             description: source.description,
             notifications: source.notifications,
-            modelSelection: source.modelSelection,
+            modelSelection: shownModelSelection(source),
             computer: source.computer,
             cloudBackend: source.cloudBackend,
             autoStartVps: source.autoStartVps,

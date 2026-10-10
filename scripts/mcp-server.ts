@@ -388,7 +388,7 @@ export const TOOLS: McpToolDefinition[] = [
   },
   {
     name: "set_bot_model",
-    description: "Change an idle bot to an exact configured provider instance and model.",
+    description: "Change a bot to an exact configured provider instance and model. A busy bot switches when its current turn ends.",
     inputSchema: {
       type: "object",
       properties: {
@@ -557,6 +557,7 @@ function projectBot(bot: Record<string, any>) {
     section: bot.section ?? null,
     chiefOfStaff: Boolean(bot.chiefOfStaff),
     modelSelection: bot.modelSelection,
+    pendingModelSelection: bot.pendingModelSelection ?? null,
     busy: Boolean(bot.busy),
     activity: bot.activity,
     unread: Boolean(bot.unread),
@@ -1100,7 +1101,6 @@ export async function handleToolCall(
       const current = await fleet(fetcher);
       const bot = records(current.bots).find((candidate) => candidate.id === botId);
       if (!bot) throw new Error(`Bot not found: ${botId}`);
-      if (bot.busy) throw new Error("Interrupt the bot or let it finish before changing its model");
       const selection = await checkedModelSelection(args, fetcher);
       const res = await fetcher(`/api/bots/${encodeURIComponent(botId)}`, {
         method: "PATCH",

@@ -318,14 +318,9 @@ describe("MCP tool execution", () => {
     expect(result.hits).toHaveLength(1);
   });
 
-  it("requires an exact available model and refuses changes while busy", async () => {
-    const busyFetcher = vi.fn(async () => ({ bots: [{ id: "bot-1", busy: true }] }));
-    await expect(handleToolCall("set_bot_model", {
-      bot_id: "bot-1", instance_id: "codex", model: "gpt-6-sol",
-    }, busyFetcher)).rejects.toThrow("let it finish");
-
+  it("requires an exact available model and hands a busy bot's pick to the server", async () => {
     const fetcher = vi.fn(async (path: string, options?: RequestInit) => {
-      if (path === "/api/bots?messages=0") return { bots: [{ id: "bot-1", busy: false }] };
+      if (path === "/api/bots?messages=0") return { bots: [{ id: "bot-1", busy: true }] };
       if (path === "/api/instances") return { instances: [{
         instanceId: "codex", snapshot: { state: "available" },
         models: { default: "gpt-6-sol", options: [{ id: "gpt-6-sol" }] },
@@ -345,6 +340,7 @@ describe("MCP tool execution", () => {
             messages: [{ png: "pixels", card: { allowKey: "Bash:git" } }],
             alwaysAllow: ["Bash:git"],
             resumeCursors: { codex: "native-session" },
+            pendingModelSelection: { instanceId: "codex", model: "gpt-6-sol", effort: "high" },
           },
         };
       }
@@ -357,6 +353,7 @@ describe("MCP tool execution", () => {
       bot_id: "bot-1", instance_id: "codex", model: "gpt-6-sol", effort: "high",
     }, fetcher);
     expect(result.success).toBe(true);
+    expect(result.bot.pendingModelSelection).toEqual({ instanceId: "codex", model: "gpt-6-sol", effort: "high" });
     expect(JSON.stringify(result)).not.toContain("/secret/work");
     expect(JSON.stringify(result)).not.toContain("native-session");
     expect(JSON.stringify(result)).not.toContain("Bash:git");
