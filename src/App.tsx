@@ -352,7 +352,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     if (!target || !hydratedBots) return;
     pushOpenTarget.current = null;
     window.history.replaceState(window.history.state, "", window.location.pathname);
-    openNotificationTarget(dispatch, target, latestState.current);
+    openNotificationTarget(dispatch, target, latestState.current, true);
   }, [dispatch, hydratedBots]);
   useEffect(() => {
     const worker = window.ogb ? undefined : navigator.serviceWorker;

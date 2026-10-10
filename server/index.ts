@@ -359,6 +359,7 @@ import { createThreadSyncV2Store } from "./thread-sync-v2-store.ts";
 import { createThreadSyncV2Gate } from "./thread-sync-v2-gate.ts";
 import { serveLinkedFile } from "./linked-files.ts";
 import { missingStaticResponse } from "./static-fallback.ts";
+import { sendJson, sendStaticFile, sendText } from "./compression.ts";
 import { fetchBotDirectory, matchDirectoryBots, type MatchedDirectoryBot } from "./bot-directory.ts";
 import { scoutProject, suggestTeam } from "./project-scout.ts";
 import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-library.ts";
@@ -6396,9 +6397,7 @@ let providerConfigBusy = false;
 
 // ── HTTP plumbing ─────────────────────────────────────────────────────
 function json(res: ServerResponse, status: number, body: unknown) {
-  const data = JSON.stringify(body);
-  res.writeHead(status, { "content-type": "application/json" });
-  res.end(data);
+  sendJson(res, status, JSON.stringify(body));
 }
 
 function readBody(req: IncomingMessage): Promise<any> {
@@ -10294,15 +10293,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const safe = path === "/" ? "/index.html" : path.replace(/\.\./g, "");
       const file = join(STATIC_DIR, safe);
       try {
-        const data = readFileSync(file);
         if (path === "/manifest.json") {
+          const data = readFileSync(file);
           const manifest = JSON.parse(data.toString("utf8"));
           const response = webManifestForUserAgent(req.headers["user-agent"], manifest);
-          res.writeHead(200, { "content-type": MIME[".json"], vary: "User-Agent" });
-          return res.end(response === manifest ? data : JSON.stringify(response));
+          return sendText(res, 200, { "content-type": MIME[".json"], vary: "User-Agent" }, response === manifest ? data : JSON.stringify(response));
         }
-        res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
-        return res.end(data);
+        return sendStaticFile(res, file, path, MIME[extname(file)] ?? "application/octet-stream");
       } catch {
         const missing = missingStaticResponse(path);
         if (missing) {
@@ -10311,9 +10308,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         // SPA fallback
         try {
-          const data = readFileSync(join(STATIC_DIR, "index.html"));
-          res.writeHead(200, { "content-type": "text/html" });
-          return res.end(data);
+          return sendStaticFile(res, join(STATIC_DIR, "index.html"), path, "text/html");
         } catch {
           /* fall through to 404 */
         }
