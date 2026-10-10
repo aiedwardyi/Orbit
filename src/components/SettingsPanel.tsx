@@ -209,14 +209,20 @@ const formatBytes = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${Math.ro
  * re-reads, so notes the bot wrote mid-session show up on the next open. */
 function MemoryCard({ bot }: { bot: Bot }) {
   const { t } = useI18n();
+  const { dispatch } = useStore();
+  const [botId] = useState(bot.id);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [text, setText] = useState("");
-  const [dirty, setDirty] = useState(false);
   const [truncated, setTruncated] = useState(false);
   const [topics, setTopics] = useState<MemoryTopic[]>([]);
-  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [topic, setTopic] = useState<{ name: string; text: string } | null>(null);
+  const unsent = useRef<string | null>(null);
+  const writing = useRef(false);
+  const mounted = useRef(true);
+  const pause = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedFade = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -229,7 +235,6 @@ function MemoryCard({ bot }: { bot: Bot }) {
       setText(result.text);
       setTruncated(result.truncated);
       setTopics(result.topics);
-      setDirty(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -237,24 +242,55 @@ function MemoryCard({ bot }: { bot: Bot }) {
     }
   };
 
-  const save = async () => {
-    setSaving(true);
-    setError(null);
+  const flush = async () => {
+    if (pause.current !== null) clearTimeout(pause.current);
+    pause.current = null;
+    if (writing.current || unsent.current === null) return;
+    const sending = unsent.current;
+    unsent.current = null;
+    writing.current = true;
+    let ok = false;
     try {
-      const result: { truncated: boolean } = await api(`/api/bots/${bot.id}/memory`, {
+      const result: { truncated: boolean } = await api(`/api/bots/${botId}/memory`, {
         method: "PUT",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: sending }),
       });
-      setTruncated(result.truncated);
-      setDirty(false);
+      ok = true;
+      if (mounted.current) {
+        setTruncated(result.truncated);
+        setError(null);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
+      const message = e instanceof Error ? e.message : String(e);
+      if (mounted.current) {
+        setError(message);
+      } else {
+        // the panel is gone, so the red line under the editor is too
+        dispatch({ type: "error", message });
+        setTimeout(() => dispatch({ type: "error", message: null }), 6000);
+      }
     }
+    writing.current = false;
+    if (unsent.current !== null) {
+      if (!mounted.current || pause.current === null) void flush();
+      return;
+    }
+    if (!mounted.current) return;
+    setStatus(ok ? "saved" : "idle");
+    if (ok) savedFade.current = setTimeout(() => setStatus("idle"), 2000);
+  };
+
+  const edit = (next: string) => {
+    setText(next);
+    unsent.current = next;
+    setStatus("saving");
+    if (savedFade.current !== null) clearTimeout(savedFade.current);
+    if (pause.current !== null) clearTimeout(pause.current);
+    pause.current = setTimeout(() => void flush(), 800);
   };
 
   const openTopic = async (name: string) => {
+    void flush();
     setError(null);
     try {
       setTopic(await api(`/api/bots/${bot.id}/memory/topics/${encodeURIComponent(name)}`));
@@ -267,9 +303,28 @@ function MemoryCard({ bot }: { bot: Bot }) {
     void load();
   }, []);
 
+  useEffect(() => {
+    mounted.current = true;
+    const onHide = () => {
+      if (document.visibilityState === "hidden") void flush();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      mounted.current = false;
+      if (savedFade.current !== null) clearTimeout(savedFade.current);
+      void flush();
+    };
+  }, []);
+
   return (
     <div>
-      <div className="mb-1.5 text-[13px] text-ink-secondary">{t("bot.memory")}</div>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[13px] text-ink-secondary">
+        <span>{t("bot.memory")}</span>
+        <span role="status" className="text-[12px]">
+          {status === "saving" ? t("bot.memorySaving") : status === "saved" ? t("bot.memorySaved") : null}
+        </span>
+      </div>
       {loading && <div className="text-[13px] text-ink-secondary">Loading…</div>}
 
       {!loading && topic && (
@@ -296,25 +351,14 @@ function MemoryCard({ bot }: { bot: Bot }) {
             value={text}
             placeholder={t("bot.memoryPlaceholder")}
             aria-label={t("bot.memory")}
-            onChange={(e) => {
-              setText(e.target.value);
-              setDirty(true);
-            }}
+            onChange={(e) => edit(e.target.value)}
+            onBlur={() => void flush()}
           />
-          <div className="mt-2 flex items-center gap-3">
-            <button
-              onClick={() => void save()}
-              disabled={saving || !dirty}
-              className="rounded-lg bg-control px-3 py-1.5 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50"
-            >
-              {saving ? t("bot.memorySaving") : t("bot.save")}
-            </button>
-            {truncated && (
-              <span className="text-[11.5px] text-ink-secondary">
-                Only the top loads each turn.
-              </span>
-            )}
-          </div>
+          {truncated && (
+            <div className="mt-2 text-[11.5px] text-ink-secondary">
+              Only the top loads each turn.
+            </div>
+          )}
           {topics.length > 0 && (
             <div className="mt-3">
               <div className="mb-1.5 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
