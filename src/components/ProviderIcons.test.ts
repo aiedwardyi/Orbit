@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { MuseMark, ProviderMark } from "./ProviderIcons";
+import { ClaudeMark, MuseMark, ProviderMark } from "./ProviderIcons";
 
 describe("ProviderMark", () => {
   it.each(["grok", "grokAgent"])("renders the Grok mark as an SVG for %s", (driverKind) => {
@@ -49,5 +49,35 @@ describe("ProviderMark", () => {
     expect(markup).toContain("shrink-0");
     // Decorative beside a visible label: hidden from assistive technology.
     expect(markup).toContain("aria-hidden");
+  });
+});
+
+describe("ClaudeMark", () => {
+  const rects = (markup: string) =>
+    [...markup.matchAll(/<rect x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/g)].map((m) => m.slice(1).map(Number));
+
+  it("draws the claude bot as crisp pixel rects in the claude orange, not the starburst", () => {
+    const markup = renderToStaticMarkup(createElement(ProviderMark, { driverKind: "claudeAgent", size: 16 }));
+    expect(markup).toContain('shape-rendering="crispEdges"');
+    expect(markup).toContain("fill-[#d77757]");
+    expect(markup).not.toContain("<path");
+    expect(rects(markup)).toEqual([
+      [3, 0, 13, 2],
+      [3, 2, 2, 2],
+      [6, 2, 7, 2],
+      [14, 2, 2, 2],
+      [1, 4, 17, 2],
+      [3, 6, 13, 2],
+      [3, 8, 1, 2],
+      [5, 8, 1, 2],
+      [13, 8, 1, 2],
+      [15, 8, 1, 2],
+    ]);
+  });
+
+  it.each([14, 16, 17])("keeps one css px per bot column at %i px so the eyes and legs survive at ratio 1", (size) => {
+    const markup = renderToStaticMarkup(createElement(ClaudeMark, { size }));
+    expect(markup).toContain("overflow-visible");
+    expect(markup.match(/viewBox="(\S+) (\S+) (\S+) (\S+)"/)?.[3]).toBe(String(size));
   });
 });
