@@ -44,19 +44,21 @@ const CLAUDE_BOT = [
   [15, 4, 1],
 ];
 
-// The lint rule reads "shape" in an identifier as a structure name; this is the SVG attribute.
+// anti-slop/no-shape-in-symbol-names flags the JSX attribute name, so spread it.
 const CRISP = { "shapeRendering": "crispEdges" } as const;
 
 export function ClaudeMark({ size = 16, className }: IconProps) {
   // 17 columns need 1 css px each or the eyes and legs merge, so the bot overflows a box under 17 px.
   const v = Math.min(size, 17);
+  // Past 17 px the scale is fractional anyway, so center exactly instead of on a whole px.
+  const snap = size > 17 ? (n: number) => n : Math.round;
   return (
     <svg
       width={size}
       height={size}
-      viewBox={`${Math.round(9.5 - v / 2)} ${Math.round(5 - v / 2)} ${v} ${v}`}
+      viewBox={`${snap(9.5 - v / 2)} ${snap(5 - v / 2)} ${v} ${v}`}
       {...CRISP}
-      className={cn("shrink-0 overflow-visible fill-[#d77757]", className)}
+      className={cn("shrink-0 overflow-visible fill-[#d97757]", className)}
       aria-hidden
     >
       {CLAUDE_BOT.map(([x, row, w]) => (

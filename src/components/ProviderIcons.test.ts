@@ -59,7 +59,7 @@ describe("ClaudeMark", () => {
   it("draws the claude bot as crisp pixel rects in the claude orange, not the starburst", () => {
     const markup = renderToStaticMarkup(createElement(ProviderMark, { driverKind: "claudeAgent", size: 16 }));
     expect(markup).toContain('shape-rendering="crispEdges"');
-    expect(markup).toContain("fill-[#d77757]");
+    expect(markup).toContain("fill-[#d97757]");
     expect(markup).not.toContain("<path");
     expect(rects(markup)).toEqual([
       [3, 0, 13, 2],
@@ -75,9 +75,20 @@ describe("ClaudeMark", () => {
     ]);
   });
 
+  const viewBox = (size: number) =>
+    renderToStaticMarkup(createElement(ClaudeMark, { size })).match(/viewBox="(\S+) (\S+) (\S+) (\S+)"/)!.slice(1).map(Number);
+
   it.each([14, 16, 17])("keeps one css px per bot column at %i px so the eyes and legs survive at ratio 1", (size) => {
     const markup = renderToStaticMarkup(createElement(ClaudeMark, { size }));
     expect(markup).toContain("overflow-visible");
-    expect(markup.match(/viewBox="(\S+) (\S+) (\S+) (\S+)"/)?.[3]).toBe(String(size));
+    expect(viewBox(size)[2]).toBe(size);
+  });
+
+  it.each([24, 32])("scales the bot from the exact center at %i px", (size) => {
+    const [x, y, w, h] = viewBox(size);
+    expect(w).toBe(17);
+    expect(h).toBe(17);
+    expect(x + w / 2).toBe(9.5);
+    expect(y + h / 2).toBe(5);
   });
 });
