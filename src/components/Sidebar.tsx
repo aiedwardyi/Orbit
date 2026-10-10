@@ -45,6 +45,7 @@ import {
   useStore,
   formatTime,
   previewMessages,
+  shownModelSelection,
   type Bot,
   type Group,
   type TerminalAttention,
@@ -858,9 +859,10 @@ function BotListItem({
   // the visible branch, so a version switch changes the row with the chat
   const visible = previewMessages(bot);
   const last = visible.at(-1);
-  const engine = state.instances.find((instance) => instance.instanceId === bot.modelSelection?.instanceId);
-  const modelLabel = engine && bot.modelSelection
-    ? modelChipText({ instance: engine, model: bot.modelSelection.model, effort: bot.modelSelection.effort }, t)
+  const shownModel = bot.modelSelection && shownModelSelection(bot);
+  const engine = state.instances.find((instance) => instance.instanceId === shownModel?.instanceId);
+  const modelLabel = engine && shownModel
+    ? modelChipText({ instance: engine, model: shownModel.model, effort: shownModel.effort }, t)
     : null;
   const expandedModelLabel = modelLabel ? compactSidebarModelLabel(modelLabel) : null;
   const terminalAttention = terminalAttentionForBot(state.terminalAttention, bot.id);
@@ -898,7 +900,7 @@ function BotListItem({
           // decorative; busy/unread/motion are the real signals).
           animated={Boolean(bot.busy) || Boolean(bot.unread) || (mascotMotion?.kind ?? "none") !== "none"}
         />
-        {bot.modelSelection && (
+        {shownModel && (
           <span
             data-sidebar-model-dot
             aria-hidden="true"

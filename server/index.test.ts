@@ -1154,6 +1154,35 @@ describe("harness HTTP API", () => {
     }));
   });
 
+  it("holds a model picked mid-reply until the turn ends", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const hanging = (await api("GET", "/api/instances")).body.instances.find(
+      (instance: { instanceId: string }) => instance.instanceId === "claude",
+    );
+    const running = { instanceId: "claude", model: hanging.models.default };
+    const next = { instanceId: "ghost", model: "ghost-1" };
+    const current = async () => (await api("GET", "/api/bots?messages=0")).body.bots.find(
+      (candidate: { id: string }) => candidate.id === bot.id,
+    );
+    try {
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: running })).status).toBe(200);
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "keep going" })).status).toBe(202);
+      await expect.poll(async () => (await current()).busy).toBe(true);
+
+      const picked = await api("PATCH", `/api/bots/${bot.id}`, { modelSelection: next });
+      expect(picked.status).toBe(200);
+      expect(picked.body.bot.pendingModelSelection).toEqual(next);
+      expect(picked.body.bot.modelSelection).toMatchObject(running);
+
+      expect((await api("POST", `/api/bots/${bot.id}/interrupt`)).status).toBe(200);
+      await expect.poll(async () => (await current()).pendingModelSelection).toBeNull();
+      expect((await current()).modelSelection).toEqual(next);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`).catch(() => undefined);
+    }
+  });
+
   it("searches transcripts and exports a conversation", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     expect(bot.messages.filter((message: { kind: string }) => message.kind === "text")).toEqual([]);

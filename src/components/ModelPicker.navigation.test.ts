@@ -26,12 +26,12 @@ function engine(instanceId: string, driverKind: string, ids: string[], effortLev
   };
 }
 
-async function mount(selection: ModelSelection, defaultOpen = true, contained = false, selectedId = "bot-1") {
+async function mount(selection: ModelSelection, defaultOpen = true, contained = false, selectedId = "bot-1", pending?: ModelSelection) {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
   await act(async () => {
-    const bot: Bot = { id: "bot-1", threadId: "thread-1", name: "Picker", title: "", description: "", color: "green", notifications: false, unread: false, messages: [], modelSelection: selection };
+    const bot: Bot = { id: "bot-1", threadId: "thread-1", name: "Picker", title: "", description: "", color: "green", notifications: false, unread: false, messages: [], modelSelection: selection, pendingModelSelection: pending };
     root.render(createElement(I18nProvider, null, createElement(ModelPickerControl, {
       bot,
       store: { state: { instances: mock.instances, selectedId }, dispatch: mock.dispatch, refreshInstances: mock.refreshInstances },
@@ -300,6 +300,17 @@ describe("ModelPicker cross navigation", () => {
     await key("Enter");
     expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "setModel", botId: "bot-1", selection: { ...selection, effort: "low" } });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("shows a model picked mid-reply as the chosen one", async () => {
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.7", "grok-4.6"])];
+    await mount({ instanceId: "grok", model: "grok-4.7", mode: "pinned" }, false, false, "bot-1", { instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+    const trigger = document.querySelector<HTMLButtonElement>('[aria-haspopup="dialog"]')!;
+    expect(trigger.textContent).toContain("4.6");
+    expect(trigger.textContent).not.toContain("4.7");
+    await act(async () => trigger.click());
+    expect(document.querySelector('[data-model-cell="grok-4.6"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector('[data-model-cell="grok-4.7"]')?.getAttribute("aria-pressed")).toBe("false");
   });
 
   it("returns focus to the trigger after a pointer model commit", async () => {

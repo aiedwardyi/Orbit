@@ -12,6 +12,7 @@ import type { ModelSelection } from "./contracts.ts";
 import { peerAllowKey } from "./peer-approval-key.ts";
 import { applyResolvedProjectFolder } from "./project-folder.ts";
 import { composeUserTurnPrompt } from "./replies.ts";
+import { _resetSteerQueue, drainSteeredMessages, queueSteeredMessage } from "./steer-queue.ts";
 import { agentRoster, Store, titleFromMessage, type BotRecord } from "./store.ts";
 import * as taskState from "./task-state.ts";
 import { readTaskResumePacket, type TaskResumePacket } from "./task-state.ts";
@@ -1294,6 +1295,71 @@ describe("Store bot activity state", () => {
     const again = new Store(selection);
     expect(again.bot(bot.id)?.activity).toBe("idle");
     expect(Boolean(again.bot(bot.id)?.busy)).toBe(false);
+  });
+});
+
+describe("Store model picked mid-reply", () => {
+  const next: ModelSelection = { instanceId: "codex", model: "gpt-6-sol", mode: "pinned" };
+
+  beforeEach(() => {
+    rmSync(DATA_DIR, { recursive: true, force: true });
+    _resetSteerQueue();
+  });
+
+  it("runs a queued message's turn on the new model", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.setActivity(bot.id, "working", bot.threadId);
+    store.patchBot(bot.id, { pendingModelSelection: next });
+    queueSteeredMessage(bot.id, bot.threadId, "and then this");
+    const ran: ModelSelection[] = [];
+    const run = (botId: string) => {
+      ran.push(store.bot(botId)!.modelSelection);
+    };
+    drainSteeredMessages(store, run);
+    expect(ran).toEqual([]);
+    expect(store.bot(bot.id)?.modelSelection).toEqual(selection());
+
+    const seen: string[] = [];
+    store.onChange((change) => seen.push(change.type));
+    store.setActivity(bot.id, "idle");
+    expect(seen).toEqual(["bot"]);
+    drainSteeredMessages(store, run);
+    expect(ran).toEqual([next]);
+    expect(new Store(selection).bot(bot.id)).toMatchObject({ modelSelection: next });
+    expect(new Store(selection).bot(bot.id)?.pendingModelSelection).toBeUndefined();
+  });
+
+  it("a stop during a pending change interrupts the old engine", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.setActivity(bot.id, "working", bot.threadId);
+    store.patchBot(bot.id, { pendingModelSelection: next });
+    const interrupted = store.bot(bot.id)!.modelSelection.instanceId;
+    store.setActivity(bot.id, "idle");
+    expect(interrupted).toBe(selection().instanceId);
+    expect(store.bot(bot.id)?.modelSelection).toEqual(next);
+  });
+
+  it("applies the pick when a setup failure ends the turn", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.setActivity(bot.id, "working", bot.threadId);
+    store.patchBot(bot.id, { pendingModelSelection: next });
+    store.setActivity(bot.id, "waiting-on-you");
+    expect(store.bot(bot.id)?.modelSelection).toEqual(selection());
+    store.setActivity(bot.id, "dead");
+    expect(store.bot(bot.id)?.modelSelection).toEqual(next);
+  });
+
+  it("applies a pending pick found on load", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.setActivity(bot.id, "working", bot.threadId);
+    store.patchBot(bot.id, { pendingModelSelection: next });
+    const reloaded = new Store(selection).bot(bot.id);
+    expect(reloaded?.modelSelection).toEqual(next);
+    expect(reloaded?.pendingModelSelection).toBeUndefined();
   });
 });
 

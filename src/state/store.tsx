@@ -242,6 +242,16 @@ export interface ModelSelection {
   effort?: EffortLevel;
 }
 
+const sameModelSelection = (a: ModelSelection, b: ModelSelection) =>
+  a.instanceId === b.instanceId &&
+  a.model === b.model &&
+  (a.mode ?? "pinned") === (b.mode ?? "pinned") &&
+  a.effort === b.effort;
+
+/** What the UI shows as chosen: a mid-reply pick wins over the running model. */
+export const shownModelSelection = (bot: Pick<Bot, "modelSelection" | "pendingModelSelection">): ModelSelection =>
+  bot.pendingModelSelection ?? bot.modelSelection;
+
 /** One of a bot's separate contexts: its own thread, transcript and
  * provider session. The bot's threadId points at the active one. */
 export interface Task {
@@ -312,7 +322,10 @@ export interface Bot {
   workingThreadId?: string | null;
   /** what the bot is doing, as the harness sees it; busy is derived from it */
   activity?: "working" | "waiting-on-you" | "idle" | "no-signal" | "dead";
+  /** The engine running this bot's turns; display reads shownModelSelection. */
   modelSelection: ModelSelection;
+  /** Picked mid-reply; the server applies it when the reply ends. */
+  pendingModelSelection?: ModelSelection | null;
   /** Skip user skills, plugins and plugin MCP servers at startup. */
   leanStartup?: boolean;
   /** Where this bot's computer runs; unset = auto (cloud box if one exists, else local). */
@@ -1482,7 +1495,11 @@ export function reducer(state: AppState, action: Action): AppState {
         },
       };
     case "setModel":
-      return updateBot(state, action.botId, (b) => ({ ...b, modelSelection: action.selection }));
+      return updateBot(state, action.botId, (b) =>
+        b.busy
+          ? { ...b, pendingModelSelection: sameModelSelection(b.modelSelection, action.selection) ? null : action.selection }
+          : { ...b, modelSelection: action.selection, pendingModelSelection: null },
+      );
     case "connected":
       return state.connected === action.value ? state : { ...state, connected: action.value };
     case "error":
