@@ -3,7 +3,7 @@
 // does not become a wall of competing motion. Plain messages go to the room's
 // default responder; @mentions override that routing.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, Check, ChevronDown, ChevronRight, Folder, FolderOpen, Gauge, Loader2, MessageSquareReply, Pin, PinOff, Plus, RefreshCw, Search, X } from "lucide-react";
+import { ArrowDown, AtSign, Check, ChevronDown, ChevronRight, Crown, Folder, FolderOpen, Gauge, Loader2, MessageSquareReply, Pin, PinOff, Plus, RefreshCw, Search, Users, X } from "lucide-react";
 import {
   api,
   useStore,
@@ -585,6 +585,7 @@ function DefaultResponderSelect({ group, members }: { group: Group; members: Bot
   const value = responder.kind === "member" ? `member:${responder.botId}` : responder.kind;
   const lead = responder.kind === "member" ? members.find((member) => member.id === responder.botId) : undefined;
   const closedLabel = responderControlLabel(responder.kind, lead?.name, t);
+  const ModeIcon = responder.kind === "everyone" ? Users : responder.kind === "member" ? Crown : AtSign;
   const title =
     responder.kind === "everyone"
       ? t("room.titleEveryone")
@@ -601,7 +602,7 @@ function DefaultResponderSelect({ group, members }: { group: Group; members: Bot
   };
 
   return (
-    <div className="relative min-w-16 shrink-[4]" title={title}>
+    <div className="relative min-w-16 shrink-[4] max-md:w-12 max-md:min-w-0 max-md:shrink-0" title={title}>
       <select
         aria-label={closedLabel}
         value={value}
@@ -620,8 +621,9 @@ function DefaultResponderSelect({ group, members }: { group: Group; members: Bot
           <option value="mentions" className="text-ink">{t("room.onlyWhenMentioned")}</option>
         </optgroup>
       </select>
-      <span data-who-answers="" className="pointer-events-none absolute inset-0 flex items-center pl-3 pr-7 text-[12.5px] font-medium text-ink">
-        <span className="min-w-0 truncate">{closedLabel}</span>
+      <span data-who-answers="" className="pointer-events-none absolute inset-0 flex items-center pl-3 pr-7 max-md:pl-2.5 text-[12.5px] font-medium text-ink">
+        <ModeIcon size={12} aria-hidden="true" className="shrink-0 md:hidden" />
+        <span className="min-w-0 truncate max-md:hidden">{closedLabel}</span>
       </span>
       <ChevronDown
         size={13}

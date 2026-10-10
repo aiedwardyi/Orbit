@@ -205,8 +205,17 @@ describe("room header on a phone", () => {
   });
 
   it("ends the closed label in an ellipsis", () => {
-    expect(select).toMatch(/<span className="min-w-0 truncate">\{closedLabel\}<\/span>/);
+    expect(select).toMatch(/<span className="min-w-0 truncate max-md:hidden">\{closedLabel\}<\/span>/);
     expect(tokensAfter(select, "<span data-who-answers").has("truncate")).toBe(false);
+  });
+
+  it("shows the who-answers mode as an icon on a phone", () => {
+    expect(select).toMatch(/responder\.kind === "everyone" \? Users : responder\.kind === "member" \? Crown : AtSign/);
+    expect(select).toMatch(/<ModeIcon size=\{12\} aria-hidden="true" className="shrink-0 md:hidden" \/>/);
+    const wrapper = tokensAfter(select, '<div className="relative');
+    expect(wrapper.has("max-md:w-12")).toBe(true);
+    expect(wrapper.has("max-md:shrink-0")).toBe(true);
+    expect(select).toMatch(/aria-label=\{closedLabel\}/);
   });
 
   it("keeps the room name at about 8 characters and lets the control row shrink", () => {
