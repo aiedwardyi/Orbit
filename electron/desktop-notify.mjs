@@ -119,12 +119,11 @@ export function withToastCapability(capabilities, nativeSupported) {
   return { ...capabilities, toasts: { available: nativeSupported === true } };
 }
 
-/** Win10 toasts take a local file, so the renderer sends the bot's face as a
- * PNG data URL; anything empty or undecodable falls back to the app icon. */
+/** Toasts take a local file or a NativeImage, so the renderer sends the bot's
+ * face as a PNG data URL; anything empty or undecodable falls back to the app icon. */
 export function toastIconFor({ platform, icon, pageUrl, appIcon, nativeImage }) {
   const value = asString(icon) ?? "";
-  if (platform === "win32") {
-    if (!value.startsWith("data:image/")) return appIcon;
+  if (value.startsWith("data:image/")) {
     try {
       const image = nativeImage.createFromDataURL(value);
       return image.isEmpty() ? appIcon : image;
@@ -132,7 +131,7 @@ export function toastIconFor({ platform, icon, pageUrl, appIcon, nativeImage }) 
       return appIcon;
     }
   }
-  if (!value) return appIcon;
+  if (platform === "win32" || !value) return appIcon;
   try {
     return new URL(value, pageUrl).href;
   } catch {

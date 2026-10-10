@@ -304,6 +304,15 @@ describe("toastIconFor", () => {
     expect(toastIconFor({ ...base, icon: "" })).toBe(appIcon);
   });
 
+  it("decodes the bot's data URL image on macOS and Linux too", () => {
+    for (const platform of ["darwin", "linux"]) {
+      const nativeImage = fakeNativeImage();
+      const icon = toastIconFor({ platform, icon: png, pageUrl: "http://127.0.0.1:8799/", appIcon, nativeImage });
+      expect(icon).toBe(nativeImage.created[0]);
+      expect(toastIconFor({ platform, icon: png, pageUrl: "http://127.0.0.1:8799/", appIcon, nativeImage: fakeNativeImage(true) })).toBe(appIcon);
+    }
+  });
+
   it("is what main hands the toast", () => {
     const main = readFileSync(path.join(root, "electron/main.mjs"), "utf8");
     expect(main).toMatch(/icon: toastIconFor\(\{\s*platform: process\.platform,\s*icon: payload\?\.icon,/);
