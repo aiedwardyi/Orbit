@@ -38,6 +38,7 @@ import { BackNavigation, backDepth, followSelection, trailTarget, type BackLayer
 import { SKINS, applySkin, nextSkin, readSkin, type SkinId } from "@/lib/skins";
 import { Presence } from "@/lib/use-presence";
 import { lazyView, useStaleBuildReload } from "@/lib/stale-build";
+import { markColdOpen, noteChatShown, startWarmOpenTiming } from "@/lib/cold-open-timing";
 
 const Onboarding = lazyView(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsPanel = lazyView(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -362,11 +363,16 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       const target = webPushTarget(new URL(event.data.url, window.location.origin).search);
       if (!target) return;
       setTerminalViews((views) => ({ ...views, [target.botId]: false }));
+      startWarmOpenTiming(Number(event.data.t0), target.threadId);
       openNotificationTarget(dispatch, target, latestState.current);
     };
     worker.addEventListener("message", onMessage);
     return () => worker.removeEventListener("message", onMessage);
   }, [dispatch]);
+  const shown = group ?? bot;
+  const shownThread = state.hydrated && state.activeView === "chat" && shown?.messages?.length ? shown.threadId : undefined;
+  // No deps: a warm tap onto the chat already on screen changes nothing here but still needs its paint time.
+  useEffect(() => noteChatShown(shownThread));
 
   const taskbarBusy = state.bots.some((candidate) => candidate.busy);
   useEffect(() => {
@@ -773,6 +779,7 @@ function setOnboardingDone() {
 
 export default function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(() => !onboardingDone());
+  useEffect(() => markColdOpen("mount"), []);
   return (
     <I18nProvider>
       <DesktopCapabilitiesProvider>

@@ -3,6 +3,8 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { startColdOpenTiming } from "../lib/cold-open-timing";
+import { webPushTarget } from "../lib/web-push";
 import { SNAPSHOT_CACHE_KEY } from "./snapshot-cache";
 import { openNotificationTarget, StoreProvider, useStore, type Action, type AppState } from "./store";
 
@@ -134,6 +136,21 @@ describe("opening a notification on a cold page", () => {
     expect(store.state().selectedId).toBe("g1");
     expect(store.switches).toEqual(["/api/groups/g1/tasks/g-new"]);
     await store.unmount();
+  });
+
+  it("strips the tap time from the address and still opens the notification's thread", async () => {
+    window.history.replaceState(null, "", "/?bot=b1&thread=t-new&t0=1800000000000");
+    startColdOpenTiming();
+    expect(window.location.pathname + window.location.search).toBe("/?bot=b1&thread=t-new");
+    const target = webPushTarget(window.location.search);
+    expect(target).toEqual({ botId: "b1", threadId: "t-new" });
+    const store = await mount(current, { bots: [bot("t-old")], groups: [group("g-new")] });
+    await store.open(target!);
+    expect(store.state().selectedId).toBe("b1");
+    await store.hydrate();
+    expect(store.switches).toEqual(["/api/bots/b1/tasks/t-new"]);
+    await store.unmount();
+    window.history.replaceState(null, "", "/");
   });
 
   it("drops the target when another chat is picked before hydrate", async () => {

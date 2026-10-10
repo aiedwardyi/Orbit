@@ -35,15 +35,23 @@ self.addEventListener("push", (event) => {
   );
 });
 
+// The tap's time rides along so the page can time its open from the tap itself.
+function withClickTime(url, t0) {
+  const next = new URL(url);
+  next.searchParams.set("t0", String(t0));
+  return next.href;
+}
+
 self.addEventListener("notificationclick", (event) => {
+  const t0 = Date.now();
   event.notification.close();
   const url = new URL(event.notification.data?.url || "/", self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (windows) => {
       const open = windows.find((client) => new URL(client.url).origin === self.location.origin);
-      if (!open) return self.clients.openWindow(url);
+      if (!open) return self.clients.openWindow(withClickTime(url, t0));
       await open.focus();
-      open.postMessage({ type: "orbit-open", url });
+      open.postMessage({ type: "orbit-open", url, t0 });
     }),
   );
 });
