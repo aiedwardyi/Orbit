@@ -39,6 +39,7 @@ import {
   handleDesktopNotify,
   parseNotificationTargetFromCommandLine,
   taskbarBusyIndicator,
+  toastIconFor,
   windowsAppUserModelId,
   withToastCapability,
 } from "./desktop-notify.mjs";
@@ -1502,18 +1503,6 @@ ipcMain.on("desktop:unread-count", (event, value) => {
   applyUnreadBadge(sender);
 });
 
-function toastIconFor(win, payload) {
-  // Win10 toasts take a local file. An http avatar URL here is a silent no-op.
-  if (process.platform === "win32") return APP_ICON;
-  const icon = typeof payload?.icon === "string" ? payload.icon : "";
-  if (!icon) return APP_ICON;
-  try {
-    return new URL(icon, win.webContents.getURL()).href;
-  } catch {
-    return APP_ICON;
-  }
-}
-
 ipcMain.on("desktop:notify", (event, payload) => {
   const sender = BrowserWindow.fromWebContents(event.sender);
   if (!sender || sender !== mainWindow || sender.isDestroyed()) return;
@@ -1522,7 +1511,13 @@ ipcMain.on("desktop:notify", (event, payload) => {
     payload,
     Notification,
     nativeSupported: Notification.isSupported(),
-    icon: toastIconFor(sender, payload),
+    icon: toastIconFor({
+      platform: process.platform,
+      icon: payload?.icon,
+      pageUrl: sender.webContents.getURL(),
+      appIcon: APP_ICON,
+      nativeImage,
+    }),
     activate: (win) => activateExistingWindow([win]),
     sendClick: (target) => {
       if (!sender.isDestroyed()) sender.webContents.send("desktop:notification-click", target);

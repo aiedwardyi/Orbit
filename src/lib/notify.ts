@@ -2,6 +2,7 @@
 // The server decides *whether* something is worth an interruption (it owns
 // the per-bot toggle); this only decides how to show it here.
 import type { Notification } from "../../server/notify.ts";
+import { botNotifyIconPath, type BotAvatarProfileInput } from "../../shared/bot-avatar.ts";
 
 export type NotifyFrame = Notification & { openTerminal?: boolean; terminalSessionId?: string };
 
@@ -58,7 +59,7 @@ export function terminalAttentionCopy(
 }
 
 export function buildTerminalNotification(
-  bot: { id: string; name: string; threadId: string; notifications?: boolean; avatarUrl?: string | null },
+  bot: BotAvatarProfileInput & { id: string; name: string; threadId: string; notifications?: boolean },
   reason: TerminalAttentionReason,
   terminalSessionId?: string,
 ): NotifyFrame | null {
@@ -79,6 +80,7 @@ export function buildTerminalNotification(
         : reason === "error"
           ? "The terminal reported an error."
           : "The terminal process finished.",
+    icon: botNotifyIconPath(bot),
     openTerminal: true,
   };
   if (terminalSessionId) frame.terminalSessionId = terminalSessionId;
@@ -90,14 +92,38 @@ export function buildTerminalNotification(
  * tasks and rooms coalesces into one stack instead of stacking banners. */
 export interface NotificationBotIdentity {
   id: string;
-  avatarUrl?: string | null;
+  icon?: string;
 }
 
 /** Presentation options for one bot's notifications: the stable per-bot
- * coalescing key platforms replace on (`tag`) and its avatar, when the
- * profile has one. Pure so the grouping rule stays testable on its own. */
+ * coalescing key platforms replace on (`tag`) and its face. Pure so the
+ * grouping rule stays testable on its own. */
 export function buildNotificationOptions(bot: NotificationBotIdentity): NotificationOptions {
-  return { tag: `openmausbot:${bot.id}`, icon: bot.avatarUrl ?? undefined };
+  return { tag: `openmausbot:${bot.id}`, icon: bot.icon || undefined };
+}
+
+const NOTIFY_ICON_MAX_PX = 256;
+
+/** Main can only toast a local image, so the shell gets the bot's face as PNG bytes. Undefined on any failure. */
+export async function notifyIconDataUrl(path: string | undefined): Promise<string | undefined> {
+  if (!path) return undefined;
+  try {
+    const res = await fetch(path);
+    if (!res.ok) return undefined;
+    const bitmap = await createImageBitmap(await res.blob());
+    const side = Math.min(bitmap.width, bitmap.height);
+    const size = Math.min(side, NOTIFY_ICON_MAX_PX);
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context || !size) return undefined;
+    context.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+    bitmap.close();
+    return canvas.toDataURL("image/png");
+  } catch {
+    return undefined;
+  }
 }
 
 /** Show one unless the exact destination conversation is already visible.
@@ -106,7 +132,6 @@ export function buildNotificationOptions(bot: NotificationBotIdentity): Notifica
 export function showNotification(
   frame: NotifyFrame,
   onOpen: (target: NotificationTarget) => void,
-  avatarUrl?: string | null,
   visibleThreadId?: string | null,
 ) {
   const native = typeof window !== "undefined" ? window.ogb?.showNotification : undefined;
@@ -114,7 +139,6 @@ export function showNotification(
     const payload: Parameters<typeof native>[0] = {
       title: frame.title,
       body: frame.body,
-      icon: avatarUrl ?? undefined,
       botId: frame.botId,
       threadId: frame.threadId,
       visibleThreadId: visibleThreadId ?? null,
@@ -123,7 +147,7 @@ export function showNotification(
       payload.openTerminal = true;
       if (frame.terminalSessionId) payload.terminalSessionId = frame.terminalSessionId;
     }
-    native(payload);
+    void notifyIconDataUrl(frame.icon).then((icon) => native(icon ? { ...payload, icon } : payload));
     return;
   }
 
@@ -146,7 +170,7 @@ export function showNotification(
   if (Notification.permission === "granted") {
     const options: NotificationOptions = {
       body: frame.body,
-      ...buildNotificationOptions({ id: frame.botId, avatarUrl }),
+      ...buildNotificationOptions({ id: frame.botId, icon: frame.icon }),
     };
     try {
       new Notification(frame.title, options).onclick = open;

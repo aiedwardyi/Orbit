@@ -47,10 +47,10 @@ export async function disableWebPush(): Promise<void> {
   await subscription.unsubscribe();
 }
 
-export async function testWebPush(): Promise<void> {
+export async function testWebPush(botId?: string): Promise<void> {
   const subscription = await currentSubscription();
   if (!subscription) throw new Error("This device is not subscribed");
-  await api("/api/web-push/test", { method: "POST", body: JSON.stringify({ endpoint: subscription.endpoint }) });
+  await api("/api/web-push/test", { method: "POST", body: JSON.stringify({ endpoint: subscription.endpoint, botId }) });
 }
 
 /** The bot/thread a push notification opens, from its `/?bot=&thread=` url. */

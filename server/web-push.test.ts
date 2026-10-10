@@ -1,10 +1,11 @@
 import { createDecipheriv, createECDH, createHmac, createPublicKey, verify } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { botNotifyIconPath } from "../shared/bot-avatar.ts";
 import { buildNotification } from "./notify.ts";
 import { pingForMailbox, pingForNotification } from "./phone-ping.ts";
 import {
@@ -117,7 +118,7 @@ describe("vapid", () => {
 describe("subscription store", () => {
   let dir: string;
   const sub = (id: string) => ({ endpoint: `https://push.example/${id}`, keys: { p256dh: rfc.uaPublic, auth: rfc.auth } });
-  const payload = { title: "t", body: "b", tag: "x", url: "/" };
+  const payload = { title: "t", body: "b", tag: "x", url: "/", icon: "/app-icon-192.png?v=2" };
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "omb-web-push-"));
   });
@@ -175,14 +176,15 @@ describe("pushPayload", () => {
 
   it("follows the phone ping filters", () => {
     expect(pingForNotification(buildNotification("done", bot, "thread-1", "all set")!, 59_999)).toBeNull();
-    expect(pingForMailbox("Scout", "DONE CARD branch=x")).toBeNull();
+    expect(pingForMailbox("Scout", "DONE CARD branch=x", "/app-icon-192.png?v=2")).toBeNull();
     expect(pushPayload(pingForNotification(buildNotification("done", bot, "thread-1", "all set")!, 60_000)!, target)).toEqual({
       title: "Scout finished",
       body: "all set",
       tag: "openmausbot:bot-1",
       url: "/?bot=bot-1&thread=thread-1",
+      icon: "/notify-icons/peach-white.png",
     });
-    expect(pushPayload(pingForMailbox("Scout", "FAIL CARD branch=x\ndetail")!, target)).toMatchObject({
+    expect(pushPayload(pingForMailbox("Scout", "FAIL CARD branch=x\ndetail", "/app-icon-192.png?v=2")!, target)).toMatchObject({
       title: "Scout: worker failed",
       body: "CARD failed: detail",
     });
@@ -191,14 +193,53 @@ describe("pushPayload", () => {
   it("publishes no part of a config key cut at the summary boundary", () => {
     const value = "Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4z";
     const detail = `${"x".repeat(98)} ${JSON.stringify({ key: value })}`;
-    const pings = [pingForNotification(buildNotification("approval", bot, "thread-1", detail)!)!, pingForMailbox("Scout", `FAIL C branch=x\n${detail.slice(5)}`)!];
+    const pings = [pingForNotification(buildNotification("approval", bot, "thread-1", detail)!)!, pingForMailbox("Scout", `FAIL C branch=x\n${detail.slice(5)}`, "/app-icon-192.png?v=2")!];
     for (const ping of pings) expect(JSON.stringify(pushPayload(ping, target))).not.toMatch(/Ab3dEf6h/);
   });
 
   it("redacts secrets and encodes the open url", () => {
     const token = `ghp_${"a".repeat(36)}`;
-    const payload = pushPayload({ title: `leaked ${token}`, message: `token=${token}` }, { botId: "b&1", threadId: "t 1" });
+    const payload = pushPayload({ title: `leaked ${token}`, message: `token=${token}`, icon: "/app-icon-192.png?v=2" }, { botId: "b&1", threadId: "t 1" });
     expect(JSON.stringify(payload)).not.toContain(token);
     expect(new URLSearchParams(payload.url.slice(2)).get("bot")).toBe("b&1");
+  });
+
+  it("carries the sending bot's icon for every notifying moment", () => {
+    const face = { ...bot, avatarCrop: "mascot", mascotStyle: "icon-05" };
+    for (const kind of ["approval", "question", "takeover", "done", "routine-failed"] as const) {
+      expect(pushPayload(pingForNotification(buildNotification(kind, face, "thread-1", "detail")!, 60_000)!, target).icon)
+        .toBe("/avatars/icon-05-ledger-white.png");
+    }
+  });
+
+  it("gives a worker report the source bot's icon, not the teacher's", () => {
+    const source = { id: "worker", name: "Builder", threadId: "t-w", mascotStyle: "pill", color: "orange" };
+    const teacher = { botId: "teacher", threadId: "t-t" };
+    const payload = pushPayload(pingForMailbox(source.name, "FAIL CARD branch=x\ndetail", botNotifyIconPath(source))!, teacher);
+    expect(payload).toMatchObject({ title: "Builder: worker failed", tag: "openmausbot:teacher", icon: "/notify-icons/pill-orange.png" });
+  });
+
+  it("wires the icon into the mailbox ping and the test push", () => {
+    const index = readFileSync(join(import.meta.dirname, "index.ts"), "utf8");
+    expect(index).toContain("pingForMailbox(source.name || source.id, parsed.data.text, botNotifyIconPath(source))");
+    expect(index).toContain("const icon = botNotifyIconPath(body.data.botId === undefined ? undefined : store.bot(body.data.botId));");
+    expect(index).toContain('tag: "orbit:test", url: "/", icon }');
+  });
+
+  it("keeps a max-length Korean ping with its icon inside one push record", () => {
+    const id = "123e4567-e89b-12d3-a456-426614174000";
+    const korean = { id, threadId: id, name: "한".repeat(100), avatarUrl: `/api/attachments/${id}.webp`, avatarCrop: "square" };
+    const detail = "가나다라마바사아자차카타파하".repeat(40);
+    const pings = [
+      ...(["approval", "question", "takeover", "done", "routine-failed"] as const).map(
+        (kind) => pingForNotification(buildNotification(kind, korean, id, detail)!, 60_000)!,
+      ),
+      pingForMailbox(korean.name, `BLOCKED ${"닉".repeat(40)} branch=x\n${detail}`, botNotifyIconPath(korean))!,
+    ];
+    for (const ping of pings) {
+      const payload = pushPayload(ping, { botId: id, threadId: id });
+      expect(payload.icon).toBe(korean.avatarUrl);
+      expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThan(3993);
+    }
   });
 });

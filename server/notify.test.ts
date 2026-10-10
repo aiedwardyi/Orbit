@@ -43,13 +43,15 @@ describe("buildNotification", () => {
     expect(buildNotification("done", bot, "other-thread", "done")?.threadId).toBe("other-thread");
   });
 
-  it("carries the bot's avatar when one is given", () => {
+  it("carries the bot's icon for every kind", () => {
     const avatarUrl = "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp";
-    const frame = buildNotification("done", bot, "thread-1", "pushed the branch", { avatarUrl });
-    expect(frame).toMatchObject({ botId: "bot-1", body: "pushed the branch", avatarUrl });
-
-    // no profile image → the frame stays exactly as before
-    expect(buildNotification("done", bot, "thread-1", "pushed")?.avatarUrl).toBeUndefined();
+    const photo = { ...bot, avatarUrl, avatarCrop: "circle" };
+    for (const kind of ["approval", "question", "done", "routine-failed", "takeover"] as const) {
+      expect(buildNotification(kind, photo, "thread-1", "detail")?.icon).toBe(avatarUrl);
+      expect(buildNotification(kind, { ...bot, mascotStyle: "squircle", color: "blue" }, "thread-1", "detail")?.icon)
+        .toBe("/notify-icons/squircle-blue.png");
+    }
+    expect(buildNotification("done", bot, "thread-1", "pushed")).not.toHaveProperty("avatarUrl");
   });
 });
 

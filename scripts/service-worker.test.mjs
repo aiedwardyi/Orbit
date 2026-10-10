@@ -12,12 +12,13 @@ const RELAY = "abcdefghijklmnop.wink.test";
 function worker(hostname, network = () => Promise.reject(new TypeError("Failed to fetch"))) {
   const listeners = {};
   const cache = new Map();
+  const shown = [];
   const self = {
     location: { hostname, origin: `https://${hostname}` },
     addEventListener: (type, listener) => {
       listeners[type] = listener;
     },
-    registration: { showNotification: async () => {} },
+    registration: { showNotification: async (title, options) => shown.push({ title, options }) },
     clients: { matchAll: async () => [], openWindow: async () => {} },
   };
   const caches = {
@@ -30,7 +31,13 @@ function worker(hostname, network = () => Promise.reject(new TypeError("Failed t
     }
   }
   runInNewContext(SOURCE, { self, caches, fetch: network, Request, Response: { error: () => "browser error" }, URL });
-  return { listeners, cache };
+  return { listeners, cache, shown };
+}
+
+async function push(listeners, data) {
+  let done;
+  listeners.push({ data: { json: () => data }, waitUntil: (promise) => (done = promise) });
+  await done;
 }
 
 async function install(listeners) {
@@ -64,6 +71,14 @@ describe("service worker", () => {
     await install(listeners);
     expect(await load(listeners, "navigate")).toBe("cached /offline.html");
     for (const mode of ["cors", "same-origin", "no-cors"]) expect(load(listeners, mode)).toBeNull();
+  });
+
+  it("shows the sending bot's icon and keeps the app icon as the badge", async () => {
+    const { listeners, shown } = worker("home.tail396477.ts.net");
+    await push(listeners, { title: "Scout has a question", body: "which branch?", tag: "openmausbot:b", url: "/", icon: "/notify-icons/pill-orange.png" });
+    await push(listeners, { title: "Wink", body: "older server" });
+    expect(shown.map(({ options }) => options.icon)).toEqual(["/notify-icons/pill-orange.png", "/app-icon-192.png?v=2"]);
+    expect(shown.map(({ options }) => options.badge)).toEqual(["/app-icon-192.png?v=2", "/app-icon-192.png?v=2"]);
   });
 
   it("lets a reachable PC answer the page load itself", async () => {

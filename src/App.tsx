@@ -306,7 +306,6 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       showNotification(
         frame,
         openTerminalNotification,
-        bot.avatarUrl,
         terminalOpen && current.selectedId === botId ? visibleNotificationThread(current) : null,
       );
     });

@@ -293,3 +293,36 @@ export function botAvatarProfile(value: BotAvatarProfileInput): BotAvatarProfile
   if (url.success) profile.avatarUrl = url.data;
   return profile;
 }
+
+/** Mirrors MAUS_COLOR_NAMES in src/lib/mascot.ts; public/notify-icons has one PNG per style x color. */
+export const NOTIFY_ICON_COLORS = [
+  "green",
+  "blue",
+  "red",
+  "orange",
+  "purple",
+  "cyan",
+  "pink",
+  "yellow",
+  "teal",
+  "coral",
+  "white",
+  "black",
+  "gray",
+] as const;
+
+export const APP_NOTIFY_ICON = "/app-icon-192.png?v=2";
+
+export function mascotNotifyIconPath(style: MascotStyle, color: (typeof NOTIFY_ICON_COLORS)[number]): string {
+  return `/notify-icons/${style}-${color}.png`;
+}
+
+/** A notification's icon, in BotAvatar's order. Paths only: phones fetch them from this origin. */
+export function botNotifyIconPath(bot: BotAvatarProfileInput | null | undefined): string {
+  if (!bot) return APP_NOTIFY_ICON;
+  const profile = botAvatarProfile(bot);
+  if (profile.avatarCrop === "mascot" && isBotAvatarId(profile.mascotStyle)) return botAvatarAssetPath(profile.mascotStyle);
+  if (profile.avatarCrop !== "mascot" && profile.avatarUrl) return profile.avatarUrl;
+  const color = NOTIFY_ICON_COLORS.find((name) => name === bot.color) ?? "white";
+  return mascotNotifyIconPath(resolveMascotStyle(profile.mascotStyle, color), color);
+}

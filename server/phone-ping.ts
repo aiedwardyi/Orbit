@@ -6,26 +6,26 @@ import { redactSecretsInText } from "./redact.ts";
 export const PHONE_PING_DONE_MIN_MS = 60_000;
 export const PHONE_PING_REPEAT_MS = 10_000;
 
-export type PhonePing = { title: string; message: string; tags?: string[]; priority?: number };
+export type PhonePing = { title: string; message: string; icon: string; tags?: string[]; priority?: number };
 
 /** Short done replies stay quiet; everything that blocks on a person pings. */
 export function pingForNotification(notification: Notification, turnMs?: number): PhonePing | null {
   if (notification.kind === "done" && !(turnMs !== undefined && turnMs >= PHONE_PING_DONE_MIN_MS)) return null;
-  const ping: PhonePing = { title: notification.title, message: notification.body };
+  const ping: PhonePing = { title: notification.title, message: notification.body, icon: notification.icon };
   if (notification.kind === "approval" || notification.kind === "question" || notification.kind === "takeover") ping.priority = 4;
   return ping;
 }
 
 const PING_STATUS = { failed: "failed", blocked: "needs an answer" } as const;
 
-/** Worker FAIL / BLOCKED reports ping; DONE and plain notes do not. */
-export function pingForMailbox(botName: string, text: string): PhonePing | null {
+/** Worker FAIL / BLOCKED reports ping; DONE and plain notes do not. `icon` is the bot in the title. */
+export function pingForMailbox(botName: string, text: string, icon: string): PhonePing | null {
   const note = parsePaneNote(redactSecretsInText(text).trimStart());
   if (note.status !== "failed" && note.status !== "blocked") return null;
   const status = PING_STATUS[note.status];
   const sentence = note.body.split(/(?<=[.!?])\s|\n/, 1)[0]?.trim();
   const who = note.nick ?? "A worker";
-  return { title: `${botName}: worker ${status}`, message: summarize(sentence ? `${who} ${status}: ${sentence}` : `${who} ${status}.`), tags: ["warning"] };
+  return { title: `${botName}: worker ${status}`, message: summarize(sentence ? `${who} ${status}: ${sentence}` : `${who} ${status}.`), icon, tags: ["warning"] };
 }
 
 /** True when this bot/title/message triple has not pinged within the window,

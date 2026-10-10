@@ -119,6 +119,27 @@ export function withToastCapability(capabilities, nativeSupported) {
   return { ...capabilities, toasts: { available: nativeSupported === true } };
 }
 
+/** Win10 toasts take a local file, so the renderer sends the bot's face as a
+ * PNG data URL; anything empty or undecodable falls back to the app icon. */
+export function toastIconFor({ platform, icon, pageUrl, appIcon, nativeImage }) {
+  const value = asString(icon) ?? "";
+  if (platform === "win32") {
+    if (!value.startsWith("data:image/")) return appIcon;
+    try {
+      const image = nativeImage.createFromDataURL(value);
+      return image.isEmpty() ? appIcon : image;
+    } catch {
+      return appIcon;
+    }
+  }
+  if (!value) return appIcon;
+  try {
+    return new URL(value, pageUrl).href;
+  } catch {
+    return appIcon;
+  }
+}
+
 // Electron drops a toast's click once its Notification is collected; Action
 // Center keeps up to 20 toasts per app, so hold that many.
 const LIVE_TOAST_LIMIT = 20;

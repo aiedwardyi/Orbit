@@ -10,6 +10,7 @@
 // listening decides what to do with it — desktop and paired-phone local
 // notifications today, and closed-app APNs delivery once a relay exists.
 
+import { botNotifyIconPath, type BotAvatarProfileInput } from "../shared/bot-avatar.ts";
 import { redactSecretsInText } from "./redact.ts";
 
 export type NotifyKind = "approval" | "question" | "done" | "routine-failed" | "takeover";
@@ -21,9 +22,8 @@ export interface Notification {
   threadId: string;
   title: string;
   body: string;
-  /** The bot's stored profile image, when it has one; clients show it as
-   * the OS notification's icon so every banner carries its bot's face. */
-  avatarUrl?: string;
+  /** Same-origin path to the bot's face; never image bytes, they would not fit a push. */
+  icon: string;
 }
 
 /** One line, short enough for a lock screen, with the newlines, code
@@ -41,7 +41,7 @@ export function summarize(text: string, max = 140): string {
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
 
-export interface NotifyBot {
+export interface NotifyBot extends BotAvatarProfileInput {
   id: string;
   name: string;
   threadId: string;
@@ -57,7 +57,6 @@ export function buildNotification(
   bot: NotifyBot,
   threadId: string,
   detail: string,
-  extra?: { avatarUrl?: string },
 ): Notification | null {
   // The toggle means what it says: off is off, including for approvals.
   // A bot whose notifications you turned off can still block waiting for
@@ -81,5 +80,5 @@ export function buildNotification(
   // badge in the sidebar already carries that much.
   if (kind === "done" && !body) return null;
 
-  return { kind, botId: bot.id, botName: bot.name, threadId, title, body, ...extra };
+  return { kind, botId: bot.id, botName: bot.name, threadId, title, body, icon: botNotifyIconPath(bot) };
 }

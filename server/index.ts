@@ -13,6 +13,7 @@ import { z } from "zod";
 import {
   botAvatarChoiceSchema,
   botAvatarUrlFromStoredPath,
+  botNotifyIconPath,
   BOT_AVATAR_PICKER_ORDER,
 } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
@@ -123,6 +124,7 @@ import {
   pushEndpointSchema,
   pushPayload,
   pushSubscriptionSchema,
+  pushTestSchema,
   removePushSubscription,
   sendWebPushToDevices,
   type PushTarget,
@@ -3499,7 +3501,7 @@ bus.subscribe((event: RuntimeEvent) => {
             : reply;
           const startedAt = turnStartedAtMs.get(event.threadId);
           notify(
-            buildNotification("done", bot, routineReportThread ?? event.threadId, completionDetail, { avatarUrl: bot.avatarUrl }),
+            buildNotification("done", bot, routineReportThread ?? event.threadId, completionDetail),
             startedAt === undefined ? undefined : Date.now() - startedAt,
           );
         }
@@ -6517,7 +6519,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const note = mailboxNoteText(scope.pane, source.name || source.id, source.id, parsed.data.text, label);
       if (!note) return json(res, 400, { error: "empty message" });
       const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note, origin: profileSyncSettings.deviceId });
-      if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text), { botId: teacher.id, threadId: teacher.threadId });
+      if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text, botNotifyIconPath(source)), { botId: teacher.id, threadId: teacher.threadId });
       void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, parsed.data.kind);
       paneWake.noteArrived(teacher.id, teacher.threadId, scope.pane);
       return json(res, 200, { ok: true, id: message.id });
@@ -7543,12 +7545,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, { ok: true });
     }
     if (method === "POST" && path === "/api/web-push/test") {
-      const body = pushEndpointSchema.safeParse(await readBody(req));
+      const body = pushTestSchema.safeParse(await readBody(req));
       if (!body.success) return json(res, 400, { error: "endpoint must be a string" });
       if (!loadPushSubscriptions(DATA_DIR).some((sub) => sub.endpoint === body.data.endpoint)) {
         return json(res, 404, { error: "This device is not subscribed" });
       }
-      const test = { title: "Wink", body: "Test notification. Your phone is set up.", tag: "orbit:test", url: "/" };
+      const icon = botNotifyIconPath(body.data.botId === undefined ? undefined : store.bot(body.data.botId));
+      const test = { title: "Wink", body: "Test notification. Your phone is set up.", tag: "orbit:test", url: "/", icon };
       const [result] = await sendWebPushToDevices(DATA_DIR, test, webPushSubject(), body.data.endpoint);
       return result?.ok ? json(res, 200, { ok: true }) : json(res, 502, { error: result?.error ?? "push failed" });
     }

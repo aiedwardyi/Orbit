@@ -24,10 +24,11 @@ export const pushSubscriptionSchema = z.object({
 });
 const subscriptionsFileSchema = z.object({ subscriptions: z.array(z.unknown()) });
 export const pushEndpointSchema = z.object({ endpoint: z.string() });
+export const pushTestSchema = pushEndpointSchema.extend({ botId: z.string().optional() });
 
 export type VapidKeys = z.infer<typeof vapidKeysSchema>;
 export type PushSubscriptionRecord = z.infer<typeof pushSubscriptionSchema>;
-export type PushPayload = { title: string; body: string; tag: string; url: string };
+export type PushPayload = { title: string; body: string; tag: string; url: string; icon: string };
 export type PushTarget = { botId: string; threadId: string };
 export type WebPushResult = { ok: true } | { ok: false; gone: boolean; error: string };
 
@@ -101,6 +102,7 @@ export function pushPayload(ping: PhonePing, target: PushTarget): PushPayload {
     body: redactSecretsInText(ping.message),
     tag: `openmausbot:${target.botId}`,
     url: `/?${query}`,
+    icon: ping.icon,
   };
 }
 
