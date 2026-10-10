@@ -601,12 +601,12 @@ function DefaultResponderSelect({ group, members }: { group: Group; members: Bot
   };
 
   return (
-    <div className="relative shrink-0" title={title}>
+    <div className="relative min-w-16 shrink-[4]" title={title}>
       <select
         aria-label={closedLabel}
         value={value}
         onChange={(event) => change(event.target.value)}
-        className="h-8 max-w-[240px] appearance-none truncate rounded-full border border-hairline/40 bg-raised/60 py-1 pl-3 pr-7 text-[12.5px] font-medium text-transparent outline-none hover:bg-raised focus:border-accent"
+        className="h-8 w-full min-w-0 max-w-[240px] appearance-none truncate rounded-full border border-hairline/40 bg-raised/60 py-1 pl-3 pr-7 text-[12.5px] font-medium text-transparent outline-none hover:bg-raised focus:border-accent"
       >
         <optgroup label={t("room.channelLead")}>
           {members.map((member) => (
@@ -620,8 +620,8 @@ function DefaultResponderSelect({ group, members }: { group: Group; members: Bot
           <option value="mentions" className="text-ink">{t("room.onlyWhenMentioned")}</option>
         </optgroup>
       </select>
-      <span data-who-answers="" className="pointer-events-none absolute inset-0 flex items-center truncate pl-3 pr-7 text-[12.5px] font-medium text-ink">
-        {closedLabel}
+      <span data-who-answers="" className="pointer-events-none absolute inset-0 flex items-center pl-3 pr-7 text-[12.5px] font-medium text-ink">
+        <span className="min-w-0 truncate">{closedLabel}</span>
       </span>
       <ChevronDown
         size={13}
@@ -731,11 +731,11 @@ function RoomWorkingFolderChip({ group, onToggle }: { group: Group; onToggle: ()
   return (
     <button
       onClick={onToggle}
-      className="flex max-w-[220px] items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
+      className="flex min-w-0 max-w-[220px] shrink-[8] items-center max-md:shrink-0 gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
       title={folder ? t("room.workingFolderNamed", { folder }) : t("room.workingFolderChip")}
     >
-      <Folder size={12} />
-      <span className={cn("truncate", folder && "font-mono")}>{name}</span>
+      <Folder size={12} className="shrink-0" />
+      <span className={cn("truncate max-md:hidden", folder && "font-mono")}>{name}</span>
     </button>
   );
 }
@@ -1431,7 +1431,7 @@ export function GroupView({ group }: { group: Group }) {
       title={group.busyBotId === b.id ? t("chrome.botWorking", { name: b.name }) : b.name}
       className={cn(
         "relative inline-flex rounded-full",
-        group.busyBotId === b.id && "ring-2 ring-accent/50 ring-offset-1 ring-offset-app",
+        group.busyBotId === b.id && "z-10 ring-2 ring-accent/50 ring-offset-1 ring-offset-app",
       )}
     >
       <BotAvatar bot={b} state={normalizeState(b.mascotExpression) ?? "happy"} size={24} animated={false} />
@@ -1455,11 +1455,11 @@ export function GroupView({ group }: { group: Group }) {
           sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT,
         )}
       >
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-[4.5rem] flex-1 items-center gap-2">
           <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
           {!setupPending && !group.dm && showChannelNewTaskControl() && <GroupTaskPicker group={group} />}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5 max-md:gap-1">
           <button
             type="button"
             onClick={() => find.toggleFind()}
@@ -1487,7 +1487,7 @@ export function GroupView({ group }: { group: Group }) {
               onClick={() => setMembersOpen(true)}
               title={t("room.manageMembers")}
               aria-label={t("room.manageMembersCount", { count: members.length })}
-              className="flex items-center gap-1.5 rounded-full py-0.5 pl-1 pr-1.5 hover:bg-raised/60"
+              className="flex items-center gap-1.5 rounded-full py-0.5 pl-1 pr-1.5 hover:bg-raised/60 max-md:gap-0 max-md:-space-x-1.5"
             >
               {memberMauses}
               <span className="flex size-[18px] items-center justify-center rounded-full border border-dashed border-hairline/70 text-ink-secondary">
