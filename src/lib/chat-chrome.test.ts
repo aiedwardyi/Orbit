@@ -219,7 +219,7 @@ describe("room header on a phone", () => {
   });
 
   it("keeps the room name at about 8 characters and lets the control row shrink", () => {
-    const name = tokensAfter(header, '<div className="flex min-w-');
+    const name = tokensAfter(header, '<div className="flex min-w-[4.5rem]');
     expect(name.has("flex-1")).toBe(true);
     expect(name.has("min-w-[4.5rem]")).toBe(true);
     expect(tokensAfter(header, '<div className="flex min-w-0 items-center gap-1.5').has("min-w-0")).toBe(true);
