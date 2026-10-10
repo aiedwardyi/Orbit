@@ -325,14 +325,15 @@ function foldToolRuns(units: ReplayUnit[], includeSpeakers: boolean): ReplayUnit
   const flush = () => {
     if (!run.length) return;
     const counts = new Map<string, number>();
-    const failed = new Set<string>();
+    const failed = new Map<string, number>();
     for (const unit of run) {
       const name = unit.chip!.name.replace(/^mcp__.+?__/, "");
       counts.set(name, (counts.get(name) ?? 0) + 1);
-      if (!unit.chip!.ok) failed.add(name);
+      if (!unit.chip!.ok) failed.set(name, (failed.get(name) ?? 0) + 1);
     }
-    const names = [...counts].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name} ${count}`).join(", ");
-    const tool = `[${run.length} tool call${run.length === 1 ? "" : "s"}: ${names}${failed.size ? `; failed: ${[...failed].join(", ")}` : ""}]`;
+    const list = (tally: Map<string, number>) =>
+      [...tally].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name} ${count}`).join(", ");
+    const tool = `[${run.length} tool call${run.length === 1 ? "" : "s"}: ${list(counts)}${failed.size ? `; failed: ${list(failed)}` : ""}]`;
     const { chip, ...last } = run.at(-1)!;
     folded.push({ ...last, text: redactSecretsInText(includeSpeakers ? `${chip!.speaker}: ${tool}` : tool) });
     run = [];

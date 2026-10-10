@@ -890,6 +890,25 @@ describe("provider-neutral context compaction", () => {
     });
   });
 
+  it("names the summarizer error in the fallback warning", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await prepareModelContext({
+        messages: longHistory(205),
+        contextWindow: 2_048,
+        taskRecordText: "Goal: keep going",
+        summarize: async () => {
+          throw new Error("x timed out");
+        },
+      });
+
+      expect(result.status).toBe("ready");
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining("timed out"));
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it("selects the correct summary after rewind and on alternate branches", async () => {
     const base = message("m1", "shared root");
     const alpha = compactionMessage("ca", "m1", {
@@ -1301,7 +1320,7 @@ describe("tool line folding", () => {
     const failed = toolLines.filter((item) => item.text.includes("; failed: "));
     expect(failed).toHaveLength(1);
     expect(failed[0]?.text).toContain("probe-07 1");
-    expect(failed[0]?.text).toMatch(/; failed: PowerShell\]$/);
+    expect(failed[0]?.text).toMatch(/; failed: PowerShell 1\]$/);
     expect(result.estimatedTokens).toBeLessThan(result.budgetTokens * 0.15);
   });
 
@@ -1355,7 +1374,25 @@ describe("tool line folding", () => {
     if (result.status !== "ready") return;
     expect(result.transcript.map((item) => item.text)).toEqual([
       "clean the build",
-      "[2 tool calls: Bash 1, Auto mode couldn't answer: git push 1; failed: Auto mode couldn't answer: git push]",
+      "[2 tool calls: Bash 1, Auto mode couldn't answer: git push 1; failed: Auto mode couldn't answer: git push 1]",
+    ]);
+  });
+
+  it("counts failures per tool when the same tool also succeeds", async () => {
+    const result = await prepareModelContext({
+      messages: [
+        message("m1", "fix the build"),
+        ...Array.from({ length: 5 }, (_, i) => chip(`m${i + 2}`, "Edit", { ok: i < 3 })),
+      ],
+      contextWindow: 8_192,
+      taskRecordText: "Goal: fix",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.transcript.map((item) => item.text)).toEqual([
+      "fix the build",
+      "[5 tool calls: Edit 5; failed: Edit 2]",
     ]);
   });
 
@@ -1423,24 +1460,5 @@ describe("tool line folding", () => {
       "ship it",
       "[1 tool call: Bash 1]",
     ]);
-  });
-
-  it("names the summarizer error in the fallback warning", async () => {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const result = await prepareModelContext({
-        messages: longHistory(205),
-        contextWindow: 2_048,
-        taskRecordText: "Goal: keep going",
-        summarize: async () => {
-          throw new Error("x timed out");
-        },
-      });
-
-      expect(result.status).toBe("ready");
-      expect(warning).toHaveBeenCalledWith(expect.stringContaining("timed out"));
-    } finally {
-      warning.mockRestore();
-    }
   });
 });
