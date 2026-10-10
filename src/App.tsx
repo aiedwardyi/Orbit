@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, Menu } from "lucide-react";
 import {
   StoreProvider,
@@ -21,6 +21,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { LazyView } from "@/components/LazyView";
 import { DesktopCapabilitiesProvider } from "@/components/DesktopCapabilities";
 import { isEmptyEngineLaunch } from "@/lib/engine-rail";
 import { showComputerPanelChrome } from "@/lib/friends-chrome";
@@ -36,23 +37,24 @@ import { useDrawerSwipe, usePhoneSwipe } from "@/lib/use-phone-swipe";
 import { BackNavigation, backDepth, followSelection, trailTarget, type BackLayer } from "@/lib/back-navigation";
 import { SKINS, applySkin, nextSkin, readSkin, type SkinId } from "@/lib/skins";
 import { Presence } from "@/lib/use-presence";
+import { lazyView, useStaleBuildReload } from "@/lib/stale-build";
 
-const Onboarding = lazy(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
-const SettingsPanel = lazy(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
-const PluginsPanel = lazy(() => import("@/components/PluginsPanel").then((m) => ({ default: m.PluginsPanel })));
-const ComputerPanel = lazy(() => import("@/components/ComputerPanel").then((m) => ({ default: m.ComputerPanel })));
-const InspectorPanel = lazy(() => import("@/components/InspectorPanel").then((m) => ({ default: m.InspectorPanel })));
-const SettingsModal = lazy(() => import("@/components/SettingsModal").then((m) => ({ default: m.SettingsModal })));
-const RoutinesPage = lazy(() => import("@/components/RoutinesPage").then((m) => ({ default: m.RoutinesPage })));
-const NoEngines = lazy(() => import("@/components/NoEngines").then((m) => ({ default: m.NoEngines })));
-const CommandPalette = lazy(() => import("@/components/CommandPalette").then((m) => ({ default: m.CommandPalette })));
-const LocalVmWorkspace = lazy(() => import("@/components/LocalVmWorkspace").then((m) => ({ default: m.LocalVmWorkspace })));
-const BrowserWorkspace = lazy(() => import("@/components/BrowserWorkspace").then((m) => ({ default: m.BrowserWorkspace })));
-const SkillRecorderPage = lazy(() => import("@/components/SkillRecorderPage").then((m) => ({ default: m.SkillRecorderPage })));
-const TeamMapPage = lazy(() => import("@/components/TeamMapPage").then((m) => ({ default: m.TeamMapPage })));
-const CreateBotSheet = lazy(() => import("@/components/CreateBotSheet").then((m) => ({ default: m.CreateBotSheet })));
-const TerminalWorkspace = lazy(() => import("@/components/TerminalWorkspace").then((m) => ({ default: m.TerminalWorkspace })));
-const RemoteTerminalView = lazy(() => import("@/components/RemoteTerminalView").then((m) => ({ default: m.RemoteTerminalView })));
+const Onboarding = lazyView(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
+const SettingsPanel = lazyView(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
+const PluginsPanel = lazyView(() => import("@/components/PluginsPanel").then((m) => ({ default: m.PluginsPanel })));
+const ComputerPanel = lazyView(() => import("@/components/ComputerPanel").then((m) => ({ default: m.ComputerPanel })));
+const InspectorPanel = lazyView(() => import("@/components/InspectorPanel").then((m) => ({ default: m.InspectorPanel })));
+const SettingsModal = lazyView(() => import("@/components/SettingsModal").then((m) => ({ default: m.SettingsModal })));
+const RoutinesPage = lazyView(() => import("@/components/RoutinesPage").then((m) => ({ default: m.RoutinesPage })));
+const NoEngines = lazyView(() => import("@/components/NoEngines").then((m) => ({ default: m.NoEngines })));
+const CommandPalette = lazyView(() => import("@/components/CommandPalette").then((m) => ({ default: m.CommandPalette })));
+const LocalVmWorkspace = lazyView(() => import("@/components/LocalVmWorkspace").then((m) => ({ default: m.LocalVmWorkspace })));
+const BrowserWorkspace = lazyView(() => import("@/components/BrowserWorkspace").then((m) => ({ default: m.BrowserWorkspace })));
+const SkillRecorderPage = lazyView(() => import("@/components/SkillRecorderPage").then((m) => ({ default: m.SkillRecorderPage })));
+const TeamMapPage = lazyView(() => import("@/components/TeamMapPage").then((m) => ({ default: m.TeamMapPage })));
+const CreateBotSheet = lazyView(() => import("@/components/CreateBotSheet").then((m) => ({ default: m.CreateBotSheet })));
+const TerminalWorkspace = lazyView(() => import("@/components/TerminalWorkspace").then((m) => ({ default: m.TerminalWorkspace })));
+const RemoteTerminalView = lazyView(() => import("@/components/RemoteTerminalView").then((m) => ({ default: m.RemoteTerminalView })));
 
 function BootFallback({
   label,
@@ -451,6 +453,19 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     state.appSettingsOpen ||
     state.pluginsOpen ||
     state.createBotOpen;
+  const createBotSheetOpen = !onboardingOpen && !noEngines && state.connected && state.hydrated && (state.createBotOpen || state.bots.length === 0);
+  const secondaryViewOpen =
+    onboardingOpen ||
+    state.activeView !== "chat" ||
+    terminalOpen ||
+    Boolean(browserWorkspaceBotId || localVmWorkspaceBotId) ||
+    paletteOpen ||
+    Boolean(sidebarOverlay) ||
+    state.appSettingsOpen ||
+    state.pluginsOpen ||
+    createBotSheetOpen ||
+    Boolean(bot && (state.settingsOpen || state.inspectorOpen || (showComputerPanelChrome() && state.computerOpen)));
+  useStaleBuildReload(state.connected, secondaryViewOpen);
 
   const swipeStageRef = usePhoneSwipe(bot?.id, !terminalOpen && !nativeViewOverlayOpen, (id) => dispatch({ type: "select", id }));
   const closeDrawer = () => {
@@ -627,34 +642,34 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         rigidView={Boolean(browserWorkspaceBotId || localVmWorkspaceBotId || (bot && terminalViews[bot.id] !== undefined))}
       />
       {state.activeView === "team-map" ? (
-        <Suspense fallback={<BootFallback />}>
+        <LazyView fallback={<BootFallback />}>
           <TeamMapPage />
-        </Suspense>
+        </LazyView>
       ) : state.activeView === "routines" ? (
-        <Suspense fallback={<BootFallback />}>
+        <LazyView fallback={<BootFallback />}>
           <RoutinesPage />
-        </Suspense>
+        </LazyView>
       ) : state.activeView === "skill-recorder" ? (
-        <Suspense fallback={<BootFallback />}>
+        <LazyView fallback={<BootFallback />}>
           <SkillRecorderPage />
-        </Suspense>
+        </LazyView>
       ) : browserWorkspaceBotId && bot && bot.id === browserWorkspaceBotId ? (
-        <Suspense fallback={<BootFallback />}>
+        <LazyView fallback={<BootFallback />}>
           <BrowserWorkspace bot={bot} onClose={closeBrowserWorkspace} />
-        </Suspense>
+        </LazyView>
       ) : localVmWorkspaceBotId ? (
-        <Suspense fallback={<BootFallback />}>
+        <LazyView fallback={<BootFallback />}>
           <LocalVmWorkspace
             primaryBotId={localVmWorkspaceBotId}
             overlayOpen={nativeViewOverlayOpen}
             onClose={() => setLocalVmWorkspaceBotId(null)}
             onOpenComputer={openComputerFromWorkspace}
           />
-        </Suspense>
+        </LazyView>
       ) : noEngines ? (
-        <Suspense fallback={<BootFallback />}>
+        <LazyView fallback={<BootFallback />}>
           <NoEngines />
-        </Suspense>
+        </LazyView>
       ) : group ? (
         <GroupView key={group.id} group={group} />
       ) : bot ? (
@@ -669,13 +684,13 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           </div>
           {terminalViews[bot.id] !== undefined && (
             <div className="orbit-terminal-overlay absolute inset-0 z-20 flex" data-open={terminalOpen} inert={!terminalOpen} aria-hidden={!terminalOpen}>
-              <Suspense fallback={<BootFallback label={t("terminal.connecting")} />}>
+              <LazyView fallback={<BootFallback label={t("terminal.connecting")} />}>
                 {window.ogb?.terminal ? (
                   <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} paneHotkey={paneHotkey} paneFocus={paneFocus} onClose={closeTerminal} />
                 ) : (
                   <RemoteTerminalView key={bot.id} bot={bot} visible={terminalOpen} paneHotkey={paneHotkey} onClose={closeTerminal} />
                 )}
-              </Suspense>
+              </LazyView>
             </div>
           )}
         </div>
@@ -693,47 +708,47 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       )}
       <Presence open={Boolean(state.settingsOpen && bot)}>
         {(closing) => bot && (
-          <Suspense fallback={null}>
+          <LazyView overlay>
             <SettingsPanel key={bot.id} bot={bot} closing={closing} />
-          </Suspense>
+          </LazyView>
         )}
       </Presence>
       {showComputerPanelChrome() && state.computerOpen && bot && (
-        <Suspense fallback={null}>
+        <LazyView overlay>
           <ComputerPanel bot={bot} onOpenVmWorkspace={openLocalVmWorkspace} onExpandBrowser={openBrowserWorkspace} />
-        </Suspense>
+        </LazyView>
       )}
       {state.inspectorOpen && bot && (
-        <Suspense fallback={null}>
+        <LazyView overlay>
           <InspectorPanel bot={bot} />
-        </Suspense>
+        </LazyView>
       )}
       <Presence open={state.appSettingsOpen}>
         {(closing) => (
-          <Suspense fallback={null}>
+          <LazyView overlay>
             <SettingsModal closing={closing} />
-          </Suspense>
+          </LazyView>
         )}
       </Presence>
       <Presence open={state.pluginsOpen}>
         {(closing) => (
-          <Suspense fallback={null}>
+          <LazyView overlay>
             <PluginsPanel closing={closing} />
-          </Suspense>
+          </LazyView>
         )}
       </Presence>
-      <Presence open={!onboardingOpen && !noEngines && state.connected && state.hydrated && (state.createBotOpen || state.bots.length === 0)}>
+      <Presence open={createBotSheetOpen}>
         {(closing) => (
-          <Suspense fallback={null}>
+          <LazyView overlay>
             <CreateBotSheet required={state.bots.length === 0} closing={closing} />
-          </Suspense>
+          </LazyView>
         )}
       </Presence>
       {/* mounted after the modals: same z-50 tier, so DOM order keeps the
           palette on top when one of them is open underneath */}
-      <Suspense fallback={null}>
+      <LazyView overlay>
         <CommandPalette onOpenChange={setPaletteOpen} />
-      </Suspense>
+      </LazyView>
       </div>
     </div>
   );
@@ -765,14 +780,14 @@ export default function App() {
       <StoreProvider>
         <Shell onboardingOpen={onboardingOpen} />
         {onboardingOpen && (
-          <Suspense fallback={<div className="orbit-inset-aware fixed inset-0 z-50 bg-app" />}>
+          <LazyView overlay fallback={<div className="orbit-inset-aware fixed inset-0 z-50 bg-app" />}>
             <Onboarding
               onDone={() => {
                 setOnboardingDone();
                 setOnboardingOpen(false);
               }}
             />
-          </Suspense>
+          </LazyView>
         )}
       </StoreProvider>
       </DesktopCapabilitiesProvider>

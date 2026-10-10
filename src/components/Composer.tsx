@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
+import { flushSync } from "react-dom";
 import { ArrowUp, Clock, Mic, Paperclip, Square, TerminalSquare, Users, X } from "lucide-react";
 import { useStore, visibleMessages, type Bot, type Group, type Message, api } from "@/state/store";
 import { cn } from "@/lib/cn";
@@ -50,6 +51,7 @@ import { composerIsBusy } from "@/lib/send-accept";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
 import { fitComposerHeight } from "@/lib/composer-dock";
 import { composerNeedsTap } from "@/lib/focus-composer";
+import { holdReload } from "@/lib/reload-hold";
 import { hapticTick } from "@/lib/phone-swipe";
 import { useRainbowBox } from "@/lib/rainbow-box";
 import { useI18n } from "@/lib/i18n";
@@ -244,8 +246,9 @@ export function Composer({
     },
     [onRestoreReply],
   );
+  // an upload's reload hold ends right after this, so the chip must be in storage by then
   const addAttachments = useCallback(
-    (next: Attachment[]) => editAttachments((prev) => [...prev, ...next]),
+    (next: Attachment[]) => flushSync(() => editAttachments((prev) => [...prev, ...next])),
     [editAttachments],
   );
   const removeAttachment = useCallback(
@@ -891,7 +894,7 @@ export function Composer({
             multiple
             className="hidden"
             onChange={(e) => {
-              void pickFiles(e.target.files);
+              void holdReload(pickFiles(e.target.files));
               // same file twice in a row still fires onChange
               e.target.value = "";
             }}
@@ -924,11 +927,11 @@ export function Composer({
             const imageFiles = Array.from(e.clipboardData.files).filter(isImageFile);
             if (imageFiles.length) {
               e.preventDefault();
-              void (async () => {
+              void holdReload((async () => {
                 for (const file of imageFiles) {
                   try {
                     const attachment = await pasteImageAttachment(file, engineSupportsImages);
-                    if (attachment) editAttachments((prev) => [...prev, attachment]);
+                    if (attachment) addAttachments([attachment]);
                   } catch (err) {
                     dispatch({
                       type: "error",
@@ -936,7 +939,7 @@ export function Composer({
                     });
                   }
                 }
-              })();
+              })());
               return;
             }
             // a wall of text becomes a chip instead of burying the input

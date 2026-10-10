@@ -31,6 +31,7 @@ import { readSnapshotCache, writeSnapshotCache } from "./snapshot-cache";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { completedReopenDismissals } from "@/lib/task-recovery";
 import { openLiveEvents } from "@/lib/live-events";
+import { holdReload } from "@/lib/reload-hold";
 import { hapticTick } from "@/lib/phone-swipe";
 import {
   acceptedSendPaint,
@@ -2007,7 +2008,13 @@ export const initialState: AppState = {
  * smaller page can leave a first screen with only a handful of bubbles. */
 export const MESSAGE_PAGE = 200;
 
-export async function api(path: string, init?: RequestInit): Promise<any> {
+export function api(path: string, init?: RequestInit): Promise<any> {
+  const call = request(path, init);
+  const method = init?.method?.toUpperCase() ?? "GET";
+  return method === "GET" || method === "HEAD" ? call : holdReload(call);
+}
+
+async function request(path: string, init?: RequestInit): Promise<any> {
   const res = await fetch(path, {
     headers: { "content-type": "application/json" },
     ...init,
@@ -2250,19 +2257,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     // fire-and-forget card persistence; the route is optional server-side
     const persistCard = (botId: string, messageId: string, patch: Partial<OptionCardData>) => {
-      fetch(`/api/bots/${botId}/cards/${messageId}`, {
+      const saving = fetch(`/api/bots/${botId}/cards/${messageId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(patch),
       }).catch(() => {});
+      void holdReload(saving);
     };
 
     const persistGroupCard = (groupId: string, messageId: string, patch: Partial<OptionCardData>) => {
-      fetch(`/api/groups/${groupId}/cards/${messageId}`, {
+      const saving = fetch(`/api/groups/${groupId}/cards/${messageId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(patch),
       }).catch(() => {});
+      void holdReload(saving);
     };
 
     const wrapped: React.Dispatch<Action> = (rawAction) => {
@@ -2421,7 +2430,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               rawDispatch({ type: "sendSettled", threadId: settledThread, sendId, queued: body?.queued === true });
             }
           };
-          void post()
+          const sending = post()
             .then(settle)
             .catch(async (error) => {
               const accepted =
@@ -2444,6 +2453,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               showError(error);
               action.onError?.();
             });
+          void holdReload(sending);
           break;
         }
         case "editMessage": {
@@ -2670,7 +2680,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const sendId = action.sendId;
           if (!sendId) break;
           // Rooms hold follow-ups in the composer; this POST never returns queued.
-          api(`/api/groups/${action.groupId}/messages`, {
+          const sending = api(`/api/groups/${action.groupId}/messages`, {
             method: "POST",
             body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
           })
@@ -2718,6 +2728,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               showError(error);
               action.onError?.();
             });
+          void holdReload(sending);
           break;
         }
         case "patchGroup":

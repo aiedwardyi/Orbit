@@ -65,6 +65,19 @@ describe("startEarlyListen", () => {
     expect(await res.text()).toContain("composer shell");
   });
 
+  it("answers a missing chunk from an older build with the reload module", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orbit-early-ui-"));
+    writeFileSync(join(dir, "index.html"), "<html><body>composer shell</body></html>");
+    const { early, base } = await listen();
+    early.staticDir = dir;
+    const chunk = await fetch(`${base}/assets/RemoteTerminalView-OLDHASH0.js`);
+    expect(chunk.headers.get("content-type")).toBe("text/javascript");
+    expect(chunk.headers.get("cache-control")).toBe("no-store");
+    expect(await chunk.text()).toContain("location.reload()");
+    expect((await fetch(`${base}/assets/SettingsModal-OLDHASH0.css`)).status).toBe(404);
+    expect(await (await fetch(`${base}/remote`)).text()).toContain("composer shell");
+  });
+
   it("holds /api/bots until the harness handler is installed", async () => {
     const { early, base } = await listen();
     let released = false;

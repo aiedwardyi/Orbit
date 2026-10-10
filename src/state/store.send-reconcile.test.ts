@@ -4,7 +4,8 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { withAcceptedMessages } from "@/lib/send-accept";
-import { StoreProvider, useStore, type Bot, type Group, type Message } from "./store";
+import { reloadHeld } from "@/lib/reload-hold";
+import { api, StoreProvider, useStore, type Bot, type Group, type Message, type OptionCardData } from "./store";
 
 class FakeEventSource {
   static last: FakeEventSource | null = null;
@@ -62,7 +63,7 @@ async function mount(
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url);
     if (path === "/api/bots?messages=200") return Response.json({ bots, groups: [group], computerControl: {} });
-    if (init?.method === "POST" && path.endsWith("/messages")) return post(init);
+    if (init?.method === "POST" && (path.endsWith("/messages") || path.endsWith("/respond"))) return post(init);
     const page = path.match(/^\/api\/threads\/([\w-]+)\/messages\?/);
     if (page) return threadPage(page[1]!, init);
     return Response.json({ error: "not in this test" }, { status: 404 });
@@ -199,6 +200,146 @@ describe("send reject after the server accepted", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("update reload during a send", () => {
+  function gate<T>() {
+    let open!: (value: T | PromiseLike<T>) => void;
+    let fail!: (cause: Error) => void;
+    const promise = new Promise<T>((done, reject) => {
+      open = done;
+      fail = reject;
+    });
+    return { promise, open, fail };
+  }
+  const settled = (threadId: string) => Response.json({ ok: true, threadId, message: accepted(threadId) });
+  const dispatchSend = (name: (typeof sends)[number]["name"], onError: () => void) =>
+    act(async () =>
+      store.dispatch(
+        name === "send"
+          ? { type: "send", botId: bot.id, text: "hello", sendId: "s1", threadId: bot.threadId, onError }
+          : { type: "sendGroup", groupId: group.id, text: "hello", sendId: "s1", threadId: group.threadId, onError },
+      ),
+    );
+
+  it.each(sends)("$name holds the reload until its POST answers", async ({ name, threadId }) => {
+    const post = gate<Response>();
+    await mount(() => Response.json({ messages: [], hasMore: false }), () => post.promise);
+    expect(reloadHeld()).toBe(false);
+    await dispatchSend(name, vi.fn());
+    expect(reloadHeld()).toBe(true);
+    await act(async () => post.open(settled(threadId)));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+    expect(messagesOf(threadId)).toEqual([accepted(threadId)]);
+  });
+
+  it.each(sends)("$name holds the reload through the lookup after a dropped POST", async ({ name, threadId }) => {
+    const lookup = gate<Response>();
+    let asked = false;
+    await mount(() => {
+      asked = true;
+      return lookup.promise;
+    });
+    await dispatchSend(name, vi.fn());
+    await vi.waitFor(() => expect(asked).toBe(true));
+    expect(reloadHeld()).toBe(true);
+    await act(async () => lookup.open(Response.json({ messages: [accepted(threadId)], hasMore: false })));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+    expect(messagesOf(threadId)).toEqual([accepted(threadId)]);
+  });
+
+  it.each(sends)("$name releases the reload only after the draft is restored", async ({ name, threadId }) => {
+    const lookup = gate<Response>();
+    let asked = false;
+    await mount(() => {
+      asked = true;
+      return lookup.promise;
+    });
+    let heldAtRestore: boolean | null = null;
+    const onError = vi.fn(() => {
+      heldAtRestore = reloadHeld();
+    });
+    await dispatchSend(name, onError);
+    await vi.waitFor(() => expect(asked).toBe(true));
+    await act(async () => lookup.open(Response.json({ messages: [], hasMore: false })));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+    expect(onError).toHaveBeenCalledOnce();
+    expect(heldAtRestore).toBe(true);
+    expect(messagesOf(threadId)).toEqual([]);
+  });
+
+  it("holds a 1:1 send through its re-POST", async () => {
+    const posts = [gate<Response>(), gate<Response>(), gate<Response>(), gate<Response>()];
+    let calls = 0;
+    await mount(() => Response.json({ messages: [], hasMore: false }), () => posts[calls++]!.promise);
+    let heldAtRestore: boolean | null = null;
+    const onError = vi.fn(() => {
+      heldAtRestore = reloadHeld();
+    });
+    const send = (sendId: string) =>
+      act(async () => store.dispatch({ type: "send", botId: bot.id, text: "hello", sendId, threadId: bot.threadId, onError }));
+
+    await send("s5");
+    await act(async () => posts[0]!.fail(new TypeError("Load failed")));
+    await vi.waitFor(() => expect(calls).toBe(2));
+    expect(reloadHeld()).toBe(true);
+    await act(async () => posts[1]!.open(settled(bot.threadId)));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+    expect(onError).not.toHaveBeenCalled();
+
+    await send("s6");
+    await act(async () => posts[2]!.fail(new TypeError("Load failed")));
+    await vi.waitFor(() => expect(calls).toBe(4));
+    expect(reloadHeld()).toBe(true);
+    await act(async () => posts[3]!.fail(new TypeError("Load failed")));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+    expect(onError).toHaveBeenCalledOnce();
+    expect(heldAtRestore).toBe(true);
+  });
+
+  it("holds the reload for a write until it answers, not for a read", async () => {
+    const write = gate<Response>();
+    vi.stubGlobal("fetch", vi.fn((_url: string, init?: RequestInit) => (init?.method ? write.promise : Promise.resolve(Response.json({})))));
+    const read = api("/api/bots");
+    expect(reloadHeld()).toBe(false);
+    await read;
+    const edit = api("/api/messages/m1", { method: "PATCH", body: "{}" });
+    expect(reloadHeld()).toBe(true);
+    write.open(Response.json({ ok: true }));
+    await edit;
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+  });
+
+  it.each<{ name: string; card: OptionCardData; path: string }>([
+    { name: "live ask", card: { title: "Q", subtitle: "", options: [], requestId: "r1" }, path: "/api/bots/b1/respond" },
+    { name: "quiz", card: { title: "Q", subtitle: "", options: [] }, path: "/api/bots/b1/messages" },
+  ])("holds the reload until a $name answer is posted", async ({ card, path }) => {
+    const post = gate<Response>();
+    const asking: Bot = { ...bot, messages: [{ id: "m-card", at: 1, role: "bot", kind: "options", card }] };
+    const fetch = await mount(() => Response.json({ messages: [], hasMore: false }), () => post.promise, [asking]);
+    await act(async () => store.dispatch({ type: "answerCard", botId: bot.id, messageId: "m-card", answer: "Yes" }));
+    expect(fetch).toHaveBeenCalledWith(path, expect.objectContaining({ method: "POST" }));
+    expect(reloadHeld()).toBe(true);
+    await act(async () => post.open(Response.json({ ok: true })));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
+  });
+
+  it.each([
+    { name: "bot", action: { type: "dismissCard", botId: bot.id, messageId: "m-card" }, path: "/api/bots/b1/cards/m-card" },
+    { name: "room", action: { type: "dismissGroupCard", groupId: group.id, messageId: "m-card" }, path: "/api/groups/g1/cards/m-card" },
+  ] as const)("holds the reload until a dismissed $name card is saved", async ({ action, path }) => {
+    const save = gate<Response>();
+    const card: OptionCardData = { title: "Q", subtitle: "", options: [] };
+    const asking: Bot = { ...bot, messages: [{ id: "m-card", at: 1, role: "bot", kind: "options", card }] };
+    const fetch = await mount(() => Response.json({ messages: [], hasMore: false }), undefined, [asking]);
+    const route = fetch.getMockImplementation()!;
+    fetch.mockImplementation((url: string, init?: RequestInit) => (init?.method === "PATCH" ? save.promise : route(url, init)));
+    await act(async () => store.dispatch(action));
+    expect(fetch).toHaveBeenCalledWith(path, expect.objectContaining({ method: "PATCH" }));
+    expect(reloadHeld()).toBe(true);
+    await act(async () => save.open(Response.json({ ok: true })));
+    await vi.waitFor(() => expect(reloadHeld()).toBe(false));
   });
 });
 
