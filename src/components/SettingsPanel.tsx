@@ -8,6 +8,16 @@ import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { builtInBrowserEnabled } from "@/lib/feature-flags";
 import { showBotDetailsAdvanced } from "@/lib/friends-chrome";
+import {
+  dropMemory,
+  editMemory,
+  flushMemory,
+  keepMemory,
+  memoryDraft,
+  openMemory,
+  watchMemory,
+  type MemoryLatest,
+} from "@/lib/memory-drafts";
 import { requestNotificationPermission } from "@/lib/notify";
 import { botUsage, costCaption, formatTokens, formatUsd, hasFiniteCost } from "@/lib/usage";
 import { shortPath } from "@/lib/short-path";
@@ -203,9 +213,6 @@ interface MemoryTopic {
 
 const formatBytes = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${Math.round(bytes / 102.4) / 10} KB`);
 
-// outlives the card, so a write that fails after the panel closes comes back on reopen
-const failedMemory = new Map<string, { text: string; base: string }>();
-
 /** MEMORY.md + memory/ topic files, surfaced so the user can read and fix
  * what the bot believes. Fetched on expand, not on mount: settings opens for
  * every bot and most visits never look at memory — and an expand also
@@ -221,28 +228,24 @@ function MemoryCard({ bot }: { bot: Bot }) {
   const [topics, setTopics] = useState<MemoryTopic[]>([]);
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [topic, setTopic] = useState<{ name: string; text: string } | null>(null);
-  const unsent = useRef<string | null>(null);
-  const base = useRef("");
-  const writing = useRef(false);
-  const mounted = useRef(true);
-  const pause = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [conflict, setConflict] = useState<MemoryLatest | null>(null);
   const savedFade = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const read = (): Promise<MemoryLatest & { truncated: boolean; topics: MemoryTopic[] }> =>
+    api(`/api/bots/${botId}/memory`);
 
   const load = async () => {
     setLoading(true);
     setError(null);
     setTopic(null);
     try {
-      const result: { text: string; truncated: boolean; topics: MemoryTopic[] } = await api(
-        `/api/bots/${bot.id}/memory`,
-      );
-      base.current = result.text;
-      setText(result.text);
+      const result = await read();
       setTruncated(result.truncated);
       setTopics(result.topics);
-      const failed = failedMemory.get(bot.id);
-      if (failed?.base === result.text) edit(failed.text);
-      else failedMemory.delete(bot.id);
+      const draft = openMemory(botId, result);
+      setText(draft?.text ?? result.text);
+      if (draft?.conflict) setConflict(result);
+      else if (draft) setStatus("saving");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -250,64 +253,39 @@ function MemoryCard({ bot }: { bot: Bot }) {
     }
   };
 
-  const flush = async () => {
-    if (pause.current !== null) clearTimeout(pause.current);
-    pause.current = null;
-    if (writing.current || unsent.current === null) return;
-    const sending = unsent.current;
-    unsent.current = null;
-    writing.current = true;
-    let ok = false;
-    const body = JSON.stringify({ text: sending });
-    try {
-      const result: { truncated: boolean } = await api(`/api/bots/${botId}/memory`, {
-        method: "PUT",
-        body,
-        // keepalive outlives a closing page, but the browser rejects bodies over 64 KB
-        keepalive: new TextEncoder().encode(body).length <= 64 * 1024,
-      });
-      ok = true;
-      base.current = sending;
-      failedMemory.delete(botId);
-      if (mounted.current) {
-        setTruncated(result.truncated);
-        setError(null);
-      }
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      if (mounted.current) {
-        setError(message);
-      } else {
-        // the panel is gone, so the red line under the editor is too
-        dispatch({ type: "error", message });
-        setTimeout(() => dispatch({ type: "error", message: null }), 6000);
-      }
-    }
-    writing.current = false;
-    if (unsent.current !== null) {
-      if (!mounted.current || pause.current === null) void flush();
-      return;
-    }
-    if (!ok) {
-      unsent.current = sending;
-      failedMemory.set(botId, { text: sending, base: base.current });
-    }
-    if (!mounted.current) return;
-    setStatus(ok ? "saved" : "idle");
-    if (ok) savedFade.current = setTimeout(() => setStatus("idle"), 2000);
+  // start from the newest memory, so a conflict means a real simultaneous edit
+  const refresh = async () => {
+    if (memoryDraft(botId) !== null) return;
+    const result = await read().catch(() => null);
+    if (!result || memoryDraft(botId) !== null) return;
+    openMemory(botId, result);
+    setText(result.text);
+    setTruncated(result.truncated);
+    setTopics(result.topics);
   };
 
   const edit = (next: string) => {
     setText(next);
-    unsent.current = next;
+    editMemory(botId, next);
+    if (conflict) return;
     setStatus("saving");
     if (savedFade.current !== null) clearTimeout(savedFade.current);
-    if (pause.current !== null) clearTimeout(pause.current);
-    pause.current = setTimeout(() => void flush(), 800);
+  };
+
+  const keepMine = (latest: MemoryLatest) => {
+    setConflict(null);
+    setStatus("saving");
+    keepMemory(botId, latest);
+  };
+
+  const loadLatest = (latest: MemoryLatest) => {
+    dropMemory(botId, latest);
+    setConflict(null);
+    setText(latest.text);
   };
 
   const openTopic = async (name: string) => {
-    void flush();
+    void flushMemory(botId);
     setError(null);
     try {
       setTopic(await api(`/api/bots/${bot.id}/memory/topics/${encodeURIComponent(name)}`));
@@ -321,19 +299,44 @@ function MemoryCard({ bot }: { bot: Bot }) {
   }, []);
 
   useEffect(() => {
-    mounted.current = true;
-    const onHide = () => {
-      if (document.visibilityState === "hidden") void flush();
+    watchMemory(botId, {
+      saved: (nextTruncated, pending) => {
+        setTruncated(nextTruncated);
+        setError(null);
+        if (pending) return;
+        setStatus("saved");
+        savedFade.current = setTimeout(() => setStatus("idle"), 2000);
+      },
+      failed: (message, pending) => {
+        setError(message);
+        if (!pending) setStatus("idle");
+      },
+      conflict: (latest) => {
+        setConflict(latest);
+        setStatus("idle");
+      },
+    });
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") void flushMemory(botId);
+      else void refresh();
     };
-    const onPageHide = () => void flush();
-    document.addEventListener("visibilitychange", onHide);
+    const onPageHide = () => void flushMemory(botId);
+    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", onPageHide);
     return () => {
-      document.removeEventListener("visibilitychange", onHide);
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", onPageHide);
-      mounted.current = false;
       if (savedFade.current !== null) clearTimeout(savedFade.current);
-      void flush();
+      // the panel is gone, so the red line under the editor is too
+      watchMemory(botId, {
+        saved: () => undefined,
+        failed: (message) => {
+          dispatch({ type: "error", message });
+          setTimeout(() => dispatch({ type: "error", message: null }), 6000);
+        },
+        conflict: () => undefined,
+      });
+      void flushMemory(botId);
     };
   }, []);
 
@@ -372,8 +375,22 @@ function MemoryCard({ bot }: { bot: Bot }) {
             placeholder={t("bot.memoryPlaceholder")}
             aria-label={t("bot.memory")}
             onChange={(e) => edit(e.target.value)}
-            onBlur={() => void flush()}
+            onFocus={() => void refresh()}
+            onBlur={() => void flushMemory(botId)}
           />
+          {conflict && (
+            <div role="alert" className="mt-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
+              <div>{t("bot.memoryConflict")}</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button onClick={() => loadLatest(conflict)} className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover">
+                  {t("bot.memoryLoadLatest")}
+                </button>
+                <button onClick={() => keepMine(conflict)} className="rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover">
+                  {t("bot.memoryKeepMine")}
+                </button>
+              </div>
+            </div>
+          )}
           {truncated && (
             <div className="mt-2 text-[11.5px] text-ink-secondary">
               Only the top loads each turn.

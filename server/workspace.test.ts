@@ -10,9 +10,11 @@ import {
   isMemoryTopicName,
   listMemoryTopics,
   loadMemory,
+  memoryRevision,
   memorySystemPrompt,
   readMemoryFile,
   readMemoryTopic,
+  saveMemoryFile,
   supportsWorkspaceFiles,
   workspaceDir,
   writeMemoryFile,
@@ -95,11 +97,11 @@ describe("workspace", () => {
   it("readMemoryFile hands back the WHOLE file, flagging what the budget would cut", () => {
     // missing workspace and seed-only both read as empty — an editor should
     // open blank, not on the seed's instructions
-    expect(readMemoryFile(BOT)).toEqual({ text: "", truncated: false });
+    expect(readMemoryFile(BOT)).toEqual({ text: "", truncated: false, revision: memoryRevision("") });
     ensureWorkspace(BOT);
-    expect(readMemoryFile(BOT)).toEqual({ text: "", truncated: false });
+    expect(readMemoryFile(BOT)).toEqual({ text: "", truncated: false, revision: memoryRevision("") });
     writeFileSync(join(workspaceDir(BOT), "MEMORY.md"), MEMORY_SEED);
-    expect(readMemoryFile(BOT)).toEqual({ text: "", truncated: false });
+    expect(readMemoryFile(BOT)).toEqual({ text: "", truncated: false, revision: memoryRevision("") });
 
     const dir = workspaceDir(BOT);
     const lines = Array.from({ length: MEMORY_MAX_LINES + 50 }, (_, i) => `- fact ${i}`);
@@ -110,7 +112,11 @@ describe("workspace", () => {
     expect(file.text.split("\n")).toHaveLength(MEMORY_MAX_LINES + 50);
 
     writeFileSync(join(dir, "MEMORY.md"), "# Memory\n- one fact\n");
-    expect(readMemoryFile(BOT)).toEqual({ text: "# Memory\n- one fact\n", truncated: false });
+    expect(readMemoryFile(BOT)).toEqual({
+      text: "# Memory\n- one fact\n",
+      truncated: false,
+      revision: memoryRevision("# Memory\n- one fact\n"),
+    });
   });
 
   it("writeMemoryFile round-trips without needing the workspace to exist first", () => {
@@ -118,6 +124,44 @@ describe("workspace", () => {
     expect(readMemoryFile(BOT).text).toContain("written from the panel");
     // and the write is the same file every turn loads
     expect(loadMemory(BOT)?.text).toContain("written from the panel");
+  });
+
+  it("revisions are a short hash of the text", () => {
+    expect(memoryRevision("- likes tea\n")).toMatch(/^[0-9a-f]{16}$/);
+    expect(memoryRevision("- likes tea\n")).toBe(memoryRevision("- likes tea\n"));
+    expect(memoryRevision("- likes tea\n")).not.toBe(memoryRevision("- likes coffee\n"));
+  });
+
+  it("saveMemoryFile refuses a stale base and writes nothing", () => {
+    writeMemoryFile(BOT, "- newer from another PC\n");
+    const saved = saveMemoryFile(BOT, "- stale edit\n", memoryRevision("- older\n"));
+    expect(saved).toEqual({
+      conflict: true,
+      text: "- newer from another PC\n",
+      revision: memoryRevision("- newer from another PC\n"),
+    });
+    expect(readFileSync(join(workspaceDir(BOT), "MEMORY.md"), "utf8")).toBe("- newer from another PC\n");
+  });
+
+  it("saveMemoryFile writes on a matching base and returns the new revision", () => {
+    writeMemoryFile(BOT, "- likes tea\n");
+    const saved = saveMemoryFile(BOT, "- likes tea and jazz\n", readMemoryFile(BOT).revision);
+    expect(saved).toEqual({
+      conflict: false,
+      text: "- likes tea and jazz\n",
+      truncated: false,
+      revision: memoryRevision("- likes tea and jazz\n"),
+    });
+    expect(readMemoryFile(BOT).text).toBe("- likes tea and jazz\n");
+    // a fresh workspace saves against the empty revision
+    rmSync(WORKSPACES_DIR, { recursive: true, force: true });
+    expect(saveMemoryFile(BOT, "- first\n", memoryRevision("")).conflict).toBe(false);
+  });
+
+  it("saveMemoryFile without a base writes as before", () => {
+    writeMemoryFile(BOT, "- newer from another PC\n");
+    expect(saveMemoryFile(BOT, "- older client\n")).toMatchObject({ conflict: false, revision: memoryRevision("- older client\n") });
+    expect(readMemoryFile(BOT).text).toBe("- older client\n");
   });
 
   it("accepts plain single-segment topic names and nothing else", () => {
