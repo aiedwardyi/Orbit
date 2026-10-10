@@ -38,6 +38,8 @@ interface ReplayUnit {
   atomic?: boolean;
   /** a user text message, not a pane note */
   turn?: boolean;
+  /** a tool chip, until its run is folded into one line */
+  chip?: { name: string; ok: boolean; speaker: string; speakerId: string };
 }
 
 interface ModelContextMessage {
@@ -299,19 +301,49 @@ function replayUnits(
       return [{ id: message.id, pathIndex, role: "user", text: paneNoteText(message.text), label: "Pane note: " }];
     }
     if (message.kind === "activity" && message.tool && message.tool.ok !== undefined) {
+      // An approval chip repeats the call it answered, command text included.
+      if (message.tool.approval || message.tool.name.startsWith("auto-approved ")) return [];
       const speaker = message.from?.name ?? "Bot";
-      const tool = `[Tool call and result: ${message.tool.name} - ${message.tool.ok ? "succeeded" : "failed"}]`;
       return [{
         id: message.id,
         pathIndex,
         role: "assistant",
-        text: redactSecretsInText(includeSpeakers ? `${speaker}: ${tool}` : tool),
+        text: "",
         label: includeSpeakers ? "" : "Assistant: ",
         atomic: true,
+        chip: { name: message.tool.name, ok: message.tool.ok, speaker, speakerId: message.from?.botId ?? speaker },
       }];
     }
     return [];
   });
+}
+
+/** One line per run of one speaker's tool chips, ending at the run's last chip. */
+function foldToolRuns(units: ReplayUnit[], includeSpeakers: boolean): ReplayUnit[] {
+  const folded: ReplayUnit[] = [];
+  let run: ReplayUnit[] = [];
+  const flush = () => {
+    if (!run.length) return;
+    const counts = new Map<string, number>();
+    const failed = new Set<string>();
+    for (const unit of run) {
+      const name = unit.chip!.name.replace(/^mcp__.+?__/, "");
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+      if (!unit.chip!.ok) failed.add(name);
+    }
+    const names = [...counts].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name} ${count}`).join(", ");
+    const tool = `[${run.length} tool call${run.length === 1 ? "" : "s"}: ${names}${failed.size ? `; failed: ${[...failed].join(", ")}` : ""}]`;
+    const { chip, ...last } = run.at(-1)!;
+    folded.push({ ...last, text: redactSecretsInText(includeSpeakers ? `${chip!.speaker}: ${tool}` : tool) });
+    run = [];
+  };
+  for (const unit of units) {
+    if (!unit.chip || (run.length && run[0]!.chip!.speakerId !== unit.chip.speakerId)) flush();
+    if (unit.chip) run.push(unit);
+    else folded.push(unit);
+  }
+  flush();
+  return folded;
 }
 
 function applicableCompaction(
@@ -497,9 +529,11 @@ export async function prepareModelContext(input: {
   );
   // A grown window keeps the summary and only allows a bigger tail; replaying
   // the covered history re-summarized a whole day at once.
-  const units = previous
-    ? allUnits.filter((unit) => unit.pathIndex > previous.coveredIndex)
-    : allUnits;
+  // Folded after the cut, so no line spans a summary boundary.
+  const units = foldToolRuns(
+    previous ? allUnits.filter((unit) => unit.pathIndex > previous.coveredIndex) : allUnits,
+    input.includeSpeakers ?? false,
+  );
   const currentTranscript = [
     ...(previous ? [summaryMessage(previousSummary, input.messages[previous.coveredIndex]!.at)] : []),
     ...units.map(({ role, text }) => ({ role, text })),
@@ -602,8 +636,10 @@ export async function prepareModelContext(input: {
         }
         summary = generated;
       }
-    } catch {
-      console.warn("context compaction: summarizer failed; using deterministic fallback");
+    } catch (error) {
+      console.warn(
+        `context compaction: summarizer failed (${redactSecretsInText(error instanceof Error ? error.message : String(error))}); using deterministic fallback`,
+      );
       try {
         summary = fallbackSummary({
           previousSummary: summary || previousSummary,

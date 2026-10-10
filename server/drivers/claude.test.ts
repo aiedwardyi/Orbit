@@ -400,6 +400,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_STEER_LOG;
     delete process.env.FAKE_CLAUDE_NARRATION_TEXT;
     delete process.env.FAKE_CLAUDE_PROMPT_LOG;
+    delete process.env.OMB_CLAUDE_REVIEW_TIMEOUT_MS;
+    delete process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.XAI_API_KEY;
     delete process.env.COMPOSIO_API_KEY;
@@ -2218,6 +2220,29 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv[seen.argv.indexOf("--model") + 1]).toBe("claude-haiku-5-5");
+  });
+
+  it("gives a summary one-shot longer than a permission review", async () => {
+    process.env.OMB_CLAUDE_REVIEW_TIMEOUT_MS = "1000";
+    process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS = "10000";
+    await create(undefined, { FAKE_CLAUDE_GENERATE_DELAY_MS: "2000" });
+
+    await expect(instance.generateText?.("summarize")).resolves.toBe("fake generated text");
+    await expect(instance.reviewPermission?.("review this request")).rejects.toThrow(/timed out/);
+  }, 30_000);
+
+  it("runs only the summary one-shot at low effort", async () => {
+    await create();
+    const summaryDump = join(scratch, "generate-text-effort.json");
+    process.env.FAKE_CLAUDE_DUMP = summaryDump;
+    await instance.generateText?.("summarize");
+    const reviewDump = join(scratch, "review-effort.json");
+    process.env.FAKE_CLAUDE_DUMP = reviewDump;
+    await instance.reviewPermission?.("review this request");
+
+    const summary = JSON.parse(readFileSync(summaryDump, "utf8"));
+    expect(summary.argv[summary.argv.indexOf("--effort") + 1]).toBe("low");
+    expect(JSON.parse(readFileSync(reviewDump, "utf8")).argv).not.toContain("--effort");
   });
 
   it("declares safe same-provider permission review", async () => {

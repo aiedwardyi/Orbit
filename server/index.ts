@@ -3123,7 +3123,7 @@ bus.subscribe((event: RuntimeEvent) => {
             pushMessage({
               role: "bot",
               kind: "activity",
-              tool: { name: `${settled}: ${summary.slice(0, 120)}`, ok: true },
+              tool: { name: `${settled}: ${summary.slice(0, 120)}`, ok: true, approval: true },
             });
             // logged under the same discipline as the chip: only once the
             // provider has actually taken the answer, so the audit log
