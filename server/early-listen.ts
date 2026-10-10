@@ -2,9 +2,9 @@
 // module evaluates. Electron can reveal the chat shell while registry
 // load, store hydrate, and PATH/CLI describe still run in the child.
 
-import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { sendStaticFile } from "./compression.ts";
 import { missingStaticResponse } from "./static-fallback.ts";
 
 export const EARLY_LISTEN_SLOT = Symbol.for("orbit.earlyListen");
@@ -91,9 +91,7 @@ export function serveEarlyRequest(
     return true;
   }
   try {
-    const data = readFileSync(file);
-    res.writeHead(200, { "content-type": EARLY_MIME[extname(file)] ?? "application/octet-stream" });
-    res.end(data);
+    sendStaticFile(res, file, pathname, EARLY_MIME[extname(file)] ?? "application/octet-stream");
     return true;
   } catch {
     const missing = missingStaticResponse(pathname);
@@ -103,9 +101,7 @@ export function serveEarlyRequest(
       return true;
     }
     try {
-      const data = readFileSync(join(staticDir, "index.html"));
-      res.writeHead(200, { "content-type": "text/html" });
-      res.end(data);
+      sendStaticFile(res, join(staticDir, "index.html"), pathname, "text/html");
       return true;
     } catch {
       res.writeHead(404, { "content-type": "text/plain" });
