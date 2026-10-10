@@ -154,4 +154,29 @@ describe("ChatPlanMeters", () => {
       window.dispatchEvent(new Event("resize"));
     }
   });
+
+  it("mutes an old Muse reading and says when it was last seen", () => {
+    applyLocale("en");
+    setUsageMode("used");
+    const windows = [
+      { id: "five_hour", usedPercent: 10, resetsAt: now + 115 * 60_000 },
+      { id: "seven_day", usedPercent: 100, resetsAt: now + 35 * 3_600_000 },
+    ];
+    const host = document.createElement("div");
+    const draw = (driverKind: string, ageMs: number) => {
+      host.innerHTML = renderToStaticMarkup(createElement(ChatPlanMeters, {
+        windows, driverKind, observedAt: new Date(now - ageMs).toISOString(), now, onOpenUsage: () => {},
+      }));
+    };
+    draw("museAgent", 4 * 86_400_000);
+    expect(host.textContent).toContain("Last seen 4d ago");
+    expect(host.querySelector('[aria-label="7d: 100% used"] .text-danger')).toBeNull();
+    expect(host.querySelector('[aria-label="7d: 100% used"] .text-ink-secondary')).not.toBeNull();
+    draw("museAgent", 30 * 60_000);
+    expect(host.textContent).not.toContain("Last seen");
+    expect(host.querySelector('[aria-label="7d: 100% used"] .text-danger')).not.toBeNull();
+    draw("claudeAgent", 4 * 86_400_000);
+    expect(host.textContent).not.toContain("Last seen");
+    expect(host.querySelector('[aria-label="7d: 100% used"] .text-danger')).not.toBeNull();
+  });
 });

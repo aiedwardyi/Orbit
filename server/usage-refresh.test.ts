@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createUsageRefresh, isCsrfRejection, readAntigravityQuota, readAntigravityUsageCommand, readGrokBillingRpc, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
+import { createMuseCheck, createUsageRefresh, isCsrfRejection, readAntigravityQuota, readAntigravityUsageCommand, readGrokBillingRpc, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
 import { antigravityRateLimitWindows } from "./drivers/rate-limits.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
@@ -385,6 +385,83 @@ describe("usage refresh route result", () => {
     } finally {
       removeTempDir(scratch);
     }
+  });
+
+  it("checks Muse with one minimal memory-only turn in an empty temp folder", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-muse-check-test-"));
+    const dump = join(scratch, "dump.json");
+    const rpcDump = join(scratch, "rpc.json");
+    try {
+      await expect(readMuseUsage(
+        FAKE_MSP_CLI,
+        { FAKE_MSP_USAGE: JSON.stringify(fixtures.museAgent), FAKE_MSP_DUMP: dump, FAKE_MSP_RPC_DUMP: rpcDump },
+        { platform: "linux", check: true },
+      )).resolves.toEqual(fixtures.museAgent);
+      expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toEqual(["initialize", "initialized", "session/start", "turn/start", "usage/read"]);
+      const spawn = JSON.parse(readFileSync(dump, "utf8"));
+      expect(spawn.argv).toEqual(["serve", "--no-session-log", "--disable-shell", "--disable-write"]);
+      expect(spawn.cwd).toContain("omb-muse-check-");
+      expect(spawn.cwd).not.toBe(homedir());
+      expect(JSON.parse(readFileSync(`${dump}.config.json`, "utf8"))).toEqual([
+        { method: "session/start", modelId: "muse-spark-1.2", approvalMode: "denyUnmatched", workspaceRoot: spawn.cwd },
+      ]);
+      const turn = JSON.parse(readFileSync(`${dump}.turn-params.json`, "utf8"));
+      expect(turn.reasoningEffort).toBe("minimal");
+      expect(turn.input).toEqual([{ type: "text", text: "Reply with: ok" }]);
+      await vi.waitFor(() => expect(existsSync(spawn.cwd)).toBe(false));
+    } finally {
+      removeTempDir(scratch);
+    }
+  });
+
+  it("maps an auth-failed Muse check turn to sign-in", async () => {
+    await expect(readMuseUsage(FAKE_MSP_CLI, { FAKE_MSP_MODE: "auth-failure" }, { platform: "linux", check: true })).rejects.toThrow("signin");
+  });
+
+  it("keeps the old reading when a failed Muse check turn reports nothing", async () => {
+    const check = createMuseCheck({
+      muse: (_cli, env) => readMuseUsage(FAKE_MSP_CLI, { ...env, FAKE_MSP_MODE: "fail-after-text" }, { platform: "linux", check: true }),
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await check({ instanceId: "muse" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.status).toBe("no_observation");
+  });
+
+  it.each(["signin", "refresh"] as const)("keeps the old reading after a Muse check %s", async (kind) => {
+    const check = createMuseCheck({
+      muse: async () => {
+        throw new Error(kind);
+      },
+    });
+    const report = { windows: [{ id: "five_hour", usedPercent: 12, resetsAt: null }], observedAt: reset };
+    const result = await check({ instanceId: "muse" }, report);
+    expect(result.report).toEqual(report);
+    expect(result.error).toBe(kind === "signin" ? "Sign in again in Muse" : "Could not refresh Muse limits");
+    expect(result.status).toBe(kind === "signin" ? "auth_error" : "transport_error");
+  });
+
+  it("spends at most one Muse check per instance per minute", async () => {
+    let now = 1_000;
+    const calls: Array<string | undefined> = [];
+    const check = createMuseCheck({
+      now: () => now,
+      muse: async (cli) => {
+        calls.push(cli);
+        return fixtures.museAgent;
+      },
+    });
+    const [first, doubleTap] = await Promise.all([check({ instanceId: "muse" }), check({ instanceId: "muse" })]);
+    expect(first.status).toBe("fresh");
+    expect(doubleTap).toEqual(first);
+    now += 59_999;
+    await check({ instanceId: "muse" }, first.report);
+    expect(calls).toHaveLength(1);
+    await check({ instanceId: "muse-two" });
+    expect(calls).toHaveLength(2);
+    now += 1;
+    await check({ instanceId: "muse" }, first.report);
+    expect(calls).toHaveLength(3);
   });
 
   it("leaves Gemini API off the refresh path without inventing numbers", async () => {

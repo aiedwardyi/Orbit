@@ -48,10 +48,10 @@ export function planUsageFillClass(fill: number): string {
   return planUsageTone(fill).fillClass;
 }
 
-export function PlanUsageBar({ fill, usedFill = fill, className }: { fill: number; usedFill?: number; className?: string }) {
+export function PlanUsageBar({ fill, usedFill = fill, muted = false, className }: { fill: number; usedFill?: number; muted?: boolean; className?: string }) {
   return (
     <div className={cn("h-1 overflow-hidden rounded-full bg-ink/10", className)} aria-hidden="true">
-      <div className={cn("h-full rounded-full", planUsageFillClass(usedFill))} style={{ width: `${fill}%` }} />
+      <div className={cn("h-full rounded-full", muted ? "bg-ink-secondary" : planUsageFillClass(usedFill))} style={{ width: `${fill}%` }} />
     </div>
   );
 }
@@ -60,10 +60,13 @@ export function PlanWindowMeter({
   window,
   now,
   compact = false,
+  muted = false,
 }: {
   window: RateLimitWindow;
   now: number;
   compact?: boolean;
+  /** An old reading: theme greys instead of the warning tones. */
+  muted?: boolean;
 }) {
   const { t } = useI18n();
   const mode = useUsageMode();
@@ -80,9 +83,9 @@ export function PlanWindowMeter({
     const segments = Math.round(fill / 10);
     return (
       <div role="group" aria-label={label}>
-        <div className="flex flex-wrap items-center gap-x-2 text-[12.5px] text-ink">
+        <div className={cn("flex flex-wrap items-center gap-x-2 text-[12.5px]", muted ? "text-ink-secondary" : "text-ink")}>
           <span>{t(labelKey)}</span>
-          <span aria-hidden="true" className={cn("font-mono tracking-tight", planUsageTone(usedFill).textClass)}>
+          <span aria-hidden="true" className={cn("font-mono tracking-tight", muted ? "text-ink-secondary" : planUsageTone(usedFill).textClass)}>
             {percent === null ? "▱".repeat(10) : "▰".repeat(segments) + "▱".repeat(10 - segments)}
           </span>
           <span className="flex min-w-0 items-center gap-1.5 tabular-nums">
@@ -99,11 +102,11 @@ export function PlanWindowMeter({
   }
   return (
     <div role="group" aria-label={label}>
-      <div className="flex items-center justify-between gap-3 text-[13px] text-ink">
+      <div className={cn("flex items-center justify-between gap-3 text-[13px]", muted ? "text-ink-secondary" : "text-ink")}>
         <span>{t(labelKey)}</span>
         {percent !== null && <span className="tabular-nums">{t("usage.limits.percentUsed", { percent })}</span>}
       </div>
-      <PlanUsageBar fill={fill} usedFill={usedFill} className="mt-1" />
+      <PlanUsageBar fill={fill} usedFill={usedFill} muted={muted} className="mt-1" />
       <div className="mt-1 text-[12px] text-ink-secondary">{t(phrase.key, phrase.vars)}</div>
     </div>
   );

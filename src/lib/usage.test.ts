@@ -7,6 +7,7 @@ import {
   costCaption,
   formatTokens,
   formatUsd,
+  museReading,
   percentUsed,
   planMeterWindows,
   resetCompact,
@@ -224,5 +225,18 @@ describe("usageLimitReset", () => {
     expect(usageLimitReset(null, now)).toBeNull();
     expect(usageLimitReset(undefined, now)).toBeNull();
     expect(usageLimitReset(now - 1, now)).toBeNull();
+  });
+
+  it("applies the Muse age rule only to Muse, muting past one hour", () => {
+    const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("en", key, vars);
+    const at = (ms: number) => new Date(now - ms).toISOString();
+    expect(museReading("claudeAgent", at(5 * 3_600_000), now)).toBeNull();
+    expect(museReading("museAgent", undefined, now)).toBeNull();
+    expect(museReading("museAgent", at(30_000), now)?.label(t)).toBe("As of just now");
+    expect(museReading("museAgent", at(60 * 60_000), now)).toMatchObject({ stale: false });
+    expect(museReading("museAgent", at(60 * 60_000), now)?.label(t)).toBe("As of 1h ago");
+    expect(museReading("museAgent", at(60 * 60_000 + 1), now)).toMatchObject({ stale: true });
+    expect(museReading("museAgent", at(4 * 86_400_000), now)?.label(t)).toBe("Last seen 4d ago");
+    expect(museReading("museAgent", at(4 * 86_400_000), now)?.label((key, vars) => translate("ko", key, vars))).toBe("마지막 확인 4일 전");
   });
 });

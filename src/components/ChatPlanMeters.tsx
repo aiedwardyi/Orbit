@@ -3,37 +3,30 @@
 import type { RateLimitWindow } from "../../server/contracts.ts";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { planMeterWindows } from "@/lib/usage";
+import { museReading, planMeterWindows } from "@/lib/usage";
 import { PlanWindowMeter, useNow } from "./PlanUsageBar";
 
-export function ChatPlanMeters({
-  windows,
-  now,
-  onOpenUsage,
-}: {
+type ChatPlanMetersProps = {
   windows: RateLimitWindow[] | undefined;
+  driverKind?: string;
+  observedAt?: string;
   now?: number;
   onOpenUsage: () => void;
-}) {
+};
+
+export function ChatPlanMeters(props: ChatPlanMetersProps) {
   // Decide visibility without starting the minute tick; chats without
   // windows never mount a timer for a strip they will not show.
-  if (planMeterWindows(windows, now ?? Date.now()).length === 0) return null;
-  return <ChatPlanMetersLive windows={windows} now={now} onOpenUsage={onOpenUsage} />;
+  if (planMeterWindows(props.windows, props.now ?? Date.now()).length === 0) return null;
+  return <ChatPlanMetersLive {...props} />;
 }
 
-function ChatPlanMetersLive({
-  windows,
-  now,
-  onOpenUsage,
-}: {
-  windows: RateLimitWindow[] | undefined;
-  now?: number;
-  onOpenUsage: () => void;
-}) {
+function ChatPlanMetersLive({ windows, driverKind, observedAt, now, onOpenUsage }: ChatPlanMetersProps) {
   const { t } = useI18n();
   const tick = useNow();
   const clock = now ?? tick;
   const visible = planMeterWindows(windows, clock);
+  const reading = museReading(driverKind, observedAt, clock);
   if (visible.length === 0) return null;
   return (
     <button
@@ -44,9 +37,10 @@ function ChatPlanMetersLive({
     >
       <div className={cn("grid w-full items-center gap-x-6", visible.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
         {visible.map((window) => (
-          <PlanWindowMeter key={window.id} window={window} now={clock} compact />
+          <PlanWindowMeter key={window.id} window={window} now={clock} compact muted={reading?.stale} />
         ))}
       </div>
+      {reading?.stale && <div className="text-[12px] text-ink-secondary">{reading.label(t)}</div>}
     </button>
   );
 }

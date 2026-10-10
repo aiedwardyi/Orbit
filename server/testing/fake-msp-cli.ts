@@ -45,7 +45,7 @@
 //                   | usage-transport (usage/read exits before a result)
 //   FAKE_MSP_STATE  path to a JSON file holding per-session models across
 //                   the one-process-per-turn spawns, so a switch sticks.
-//   FAKE_MSP_DUMP   path to write {argv, env} as JSON, so a test can assert
+//   FAKE_MSP_DUMP   path to write {argv, env, cwd} as JSON, so a test can assert
 //                   the spawn shape. session/start params land next to it in
 //                   `<path>.config.json`; turn/start input in `<path>.turn.json`.
 //   FAKE_MSP_COALESCE  1 = buffer every reply/notification produced while
@@ -68,7 +68,7 @@ const dumpEnv = Object.fromEntries(
   ),
 );
 if (process.env.FAKE_MSP_DUMP) {
-  writeFileSync(process.env.FAKE_MSP_DUMP, JSON.stringify({ argv, env: dumpEnv }, null, 2));
+  writeFileSync(process.env.FAKE_MSP_DUMP, JSON.stringify({ argv, env: dumpEnv, cwd: process.cwd() }, null, 2));
 }
 if (argv.includes("--version")) {
   console.log("fake-msp 0.0.0");
@@ -320,6 +320,9 @@ function handle(msg: any) {
         method: "session/start",
         modelId: msg.params?.modelId ?? null,
         ...(sessionMcp(msg) ? { mcpServers: sessionMcp(msg) } : {}),
+        // undefined drops out of the JSON dump: only check sessions send approvalMode
+        approvalMode: msg.params?.approvalMode,
+        workspaceRoot: msg.params?.approvalMode ? msg.params.workspaceRoot : undefined,
       });
       const modelId = typeof msg.params?.modelId === "string" ? msg.params.modelId : "fake-msp-default";
       const models = readModels();
