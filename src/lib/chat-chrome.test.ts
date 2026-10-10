@@ -185,3 +185,58 @@ describe("transcript pills on a phone", () => {
     expect(expanded.has("break-words")).toBe(true);
   });
 });
+
+// The header row's right side is as wide as its children's full text, so a long
+// label pushed the roster off a phone unless every link in the chain can shrink.
+describe("room header on a phone", () => {
+  const slice = (from: string, to: string) => groupView.slice(groupView.indexOf(from), groupView.indexOf(to));
+  const header = slice("{/* Header: static member mauses", "{findOpen && (");
+  const select = slice("function DefaultResponderSelect", "function RoomWorkingFolder(");
+  const chip = slice("function RoomWorkingFolderChip", "type RoomSetupFields");
+  const tokensAfter = (source: string, marker: string) => classTokens(source.slice(source.indexOf(marker)));
+
+  it("lets the who-answers select give way and paint inside its wrapper", () => {
+    const wrapper = tokensAfter(select, '<div className="relative');
+    expect(wrapper.has("shrink-0")).toBe(false);
+    expect(wrapper.has("min-w-16")).toBe(true);
+    const field = tokensAfter(select, "<select");
+    expect(field.has("w-full")).toBe(true);
+    expect(field.has("min-w-0")).toBe(true);
+  });
+
+  it("ends the closed label in an ellipsis", () => {
+    expect(select).toMatch(/<span className="min-w-0 truncate max-md:hidden">\{closedLabel\}<\/span>/);
+    expect(tokensAfter(select, "<span data-who-answers").has("truncate")).toBe(false);
+  });
+
+  it("shows the who-answers mode as an icon on a phone", () => {
+    expect(select).toMatch(/responder\.kind === "everyone" \? Users : responder\.kind === "member" \? Crown : AtSign/);
+    expect(select).toMatch(/<ModeIcon size=\{12\} aria-hidden="true" className="shrink-0 md:hidden" \/>/);
+    const wrapper = tokensAfter(select, '<div className="relative');
+    expect(wrapper.has("max-md:w-12")).toBe(true);
+    expect(wrapper.has("max-md:shrink-0")).toBe(true);
+    expect(select).toMatch(/aria-label=\{closedLabel\}/);
+  });
+
+  it("keeps the room name at about 8 characters and lets the control row shrink", () => {
+    const name = tokensAfter(header, '<div className="flex min-w-[4.5rem]');
+    expect(name.has("flex-1")).toBe(true);
+    expect(name.has("min-w-[4.5rem]")).toBe(true);
+    expect(tokensAfter(header, '<div className="flex min-w-0 items-center gap-1.5').has("min-w-0")).toBe(true);
+  });
+
+  it("folds the folder chip to its icon on a phone", () => {
+    const button = tokensAfter(chip, "<button");
+    expect(button.has("min-w-0")).toBe(true);
+    expect(button.has("max-md:shrink-0")).toBe(true);
+    expect(chip).toMatch(/<Folder size=\{12\} className="shrink-0" \/>/);
+    expect(chip).toMatch(/"truncate max-md:hidden"/);
+  });
+
+  it("overlaps the roster avatars on a phone", () => {
+    const roster = tokensAfter(header, "ref={membersTriggerRef}");
+    expect(roster.has("max-md:-space-x-1.5")).toBe(true);
+    expect(roster.has("max-md:gap-0")).toBe(true);
+    expect(groupView).toContain('group.busyBotId === b.id && "z-10 ring-2');
+  });
+});
