@@ -742,6 +742,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
        * started it was attended Auto; such tasks die with this process */
       background: Map<string, { at: number; autoAttended: boolean }>;
       closing: boolean;
+      /** a task_notification landed between turns and the CLI's wake is due */
+      wakePending: boolean;
       stderr: string;
       /** settle the current turn; set once the spawn handlers exist */
       settleTurn?: (ok: boolean, stopReason: string | null) => void;
@@ -809,7 +811,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       s.idleTimer = setTimeout(() => {
         // closing stdin ends the CLI and every background task it still runs
         if (hasLiveBackgroundWork(s)) armIdle(threadId);
-        else closeSession(threadId, "idle");
+        else if (s.wakePending) {
+          // one more window for the woken CLI's init; a wake that never comes still closes
+          s.wakePending = false;
+          armIdle(threadId);
+        } else closeSession(threadId, "idle");
       }, SESSION_IDLE_MS);
       s.idleTimer.unref?.();
     };
@@ -1151,6 +1157,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         autoAttended,
         background: new Map(),
         closing: false,
+        wakePending: false,
         stderr: "",
       };
       sessions.set(threadId, session);
@@ -1205,6 +1212,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           contextWindow: t.contextWindow,
           ...(t.promptAccepted ? { promptAccepted: true } : {}),
         });
+        session.wakePending = false;
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
       };
       session.settleTurn = settle;
@@ -1216,6 +1224,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (sessions.get(threadId) !== session || active.has(threadId)) return;
         if (session.idleTimer) clearTimeout(session.idleTimer);
         session.idleTimer = null;
+        session.wakePending = false;
         const continuationId = newId();
         const timer = startTurnTimer({ engine: "claude", model: turn.model, effort: turn.effort ?? null });
         session.turn = { turnId: continuationId, settled: false, sawStreamDelta: false, continuation: true, timer };
@@ -1266,6 +1275,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               });
             } else if (o.subtype === "task_notification" && typeof o.task_id === "string") {
               session.background.delete(o.task_id);
+              if (!session.turn && !session.closing) {
+                session.wakePending = true;
+                armIdle(threadId);
+              }
             }
             break;
           case "stream_event": {

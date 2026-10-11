@@ -396,6 +396,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_RATE_LIMITS;
     delete process.env.FAKE_CLAUDE_USER_ALLOW;
     delete process.env.FAKE_CLAUDE_TASK_GATE;
+    delete process.env.FAKE_CLAUDE_WAKE_DELAY_MS;
     delete process.env.FAKE_CLAUDE_AUTH_GATE;
     delete process.env.FAKE_CLAUDE_STEER_LOG;
     delete process.env.FAKE_CLAUDE_NARRATION_TEXT;
@@ -1450,6 +1451,45 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const woken = await recorder.until((e) => e.type === "turn.started" && e.turnId !== first.turnId);
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === woken.turnId);
     expect(await exited(pid)).toBe(true);
+  });
+
+  it("opens the woken turn when its init lands after the idle window", async () => {
+    process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS = "10";
+    process.env.OMB_CLAUDE_SESSION_IDLE_MS = "200";
+    process.env.FAKE_CLAUDE_WAKE_DELAY_MS = "300";
+    const gate = join(scratch, "task-done");
+    process.env.FAKE_CLAUDE_TASK_GATE = gate;
+    await create("background-task");
+    const dump = join(scratch, "bg-late-wake.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const first = await instance.adapter.sendTurn({ threadId: "t-bg-late-wake", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+
+    writeFileSync(gate, "");
+    const woken = await recorder.until((e) => e.type === "turn.started" && e.turnId !== first.turnId);
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === woken.turnId);
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "item.completed", itemType: "assistant_text", text: "background task done", turnId: woken.turnId }),
+    );
+    expect(await exited(JSON.parse(readFileSync(dump, "utf8")).pid)).toBe(true);
+  });
+
+  it("still idle-closes when a task notification never wakes the CLI", async () => {
+    process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS = "10";
+    process.env.OMB_CLAUDE_SESSION_IDLE_MS = "50";
+    process.env.FAKE_CLAUDE_WAKE_DELAY_MS = "never";
+    const gate = join(scratch, "task-done");
+    process.env.FAKE_CLAUDE_TASK_GATE = gate;
+    await create("background-task");
+    const dump = join(scratch, "bg-no-wake.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const first = await instance.adapter.sendTurn({ threadId: "t-bg-no-wake", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+
+    writeFileSync(gate, "");
+    expect(await exited(JSON.parse(readFileSync(dump, "utf8")).pid)).toBe(true);
+    expect(instance.adapter.hasBackgroundWork!("t-bg-no-wake")).toBe(false);
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
   });
 
   it("never counts a foreground task as background work", async () => {
