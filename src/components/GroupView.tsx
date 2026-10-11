@@ -18,6 +18,7 @@ import {
 import { BotAvatar } from "./Avatar";
 import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { useSkin } from "@/lib/skins";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
@@ -53,7 +54,7 @@ import { messageVisible, roomTranscriptRows } from "@/lib/room-transcript";
 import { isShownMessage } from "@/lib/shown-message";
 import { roomRetry } from "@/lib/room-retry";
 import { nextBulletin } from "@/lib/room-bulletin";
-import { ActivityRun } from "./ActivityRun";
+import { ActivityRun, ActivityStep } from "./ActivityRun";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useSearchFindSeed } from "@/lib/chat-find";
@@ -103,6 +104,7 @@ export function RoomToolChip({
 }) {
   const { dispatch, state } = useStore();
   const { t } = useI18n();
+  const terminal = useSkin() === "terminal";
   const now = useNow();
   const [retried, setRetried] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -180,6 +182,7 @@ export function RoomToolChip({
       </div>
     );
   }
+  if (terminal && !tool.name.startsWith("error:")) return <ActivityStep message={message} />;
   const member = message.from?.botId ? state.bots.find((bot) => bot.id === message.from?.botId) : undefined;
   const instance = member?.modelSelection?.instanceId
     ? state.instances.find((i) => i.instanceId === member.modelSelection.instanceId)
@@ -318,18 +321,20 @@ const Transcript = memo(function Transcript({
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
+  const terminal = useSkin() === "terminal";
   const showToolCalls = showToolCallsEnabled(state.config);
+  const showActivities = showToolCalls || terminal;
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   // Several bots working at once turn a room into a wall of chips; fold the
   // finished ones the same way a 1:1 chat does.
   const items = useMemo(
-    () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages),
-    [messages, streamingMessage],
+    () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages, terminal),
+    [messages, streamingMessage, terminal],
   );
   const { workerAt, open, toggle } = useWorkerRows(workers, messages);
   const rows = useMemo(
-    () => roomTranscriptRows(items, { showToolCalls, workerRows: new Set([...workerAt].filter(([, shown]) => shown).map(([id]) => id)) }),
-    [items, showToolCalls, workerAt],
+    () => roomTranscriptRows(items, { showToolCalls, showActivities, workerRows: new Set([...workerAt].filter(([, shown]) => shown).map(([id]) => id)) }),
+    [items, showToolCalls, showActivities, workerAt],
   );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
@@ -377,7 +382,7 @@ const Transcript = memo(function Transcript({
               )}
               <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
                 {item.messages
-                  .filter((step) => showToolCalls || step.tool?.ok === false)
+                  .filter((step) => showActivities || step.tool?.ok === false)
                   .map((step) => (
                   <div key={step.id} className="contents" data-mid={step.id}>
                     <RoomToolChip
@@ -555,7 +560,7 @@ const Transcript = memo(function Transcript({
                 <span className={cn("text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100", streaming && "invisible")}>
                   {formatTime(m.at, localeTag(locale))}
                 </span>
-                {docked && <DockedPresence avatar={docked.avatar} label={docked.label} live={docked.live} className="absolute inset-y-0 left-0" />}
+                {docked && <DockedPresence avatar={docked.avatar} label={docked.label} live={docked.live} since={docked.since} className="absolute inset-y-0 left-0" />}
               </div>
             </div>
           ) : null;
@@ -1154,8 +1159,10 @@ export function GroupView({ group }: { group: Group }) {
   // the settled reply takes over, with the mascot docked under it.
   const lastGroupMessage = group.messages.at(-1);
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
+  const terminal = useSkin() === "terminal";
   const showToolCalls = showToolCallsEnabled(state.config);
-  const activityLabel = liveActivityLabel(lastGroupMessage, showToolCalls);
+  const showActivities = showToolCalls || terminal;
+  const activityLabel = liveActivityLabel(lastGroupMessage, showActivities);
   const waiting = turnPresenceWaiting({
     busy: Boolean(speaker),
     turnActive: stream.signal[group.threadId] !== undefined,
@@ -1188,8 +1195,8 @@ export function GroupView({ group }: { group: Group }) {
   const workers = useMemo(() => workerRuns(group.messages).map((run) => ({ run, state: shownState(run, null) })), [group.messages]);
   const rowWorkers = useMemo(() => jump.messages ? workerRuns(group.messages, jump.messages).map((run) => ({ run, state: shownState(run, null) })) : workers, [group.messages, jump.messages, workers]);
   const renders = useCallback(
-    (index: number) => messageVisible(group.messages[index], showToolCalls),
-    [group.messages, showToolCalls],
+    (index: number) => messageVisible(group.messages[index], showToolCalls, showActivities),
+    [group.messages, showToolCalls, showActivities],
   );
   const [transcriptWindow, setTranscriptWindow] = useState<{
     key: string;
@@ -1203,6 +1210,15 @@ export function GroupView({ group }: { group: Group }) {
   }));
   if (transcriptWindow.key !== transcriptKey) {
     setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
+  }
+  const [windowTerminal, setWindowTerminal] = useState(terminal);
+  if (windowTerminal !== terminal) {
+    setWindowTerminal(terminal);
+    setTranscriptWindow({
+      key: transcriptKey,
+      start: tailWindowStart(shown.length, TRANSCRIPT_WINDOW_SIZE, (index) => messageVisible(shown[index], showToolCalls, showActivities)),
+      end: null,
+    });
   }
   // The window is index-based, so an older page landing on top shifts it.
   const loadOlder = useOlderMessages(dispatch, group.threadId, group.messages[0]?.id, group.hasMore);
@@ -1241,16 +1257,18 @@ export function GroupView({ group }: { group: Group }) {
   const listedStreaming = liveTail ? streamingMessage : null;
   let tail: Message | null = listedStreaming;
   for (let i = windowedMessages.length - 1; liveTail && !tail && i >= 0; i--) {
-    if (messageVisible(windowedMessages[i], showToolCalls)) tail = windowedMessages[i];
+    if (messageVisible(windowedMessages[i], showToolCalls, showActivities)) tail = windowedMessages[i];
   }
   const tailSlot = tail?.role === "bot" && tail.kind === "text" ? replySlot(group.threadId, tail, shown) : null;
   const docked = useReplyDock(listedStreaming ? tailSlot : null, tailSlot, waiting);
   const dockSlot = docked?.slot;
   const dockLive = docked?.live ?? false;
+  const lastUserAt = group.messages.findLast((m) => m.role === "user")?.at;
   const dock = useMemo<ReplyDock | null>(() => dockSlot ? {
     slot: dockSlot,
     live: dockLive,
     label: activityLabel,
+    since: lastUserAt,
     avatar: (
       <BotAvatar
         bot={presenceSpeaker ?? { name: group.name, color: DEFAULT_MAUS_COLOR }}
@@ -1261,7 +1279,7 @@ export function GroupView({ group }: { group: Group }) {
         trackPointer={false}
       />
     ),
-  } : null, [dockSlot, dockLive, activityLabel, presenceSpeaker, group.name, toolInFlight]);
+  } : null, [dockSlot, dockLive, activityLabel, lastUserAt, presenceSpeaker, group.name, toolInFlight]);
 
   const appliedFocus = useRef<number | null>(null);
   const requestedFocus = useRef<number | null>(null);
@@ -1607,6 +1625,7 @@ export function GroupView({ group }: { group: Group }) {
       <div
         ref={scrollRef}
         data-orbit-transcript
+        data-room-transcript
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
         style={{ overflowAnchor: follow ? "none" : "auto" }}
         onWheel={(e) => {
@@ -1723,6 +1742,7 @@ export function GroupView({ group }: { group: Group }) {
               visible={waiting && !dockLive}
               docked={dockLive}
               label={activityLabel}
+              since={lastUserAt}
             />
           )}
         </div>

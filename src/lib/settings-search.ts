@@ -89,6 +89,7 @@ export const SECTION_PHRASE_KEYS = {
     "settings.skin.tui-ice.tagline",
     "settings.skin.tui-slate.tagline",
     "settings.skin.tui-smoke.tagline",
+    "settings.skin.terminal.tagline",
     "settings.skin.vscode-dark.tagline",
     "settings.skin.studio-gray.tagline",
     "settings.skin.steel-gray.tagline",

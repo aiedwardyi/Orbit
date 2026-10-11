@@ -26,6 +26,24 @@ describe("turn presence", () => {
     expect(markup).toContain("Responding");
   });
 
+  it.each([
+    ["terminal", true, "(12s)"],
+    ["terminal", false, null],
+    ["tui", true, null],
+  ])("%s docked live=%s shows its elapsed time", (skin, live, shown) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    document.documentElement.dataset.skin = skin;
+    try {
+      const markup = renderToStaticMarkup(createElement(DockedPresence, { avatar: null, label: "Responding", live, since: 88_000 }));
+      if (shown) expect(markup).toContain(shown);
+      else expect(markup).not.toMatch(/\(\d+s\)/);
+    } finally {
+      delete document.documentElement.dataset.skin;
+      vi.useRealTimers();
+    }
+  });
+
   it("fades out in place at turn end, then leaves", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const host = document.createElement("div");

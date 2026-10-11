@@ -50,7 +50,7 @@ export const PendingQuestionPanel = memo(function PendingQuestionPanel({
           {card.subtitle}
         </div>
         {card.options.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap gap-2">
+          <div data-term-choices className="mt-2.5 flex flex-wrap gap-2">
             {card.options.map((choice) => (
               <button
                 key={choice}

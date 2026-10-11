@@ -66,8 +66,10 @@ describe("liveActivityLabel", () => {
     expect(liveActivityLabel(activity("Bash: pnpm test"), true)).toBe("Running a command");
   });
 
-  it("passes Show tool calls into ChatView and GroupView presence labels", () => {
-    expect(chatView).toMatch(/liveActivityLabel\([^,]+,\s*showToolCalls\)/);
-    expect(groupView).toMatch(/liveActivityLabel\([^,]+,\s*showToolCalls\)/);
+  it("passes activity visibility into ChatView and GroupView presence labels", () => {
+    for (const view of [chatView, groupView]) {
+      expect(view).toContain("const showActivities = showToolCalls || terminal;");
+      expect(view).toMatch(/liveActivityLabel\([^,]+,\s*showActivities\)/);
+    }
   });
 });

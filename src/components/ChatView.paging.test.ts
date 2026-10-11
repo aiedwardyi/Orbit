@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { StoreProvider, useStore, type Bot, type Group, type Message } from "@/state/store";
 import type { TurnStreamState } from "@/lib/turn-stage";
+import { applySkin } from "@/lib/skins";
 
 import { ChatView } from "./ChatView";
 import { GroupView } from "./GroupView";
@@ -117,6 +118,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   localStorage.clear();
+  applySkin("precision");
 });
 
 async function mount(view: "chat" | "room") {
@@ -704,6 +706,116 @@ describe("open window and jump pill", () => {
     });
   const resize = () => act(async () => resizeCallbacks.forEach((callback) => callback()));
   const pill = (host: HTMLElement) => button(host, "Jump to latest");
+
+  it.each(["chat", "room"] as const)("re-tails a %s when a skin hides every mounted tool row", async (view) => {
+    applySkin("terminal");
+    const thread = toolThread(350, { 0: ["user", "keep this prompt;"], 99: ["bot", "keep this reply;"] });
+    pagedServer(view === "chat" ? "thread-a" : "thread-g", thread,
+      view === "chat" ? { bots: [bot(thread, false)], groups: [] } : { bots: [], groups: [room(thread, false)] });
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.querySelector(".term-search")).not.toBeNull());
+    expect(host.querySelector('[data-mid="m99"]')).toBeNull();
+    await act(async () => button(host, "Show earlier messages")!.click());
+    expect(host.querySelector('[data-mid="m99"]')).toBeNull();
+    await act(async () => applySkin("precision"));
+    expect(host.textContent).toContain("keep this prompt;");
+    expect(host.textContent).toContain("keep this reply;");
+    await act(async () => applySkin("terminal"));
+    expect(host.querySelector(".term-search")).not.toBeNull();
+    expect(host.querySelector('[data-mid="m99"]')).toBeNull();
+  });
+
+  it.each(["chat", "room"] as const)("keeps a %s usable when switching skins inside a detached history window", async (view) => {
+    applySkin("terminal");
+    const thread = toolThread(1000, { 30: ["user", "history prompt;"], 999: ["user", "latest prompt;"] });
+    const snapshot = view === "chat" ? { bots: [bot(thread.slice(-200), true)], groups: [] } : { bots: [], groups: [room(thread.slice(-200), true)] };
+    const threadId = view === "chat" ? "thread-a" : "thread-g";
+    pagedServer(threadId, thread, snapshot);
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.textContent).toContain("latest prompt;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId, messageId: "m30" }));
+    await vi.waitFor(() => expect(host.textContent).toContain("history prompt;"));
+    await act(async () => applySkin("precision"));
+    expect(host.textContent).toContain("history prompt;");
+    expect(pill(host)).toBeDefined();
+    await act(async () => pill(host)!.click());
+    expect(host.textContent).toContain("latest prompt;");
+  });
+
+  it.each(["chat", "room"] as const)("shows Terminal work in a %s without revealing hidden screens or changing messages", async (view) => {
+    applySkin("terminal");
+    const thread: Message[] = [
+      say("prompt", null, "user", "fixture prompt;"),
+      tool("read", "prompt"),
+      { id: "hidden-screen", parentId: "read", at: 1, role: "bot", kind: "screen", hasImage: true },
+      { id: "shown-screen", parentId: "hidden-screen", at: 1, role: "bot", kind: "screen", hasImage: true, shown: true },
+      say("reply", "shown-screen", "bot", "fixture reply;"),
+    ];
+    pagedServer(view === "chat" ? "thread-a" : "thread-g", thread,
+      view === "chat" ? { bots: [bot(thread, false)], groups: [] } : { bots: [], groups: [room(thread, false)] });
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.querySelector(".term-search")).not.toBeNull());
+    expect(host.querySelector('[data-mid="hidden-screen"]')).toBeNull();
+    expect(host.querySelector('[data-mid="shown-screen"]')).not.toBeNull();
+    await act(async () => applySkin("precision"));
+    expect(host.querySelector('[data-mid="hidden-screen"]')).toBeNull();
+    const messages = view === "chat" ? store.state.bots[0]!.messages : store.state.groups[0]!.messages;
+    expect(messages).toEqual(thread);
+  });
+
+  it("shows the active task's pinned folder in the Terminal footer", async () => {
+    applySkin("terminal");
+    const thread = rows(0, 2);
+    const current = { ...bot(thread, false), cwd: "/new-default", tasks: [{ threadId: "thread-a", title: "", createdAt: 1, cwd: "/pinned-task" }] };
+    pagedServer("thread-a", thread, { bots: [current], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.querySelector("[data-term-status]")).not.toBeNull());
+    expect(host.querySelector("[data-term-status]")?.textContent).toContain("/pinned-task");
+    expect(host.querySelector("[data-term-status]")?.textContent).not.toContain("/new-default");
+  });
+
+  it.each(["chat", "room"] as const)("keeps the Terminal working timer when a %s reply docks", async (view) => {
+    applySkin("terminal");
+    const threadId = view === "chat" ? "thread-a" : "thread-g";
+    const thread = [{ ...say("prompt", null, "user", "fixture prompt;"), at: Date.now() - 125_000 }];
+    live.current = { streaming: { [threadId]: "typing;" }, reasoning: {}, signal: {}, gen: {}, turn: { [threadId]: "0:prompt" } };
+    try {
+      const member = { ...bot([], false), busy: true };
+      pagedServer(threadId, thread, view === "chat"
+        ? { bots: [{ ...member, messages: thread }], groups: [] }
+        : { bots: [member], groups: [{ ...room(thread, false), memberIds: [member.id], busyBotId: member.id }] });
+      const host = await mount(view);
+      await vi.waitFor(() => expect(host.querySelector("[data-turn-mascot].turn-mascot-docked")).not.toBeNull());
+      expect(host.querySelector("[data-turn-mascot].turn-mascot-docked")?.textContent).toMatch(/\(2m \d+s\)/);
+      await act(async () => applySkin("precision"));
+      expect(host.querySelector("[data-turn-mascot].turn-mascot-docked")?.textContent).not.toMatch(/\(\d+m/);
+    } finally {
+      live.current = { streaming: {}, reasoning: {}, signal: {}, gen: {}, turn: {} };
+    }
+  });
+
+  it("does not copy a room transcript to time its Terminal working line", async () => {
+    applySkin("terminal");
+    const thread = [say("prompt", null, "user", "fixture prompt;"), say("reply", "prompt", "bot", "fixture reply;")];
+    const reversed = new WeakSet<Message[]>();
+    let copiedSearches = 0;
+    const reverse = Array.prototype.reverse;
+    const find = Array.prototype.find;
+    vi.spyOn(Array.prototype, "reverse").mockImplementation(function (this: Message[]) {
+      if (this.length === thread.length && this.every((message, i) => message?.id === thread[i]!.id)) reversed.add(this);
+      return reverse.call(this);
+    });
+    vi.spyOn(Array.prototype, "find").mockImplementation(function (this: Message[], predicate, thisArg) {
+      const result = find.call(this, predicate, thisArg);
+      if (reversed.has(this) && result?.role === "user") copiedSearches++;
+      return result;
+    });
+    const member = bot([], false);
+    pagedServer("thread-g", thread, { bots: [member], groups: [{ ...room(thread, false), memberIds: [member.id], busyBotId: member.id }] });
+    const host = await mount("room");
+    await vi.waitFor(() => expect(host.textContent).toContain("fixture reply;"));
+    expect(copiedSearches).toBe(0);
+  });
 
   /** Lays out every transcript at `rowPx` per text row in a `viewportPx` tall view. */
   function stubTranscriptLayout(viewportPx: number, rowPx: number) {

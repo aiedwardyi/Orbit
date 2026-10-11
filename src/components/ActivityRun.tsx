@@ -6,7 +6,10 @@
 import { useEffect, useState } from "react";
 import { Bot, ChevronRight, Check, FileText, Globe, Loader2, Pencil, Search, SquareTerminal, Wrench, X } from "lucide-react";
 import type { Message } from "@/state/store";
-import { describeRun } from "@/lib/activity-runs";
+import { describeRun, describeSearch } from "@/lib/activity-runs";
+import { useI18n } from "@/lib/i18n";
+import { useSkin } from "@/lib/skins";
+import { TERM_STEP_WORD, termResultLine, termStepAria, termStepState, termVerb } from "@/lib/terminal-skin";
 
 function StepStatus({ ok }: { ok: boolean | undefined }) {
   if (ok === undefined) return <Loader2 size={13} className="shrink-0 animate-spin" />;
@@ -30,6 +33,7 @@ const formatDuration = (ms: number) =>
 /** One step inside an open run. A running step ticks its elapsed time, then
  * settles in the same row: same key, same element, only the status swaps. */
 export function ActivityStep({ message }: { message: Message }) {
+  const terminal = useSkin() === "terminal";
   const tool = message.tool;
   const running = tool?.ok === undefined;
   const [now, setNow] = useState(() => Date.now());
@@ -41,6 +45,7 @@ export function ActivityStep({ message }: { message: Message }) {
   if (!tool) return null;
   const Icon = stepIcon(tool.name);
   const elapsed = running ? Math.max(0, now - new Date(message.at).getTime()) : tool.durationMs;
+  if (terminal) return <TermStep name={tool.name} summary={tool.summary} ok={tool.ok} elapsed={elapsed} />;
   return (
     <div className="flex max-w-[min(42rem,100%)] items-center gap-2 px-3 py-0.5 text-[13px] text-ink-secondary">
       <Icon size={13} className="shrink-0" />
@@ -48,6 +53,24 @@ export function ActivityStep({ message }: { message: Message }) {
       {tool.summary && <span className="min-w-0 truncate font-mono text-[12px]">{tool.summary}</span>}
       <StepStatus ok={tool.ok} />
       <span className="ml-auto shrink-0 pl-3 text-[12px] tabular-nums">{elapsed === undefined ? "" : formatDuration(elapsed)}</span>
+    </div>
+  );
+}
+
+/** Claude Code's call: `● Verb(summary)` over one `⎿ Done (1.2s)` line. */
+function TermStep({ name, summary, ok, elapsed }: { name: string; summary?: string; ok: boolean | undefined; elapsed: number | undefined }) {
+  const { t } = useI18n();
+  const verb = termVerb(name);
+  const state = termStepState(ok);
+  const aria = termStepAria(state, elapsed);
+  return (
+    <div data-term-step={state} className="term-step min-w-0 max-w-full">
+      <span className="sr-only">{t(aria.key, { tool: summary ? `${verb} ${summary}` : verb, seconds: aria.seconds ?? 0 })}</span>
+      <div aria-hidden="true" className="term-step-head truncate">
+        <span className="font-semibold text-ink">{verb}</span>
+        {summary && `(${summary})`}
+      </div>
+      <div aria-hidden="true" className="term-step-result truncate">{termResultLine(t(TERM_STEP_WORD[state]), elapsed)}</div>
     </div>
   );
 }
@@ -64,12 +87,26 @@ export function ActivityRun({
   /** the individual chips, rendered by whichever transcript owns them */
   children: React.ReactNode;
 }) {
+  const { t } = useI18n();
+  const terminal = useSkin() === "terminal";
   const failed = messages.some((message) => message.tool?.ok === false);
   const running = messages.some((message) => message.tool?.ok === undefined);
   const [open, setOpen] = useState(forceOpen);
   useEffect(() => {
     if (forceOpen) setOpen(true);
   }, [forceOpen]);
+  if (terminal) {
+    return (
+      <div className="flex flex-col">
+        <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="term-search self-start text-left">
+          {describeSearch(messages)}
+          {running && <span> · {t("task.running")}</span>}
+          {failed && <span> · {t("workers.failed")}</span>}
+        </button>
+        {open && children}
+      </div>
+    );
+  }
   if (open) {
     return (
       <div className="flex flex-col gap-1">
