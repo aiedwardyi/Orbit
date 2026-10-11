@@ -22,6 +22,14 @@ describe("main window asks before closing while work is running", () => {
     expect(busy.indexOf("botBusy = value === true")).toBeLessThan(busy.indexOf('process.platform !== "win32"'));
   });
 
+  it("restores and focuses the main window before the dialog", () => {
+    const reveal = main.slice(main.indexOf("const closeGuard"), main.indexOf("async confirm("));
+    expect(reveal).toContain("reveal() {");
+    expect(reveal).toContain("mainWindow.isMinimized()");
+    expect(reveal).toContain("mainWindow.restore()");
+    expect(reveal).toContain("mainWindow.focus()");
+  });
+
   it("shows a quiet native dialog that defaults to Cancel", () => {
     const confirm = main.slice(main.indexOf("const closeGuard"), main.indexOf("function createWindow()"));
     expect(confirm).toContain("dialog.showMessageBox(parent");
@@ -32,7 +40,7 @@ describe("main window asks before closing while work is running", () => {
 
   it("skips the dialog on every deliberate quit and on Windows session end", () => {
     expect(main).toContain('app.on("before-quit", () => closeGuard.leave())');
-    expect(main).toContain('win.on("query-session-end", () => closeGuard.leave())');
+    expect(main).toContain('win.on("query-session-end", () => closeGuard.leaveBriefly())');
     expect(main).toContain('win.on("session-end", () => closeGuard.leave())');
     const guard = main.indexOf('app.on("before-quit", () => closeGuard.leave())');
     expect(guard).toBeLessThan(main.indexOf('app.on("before-quit", (e) =>'));

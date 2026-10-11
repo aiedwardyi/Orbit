@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { mock } from "node:test";
 
 import { closePrompt, createCloseGuard } from "./close-guard.mjs";
 
 function fixture({ workers = 0, bot = false, answer = true, platform = "win32" } = {}) {
-  const state = { workers, bot, answer, prompts: [], closes: 0, prevented: 0, release: null };
+  const state = { workers, bot, answer, prompts: [], closes: 0, prevented: 0, release: null, order: [] };
   const guard = createCloseGuard({
     platform,
     workerCount: () => state.workers,
     botBusy: () => state.bot,
+    reveal: () => state.order.push("reveal"),
     confirm: (prompt) => {
+      state.order.push("confirm");
       state.prompts.push(prompt);
       if (state.hold) return new Promise((resolve) => (state.release = resolve));
       return Promise.resolve(state.answer);
@@ -79,6 +81,48 @@ for (const path of ["update install", "start fresh", "signal quit", "shutdown or
     assert.equal(f.state.prevented, 0);
   });
 }
+
+test("a cancelled shutdown re-arms the prompt, a real one stays off", async (t) => {
+  t.after(() => mock.timers.reset());
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const cancelled = fixture({ workers: 1, answer: false });
+  cancelled.guard.leaveBriefly();
+  assert.equal(await cancelled.close(), "close");
+  assert.equal(cancelled.state.prompts.length, 0);
+  mock.timers.tick(60_000);
+  assert.equal(await cancelled.close(), "keep");
+  assert.equal(cancelled.state.prompts.length, 1);
+
+  const real = fixture({ workers: 1 });
+  real.guard.leaveBriefly();
+  real.guard.leave();
+  mock.timers.tick(60_000);
+  assert.equal(await real.close(), "close");
+  assert.equal(real.state.prompts.length, 0);
+});
+
+test("a brief leave never undoes a permanent one", async (t) => {
+  t.after(() => mock.timers.reset());
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const f = fixture({ workers: 1 });
+  f.guard.leave();
+  f.guard.leaveBriefly();
+  mock.timers.tick(60_000);
+  assert.equal(await f.close(), "close");
+  assert.equal(f.state.prompts.length, 0);
+});
+
+test("the window is brought forward before the dialog opens", async () => {
+  const f = fixture({ workers: 1, answer: false });
+  await f.close();
+  assert.deepEqual(f.state.order, ["reveal", "confirm"]);
+});
+
+test("nothing is revealed when no dialog is needed", async () => {
+  const f = fixture();
+  await f.close();
+  assert.deepEqual(f.state.order, []);
+});
 
 test("macOS never asks because closing the window does not quit", async () => {
   const f = fixture({ workers: 3, bot: true, platform: "darwin" });

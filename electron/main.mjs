@@ -1544,6 +1544,11 @@ const closeGuard = createCloseGuard({
   platform: process.platform,
   workerCount: () => terminalHost.liveWorkerCount(),
   botBusy: () => botBusy,
+  reveal() {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  },
   async confirm({ key, vars }) {
     const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
     const { response } = await dialog.showMessageBox(parent, {
@@ -1605,7 +1610,7 @@ function createWindow() {
       if (!win.isDestroyed()) win.close();
     });
   });
-  win.on("query-session-end", () => closeGuard.leave());
+  win.on("query-session-end", () => closeGuard.leaveBriefly());
   win.on("session-end", () => closeGuard.leave());
 
   win.webContents.setWindowOpenHandler(({ url }) => {
