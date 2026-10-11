@@ -15,9 +15,13 @@ describe("phoneHeaderSlots", () => {
     expect(slots[3]).toEqual({ showEffort: false, showLabel: false, nameMin: 64 });
   });
 
-  it("does not shrink a name that is already under the floor", () => {
-    expect(phoneHeaderSlots(35, 64).every((slot) => slot.nameMin === 35)).toBe(true);
-    expect(phoneHeaderSlots(35, 64)[1]?.showLabel).toBe(true);
-    expect(phoneHeaderSlots(35, 64)[3]?.showLabel).toBe(false);
+  it("does not emit a duplicate slot when the name is already at the floor", () => {
+    for (const name of [35, 64]) {
+      const slots = phoneHeaderSlots(name, 64);
+      expect(slots).toHaveLength(3);
+      expect(slots.every((slot) => slot.nameMin === name)).toBe(true);
+      expect(slots[1]).toEqual({ showEffort: false, showLabel: true, nameMin: name });
+      expect(slots.at(-1)).toEqual({ showEffort: false, showLabel: false, nameMin: name });
+    }
   });
 });

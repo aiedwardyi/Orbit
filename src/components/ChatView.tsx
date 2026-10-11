@@ -1211,8 +1211,10 @@ function usePhoneHeaderNameFloor(
     const header = cluster?.parentElement;
     if (!cluster || !button || !header) return;
     let alive = true;
+    let text = naturalWidth(button);
+    let rem = px(getComputedStyle(document.documentElement).fontSize) || 16;
     const chipOf = () => {
-      const label = header.querySelector("button .truncate");
+      const label = header.querySelector("[data-model-label]");
       const effort = header.querySelector("[data-model-effort]");
       const chip = (label instanceof HTMLElement ? label.closest("button") : null)
         ?? (effort instanceof HTMLElement ? effort.closest("button") : null);
@@ -1249,12 +1251,10 @@ function usePhoneHeaderNameFloor(
         clearChip();
         return;
       }
-      const text = naturalWidth(button);
-      const rem = px(getComputedStyle(document.documentElement).fontSize) || 16;
       const slots = phoneHeaderSlots(text, 4 * rem);
       const place = (nameMin: number) => {
         const cs = getComputedStyle(cluster);
-        const pad = px(cs.paddingLeft);
+        const pad = px(cs.paddingLeft) + px(cs.paddingRight);
         const gap = px(cs.columnGap);
         let fixed = 0;
         let others = 0;
@@ -1320,6 +1320,12 @@ function usePhoneHeaderNameFloor(
           const b = term.getBoundingClientRect();
           if (a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1) return false;
         }
+        const controls = header.lastElementChild !== cluster ? header.lastElementChild : null;
+        const edge = chip ?? controls;
+        if (edge instanceof HTMLElement) {
+          const rect = edge.getBoundingClientRect();
+          if (rect.width >= 1 && rect.left < cluster.getBoundingClientRect().right - 1) return false;
+        }
         const logo = chip?.querySelector("svg");
         if (logo) {
           const rect = logo.getBoundingClientRect();
@@ -1332,7 +1338,7 @@ function usePhoneHeaderNameFloor(
         }
         return true;
       };
-      const last = slots[3];
+      const last = slots.at(-1);
       if (!last) return;
       let chosen = last;
       for (const slot of slots) {
@@ -1348,7 +1354,12 @@ function usePhoneHeaderNameFloor(
     const mutations = new MutationObserver(apply);
     mutations.observe(header, { childList: true, subtree: true, characterData: true });
     window.addEventListener("resize", apply);
-    void document.fonts?.ready.then(() => { if (alive) apply(); });
+    void document.fonts?.ready.then(() => {
+      if (!alive) return;
+      text = naturalWidth(button);
+      rem = px(getComputedStyle(document.documentElement).fontSize) || 16;
+      apply();
+    });
     return () => {
       alive = false;
       mutations.disconnect();

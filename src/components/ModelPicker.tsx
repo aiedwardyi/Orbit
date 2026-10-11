@@ -236,7 +236,7 @@ export function ModelPickerControl({
           the accent dot, effort, and chevron stay visible at any width. The
           label is always the full selected model — never the bare engine
           name — so the header matches Bot details at every width. */}
-      <span className="min-w-0 max-w-[160px] truncate">
+      <span data-model-label className="min-w-0 max-w-[160px] truncate">
         {phoneName === chipName ? chipName : (
           <>
             <span className="max-md:hidden">{chipName}</span>
