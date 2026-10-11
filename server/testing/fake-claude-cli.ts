@@ -41,6 +41,8 @@
 //                      and its notification wakes the CLI after `result`
 //   FAKE_CLAUDE_WAKE_DELAY_MS  ms between that notification and the wake's init;
 //                      "never" sends the notification and no wake
+//   FAKE_CLAUDE_NOTIFY_REPEAT_MS  ms between replays of that same notification,
+//                      until the process exits
 //   FAKE_CLAUDE_USER_ALLOW  tools the user's own settings.json allows, e.g.
 //                      "Write,Bash" — only `edit` reads it
 //   FAKE_CLAUDE_DUMP   path to write {argv, env, prompt, mcpConfig} as JSON,
@@ -432,7 +434,9 @@ const playSubagentWake = () => {
 let taskStarted = false;
 const playTaskWake = () => {
   turnRunning = true;
-  out({ type: "system", subtype: "task_notification", task_id: "task-1", tool_use_id: "tu-task", status: "completed", output_file: "", summary: "fake task", session_id: sessionId });
+  const notify = () => out({ type: "system", subtype: "task_notification", task_id: "task-1", tool_use_id: "tu-task", status: "completed", output_file: "", summary: "fake task", session_id: sessionId });
+  notify();
+  if (process.env.FAKE_CLAUDE_NOTIFY_REPEAT_MS) setInterval(notify, Number(process.env.FAKE_CLAUDE_NOTIFY_REPEAT_MS));
   const delay = process.env.FAKE_CLAUDE_WAKE_DELAY_MS;
   if (delay === "never") {
     turnRunning = false;
