@@ -337,8 +337,18 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     if (!host.enabled() || host.folder() !== workerFolder || host.running(threadId)) return;
     const cursor = task.cursor;
     await adopt(task);
+    resolveHeads(task);
     notifyConflict(task);
     if (task.cursor !== cursor) host.store.applySyncImport(() => host.imported(target.botId));
+  }
+
+  function resolveHeads(task: StoredTask): void {
+    if (host.running(task.threadId) || task.deleted || engine.variants(task, "delete").length || engine.changes(task, task.cursor, 1).length) return;
+    const heads = engine.variants(task, "head").filter((item) => !item.version.legacy);
+    if (new Set(heads.map((item) => item.version.value)).size < 2) return;
+    // One head that has seen every head lets older builds, which pick by writer id, converge too.
+    engine.commit(task, [{ kind: "head", value: z.string().nullable().parse(heads[0].version.value) }]);
+    schedule(task.threadId);
   }
 
   async function adopt(task: StoredTask): Promise<void> {

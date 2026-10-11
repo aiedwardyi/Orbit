@@ -23,10 +23,10 @@ const temp = () => {
   return root;
 };
 
-function pc(folder: string, deviceId: string, enabled = true, legacy = false, auto = false) {
+function pc(folder: string, deviceId: string, enabled = true, legacy = false, auto = false, writer?: string) {
   const dataDir = temp();
   const worker = new Worker(new URL("./testing/thread-sync-v2-pc.ts", import.meta.url), {
-    workerData: { folder, dataDir, deviceId, enabled, legacy, auto },
+    workerData: { folder, dataDir, deviceId, enabled, legacy, auto, writer },
     env: { ...process.env, OMB_DATA_DIR: dataDir, OMB_THREAD_SYNC_V2: enabled ? "1" : "0" },
     execArgv: ["--experimental-strip-types"],
   });
@@ -79,6 +79,17 @@ function sourceRows(dataDir: string): Array<{ path: string; hash: string | null;
   try {
     // SAFETY: This projection selects path, hash, and done.
     return db.prepare("SELECT path, hash, done FROM sync_v2_sources ORDER BY id").all() as Array<{ path: string; hash: string | null; done: number }>;
+  } finally {
+    db.close();
+  }
+}
+
+function heads(dataDir: string): Array<{ writer: string; value: string | null }> {
+  const db = new DatabaseSync(join(dataDir, "messages.db"), { readOnly: true });
+  try {
+    // Writer order is the pick an older build makes.
+    return db.prepare("SELECT writer, json FROM sync_v2_frontier WHERE kind = 'head' ORDER BY writer DESC, seq DESC").all()
+      .map((row) => ({ writer: String(row.writer), value: JSON.parse(String(row.json)).value }));
   } finally {
     db.close();
   }
@@ -290,6 +301,116 @@ describe("store delta sync", () => {
       expect(ids.sort()).toEqual(before.sort());
     }
     expect(readdirSync(dir).sort().map((name) => [name, readFileSync(join(dir, name), "utf8")])).toEqual(frozen);
+  });
+
+  for (const [order, home, laptop] of [["higher", "8d89407d-0000-4000-8000-000000000000", "8d98ea7a-0000-4000-8000-000000000000"],
+    ["lower", "8d98ea7a-0000-4000-8000-000000000000", "8d89407d-0000-4000-8000-000000000000"]]) {
+    it(`keeps every PC on the main conversation when a stale PC's writer id sorts ${order}`, async () => {
+      const folder = temp();
+      const a = pc(folder, "a", true, false, false, home);
+      const b = pc(folder, "b");
+      const c = pc(folder, "c", true, false, false, laptop);
+      await a.call("append", { text: "base" });
+      await a.call("flush");
+      await c.call("pull");
+      await a.call("batch", { count: 50 });
+      await a.call("flush");
+      const main = (await a.snapshot()).leaf;
+      await c.call("batch", { count: 4 });
+      const stale = (await c.snapshot()).rows.slice(1);
+      await c.call("pull");
+      await c.call("flush");
+      for (const peer of [a, b]) await peer.call("pull");
+      for (const peer of [a, b, c]) {
+        const snapshot = await peer.snapshot();
+        expect(snapshot.leaf).toBe(main);
+        expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+        expect(stale.every((row) => snapshot.rows.some((message) => message.id === row.id))).toBe(true);
+        await peer.call("restart");
+        await peer.call("poll");
+        expect((await peer.snapshot()).leaf).toBe(main);
+      }
+      expect(await b.call("head", { id: stale[0].id })).toBe(stale.at(-1)!.id);
+    });
+  }
+
+  it("keeps every PC on the main branch when a stale PC types once", async () => {
+    const folder = temp();
+    const a = pc(folder, "a", true, false, false, "1a000000-0000-4000-8000-000000000000");
+    const c = pc(folder, "c", true, false, false, "fc000000-0000-4000-8000-000000000000");
+    await a.call("append", { text: "base" });
+    await a.call("flush");
+    await c.call("pull");
+    await a.call("batch", { count: 50 });
+    await a.call("flush");
+    const main = (await a.snapshot()).leaf;
+    const typed = await c.call<Message>("append", { text: "typed while stale" });
+    await c.call("flush");
+    await a.call("pull");
+    await a.call("flush");
+    await c.call("pull");
+    for (const peer of [a, c]) {
+      const snapshot = await peer.snapshot();
+      expect(snapshot.leaf).toBe(main);
+      expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+      expect(snapshot.rows.some((message) => message.id === typed.id)).toBe(true);
+    }
+  });
+
+  it("converges a PC that picks by writer id once the resolving head lands", async () => {
+    const folder = temp();
+    const a = pc(folder, "a", true, false, false, "1a000000-0000-4000-8000-000000000000");
+    const b = pc(folder, "b", true, false, false, "5b000000-0000-4000-8000-000000000000");
+    const c = pc(folder, "c", true, false, false, "fc000000-0000-4000-8000-000000000000");
+    await a.call("append", { text: "base" });
+    await a.call("flush");
+    await c.call("pull");
+    await a.call("batch", { count: 50 });
+    await a.call("flush");
+    await b.call("pull");
+    const main = (await a.snapshot()).leaf;
+    await c.call("batch", { count: 4 });
+    await c.call("flush");
+    await a.call("pull");
+    await a.call("flush");
+    const outbox = (await b.snapshot()).outbox;
+    for (const peer of [b, c]) await peer.call("pull");
+    for (const peer of [b, c]) {
+      const frontier = heads(peer.dataDir);
+      expect(frontier).toHaveLength(1);
+      expect(frontier[0].value).toBe(main);
+    }
+    expect((await b.snapshot()).outbox).toBe(outbox);
+  });
+
+  it("settles two PCs that resolve at once on equal heads without more writes", async () => {
+    const folder = temp();
+    const a = pc(folder, "a", true, false, false, "1a000000-0000-4000-8000-000000000000");
+    const c = pc(folder, "c", true, false, false, "fc000000-0000-4000-8000-000000000000");
+    await a.call("append", { text: "base" });
+    await a.call("flush");
+    await c.call("pull");
+    await a.call("batch", { count: 50 });
+    await a.call("flush");
+    const main = (await a.snapshot()).leaf;
+    await c.call("batch", { count: 4 });
+    await c.call("flush");
+    await a.call("pull");
+    await c.call("pull");
+    for (const peer of [a, c]) await peer.call("flush");
+    for (const peer of [a, c]) await peer.call("pull");
+    const settled = await Promise.all([a, c].map((peer) => peer.snapshot()));
+    for (const snapshot of settled) {
+      expect(snapshot.leaf).toBe(main);
+      expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+    }
+    expect(heads(a.dataDir).map((head) => head.value)).toEqual([main, main]);
+    for (const peer of [a, c]) await peer.call("poll");
+    for (const peer of [a, c]) await peer.call("flush");
+    for (const peer of [a, c]) await peer.call("poll");
+    const after = await Promise.all([a, c].map((peer) => peer.snapshot()));
+    expect(after.map((snapshot) => snapshot.outbox)).toEqual(settled.map((snapshot) => snapshot.outbox));
+    expect(after.every((snapshot) => snapshot.leaf === main && !snapshot.rows.some(isConflictNotice))).toBe(true);
   });
 
   it("adopts local edits on two PCs, emits events, invalidates cursors and suppresses echo", async () => {

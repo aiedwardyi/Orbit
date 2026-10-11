@@ -40,7 +40,7 @@ export interface Snapshot {
 
 export type TestResult = Snapshot | Message | TaskRecord | BotRecord | string | null | undefined;
 
-const input = z.object({ folder: z.string(), dataDir: z.string(), deviceId: z.string(), enabled: z.boolean(), legacy: z.boolean().optional(), auto: z.boolean().optional() }).parse(workerData);
+const input = z.object({ folder: z.string(), dataDir: z.string(), deviceId: z.string(), enabled: z.boolean(), legacy: z.boolean().optional(), auto: z.boolean().optional(), writer: z.string().optional() }).parse(workerData);
 const selection = () => ({ instanceId: "test", model: "test" });
 let store = new Store(selection);
 let bot = store.createBot({}, { seedMessages: false });
@@ -104,6 +104,10 @@ ThreadSyncV2.prototype.pull = function (scope) {
   transports.add(this);
   return originalPull.call(this, scope);
 };
+if (input.writer) {
+  messageDatabase().exec("CREATE TABLE IF NOT EXISTS sync_v2_identity (id INTEGER PRIMARY KEY CHECK (id = 1), device TEXT NOT NULL, writer TEXT NOT NULL)");
+  messageDatabase().prepare("INSERT OR IGNORE INTO sync_v2_identity VALUES (1, ?, ?)").run(input.deviceId, input.writer);
+}
 let sync = createThreadSyncV2Store(host(), input.enabled && !input.auto);
 store.onChange((change) => events.push({ ...structuredClone(change), importing: store.importingSync }));
 

@@ -148,9 +148,29 @@ export function createSyncEngine(input: SyncOptions) {
     scopeDir(scope);
     const preferred = sql("SELECT writer, seq FROM sync_v2_selection WHERE thread = ? AND kind = ? AND row_id = ?").get(scope.threadId, kind, rowId);
     const rank = (item: SyncVariant) => !item.version.legacy ? 0 : preferred?.writer === item.writerId && preferred?.seq === item.version.seq ? 1 : 2;
-    return all(writerJsonSchema, "SELECT writer, json FROM sync_v2_frontier WHERE thread = ? AND kind = ? AND row_id = ? ORDER BY writer DESC, seq DESC", scope.threadId, kind, rowId)
+    const found = all(writerJsonSchema, "SELECT writer, json FROM sync_v2_frontier WHERE thread = ? AND kind = ? AND row_id = ? ORDER BY writer DESC, seq DESC", scope.threadId, kind, rowId)
       .map((row): SyncVariant => ({ writerId: row.writer, version: JSON.parse(row.json) }))
       .sort((a, b) => rank(a) - rank(b));
+    return kind === "head" ? mainHeadFirst(scope, found) : found;
+  }
+
+  function mainHeadFirst(scope: SyncScope, heads: SyncVariant[]): SyncVariant[] {
+    const native = heads.filter((item) => !item.version.legacy);
+    if (new Set(native.map((item) => item.version.value)).size < 2) return heads;
+    const leaves = new Map(native.map((item) => {
+      const leaf = z.string().nullable().parse(item.version.value);
+      const depth = get(countSchema, `WITH RECURSIVE ancestry(id) AS (
+        SELECT ?
+        UNION SELECT json_extract(f.json, '$.value.parentId') FROM ancestry a CROSS JOIN sync_v2_frontier f ON f.row_id = CAST(a.id AS TEXT)
+          WHERE f.thread = ? AND f.kind = 'row'
+      ) SELECT COUNT(id) AS n FROM ancestry`, leaf, scope.threadId).n;
+      const row = leaf ? variants(scope, "row", leaf)[0] : undefined;
+      return [leaf, { depth, at: row ? rowSchema.parse(row.version.value).at : -Infinity }];
+    }));
+    const rank = (item: SyncVariant) => leaves.get(z.string().nullable().parse(item.version.value))!;
+    // Stable sort keeps writer order as the last tie-break, so every PC picks the same head.
+    native.sort((a, b) => rank(b).depth - rank(a).depth || rank(b).at - rank(a).at);
+    return [...native, ...heads.filter((item) => item.version.legacy)];
   }
 
   function validateVersion(version: SyncVersion): void {
@@ -215,7 +235,7 @@ export function createSyncEngine(input: SyncOptions) {
       ? all(writerSeqSchema, "SELECT writer, seq FROM sync_v2_frontier WHERE thread = ? AND kind != 'delete'", scope.threadId)
         .some((row) => !deletes.some((item) => saw(item.version, row.writer, row.seq)))
       : deletes.some((item) => !saw(item.version, writer, version.seq));
-    const conflict = next.filter((item) => !item.version.legacy).length > 1
+    const conflict = (version.kind !== "head" && next.filter((item) => !item.version.legacy).length > 1)
       || (!version.legacy && deletionConflict && deletes.some((item) => !item.version.legacy));
     if (conflict) result.conflicts++;
     if (version.kind === "row" && !options.staged) {
@@ -664,7 +684,7 @@ export function createSyncEngine(input: SyncOptions) {
     return deletes.some((item) => all(writerSeqSchema,
       "SELECT writer, seq FROM sync_v2_frontier WHERE thread = ? AND kind != 'delete' AND json_extract(json, '$.legacy') IS NULL", scope.threadId)
       .some((row) => !saw(item.version, row.writer, row.seq))) || Boolean(sql(
-      "SELECT 1 FROM sync_v2_frontier WHERE thread = ? AND json_extract(json, '$.legacy') IS NULL GROUP BY kind, row_id HAVING COUNT(*) > 1 LIMIT 1",
+      "SELECT 1 FROM sync_v2_frontier WHERE thread = ? AND kind != 'head' AND json_extract(json, '$.legacy') IS NULL GROUP BY kind, row_id HAVING COUNT(*) > 1 LIMIT 1",
     ).get(scope.threadId));
   }
 

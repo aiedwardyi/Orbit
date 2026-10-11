@@ -1078,6 +1078,43 @@ describe("agy sign-in error bubble", () => {
   });
 });
 
+describe("error row Retry", () => {
+  it.each([
+    ["a real turn error", "error: the engine stopped", true],
+    ["a chat sync notice", "error: This chat also changed on another PC. Both versions were kept.", false],
+  ])("offers Retry on %s: %s", async (_label, name, retry) => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bot: Bot = {
+      ...botA,
+      busy: false,
+      activity: "idle",
+      activeLeafId: "err",
+      messages: [
+        userMsg("ua", "hi"),
+        { id: "err", parentId: "ua", at: 2, role: "bot", kind: "activity", tool: { name, ok: false } },
+      ],
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot }))));
+      expect(host.textContent).toContain(name.slice(6).trim());
+      expect(host.textContent?.includes("Retry")).toBe(retry);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
 describe("ChatView reconnecting cue", () => {
   it("says it is reconnecting once this window has lost its PC for a moment", async () => {
     vi.useFakeTimers();
