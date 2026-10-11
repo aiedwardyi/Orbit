@@ -75,4 +75,13 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("themes", "seaglass")).toBe(false);
     expect(settingsSectionMatches("themes", "updates")).toBe(false);
   });
+
+  it("finds Sync by Google sign-in, not by the strings it dropped", () => {
+    expect(settingsSectionMatches("sync", "google")).toBe(true);
+    expect(settingsSectionMatches("sync", "sign in")).toBe(true);
+    expect(settingsSectionMatches("sync", "로그인")).toBe(true);
+    expect(settingsSectionMatches("sync", "drive")).toBe(true);
+    expect(settingsSectionMatches("sync", "shared bot setup")).toBe(false);
+    expect(settingsSectionMatches("general", "sign in")).toBe(false);
+  });
 });
