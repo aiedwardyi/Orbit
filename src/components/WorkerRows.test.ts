@@ -8,7 +8,7 @@ import type { Message } from "@/state/store";
 import { workerRuns, type WorkerShownState } from "@/lib/worker-runs";
 import { ProviderMark } from "./ProviderIcons";
 import { applyLocale } from "@/lib/i18n";
-import { WORKER_STATUS, WorkerRow } from "./WorkerRows";
+import { WORKER_STATUS, WorkerRow, WorkerStrip } from "./WorkerRows";
 
 const run = (label: string) => {
   const launch: Message = { id: "l1", at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: aaaaaaaa-1` };
@@ -65,5 +65,45 @@ describe("WorkerRow", () => {
     expect(host.querySelector("[data-orbit-worker]")!.textContent).toContain(line);
     await act(async () => root.unmount());
     host.remove();
+  });
+});
+
+describe("WorkerStrip", () => {
+  it("keeps Tab inside the worker list", async () => {
+    applyLocale("en");
+    const host = document.createElement("div");
+    document.body.append(host);
+    const behind = document.createElement("button");
+    document.body.append(behind);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(WorkerStrip, {
+      name: "Ada",
+      runs: [{ run: run("A | Opus 5.5 | high"), state: "working" }],
+    })));
+    await act(async () => host.querySelector("button")!.click());
+    const panel = document.body.querySelector("[data-worker-list]")!;
+    const close = panel.querySelector("button")!;
+    // happy-dom does not move focus on Tab, so a second control makes the wrap observable.
+    const later = document.createElement("button");
+    panel.append(later);
+    const tab = (target: HTMLElement, shiftKey = false) =>
+      target.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true, shiftKey }));
+    try {
+      close.focus();
+      await act(async () => tab(close, true));
+      expect(document.activeElement).toBe(later);
+      await act(async () => tab(later));
+      expect(document.activeElement).toBe(close);
+      behind.focus();
+      await act(async () => tab(behind));
+      expect(document.activeElement).toBe(close);
+      behind.focus();
+      await act(async () => tab(behind, true));
+      expect(document.activeElement).toBe(later);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      behind.remove();
+    }
   });
 });

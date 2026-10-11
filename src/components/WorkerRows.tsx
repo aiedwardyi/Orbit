@@ -111,9 +111,13 @@ export function WorkerRow({ run, state, live, onOpenTerminalPane, open: expanded
   );
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 function WorkerList({ title, runs, onClose }: { title: string; runs: ShownRun[]; onClose: () => void }) {
   const { t } = useI18n();
   const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   useEffect(() => {
@@ -123,10 +127,33 @@ function WorkerList({ title, runs, onClose }: { title: string; runs: ShownRun[];
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      onCloseRef.current();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusables = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)];
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (!panel.contains(active)) {
+        event.preventDefault();
+        event.stopPropagation();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        event.stopPropagation();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        event.stopPropagation();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => {
@@ -142,6 +169,7 @@ function WorkerList({ title, runs, onClose }: { title: string; runs: ShownRun[];
       }}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal
         aria-labelledby={titleId}
