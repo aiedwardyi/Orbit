@@ -299,7 +299,7 @@ export function createDriveMirror(options: Options) {
     }
     const summary: DriveMirrorSummary = { uploaded: [], downloaded: [], skipped: [], conflicts: [], failed: [], duplicates: [], retryAfterMs: null };
     function rateWait(error: DriveClientError): number {
-      if (error.retryAfterMs !== null) return error.retryAfterMs;
+      if (error.retryAfterMs !== null) return Math.min(error.retryAfterMs, RETRY_MAX_MS);
       const wait = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** rateStrikes);
       if (rateStrikes < 20) rateStrikes += 1;
       return wait;
@@ -468,7 +468,7 @@ export function createDriveMirror(options: Options) {
       const entry = table!.files[path];
       const bytes = localBytes(path);
       if (!entry) return bytes !== null || remote.has(path);
-      if (!bytes) return false;
+      if (!bytes) return drivePathRule(path, ids) === "peer" || drivePathRule(path, ids) === "once";
       return entry.md5 !== md5(bytes) || entry.size !== String(bytes.byteLength);
     }
 
@@ -482,9 +482,9 @@ export function createDriveMirror(options: Options) {
         const bytes = localBytes(path);
         if (known) {
           try {
-            const current = await client.getFile(known.driveId);
+            const placed = await client.getPlaced(known.driveId);
             check();
-            if (!current.trashed) accept(current);
+            if (!placed.file.trashed && placed.parents.includes(rootId)) accept(placed.file);
           } catch (error) {
             check();
             // 404 means that copy is gone. A rate limit still has to stop the pass.

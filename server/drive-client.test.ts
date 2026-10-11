@@ -169,4 +169,40 @@ describe("Drive client", () => {
     await expect(clientFor(drive).listChildren("root")).rejects.toMatchObject({ status: 200 });
     expect(drive.calls).toHaveLength(2);
   });
+
+  it("cancels a 429 response body", async () => {
+    const drive = new FakeDrive();
+    const response = new Response("private", { status: 429, headers: { "retry-after": "2" } });
+    const body = response.body;
+    if (!body) throw new Error("missing body");
+    const cancel = vi.spyOn(body, "cancel");
+    drive.responses.push(response);
+    await expect(clientFor(drive).listChildren("root")).rejects.toMatchObject({ status: 429, rateLimited: true, retryAfterMs: 2_000 });
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it("stops a change page that repeats its page token", async () => {
+    const drive = new FakeDrive();
+    const page = JSON.stringify({ changes: [], nextPageToken: "start" });
+    drive.responses.push(new Response(page), new Response(page));
+    await expect(clientFor(drive).listChanges("start")).rejects.toMatchObject({ status: 200 });
+    expect(drive.calls).toHaveLength(1);
+  });
+
+  it("skips a non-file change and advances the cursor", async () => {
+    const drive = new FakeDrive();
+    const file = {
+      id: "file-1", name: "devices%2Fdevice-work.json", mimeType: "application/octet-stream",
+      createdTime: "2026-01-01T00:00:00.000Z", modifiedTime: "2026-01-01T00:00:00.000Z", trashed: false, parents: ["root-1"],
+    };
+    drive.responses.push(new Response(JSON.stringify({
+      changes: [{ changeType: "drive", driveId: "shared-1" }, { fileId: file.id, file }],
+      newStartPageToken: "cursor-2",
+    })));
+    const page = await clientFor(drive).listChanges("cursor-1");
+    expect(page.newStartPageToken).toBe("cursor-2");
+    expect(page.changes.map((change) => change.fileId)).toEqual([file.id]);
+    expect(page.changes[0]?.parents).toEqual(["root-1"]);
+    expect(page.changes[0]?.file?.name).toBe(file.name);
+  });
 });

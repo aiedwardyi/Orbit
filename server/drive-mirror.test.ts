@@ -18,9 +18,23 @@ let root: string;
 let drive: FakeDrive;
 let pcs: PC[];
 
+// Fake Drive returns parents only when the request asks for them.
+const withParents: typeof fetch = async (input, init) => {
+  const responsePromise = drive.fetch(input, init);
+  const raw = input instanceof URL ? input.href : input instanceof Request ? input.url : input;
+  const url = new URL(raw);
+  if (url.searchParams.get("alt") === "media" || !url.searchParams.get("fields")?.endsWith(",parents")) return responsePromise;
+  return responsePromise.then(async (response) => {
+    if (!response.ok) return response;
+    const parents = drive.records.get(decodeURIComponent(url.pathname.split("/").at(-1) ?? ""))?.parents;
+    const parsed = z.object({}).passthrough().parse(await response.json());
+    return Response.json(parents ? { ...parsed, parents } : parsed);
+  });
+};
+
 function mirrorFor(pc: Omit<PC, "mirror">, options: Partial<Parameters<typeof createDriveMirror>[0]> = {}) {
   return createDriveMirror({ owner: OWNER, mirrorPath: pc.folder, statePath: pc.statePath, ownIds: pc.ids,
-    client: createDriveClient({ getAccessToken: async () => "test-access", fetch: drive.fetch }), now: () => 100, ...options });
+    client: createDriveClient({ getAccessToken: async () => "test-access", fetch: withParents }), now: () => 100, ...options });
 }
 
 function write(pc: PC, path: string, bytes: string | Buffer): void {
@@ -701,6 +715,47 @@ describe("Drive mirror", () => {
     expect((await pcs[0].mirror.syncOnce()).retryAfterMs).toBeNull();
     drive.responses.push(new Response(null, { status: 429 }));
     expect((await pcs[0].mirror.syncOnce()).retryAfterMs).toBe(1_000);
+  });
+
+  it("caps a Retry-After header at five minutes", async () => {
+    drive.root();
+    drive.responses.push(new Response(null, { status: 429, headers: { "retry-after": "86400" } }));
+    expect((await pcs[0].mirror.syncOnce()).retryAfterMs).toBe(300_000);
+    const soon = new Date(Date.now() + 30_000).toUTCString();
+    drive.responses.push(new Response(null, { status: 429, headers: { "retry-after": soon } }));
+    const wait = (await pcs[0].mirror.syncOnce()).retryAfterMs ?? 0;
+    expect(wait).toBeGreaterThanOrEqual(20_000);
+    expect(wait).toBeLessThanOrEqual(30_000);
+    const far = new Date("2099-01-01T00:00:00.000Z").toUTCString();
+    drive.responses.push(new Response(null, { status: 429, headers: { "retry-after": far } }));
+    expect((await pcs[0].mirror.syncOnce()).retryAfterMs).toBe(300_000);
+  });
+
+  it.each(["devices/device-work.json", "pictures/a.png"])("restores a missing local %s after the cursor exists", async (path) => {
+    seed(path, path);
+    await pcs[0].mirror.syncOnce();
+    unlinkSync(join(pcs[0].folder, ...path.split("/")));
+    const summary = await pcs[0].mirror.syncOnce();
+    expect(summary.downloaded).toEqual([path]);
+    expect(read(pcs[0], path)).toBe(path);
+  });
+
+  it("does not read or write a file that left the mirror root", async () => {
+    const path = "devices/device-work.json";
+    const file = seed(path, "peer");
+    await pcs[0].mirror.syncOnce();
+    const record = drive.records.get(file.id)!;
+    record.parents = ["elsewhere"];
+    drive.edit(file.id, Buffer.from("external"));
+    const downloads = drive.downloads.length;
+    const summary = await pcs[0].mirror.syncOnce();
+    expect(summary.downloaded).not.toContain(path);
+    expect(read(pcs[0], path)).toBe("peer");
+    expect(drive.records.get(file.id)!.bytes.toString()).toBe("external");
+    expect(drive.downloads).toHaveLength(downloads);
+    expect(drive.uploads.filter((upload) => upload.id === file.id)).toEqual([]);
+    const placed = drive.calls.find((call) => call.method === "GET" && call.url.pathname === `/drive/v3/files/${file.id}` && call.url.searchParams.get("alt") !== "media");
+    expect(placed?.url.searchParams.get("fields")).toContain("parents");
   });
 
   it("stops the pass on a rate-limit 403 and continues after a plain 403", async () => {

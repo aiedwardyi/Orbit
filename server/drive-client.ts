@@ -16,7 +16,7 @@ const fileSchema = z.object({
 const pageSchema = z.object({ files: z.array(fileSchema), nextPageToken: z.string().min(1).optional(), incompleteSearch: z.boolean().optional() });
 const changeFileSchema = fileSchema.extend({ parents: z.array(z.string()).optional() });
 const changePageSchema = z.object({
-  changes: z.array(z.object({ fileId: z.string().min(1), removed: z.boolean().optional(), file: changeFileSchema.optional() })),
+  changes: z.array(z.object({ fileId: z.string().min(1).optional(), removed: z.boolean().optional(), file: changeFileSchema.optional() })),
   nextPageToken: z.string().min(1).optional(), newStartPageToken: z.string().min(1).optional(),
 });
 const usageSchema = z.object({ error: z.object({ errors: z.array(z.object({ domain: z.string().optional(), reason: z.string().optional() })).optional() }).optional() });
@@ -35,6 +35,7 @@ export interface DriveClient {
   listChildren(rootId: string): Promise<DriveFile[]>;
   listNamed(rootId: string, name: string): Promise<DriveFile[]>;
   getFile(id: string): Promise<DriveFile>;
+  getPlaced(id: string): Promise<{ file: DriveFile; parents: string[] }>;
   getStartPageToken(): Promise<string>;
   listChanges(pageToken: string): Promise<DriveChangePage>;
   createFile(rootId: string, name: string, appProperties: Record<string, string>, bytes: Uint8Array): Promise<DriveFile>;
@@ -100,7 +101,7 @@ export function createDriveClient(options: Options): DriveClient {
       if (!response.ok) {
         const wait = retryAfterMs(response.headers.get("retry-after"));
         const rateLimited = response.status === 429 || (response.status === 403 && await usageLimit(response));
-        if (!rateLimited && response.status !== 403) await response.body?.cancel().catch(() => undefined);
+        if (response.status !== 403) await response.body?.cancel().catch(() => undefined);
         throw new DriveClientError(response.status, rateLimited, wait);
       }
       return response;
@@ -171,6 +172,17 @@ export function createDriveClient(options: Options): DriveClient {
     getFile(id) {
       return metadata(new URL(`${FILES_URL}/${encodeURIComponent(id)}`));
     },
+    async getPlaced(id) {
+      const url = new URL(`${FILES_URL}/${encodeURIComponent(id)}`);
+      url.searchParams.set("fields", `${FILE_FIELDS},parents`);
+      const response = await request(url);
+      try {
+        const placed = changeFileSchema.parse(await response.json());
+        return { file: fileSchema.parse(placed), parents: placed.parents ?? [] };
+      } catch (error) {
+        throw new DriveClientError(error instanceof SyntaxError || error instanceof z.ZodError ? response.status : 0);
+      }
+    },
     async getStartPageToken() {
       const response = await request(new URL(`${CHANGES_URL}/startPageToken`));
       try {
@@ -181,7 +193,7 @@ export function createDriveClient(options: Options): DriveClient {
     },
     async listChanges(pageToken) {
       const changes: DriveChange[] = [];
-      const seen = new Set<string>();
+      const seen = new Set<string>([pageToken]);
       let token: string | undefined = pageToken;
       let newStartPageToken = "";
       while (token) {
@@ -199,10 +211,13 @@ export function createDriveClient(options: Options): DriveClient {
           throw new DriveClientError(error instanceof SyntaxError || error instanceof z.ZodError ? response.status : 0);
         }
         if (page.nextPageToken && seen.has(page.nextPageToken)) throw new DriveClientError(response.status);
-        for (const change of page.changes) changes.push({
-          fileId: change.fileId, removed: change.removed ?? false, parents: change.file?.parents ?? [],
-          file: change.file ? fileSchema.parse(change.file) : undefined,
-        });
+        for (const change of page.changes) {
+          if (!change.fileId) continue;
+          changes.push({
+            fileId: change.fileId, removed: change.removed ?? false, parents: change.file?.parents ?? [],
+            file: change.file ? fileSchema.parse(change.file) : undefined,
+          });
+        }
         if (page.nextPageToken) { seen.add(page.nextPageToken); token = page.nextPageToken; continue; }
         if (!page.newStartPageToken) throw new DriveClientError(response.status);
         newStartPageToken = page.newStartPageToken;
