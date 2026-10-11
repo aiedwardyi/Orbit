@@ -132,9 +132,12 @@ describe("source freshness", () => {
     expect(host.textContent).not.toContain("Source updated");
   });
 
-  it("shows the source's own date beside the check", () => {
+  it("shows the source's own date beside the check", async () => {
     const legal = sourceFor("legal");
     if (legal.updated === null) throw new Error("legal publishes no date");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(atLocal(legal.updated, 14, 23, 30));
+    await mount();
     pick("Benchmark", "Legal");
     expect(host.textContent).toContain(`Source updated ${nbDay(legal.updated)} \u00b7 checked ${nbDay(legal.retrievedAt)}`);
     expect(host.textContent).not.toContain(STALE);
