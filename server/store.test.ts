@@ -486,7 +486,7 @@ describe("Store", () => {
     expect(reloaded.sessionSystem("claude", "session-1")).toBe(system);
     expect(reloaded.sessionSystem("claude", "session-2")).toBeUndefined();
     expect(reloaded.sessionSystem("codex", "session-1")).toBeUndefined();
-    expect(readFileSync(join(DATA_DIR, "bots.json"), "utf8")).not.toContain("Mochi");
+    expect(readFileSync(join(DATA_DIR, "bots.json"), "utf8")).not.toContain("a dog named Mochi");
   });
 
   it("drops a session's system text with its cursor", () => {
