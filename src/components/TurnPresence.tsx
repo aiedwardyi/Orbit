@@ -1,11 +1,13 @@
 // Left-edge tail: mascot looks around while it works, with a live activity
 // sheen beside it. Once reply text shows, it docks in that reply's action
 // strip instead, and fades out there when the turn ends.
-import { Component, useEffect, useState, type ReactNode } from "react";
+import { cloneElement, Component, isValidElement, useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { useSkin } from "@/lib/skins";
 import { termElapsed } from "@/lib/terminal-skin";
 import type { Message } from "@/state/store";
+import { BotAvatar, type BotAvatarProps } from "./Avatar";
+import { OrbitMark } from "./OrbitRing";
 
 /** One bad markdown node must not white-screen the app — the bubble
  * degrades to plain text instead. Partial fence runs make this the rule
@@ -87,7 +89,7 @@ export function TurnPresence({
   return (
     <div className="turn-presence flex flex-col items-start">
       <div data-turn-mascot className={cn("flex items-center gap-2", visible ? "turn-mascot-in" : "turn-mascot-out")}>
-        {terminal ? <TermGlyph /> : avatar}
+        {terminal ? <TermGlyph ring={visible} /> : ringFace(avatar, visible)}
         {visible ? <WorkingLabel label={label} /> : null}
         {visible && terminal && since ? <Elapsed since={since} /> : null}
       </div>
@@ -115,15 +117,29 @@ export function DockedPresence({ avatar, label, live, since, className }: { avat
       aria-hidden={!live}
       className={cn("turn-mascot-docked pointer-events-none flex items-center gap-1.5", live ? "turn-mascot-in" : "turn-mascot-out", className)}
     >
-      {terminal ? <TermGlyph /> : avatar}
+      {terminal ? <TermGlyph ring={live} /> : ringFace(avatar, live)}
       {live ? <WorkingLabel label={label} /> : null}
       {live && terminal && since ? <Elapsed since={since} /> : null}
     </div>
   );
 }
 
-function TermGlyph() {
-  return <span aria-hidden="true" className="term-blink text-[15px] leading-none text-accent">✽</span>;
+function ringFace(avatar: ReactNode, on: boolean): ReactNode {
+  if (isValidElement<BotAvatarProps>(avatar) && avatar.type === BotAvatar) {
+    return cloneElement(avatar, { orbitRing: on });
+  }
+  if (!on) return avatar;
+  return <OrbitMark>{avatar}</OrbitMark>;
+}
+
+function TermGlyph({ ring = false }: { ring?: boolean }) {
+  const mark = (
+    <span aria-hidden="true" className="term-blink text-[15px] leading-none text-accent">
+      ✽
+    </span>
+  );
+  if (!ring) return mark;
+  return <OrbitMark>{mark}</OrbitMark>;
 }
 
 function Elapsed({ since }: { since: number }) {
