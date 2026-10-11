@@ -1,5 +1,5 @@
 import type { Message } from "@/state/store";
-import { chatNeedsYou } from "./open-question";
+import { chatNeedsYou, isSentByPerson } from "./open-question";
 import { userSectionId } from "./sidebar-layout";
 
 export type SidebarItemKind = "bot" | "group";
@@ -26,9 +26,22 @@ export function sidebarPriorityFor(value: { chiefOfStaff?: boolean; pinned?: boo
   return null;
 }
 
-/** Bot-to-bot channels stay out of every list unless a card there waits on the person; their comm chips open them. */
+/** Bot-to-bot channels stay out of every list until the person posts there or a card waits on them; their comm chips open them. */
 export function listedGroups<T extends { dm?: boolean; messages?: readonly Message[] }>(groups: readonly T[]): T[] {
-  return groups.filter((group) => !group.dm || chatNeedsYou(group.messages ?? []));
+  return groups.filter((group) => !group.dm || isJoined(group.messages ?? []));
+}
+
+function isJoined(messages: readonly Message[]): boolean {
+  return messages.some(isSentByPerson) || chatNeedsYou(messages);
+}
+
+/** Search hits minus those inside a bot-to-bot channel that listedGroups hides. */
+export function listedSearchHits<H extends { groupId?: string }>(
+  hits: readonly H[],
+  groups: readonly { id: string; dm?: boolean; messages?: readonly Message[] }[],
+): H[] {
+  const hidden = new Set(groups.filter((group) => !listedGroups([group]).length).map((group) => group.id));
+  return hits.filter((hit) => !hit.groupId || !hidden.has(hit.groupId));
 }
 
 export function sidebarItemKey(kind: SidebarItemKind, id: string): string {

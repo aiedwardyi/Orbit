@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   listedGroups,
+  listedSearchHits,
   moveSidebarItem,
   moveSidebarItemWithinTier,
   normalizeSidebarOrder,
@@ -132,6 +133,29 @@ describe("listedGroups", () => {
     const answered: Message = { ...approval, card: { ...approval.card!, answered: "Allow" } };
     expect(listedGroups([{ id: "dm", dm: true, messages: [approval] }]).map((group) => group.id)).toEqual(["dm"]);
     expect(listedGroups([{ id: "dm", dm: true, messages: [answered] }])).toEqual([]);
+  });
+
+  it("lists a bot-to-bot channel once the person has posted there", () => {
+    const sent: Message = { id: "m1", role: "user", kind: "text", at: 1, text: "hello" };
+    const mirrored: Message = { id: "m2", role: "bot", kind: "text", at: 2, text: "hi", from: { botId: "wink", name: "Wink", color: "blue" } };
+    const activity: Message = { id: "m3", role: "bot", kind: "activity", at: 3, text: "Read" };
+    expect(listedGroups([{ id: "dm", dm: true, messages: [mirrored, sent] }]).map((group) => group.id)).toEqual(["dm"]);
+    expect(listedGroups([{ id: "dm", dm: true, messages: [mirrored, activity] }])).toEqual([]);
+  });
+});
+
+describe("listedSearchHits", () => {
+  const sent: Message = { id: "m1", role: "user", kind: "text", at: 1, text: "hello" };
+  const mirrored: Message = { id: "m2", role: "bot", kind: "text", at: 2, text: "hi", from: { botId: "wink", name: "Wink", color: "blue" } };
+  const groups = [
+    { id: "room" },
+    { id: "hidden", dm: true, messages: [mirrored] },
+    { id: "joined", dm: true, messages: [mirrored, sent] },
+  ];
+
+  it("drops hits inside a hidden bot-to-bot channel only", () => {
+    const hits = [{ botId: "b1" }, { groupId: "room" }, { groupId: "hidden" }, { groupId: "joined" }, { groupId: "unknown" }];
+    expect(listedSearchHits(hits, groups)).toEqual([{ botId: "b1" }, { groupId: "room" }, { groupId: "joined" }, { groupId: "unknown" }]);
   });
 });
 

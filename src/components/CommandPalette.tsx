@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bot as BotIcon, Bug, MessageSquare, Search, Users } from "lucide-react";
 import { api, useStore, type Bot, type Group } from "@/state/store";
 import { rankByName } from "@/lib/palette-rank";
-import { listedGroups } from "@/lib/sidebar-order";
+import { listedGroups, listedSearchHits } from "@/lib/sidebar-order";
 import { cn } from "@/lib/cn";
 import type { SearchHit } from "@/lib/search-hit";
 import { landOnSearchHit } from "@/lib/focus-message";
@@ -106,6 +106,7 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
 
   const bots = rankByName(state.bots.filter((b) => !b.hidden), q);
   const rooms = rankByName(listedGroups(state.groups), q);
+  const hits = listedSearchHits(messageHits, state.groups);
   const activeBot = state.bots.find((bot) => bot.id === state.selectedId);
   const commands: PaletteCommand[] =
     activeBot && "inspector runtime events protocol debug".includes(q)
@@ -123,7 +124,7 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
     ...rooms.map((group): PaletteEntry => ({ kind: "room", group })),
     ...commands,
     // message hits only make sense for a typed query; empty = switcher mode
-    ...(q ? messageHits.map((hit): PaletteEntry => ({ kind: "message", hit })) : []),
+    ...(q ? hits.map((hit): PaletteEntry => ({ kind: "message", hit })) : []),
   ];
   // hits arriving or rows filtering away can strand the cursor past the end
   const selected = entries.length ? Math.min(cursor, entries.length - 1) : 0;
@@ -275,13 +276,13 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
               true,
             ),
           )}
-          {q && messageHits.length > 0 && (
+          {q && hits.length > 0 && (
             <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
               {t("palette.messages")}
             </div>
           )}
           {q &&
-            messageHits.map((hit, i) => {
+            hits.map((hit, i) => {
               const before = hit.snippet.slice(0, hit.matchStart);
               const match = hit.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength);
               const after = hit.snippet.slice(hit.matchStart + hit.matchLength);
