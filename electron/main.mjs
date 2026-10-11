@@ -18,6 +18,7 @@ import {
 } from "./skill-recorder.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { openEngineSignIn } from "./engine-signin.mjs";
+import { createGoogleAccountController, createGoogleSessionPush, googleClient, googleServerEnv } from "./google-signin.mjs";
 import { createTerminalHost, trustedTerminalSender } from "./terminal-host.mjs";
 import { installOrbitMsg, readMailboxSecret } from "./terminal-mailbox.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
@@ -108,6 +109,8 @@ const { createCuaConnectionStore: createDescriptorStore } = require("./cua-conne
 const { normalizeUnreadCount, parseWindowState, resolveWindowState } = require("./window-state.cjs");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// release.yml bakes google-client.json into the package; self-built copies have none.
+const GOOGLE_CLIENT = googleClient(process.env, () => JSON.parse(fs.readFileSync(path.join(__dirname, "google-client.json"), "utf8")));
 // 127.0.0.1 explicitly — vite binds IPv4; a bare "localhost" here can
 // resolve to ::1 and paint a black window
 const DEV_URL = process.env.ELECTRON_START_URL ?? "http://127.0.0.1:5199";
@@ -888,6 +891,7 @@ async function startServerOn(port) {
     // the server prefers these over config.json, whose plaintext fields
     // the boot migration has deleted
     ...workspaceCredentialEnv(childEnvCredentials),
+    ...googleServerEnv(GOOGLE_CLIENT, secureCredentials),
     ...(terminalBridgeAccess
       ? {
           OMB_TERMINAL_URL: terminalBridgeAccess.url,
@@ -2112,6 +2116,37 @@ ipcMain.handle("assemblyai:streaming-token", () =>
   mintAssemblyAIStreamingToken(assemblyAICredential(secureCredentials)),
 );
 
+// The refresh token lives in credentials.bin and the server's memory only.
+// Sign out never revokes: one grant covers every PC on the account.
+const pushGoogleSession = createGoogleSessionPush({
+  isPackaged: app.isPackaged,
+  getServerProcess: () => serverProc,
+  getToken: () => serverToken,
+  getPort: () => Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT),
+  log: slog,
+});
+
+const googleAccount = createGoogleAccountController({
+  client: GOOGLE_CLIENT,
+  openExternal: (url) => shell.openExternal(url),
+  saveSession: async (session) => {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("The operating-system credential store is unavailable");
+    await updateSecureCredentialDocument((credentials) => ({ ...credentials, googleAccount: session }));
+    await pushGoogleSession(session);
+  },
+  clearSession: async () => {
+    await updateSecureCredentialDocument((credentials) => {
+      delete credentials.googleAccount;
+      return credentials;
+    });
+    await pushGoogleSession(null);
+  },
+  log: slog,
+});
+ipcMain.handle("google-account:sign-in", () => googleAccount.signIn());
+ipcMain.handle("google-account:cancel", () => googleAccount.cancel());
+ipcMain.handle("google-account:sign-out", () => googleAccount.signOut());
+
 const CREDENTIAL_PATCH = {
   composioApiKey: (value) => ({ composio: { apiKey: value } }),
   xaiApiKey: (value) => ({ xai: { key: value } }),
@@ -2313,6 +2348,7 @@ app.whenReady().then(async () => {
     await secureWorkspaceConfig();
   } else {
     await syncDevTerminalBridge();
+    if (secureCredentials.googleAccount) await pushGoogleSession(secureCredentials.googleAccount);
   }
   // The companion the user left on comes back without anyone finding the
   // toggle again — one attempt, after the harness port is settled, with the

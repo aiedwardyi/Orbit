@@ -82,6 +82,11 @@ jobs:
       - name: Clean generated output
         shell: bash
         run: rm -rf dist dist-server release
+      - name: Bake the Google sign-in client
+        env:
+          WINK_GOOGLE_CLIENT_ID: ${{ secrets.WINK_GOOGLE_CLIENT_ID }}
+          WINK_GOOGLE_CLIENT_SECRET: ${{ secrets.WINK_GOOGLE_CLIENT_SECRET }}
+        run: node scripts/write-google-client.mjs
       - run: pnpm package:win
       - name: Verify the packaged tree and start the packaged server
         shell: bash

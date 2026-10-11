@@ -85,6 +85,12 @@ contextBridge.exposeInMainWorld("ogb", {
     retry: () => ipcRenderer.invoke("companion-account:retry"),
     signOut: () => ipcRenderer.invoke("companion-account:sign-out"),
   },
+  /** Google sign-in for Drive sync. Tokens stay in the main process; status comes from GET /api/google-account. */
+  googleAccount: {
+    signIn: () => ipcRenderer.invoke("google-account:sign-in"),
+    cancel: () => ipcRenderer.invoke("google-account:cancel"),
+    signOut: () => ipcRenderer.invoke("google-account:sign-out"),
+  },
   localControl: {
     status: () => ipcRenderer.invoke("cua:linux-status"),
     enable: () => ipcRenderer.invoke("cua:linux-enable"),

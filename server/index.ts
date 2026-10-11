@@ -299,6 +299,7 @@ import {
 import { PhoneAccess } from "./phone-access.ts";
 import { postPhoneKeepAwake, type PhoneKeepAwakeMessage } from "./phone-keep-awake.ts";
 import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
+import { GoogleAccount, applyGoogleAccountMessage, googleAccountRoute, takeGoogleEnv } from "./google-account.ts";
 import type { PublicPhone } from "./phone-devices.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
 import * as vps from "./vps-computer.ts";
@@ -402,6 +403,8 @@ if (sweepLegacyOpencodeKey() === "failed") {
   console.warn(`config: could not remove the legacy OpenCode section from ${join(DATA_DIR, "config.json")}; delete the opencodeGo key manually`);
 }
 const cfg = loadConfig();
+// Before registry.load: a prewarmed engine child would inherit the token.
+const googleEnv = takeGoogleEnv(process.env);
 let profileSyncSettings: ProfileSyncSettings = loadProfileSyncSettings(DATA_DIR);
 const threadSyncGate = createThreadSyncV2Gate(DATA_DIR);
 if (!existsSync(join(DATA_DIR, "profile-sync.json"))) {
@@ -421,6 +424,7 @@ type UtilityParentPort = {
   postMessage(message: { type: string; token: string } | PhoneKeepAwakeMessage): void;
 };
 const utilityParentPort = (process as NodeJS.Process & { parentPort?: UtilityParentPort }).parentPort;
+const googleAccount = new GoogleAccount(googleEnv.client, googleEnv.session);
 let hostShutdown = () => {};
 let hostShutdownStarted = false;
 utilityParentPort?.on("message", (event) => {
@@ -434,6 +438,7 @@ utilityParentPort?.on("message", (event) => {
     broadcast({ kind: "update.state", state: updateState });
     return;
   }
+  if (applyGoogleAccountMessage(message, googleAccount)) return;
   try {
     composio.applyManagedBrokerMessage(message);
   } catch (error) {
@@ -6560,6 +6565,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         terminalBridgeAccess = { url, token };
         return json(res, 200, { ok: true });
       }
+      if ((method === "PUT" || method === "DELETE") && path === "/api/internal/google-account") {
+        const result = await googleAccountRoute(method, Boolean(utilityParentPort), () => readBody(req), googleAccount);
+        return json(res, result.status, result.body);
+      }
       if (method === "POST" && path === "/api/internal/task-state") {
         const parsed = taskStateUpdateEnvelopeSchema.safeParse(await readBody(req));
         if (!parsed.success) return json(res, 400, { error: taskStateUpdateError(parsed.error) });
@@ -9895,6 +9904,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // ── app config (API keys — never echoed back, booleans only) ──
     if (method === "GET" && path === "/api/config") {
       return json(res, 200, configStatus());
+    }
+    if (method === "GET" && path === "/api/google-account") {
+      return json(res, 200, googleAccount.status());
     }
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);

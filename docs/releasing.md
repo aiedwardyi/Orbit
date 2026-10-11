@@ -20,7 +20,7 @@ stapling silently invalidating every published hash, and a finished release
 sitting invisible as a draft. Don't remove a gate without reading the comment
 above it.
 
-## One-time setup: one secret
+## One-time setup: secrets
 
 Set these in **OpenMausBot → Settings → Secrets and variables → Actions**.
 
@@ -31,6 +31,13 @@ separate releases repo: **GitHub → Settings → Developer settings →
 Fine-grained tokens** → repository access: only `orbit-releases` →
 permissions: **Contents: Read and write**. Set a long expiry and a calendar
 reminder.
+
+### `WINK_GOOGLE_CLIENT_ID` and `WINK_GOOGLE_CLIENT_SECRET`
+
+The Google "Desktop app" OAuth client for Google sign-in. The release bakes
+them into the package (`scripts/write-google-client.mjs`); they never go in
+the repo. Without them the build ships with Google sign-in hidden. Local dev
+reads env vars with the same names.
 
 ### Local fallback
 
