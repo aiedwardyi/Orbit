@@ -13,6 +13,7 @@ import {
   sidebarItemKey,
   UNASSIGNED_SECTION_ID,
 } from "./sidebar-order";
+import type { Message } from "@/state/store";
 
 describe("sidebar item order", () => {
   it("partitions global priority tiers without duplicating both flags", () => {
@@ -118,6 +119,19 @@ describe("listedGroups", () => {
   it("drops bot-to-bot channels and keeps rooms in order", () => {
     const groups = [{ id: "r1" }, { id: "dm", dm: true }, { id: "r2", dm: false }];
     expect(listedGroups(groups).map((group) => group.id)).toEqual(["r1", "r2"]);
+  });
+
+  it("keeps a bot-to-bot channel listed while a card there waits on the person", () => {
+    const approval: Message = {
+      id: "approval",
+      role: "bot",
+      kind: "options",
+      at: 1,
+      card: { title: "Approval needed", subtitle: "rm -rf build", options: ["Allow", "Deny"], requestId: "r1", tool: "Bash" },
+    };
+    const answered: Message = { ...approval, card: { ...approval.card!, answered: "Allow" } };
+    expect(listedGroups([{ id: "dm", dm: true, messages: [approval] }]).map((group) => group.id)).toEqual(["dm"]);
+    expect(listedGroups([{ id: "dm", dm: true, messages: [answered] }])).toEqual([]);
   });
 });
 
