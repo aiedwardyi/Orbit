@@ -1,24 +1,41 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight, SquareTerminal, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
-import { byUrgency, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
+import type { Message } from "@/state/store";
+import { byUrgency, workerAnchors, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
 import { ProviderMark } from "./ProviderIcons";
 
 const STRIP_LIMIT = 5;
 
 export const WORKER_STATUS = {
   working: { glyph: "●", key: "workers.working", text: "text-accent", dot: "bg-accent" },
-  waiting: { glyph: "?", key: "workers.waiting", text: "text-warning", dot: "bg-warning" },
+  waiting: { glyph: "‖", key: "workers.waiting", text: "text-warning", dot: "bg-warning" },
   failed: { glyph: "!", key: "workers.failed", text: "text-danger", dot: "bg-danger" },
   done: { glyph: "✓", key: "workers.done", text: "text-success", dot: "bg-success" },
   ended: { glyph: "○", key: "workers.ended", text: "text-ink-secondary", dot: "bg-ink-secondary" },
 } as const satisfies Record<WorkerShownState, { glyph: string; key: string; text: string; dot: string }>;
 
 export type ShownRun = { run: WorkerRun; state: WorkerShownState };
+
+export function useWorkerRows(workers: ShownRun[], messages: Message[]) {
+  const anchors = useRef(new Map<string, string>());
+  const workerAt = useMemo(() => workerAnchors(workers, messages, anchors.current), [messages, workers]);
+  useLayoutEffect(() => {
+    for (const [id, shown] of workerAt) if (shown) anchors.current.set(shown.run.id, id);
+  }, [workerAt]);
+  const [open, setOpen] = useState(new Set<string>());
+  const toggle = useCallback((id: string) => setOpen((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  }), []);
+  return { workerAt, open, toggle };
+}
 
 function WorkerMark({ provider }: { provider: string | null }) {
   // brand marks stay untinted; only the script glyph takes the ink color
@@ -54,9 +71,10 @@ function WorkerLine({ run, state }: ShownRun) {
 }
 
 /** A worker run's one transcript row; its notes fold in and open on tap. */
-export function WorkerRow({ run, state, live, onOpenTerminalPane }: ShownRun & { live: boolean | null; onOpenTerminalPane?: (sessionId: string) => void }) {
+export function WorkerRow({ run, state, live, onOpenTerminalPane, open: expanded, onToggle }: ShownRun & { live: boolean | null; onOpenTerminalPane?: (sessionId: string) => void; open?: boolean; onToggle?: () => void }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = expanded ?? localOpen;
   const jump = live && run.sessionId && onOpenTerminalPane ? run.sessionId : null;
   const finished = state === "done" || state === "failed" || state === "ended";
   const where = finished ? "chat.launchRanIn" : live ? "chat.launchRunningIn" : "chat.launchFolder";
@@ -64,7 +82,7 @@ export function WorkerRow({ run, state, live, onOpenTerminalPane }: ShownRun & {
     <div data-worker-run={run.id} className="flex w-full flex-col">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle ?? (() => setLocalOpen((v) => !v))}
         aria-expanded={open}
         className="flex w-full items-center gap-2.5 border-b border-hairline/40 py-2 text-left text-[13px] hover:bg-raised/40"
       >

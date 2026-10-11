@@ -33,6 +33,16 @@ describe("workerRuns", () => {
     expect(workerRuns([launch("l1", 1, "A | Sonnet 5.5 | low")])[0]!.state).toBe("working");
   });
 
+  it.each(["DONE", "FAIL"])("keeps %s when the session's launch note arrives after its report", (status) => {
+    const run = workerRuns([
+      note("n1", 1, report(status, "A", "fast script report"), "A | script"),
+      launch("l1", 2, "A | script"),
+    ])[0]!;
+    expect(run.state).toBe(status === "DONE" ? "done" : "failed");
+    expect(run.messageIds).toEqual(["l1", "n1"]);
+    expect(run.notes[0]!.note.body).toBe("fast script report");
+  });
+
   it("splits two jobs from one script pane by nickname", () => {
     const runs = workerRuns([
       launch("l1", 1, "REL-CHAIN-166 | script"),
@@ -46,14 +56,15 @@ describe("workerRuns", () => {
     expect(runs.map((r) => r.provider)).toEqual(["script", "script"]);
   });
 
-  it("keeps a relaunched pane and nickname as one run, working again", () => {
+  it("starts a new working run when a nickname relaunches in a new pane", () => {
     const runs = workerRuns([
       launch("l1", 1, "A | Opus 5.5 | high"),
       note("n1", 2, report("DONE", "A"), "A | Opus 5.5 | high"),
-      launch("l2", 3, "A | Opus 5.5 | high"),
+      launch("l2", 3, "A | Opus 5.5 | high", OTHER),
     ]);
-    expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({ state: "working", messageIds: ["l1", "l2", "n1"] });
+    expect(runs).toHaveLength(2);
+    expect(runs[0]).toMatchObject({ state: "done", messageIds: ["l1", "n1"] });
+    expect(runs[1]).toMatchObject({ state: "working", sessionId: OTHER, messageIds: ["l2"] });
   });
 
   it("lets DONE replace a stalled note", () => {

@@ -18,7 +18,7 @@ const run = (label: string) => {
 describe("WorkerRow", () => {
   it.each([
     ["working", "●", "Working", "text-accent"],
-    ["waiting", "?", "Waiting", "text-warning"],
+    ["waiting", "‖", "Waiting", "text-warning"],
     ["failed", "!", "Failed", "text-danger"],
     ["done", "✓", "Done", "text-success"],
     ["ended", "○", "Ended", "text-ink-secondary"],

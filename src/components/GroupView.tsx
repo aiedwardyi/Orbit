@@ -41,8 +41,8 @@ import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
-import { WorkerRow, WorkerStrip, type ShownRun } from "./WorkerRows";
-import { shownState, workerAnchors, workerRuns } from "@/lib/worker-runs";
+import { WorkerRow, WorkerStrip, useWorkerRows, type ShownRun } from "./WorkerRows";
+import { shownState, workerRuns } from "@/lib/worker-runs";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
 import { ReactionBar, ReactionChips } from "./Reactions";
@@ -326,7 +326,7 @@ const Transcript = memo(function Transcript({
     () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages),
     [messages, streamingMessage],
   );
-  const workerAt = useMemo(() => workerAnchors(workers, messages), [messages, workers]);
+  const { workerAt, open, toggle } = useWorkerRows(workers, messages);
   const rows = useMemo(
     () => roomTranscriptRows(items, { showToolCalls, workerRows: new Set([...workerAt].filter(([, shown]) => shown).map(([id]) => id)) }),
     [items, showToolCalls, workerAt],
@@ -417,7 +417,7 @@ const Transcript = memo(function Transcript({
           : undefined;
         const worker = workerAt.get(m.id);
         const row = worker ? (
-          <WorkerRow {...worker} live={null} />
+          <WorkerRow {...worker} live={null} open={open.has(worker.run.id)} onToggle={() => toggle(worker.run.id)} />
         ) :
           // a member can hit a permission ask mid-turn; without this the
           // card never rendered here and the bot waited out its timeout.
@@ -1185,7 +1185,8 @@ export function GroupView({ group }: { group: Group }) {
   const jump = useJumpWindow(dispatch, transcriptKey, group.threadId, group.messages, null, state.olderPatches[group.threadId], state.snapshots);
   const shown = jump.messages ?? group.messages;
   // rooms have no pane liveness, so a run without a report stays Working
-  const workers = useMemo(() => workerRuns(shown).map((run) => ({ run, state: shownState(run, null) })), [shown]);
+  const workers = useMemo(() => workerRuns(group.messages).map((run) => ({ run, state: shownState(run, null) })), [group.messages]);
+  const rowWorkers = useMemo(() => jump.messages ? workerRuns(group.messages, jump.messages).map((run) => ({ run, state: shownState(run, null) })) : workers, [group.messages, jump.messages, workers]);
   const renders = useCallback(
     (index: number) => messageVisible(group.messages[index], showToolCalls),
     [group.messages, showToolCalls],
@@ -1686,6 +1687,7 @@ export function GroupView({ group }: { group: Group }) {
             </div>
           )}
           <Transcript
+            key={`${transcriptKey}:${jump.messages ? `jump:${jump.messages.at(-1)?.id}` : "live"}`}
             group={group}
             members={members}
             messages={windowedMessages}
@@ -1694,7 +1696,7 @@ export function GroupView({ group }: { group: Group }) {
             dock={dock}
             onReply={selectReply}
             onFocusComposer={focusComposer}
-            workers={workers}
+            workers={rowWorkers}
           />
           {laterCount > 0 && (
             <div className="flex justify-center">

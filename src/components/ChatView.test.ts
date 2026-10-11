@@ -286,6 +286,58 @@ describe("ChatView worker rows", () => {
     }
   });
 
+  it("ends exited desktop panes while DONE and FAIL still win", async () => {
+    stubDom();
+    const ids = ["aaaaaaaa-1", "bbbbbbbb-1", "cccccccc-1", "dddddddd-1"];
+    vi.stubGlobal("ogb", { platform: "win32", terminal: {
+      readBot: async () => ({ panes: ids.map((sessionId) => ({ sessionId, main: false, exited: true })) }),
+    } });
+    const current: Bot = { ...botA, messages: [
+      ...ids.map((id, i) => launch(id, `W${i}`)),
+      note("n1", ids[1]!, "BLOCKED W1 branch=x sha=y dirty=no", 2),
+      note("n2", ids[2]!, "DONE W2 branch=x sha=y dirty=no", 3),
+      note("n3", ids[3]!, "FAIL W3 branch=x sha=y dirty=no", 4),
+    ] };
+    const { host, unmount } = await mountChat(current);
+    try {
+      expect(states(host)).toEqual(["ended", "ended", "done", "failed"]);
+      expect(host.querySelector("[data-worker-strip]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("keeps desktop exit events over a late snapshot and unsubscribes", async () => {
+    stubDom();
+    const panes = ["aaaaaaaa-1", "bbbbbbbb-1", "cccccccc-1"].map((sessionId) => ({ sessionId, main: false, exited: false }));
+    let resolveSnapshot: (value: { panes: typeof panes }) => void = () => {};
+    let exit: (event: { id: string; exitCode: number }) => void = () => {};
+    const offExit = vi.fn();
+    vi.stubGlobal("ogb", { platform: "win32", terminal: {
+      readBot: () => new Promise((resolve) => { resolveSnapshot = resolve; }),
+      onExit: (cb: typeof exit) => { exit = cb; return offExit; },
+    } });
+    const current: Bot = { ...botA, messages: [
+      ...panes.map((pane, i) => launch(pane.sessionId, `W${i}`)),
+      note("n1", panes[2]!.sessionId, "DONE W2 branch=x sha=y dirty=no", 2),
+    ] };
+    const { host, unmount } = await mountChat(current);
+    try {
+      await act(async () => exit({ id: panes[0]!.sessionId, exitCode: 1 }));
+      await act(async () => resolveSnapshot({ panes }));
+      expect(states(host)).toEqual(["ended", "working", "done"]);
+      await act(async () => {
+        exit({ id: panes[1]!.sessionId, exitCode: 0 });
+        exit({ id: panes[2]!.sessionId, exitCode: 0 });
+      });
+      expect(states(host)).toEqual(["ended", "ended", "done"]);
+      expect(host.querySelector("[data-worker-strip]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+    expect(offExit).toHaveBeenCalledOnce();
+  });
+
   it("shows a strip for live runs that opens the list, urgent first", async () => {
     stubDom();
     const [a, b, c, d] = ["aaaaaaaa-1", "bbbbbbbb-1", "cccccccc-1", "dddddddd-1"];
@@ -313,7 +365,7 @@ describe("ChatView worker rows", () => {
       expect(list.getAttribute("role")).toBe("dialog");
       expect(list.querySelector("h2")?.textContent).toBe("A's workers");
       expect(Array.from(list.querySelectorAll("li")).map((li) => li.textContent)).toEqual([
-        "GUIDEOpus 5.5?Waiting", "SHIPGrok 4.7!Failed", "BUILDGPT-6 Astra●Working", "COPYGemini 3.8✓Done",
+        "GUIDEOpus 5.5‖Waiting", "SHIPGrok 4.7!Failed", "BUILDGPT-6 Astra●Working", "COPYGemini 3.8✓Done",
       ]);
       await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
       expect(document.body.querySelector("[data-worker-list]")).toBeNull();
@@ -343,7 +395,7 @@ describe("ChatView worker rows", () => {
     const roster = (...ids: string[]) => ({ panes: [{ sessionId: "main-1", main: true }, ...ids.map((sessionId) => ({ sessionId, main: false }))] });
     // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
     const threeRuns = () => ({ ...botA, messages: [userMsg("ua", "go"), launch(a, "A"), launch(b, "B"), launch(c, "C")] } as Bot);
-    const reply = (status: number, body: { error?: string; panes?: Array<{ sessionId: string; main: boolean }> }) => new Response(JSON.stringify(body), { status });
+    const reply = (status: number, body: { error?: string; panes?: Array<{ sessionId: string; main: boolean; exited?: boolean }> }) => new Response(JSON.stringify(body), { status });
     const stubTerminal = (answer: (call: number) => Promise<Response>) => {
       stubDom();
       const calls: string[] = [];
@@ -365,8 +417,9 @@ describe("ChatView worker rows", () => {
       const host = document.createElement("div");
       document.body.append(host);
       const root = createRoot(host);
-      await act(async () => root.render(createElement(StoreProvider, null, createElement(Feed), createElement(ChatView, { bot }))));
-      return { host, unmount: async () => { await act(async () => root.unmount()); host.remove(); } };
+      const render = async (next: Bot) => act(async () => root.render(createElement(StoreProvider, null, createElement(Feed), createElement(ChatView, { bot: next }))));
+      await render(bot);
+      return { host, render, unmount: async () => { await act(async () => root.unmount()); host.remove(); } };
     };
     const settle = () => act(async () => { await sleep(0); });
 
@@ -378,6 +431,95 @@ describe("ChatView worker rows", () => {
         expect(states(host)).toEqual(["working", "ended", "working"]);
         expect(host.querySelector("[data-worker-strip]")?.querySelectorAll("[data-worker-state]")).toHaveLength(2);
         expect(calls).toEqual([`GET ${terminalPath}`]);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("ends exited phone panes while DONE and FAIL still win", async () => {
+      stubTerminal(async () => reply(200, { panes: [a, b, c].map((sessionId) => ({ sessionId, main: false, exited: true })) }));
+      const current: Bot = { ...threeRuns(), messages: [
+        ...threeRuns().messages,
+        note("n1", b, "DONE B branch=x sha=y dirty=no", 2),
+        note("n2", c, "FAIL C branch=x sha=y dirty=no", 3),
+      ] };
+      const { host, unmount } = await mountFed(current);
+      try {
+        await settle();
+        expect(states(host)).toEqual(["ended", "done", "failed"]);
+        expect(host.querySelector("[data-worker-strip]")).toBeNull();
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("rereads a new launch session despite identical pane labels", async () => {
+      let live = a;
+      const calls = stubTerminal(async () => reply(200, roster(live)));
+      const current: Bot = { ...botA, messages: [launch(a, "JOB | script")] };
+      const { host, render, unmount } = await mountFed(current);
+      try {
+        await settle();
+        await act(async () => feed({ [botA.id]: ["JOB | script"] }));
+        await settle();
+        const before = calls.length;
+        live = b;
+        await render({ ...current, messages: [...current.messages, launch(b, "JOB | script", 2)] });
+        for (let i = 0; i < 4; i++) await act(async () => feed({ [botA.id]: ["JOB | script"] }));
+        await settle();
+        expect(calls).toHaveLength(before + 1);
+        expect(states(host)).toEqual(["ended", "working"]);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("retries failed phone reads with capped backoff and keeps the last roster", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      let healthy = false;
+      const calls = stubTerminal(async (call) => call === 1 ? reply(200, roster(a)) : healthy ? reply(200, roster(b)) : reply(500, { error: "offline" }));
+      const { host, unmount } = await mountFed(threeRuns());
+      try {
+        await act(async () => feed({ [botA.id]: ["x"] }));
+        expect(calls).toHaveLength(2);
+        expect(states(host)).toEqual(["working", "ended", "ended"]);
+        for (const delay of [1000, 2000, 4000, 8000, 15000, 15000]) {
+          const before = calls.length;
+          await act(async () => vi.advanceTimersByTimeAsync(delay - 1));
+          expect(calls).toHaveLength(before);
+          await act(async () => vi.advanceTimersByTimeAsync(1));
+          expect(calls).toHaveLength(before + 1);
+          expect(states(host)).toEqual(["working", "ended", "ended"]);
+        }
+        healthy = true;
+        await act(async () => vi.advanceTimersByTimeAsync(15000));
+        expect(states(host)).toEqual(["ended", "working", "ended"]);
+        const before = calls.length;
+        await act(async () => vi.advanceTimersByTimeAsync(30000));
+        expect(calls).toHaveLength(before);
+      } finally {
+        await unmount();
+        vi.useRealTimers();
+      }
+    });
+
+    it("coalesces phone refreshes without parallel reads or superseded rosters", async () => {
+      const pending: Array<(response: Response) => void> = [];
+      const calls = stubTerminal((call) => call === 1 ? Promise.resolve(reply(200, roster(a))) : new Promise<Response>((resolve) => { pending.push(resolve); }));
+      const { host, unmount } = await mountFed(threeRuns());
+      try {
+        await settle();
+        await act(async () => feed({ [botA.id]: ["x"] }));
+        await act(async () => feed({ [botA.id]: ["y"] }));
+        await act(async () => feed({ [botA.id]: ["z"] }));
+        expect(calls).toHaveLength(2);
+        await act(async () => pending[0]!(reply(200, roster())));
+        await settle();
+        expect(calls).toHaveLength(3);
+        expect(states(host)).toEqual(["working", "ended", "ended"]);
+        await act(async () => pending[1]!(reply(200, roster(b))));
+        await settle();
+        expect(states(host)).toEqual(["ended", "working", "ended"]);
       } finally {
         await unmount();
       }
@@ -459,10 +601,10 @@ describe("ChatView worker rows", () => {
       const { host, unmount } = await mountFed(threeRuns());
       try {
         await act(async () => feed({ [botA.id]: ["x"] }));
-        await act(async () => { late[2]!(reply(200, roster(b))); });
-        await settle();
-        expect(states(host)).toEqual(["ended", "working", "ended"]);
+        expect(late[2]).toBeUndefined();
         await act(async () => { late[1]!(reply(200, roster(a, b, c))); });
+        await settle();
+        await act(async () => { late[2]!(reply(200, roster(b))); });
         await settle();
         expect(states(host)).toEqual(["ended", "working", "ended"]);
         await act(async () => feed({ [botA.id]: ["x", "y"] }));

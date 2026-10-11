@@ -63,7 +63,7 @@ import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
-import { WorkerRow, WorkerStrip, type ShownRun } from "./WorkerRows";
+import { WorkerRow, WorkerStrip, useWorkerRows, type ShownRun } from "./WorkerRows";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { ModelPicker } from "./ModelPicker";
 import { DeviceTag } from "./DeviceSwitcher";
@@ -107,7 +107,7 @@ import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { activeRunForBot, routineWorkingElsewhere } from "../../shared/working-thread";
 import { parsePaneNote, type PaneNote } from "../../shared/pane-note";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
-import { shownState, workerAnchors, workerRuns } from "@/lib/worker-runs";
+import { shownState, workerRuns } from "@/lib/worker-runs";
 import { ContextCompactionDivider, TaskRecoveryCard } from "./TaskRecoveryCard";
 
 /** Long user messages collapse behind a fade so pasted walls of text don't
@@ -832,8 +832,9 @@ function NoteMessage({ message }: { message: Message }) {
 const paneLabelsKey = (labels: string[] | undefined) => `${labels?.length ?? 0}:${labels?.join("\n") ?? ""}`;
 
 /** Bot-spawned pane ids still open, null until the bridge or the host answers. */
-function useLivePanes(botId: string, enabled: boolean, paneKey: string): Set<string> | null {
+function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionKey: string): Set<string> | null {
   const [live, setLive] = useState<Set<string> | null>(null);
+  const phoneRead = useRef<{ busy: boolean; next: (() => void) | null }>({ busy: false, next: null });
   useEffect(() => {
     const bridge = window.ogb?.terminal;
     setLive(null);
@@ -842,7 +843,7 @@ function useLivePanes(botId: string, enabled: boolean, paneKey: string): Set<str
     const closed = new Set<string>();
     void Promise.resolve().then(() => bridge.readBot?.(botId)).then((snapshot) => {
       if (!alive || !snapshot?.panes) return;
-      const ids = snapshot.panes.filter((p) => !p.main && !closed.has(p.sessionId)).map((p) => p.sessionId);
+      const ids = snapshot.panes.filter((p) => !p.main && !p.exited && !closed.has(p.sessionId)).map((p) => p.sessionId);
       setLive((current) => new Set([...ids, ...(current ?? [])]));
     }).catch(() => {});
     const offOpened = bridge.onOpened?.((event) => {
@@ -853,27 +854,51 @@ function useLivePanes(botId: string, enabled: boolean, paneKey: string): Set<str
       closed.add(event.id);
       setLive((current) => { const next = new Set(current ?? []); next.delete(event.id); return next; });
     });
-    return () => { alive = false; offOpened?.(); offClosed?.(); };
+    const offExit = bridge.onExit?.((event) => {
+      closed.add(event.id);
+      setLive((current) => { const next = new Set(current ?? []); next.delete(event.id); return next; });
+    });
+    return () => { alive = false; offOpened?.(); offClosed?.(); offExit?.(); };
   }, [botId, enabled]);
-  // no bridge (a phone): the host's roster, re-read only when this bot's pane labels move
   useEffect(() => {
     if (window.ogb || !enabled) return;
     let alive = true;
     let latest = 0;
+    let delay = 1000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const pending = phoneRead.current;
     const read = () => {
       if (document.visibilityState === "hidden") return;
       const call = ++latest;
-      api(`/api/bots/${encodeURIComponent(botId)}/terminal`).then(
-        (body) => {
-          // an older read resolving late must not overwrite a newer one
-          if (!alive || call !== latest || !Array.isArray(body?.panes)) return;
-          setLive(new Set(body.panes.filter((p: { main?: boolean }) => !p.main).map((p: { sessionId: string }) => p.sessionId)));
-        },
-        (cause) => {
-          // the host has no terminal for this bot, so none of its panes is alive; any other failure says nothing
-          if (alive && call === latest && /unknown terminal/i.test(cause instanceof Error ? cause.message : "")) setLive(new Set());
-        },
-      );
+      clearTimeout(timer);
+      const run = () => {
+        if (!alive || document.visibilityState === "hidden") return;
+        if (pending.busy) { pending.next = run; return; }
+        pending.busy = true;
+        const retry = () => {
+          timer = setTimeout(read, delay);
+          delay = Math.min(delay * 2, 15_000);
+        };
+        api(`/api/bots/${encodeURIComponent(botId)}/terminal`).then(
+          (body) => {
+            if (!alive || call !== latest) return;
+            if (!Array.isArray(body?.panes)) { retry(); return; }
+            setLive(new Set(body.panes.filter((p: { main?: boolean; exited?: boolean }) => !p.main && !p.exited).map((p: { sessionId: string }) => p.sessionId)));
+            delay = 1000;
+          },
+          (cause) => {
+            if (!alive || call !== latest) return;
+            if (/unknown terminal/i.test(cause instanceof Error ? cause.message : "")) { setLive(new Set()); delay = 1000; }
+            else retry();
+          },
+        ).finally(() => {
+          pending.busy = false;
+          const next = pending.next;
+          pending.next = null;
+          next?.();
+        });
+      };
+      run();
     };
     read();
     const onVisible = () => {
@@ -882,9 +907,11 @@ function useLivePanes(botId: string, enabled: boolean, paneKey: string): Set<str
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
+      clearTimeout(timer);
+      pending.next = null;
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [botId, enabled, paneKey]);
+  }, [botId, enabled, paneKey, sessionKey]);
   return live;
 }
 
@@ -935,7 +962,7 @@ const MessagesList = memo(function MessagesList({
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
-  const workerAt = useMemo(() => workerAnchors(workers, messages), [messages, workers]);
+  const { workerAt, open, toggle } = useWorkerRows(workers, messages);
   // Fold finished tool chips into runs, so a stretch of them cannot bury
   // what the bot actually said. Hidden unless Settings → Tool calls is on.
   const items = useMemo(
@@ -1051,7 +1078,7 @@ const MessagesList = memo(function MessagesList({
               if (worker === undefined) return m.kind === "note" ? <NoteMessage message={m} /> : null;
               if (!worker) return null;
               const live = livePanes && worker.run.sessionId ? livePanes.has(worker.run.sessionId) : null;
-              return <WorkerRow {...worker} live={live} onOpenTerminalPane={onOpenTerminalPane} />;
+              return <WorkerRow {...worker} live={live} onOpenTerminalPane={onOpenTerminalPane} open={open.has(worker.run.id)} onToggle={() => toggle(worker.run.id)} />;
             }
             default:
               return (
@@ -1198,9 +1225,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   // an old jump shows its own window; the live pages below keep taking arrivals
   const jump = useJumpWindow(dispatch, transcriptKey, bot.threadId, bot.messages, bot.activeLeafId, state.olderPatches[bot.threadId], state.snapshots);
   const shown = jump.messages ?? messages;
-  const runs = useMemo(() => workerRuns(shown), [shown]);
-  const livePanes = useLivePanes(bot.id, runs.length > 0, paneLabelsKey(state.terminalPanes[bot.id]));
+  const runs = useMemo(() => workerRuns(messages), [messages]);
+  const sessionKey = runs.map((run) => run.sessionId).filter(Boolean).sort().join("\n");
+  const livePanes = useLivePanes(bot.id, runs.length > 0, paneLabelsKey(state.terminalPanes[bot.id]), sessionKey);
   const workers = useMemo(() => runs.map((run) => ({ run, state: shownState(run, livePanes) })), [runs, livePanes]);
+  const rowWorkers = useMemo(() => jump.messages ? workerRuns(messages, jump.messages).map((run) => ({ run, state: shownState(run, livePanes) })) : workers, [messages, jump.messages, livePanes, workers]);
   const showToolCalls = showToolCallsEnabled(state.config);
   const renders = useCallback(
     (index: number) => messageVisible(messages[index], { showToolCalls, transcript: messages }),
@@ -1810,6 +1839,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             </div>
           )}
           <MessagesList
+            key={`${transcriptKey}:${jump.messages ? `jump:${jump.messages.at(-1)?.id}` : "live"}`}
             bot={bot}
             messages={listed}
             transcript={shown}
@@ -1827,7 +1857,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             onReply={selectReply}
             onFocusComposer={focusComposer}
             onOpenTerminalPane={onOpenTerminalPane}
-            workers={workers}
+            workers={rowWorkers}
             livePanes={livePanes}
           />
           {laterCount > 0 && (

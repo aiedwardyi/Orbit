@@ -19,7 +19,7 @@ export type WorkerRun = {
   folder: string | null;
   /** Rooms: the member that launched it. */
   botId: string | null;
-  /** Launch rows first, then notes, each in transcript order. The first one mounted is where the row renders. */
+  /** Launch rows first, then notes, each in transcript order. */
   messageIds: string[];
   notes: Array<{ id: string; at: number; note: PaneNote }>;
 };
@@ -57,12 +57,13 @@ export function shownState(run: WorkerRun, livePanes: Set<string> | null): Worke
   return live ? run.state : "ended";
 }
 
-/** Each run renders once, at its first mounted message; null marks the ones that fold into it. */
-export function workerAnchors<T extends { run: WorkerRun }>(workers: readonly T[], mounted: readonly Message[]): Map<string, T | null> {
+/** Each run renders once at its retained mounted anchor; null folds its other messages. */
+export function workerAnchors<T extends { run: WorkerRun }>(workers: readonly T[], mounted: readonly Message[], anchors?: ReadonlyMap<string, string>): Map<string, T | null> {
   const ids = new Set(mounted.map((m) => m.id));
   const at = new Map<string, T | null>();
   for (const shown of workers) {
-    const anchor = shown.run.messageIds.find((id) => ids.has(id));
+    const held = anchors?.get(shown.run.id);
+    const anchor = held && ids.has(held) && shown.run.messageIds.includes(held) ? held : shown.run.messageIds.find((id) => ids.has(id));
     for (const id of shown.run.messageIds) at.set(id, id === anchor ? shown : null);
   }
   return at;
@@ -75,12 +76,13 @@ function noteState(note: PaneNote): WorkerState {
   return "working";
 }
 
-/** One run per worker pane job, keyed by pane and nickname. The newest event by time sets the state. */
-export function workerRuns(messages: readonly Message[]): WorkerRun[] {
+/** One run per worker pane job, keyed by pane and nickname. */
+export function workerRuns(messages: readonly Message[], older: readonly Message[] = []): WorkerRun[] {
+  const transcript = older.length ? [...new Map([...older, ...messages].map((message) => [message.id, message])).values()].sort((a, b) => a.at - b.at) : messages;
   const runs = new Map<string, WorkerRun>();
   // newest run per pane, for notes that carry no nickname of their own
   const paneRun = new Map<string, WorkerRun>();
-  const events = new Map<WorkerRun, Array<{ at: number; index: number; state: WorkerState }>>();
+  const events = new Map<WorkerRun, Array<{ at: number; index: number; state: WorkerState; launch?: boolean }>>();
   const launches = new Map<WorkerRun, number>();
   const add = (key: string, seed: Omit<WorkerRun, "id" | "state" | "messageIds" | "notes">): WorkerRun => {
     let run = runs.get(key);
@@ -92,7 +94,7 @@ export function workerRuns(messages: readonly Message[]): WorkerRun[] {
     if (seed.pane8) paneRun.set(`${seed.botId ?? ""}:${seed.pane8}`, run);
     return run;
   };
-  messages.forEach((message, index) => {
+  transcript.forEach((message, index) => {
     const botId = message.from?.botId ?? null;
     if (message.kind === "launch") {
       const [header = "", ...details] = (message.text ?? "").split("\n");
@@ -111,7 +113,7 @@ export function workerRuns(messages: readonly Message[]): WorkerRun[] {
       run.sessionId ??= sessionId;
       run.folder ??= field("Working folder");
       run.at = Math.min(run.at, message.at);
-      events.get(run)!.push({ at: message.at, index, state: "working" });
+      events.get(run)!.push({ at: message.at, index, state: "working", launch: true });
       return;
     }
     if (message.kind !== "note" || !message.text) return;
@@ -126,7 +128,9 @@ export function workerRuns(messages: readonly Message[]): WorkerRun[] {
     events.get(run)!.push({ at: message.at, index, state: noteState(note) });
   });
   for (const [run, list] of events) {
-    run.state = list.reduce((newest, event) => (event.at > newest.at || (event.at === newest.at && event.index > newest.index) ? event : newest)).state;
+    // A fast pane's final report can land before its launch note.
+    const updates = list.some((event) => event.state === "done" || event.state === "failed") ? list.filter((event) => !event.launch) : list;
+    run.state = updates.reduce((newest, event) => (event.at > newest.at || (event.at === newest.at && event.index > newest.index) ? event : newest)).state;
     run.notes.sort((a, b) => a.at - b.at);
   }
   return [...runs.values()];
