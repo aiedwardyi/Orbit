@@ -9,6 +9,8 @@ const DRIVE_FILE = GOOGLE_SCOPES[2];
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const SIGN_IN_TIMEOUT_MS = 5 * 60_000;
+const ERROR_CODES = new Map([["access_denied", "access-denied"], ["admin_policy_enforced", "blocked"]]);
+const ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
 
 export class GoogleSignInError extends Error {
   constructor(code) {
@@ -37,7 +39,7 @@ export function googleClient(env, readBaked) {
 export function googleServerEnv(client, credentials) {
   if (!client) return {};
   const env = { WINK_GOOGLE_CLIENT_ID: client.id, WINK_GOOGLE_CLIENT_SECRET: client.secret };
-  if (credentials?.googleAccount) env.OMB_GOOGLE_ACCOUNT = JSON.stringify(credentials.googleAccount);
+  if (credentials?.googleAccount) env.OMB_GOOGLE_ACCOUNT_TOKEN = JSON.stringify(credentials.googleAccount);
   return env;
 }
 
@@ -93,7 +95,12 @@ export async function runGoogleSignIn({ client, openExternal, fetch = globalThis
       if (signal?.aborted) cancel();
       signal?.addEventListener("abort", cancel, { once: true });
       server.on("request", (req, res) => {
-        const query = new URL(req.url ?? "/", redirectUri).searchParams;
+        let query;
+        try {
+          query = new URL(req.url ?? "/", redirectUri).searchParams;
+        } catch {
+          return page(res, 400, "Bad request.");
+        }
         if (!query.has("code") && !query.has("error")) return page(res, 404, "Not found.");
         if (query.get("state") !== state) {
           page(res, 400, "Sign-in failed. Go back to Wink and try again.");
@@ -101,7 +108,7 @@ export async function runGoogleSignIn({ client, openExternal, fetch = globalThis
         }
         if (query.has("error")) {
           page(res, 200, "Sign-in was not completed. You can close this tab.");
-          return reject(new GoogleSignInError(query.get("error") === "access_denied" ? "access-denied" : "google-error"));
+          return reject(new GoogleSignInError(ERROR_CODES.get(query.get("error")) ?? "google-error"));
         }
         page(res, 200, "You can close this tab.");
         resolve(query.get("code"));
@@ -113,10 +120,10 @@ export async function runGoogleSignIn({ client, openExternal, fetch = globalThis
   } finally {
     server.close();
   }
-  return exchangeCode({ client, code, verifier, redirectUri, fetch });
+  return exchangeCode({ client, code, verifier, redirectUri, fetch, signal });
 }
 
-async function exchangeCode({ client, code, verifier, redirectUri, fetch }) {
+async function exchangeCode({ client, code, verifier, redirectUri, fetch, signal }) {
   let body;
   try {
     const response = await fetch(TOKEN_URL, {
@@ -130,13 +137,15 @@ async function exchangeCode({ client, code, verifier, redirectUri, fetch }) {
         client_id: client.id,
         client_secret: client.secret,
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
     });
     body = await response.json().catch(() => ({}));
     if (!response.ok) throw new GoogleSignInError(body?.error === "admin_policy_enforced" ? "blocked" : "exchange-failed");
   } catch (error) {
+    if (signal?.aborted) throw new GoogleSignInError("cancelled");
     throw error instanceof GoogleSignInError ? error : new GoogleSignInError("offline");
   }
+  if (signal?.aborted) throw new GoogleSignInError("cancelled");
   if (!String(body.scope ?? "").split(" ").includes(DRIVE_FILE)) throw new GoogleSignInError("drive-permission-missing");
   if (typeof body.refresh_token !== "string" || !body.refresh_token) throw new GoogleSignInError("exchange-failed");
   let claims;
@@ -145,7 +154,7 @@ async function exchangeCode({ client, code, verifier, redirectUri, fetch }) {
   } catch {
     throw new GoogleSignInError("exchange-failed");
   }
-  if (claims?.aud !== client.id || typeof claims.sub !== "string" || !claims.sub || typeof claims.email !== "string") {
+  if (!ISSUERS.includes(claims?.iss) || claims.aud !== client.id || typeof claims.sub !== "string" || !claims.sub || typeof claims.email !== "string") {
     throw new GoogleSignInError("exchange-failed");
   }
   return { refreshToken: body.refresh_token, sub: claims.sub, email: claims.email };
@@ -162,6 +171,7 @@ export function createGoogleAccountController({ client, openExternal, saveSessio
       active = controller;
       try {
         const session = await runGoogleSignIn({ client, openExternal, fetch, signal: controller.signal });
+        if (controller.signal.aborted) return { ok: false, error: "cancelled" };
         await saveSession(session);
         return { ok: true, email: session.email };
       } catch (error) {

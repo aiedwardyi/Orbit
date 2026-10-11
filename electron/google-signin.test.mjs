@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { request } from "node:http";
+import { connect } from "node:net";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,19 +8,20 @@ import { createGoogleAccountController, googleClient, googleServerEnv, pkcePair,
 
 const CLIENT = { id: "client-id-test", secret: "client-secret-test" };
 const DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
+const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 function idToken(claims) {
   const part = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
   return `${part({ alg: "none" })}.${part(claims)}.sig`;
 }
 
-function tokenEndpoint({ status = 200, scope = `openid email ${DRIVE_FILE}`, error } = {}) {
+function tokenEndpoint({ status = 200, scope = `openid email ${DRIVE_FILE}`, error, iss = "https://accounts.google.com" } = {}) {
   const calls = [];
   const fetch = vi.fn(async (url, init) => {
     calls.push({ url: String(url), form: Object.fromEntries(new URLSearchParams(String(init.body))) });
     const body = error
       ? { error }
-      : { access_token: "access-SECRET", refresh_token: "refresh-SECRET", scope, id_token: idToken({ aud: CLIENT.id, sub: "sub-1", email: "me@example.com" }) };
+      : { access_token: "access-SECRET", refresh_token: "refresh-SECRET", scope, id_token: idToken({ iss, aud: CLIENT.id, sub: "sub-1", email: "me@example.com" }) };
     return new Response(JSON.stringify(body), { status: error ? 400 : status });
   });
   return { fetch, calls };
@@ -50,6 +52,33 @@ function browser(edit = (query) => query.set("code", "auth-code")) {
     seen.pages.push(await hit(callback.toString()));
   });
   return { openExternal, seen };
+}
+
+/** A token POST that stays pending until released; `honorSignal` makes it reject on abort like real fetch. */
+function pendingExchange({ honorSignal }) {
+  let release;
+  let started;
+  const begun = new Promise((resolve) => (started = resolve));
+  const reply = new Promise((resolve) => (release = () => resolve(tokenEndpoint().fetch(TOKEN_URL, { body: "" }))));
+  const fetch = vi.fn((_url, init) => {
+    started();
+    if (!honorSignal) return reply;
+    return new Promise((resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+      reply.then(resolve);
+    });
+  });
+  return { fetch, begun, release };
+}
+
+function rawGet(port, target) {
+  return new Promise((resolve, reject) => {
+    const socket = connect(port, "127.0.0.1", () => socket.write([`GET ${target} HTTP/1.1`, "Host: 127.0.0.1", "Connection: close", "", ""].join("\r\n")));
+    let text = "";
+    socket.on("data", (chunk) => (text += chunk));
+    socket.on("end", () => resolve(text));
+    socket.on("error", reject);
+  });
 }
 
 async function closed(address) {
@@ -116,6 +145,30 @@ describe("google sign-in", () => {
     await closed(address);
   });
 
+  it.each([
+    ["admin_policy_enforced", "blocked"],
+    ["constructor", "google-error"],
+    ["server_error", "google-error"],
+  ])("maps the callback error %s to %s", async (error, code) => {
+    const endpoint = tokenEndpoint();
+    const { openExternal } = browser((query) => query.set("error", error));
+    await expect(runGoogleSignIn({ client: CLIENT, openExternal, fetch: endpoint.fetch })).rejects.toMatchObject({ code });
+    expect(endpoint.fetch).not.toHaveBeenCalled();
+  });
+
+  it("answers a raw // request with 400 and keeps waiting for the callback", async () => {
+    const endpoint = tokenEndpoint();
+    const real = browser();
+    let raw;
+    const openExternal = async (authUrl) => {
+      raw = await rawGet(Number(new URL(new URL(authUrl).searchParams.get("redirect_uri")).port), "//");
+      await real.openExternal(authUrl);
+    };
+    const session = await runGoogleSignIn({ client: CLIENT, openExternal, fetch: endpoint.fetch });
+    expect(raw).toMatch(/^HTTP\/1\.1 400 /);
+    expect(session.email).toBe("me@example.com");
+  });
+
   it("closes on cancel", async () => {
     const controller = new AbortController();
     let address;
@@ -145,6 +198,48 @@ describe("google sign-in", () => {
     const google = createGoogleAccountController({ client: CLIENT, openExternal: browser().openExternal, fetch: endpoint.fetch, saveSession, clearSession: vi.fn() });
     expect(await google.signIn()).toEqual({ ok: false, error: "blocked" });
     expect(saveSession).not.toHaveBeenCalled();
+  });
+
+  it.each(["cancel", "signOut"])("%s during the token exchange saves nothing", async (action) => {
+    for (const honorSignal of [true, false]) {
+      const exchange = pendingExchange({ honorSignal });
+      const saveSession = vi.fn();
+      const google = createGoogleAccountController({ client: CLIENT, openExternal: browser().openExternal, fetch: exchange.fetch, saveSession, clearSession: vi.fn() });
+      const run = google.signIn();
+      await exchange.begun;
+      await google[action]();
+      exchange.release();
+      expect(await run).toEqual({ ok: false, error: "cancelled" });
+      expect(saveSession).not.toHaveBeenCalled();
+    }
+  });
+
+  it("a newer sign-in wins over a pending exchange", async () => {
+    const first = pendingExchange({ honorSignal: false });
+    const second = tokenEndpoint();
+    const fetch = vi.fn().mockImplementationOnce(first.fetch).mockImplementationOnce(second.fetch);
+    const saveSession = vi.fn();
+    const google = createGoogleAccountController({ client: CLIENT, openExternal: browser().openExternal, fetch, saveSession, clearSession: vi.fn() });
+    const older = google.signIn();
+    await first.begun;
+    const newer = google.signIn();
+    expect(await newer).toEqual({ ok: true, email: "me@example.com" });
+    first.release();
+    expect(await older).toEqual({ ok: false, error: "cancelled" });
+    expect(saveSession).toHaveBeenCalledOnce();
+  });
+
+  it.each([null, "https://evil.example.com", "accounts.google.com.evil.example"])("rejects an id token issued by %s", async (iss) => {
+    const endpoint = tokenEndpoint({ iss });
+    const saveSession = vi.fn();
+    const google = createGoogleAccountController({ client: CLIENT, openExternal: browser().openExternal, fetch: endpoint.fetch, saveSession, clearSession: vi.fn() });
+    expect(await google.signIn()).toEqual({ ok: false, error: "exchange-failed" });
+    expect(saveSession).not.toHaveBeenCalled();
+  });
+
+  it.each(["https://accounts.google.com", "accounts.google.com"])("accepts the issuer %s", async (iss) => {
+    const google = createGoogleAccountController({ client: CLIENT, openExternal: browser().openExternal, fetch: tokenEndpoint({ iss }).fetch, saveSession: vi.fn(), clearSession: vi.fn() });
+    expect(await google.signIn()).toEqual({ ok: true, email: "me@example.com" });
   });
 
   it("saves the session and returns only the email", async () => {
@@ -209,7 +304,7 @@ describe("google sign-in", () => {
     expect(googleServerEnv(CLIENT, { googleAccount })).toEqual({
       WINK_GOOGLE_CLIENT_ID: CLIENT.id,
       WINK_GOOGLE_CLIENT_SECRET: CLIENT.secret,
-      OMB_GOOGLE_ACCOUNT: JSON.stringify(googleAccount),
+      OMB_GOOGLE_ACCOUNT_TOKEN: JSON.stringify(googleAccount),
     });
     expect(googleServerEnv(CLIENT, {})).toEqual({ WINK_GOOGLE_CLIENT_ID: CLIENT.id, WINK_GOOGLE_CLIENT_SECRET: CLIENT.secret });
     expect(googleServerEnv(null, { googleAccount })).toEqual({});

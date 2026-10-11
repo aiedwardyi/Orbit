@@ -4,7 +4,9 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { GoogleAccount, GoogleAccountError, takeGoogleEnv, type GoogleSession } from "./google-account.ts";
+import { acpChildEnv } from "./drivers/acp/core.ts";
+import { grokSupport } from "./drivers/acp/grok.ts";
+import { GOOGLE_ACCOUNT_ENV, GoogleAccount, GoogleAccountError, takeGoogleEnv, type GoogleSession } from "./google-account.ts";
 
 const CLIENT = { id: "client-id-test", secret: "client-secret-test" };
 const SESSION: GoogleSession = { refreshToken: "refresh-token-SECRET", sub: "sub-1", email: "me@example.com" };
@@ -143,11 +145,23 @@ describe("google account", () => {
     const env: NodeJS.ProcessEnv = {
       WINK_GOOGLE_CLIENT_ID: "id",
       WINK_GOOGLE_CLIENT_SECRET: "secret",
-      OMB_GOOGLE_ACCOUNT: JSON.stringify(SESSION),
+      OMB_GOOGLE_ACCOUNT_TOKEN: JSON.stringify(SESSION),
     };
     expect(takeGoogleEnv(env)).toEqual({ client: { id: "id", secret: "secret" }, session: SESSION });
     expect(env).toEqual({});
-    expect(takeGoogleEnv({ WINK_GOOGLE_CLIENT_ID: "id", OMB_GOOGLE_ACCOUNT: "{bad" })).toEqual({ client: null, session: null });
+    expect(takeGoogleEnv({ WINK_GOOGLE_CLIENT_ID: "id", OMB_GOOGLE_ACCOUNT_TOKEN: "{bad" })).toEqual({ client: null, session: null });
+  });
+
+  it("keeps the account variable out of an engine child env", () => {
+    const env = acpChildEnv(grokSupport, { cli: "grok", fullAuto: false, prewarm: true }, { PATH: "/bin", [GOOGLE_ACCOUNT_ENV]: JSON.stringify(SESSION) });
+    expect(env).not.toHaveProperty(GOOGLE_ACCOUNT_ENV);
+    expect(env.PATH).toBe("/bin");
+  });
+
+  it("takes the Google env before the registry can spawn a prewarmed child", () => {
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    expect(source.indexOf("takeGoogleEnv(process.env)")).toBeGreaterThan(-1);
+    expect(source.indexOf("takeGoogleEnv(process.env)")).toBeLessThan(source.indexOf("await registry.load("));
   });
 
   it("never writes tokens to logs, config or the sync folder", async () => {

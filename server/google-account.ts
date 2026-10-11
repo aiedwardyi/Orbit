@@ -10,7 +10,7 @@ const BACKOFF_MS = [5_000, 15_000, 60_000, 5 * 60_000];
 
 export const GOOGLE_CLIENT_ID_ENV = "WINK_GOOGLE_CLIENT_ID";
 export const GOOGLE_CLIENT_SECRET_ENV = "WINK_GOOGLE_CLIENT_SECRET";
-export const GOOGLE_ACCOUNT_ENV = "OMB_GOOGLE_ACCOUNT";
+export const GOOGLE_ACCOUNT_ENV = "OMB_GOOGLE_ACCOUNT_TOKEN";
 
 export type GoogleAccountState = "unavailable" | "signed-out" | "signed-in" | "needs-sign-in" | "blocked" | "offline";
 export type GoogleAccountStatus = { state: GoogleAccountState; email?: string };

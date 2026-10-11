@@ -403,6 +403,8 @@ if (sweepLegacyOpencodeKey() === "failed") {
   console.warn(`config: could not remove the legacy OpenCode section from ${join(DATA_DIR, "config.json")}; delete the opencodeGo key manually`);
 }
 const cfg = loadConfig();
+// Before registry.load: a prewarmed engine child would inherit the token.
+const googleEnv = takeGoogleEnv(process.env);
 let profileSyncSettings: ProfileSyncSettings = loadProfileSyncSettings(DATA_DIR);
 const threadSyncGate = createThreadSyncV2Gate(DATA_DIR);
 if (!existsSync(join(DATA_DIR, "profile-sync.json"))) {
@@ -471,8 +473,6 @@ const mailboxAutoDedup = new MailboxAutoDedup();
 // unset means loopback-only until a running Tailscale is detected below.
 let { host: REMOTE_HOST, key: REMOTE_KEY } = initRemoteAccess(process.env, DATA_DIR);
 
-// Google sign-in for Drive sync. Taken out of the env before any engine CLI can inherit it.
-const googleEnv = takeGoogleEnv(process.env);
 const googleAccount = new GoogleAccount(googleEnv.client, googleEnv.session);
 
 // Phone access from anywhere through the relay (docs/phone-relay-design.md).
