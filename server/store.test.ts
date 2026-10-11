@@ -69,6 +69,27 @@ describe("Store", () => {
     expect(reloaded?.tool?.detail?.output?.[0]).toContain("redacted");
   });
 
+  it("keeps a tool verb through completion folding", async () => {
+    const { completedTool } = await import("./tool-activity.ts");
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const row = store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "activity",
+      tool: { name: "git status", verb: "Bash", spoken: "running a command" },
+    });
+    const tool = completedTool(row.tool, {
+      type: "item.completed",
+      itemType: "tool",
+      eventId: "e1",
+      provider: "codex",
+      threadId: bot.threadId,
+      createdAt: new Date(0).toISOString(),
+      ok: true,
+    });
+    expect(tool).toEqual({ name: "git status", verb: "Bash", ok: true, spoken: "running a command" });
+  });
+
   it("createBot seeds an onboarding card without a fake chat bubble", () => {
     const store = new Store(selection);
     const bot = store.createBot();

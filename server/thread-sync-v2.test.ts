@@ -76,6 +76,16 @@ describe("thread sync v2", () => {
     expect(await b.variants(scope, "row", "tool")).toHaveLength(1);
   });
 
+  it("keeps an unknown tool verb on a synced row", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const b = pc(folder, "b").client;
+    const row = msg("verb", "", { role: "bot", kind: "activity", tool: { name: "git status", ok: true, verb: "Bash" } });
+    await a.commit(scope, [{ kind: "row", value: row }]);
+    await converge(a, b);
+    expect(await rows(b)).toEqual([row]);
+  });
+
   it("orders legacy main heads by timestamp then id and preserves native selection", async () => {
     const client = pc(temp(), "a").client;
     const main = { sourceHash: "a".repeat(64), source: "main" as const };

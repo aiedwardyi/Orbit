@@ -173,6 +173,22 @@ describe("describeRun", () => {
 });
 
 describe("terminal grouping", () => {
+  it("folds reads and searches by the Claude Code verb, not the raw title", () => {
+    const named = (name: string, verb: string): Message => ({ ...tool(name), tool: { name, ok: true, verb } });
+    const items = groupActivityRuns([
+      named("src/a.ts", "Read"),
+      named("verb", "Grep"),
+      named("git status", "Bash"),
+      named("notes.md", "Read"),
+    ], true);
+    expect(items.map((item) => (item.kind === "run" ? `run:${item.messages.length}` : item.message.tool?.name))).toEqual([
+      "run:2",
+      "git status",
+      "run:1",
+    ]);
+    expect(describeSearch([named("src/a.ts", "Read"), named("verb", "Grep")])).toBe("Searched for 1 pattern, read 1 file");
+  });
+
   it("folds only read and search stretches and unfolds Bash, Edit and Write", () => {
     const items = groupActivityRuns([tool("Grep"), tool("Read"), tool("Edit"), tool("Bash"), tool("Read"), tool("Write")], true);
     expect(items.map((i) => (i.kind === "run" ? `run:${i.messages.length}` : i.message.tool?.name))).toEqual([

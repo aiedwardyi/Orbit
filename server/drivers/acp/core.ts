@@ -1158,14 +1158,24 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               const call = toolCallSchema.safeParse(u);
               if (call.success) toolCalls.set(call.data.toolCallId, call.data);
               const args = String(u.rawInput?.command ?? u.title ?? "tool");
-              emit({
+              const kind = call.success ? call.data.kind : undefined;
+              const verb =
+                kind === "execute" ? "Bash"
+                : kind === "edit" ? "Edit"
+                : kind === "read" ? "Read"
+                : kind === "search" ? "Grep"
+                : kind === "fetch" ? "WebFetch"
+                : undefined;
+              const started: Extract<RuntimeEvent, { type: "item.started" }> = {
                 ...base(threadId, turnId),
                 type: "item.started",
                 itemType: "tool",
                 itemId: u.toolCallId,
                 title: args.slice(0, 80),
                 inputDigest: inputDigest(u.rawInput ?? args),
-              });
+              };
+              if (verb) started.verb = verb;
+              emit(started);
               if (u.status === "completed" || u.status === "failed") completeTool(u.toolCallId, u.status !== "failed", call.success ? call.data : undefined);
               break;
             }

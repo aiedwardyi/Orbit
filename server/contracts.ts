@@ -125,6 +125,8 @@ export type RuntimeEvent = RuntimeEventBase &
         summary?: string;
         /** digest of the full call, which `title` cuts */
         inputDigest?: string;
+        /** Claude Code tool name, when the engine says the kind. */
+        verb?: string;
       }
     | { type: "item.updated"; itemType: "tool" | "reasoning"; tokens?: number | null }
     | { type: "item.completed"; itemType: "tool"; ok: boolean; summary?: string; durationMs?: number; detail?: ToolDetail }

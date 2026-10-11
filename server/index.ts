@@ -3077,10 +3077,14 @@ bus.subscribe((event: RuntimeEvent) => {
         // narration is folded in here, once, so call mode can read the
         // chip aloud without re-deriving it — and so the phrase a user
         // hears and the chip they see can never drift apart
+        const tool: NonNullable<Message["tool"]> = {
+          name, spoken: narrateTool(name) ?? undefined, ...(event.summary ? { summary: event.summary } : {}),
+        };
+        if (event.verb) tool.verb = event.verb;
         const message = pushMessage({
           role: "bot",
           kind: "activity",
-          tool: { name, spoken: narrateTool(name) ?? undefined, ...(event.summary ? { summary: event.summary } : {}) },
+          tool,
         });
         if (event.itemId) toolMessageByItem.set(`${event.threadId}:${event.itemId}`, { messageId: message.id, turnId: event.turnId });
       }

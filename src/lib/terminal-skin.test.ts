@@ -76,6 +76,13 @@ describe("termHeaderArgs", () => {
     expect(termHeaderArgs("Fetch", "example.com", { input: '{"url":"https://example.com"}' })).toBe("example.com");
     expect(termHeaderArgs("mcp_tool", undefined, { input: '{"q":1}' })).toBe('{"q":1}');
   });
+
+  it("falls back to the step name when a verb has no captured input", () => {
+    expect(termHeaderArgs("Bash", undefined, undefined, "git status")).toBe("git status");
+    expect(termHeaderArgs("Update", undefined, undefined, "src/a.ts")).toBe("src/a.ts");
+    expect(termHeaderArgs("Bash", "git st", { input: "git status" }, "git status")).toBe("git status");
+    expect(termHeaderArgs("Bash", undefined, undefined)).toBeUndefined();
+  });
 });
 
 describe("termBlock", () => {

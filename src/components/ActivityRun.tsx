@@ -45,7 +45,7 @@ export function ActivityStep({ message }: { message: Message }) {
   if (!tool) return null;
   const Icon = stepIcon(tool.name);
   const elapsed = running ? Math.max(0, now - new Date(message.at).getTime()) : tool.durationMs;
-  if (terminal) return <TermStep name={tool.name} summary={tool.summary} ok={tool.ok} elapsed={elapsed} detail={tool.detail} />;
+  if (terminal) return <TermStep name={tool.name} rawVerb={tool.verb} summary={tool.summary} ok={tool.ok} elapsed={elapsed} detail={tool.detail} />;
   return (
     <div className="flex max-w-[min(42rem,100%)] items-center gap-2 px-3 py-0.5 text-[13px] text-ink-secondary">
       <Icon size={13} className="shrink-0" />
@@ -60,12 +60,12 @@ export function ActivityStep({ message }: { message: Message }) {
 type ToolDetail = NonNullable<Message["tool"]>["detail"];
 
 /** Claude Code's call: `● Verb(args)` over its output, or one `⎿ Done (1.2s)` line. */
-function TermStep({ name, summary, ok, elapsed, detail }: { name: string; summary?: string; ok: boolean | undefined; elapsed: number | undefined; detail?: ToolDetail }) {
+function TermStep({ name, rawVerb, summary, ok, elapsed, detail }: { name: string; rawVerb?: string; summary?: string; ok: boolean | undefined; elapsed: number | undefined; detail?: ToolDetail }) {
   const { t } = useI18n();
-  const verb = termVerb(name);
+  const verb = termVerb(rawVerb ?? name);
   const state = termStepState(ok);
   const aria = termStepAria(state, elapsed);
-  const args = termHeaderArgs(verb, summary, detail);
+  const args = termHeaderArgs(verb, summary, detail, rawVerb ? name : undefined);
   const block = termBlock(detail, state === "failed");
   return (
     <div data-term-step={state} className="term-step min-w-0 max-w-full">

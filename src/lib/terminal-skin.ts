@@ -66,8 +66,9 @@ export function termResultLine(word: string, elapsedMs: number | undefined): str
 // Their captured input is the command or path itself; other tools keep the summary.
 const INPUT_HEADERS = new Set(["Bash", "Update", "Write"]);
 
-export function termHeaderArgs(verb: string, summary: string | undefined, detail: ToolDetail | undefined): string | undefined {
-  return INPUT_HEADERS.has(verb) ? detail?.input ?? summary : summary ?? detail?.input;
+export function termHeaderArgs(verb: string, summary: string | undefined, detail: ToolDetail | undefined, fallback?: string): string | undefined {
+  // fallback is the raw step name, and only when the engine named the kind
+  return (INPUT_HEADERS.has(verb) ? detail?.input ?? summary : summary ?? detail?.input) ?? fallback;
 }
 
 export type TermRow = { text: string; tone?: "add" | "remove" };

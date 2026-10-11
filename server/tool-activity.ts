@@ -6,7 +6,7 @@ export function completedTool(
   event: Extract<RuntimeEvent, { type: "item.completed"; itemType: "tool" }>,
 ): NonNullable<Message["tool"]> {
   const summary = event.summary ?? existing?.summary;
-  return {
+  const tool: NonNullable<Message["tool"]> = {
     name: existing?.name ?? "tool",
     ok: event.ok,
     spoken: existing?.spoken,
@@ -14,4 +14,6 @@ export function completedTool(
     ...(typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
     ...(event.detail ? { detail: event.detail } : {}),
   };
+  if (existing?.verb) tool.verb = existing.verb;
+  return tool;
 }

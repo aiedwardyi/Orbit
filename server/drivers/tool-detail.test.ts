@@ -115,6 +115,56 @@ describe.each(engines)("$name tool detail", ({ name, driver, cli, fixtureEnv }) 
     return event;
   };
 
+  it.skipIf(name === "Pi")("names a command and a file change with Claude Code verbs", async () => {
+    writeFixture([
+      { id: "command", command: "git status", output: "clean" },
+      { id: "edit", path: "src/a.ts", oldText: "a", newText: "b", output: "edited" },
+    ]);
+    await create();
+    await run();
+    const started = recorder.events.filter((event) => event.type === "item.started");
+    expect(started).toMatchObject(name === "Codex"
+      ? [{ title: "git status", verb: "Bash" }, { title: "edit", verb: "Edit" }]
+      : [{ title: "git status", verb: "Bash" }, { title: "Edit src/a.ts", verb: "Edit" }]);
+  });
+
+  it.skipIf(name !== "Codex")("names a web search WebSearch and leaves an MCP call unnamed", async () => {
+    writeFileSync(fixturePath, JSON.stringify([
+      { method: "item/started", params: { item: { id: "w", type: "webSearch", query: "orbit" } } },
+      { method: "item/completed", params: { item: { id: "w", type: "webSearch", status: "completed", query: "orbit" } } },
+      { method: "item/started", params: { item: { id: "m", type: "mcpToolCall", tool: "list_bots" } } },
+      { method: "item/completed", params: { item: { id: "m", type: "mcpToolCall", status: "completed", tool: "list_bots" } } },
+    ]));
+    await create();
+    await run();
+    const started = recorder.events.filter((event) => event.type === "item.started");
+    expect(started[0]).toMatchObject({ title: "web_search", verb: "WebSearch" });
+    expect(started[1]).toMatchObject({ title: "list_bots" });
+    expect(started[1]).not.toHaveProperty("verb");
+  });
+
+  it.skipIf(name === "Codex" || name === "Pi")("names read, search and fetch, and leaves other kinds unnamed", async () => {
+    writeFileSync(fixturePath, JSON.stringify([
+      { sessionUpdate: "tool_call", toolCallId: "r", title: "src/a.ts", kind: "read" },
+      { sessionUpdate: "tool_call", toolCallId: "s", title: "verb", kind: "search" },
+      { sessionUpdate: "tool_call", toolCallId: "f", title: "https://example.com", kind: "fetch" },
+      { sessionUpdate: "tool_call", toolCallId: "t", title: "think", kind: "think" },
+      { sessionUpdate: "tool_call", toolCallId: "n", title: "run" },
+    ]));
+    await create();
+    await run();
+    const started = recorder.events.filter((event) => event.type === "item.started");
+    expect(started).toMatchObject([
+      { title: "src/a.ts", verb: "Read" },
+      { title: "verb", verb: "Grep" },
+      { title: "https://example.com", verb: "WebFetch" },
+      { title: "think" },
+      { title: "run" },
+    ]);
+    expect(started[3]).not.toHaveProperty("verb");
+    expect(started[4]).not.toHaveProperty("verb");
+  });
+
   it("captures a command and its output", async () => {
     const event = await capture({ id: "command", command: "echo one", output: "one\r\ntwo\r\nthree\r\nfour\r\n" });
     expect(event.detail).toEqual({ input: "echo one", output: ["one", "two", "three"], more: 1 });

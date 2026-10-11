@@ -8,9 +8,10 @@ import type { Message } from "@/state/store";
 
 import { ActivityRun, ActivityStep } from "./ActivityRun";
 
-function step(name: string, summary: string | undefined, ok: boolean, durationMs: number): Message {
+function step(name: string, summary: string | undefined, ok: boolean, durationMs: number, verb?: string): Message {
   const tool: NonNullable<Message["tool"]> = { name, ok, durationMs };
   if (summary) tool.summary = summary;
+  if (verb) tool.verb = verb;
   return { id: `s-${name}`, role: "bot", kind: "activity", at: 1, tool };
 }
 
@@ -135,6 +136,42 @@ describe("ActivityStep in the Terminal skin", () => {
     expect(html).not.toContain("total 0");
   });
 
+  it("draws a Codex or ACP command as Bash with its output", () => {
+    const message = step("git status", undefined, true, 1400, "Bash");
+    message.tool!.detail = { input: "git status", output: ["M src/a.ts"] };
+    const html = render("terminal", createElement(ActivityStep, { message }));
+    expect(html).toContain(">Bash</span>(git status)");
+    expect(html).toContain("<div>M src/a.ts</div>");
+    expect(html).not.toContain("Done (1.4s)");
+  });
+
+  it("draws a command with no detail as Bash and Done", () => {
+    const html = render("terminal", createElement(ActivityStep, { message: step("git status", undefined, true, 800, "Bash") }));
+    expect(html).toContain(">Bash</span>(git status)");
+    expect(html).toContain("Done (0.8s)");
+  });
+
+  it("draws a file change as Update with the path", () => {
+    const message = step("edit", undefined, true, 400, "Edit");
+    message.tool!.detail = { input: "src/app.ts", diff: ["-const a = 1;", "+const a = 2;"] };
+    const html = render("terminal", createElement(ActivityStep, { message }));
+    expect(html).toContain(">Update</span>(src/app.ts)");
+    expect(html).toContain('data-term-row="add"');
+  });
+
+  it("draws an old step with no verb from its name", () => {
+    const html = render("terminal", createElement(ActivityStep, { message: step("git status", undefined, true, 800) }));
+    expect(html).toContain(">git status</span></div>");
+    expect(html).not.toContain(">Bash</span>");
+  });
+
+  it("leaves a verb off other skins", () => {
+    const html = render("tui", createElement(ActivityStep, { message: step("git status", undefined, true, 800, "Bash") }));
+    expect(html).toContain(">git status</span>");
+    expect(html).not.toContain("term-step");
+    expect(html).not.toContain(">Bash</span>");
+  });
+
   it("leaves other skins on the chip row", () => {
     const html = render("tui", createElement(ActivityStep, { message: step("Edit", "src/a.ts", true, 1200) }));
     expect(html).not.toContain("term-step");
@@ -143,6 +180,14 @@ describe("ActivityStep in the Terminal skin", () => {
 });
 
 describe("ActivityRun in the Terminal skin", () => {
+  it("folds an ACP read and search by their Claude Code verbs", () => {
+    const html = render("terminal", createElement(ActivityRun, {
+      messages: [step("src/a.ts", undefined, true, 200, "Read"), step("verb", undefined, true, 300, "Grep")],
+      children: null,
+    }));
+    expect(html).toContain("Searched for 1 pattern, read 1 file");
+  });
+
   it.each([undefined, false])("keeps a folded search's %s verdict visible and accessible", (ok) => {
     const message = step("Read", "a.ts", true, 300);
     message.tool!.ok = ok;

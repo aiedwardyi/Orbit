@@ -57,7 +57,7 @@ export function groupActivityRuns(messages: Message[], terminal = false): Transc
     run = [];
   };
   for (const message of messages) {
-    if (foldable(message) && (!terminal || SEARCH_TOOLS.has(termVerb(message.tool?.name ?? "")))) {
+    if (foldable(message) && (!terminal || SEARCH_TOOLS.has(termVerb(message.tool?.verb ?? message.tool?.name ?? "")))) {
       const first = run[0];
       if (
         first &&
@@ -95,7 +95,7 @@ export function describeRun(messages: Message[]): string {
 /** Claude Code's one line for a stretch of reads and searches. */
 export function describeSearch(messages: Message[]): string {
   if (!messages.length) return "Searched";
-  const patterns = messages.filter((message) => termVerb(message.tool?.name ?? "") !== "Read").length;
+  const patterns = messages.filter((message) => termVerb(message.tool?.verb ?? message.tool?.name ?? "") !== "Read").length;
   const files = messages.length - patterns;
   return [
     patterns && `Searched for ${patterns} ${patterns === 1 ? "pattern" : "patterns"}`,

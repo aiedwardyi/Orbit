@@ -517,7 +517,18 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                     : item.type === "webSearch"
                       ? "web_search"
                       : null;
-            if (title) emit({ ...base(threadId, turnId), type: "item.started", itemType: "tool", itemId: item.id, title });
+            const verb =
+              item.type === "commandExecution" ? "Bash"
+              : item.type === "fileChange" ? "Edit"
+              : item.type === "webSearch" ? "WebSearch"
+              : undefined;
+            if (title) {
+              const started: Extract<RuntimeEvent, { type: "item.started" }> = {
+                ...base(threadId, turnId), type: "item.started", itemType: "tool", itemId: item.id, title,
+              };
+              if (verb) started.verb = verb;
+              emit(started);
+            }
             break;
           }
           case "item/completed": {

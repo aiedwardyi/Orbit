@@ -137,6 +137,8 @@ export interface Message {
   /** `setup` marks an error fixed by installing something, not by retrying. */
   tool?: {
     name: string;
+    /** Claude Code tool name, when the engine said the kind. */
+    verb?: string;
     ok?: boolean;
     spoken?: string;
     summary?: string;
