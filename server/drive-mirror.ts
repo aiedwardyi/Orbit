@@ -155,7 +155,7 @@ export function createDriveMirror(options: Options) {
   const ids = driveOwnIdsSchema.parse(options.ownIds);
   const mirrorPath = resolve(options.mirrorPath);
   const statePath = canonicalPath(options.statePath);
-  const stateRelative = relative(mirrorPath, statePath);
+  const stateRelative = relative(canonicalPath(mirrorPath), statePath);
   if (!stateRelative || (!isAbsolute(stateRelative) && stateRelative !== ".." && !stateRelative.startsWith(`..${sep}`))) throw new DriveMirrorError("unsafe-path");
   const client = options.client;
   const now = options.now ?? Date.now;

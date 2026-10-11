@@ -496,6 +496,7 @@ describe("Drive mirror", () => {
     const alias = join(root, "alias");
     symlinkSync(pcs[0].folder, alias, process.platform === "win32" ? "junction" : "dir");
     expect(() => mirrorFor(pcs[0], { statePath: join(alias, "table.json") })).toThrow(DriveMirrorError);
+    expect(() => mirrorFor(pcs[0], { mirrorPath: alias, statePath: join(pcs[0].folder, "table.json") })).toThrow(DriveMirrorError);
   });
 
   it("rejects stale downloads after a generation change", async () => {
