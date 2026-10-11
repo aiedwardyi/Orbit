@@ -24,7 +24,8 @@ import { z } from "zod";
 
 import { ATTACHMENTS_DIR, sniffImageMime } from "../attachments.ts";
 import { BACKGROUND_DENY_NOTE } from "../auto-approve.ts";
-import { applyCredentialAllowlist, DATA_DIR } from "../config.ts";
+import { applyCredentialAllowlist, DATA_DIR, loadConfig } from "../config.ts";
+import { buildToolDetail } from "../../shared/tool-detail.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
 import { inputDigest } from "../repeat-detector.ts";
@@ -594,6 +595,63 @@ export function claudeToolSummary(name: string, input: unknown, cwd: string, res
   if (!out) return undefined;
   const text = redactSecretsInText(out.replace(/\s+/g, " ").trim());
   return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX - 1)}…` : text;
+}
+
+const SECRET_COMMAND = /token|secret|password|passwd|credential|api[\s_-]*key|(?:^|[\s;/\\|&()'"])(?:env|printenv|set)(?=$|[\s;|&()'"])|\b(?:cat|type|get-content)\b[^\r\n;&|]*\.env/i;
+
+function editDiff(oldText: string, newText: string): string[] {
+  // Redact whole edits before removing unchanged context, including PEM delimiters.
+  const lines = (text: string) => text ? redactSecretsInText(text).replace(/\r\n?/g, "\n").replace(/\n$/, "").split("\n") : [];
+  const before = lines(oldText);
+  const after = lines(newText);
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  let oldEnd = before.length;
+  let newEnd = after.length;
+  while (oldEnd > start && newEnd > start && before[oldEnd - 1] === after[newEnd - 1]) { oldEnd--; newEnd--; }
+  const positions = new Map<string, number[]>();
+  for (let i = start; i < newEnd; i++) {
+    const indices = positions.get(after[i]) ?? [];
+    indices.push(i);
+    positions.set(after[i], indices);
+  }
+  const cursors = new Map<string, number>();
+  const diff: string[] = [];
+  let next = start;
+  for (let i = start; i < oldEnd; i++) {
+    const indices = positions.get(before[i]) ?? [];
+    let cursor = cursors.get(before[i]) ?? 0;
+    while (cursor < indices.length && indices[cursor] < next) cursor++;
+    cursors.set(before[i], cursor);
+    const match = indices[cursor];
+    if (match === undefined) diff.push(`-${before[i]}`);
+    else {
+      for (; next < match; next++) diff.push(`+${after[next]}`);
+      next = match + 1;
+    }
+  }
+  for (; next < newEnd; next++) diff.push(`+${after[next]}`);
+  return diff;
+}
+
+function claudeToolDetail(name: string, input: unknown, output: string, isError: boolean) {
+  const o = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const command = typeof o.command === "string" ? o.command : undefined;
+  const path = typeof o.file_path === "string" ? o.file_path : typeof o.notebook_path === "string" ? o.notebook_path : undefined;
+  const header = command ?? path ?? JSON.stringify(input ?? name);
+  const hidden = command !== undefined && SECRET_COMMAND.test(command);
+  const changes = !isError && !hidden ? name === "Edit" ? [o] : name === "MultiEdit" && Array.isArray(o.edits) ? o.edits : [] : [];
+  const diff = changes.flatMap((edit) => {
+    if (!edit || typeof edit !== "object" || typeof edit.old_string !== "string" || typeof edit.new_string !== "string") return [];
+    return editDiff(edit.old_string, edit.new_string);
+  });
+  return buildToolDetail({
+    input: header,
+    ...(!isError && ["Read", "Grep", "Glob"].includes(name) ? {} : { output }),
+    ...(diff.length ? { diff } : {}),
+    ...(hidden ? { outputHidden: true } : {}),
+    ...(isError ? { isError } : {}),
+  }, redactSecretsInText);
 }
 
 const NATIVE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -1399,6 +1457,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 const call = toolCalls.get(b.tool_use_id);
                 toolCalls.delete(b.tool_use_id);
                 const summary = call?.name === "Bash" ? claudeToolSummary(call.name, call.input, cwd, firstText(b.content).slice(0, 40)) : undefined;
+                const detail = call && loadConfig().features?.toolDetailCapture === true
+                  ? claudeToolDetail(call.name, call.input, firstText(b.content), Boolean(b.is_error))
+                  : undefined;
                 emit({
                   ...base(threadId, currentTurnId()),
                   type: "item.completed",
@@ -1407,6 +1468,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                   ok: !b.is_error,
                   ...(summary && summary !== call?.summary ? { summary } : {}),
                   ...(call ? { durationMs: Date.now() - call.at } : {}),
+                  ...(detail ? { detail } : {}),
                 });
               }
             }

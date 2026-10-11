@@ -12,6 +12,7 @@ import { DATA_DIR } from "./config.ts";
 import { defaultComputerForNewBot } from "./local-routing.ts";
 import * as mdb from "./message-db.ts";
 import type { SyncChange, SyncMutation } from "./thread-sync-v2.ts";
+import type { ToolDetail } from "../shared/tool-detail.ts";
 import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
@@ -139,6 +140,7 @@ export interface Message {
     spoken?: string;
     summary?: string;
     durationMs?: number;
+    detail?: ToolDetail;
     setup?: boolean;
     signIn?: boolean;
     usageLimit?: { resetsAt: number | null };

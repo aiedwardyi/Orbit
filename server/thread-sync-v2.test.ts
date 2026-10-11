@@ -51,6 +51,31 @@ async function converge(...peers: ThreadSyncV2[]): Promise<void> {
 }
 
 describe("thread sync v2", () => {
+  it("tool detail passes existing sync validation and message-store parsing unchanged", async () => {
+    const { buildToolDetail } = await import("../shared/tool-detail.ts");
+    const { redactSecretsInText } = await import("./redact.ts");
+    const { applySyncedRows, closeMessageDb, readThread } = await import("./message-db.ts");
+    const { ensureDirs } = await import("./config.ts");
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const b = pc(folder, "b").client;
+    const detail = buildToolDetail({ input: "echo hi", output: "hi\nsecond\nthird\nfourth" }, redactSecretsInText);
+    const row = msg("tool", "", { role: "bot", kind: "activity", tool: { name: "Bash", ok: true, detail } });
+    const json = JSON.stringify(row);
+    await a.commit(scope, [{ kind: "row", value: row }]);
+    await converge(a, b);
+    const received = await rows(b);
+    expect(received).toEqual([row]);
+    expect(JSON.stringify(received[0])).toBe(json);
+    ensureDirs();
+    applySyncedRows("tool-compat", received, "tool");
+    closeMessageDb();
+    const stored = readThread("tool-compat", join(temp(), "missing.json"));
+    expect(stored.messages).toEqual([row]);
+    expect(JSON.stringify(stored.messages[0])).toBe(json);
+    expect(await b.variants(scope, "row", "tool")).toHaveLength(1);
+  });
+
   it("orders legacy main heads by timestamp then id and preserves native selection", async () => {
     const client = pc(temp(), "a").client;
     const main = { sourceHash: "a".repeat(64), source: "main" as const };

@@ -50,6 +50,25 @@ describe("Store", () => {
     rmSync(DATA_DIR, { recursive: true, force: true });
   });
 
+  it("tool detail survives completion folding and a database restart without a planted key", async () => {
+    const { completedTool } = await import("./tool-activity.ts");
+    const { buildToolDetail } = await import("../shared/tool-detail.ts");
+    const { redactSecretsInText } = await import("./redact.ts");
+    const { closeMessageDb } = await import("./message-db.ts");
+    const key = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789";
+    const detail = buildToolDetail({ input: `echo ${key}`, output: `used ${key}\ncomplete` }, redactSecretsInText);
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const row = store.appendMessage(bot.threadId, { role: "bot", kind: "activity", tool: { name: "Bash", spoken: "running a command", summary: "echo" } });
+    const tool = completedTool(row.tool, { type: "item.completed", itemType: "tool", eventId: "e1", provider: "claudeAgent", threadId: bot.threadId, createdAt: new Date(0).toISOString(), ok: true, durationMs: 12, detail });
+    store.patchMessage(bot.threadId, row.id, { tool });
+    closeMessageDb();
+    const reloaded = new Store(selection).messagesFor(bot.threadId).find((message) => message.id === row.id);
+    expect(reloaded?.tool).toEqual({ name: "Bash", ok: true, spoken: "running a command", summary: "echo", durationMs: 12, detail });
+    expect(JSON.stringify(reloaded)).not.toContain(key);
+    expect(reloaded?.tool?.detail?.output?.[0]).toContain("redacted");
+  });
+
   it("createBot seeds an onboarding card without a fake chat bubble", () => {
     const store = new Store(selection);
     const bot = store.createBot();

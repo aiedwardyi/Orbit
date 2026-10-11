@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { saveImage } from "../attachments.ts";
 import { autoVerdict } from "../auto-approve.ts";
-import { ensureDirs, PROVIDER_CREDENTIAL_ENV, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
+import { ensureDirs, PROVIDER_CREDENTIAL_ENV, saveConfig, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
 import { ClaudeDriver, claudeToolSummary, claudeUserContent, permissionSocketPath, type ClaudeConfig } from "./claude.ts";
@@ -386,6 +386,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
   });
 
   afterEach(async () => {
+    if (process.env.FAKE_CLAUDE_TOOL_FIXTURE) saveConfig({ features: { toolDetailCapture: false } });
+    delete process.env.FAKE_CLAUDE_TOOL_FIXTURE;
     delete process.env.FAKE_CLAUDE_MODE;
     delete process.env.FAKE_CLAUDE_DUMP;
     delete process.env.FAKE_CLAUDE_TRANSIENTS;
@@ -443,6 +445,97 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     // the harness has one figure to bank per turn
     expect(done).toMatchObject({ type: "turn.completed", ok: true, cost: 0.01, usage: { input: 12, output: 5, cachedInput: 2 } });
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
+  });
+
+  const capture = async (name: string, input: unknown, content: unknown, is_error = false) => {
+    saveConfig({ features: { toolDetailCapture: true } });
+    const path = join(scratch, "tool-detail.json");
+    writeFileSync(path, JSON.stringify([{ name, input, content, is_error }]));
+    process.env.FAKE_CLAUDE_TOOL_FIXTURE = path;
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-detail", text: "inspect" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const event = recorder.events.find((e) => e.type === "item.completed" && e.itemType === "tool");
+    if (event?.type !== "item.completed" || event.itemType !== "tool") throw new Error("missing tool completion");
+    return event;
+  };
+
+  it("tool detail captures Bash input and three capped lines with more", async () => {
+    const command = `echo ${"build ".repeat(12).trim()}`;
+    const event = await capture("Bash", { command }, Array.from({ length: 8 }, (_, i) => `${i} ${"x".repeat(100)}`).join("\n"));
+    expect(event.detail?.input).toBe(command);
+    expect(event.detail?.output).toHaveLength(3);
+    expect(event.detail?.output?.map((line) => line[0])).toEqual(["0", "1", "2"]);
+    expect(event.detail?.more).toBe(5);
+    expect(Buffer.byteLength(JSON.stringify(event.detail), "utf8")).toBeLessThanOrEqual(256);
+  });
+
+  it("tool detail captures only changed Edit lines", async () => {
+    const event = await capture("Edit", { file_path: "src/app.ts", old_string: "head\nold\ntail\n", new_string: "head\nnew\ntail\n" }, "updated");
+    expect(event.detail).toEqual({ input: "src/app.ts", diff: ["-old", "+new"] });
+  });
+
+  it("tool detail excludes unchanged lines between Edit changes", async () => {
+    const event = await capture("Edit", { file_path: "src/app.ts", old_string: "old1\nkeep\nold2", new_string: "new1\nkeep\nnew2" }, "updated");
+    expect(event.detail).toEqual({ input: "src/app.ts", diff: ["-old1", "+new1", "-old2"], more: 1 });
+  });
+
+  it("tool detail combines MultiEdit changes under the same cap", async () => {
+    const event = await capture("MultiEdit", { file_path: "src/app.ts", edits: [{ old_string: "one", new_string: "two" }, { old_string: "three", new_string: "four" }] }, "updated");
+    expect(event.detail).toEqual({ input: "src/app.ts", diff: ["-one", "+two", "-three"], more: 1 });
+  });
+
+  it("tool detail captures Write results from text blocks", async () => {
+    const event = await capture("Write", { file_path: "notes.md", content: "one\ntwo\nthree\nfour" }, [{ type: "text", text: "Wrote four lines\none\n" }, { type: "text", text: "two\nthree\n" }, { type: "image", data: "ignored" }]);
+    expect(event.detail).toEqual({ input: "notes.md", output: ["Wrote four lines", "one", "two"], more: 1 });
+  });
+
+  it.each(["Read", "Grep", "Glob"])("tool detail keeps %s output grouped", async (name) => {
+    const input = name === "Read" ? { file_path: "notes.md" } : { pattern: "hello", path: "src" };
+    const event = await capture(name, input, "large grouped result\nsecond line");
+    expect(event.detail?.input).toBeTruthy();
+    expect(event.detail?.output).toBeUndefined();
+    expect(event.detail?.diff).toBeUndefined();
+    expect(event.detail?.more).toBeUndefined();
+  });
+
+  it("tool detail keeps an error's first line", async () => {
+    const event = await capture("Bash", { command: "node missing.js" }, "Exit code 1\nmissing file\nstack\n", true);
+    expect(event).toMatchObject({ ok: false, detail: { input: "node missing.js", output: ["Exit code 1"], more: 2 } });
+  });
+
+  it.each(["env", "printenv", "set", "gh auth token", "cat .env.local", "type C:\\project\\.env", "Get-Content -LiteralPath '.env.production'", "echo token", "echo secret", "echo password", "echo credential", "echo api_key"])("tool detail hides secret-command output for %s", async (command) => {
+    const key = "planted-opaque-sensitive-value";
+    const event = await capture("Bash", { command }, key);
+    expect(event.detail).toEqual({ input: command, outputHidden: true });
+    expect(JSON.stringify(event.detail)).not.toContain(key);
+  });
+
+  it("tool detail redacts edit secrets before removing unchanged context", async () => {
+    const body = "PrivateMaterial0123456789+/".repeat(4);
+    const event = await capture("Edit", { file_path: "key.pem", old_string: `-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----`, new_string: `-----BEGIN PRIVATE KEY-----\n${body}Extra\n-----END PRIVATE KEY-----` }, "updated");
+    expect(event.detail?.diff).toBeDefined();
+    expect(JSON.stringify(event.detail)).not.toContain("PrivateMaterial");
+  });
+
+  it("tool detail captures after a later opt-in on a retained process and emits no detail while off", async () => {
+    const path = join(scratch, "tool-detail.json");
+    writeFileSync(path, JSON.stringify([{ name: "Bash", input: { command: "echo hi" }, content: "hi" }]));
+    process.env.FAKE_CLAUDE_TOOL_FIXTURE = path;
+    saveConfig({ features: { toolDetailCapture: false } });
+    await create();
+    process.env.FAKE_CLAUDE_DUMP = join(scratch, "tool-detail-process.json");
+    await instance.adapter.sendTurn({ threadId: "t-detail-off", text: "inspect" });
+    await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-detail-off");
+    expect(recorder.events.every((e) => !("detail" in e))).toBe(true);
+    const dump = readFileSync(process.env.FAKE_CLAUDE_DUMP, "utf8");
+    const started = recorder.events.find((e) => e.type === "session.started");
+    if (started?.type !== "session.started") throw new Error("missing session");
+    saveConfig({ features: { toolDetailCapture: true } });
+    const second = await instance.adapter.sendTurn({ threadId: "t-detail-off", text: "inspect", resumeCursor: started.sessionId });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(recorder.events.find((e) => e.type === "item.completed" && e.itemType === "tool" && e.turnId === second.turnId)).toMatchObject({ detail: { input: "echo hi", output: ["hi"] } });
+    expect(readFileSync(process.env.FAKE_CLAUDE_DUMP, "utf8")).toBe(dump);
   });
 
   it("reports each main call's own prompt, cache writes included, never a sum", async () => {

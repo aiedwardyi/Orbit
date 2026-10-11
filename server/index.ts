@@ -186,6 +186,7 @@ import {
   type Message,
   type TaskRecord,
 } from "./store.ts";
+import { completedTool } from "./tool-activity.ts";
 import {
   clearTaskBlockers,
   foldCompletedNextAction,
@@ -3026,19 +3027,10 @@ bus.subscribe((event: RuntimeEvent) => {
           : undefined;
         let toolName = "tool";
         if (messageId) {
-          // the whole tool object is replaced, so carry `spoken` across —
-          // dropping it here would silently un-narrate every completed tool
           const existing = store.messagesFor(event.threadId).find((m) => m.id === messageId)?.tool;
           toolName = existing?.name ?? "tool";
-          const summary = event.summary ?? existing?.summary;
           store.patchMessage(event.threadId, messageId, {
-            tool: {
-              name: toolName,
-              ok: event.ok,
-              spoken: existing?.spoken,
-              ...(summary ? { summary } : {}),
-              ...(typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
-            },
+            tool: completedTool(existing, event),
           });
           toolMessageByItem.delete(itemKey);
         }
