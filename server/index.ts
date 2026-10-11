@@ -424,8 +424,8 @@ type UtilityParentPort = {
   postMessage(message: { type: string; token: string } | PhoneKeepAwakeMessage): void;
 };
 const utilityParentPort = (process as NodeJS.Process & { parentPort?: UtilityParentPort }).parentPort;
-// Pending until the desktop push; takeGoogleEnv only sweeps an env session, never uses it. Null is an explicit empty session, not "still booting".
-const googleAccount = new GoogleAccount(googleEnv.client, null, { awaitSession: true });
+// Packaged: pending until the desktop push. Standalone and dev start signed out; dev desktop pushes again when the server restarts.
+const googleAccount = new GoogleAccount(googleEnv.client, null, { awaitSession: Boolean(utilityParentPort) });
 let hostShutdown = () => {};
 let hostShutdownStarted = false;
 utilityParentPort?.on("message", (event) => {

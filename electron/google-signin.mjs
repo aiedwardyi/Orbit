@@ -64,6 +64,26 @@ export function createGoogleSessionPush({ isPackaged, getServerProcess, getToken
   };
 }
 
+/** Dev only: a restarted dev server boots signed out, so push again whenever a new server process answers. */
+export function watchDevServer({ getPort, push, fetch = globalThis.fetch, intervalMs = 5_000 }) {
+  let pid = null;
+  const check = async () => {
+    try {
+      const health = await (await fetch(`http://127.0.0.1:${getPort()}/api/health`, { signal: AbortSignal.timeout(2_000) })).json();
+      if (!health?.pid || health.pid === pid) return;
+      const restarted = pid !== null;
+      pid = health.pid;
+      if (restarted) await push();
+    } catch {
+      // Server down or restarting; the next tick checks again.
+    }
+  };
+  void check();
+  const timer = setInterval(check, intervalMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
 export function pkcePair() {
   const verifier = randomBytes(32).toString("base64url");
   return { verifier, challenge: createHash("sha256").update(verifier).digest("base64url") };

@@ -166,7 +166,7 @@ describe("google account", () => {
 
   it("does not report signed out before the boot push", async () => {
     const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
-    expect(source.includes("new GoogleAccount(googleEnv.client, null, { awaitSession: true })")).toBe(true);
+    expect(source.includes("new GoogleAccount(googleEnv.client, null, { awaitSession: Boolean(utilityParentPort) })")).toBe(true);
     const google = new GoogleAccount(CLIENT, null, { awaitSession: true, log: () => {} });
     expect(google.status()).toEqual({ state: "pending" });
     expect(await stateOf(google.getAccessToken())).toBe("pending");
@@ -178,6 +178,14 @@ describe("google account", () => {
     expect(applyGoogleAccountMessage({ type: "orbit:google-account", session: null }, empty)).toBe(true);
     expect(empty.status()).toEqual({ state: "signed-out" });
     expect(JSON.stringify([google.status(), empty.status()])).not.toContain(SESSION.refreshToken);
+  });
+
+  it("starts a standalone server signed out instead of pending forever", async () => {
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    expect(source.includes("new GoogleAccount(googleEnv.client, null, { awaitSession: true })")).toBe(false);
+    const standalone = new GoogleAccount(CLIENT, null, { awaitSession: Boolean(undefined), log: () => {} });
+    expect(standalone.status()).toEqual({ state: "signed-out" });
+    expect(await stateOf(standalone.getAccessToken())).toBe("signed-out");
   });
 
   it("never writes tokens to logs, config or the sync folder", async () => {
