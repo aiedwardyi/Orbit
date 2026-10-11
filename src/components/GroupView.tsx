@@ -41,6 +41,8 @@ import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
+import { WorkerRow, WorkerStrip, type ShownRun } from "./WorkerRows";
+import { shownState, workerAnchors, workerRuns } from "@/lib/worker-runs";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
 import { ReactionBar, ReactionChips } from "./Reactions";
@@ -300,6 +302,7 @@ const Transcript = memo(function Transcript({
   dock,
   onReply,
   onFocusComposer,
+  workers,
 }: {
   group: Group;
   members: Bot[];
@@ -311,6 +314,7 @@ const Transcript = memo(function Transcript({
   dock: ReplyDock | null;
   onReply: (message: Message) => void;
   onFocusComposer: () => void;
+  workers: ShownRun[];
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
@@ -322,9 +326,10 @@ const Transcript = memo(function Transcript({
     () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages),
     [messages, streamingMessage],
   );
+  const workerAt = useMemo(() => workerAnchors(workers, messages), [messages, workers]);
   const rows = useMemo(
-    () => roomTranscriptRows(items, { showToolCalls }),
-    [items, showToolCalls],
+    () => roomTranscriptRows(items, { showToolCalls, workerRows: new Set([...workerAt].filter(([, shown]) => shown).map(([id]) => id)) }),
+    [items, showToolCalls, workerAt],
   );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
@@ -410,7 +415,10 @@ const Transcript = memo(function Transcript({
         const routineTarget = routineOwner && hasRoutineExecutionTask(routineOwner.tasks, routineExecutionThreadId)
           ? { botId: routineOwner.id, threadId: routineExecutionThreadId }
           : undefined;
-        const row =
+        const worker = workerAt.get(m.id);
+        const row = worker ? (
+          <WorkerRow {...worker} live={null} />
+        ) :
           // a member can hit a permission ask mid-turn; without this the
           // card never rendered here and the bot waited out its timeout.
           // `tool` distinguishes a permission from a QUESTION — a question
@@ -1176,6 +1184,8 @@ export function GroupView({ group }: { group: Group }) {
   // an old jump shows its own window; the live pages below keep taking arrivals
   const jump = useJumpWindow(dispatch, transcriptKey, group.threadId, group.messages, null, state.olderPatches[group.threadId], state.snapshots);
   const shown = jump.messages ?? group.messages;
+  // rooms have no pane liveness, so a run without a report stays Working
+  const workers = useMemo(() => workerRuns(shown).map((run) => ({ run, state: shownState(run, null) })), [shown]);
   const renders = useCallback(
     (index: number) => messageVisible(group.messages[index], showToolCalls),
     [group.messages, showToolCalls],
@@ -1684,6 +1694,7 @@ export function GroupView({ group }: { group: Group }) {
             dock={dock}
             onReply={selectReply}
             onFocusComposer={focusComposer}
+            workers={workers}
           />
           {laterCount > 0 && (
             <div className="flex justify-center">
@@ -1737,6 +1748,7 @@ export function GroupView({ group }: { group: Group }) {
           busy={roomRecoveryBusy(group, recoveryBot.busy)}
         />
       )}
+      <WorkerStrip name={group.name} runs={workers} />
       <Composer
         key={group.threadId}
         group={group}

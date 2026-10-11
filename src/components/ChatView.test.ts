@@ -147,8 +147,11 @@ describe("ChatView reply settle", () => {
   });
 });
 
-describe("ChatView note collapse", () => {
-  it("collapses a note to its header and expands the status and the worker's words", async () => {
+describe("ChatView worker rows", () => {
+  const LABEL = "THEME-CYCLE | Sonnet 5.5 | medium";
+  const launch = (id: string, label: string, at = 1): Message => ({ id, at, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${id}` });
+  const note = (id: string, pane: string, text: string, at = 2, label = "X"): Message => ({ id, at, role: "bot", kind: "note", text: `[pane ${pane.slice(0, 8)}] [${label}] from Wink (61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b): ${text}` });
+  const stubDom = () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     vi.stubGlobal("ResizeObserver", class {
@@ -157,144 +160,111 @@ describe("ChatView note collapse", () => {
       disconnect() {}
     });
     vi.spyOn(console, "warn").mockImplementation(() => {});
+  };
+  const mountChat = async (bot: Bot, onOpenTerminalPane?: (sessionId: string) => void) => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    const labeled: Message = { id: "note-1", at: 1, role: "bot", kind: "note", text: "[pane 0f3c9a1e] [OPUS | MED] from Wink (61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b): DONE OPUS branch=fix/x sha=3623665c dirty=no\ntests pass" };
-    const unlabeled: Message = { id: "note-2", at: 2, role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker (w1): still running" };
-    const current = { ...botA, messages: [userMsg("ua", "go"), labeled, unlabeled] } as Bot;
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot, onOpenTerminalPane }))));
+    return { host, unmount: async () => { await act(async () => root.unmount()); host.remove(); } };
+  };
+  const rows = (host: HTMLElement) => Array.from(host.querySelectorAll<HTMLElement>("[data-worker-run] > button"));
+  const states = (host: HTMLElement) => Array.from(host.querySelectorAll("[data-worker-run] [data-worker-state]")).map((el) => el.getAttribute("data-worker-state"));
+
+  it("folds a worker's notes into one row and opens them on tap", async () => {
+    stubDom();
+    const pane = "0f3c9a1e-1111-4222-8333-944455556666";
+    const plain: Message = { id: "plain", at: 4, role: "bot", kind: "note", text: "Synced from Work PC" };
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [
+      userMsg("ua", "go"),
+      note("n1", pane, "DONE OPUS branch=fix/x sha=3623665c dirty=no\ntests pass", 2, "OPUS | Opus 5.5 | high"),
+      note("n2", pane, "still running", 3),
+      plain,
+    ] } as Bot;
+    const { host, unmount } = await mountChat(current);
     try {
-      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current }))));
-      const buttons = Array.from(host.querySelectorAll("button")).filter((b) => b.textContent?.startsWith("Note from"));
-      expect(buttons.map((b) => b.textContent)).toEqual(["Note from OPUS | MED", "Note from a worker"]);
-      expect(host.querySelector("[data-orbit-note]")).toBeNull();
-      await act(async () => { buttons[0]!.click(); });
-      const shown = host.querySelector("[data-orbit-note]")?.textContent ?? "";
-      expect(shown).toBe("Finishedtests pass");
+      expect(rows(host).map((b) => b.textContent)).toEqual(["OPUSOpus 5.5●Working"]);
+      expect(host.querySelector("[data-orbit-worker]")).toBeNull();
+      await act(async () => { rows(host)[0]!.click(); });
+      const shown = host.querySelector("[data-orbit-worker]")?.textContent ?? "";
+      expect(shown).toBe("Finishedtests passstill running");
       for (const machine of ["[pane", "61902933", "branch=", "sha=", "dirty="]) expect(shown).not.toContain(machine);
-      await act(async () => { buttons[0]!.click(); });
-      expect(host.querySelector("[data-orbit-note]")).toBeNull();
+      expect(Array.from(host.querySelectorAll("button")).map((b) => b.textContent)).toContain("Note");
+      await act(async () => { rows(host)[0]!.click(); });
+      expect(host.querySelector("[data-orbit-worker]")).toBeNull();
     } finally {
-      await act(async () => root.unmount());
-      host.remove();
+      await unmount();
     }
   });
 
-  it("collapses a launch row to its header and expands only the folder", async () => {
-    vi.stubGlobal("EventSource", FakeEventSource);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
-    vi.stubGlobal("ResizeObserver", class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    });
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    const launch = (id: string, label: string): Message => ({ id, at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${id}` });
-    const current = { ...botA, messages: [userMsg("ua", "go"), launch("p1", "THEME-CYCLE | Sonnet 5.5 | medium"), launch("p2", "B"), launch("p3", "C")] } as Bot;
+  it("shows nickname, model, and status for each launch, and the folder when opened", async () => {
+    stubDom();
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [userMsg("ua", "go"), launch("p1", LABEL), launch("p2", "B"), launch("p3", "C | script")] } as Bot;
+    const { host, unmount } = await mountChat(current);
     try {
-      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current }))));
-      const buttons = Array.from(host.querySelectorAll("button")).filter((b) => b.textContent?.startsWith("Launched"));
-      expect(buttons.map((b) => b.textContent)).toEqual(["Launched THEME-CYCLE | Sonnet 5.5 | medium", "Launched B", "Launched C"]);
-      expect(host.querySelector("[data-orbit-launch]")).toBeNull();
-      await act(async () => { buttons[0]!.click(); });
-      expect(host.querySelector("[data-orbit-launch]")?.textContent).toBe("Folder: C:\\repo");
-      await act(async () => { buttons[0]!.click(); });
-      expect(host.querySelector("[data-orbit-launch]")).toBeNull();
+      expect(rows(host).map((b) => b.textContent)).toEqual(["THEME-CYCLESonnet 5.5●Working", "B●Working", "Cscript●Working"]);
+      await act(async () => { rows(host)[0]!.click(); });
+      expect(host.querySelector("[data-orbit-worker]")?.textContent).toBe("Folder: C:\\repo");
+      expect(host.textContent).not.toContain("Launched");
     } finally {
-      await act(async () => root.unmount());
-      host.remove();
+      await unmount();
     }
   });
 
-  it("jumps to an open launch pane and marks a closed one", async () => {
-    vi.stubGlobal("EventSource", FakeEventSource);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
-    vi.stubGlobal("ResizeObserver", class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    });
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("jumps to an open pane and ends a closed one with no report", async () => {
+    stubDom();
     const pane = (sessionId: string) => ({ sessionId, generation: 1, label: null, cwd: "C:\\repo", main: false, exited: false });
     vi.stubGlobal("ogb", { platform: "win32", terminal: { readBot: vi.fn(async () => ({ panes: [pane("p1")] })) } });
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
-    const launch = (id: string, label: string): Message => ({ id, at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${id}` });
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
     const current = { ...botA, messages: [userMsg("ua", "go"), launch("p1", "A"), launch("p2", "B"), ...Array.from({ length: 28 }, (_, i) => launch(`x${i}`, `X${i}`))] } as Bot;
     const onOpenTerminalPane = vi.fn();
     const readBot = (window.ogb!.terminal!.readBot as ReturnType<typeof vi.fn>);
+    const { host, unmount } = await mountChat(current, onOpenTerminalPane);
     try {
-      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current, onOpenTerminalPane }))));
-      const buttons = Array.from(host.querySelectorAll("button"));
-      await act(async () => { buttons.find((b) => b.textContent === "Launched A")!.click(); });
+      expect(states(host).slice(0, 2)).toEqual(["working", "ended"]);
+      await act(async () => { rows(host)[0]!.click(); });
+      const open = Array.from(host.querySelectorAll<HTMLButtonElement>("[data-orbit-worker] button")).find((b) => b.textContent === "Running in C:\\repo")!;
+      await act(async () => { open.click(); });
       expect(onOpenTerminalPane).toHaveBeenCalledWith("p1");
-      expect(host.querySelector("[data-orbit-launch]")).toBeNull();
-      await act(async () => { host.querySelector<HTMLButtonElement>("button[aria-label='Details']")!.click(); });
-      expect(host.querySelector("[data-orbit-launch]")?.textContent).toBe("Running in C:\\repo");
-      const closed = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Launched B · closed")!;
-      await act(async () => { closed.click(); });
-      expect(onOpenTerminalPane).toHaveBeenCalledTimes(1);
+      await act(async () => { rows(host)[1]!.click(); });
       expect(host.textContent).toContain("Ran in C:\\repo");
+      expect(onOpenTerminalPane).toHaveBeenCalledTimes(1);
       expect(host.textContent).not.toContain("Session:");
-      expect(host.textContent).not.toContain("Label:");
       expect(readBot).toHaveBeenCalledTimes(1);
     } finally {
-      await act(async () => root.unmount());
-      host.remove();
+      await unmount();
     }
   });
 
-  it("shows a closed launch's newest report as its status and words", async () => {
-    vi.stubGlobal("EventSource", FakeEventSource);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
-    vi.stubGlobal("ResizeObserver", class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    });
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("takes the newest report as the state and keeps it over a closed pane", async () => {
+    stubDom();
     vi.stubGlobal("ogb", { platform: "win32", terminal: { readBot: vi.fn(async () => ({ panes: [] })) } });
-    const host = document.createElement("div");
-    document.body.append(host);
-    const root = createRoot(host);
     const done = "bc9c674b-2844-43b0-982e-88305df70570";
     const failed = "0f3c9a1e-1111-4222-8333-944455556666";
-    const launch = (id: string, label: string): Message => ({ id, at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${id}` });
-    const note = (id: string, pane: string, text: string): Message => ({ id, at: 2, role: "bot", kind: "note", text: `[pane ${pane.slice(0, 8)}] [X] from Wink (61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b): ${text}` });
     // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
     const current = { ...botA, messages: [
       userMsg("ua", "go"), launch(done, "A"), launch(failed, "B"),
-      note("n1", done, "FAIL A branch=x sha=y dirty=no\nfirst try broke"),
-      note("n2", done, "DONE A branch=fix/a sha=3623665c dirty=no\nAll green."),
-      note("n3", failed, "FAIL B branch=x sha=y dirty=yes\nThe build broke."),
+      note("n1", done, "FAIL A branch=x sha=y dirty=no\nfirst try broke", 2),
+      note("n2", done, "DONE A branch=fix/a sha=3623665c dirty=no\nAll green.", 3),
+      note("n3", failed, "FAIL B branch=x sha=y dirty=yes\nThe build broke.", 4),
     ] } as Bot;
+    const { host, unmount } = await mountChat(current, vi.fn());
     try {
-      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current, onOpenTerminalPane: vi.fn() }))));
-      const rows = Array.from(host.querySelectorAll("button")).filter((b) => b.textContent?.startsWith("Launched"));
-      expect(rows.map((b) => b.textContent)).toEqual(["Launched A · finished", "Launched B · failed"]);
-      await act(async () => { rows[0]!.click(); });
-      const shown = host.querySelector("[data-orbit-launch]")?.textContent ?? "";
-      expect(shown).toBe("FinishedAll green.");
+      expect(rows(host).map((b) => b.textContent)).toEqual(["A✓Done", "B!Failed"]);
+      await act(async () => { rows(host)[0]!.click(); });
+      const shown = host.querySelector("[data-orbit-worker]")?.textContent ?? "";
+      expect(shown).toBe("Ran in C:\\repoFailedfirst try brokeFinishedAll green.");
       for (const machine of ["Session", "Label", "branch=", "sha=", "dirty=", done]) expect(shown).not.toContain(machine);
+      expect(host.querySelector("[data-worker-strip]")).toBeNull();
     } finally {
-      await act(async () => root.unmount());
-      host.remove();
+      await unmount();
     }
   });
 
   it("keeps a pane closed when its close lands before the snapshot", async () => {
-    vi.stubGlobal("EventSource", FakeEventSource);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
-    vi.stubGlobal("ResizeObserver", class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    });
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubDom();
     const pane = (sessionId: string) => ({ sessionId, generation: 1, label: null, cwd: "C:\\repo", main: false, exited: false });
     let resolveSnapshot: (value: { panes: ReturnType<typeof pane>[] }) => void = () => {};
     let opened: (event: { botId: string; id: string }) => void = () => {};
@@ -304,18 +274,268 @@ describe("ChatView note collapse", () => {
       onOpened: vi.fn((cb: typeof opened) => { opened = cb; return () => {}; }),
       onClosed: vi.fn((cb: typeof closed) => { closed = cb; return () => {}; }),
     } });
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [userMsg("ua", "go"), launch("p1", "A"), launch("p2", "B"), launch("p3", "C")] } as Bot;
+    const { host, unmount } = await mountChat(current, vi.fn());
+    try {
+      await act(async () => { closed({ botId: botA.id, id: "p1" }); opened({ botId: botA.id, id: "p2" }); });
+      await act(async () => { resolveSnapshot({ panes: [pane("p1"), pane("p3")] }); });
+      expect(states(host)).toEqual(["ended", "working", "working"]);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("shows a strip for live runs that opens the list, urgent first", async () => {
+    stubDom();
+    const [a, b, c, d] = ["aaaaaaaa-1", "bbbbbbbb-1", "cccccccc-1", "dddddddd-1"];
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [
+      userMsg("ua", "go"),
+      launch(a, "BUILD | GPT-6 Astra | high", 1),
+      launch(b, "GUIDE | Opus 5.5 | high", 2),
+      launch(c, "COPY | Gemini 3.8 | high", 3),
+      launch(d, "SHIP | Grok 4.7 | high", 4),
+      note("n1", b, "BLOCKED GUIDE branch=x sha=y dirty=no\nWhich skin?", 5),
+      note("n2", c, "DONE COPY branch=x sha=y dirty=no", 6),
+      note("n3", d, "FAIL SHIP branch=x sha=y dirty=no", 7),
+    ] } as Bot;
+    const { host, unmount } = await mountChat(current);
+    try {
+      expect(states(host)).toEqual(["working", "waiting", "done", "failed"]);
+      const strip = host.querySelector<HTMLButtonElement>("[data-worker-strip]")!;
+      expect(strip.getAttribute("aria-label")).toBe("1 working, 1 waiting. Show workers");
+      expect(strip.textContent).toBe("");
+      expect(Array.from(strip.querySelectorAll("[data-worker-state]")).map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "working"]);
+      expect(strip.querySelectorAll("svg")).toHaveLength(2);
+      await act(async () => { strip.click(); });
+      const list = document.body.querySelector("[data-worker-list]")!;
+      expect(list.getAttribute("role")).toBe("dialog");
+      expect(list.querySelector("h2")?.textContent).toBe("A's workers");
+      expect(Array.from(list.querySelectorAll("li")).map((li) => li.textContent)).toEqual([
+        "GUIDEOpus 5.5?Waiting", "SHIPGrok 4.7!Failed", "BUILDGPT-6 Astra●Working", "COPYGemini 3.8✓Done",
+      ]);
+      await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("caps the strip at five marks and counts the rest", async () => {
+    stubDom();
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [userMsg("ua", "go"), ...Array.from({ length: 7 }, (_, i) => launch(`${i}0000000-1`, `W${i} | Opus 5.5 | high`, i + 1))] } as Bot;
+    const { host, unmount } = await mountChat(current);
+    try {
+      const strip = host.querySelector("[data-worker-strip]")!;
+      expect(strip.querySelectorAll("[data-worker-state]")).toHaveLength(5);
+      expect(strip.textContent).toBe("+2");
+      expect(strip.getAttribute("aria-label")).toBe("7 working, 0 waiting. Show workers");
+    } finally {
+      await unmount();
+    }
+  });
+
+  describe("without the desktop bridge", () => {
+    const [a, b, c] = ["aaaaaaaa-1", "bbbbbbbb-1", "cccccccc-1"];
+    const terminalPath = `/api/bots/${botA.id}/terminal`;
+    const roster = (...ids: string[]) => ({ panes: [{ sessionId: "main-1", main: true }, ...ids.map((sessionId) => ({ sessionId, main: false }))] });
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const threeRuns = () => ({ ...botA, messages: [userMsg("ua", "go"), launch(a, "A"), launch(b, "B"), launch(c, "C")] } as Bot);
+    const reply = (status: number, body: { error?: string; panes?: Array<{ sessionId: string; main: boolean }> }) => new Response(JSON.stringify(body), { status });
+    const stubTerminal = (answer: (call: number) => Promise<Response>) => {
+      stubDom();
+      const calls: string[] = [];
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (!url.startsWith("/api/bots/") || !url.includes("/terminal")) return reply(404, {});
+        calls.push(`${init?.method ?? "GET"} ${url}`);
+        return answer(calls.length);
+      }));
+      return calls;
+    };
+    let feed: (panes: Record<string, string[]>) => void = () => {};
+    function Feed() {
+      const { dispatch } = useStore();
+      feed = (panes) => dispatch({ type: "setTerminalPanes", panes });
+      return null;
+    }
+    const mountFed = async (bot: Bot) => {
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = createRoot(host);
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(Feed), createElement(ChatView, { bot }))));
+      return { host, unmount: async () => { await act(async () => root.unmount()); host.remove(); } };
+    };
+    const settle = () => act(async () => { await sleep(0); });
+
+    it("ends a run whose pane is gone and keeps the live one", async () => {
+      const calls = stubTerminal(async () => reply(200, roster(a, c)));
+      const { host, unmount } = await mountFed(threeRuns());
+      try {
+        await settle();
+        expect(states(host)).toEqual(["working", "ended", "working"]);
+        expect(host.querySelector("[data-worker-strip]")?.querySelectorAll("[data-worker-state]")).toHaveLength(2);
+        expect(calls).toEqual([`GET ${terminalPath}`]);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("ends every run and drops the strip on 404 Unknown terminal", async () => {
+      const calls = stubTerminal(async () => reply(404, { error: "Unknown terminal" }));
+      const { host, unmount } = await mountFed(threeRuns());
+      try {
+        await settle();
+        expect(states(host)).toEqual(["ended", "ended", "ended"]);
+        expect(host.querySelector("[data-worker-strip]")).toBeNull();
+        expect(calls).toHaveLength(1);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it.each([
+      ["a 500", async () => reply(500, { error: "boom" })],
+      ["a 502 bridge error", async () => reply(502, { error: "terminal bridge unreachable" })],
+      ["a 200 with no pane list", async () => reply(200, {})],
+      ["a network error", async () => { throw new TypeError("Failed to fetch"); }],
+    ])("leaves states unchanged on %s", async (_name, answer) => {
+      const calls = stubTerminal(answer);
+      const { host, unmount } = await mountFed(threeRuns());
+      try {
+        await settle();
+        expect(calls).toEqual([`GET ${terminalPath}`]);
+        expect(states(host)).toEqual(["working", "working", "working"]);
+        expect(host.querySelector("[data-worker-strip]")).not.toBeNull();
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("keeps a final report over a gone pane", async () => {
+      stubTerminal(async () => reply(200, roster()));
+      // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+      const current = { ...botA, messages: [userMsg("ua", "go"), launch(a, "A"), launch(b, "B"), note("n1", a, "DONE A branch=x sha=y dirty=no\nGreen.", 3)] } as Bot;
+      const { host, unmount } = await mountFed(current);
+      try {
+        await settle();
+        expect(states(host)).toEqual(["done", "ended"]);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("refetches when this bot's labels change and not on an identical poll", async () => {
+      const calls = stubTerminal(async () => reply(200, roster(a)));
+      const { host, unmount } = await mountFed(threeRuns());
+      try {
+        await settle();
+        expect(calls).toHaveLength(1);
+        await act(async () => feed({ [botA.id]: ["x"] }));
+        await settle();
+        expect(calls).toHaveLength(2);
+        await act(async () => feed({ [botA.id]: ["x"], other: ["y"] }));
+        await act(async () => feed({ [botA.id]: ["x"] }));
+        await settle();
+        expect(calls).toHaveLength(2);
+        await act(async () => feed({ [botA.id]: ["x", "y"] }));
+        await settle();
+        expect(calls).toHaveLength(3);
+        await act(async () => feed({}));
+        await settle();
+        expect(calls).toHaveLength(4);
+        expect(calls.every((call) => call === `GET ${terminalPath}`)).toBe(true);
+        expect(states(host)).toEqual(["working", "ended", "ended"]);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("drops a late response and keeps the last known set when a refetch fails", async () => {
+      const late: Array<(response: Response) => void> = [];
+      stubTerminal((call) => (call === 3 ? Promise.resolve(reply(500, {})) : new Promise<Response>((resolve) => { late[call] = resolve; })));
+      const { host, unmount } = await mountFed(threeRuns());
+      try {
+        await act(async () => feed({ [botA.id]: ["x"] }));
+        await act(async () => { late[2]!(reply(200, roster(b))); });
+        await settle();
+        expect(states(host)).toEqual(["ended", "working", "ended"]);
+        await act(async () => { late[1]!(reply(200, roster(a, b, c))); });
+        await settle();
+        expect(states(host)).toEqual(["ended", "working", "ended"]);
+        await act(async () => feed({ [botA.id]: ["x", "y"] }));
+        await settle();
+        expect(states(host)).toEqual(["ended", "working", "ended"]);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("rereads when the page becomes visible again, not while hidden", async () => {
+      const calls = stubTerminal(async () => reply(200, roster(a)));
+      const { unmount } = await mountFed(threeRuns());
+      const visibility = vi.spyOn(document, "visibilityState", "get");
+      try {
+        await settle();
+        visibility.mockReturnValue("hidden");
+        await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+        expect(calls).toHaveLength(1);
+        visibility.mockReturnValue("visible");
+        await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+        await settle();
+        expect(calls).toHaveLength(2);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("never starts or types into a terminal", async () => {
+      const calls = stubTerminal(async () => reply(200, roster(a)));
+      const { host, unmount } = await mountFed(threeRuns());
+      try {
+        await settle();
+        await act(async () => feed({ [botA.id]: ["x"] }));
+        await act(async () => { rows(host)[0]!.click(); });
+        expect(calls.length).toBeGreaterThan(1);
+        expect(calls.every((call) => /^GET \/api\/bots\/[^/]+\/terminal$/.test(call))).toBe(true);
+      } finally {
+        await unmount();
+      }
+    });
+  });
+
+  it("renders runs from two room members and folds their notes", async () => {
+    stubDom();
+    const fromA: Message["from"] = { botId: "a", name: "A", color: "blue" };
+    const fromB: Message["from"] = { botId: "b", name: "B", color: "green" };
+    const group: Group = {
+      id: "g",
+      threadId: "thread-g",
+      name: "Room",
+      memberIds: ["a", "b"],
+      defaultResponder: { kind: "everyone" },
+      bulletin: "",
+      unread: false,
+      createdAt: 1,
+      setupCompletedAt: 1,
+      hasMore: false,
+      messages: [
+        userMsg("ua", "split it"),
+        { ...launch("aaaaaaaa-1", "CHECK | Opus 5.5 | high", 2), from: fromA },
+        { ...launch("bbbbbbbb-1", "REVIEW | GPT-6.1 Sol | high", 3), from: fromB },
+        { ...note("n1", "aaaaaaaa-1", "DONE CHECK branch=x sha=y dirty=no\nGreen.", 4), from: fromA },
+      ],
+    };
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    const launch = (id: string, label: string): Message => ({ id, at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${id}` });
-    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
-    const current = { ...botA, messages: [userMsg("ua", "go"), launch("p1", "A"), launch("p2", "B"), launch("p3", "C")] } as Bot;
     try {
-      await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current, onOpenTerminalPane: vi.fn() }))));
-      await act(async () => { closed({ botId: botA.id, id: "p1" }); opened({ botId: botA.id, id: "p2" }); });
-      await act(async () => { resolveSnapshot({ panes: [pane("p1"), pane("p3")] }); });
-      const labels = Array.from(host.querySelectorAll("button")).map((b) => b.textContent).filter((t) => t?.startsWith("Launched"));
-      expect(labels).toEqual(["Launched A · closed", "Launched B", "Launched C"]);
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(GroupView, { group }))));
+      expect(rows(host).map((b) => b.textContent)).toEqual(["CHECKOpus 5.5✓Done", "REVIEWGPT-6.1 Sol●Working"]);
+      expect(host.textContent).not.toContain("Green.");
+      expect(host.querySelector("[data-worker-strip]")?.getAttribute("aria-label")).toBe("1 working, 0 waiting. Show workers");
     } finally {
       await act(async () => root.unmount());
       host.remove();
