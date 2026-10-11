@@ -38,6 +38,13 @@ const en = {
   "native.paste": "Paste",
   "native.pasteMatch": "Paste and Match Style",
   "native.selectAll": "Select All",
+  "close.title": "Close Wink?",
+  "close.confirm": "Close",
+  "close.cancel": "Cancel",
+  "close.workerOne": "A worker is still running. Closing Wink stops it.",
+  "close.workerMany": "{count} workers are still running. Closing Wink stops them.",
+  "close.bot": "A bot is still replying. Closing Wink stops it.",
+  "close.both": "Work is still running. Closing Wink stops it.",
 };
 
 const ko = {
@@ -69,6 +76,13 @@ const ko = {
   "native.paste": "붙여넣기",
   "native.pasteMatch": "붙여넣고 서식 맞추기",
   "native.selectAll": "모두 선택",
+  "close.title": "Wink를 닫을까요?",
+  "close.confirm": "닫기",
+  "close.cancel": "취소",
+  "close.workerOne": "작업자가 아직 실행 중입니다. Wink를 닫으면 중지됩니다.",
+  "close.workerMany": "작업자 {count}명이 아직 실행 중입니다. Wink를 닫으면 모두 중지됩니다.",
+  "close.bot": "봇이 아직 답하는 중입니다. Wink를 닫으면 중지됩니다.",
+  "close.both": "작업이 아직 진행 중입니다. Wink를 닫으면 중지됩니다.",
 };
 
 const catalogs = { en, ko };

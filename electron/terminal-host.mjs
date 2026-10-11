@@ -773,6 +773,13 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       }
       return labels;
     },
+    liveWorkerCount() {
+      let count = 0;
+      for (const session of sessions.values()) {
+        if (session.botPane && !session.retired && session.exitCode === null && active.get(session.key) === session.id) count++;
+      }
+      return count;
+    },
     sendBot(botId, input) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
