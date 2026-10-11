@@ -5,7 +5,7 @@ import { connect } from "node:net";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { createGoogleAccountController, createGoogleSessionPush, googleClient, googleServerEnv, pkcePair, runGoogleSignIn } from "./google-signin.mjs";
+import { createGoogleAccountController, createGoogleSessionPush, googleClient, googleServerEnv, pkcePair, runGoogleSignIn, watchDevServer } from "./google-signin.mjs";
 
 const CLIENT = { id: "client-id-test", secret: "client-secret-test" };
 const DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
@@ -376,6 +376,32 @@ describe("Google session delivery", () => {
     const packaged = createGoogleSessionPush({ isPackaged: true, getServerProcess: () => ({ postMessage: () => { throw new Error("closed"); } }), log });
     await expect(packaged(null)).resolves.toBeUndefined();
     expect(log).toHaveBeenLastCalledWith("google account sync failed: closed");
+  });
+
+  it("pushes again only when a new dev server process answers", async () => {
+    vi.useFakeTimers();
+    try {
+      const pids = [1, 1, null, 2, 2];
+      const fetch = vi.fn(async () => {
+        const pid = pids.shift();
+        if (pid === null) throw new Error("down");
+        return { json: async () => ({ pid }) };
+      });
+      const push = vi.fn(async () => {});
+      const stop = watchDevServer({ getPort: () => 1234, push, fetch, intervalMs: 100 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(push).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(push).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(push).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(push).toHaveBeenCalledOnce();
+      expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:1234/api/health", expect.anything());
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the boot session out of the server env and pushes the live account", () => {
