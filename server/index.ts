@@ -15,6 +15,7 @@ import {
   botAvatarUrlFromStoredPath,
   botNotifyIconPath,
   BOT_AVATAR_PICKER_ORDER,
+  DEFAULT_MASCOT_STYLE,
 } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import { defaultModelEffort, isEffortOffered } from "../shared/model-effort.ts";
@@ -1487,13 +1488,14 @@ function importProfileChanges(): void | Promise<void> {
     let bot = item.localId ? store.bot(item.localId) : null;
     const created = !bot;
     if (!bot) {
+      const remoteStyle = botAvatarChoiceSchema.safeParse(remoteBot.mascotStyle);
       bot = store.createBot({
         name: String(remoteBot.name ?? "Imported bot"),
         title: String(remoteBot.title ?? ""),
         description: String(remoteBot.description ?? ""),
         color: remoteBot.color as BotRecord["color"],
         mascotExpression: remoteBot.mascotExpression as BotRecord["mascotExpression"],
-        mascotStyle: remoteBot.mascotStyle as BotRecord["mascotStyle"],
+        mascotStyle: remoteStyle.success ? remoteStyle.data : DEFAULT_MASCOT_STYLE,
         section: typeof remoteBot.sectionId === "string" ? sectionNames.get(remoteBot.sectionId) : undefined,
         autoApprove: true,
       }, { seedMessages: false, id: item.localId ?? undefined });
