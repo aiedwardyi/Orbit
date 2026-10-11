@@ -164,8 +164,8 @@ export function createGoogleSync(options: Options) {
     if (bound && bound.owner.sub !== owner.sub) return { ...base, state: "other-account" };
     if (accountStatus.state === "needs-sign-in" || accountStatus.state === "blocked") return { ...base, state: accountStatus.state };
     if (!bound) return { ...base, state: "ready", join: joinInfo?.sub === owner.sub ? joinInfo.value : null };
-    if (bound.phase === "joining") return { ...base, state: "joining", progress: progress() };
     if (problem === "error") return base;
+    if (bound.phase === "joining") return { ...base, state: "joining", progress: progress() };
     if (problem === "offline" || accountStatus.state === "offline") return { ...base, state: "offline" };
     if (catching || lastSyncAt === null) return { ...base, state: "syncing", progress: catching ? progress() : null };
     return { ...base, state: "up-to-date" };
@@ -250,15 +250,16 @@ export function createGoogleSync(options: Options) {
     problem = null;
     lastSyncAt = now();
     const moved = summary.uploaded.length + summary.downloaded.length;
-    if (bound.phase === "joining" && moved === 0 && !summary.failed.some(blocksJoin)) {
+    // A rate-limited pass stops early, so moving nothing does not mean the mirror caught up.
+    const retry = retrySchema.safeParse(summary);
+    if (bound.phase === "joining" && moved === 0 && !retry.success && !summary.failed.some(blocksJoin)) {
       finishJoin(bound);
       catching = true;
       total = 0;
       return 0;
     }
-    catching = moved > 0 || summary.failed.length > 0;
+    catching = moved > 0 || summary.failed.length > 0 || retry.success;
     if (!catching) total = 0;
-    const retry = retrySchema.safeParse(summary);
     if (retry.success) return retry.data.retryAfterMs;
     return moved > 0 ? 0 : passMs;
   }
