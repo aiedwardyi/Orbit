@@ -508,7 +508,7 @@ describe("phone Google sign-in through the relay", () => {
     const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
     const at = index.indexOf('if (method === "PUT" && path === "/api/devices/name")');
     const route = index.slice(at, index.indexOf("web push", at));
-    expect(route.split("\n").filter((line) => line.includes("phoneAccess."))).toEqual(["      phoneAccess.nameChanged();"]);
+    expect(route.split(/\r?\n/).filter((line) => line.includes("phoneAccess."))).toEqual(["      phoneAccess.nameChanged();"]);
   });
 
   it("lets a removed phone back in with Google, since there is no Allow tap", async () => {
