@@ -39,6 +39,10 @@
 //                      { beforeRequest: string[] } after the steer window
 //   FAKE_CLAUDE_TASK_GATE  path; once it exists, a background task-1 finishes
 //                      and its notification wakes the CLI after `result`
+//   FAKE_CLAUDE_WAKE_DELAY_MS  ms between that notification and the wake's init;
+//                      "never" sends the notification and no wake
+//   FAKE_CLAUDE_NOTIFY_REPEAT_MS  ms between replays of that same notification,
+//                      until the process exits
 //   FAKE_CLAUDE_USER_ALLOW  tools the user's own settings.json allows, e.g.
 //                      "Write,Bash" — only `edit` reads it
 //   FAKE_CLAUDE_DUMP   path to write {argv, env, prompt, mcpConfig} as JSON,
@@ -430,7 +434,19 @@ const playSubagentWake = () => {
 let taskStarted = false;
 const playTaskWake = () => {
   turnRunning = true;
-  out({ type: "system", subtype: "task_notification", task_id: "task-1", tool_use_id: "tu-task", status: "completed", output_file: "", summary: "fake task", session_id: sessionId });
+  const notify = () => out({ type: "system", subtype: "task_notification", task_id: "task-1", tool_use_id: "tu-task", status: "completed", output_file: "", summary: "fake task", session_id: sessionId });
+  notify();
+  if (process.env.FAKE_CLAUDE_NOTIFY_REPEAT_MS) setInterval(notify, Number(process.env.FAKE_CLAUDE_NOTIFY_REPEAT_MS));
+  const delay = process.env.FAKE_CLAUDE_WAKE_DELAY_MS;
+  if (delay === "never") {
+    turnRunning = false;
+    finishIfDone();
+    return;
+  }
+  if (delay) setTimeout(playWakeReply, Number(delay));
+  else playWakeReply();
+};
+const playWakeReply = () => {
   out({ type: "system", subtype: "init", session_id: sessionId, model });
   out({ type: "assistant", message: { content: [{ type: "text", text: "background task done" }] } });
   out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0.01, usage: { input_tokens: 10, output_tokens: 5 } });
