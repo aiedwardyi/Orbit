@@ -5,7 +5,7 @@
 // generator-escaped. While a message is still streaming, a code block renders
 // as plain <pre> until its content has held still for STREAM_SETTLE_MS (the
 // fence is very likely complete), then highlights and caches.
-import { createContext, memo, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Markdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
@@ -365,8 +365,14 @@ function linkedFileSrc(threadId: string, filePath: string): string {
 // modifier click. The shell decides whether to open or only reveal the file.
 function DesktopFileLink({ filePath, base, children }: { filePath: string; base?: string; children?: ReactNode }) {
   const [reason, setReason] = useState("");
+  const ref = useRef<HTMLButtonElement>(null);
   // No bridge at all means a phone or browser, not an outdated desktop app.
   const desktop = Boolean(window.ogb);
+  // A link alone on its line is the one the Terminal skin draws as `⎿ path`.
+  useLayoutEffect(() => {
+    const link = ref.current;
+    if (link) link.toggleAttribute("data-file-line", link.parentElement?.textContent?.trim() === link.textContent?.trim());
+  });
 
   const open = async () => {
     const openFile = window.ogb?.openFile;
@@ -385,9 +391,11 @@ function DesktopFileLink({ filePath, base, children }: { filePath: string; base?
   return (
     <>
       <button
+        ref={ref}
         type="button"
         onClick={() => void open()}
         title={filePath}
+        data-file-link
         className="break-words text-left text-accent underline decoration-accent/40 hover:decoration-accent"
       >
         {children}

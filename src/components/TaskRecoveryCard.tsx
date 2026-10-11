@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 
 import { isCompletedTaskRecord, isTaskRecoveryVisible, shouldDismissCompletedReopen } from "@/lib/task-recovery";
 import { useI18n } from "@/lib/i18n";
+import { useSkin } from "@/lib/skins";
 import { useStore, type Bot, type Message, type TaskResumePacket } from "@/state/store";
 import { readContextCompaction } from "../../shared/context-compaction";
 
@@ -163,7 +164,16 @@ export function TaskRecoveryCard({
 
 export function ContextCompactionDivider({ message }: { message: Message }) {
   const { t } = useI18n();
+  const terminal = useSkin() === "terminal";
   const parsed = readContextCompaction({ value: message.compaction });
+  if (parsed.status === "valid" && terminal) {
+    return (
+      <div className="term-summary text-[13px] text-ink-secondary">
+        <span aria-hidden="true">✻ </span>
+        {t("term.summaryLine")}
+      </div>
+    );
+  }
   // A routine summary is model bookkeeping; only a blocking version gap is shown.
   if (parsed.status !== "unsupported") return null;
   return (

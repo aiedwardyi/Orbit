@@ -3,6 +3,8 @@
 // strip instead, and fades out there when the turn ends.
 import { Component, useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { useSkin } from "@/lib/skins";
+import { termElapsed } from "@/lib/terminal-skin";
 import type { Message } from "@/state/store";
 
 /** One bad markdown node must not white-screen the app — the bubble
@@ -57,13 +59,17 @@ export function TurnPresence({
   visible,
   docked = false,
   label = "Thinking",
+  since,
 }: {
   avatar: ReactNode;
   visible: boolean;
   /** The mascot moved under live reply text: leave at once, no exit fade. */
   docked?: boolean;
   label?: string;
+  /** When the turn began; the Terminal skin counts up from it. */
+  since?: number;
 }) {
+  const terminal = useSkin() === "terminal";
   const [wasVisible, setWasVisible] = useState(visible);
   const [fading, setFading] = useState(false);
   if (visible !== wasVisible) {
@@ -81,8 +87,9 @@ export function TurnPresence({
   return (
     <div className="turn-presence flex flex-col items-start">
       <div data-turn-mascot className={cn("flex items-center gap-2", visible ? "turn-mascot-in" : "turn-mascot-out")}>
-        {avatar}
+        {terminal ? <TermGlyph /> : avatar}
         {visible ? <WorkingLabel label={label} /> : null}
+        {visible && terminal && since ? <Elapsed since={since} /> : null}
       </div>
     </div>
   );
@@ -91,6 +98,7 @@ export function TurnPresence({
 /** The mascot docked in a live reply's action strip. It fades out in place
  * when the turn ends, so the reply's own actions take the strip unmoved. */
 export function DockedPresence({ avatar, label, live, className }: { avatar: ReactNode; label: string; live: boolean; className?: string }) {
+  const terminal = useSkin() === "terminal";
   const [gone, setGone] = useState(!live);
   if (live && gone) setGone(false);
 
@@ -107,10 +115,23 @@ export function DockedPresence({ avatar, label, live, className }: { avatar: Rea
       aria-hidden={!live}
       className={cn("turn-mascot-docked pointer-events-none flex items-center gap-1.5", live ? "turn-mascot-in" : "turn-mascot-out", className)}
     >
-      {avatar}
+      {terminal ? <TermGlyph /> : avatar}
       {live ? <WorkingLabel label={label} /> : null}
     </div>
   );
+}
+
+function TermGlyph() {
+  return <span aria-hidden="true" className="term-blink text-[15px] leading-none text-accent">✽</span>;
+}
+
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return <span className="text-[13px] leading-none text-ink-secondary tabular-nums">({termElapsed(now - since)})</span>;
 }
 
 function WorkingLabel({ label }: { label: string }) {

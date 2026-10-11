@@ -1282,6 +1282,287 @@
   --radius-xl: 0px;
 }
 
+/* ── Terminal ──────────────────────────────────────────────────────────────
+   Reads like a coding CLI: > prompt echo, bullet replies, one ● line per tool
+   call over a ⎿ result, a ruled input and a two-line status. The steps,
+   working line and status line are their own components; this block only
+   restyles the shared transcript and composer.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="terminal"] {
+  --color-app: #0a0a0b;
+  --color-panel: #111113;
+  --color-raised: #18181b;
+  --color-raised-hover: #212125;
+  --color-card: #111113;
+  --color-inset: #000000;
+  --color-control: #18181b;
+  --color-hairline: #3a3a40;
+
+  --color-ink: #e4e4e7;
+  --color-ink-secondary: #9195a0;
+
+  --color-accent: #d77757;
+  --color-accent-border: #e08a6c;
+  --color-accent-text: #e3906f;
+  --color-focus: #e3906f;
+  --color-accent-ink: #0a0a0b;
+  --color-bubble-user: #18181b;
+
+  --color-success: #4eba65;
+  --color-danger: #ff6b80;
+  --color-danger-ink: #0a0a0b;
+  --color-warning: #e5c07b;
+  --color-scrollbar: #3a3a40;
+  --color-maus-line: #9195a0;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+@scope ([data-skin="terminal"]) to ([data-skin]) {
+  [class*="rounded"] {
+    border-radius: 0;
+  }
+
+  [data-orbit-message] {
+    align-items: flex-start;
+  }
+
+  [data-orbit-message-body] {
+    width: 100%;
+    max-width: none;
+  }
+
+  [data-orbit-message-content] {
+    position: relative;
+    width: 100%;
+    border-radius: 0;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  /* also undoes Boxy's speaker labels, rails and outline: one look in both shapes */
+  .orbit-message-speaker {
+    display: none;
+  }
+
+  [data-orbit-message] [data-orbit-message-content] {
+    border-left: 0;
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content] {
+    padding: 0 0 0 2ch;
+    background: transparent;
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    padding: 2px 1ch 2px 2ch;
+    background: var(--color-raised);
+    color: var(--color-ink);
+  }
+
+  [data-orbit-message] [data-orbit-message-content]::before {
+    position: absolute;
+    top: 0;
+    left: 0;
+    color: var(--color-ink);
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content]::before {
+    content: "●";
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content]::before {
+    content: ">";
+    top: 2px;
+    color: var(--color-ink-secondary);
+  }
+
+  /* ● Verb(summary) over ⎿ Done (1.2s) */
+  .term-step {
+    position: relative;
+    padding-left: 2ch;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--color-ink-secondary);
+  }
+
+  .term-step::before {
+    content: "●";
+    position: absolute;
+    left: 0;
+    color: var(--color-success);
+  }
+
+  .term-step[data-term-step="failed"]::before {
+    color: var(--color-danger);
+  }
+
+  .term-step[data-term-step="running"]::before {
+    color: var(--color-ink-secondary);
+    animation: term-blink 1s steps(2, start) infinite;
+  }
+
+  .term-step-result {
+    padding-left: 3ch;
+    text-indent: -3ch;
+  }
+
+  .term-step-result::before {
+    content: "⎿\00a0\00a0";
+  }
+
+  .term-search {
+    padding-left: 2ch;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--color-ink-secondary);
+  }
+
+  .term-search:hover {
+    color: var(--color-ink);
+  }
+
+  .term-summary {
+    padding-left: 2ch;
+  }
+
+  [data-file-link][data-file-line] {
+    color: var(--color-ink);
+    text-decoration: none;
+  }
+
+  [data-file-link][data-file-line]::before {
+    content: "⎿\00a0\00a0";
+    color: var(--color-ink-secondary);
+  }
+
+  /* working line: ✽ Thinking… (1m 12s) */
+  [data-turn-mascot] .thinking-shimmer {
+    color: var(--color-accent-text);
+    font-size: 14px;
+  }
+
+  /* worker rows stay rows; they just lose the rules */
+  [data-worker-run] > button,
+  [data-orbit-worker] {
+    border-bottom: 0;
+  }
+
+  [data-worker-run] > button {
+    padding-block: 2px;
+  }
+
+  [data-orbit-worker] {
+    position: relative;
+  }
+
+  [data-orbit-worker]::before {
+    content: "⎿";
+    position: absolute;
+    left: 2ch;
+    top: 0.5rem;
+  }
+
+  /* ruled input with a > prompt */
+  [data-orbit-composer-frame] {
+    border-block: 1px solid var(--color-hairline);
+    outline: none;
+    background: transparent;
+    padding-left: 2ch;
+  }
+
+  [data-orbit-composer-frame]::after {
+    content: ">";
+    position: absolute;
+    top: 0.55rem;
+    left: 0;
+    color: var(--color-ink);
+    font-size: 15px;
+  }
+
+  /* questions and approvals: one ruled box, choices as numbered lines */
+  [data-pending-question],
+  [data-pending-approval] {
+    border: 0;
+    border-block: 1px solid var(--color-accent);
+    background: transparent;
+  }
+
+  [data-pending-question] > div,
+  [data-pending-approval] > div {
+    background: transparent;
+    border-bottom: 0;
+  }
+
+  [data-term-choices] {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    counter-reset: term-choice;
+  }
+
+  [data-pending-approval] [data-term-choices] {
+    padding-inline: 1rem;
+  }
+
+  [data-term-choices] > button {
+    border: 0;
+    background: transparent;
+    padding: 2px 0;
+    font-weight: 400;
+    counter-increment: term-choice;
+  }
+
+  [data-term-choices] > button:not([class*="text-danger"]):not([class*="text-ink-secondary"]) {
+    color: var(--color-ink);
+  }
+
+  [data-term-choices] > button:hover {
+    background: transparent;
+    color: var(--color-accent-text);
+  }
+
+  [data-term-choices] > button::before {
+    content: counter(term-choice) ".\00a0";
+    color: var(--color-ink-secondary);
+  }
+
+  .term-status {
+    position: relative;
+    z-index: 1;
+    padding: 4px 2ch 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--color-ink);
+  }
+
+  .term-status > div {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+
+@keyframes term-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.term-blink {
+  animation: term-blink 1.2s steps(2, start) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .term-blink,
+  [data-skin="terminal"] .term-step[data-term-step="running"]::before {
+    animation: none;
+  }
+}
+
 /* ── VS Code Dark ──────────────────────────────────────────────────────────
    Familiar editor dark: #1e1e1e ground, #252526 chrome, command blue, and
    the standard editor syntax register on a deeper code inset.

@@ -41,6 +41,7 @@ import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup
 import { BotAvatar } from "./Avatar";
 import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { useSkin } from "@/lib/skins";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { isPhone } from "@/lib/phone-swipe";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
@@ -56,6 +57,7 @@ import { AskUserRecord } from "./AskUserRecord";
 import { ApprovalCard } from "./ApprovalCard";
 import { Composer } from "./Composer";
 import { ChatPlanMeters } from "./ChatPlanMeters";
+import { TermStatusLine } from "./TermStatusLine";
 import { useNow } from "./PlanUsageBar";
 import { ChatFindBar } from "./ChatFindBar";
 import { ReconnectingCue } from "./ReconnectingCue";
@@ -735,6 +737,7 @@ const Bubble = memo(function Bubble({
 function ActivityChip({ message }: { message: Message }) {
   const { dispatch, state } = useStore();
   const { t } = useI18n();
+  const terminal = useSkin() === "terminal";
   const tool = message.tool;
   if (!tool) return null;
   if (tool.name === "memory.save") return <MemorySaveChip summary={tool.spoken ?? ""} at={message.at} />;
@@ -756,6 +759,7 @@ function ActivityChip({ message }: { message: Message }) {
       </div>
     );
   }
+  if (terminal) return <ActivityStep message={message} />;
   const failed = tool.ok === false;
   return (
     <div className="flex justify-start">
@@ -961,13 +965,14 @@ const MessagesList = memo(function MessagesList({
 }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
-  const showToolCalls = showToolCallsEnabled(state.config);
+  const terminal = useSkin() === "terminal";
+  const showToolCalls = showToolCallsEnabled(state.config) || terminal;
   const { workerAt, open, toggle } = useWorkerRows(workers, messages);
   // Fold finished tool chips into runs, so a stretch of them cannot bury
   // what the bot actually said. Hidden unless Settings → Tool calls is on.
   const items = useMemo(
-    () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages),
-    [messages, streamingMessage],
+    () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages, terminal),
+    [messages, streamingMessage, terminal],
   );
   const rows = useMemo(
     () => chatTranscriptRows(items, { showToolCalls, transcript }),
@@ -1230,7 +1235,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const livePanes = useLivePanes(bot.id, runs.length > 0, paneLabelsKey(state.terminalPanes[bot.id]), sessionKey);
   const workers = useMemo(() => runs.map((run) => ({ run, state: shownState(run, livePanes) })), [runs, livePanes]);
   const rowWorkers = useMemo(() => jump.messages ? workerRuns(messages, jump.messages).map((run) => ({ run, state: shownState(run, livePanes) })) : workers, [messages, jump.messages, livePanes, workers]);
-  const showToolCalls = showToolCallsEnabled(state.config);
+  const terminal = useSkin() === "terminal";
+  const showToolCalls = showToolCallsEnabled(state.config) || terminal;
   const renders = useCallback(
     (index: number) => messageVisible(messages[index], { showToolCalls, transcript: messages }),
     [messages, showToolCalls],
@@ -1894,6 +1900,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             visible={waiting && !jump.messages && !dockLive}
             docked={dockLive}
             label={activityLabel}
+            since={lastUserMessage?.at}
           />
           {queued.map((m, index) => (
             <div key={m.id} className="contents" data-mid={m.id}>
@@ -1938,12 +1945,14 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           packet={activeTask?.taskState}
           turns={activeTask?.usage?.turns ?? 0}
         />
-        <ChatPlanMeters
-          windows={engine?.rateLimits?.windows}
-          driverKind={engine?.driverKind}
-          observedAt={engine?.rateLimits?.observedAt}
-          onOpenUsage={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
-        />
+        {!terminal && (
+          <ChatPlanMeters
+            windows={engine?.rateLimits?.windows}
+            driverKind={engine?.driverKind}
+            observedAt={engine?.rateLimits?.observedAt}
+            onOpenUsage={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
+          />
+        )}
         <WorkerStrip name={bot.name} runs={workers} />
         <Composer
           key={bot.threadId}
@@ -1957,6 +1966,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           onRestoreReply={restoreReply}
           onEditLast={lastUserMessage && !bot.busy ? () => setEditingId(lastUserMessage.id) : undefined}
         />
+        {terminal && <TermStatusLine bot={bot} engine={engine} turns={activeTask?.usage?.turns} />}
       </div>
       </div>
 

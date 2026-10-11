@@ -3,6 +3,7 @@
 // which one is active and remembers the choice. Nothing here knows a colour —
 // that keeps the two halves from drifting apart, and it means adding a skin is
 // one CSS block plus one line in SKINS.
+import { useSyncExternalStore } from "react";
 
 export const SKIN_IDS = [
   "wink",
@@ -35,6 +36,7 @@ export const SKIN_IDS = [
   "tui-ice",
   "tui-slate",
   "tui-smoke",
+  "terminal",
   "vscode-dark",
   "studio-gray",
   "steel-gray",
@@ -97,6 +99,7 @@ export const SKINS: readonly Skin[] = [
   { id: "tui-ice", name: "TUI Ice", tagline: "True black, ice selection." },
   { id: "tui-slate", name: "TUI Slate", tagline: "True black, silver selection." },
   { id: "tui-smoke", name: "TUI Smoke", tagline: "True black, warm gray chrome." },
+  { id: "terminal", name: "Terminal", tagline: "Reads like a coding CLI: prompt, bullets, status line." },
   { id: "vscode-dark", name: "VS Code Dark", tagline: "Editor dark, command blue, readable syntax." },
   { id: "studio-gray", name: "Studio Gray", tagline: "Quiet graphite, periwinkle signal." },
   { id: "steel-gray", name: "Steel Gray", tagline: "Cool steel, mint signal." },
@@ -207,4 +210,18 @@ export function applySkin(id: SkinId): void {
     /* no bridge */
   }
   window.dispatchEvent?.(new Event(SKIN_CHANGE_EVENT));
+}
+
+function subscribeSkin(onChange: () => void) {
+  window.addEventListener(SKIN_CHANGE_EVENT, onChange);
+  return () => window.removeEventListener(SKIN_CHANGE_EVENT, onChange);
+}
+
+// SAFETY: applySkin() is the only writer of the attribute, and it writes a SkinId.
+const activeSkin = (): SkinId =>
+  (typeof document !== "undefined" && (document.documentElement.dataset.skin as SkinId)) || readSkin();
+
+/** For the rare skin that changes what renders, not only how it looks. */
+export function useSkin(): SkinId {
+  return useSyncExternalStore(subscribeSkin, activeSkin, activeSkin);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { activityRunVisible, activityVisibleInChat, describeRun, groupActivityRuns } from "./activity-runs";
+import { activityRunVisible, activityVisibleInChat, describeRun, describeSearch, groupActivityRuns } from "./activity-runs";
 import type { Message } from "@/state/store";
 
 let seq = 0;
@@ -169,5 +169,35 @@ describe("describeRun", () => {
       ]),
     ).toBe("4 steps · 2 files edited");
     expect(describeRun([step("Edit", "a.ts +1 -0"), running("Bash")])).toBe("2 steps · 1 file edited");
+  });
+});
+
+describe("terminal grouping", () => {
+  it("folds only read and search stretches and unfolds Bash, Edit and Write", () => {
+    const items = groupActivityRuns([tool("Grep"), tool("Read"), tool("Edit"), tool("Bash"), tool("Read"), tool("Write")], true);
+    expect(items.map((i) => (i.kind === "run" ? `run:${i.messages.length}` : i.message.tool?.name))).toEqual([
+      "run:2",
+      "Edit",
+      "Bash",
+      "run:1",
+      "Write",
+    ]);
+  });
+
+  it("keeps the default fold for every other skin", () => {
+    expect(groupActivityRuns([tool("Grep"), tool("Read"), tool("Edit")]).map((i) => i.kind)).toEqual(["run"]);
+  });
+
+  it("leaves error chips and memory saves out of a search run", () => {
+    const items = groupActivityRuns([tool("Read"), tool("error: boom", false), tool("memory.save")], true);
+    expect(items.map((i) => i.kind)).toEqual(["run", "message", "message"]);
+  });
+});
+
+describe("describeSearch", () => {
+  it("counts patterns and files the way Claude Code does", () => {
+    expect(describeSearch([tool("Grep"), tool("Read"), tool("Read")])).toBe("Searched for 1 pattern, read 2 files");
+    expect(describeSearch([tool("Glob"), tool("Grep")])).toBe("Searched for 2 patterns");
+    expect(describeSearch([tool("Read")])).toBe("Read 1 file");
   });
 });

@@ -18,6 +18,7 @@ import {
 import { BotAvatar } from "./Avatar";
 import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
+import { useSkin } from "@/lib/skins";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
@@ -53,7 +54,7 @@ import { messageVisible, roomTranscriptRows } from "@/lib/room-transcript";
 import { isShownMessage } from "@/lib/shown-message";
 import { roomRetry } from "@/lib/room-retry";
 import { nextBulletin } from "@/lib/room-bulletin";
-import { ActivityRun } from "./ActivityRun";
+import { ActivityRun, ActivityStep } from "./ActivityRun";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useSearchFindSeed } from "@/lib/chat-find";
@@ -103,6 +104,7 @@ export function RoomToolChip({
 }) {
   const { dispatch, state } = useStore();
   const { t } = useI18n();
+  const terminal = useSkin() === "terminal";
   const now = useNow();
   const [retried, setRetried] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -180,6 +182,7 @@ export function RoomToolChip({
       </div>
     );
   }
+  if (terminal && !tool.name.startsWith("error:")) return <ActivityStep message={message} />;
   const member = message.from?.botId ? state.bots.find((bot) => bot.id === message.from?.botId) : undefined;
   const instance = member?.modelSelection?.instanceId
     ? state.instances.find((i) => i.instanceId === member.modelSelection.instanceId)
@@ -318,13 +321,14 @@ const Transcript = memo(function Transcript({
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
-  const showToolCalls = showToolCallsEnabled(state.config);
+  const terminal = useSkin() === "terminal";
+  const showToolCalls = showToolCallsEnabled(state.config) || terminal;
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   // Several bots working at once turn a room into a wall of chips; fold the
   // finished ones the same way a 1:1 chat does.
   const items = useMemo(
-    () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages),
-    [messages, streamingMessage],
+    () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages, terminal),
+    [messages, streamingMessage, terminal],
   );
   const { workerAt, open, toggle } = useWorkerRows(workers, messages);
   const rows = useMemo(
@@ -1154,7 +1158,8 @@ export function GroupView({ group }: { group: Group }) {
   // the settled reply takes over, with the mascot docked under it.
   const lastGroupMessage = group.messages.at(-1);
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
-  const showToolCalls = showToolCallsEnabled(state.config);
+  const terminal = useSkin() === "terminal";
+  const showToolCalls = showToolCallsEnabled(state.config) || terminal;
   const activityLabel = liveActivityLabel(lastGroupMessage, showToolCalls);
   const waiting = turnPresenceWaiting({
     busy: Boolean(speaker),
@@ -1723,6 +1728,7 @@ export function GroupView({ group }: { group: Group }) {
               visible={waiting && !dockLive}
               docked={dockLive}
               label={activityLabel}
+              since={[...group.messages].reverse().find((m) => m.role === "user")?.at}
             />
           )}
         </div>

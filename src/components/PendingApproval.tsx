@@ -10,6 +10,7 @@
 import { memo } from "react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
+import { useSkin } from "@/lib/skins";
 import { t } from "@/lib/i18n";
 
 interface ApprovalLabels {
@@ -133,6 +134,7 @@ export function PendingApprovalActions({
   onCancelTurn: () => void;
 }) {
   const { dispatch } = useStore();
+  const terminal = useSkin() === "terminal";
   const isRoutineRequest = isRoutineApproval(pending);
   const decide = (behavior: "allow" | "deny", always = false) =>
     dispatch({
@@ -145,34 +147,41 @@ export function PendingApprovalActions({
     });
 
   const base = "rounded-full px-3.5 py-1.5 text-[13.5px] transition-colors";
+  const choices = [
+    !isRoutineRequest && (
+      <button key="cancel" onClick={onCancelTurn} className={cn(base, "text-ink-secondary hover:bg-control hover:text-ink")}>
+        {t("approval.cancelTurn")}
+      </button>
+    ),
+    <button
+      key="deny"
+      onClick={() => decide("deny")}
+      className={cn(base, "border border-danger/40 text-danger hover:bg-danger/10")}
+    >
+      {isRoutineRequest ? t("createBot.cancel") : t("approval.deny")}
+    </button>,
+    !isRoutineRequest && bot && pending.allowKey && (
+      <button
+        key="always"
+        onClick={() => decide("allow", true)}
+        title={t("approval.alwaysAllowTitle", { name: bot.name, key: pending.allowKey })}
+        className={cn(base, "border border-hairline/50 text-ink hover:bg-control")}
+      >
+        {t("approval.alwaysAllow")}
+      </button>
+    ),
+    <button
+      key="allow"
+      onClick={() => decide("allow")}
+      className={cn(base, "bg-accent font-medium text-accent-ink hover:brightness-110")}
+    >
+      {isRoutineRequest ? t("approval.confirm") : t("approval.allowOnce")}
+    </button>,
+  ];
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 px-2 py-2">
-      {!isRoutineRequest && (
-        <button onClick={onCancelTurn} className={cn(base, "text-ink-secondary hover:bg-control hover:text-ink")}>
-          {t("approval.cancelTurn")}
-        </button>
-      )}
-      <button
-        onClick={() => decide("deny")}
-        className={cn(base, "border border-danger/40 text-danger hover:bg-danger/10")}
-      >
-        {isRoutineRequest ? t("createBot.cancel") : t("approval.deny")}
-      </button>
-      {!isRoutineRequest && bot && pending.allowKey && (
-        <button
-          onClick={() => decide("allow", true)}
-          title={t("approval.alwaysAllowTitle", { name: bot.name, key: pending.allowKey })}
-          className={cn(base, "border border-hairline/50 text-ink hover:bg-control")}
-        >
-          {t("approval.alwaysAllow")}
-        </button>
-      )}
-      <button
-        onClick={() => decide("allow")}
-        className={cn(base, "bg-accent font-medium text-accent-ink hover:brightness-110")}
-      >
-        {isRoutineRequest ? t("approval.confirm") : t("approval.allowOnce")}
-      </button>
+    // the Terminal skin lists them like a CLI prompt: allow first, numbered
+    <div data-term-choices className="flex flex-wrap items-center justify-end gap-2 px-2 py-2">
+      {terminal ? [...choices].reverse() : choices}
     </div>
   );
 }

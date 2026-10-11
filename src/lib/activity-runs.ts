@@ -42,17 +42,21 @@ export function activityRunVisible(_messages: Message[], showToolCalls: boolean)
   return showToolCalls;
 }
 
-export function groupActivityRuns(messages: Message[]): TranscriptItem[] {
+const SEARCH_TOOLS = new Set(["Read", "Grep", "Glob"]);
+
+/** `terminal` folds only Read/Grep/Glob stretches, even a single read, the
+ * way Claude Code does; every other step stays unfolded. */
+export function groupActivityRuns(messages: Message[], terminal = false): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   let run: Message[] = [];
   const flush = () => {
     // one step on its own is cheaper to read than a fold that hides it
-    if (run.length > 1) items.push({ kind: "run", id: `run:${run[0].id}`, messages: run });
+    if (run.length > (terminal ? 0 : 1)) items.push({ kind: "run", id: `run:${run[0].id}`, messages: run });
     else for (const message of run) items.push({ kind: "message", message });
     run = [];
   };
   for (const message of messages) {
-    if (foldable(message)) {
+    if (foldable(message) && (!terminal || SEARCH_TOOLS.has(message.tool?.name ?? ""))) {
       const first = run[0];
       if (
         first &&
@@ -85,4 +89,16 @@ export function describeRun(messages: Message[]): string {
   }
   const files = edited.size ? ` · ${edited.size} ${edited.size === 1 ? "file" : "files"} edited` : "";
   return `${messages.length} steps${files}`;
+}
+
+/** Claude Code's one line for a stretch of reads and searches. */
+export function describeSearch(messages: Message[]): string {
+  const patterns = messages.filter((message) => message.tool?.name !== "Read").length;
+  const files = messages.length - patterns;
+  return [
+    patterns && `Searched for ${patterns} ${patterns === 1 ? "pattern" : "patterns"}`,
+    files && `${patterns ? "read" : "Read"} ${files} ${files === 1 ? "file" : "files"}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
