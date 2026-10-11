@@ -119,6 +119,8 @@ const PROMPT_PAGES = 3;
 /** Tries at a scrollback page during an edit join before it waits for Show earlier. */
 const JOIN_TRIES = 3;
 const JOIN_RETRY_MS = 1000;
+/** Chat sync notices share this lead; Retry there would re-run the last turn. */
+const SYNC_NOTICE = "error: This chat also changed on another PC.";
 
 /** "Today" / "Yesterday" / "Mon, Aug 11" — real dates, not a hardcoded label. */
 function dayLabel(at: number, t: (key: import("@/lib/i18n").MessageKey) => string, locale: import("@/lib/i18n").LocaleId): string {
@@ -1058,7 +1060,7 @@ const MessagesList = memo(function MessagesList({
                 return (
                   <ErrorRow
                     message={m.tool.name.slice(6).trim()}
-                    onRetry={m.id === canonicalLastMessageId && canRetryLast ? onRegenerate : undefined}
+                    onRetry={m.id === canonicalLastMessageId && canRetryLast && !m.tool.name.startsWith(SYNC_NOTICE) ? onRegenerate : undefined}
                     setupInstance={m.tool.setup || m.tool.signIn ? engine : undefined}
                     usageLimit={m.tool.usageLimit}
                     signIn={m.tool.signIn}

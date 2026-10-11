@@ -23,10 +23,10 @@ const temp = () => {
   return root;
 };
 
-function pc(folder: string, deviceId: string, enabled = true, legacy = false, auto = false) {
+function pc(folder: string, deviceId: string, enabled = true, legacy = false, auto = false, writer?: string) {
   const dataDir = temp();
   const worker = new Worker(new URL("./testing/thread-sync-v2-pc.ts", import.meta.url), {
-    workerData: { folder, dataDir, deviceId, enabled, legacy, auto },
+    workerData: { folder, dataDir, deviceId, enabled, legacy, auto, writer },
     env: { ...process.env, OMB_DATA_DIR: dataDir, OMB_THREAD_SYNC_V2: enabled ? "1" : "0" },
     execArgv: ["--experimental-strip-types"],
   });
@@ -79,6 +79,37 @@ function sourceRows(dataDir: string): Array<{ path: string; hash: string | null;
   try {
     // SAFETY: This projection selects path, hash, and done.
     return db.prepare("SELECT path, hash, done FROM sync_v2_sources ORDER BY id").all() as Array<{ path: string; hash: string | null; done: number }>;
+  } finally {
+    db.close();
+  }
+}
+
+const LOW = "1a000000-0000-4000-8000-000000000000";
+const MID = "5b000000-0000-4000-8000-000000000000";
+const HIGH = "fc000000-0000-4000-8000-000000000000";
+
+function isolated(writers: string[]) {
+  return writers.map((writer, i) => {
+    const folder = temp();
+    return { folder, writer, peer: pc(folder, `pc${i}`, true, false, false, writer) };
+  });
+}
+
+// Separate folders let each PC resolve before the others' resolving heads reach it.
+function share(to: Array<{ folder: string }>, from: Array<{ folder: string; writer: string }>): void {
+  for (const source of from) {
+    const dir = join("threads-v2", "bot", "thread", source.writer);
+    if (!existsSync(join(source.folder, dir))) continue;
+    for (const target of to) if (target.folder !== source.folder) cpSync(join(source.folder, dir), join(target.folder, dir), { recursive: true });
+  }
+}
+
+function heads(dataDir: string): Array<{ writer: string; value: string | null }> {
+  const db = new DatabaseSync(join(dataDir, "messages.db"), { readOnly: true });
+  try {
+    // Writer order is the pick an older build makes.
+    return db.prepare("SELECT writer, json FROM sync_v2_frontier WHERE kind = 'head' ORDER BY writer DESC, seq DESC").all()
+      .map((row) => ({ writer: String(row.writer), value: JSON.parse(String(row.json)).value }));
   } finally {
     db.close();
   }
@@ -163,6 +194,22 @@ describe("store delta sync", () => {
     await b.call("patch", { id: row.id, patch: { text: "resolved" } });
     await b.call("restart");
     expect((await b.snapshot()).rows.some((message) => message.id === "migration-notice")).toBe(true);
+  });
+
+  it("removes a migration notice when only the branch heads forked", async () => {
+    const folder = temp();
+    const a = pc(folder, "a");
+    const b = pc(folder, "b");
+    await a.call("append", { text: "base" });
+    await a.call("flush");
+    await b.call("pull");
+    await a.call("append", { text: "a" });
+    await b.call("append", { text: "b" });
+    await a.call("flush");
+    await b.call("pull");
+    await b.call("migrationNotice");
+    await b.call("restart");
+    expect((await b.snapshot()).rows.some((message) => message.id === "migration-notice")).toBe(false);
   });
 
   it("heals two current PCs and a stale laptop after simultaneous migration into split roots", async () => {
@@ -290,6 +337,330 @@ describe("store delta sync", () => {
       expect(ids.sort()).toEqual(before.sort());
     }
     expect(readdirSync(dir).sort().map((name) => [name, readFileSync(join(dir, name), "utf8")])).toEqual(frozen);
+  });
+
+  for (const [order, home, laptop] of [["higher", "8d89407d-0000-4000-8000-000000000000", "8d98ea7a-0000-4000-8000-000000000000"],
+    ["lower", "8d98ea7a-0000-4000-8000-000000000000", "8d89407d-0000-4000-8000-000000000000"]]) {
+    it(`keeps every PC on the main conversation when a stale PC's writer id sorts ${order}`, async () => {
+      const folder = temp();
+      const a = pc(folder, "a", true, false, false, home);
+      const b = pc(folder, "b");
+      const c = pc(folder, "c", true, false, false, laptop);
+      await a.call("append", { text: "base" });
+      await a.call("flush");
+      await c.call("pull");
+      await a.call("batch", { count: 50 });
+      await a.call("flush");
+      const main = (await a.snapshot()).leaf;
+      await c.call("batch", { count: 4 });
+      const stale = (await c.snapshot()).rows.slice(1);
+      await c.call("pull");
+      await c.call("flush");
+      for (const peer of [a, b]) await peer.call("pull");
+      for (const peer of [a, b, c]) {
+        const snapshot = await peer.snapshot();
+        expect(snapshot.leaf).toBe(main);
+        expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+        expect(stale.every((row) => snapshot.rows.some((message) => message.id === row.id))).toBe(true);
+        await peer.call("restart");
+        await peer.call("poll");
+        expect((await peer.snapshot()).leaf).toBe(main);
+      }
+      expect(await b.call("head", { id: stale[0].id })).toBe(stale.at(-1)!.id);
+    });
+  }
+
+  it("keeps every PC on the main branch when a stale PC types once", async () => {
+    const folder = temp();
+    const a = pc(folder, "a", true, false, false, "1a000000-0000-4000-8000-000000000000");
+    const c = pc(folder, "c", true, false, false, "fc000000-0000-4000-8000-000000000000");
+    await a.call("append", { text: "base" });
+    await a.call("flush");
+    await c.call("pull");
+    await a.call("batch", { count: 50 });
+    await a.call("flush");
+    const main = (await a.snapshot()).leaf;
+    const typed = await c.call<Message>("append", { text: "typed while stale" });
+    await c.call("flush");
+    await a.call("pull");
+    await a.call("flush");
+    await c.call("pull");
+    for (const peer of [a, c]) {
+      const snapshot = await peer.snapshot();
+      expect(snapshot.leaf).toBe(main);
+      expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+      expect(snapshot.rows.some((message) => message.id === typed.id)).toBe(true);
+    }
+  });
+
+  it("converges a PC that picks by writer id once the resolving head lands", async () => {
+    const folder = temp();
+    const a = pc(folder, "a", true, false, false, "1a000000-0000-4000-8000-000000000000");
+    const b = pc(folder, "b", true, false, false, "5b000000-0000-4000-8000-000000000000");
+    const c = pc(folder, "c", true, false, false, "fc000000-0000-4000-8000-000000000000");
+    await a.call("append", { text: "base" });
+    await a.call("flush");
+    await c.call("pull");
+    await a.call("batch", { count: 50 });
+    await a.call("flush");
+    await b.call("pull");
+    const main = (await a.snapshot()).leaf;
+    await c.call("batch", { count: 4 });
+    await c.call("flush");
+    await a.call("pull");
+    await a.call("flush");
+    const outbox = (await b.snapshot()).outbox;
+    for (const peer of [b, c]) await peer.call("pull");
+    for (const peer of [b, c]) {
+      const frontier = heads(peer.dataDir);
+      expect(frontier).toHaveLength(1);
+      expect(frontier[0].value).toBe(main);
+    }
+    expect((await b.snapshot()).outbox).toBe(outbox);
+  });
+
+  it("applies the main head to the local store after upgrading an already consumed fork", async () => {
+    const folder = temp();
+    const a = pc(folder, "a", true, false, false, LOW);
+    const c = pc(folder, "c", true, false, false, HIGH);
+    await a.call("append", { text: "base" });
+    await a.call("flush");
+    await c.call("pull");
+    await a.call("batch", { count: 20 });
+    await a.call("flush");
+    const main = (await a.snapshot()).leaf;
+    await c.call("batch", { count: 4 });
+    await c.call("flush");
+    const before = await c.snapshot();
+    await c.call("consumeForkByWriter");
+    expect(heads(c.dataDir)[0].value).toBe(before.leaf);
+    const db = new DatabaseSync(join(c.dataDir, "messages.db"), { readOnly: true });
+    try {
+      await c.call("restart");
+      expect((await c.snapshot()).leaf).toBe(before.leaf);
+      expect(heads(c.dataDir)).toHaveLength(2);
+      await c.call("pull");
+      const after = await c.snapshot();
+      expect(after.leaf).toBe(main);
+      expect(db.prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?").get("thread")?.active_leaf_id).toBe(main);
+      expect(after.disk).toEqual(after.rows);
+      expect(after.events.some((event) => event.type === "thread" && event.activeLeafId === main && event.importing)).toBe(true);
+      expect(after.outbox).toBe(before.outbox + 1);
+      expect(heads(c.dataDir).map((head) => head.value)).toEqual([main]);
+      await c.call("restart");
+      await c.call("poll");
+      expect((await c.snapshot()).leaf).toBe(main);
+      expect((await c.snapshot()).outbox).toBe(after.outbox);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("resolves a later head fork after migrating a live chat with a stale v1 tombstone", async () => {
+    const folder = temp();
+    const dir = join(folder, "threads", "bot");
+    mkdirSync(dir, { recursive: true });
+    const base: Message = { id: "base", parentId: null, at: 1, role: "user", kind: "text", text: "base" };
+    writeFileSync(join(dir, "thread.json"), JSON.stringify({ format: "orbit.thread-sync", version: 1, revision: 1, writerDeviceId: "old", updatedAt: 1,
+      task: { threadId: "thread", title: "Chat", createdAt: 1 }, messages: [base], activeLeafId: base.id }));
+    const tombstone = JSON.stringify({ syncedRevision: 1 });
+    writeFileSync(join(dir, "thread.deleted.json"), tombstone);
+    const a = pc(folder, "a", true, false, true, LOW);
+    const c = pc(folder, "c", true, false, true, HIGH);
+    for (const peer of [a, c]) {
+      await peer.call("seed", { rows: [base], leaf: base.id });
+      await peer.call("poll");
+      await peer.call("flush");
+      expect(migrationRow(peer.dataDir, "thread")).toEqual({ phase: "done", error: null, eligible: 1 });
+    }
+    await a.call("pull");
+    await a.call("batch", { count: 20 });
+    await a.call("flush");
+    const main = (await a.snapshot()).leaf;
+    await c.call("batch", { count: 4 });
+    await c.call("flush");
+    const before = await c.snapshot();
+    const db = new DatabaseSync(join(c.dataDir, "messages.db"), { readOnly: true });
+    try {
+      expect(db.prepare("SELECT json_extract(json, '$.legacy') AS legacy FROM sync_v2_frontier WHERE kind = 'delete'").get()?.legacy).toBeTruthy();
+      expect(db.prepare("SELECT deleted FROM sync_v2_store WHERE threadId = ?").get("thread")?.deleted).toBe(0);
+      await c.call("pull");
+      expect((await c.snapshot()).outbox).toBe(before.outbox + 1);
+      expect(heads(c.dataDir).map((head) => head.value)).toEqual([main]);
+    } finally {
+      db.close();
+    }
+    await c.call("flush");
+    await a.call("pull");
+    for (const peer of [a, c]) {
+      const after = await peer.snapshot();
+      expect(after.leaf).toBe(main);
+      expect(after.rows.filter(isConflictNotice)).toHaveLength(0);
+      expect(after.disk).toEqual(after.rows);
+      await peer.call("restart");
+      await peer.call("poll");
+      expect((await peer.snapshot()).leaf).toBe(main);
+      expect((await peer.snapshot()).outbox).toBe(after.outbox);
+    }
+    expect(readFileSync(join(dir, "thread.deleted.json"), "utf8")).toBe(tombstone);
+  });
+
+  it("blocks head resolution for native deletion conflicts and effective deletions", async () => {
+    const all = isolated([LOW, MID, HIGH]);
+    const [a, b, c] = all;
+    await a.peer.call("append", { text: "base" });
+    await a.peer.call("flush");
+    share(all, [a]);
+    for (const item of [b, c]) await item.peer.call("pull");
+    await b.peer.call("create");
+    await b.peer.call("delete");
+    await b.peer.call("flush");
+    await a.peer.call("batch", { count: 20 });
+    await a.peer.call("flush");
+    await c.peer.call("batch", { count: 4 });
+    await c.peer.call("flush");
+    share([c], [a, b]);
+    const before = await c.peer.snapshot();
+    await c.peer.call("pull");
+    expect((await c.peer.snapshot()).outbox).toBe(before.outbox);
+    expect(heads(c.peer.dataDir)).toHaveLength(2);
+    expect((await c.peer.snapshot()).tasks.some((task) => task.threadId === "thread")).toBe(true);
+    const transport = new ThreadSyncV2({ folder: c.folder, dataDir: c.peer.dataDir, deviceId: "pc2", staged: true });
+    try {
+      const scope = { botSyncId: "bot", threadId: "thread" };
+      expect((await transport.variants(scope, "delete")).some((item) => !item.version.legacy)).toBe(true);
+      expect((await transport.state(scope)).deleted).toBe(false);
+      await c.peer.call("create");
+      await c.peer.call("delete");
+      const deleted = await c.peer.snapshot();
+      expect((await transport.state(scope)).deleted).toBe(true);
+      await c.peer.call("poll");
+      const after = await c.peer.snapshot();
+      expect(after.outbox).toBe(deleted.outbox);
+      expect(after.tasks.some((task) => task.threadId === "thread")).toBe(false);
+      expect(after.disk).toEqual([]);
+      expect(heads(c.peer.dataDir)).toHaveLength(2);
+    } finally {
+      await transport.close();
+    }
+  });
+
+  for (const count of [2, 3]) {
+    it(`folds equal heads from ${count} PCs that resolve at once into one head with one more write`, async () => {
+      const all = isolated([LOW, MID, HIGH]);
+      const [a, , c] = all;
+      const resolvers = count === 2 ? [a, c] : all;
+      await a.peer.call("append", { text: "base" });
+      await a.peer.call("flush");
+      share(all, [a]);
+      for (const item of all.slice(1)) await item.peer.call("pull");
+      await a.peer.call("batch", { count: 50 });
+      await a.peer.call("flush");
+      const main = (await a.peer.snapshot()).leaf;
+      await c.peer.call("batch", { count: 4 });
+      await c.peer.call("flush");
+      share(resolvers, [a, c]);
+      const start = await Promise.all(all.map((item) => item.peer.snapshot()));
+      for (const item of resolvers) await item.peer.call("pull");
+      for (const item of resolvers) await item.peer.call("flush");
+      for (let round = 0; round < 2; round++) {
+        share(all, all);
+        for (const item of all) await item.peer.call("pull");
+        for (const item of all) await item.peer.call("flush");
+      }
+      share(all, all);
+      for (const item of all) await item.peer.call("pull");
+      const settled = await Promise.all(all.map((item) => item.peer.snapshot()));
+      for (let round = 0; round < 3; round++) {
+        for (const item of all) {
+          await item.peer.call("poll");
+          await item.peer.call("flush");
+        }
+        share(all, all);
+      }
+      const after = await Promise.all(all.map((item) => item.peer.snapshot()));
+      expect(after.map((snapshot) => snapshot.outbox)).toEqual(settled.map((snapshot) => snapshot.outbox));
+      expect(settled.reduce((sum, snapshot, i) => sum + snapshot.outbox - start[i].outbox, 0)).toBe(count + 1);
+      for (const [i, item] of all.entries()) {
+        expect(after[i].leaf).toBe(main);
+        expect(after[i].rows.filter(isConflictNotice)).toHaveLength(0);
+        expect(heads(item.peer.dataDir).map((head) => head.value)).toEqual([main]);
+      }
+    });
+  }
+
+  it("keeps a version picked after both branches when another PC's resolving head arrives late", async () => {
+    const all = isolated([LOW, HIGH, MID]);
+    const [a, c] = all;
+    await a.peer.call("append", { text: "base" });
+    await a.peer.call("flush");
+    share([c], [a]);
+    await c.peer.call("pull");
+    await a.peer.call("batch", { count: 20 });
+    await a.peer.call("flush");
+    const side = await c.peer.call<Message>("append", { text: "side" });
+    await c.peer.call("flush");
+    share([a, c], [a, c]);
+    await a.peer.call("pull");
+    await c.peer.call("pull");
+    expect(await a.peer.call("head", { id: side.id })).toBe(side.id);
+    await c.peer.call("flush");
+    share([a], [c]);
+    await a.peer.call("pull");
+    expect((await a.peer.snapshot()).leaf).toBe(side.id);
+    for (let round = 0; round < 3; round++) {
+      for (const item of all) {
+        await item.peer.call("poll");
+        await item.peer.call("flush");
+      }
+      share(all, all);
+    }
+    for (const item of all) {
+      const snapshot = await item.peer.snapshot();
+      expect(snapshot.leaf).toBe(side.id);
+      expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+      expect(heads(item.peer.dataDir).map((head) => head.value)).toEqual([side.id]);
+    }
+  });
+
+  it("keeps a version picked after every resolving head and still follows newer typing deeper first", async () => {
+    const folder = temp();
+    const a = pc(folder, "a", true, false, false, LOW);
+    const c = pc(folder, "c", true, false, false, HIGH);
+    await a.call("append", { text: "base" });
+    await a.call("flush");
+    await c.call("pull");
+    await a.call("batch", { count: 20 });
+    await a.call("flush");
+    const main = (await a.snapshot()).leaf!;
+    const side = await c.call<Message>("append", { text: "side" });
+    await c.call("flush");
+    for (let round = 0; round < 2; round++) {
+      for (const peer of [a, c]) await peer.call("pull");
+      for (const peer of [a, c]) await peer.call("flush");
+    }
+    expect(heads(a.dataDir).map((head) => head.value)).toEqual([main]);
+    await a.call("head", { id: side.id });
+    await a.call("flush");
+    await c.call("pull");
+    expect((await c.snapshot()).leaf).toBe(side.id);
+    const reply = await c.call<Message>("append", { text: "on the picked branch" });
+    await c.call("flush");
+    await a.call("pull");
+    expect((await a.snapshot()).leaf).toBe(reply.id);
+    await a.call("head", { id: main });
+    const longer = await a.call<Message>("append", { text: "longer branch" });
+    const shorter = await c.call<Message>("append", { text: "shorter branch" });
+    for (const peer of [a, c]) await peer.call("flush");
+    for (let round = 0; round < 2; round++) {
+      for (const peer of [a, c]) await peer.call("pull");
+      for (const peer of [a, c]) await peer.call("flush");
+    }
+    for (const peer of [a, c]) {
+      const snapshot = await peer.snapshot();
+      expect(snapshot.leaf).toBe(longer.id);
+      expect(snapshot.rows.some((row) => row.id === shorter.id)).toBe(true);
+    }
   });
 
   it("adopts local edits on two PCs, emits events, invalidates cursors and suppresses echo", async () => {
