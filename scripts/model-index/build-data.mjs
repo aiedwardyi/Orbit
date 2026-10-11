@@ -151,10 +151,13 @@ export function buildData(from = dir) {
   ].join("\n");
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+// node -e leaves argv[1] unset, and pathToFileURL throws on that.
+const launched = process.argv[1];
+if (launched && import.meta.url === pathToFileURL(launched).href) {
   const dirFlag = process.argv.indexOf("--dir");
-  if (dirFlag >= 0 && !process.argv[dirFlag + 1]) throw new Error("--dir needs a folder");
-  const text =buildData(dirFlag >= 0 ? process.argv[dirFlag + 1] : dir);
+  const folder = dirFlag >= 0 ? process.argv[dirFlag + 1] : undefined;
+  if (dirFlag >= 0 && (!folder || folder.startsWith("-"))) throw new Error("--dir needs a folder");
+  const text = buildData(folder ?? dir);
   if (process.argv.includes("--print")) process.stdout.write(text);
   else writeFileSync(target, text);
 }

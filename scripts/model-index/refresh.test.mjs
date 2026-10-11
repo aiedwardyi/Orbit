@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import * as deepswe from "./fetch-deepswe.mjs";
 import * as listPrices from "./fetch-list-prices.mjs";
@@ -185,6 +185,12 @@ describe("list price parsers", () => {
     expect(() => listPrices.parseMeta(fixture("meta-pricing.html").replaceAll("Usage", "Use"), ["muse-spark-1.3"])).toThrow(Unverifiable);
   });
 
+  it("fails when a malformed Meta tier is followed by the next tier's prices", () => {
+    const html = "<p>Models: muse-spark-1.3</p><p>broken tier</p><p>Models: muse-spark-1.3-contributor</p><p>Usage Price per 1M tokens Cached input $0.002 Input $0.10 Output $0.20</p>";
+    expect(() => listPrices.parseMeta(html, ["muse-spark-1.3"])).toThrow(/Meta muse-spark-1.3: row shape changed/);
+    expect(listPrices.parseMeta(html, ["muse-spark-1.3-contributor"])["muse-spark-1.3-contributor"]).toEqual({ input: 0.1, cachedInput: 0.002, output: 0.2 });
+  });
+
   it("reads OpenAI standard short-context rates", () => {
     const prices = listPrices.parseOpenAI(fixture("openai-pricing.html"), ["gpt-6-astra", "gpt-5.6-terra", "gpt-9"]);
     expect(prices["gpt-6-astra"]).toEqual({ input: 10, cachedInput: 1, output: 50 });
@@ -337,6 +343,7 @@ describe("refresh run state", () => {
     const dir = mkdtempSync(join(tmpdir(), "mi-snap-"));
     // A writeSnapshot that ignores its dir argument writes to the real sources folder
     const stray = join(sourcesDir, "probe-guards.json");
+    const strayExisted = existsSync(stray);
     try {
       writeSnapshot("probe-guards", { ok: true }, dir);
       expect(JSON.parse(readFileSync(join(dir, "probe-guards.json"), "utf8"))).toEqual({ ok: true });
@@ -347,7 +354,7 @@ describe("refresh run state", () => {
       expect(readdirSync(dir).some((name) => /^\.probe-guards\.\d+\.tmp$/.test(name))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
-      rmSync(stray, { force: true });
+      if (!strayExisted) rmSync(stray, { force: true });
     }
   });
 
@@ -355,5 +362,20 @@ describe("refresh run state", () => {
     const { formatBuildFailure } = await import("./refresh.mjs");
     expect(formatBuildFailure({ status: 1, error: { message: "spawn ENOENT" }, stderr: null })).toBe("build-data: FAILED - spawn ENOENT");
     expect(formatBuildFailure({ status: 1, error: null, stderr: "boom\n" })).toBe("build-data: FAILED - boom");
+  });
+});
+
+describe("build-data cli", () => {
+  const script = join(dirname(fileURLToPath(import.meta.url)), "build-data.mjs");
+
+  it("imports when node was started without a script path", () => {
+    const imported = spawnSync(process.execPath, ["--input-type=module", "-e", `await import(${JSON.stringify(pathToFileURL(script).href)})`], { encoding: "utf8" });
+    expect(imported.status, imported.stderr).toBe(0);
+  });
+
+  it("rejects an option where --dir expects a folder", () => {
+    const ran = spawnSync(process.execPath, [script, "--dir", "--print"], { encoding: "utf8" });
+    expect(ran.status).not.toBe(0);
+    expect(ran.stderr).toMatch(/--dir needs a folder/);
   });
 });
