@@ -11,6 +11,7 @@ import type { SearchHit } from "@/lib/search-hit";
 import { highlightParts } from "@/lib/chat-find";
 import { landOnSearchHit } from "@/lib/focus-message";
 import { localeTag, useI18n } from "@/lib/i18n";
+import { listedSearchHits } from "@/lib/sidebar-order";
 
 export const MIN_QUERY = 2;
 const DEBOUNCE_MS = 250;
@@ -46,6 +47,8 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
 
   if (q.length < MIN_QUERY) return null;
 
+  const shown = hits && listedSearchHits(hits, state.groups);
+
   const land = async (hit: SearchHit) => {
     try {
       await landOnSearchHit(hit, state, dispatch, q);
@@ -58,13 +61,13 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
   return (
     <div data-search-results="" className="mt-2 border-t border-hairline/40 pt-2">
       <div className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-ink-secondary">
-        {hits
-          ? t("search.messagesCount", { count: `${hits.length}${hits.length === 40 ? "+" : ""}` })
+        {shown
+          ? t("search.messagesCount", { count: `${shown.length}${hits?.length === 40 ? "+" : ""}` })
           : t("palette.messages")}
       </div>
       {error && <div className="px-3 py-2 text-[12.5px] text-danger">couldn't search: {error}</div>}
-      {hits && hits.length === 0 && !error && <div className="px-3 py-3 text-[13px] text-ink-secondary">{t("search.noMatch", { query: q })}</div>}
-      {hits?.map((hit) => {
+      {shown && shown.length === 0 && !error && <div className="px-3 py-3 text-[13px] text-ink-secondary">{t("search.noMatch", { query: q })}</div>}
+      {shown?.map((hit) => {
         const bot = hit.botId ? state.bots.find((b) => b.id === hit.botId) : undefined;
         return (
           <button

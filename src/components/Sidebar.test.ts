@@ -1305,6 +1305,57 @@ describe("Sidebar group drag to reorder", () => {
   });
 });
 
+describe("Sidebar bot-to-bot channels", () => {
+  it("lists no dm row, no dm search hit, no dm-only section and no dm unread badge", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "0");
+    const room = (id: string, name: string, extra: { dm?: boolean; unread?: boolean; section?: string } = {}) => ({
+      id,
+      threadId: `${id}-thread`,
+      name,
+      memberIds: [],
+      messages: [],
+      ...extra,
+    });
+    const groups = [
+      room("dm-1", "Career and Wink", { dm: true, unread: true, section: "BOTS ONLY" }),
+      room("room-1", "Launch room", { unread: true }),
+    ];
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (path: string) =>
+        path === "/api/bots?messages=200"
+          ? new Response(JSON.stringify({ bots: [bot("a")], groups }))
+          : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const groupIds = () => [...host.querySelectorAll('[data-sidebar-row-kind="group"]')].map((row) => row.getAttribute("data-sidebar-row-id"));
+    try {
+      await act(async () =>
+        root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+      );
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(groupIds()).toEqual(["room-1"]));
+      expect(host.querySelector('[data-sidebar-section-id="section:BOTS ONLY"]')).toBeNull();
+
+      const search = host.querySelector<HTMLInputElement>('input[placeholder="Search"]')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(search, "career");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(groupIds()).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
 describe("Sidebar group avatar overflow", () => {
   it("reserves the overflow badge width before the group name", async () => {
     const members = ["one", "two", "three", "four", "five"].map((id) => ({

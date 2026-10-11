@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  listedGroups,
+  listedSearchHits,
   moveSidebarItem,
   moveSidebarItemWithinTier,
   normalizeSidebarOrder,
@@ -12,6 +14,7 @@ import {
   sidebarItemKey,
   UNASSIGNED_SECTION_ID,
 } from "./sidebar-order";
+import type { Message } from "@/state/store";
 
 describe("sidebar item order", () => {
   it("partitions global priority tiers without duplicating both flags", () => {
@@ -113,8 +116,59 @@ describe("sidebar item order", () => {
   });
 });
 
+describe("listedGroups", () => {
+  it("drops bot-to-bot channels and keeps rooms in order", () => {
+    const groups = [{ id: "r1" }, { id: "dm", dm: true }, { id: "r2", dm: false }];
+    expect(listedGroups(groups).map((group) => group.id)).toEqual(["r1", "r2"]);
+  });
+
+  it("keeps a bot-to-bot channel listed while a card there waits on the person", () => {
+    const approval: Message = {
+      id: "approval",
+      role: "bot",
+      kind: "options",
+      at: 1,
+      card: { title: "Approval needed", subtitle: "rm -rf build", options: ["Allow", "Deny"], requestId: "r1", tool: "Bash" },
+    };
+    const answered: Message = { ...approval, card: { ...approval.card!, answered: "Allow" } };
+    expect(listedGroups([{ id: "dm", dm: true, messages: [approval] }]).map((group) => group.id)).toEqual(["dm"]);
+    expect(listedGroups([{ id: "dm", dm: true, messages: [answered] }])).toEqual([]);
+  });
+
+  it("lists a bot-to-bot channel once the person has posted there", () => {
+    const sent: Message = { id: "m1", role: "user", kind: "text", at: 1, text: "hello" };
+    const mirrored: Message = { id: "m2", role: "bot", kind: "text", at: 2, text: "hi", from: { botId: "wink", name: "Wink", color: "blue" } };
+    const activity: Message = { id: "m3", role: "bot", kind: "activity", at: 3, text: "Read" };
+    expect(listedGroups([{ id: "dm", dm: true, messages: [mirrored, sent] }]).map((group) => group.id)).toEqual(["dm"]);
+    expect(listedGroups([{ id: "dm", dm: true, messages: [mirrored, activity] }])).toEqual([]);
+  });
+});
+
+describe("listedSearchHits", () => {
+  const sent: Message = { id: "m1", role: "user", kind: "text", at: 1, text: "hello" };
+  const mirrored: Message = { id: "m2", role: "bot", kind: "text", at: 2, text: "hi", from: { botId: "wink", name: "Wink", color: "blue" } };
+  const groups = [
+    { id: "room" },
+    { id: "hidden", dm: true, messages: [mirrored] },
+    { id: "joined", dm: true, messages: [mirrored, sent] },
+  ];
+
+  it("drops hits inside a hidden bot-to-bot channel only", () => {
+    const hits = [{ botId: "b1" }, { groupId: "room" }, { groupId: "hidden" }, { groupId: "joined" }, { groupId: "unknown" }];
+    expect(listedSearchHits(hits, groups)).toEqual([{ botId: "b1" }, { groupId: "room" }, { groupId: "joined" }, { groupId: "unknown" }]);
+  });
+});
+
 describe("preferredStartupSelectionId", () => {
   const EMPTY_ORDER = { sectionOrder: [], itemOrder: {} };
+
+  it("skips a bot-to-bot channel that leads the saved order", () => {
+    const order = {
+      sectionOrder: [UNASSIGNED_SECTION_ID],
+      itemOrder: { [UNASSIGNED_SECTION_ID]: ["group:dm", "bot:a"] },
+    };
+    expect(preferredStartupSelectionId([{ id: "a" }], [{ id: "dm", dm: true }], order)).toBe("a");
+  });
 
   it("picks the chief of staff bot over server creation order", () => {
     const bots = [{ id: "b1" }, { id: "chief", chiefOfStaff: true }, { id: "b2" }];

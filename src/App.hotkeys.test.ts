@@ -58,7 +58,7 @@ describe("phone drawer menu button", () => {
 
   it("glows while another chat has a question or an open approval", () => {
     expect(menuButtonSource()).toContain('${menuAsking ? " needs-you-glow" : ""}');
-    expect(app).toContain("anyChatNeedsYou([...state.bots, ...state.groups], state.selectedId)");
+    expect(app).toContain("anyChatNeedsYou([...state.bots, ...listedGroups(state.groups)], state.selectedId)");
   });
 
   it("closes when App settings opens from the drawer and stays closed after", async () => {

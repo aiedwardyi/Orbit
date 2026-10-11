@@ -1,14 +1,16 @@
+import { listedGroups } from "./sidebar-order";
+
 export function unreadConversationCount(
   bots: Array<{ hidden?: boolean; unread?: boolean }>,
-  groups: Array<{ unread?: boolean }>,
+  groups: Array<{ dm?: boolean; unread?: boolean }>,
 ): number {
-  return bots.filter((bot) => !bot.hidden && bot.unread).length + groups.filter((group) => group.unread).length;
+  return bots.filter((bot) => !bot.hidden && bot.unread).length + listedGroups(groups).filter((group) => group.unread).length;
 }
 
 /** Unread count for the collapsed sidebar's reopen button: the open conversation never counts. */
 export function collapsedUnreadCount(
   bots: Array<{ id: string; hidden?: boolean; unread?: boolean }>,
-  groups: Array<{ id: string; unread?: boolean }>,
+  groups: Array<{ id: string; dm?: boolean; unread?: boolean }>,
   currentId: string,
 ): number {
   return unreadConversationCount(
