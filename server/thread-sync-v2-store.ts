@@ -345,7 +345,12 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
   function resolveHeads(task: StoredTask): void {
     if (host.running(task.threadId) || task.deleted || engine.variants(task, "delete").length || engine.changes(task, task.cursor, 1).length) return;
     const heads = engine.variants(task, "head").filter((item) => !item.version.legacy);
-    if (new Set(heads.map((item) => item.version.value)).size < 2) return;
+    if (heads.length < 2) return;
+    if (heads.every((item) => item.version.value === heads[0].version.value)) {
+      // Equal heads still look like a fork to older builds; one elected writer folds them so the others never race it.
+      const resolvers = heads.filter((item) => engine.automatic(task, item));
+      if ((resolvers.length ? resolvers : heads).map((item) => item.writerId).sort()[0] !== engine.state(task).writerId) return;
+    }
     // One head that has seen every head lets older builds, which pick by writer id, converge too.
     engine.commit(task, [{ kind: "head", value: z.string().nullable().parse(heads[0].version.value) }]);
     schedule(task.threadId);

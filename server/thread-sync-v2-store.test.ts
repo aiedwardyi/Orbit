@@ -84,6 +84,26 @@ function sourceRows(dataDir: string): Array<{ path: string; hash: string | null;
   }
 }
 
+const LOW = "1a000000-0000-4000-8000-000000000000";
+const MID = "5b000000-0000-4000-8000-000000000000";
+const HIGH = "fc000000-0000-4000-8000-000000000000";
+
+function isolated(writers: string[]) {
+  return writers.map((writer, i) => {
+    const folder = temp();
+    return { folder, writer, peer: pc(folder, `pc${i}`, true, false, false, writer) };
+  });
+}
+
+// Separate folders let each PC resolve before the others' resolving heads reach it.
+function share(to: Array<{ folder: string }>, from: Array<{ folder: string; writer: string }>): void {
+  for (const source of from) {
+    const dir = join("threads-v2", "bot", "thread", source.writer);
+    if (!existsSync(join(source.folder, dir))) continue;
+    for (const target of to) if (target.folder !== source.folder) cpSync(join(source.folder, dir), join(target.folder, dir), { recursive: true });
+  }
+}
+
 function heads(dataDir: string): Array<{ writer: string; value: string | null }> {
   const db = new DatabaseSync(join(dataDir, "messages.db"), { readOnly: true });
   try {
@@ -174,6 +194,22 @@ describe("store delta sync", () => {
     await b.call("patch", { id: row.id, patch: { text: "resolved" } });
     await b.call("restart");
     expect((await b.snapshot()).rows.some((message) => message.id === "migration-notice")).toBe(true);
+  });
+
+  it("removes a migration notice when only the branch heads forked", async () => {
+    const folder = temp();
+    const a = pc(folder, "a");
+    const b = pc(folder, "b");
+    await a.call("append", { text: "base" });
+    await a.call("flush");
+    await b.call("pull");
+    await a.call("append", { text: "a" });
+    await b.call("append", { text: "b" });
+    await a.call("flush");
+    await b.call("pull");
+    await b.call("migrationNotice");
+    await b.call("restart");
+    expect((await b.snapshot()).rows.some((message) => message.id === "migration-notice")).toBe(false);
   });
 
   it("heals two current PCs and a stale laptop after simultaneous migration into split roots", async () => {
@@ -383,34 +419,122 @@ describe("store delta sync", () => {
     expect((await b.snapshot()).outbox).toBe(outbox);
   });
 
-  it("settles two PCs that resolve at once on equal heads without more writes", async () => {
+  for (const count of [2, 3]) {
+    it(`folds equal heads from ${count} PCs that resolve at once into one head with one more write`, async () => {
+      const all = isolated([LOW, MID, HIGH]);
+      const [a, , c] = all;
+      const resolvers = count === 2 ? [a, c] : all;
+      await a.peer.call("append", { text: "base" });
+      await a.peer.call("flush");
+      share(all, [a]);
+      for (const item of all.slice(1)) await item.peer.call("pull");
+      await a.peer.call("batch", { count: 50 });
+      await a.peer.call("flush");
+      const main = (await a.peer.snapshot()).leaf;
+      await c.peer.call("batch", { count: 4 });
+      await c.peer.call("flush");
+      share(resolvers, [a, c]);
+      const start = await Promise.all(all.map((item) => item.peer.snapshot()));
+      for (const item of resolvers) await item.peer.call("pull");
+      for (const item of resolvers) await item.peer.call("flush");
+      for (let round = 0; round < 2; round++) {
+        share(all, all);
+        for (const item of all) await item.peer.call("pull");
+        for (const item of all) await item.peer.call("flush");
+      }
+      share(all, all);
+      for (const item of all) await item.peer.call("pull");
+      const settled = await Promise.all(all.map((item) => item.peer.snapshot()));
+      for (let round = 0; round < 3; round++) {
+        for (const item of all) {
+          await item.peer.call("poll");
+          await item.peer.call("flush");
+        }
+        share(all, all);
+      }
+      const after = await Promise.all(all.map((item) => item.peer.snapshot()));
+      expect(after.map((snapshot) => snapshot.outbox)).toEqual(settled.map((snapshot) => snapshot.outbox));
+      expect(settled.reduce((sum, snapshot, i) => sum + snapshot.outbox - start[i].outbox, 0)).toBe(count + 1);
+      for (const [i, item] of all.entries()) {
+        expect(after[i].leaf).toBe(main);
+        expect(after[i].rows.filter(isConflictNotice)).toHaveLength(0);
+        expect(heads(item.peer.dataDir).map((head) => head.value)).toEqual([main]);
+      }
+    });
+  }
+
+  it("keeps a version picked after both branches when another PC's resolving head arrives late", async () => {
+    const all = isolated([LOW, HIGH, MID]);
+    const [a, c] = all;
+    await a.peer.call("append", { text: "base" });
+    await a.peer.call("flush");
+    share([c], [a]);
+    await c.peer.call("pull");
+    await a.peer.call("batch", { count: 20 });
+    await a.peer.call("flush");
+    const side = await c.peer.call<Message>("append", { text: "side" });
+    await c.peer.call("flush");
+    share([a, c], [a, c]);
+    await a.peer.call("pull");
+    await c.peer.call("pull");
+    expect(await a.peer.call("head", { id: side.id })).toBe(side.id);
+    await c.peer.call("flush");
+    share([a], [c]);
+    await a.peer.call("pull");
+    expect((await a.peer.snapshot()).leaf).toBe(side.id);
+    for (let round = 0; round < 3; round++) {
+      for (const item of all) {
+        await item.peer.call("poll");
+        await item.peer.call("flush");
+      }
+      share(all, all);
+    }
+    for (const item of all) {
+      const snapshot = await item.peer.snapshot();
+      expect(snapshot.leaf).toBe(side.id);
+      expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+      expect(heads(item.peer.dataDir).map((head) => head.value)).toEqual([side.id]);
+    }
+  });
+
+  it("keeps a version picked after every resolving head and still follows newer typing deeper first", async () => {
     const folder = temp();
-    const a = pc(folder, "a", true, false, false, "1a000000-0000-4000-8000-000000000000");
-    const c = pc(folder, "c", true, false, false, "fc000000-0000-4000-8000-000000000000");
+    const a = pc(folder, "a", true, false, false, LOW);
+    const c = pc(folder, "c", true, false, false, HIGH);
     await a.call("append", { text: "base" });
     await a.call("flush");
     await c.call("pull");
-    await a.call("batch", { count: 50 });
+    await a.call("batch", { count: 20 });
     await a.call("flush");
-    const main = (await a.snapshot()).leaf;
-    await c.call("batch", { count: 4 });
+    const main = (await a.snapshot()).leaf!;
+    const side = await c.call<Message>("append", { text: "side" });
+    await c.call("flush");
+    for (let round = 0; round < 2; round++) {
+      for (const peer of [a, c]) await peer.call("pull");
+      for (const peer of [a, c]) await peer.call("flush");
+    }
+    expect(heads(a.dataDir).map((head) => head.value)).toEqual([main]);
+    await a.call("head", { id: side.id });
+    await a.call("flush");
+    await c.call("pull");
+    expect((await c.snapshot()).leaf).toBe(side.id);
+    const reply = await c.call<Message>("append", { text: "on the picked branch" });
     await c.call("flush");
     await a.call("pull");
-    await c.call("pull");
+    expect((await a.snapshot()).leaf).toBe(reply.id);
+    await a.call("head", { id: main });
+    const longer = await a.call<Message>("append", { text: "longer branch" });
+    const shorter = await c.call<Message>("append", { text: "shorter branch" });
     for (const peer of [a, c]) await peer.call("flush");
-    for (const peer of [a, c]) await peer.call("pull");
-    const settled = await Promise.all([a, c].map((peer) => peer.snapshot()));
-    for (const snapshot of settled) {
-      expect(snapshot.leaf).toBe(main);
-      expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+    for (let round = 0; round < 2; round++) {
+      for (const peer of [a, c]) await peer.call("pull");
+      for (const peer of [a, c]) await peer.call("flush");
     }
-    expect(heads(a.dataDir).map((head) => head.value)).toEqual([main, main]);
-    for (const peer of [a, c]) await peer.call("poll");
-    for (const peer of [a, c]) await peer.call("flush");
-    for (const peer of [a, c]) await peer.call("poll");
-    const after = await Promise.all([a, c].map((peer) => peer.snapshot()));
-    expect(after.map((snapshot) => snapshot.outbox)).toEqual(settled.map((snapshot) => snapshot.outbox));
-    expect(after.every((snapshot) => snapshot.leaf === main && !snapshot.rows.some(isConflictNotice))).toBe(true);
+    for (const peer of [a, c]) {
+      const snapshot = await peer.snapshot();
+      expect(snapshot.leaf).toBe(longer.id);
+      expect(snapshot.rows.some((row) => row.id === shorter.id)).toBe(true);
+    }
   });
 
   it("adopts local edits on two PCs, emits events, invalidates cursors and suppresses echo", async () => {

@@ -157,20 +157,52 @@ export function createSyncEngine(input: SyncOptions) {
   function mainHeadFirst(scope: SyncScope, heads: SyncVariant[]): SyncVariant[] {
     const native = heads.filter((item) => !item.version.legacy);
     if (new Set(native.map((item) => item.version.value)).size < 2) return heads;
-    const leaves = new Map(native.map((item) => {
-      const leaf = z.string().nullable().parse(item.version.value);
-      const depth = get(countSchema, `WITH RECURSIVE ancestry(id) AS (
-        SELECT ?
-        UNION SELECT json_extract(f.json, '$.value.parentId') FROM ancestry a CROSS JOIN sync_v2_frontier f ON f.row_id = CAST(a.id AS TEXT)
-          WHERE f.thread = ? AND f.kind = 'row'
-      ) SELECT COUNT(id) AS n FROM ancestry`, leaf, scope.threadId).n;
-      const row = leaf ? variants(scope, "row", leaf)[0] : undefined;
-      return [leaf, { depth, at: row ? rowSchema.parse(row.version.value).at : -Infinity }];
-    }));
-    const rank = (item: SyncVariant) => leaves.get(z.string().nullable().parse(item.version.value))!;
-    // Stable sort keeps writer order as the last tie-break, so every PC picks the same head.
-    native.sort((a, b) => rank(b).depth - rank(a).depth || rank(b).at - rank(a).at);
-    return [...native, ...heads.filter((item) => item.version.legacy)];
+    const chosen = choiceHeads(scope, native);
+    const candidates = chosen.length ? chosen : native;
+    const leaves = new Map<string | null, { depth: number; at: number }>();
+    if (new Set(candidates.map((item) => item.version.value)).size > 1) {
+      for (const item of candidates) {
+        const leaf = z.string().nullable().parse(item.version.value);
+        const depth = get(countSchema, `WITH RECURSIVE ancestry(id) AS (
+          SELECT ?
+          UNION SELECT json_extract(f.json, '$.value.parentId') FROM ancestry a CROSS JOIN sync_v2_frontier f ON f.row_id = CAST(a.id AS TEXT)
+            WHERE f.thread = ? AND f.kind = 'row'
+        ) SELECT COUNT(id) AS n FROM ancestry`, leaf, scope.threadId).n;
+        const row = leaf ? variants(scope, "row", leaf)[0] : undefined;
+        leaves.set(leaf, { depth, at: row ? rowSchema.parse(row.version.value).at : -Infinity });
+      }
+    }
+    const rank = (item: SyncVariant) => leaves.get(z.string().nullable().parse(item.version.value)) ?? { depth: 0, at: 0 };
+    const pick = candidates.sort((a, b) => rank(b).depth - rank(a).depth || rank(b).at - rank(a).at
+      || (a.writerId < b.writerId ? 1 : a.writerId > b.writerId ? -1 : b.version.seq - a.version.seq))[0];
+    const first = native.find((item) => item.writerId === pick.writerId && item.version.seq === pick.version.seq)
+      ?? native.find((item) => item.version.value === pick.version.value) ?? pick;
+    return [first, ...heads.filter((item) => item !== first)];
+  }
+
+  function automatic(scope: SyncScope, item: SyncVariant): boolean {
+    if (item.version.kind !== "head" || !item.version.baseStamp) return false;
+    const [seq, writer] = item.version.baseStamp.split(":");
+    const base = get(jsonSchema.optional(), "SELECT json FROM sync_v2_packets WHERE thread = ? AND writer = ? AND seq = ?", scope.threadId, writer, Number(seq));
+    return Boolean(base) && JSON.parse(base!.json).value === item.version.value;
+  }
+
+  // A head that restates its base head carries no choice, so the pick is made as if it were never written.
+  function choiceHeads(scope: SyncScope, native: SyncVariant[]): SyncVariant[] {
+    // Progress moves only after a version applies, so the head being applied is found in the frontier.
+    const found = native.filter((item) => !automatic(scope, item));
+    for (const progress of all(writerSeqSchema, "SELECT writer, seq FROM sync_v2_progress WHERE thread = ?", scope.threadId)) {
+      if (found.some((item) => item.writerId === progress.writer)) continue;
+      for (let below = progress.seq + 1; ;) {
+        const page = all(seqJsonSchema, `SELECT seq, json FROM sync_v2_packets WHERE thread = ? AND writer = ? AND seq < ?
+          AND json_extract(json, '$.kind') = 'head' AND json_extract(json, '$.legacy') IS NULL ORDER BY seq DESC LIMIT 8`, scope.threadId, progress.writer, below);
+        const item = page.map((row): SyncVariant => ({ writerId: progress.writer, version: JSON.parse(row.json) })).find((head) => !automatic(scope, head));
+        if (item) found.push(item);
+        if (item || page.length < 8) break;
+        below = page.at(-1)!.seq;
+      }
+    }
+    return found.filter((item) => !found.some((other) => other !== item && saw(other.version, item.writerId, item.version.seq)));
   }
 
   function validateVersion(version: SyncVersion): void {
@@ -703,7 +735,7 @@ export function createSyncEngine(input: SyncOptions) {
       const item = { writerId: row.writer, version };
       const key = JSON.stringify([version.kind, version.rowId]);
       const previous = fields.get(key) ?? [];
-      if (previous.some((prior) => concurrent(item, prior)) || deletes.some((prior) => concurrent(item, prior))) return true;
+      if ((version.kind !== "head" && previous.some((prior) => concurrent(item, prior))) || deletes.some((prior) => concurrent(item, prior))) return true;
       if (version.kind === "delete") {
         if ([...fields.values()].some((values) => values.some((prior) => concurrent(item, prior)))) return true;
         deletes.push(item);
@@ -724,5 +756,5 @@ export function createSyncEngine(input: SyncOptions) {
   }
 
   const recover = (scope: SyncScope, mutations: SyncRecovery[], crash?: string) => commit(scope, mutations, crash, undefined, true);
-  return { commit, recover, flush, pull, state, variants, changes, applyPending, threads, conflicted, hadNativeConflict, recoveryRows };
+  return { commit, recover, flush, pull, state, variants, automatic, changes, applyPending, threads, conflicted, hadNativeConflict, recoveryRows };
 }
