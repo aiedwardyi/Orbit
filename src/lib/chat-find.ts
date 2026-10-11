@@ -1,10 +1,12 @@
 // Sidebar search and the in-chat find bar share one matcher: every copy of
 // the query is marked, and a click starts on the row the person chose.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { useStore, type AppState } from "@/state/store";
 
 const FIND_HIGHLIGHT = "orbit-find";
+const CURRENT_HIGHLIGHT = "orbit-find-current";
+const UNCLAMP = "data-find-unclamp";
 
 interface FindHighlights {
   delete(name: string): void;
@@ -58,16 +60,62 @@ export function findSeedFor(
   return { query: focus.query, messageId: focus.messageId, nonce: focus.nonce };
 }
 
-export function clearChatFindHighlight(): void {
-  highlightHost().CSS?.highlights?.delete(FIND_HIGHLIGHT);
+// The hit find last landed on. Transcripts reveal its row; paints mark it strong.
+let current: { messageId: string; query: string } | null = null;
+let unclamped: Element[] = [];
+const currentListeners = new Set<() => void>();
+
+function sameQuery(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
-export function paintChatFindHighlight(root: ParentNode, query: string): void {
+export function setFindCurrent(next: { messageId: string; query: string } | null): void {
+  if (current?.messageId === next?.messageId && sameQuery(current?.query ?? "", next?.query ?? "")) return;
+  current = next;
+  for (const element of unclamped) element.removeAttribute(UNCLAMP);
+  unclamped = [];
+  for (const listener of currentListeners) listener();
+}
+
+export function findCurrentId(): string | null {
+  return current?.messageId ?? null;
+}
+
+export function subscribeFindCurrent(listener: () => void): () => void {
+  currentListeners.add(listener);
+  return () => currentListeners.delete(listener);
+}
+
+export function useFindCurrentId(): string | null {
+  return useSyncExternalStore(subscribeFindCurrent, findCurrentId, findCurrentId);
+}
+
+/** First match inside the row, else a link whose href holds the phrase. */
+function currentRange(wrapper: Element, query: string, ranges: readonly Range[]): Range | null {
+  const inRow = ranges.find((range) => wrapper.contains(range.startContainer));
+  if (inRow) return inRow;
+  const phrase = query.trim().toLowerCase();
+  const link = [...wrapper.querySelectorAll("a[href]")].find((anchor) =>
+    (anchor.getAttribute("href") ?? "").toLowerCase().includes(phrase),
+  );
+  if (!link) return null;
+  const range = document.createRange();
+  range.selectNodeContents(link);
+  return range;
+}
+
+export function clearChatFindHighlight(): void {
+  highlightHost().CSS?.highlights?.delete(FIND_HIGHLIGHT);
+  highlightHost().CSS?.highlights?.delete(CURRENT_HIGHLIGHT);
+}
+
+/** Paints every match soft and the current one strong; returns the current range. */
+export function paintChatFindHighlight(root: ParentNode, query: string): Range | null {
   clearChatFindHighlight();
   const host = highlightHost();
   const registry = host.CSS?.highlights;
   const HighlightCtor = host.Highlight;
-  if (!registry || !HighlightCtor) return;
+  if (!registry || !HighlightCtor) return null;
   const ranges: Range[] = [];
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode();
@@ -85,7 +133,32 @@ export function paintChatFindHighlight(root: ParentNode, query: string): void {
     }
     node = walker.nextNode();
   }
-  if (ranges.length) registry.set(FIND_HIGHLIGHT, new HighlightCtor(...ranges));
+  const wrapper = current && sameQuery(current.query, query)
+    ? root.querySelector(`[data-mid="${CSS.escape(current.messageId)}"]`)
+    : null;
+  const strong = wrapper ? currentRange(wrapper, query, ranges) : null;
+  const soft = ranges.filter((range) => range !== strong);
+  if (soft.length) registry.set(FIND_HIGHLIGHT, new HighlightCtor(...soft));
+  if (strong) registry.set(CURRENT_HIGHLIGHT, new HighlightCtor(strong));
+  return strong;
+}
+
+/** Unclamps what hides the current match, paints, and returns the range to scroll to. */
+export function revealFindMatch(root: ParentNode, messageId: string): Range | null {
+  if (current?.messageId !== messageId) return null;
+  const range = paintChatFindHighlight(root, current.query);
+  const wrapper = range && root.querySelector(`[data-mid="${CSS.escape(messageId)}"]`);
+  if (!range || !wrapper) return range;
+  for (let element = range.startContainer.parentElement; element && element !== wrapper; element = element.parentElement) {
+    const style = getComputedStyle(element);
+    const clips = [style.overflowX, style.overflowY].some((value) => value === "hidden" || value === "clip");
+    const isTextParent = element === range.startContainer.parentElement;
+    if (clips || style.whiteSpace === "nowrap" || (style.maxHeight || "none") !== "none" || (isTextParent && style.flexShrink === "0")) {
+      element.setAttribute(UNCLAMP, "");
+      unclamped.push(element);
+    }
+  }
+  return range;
 }
 
 export function watchChatFindHighlight(root: HTMLElement, query: string): () => void {

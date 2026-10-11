@@ -75,7 +75,7 @@ import { ReactionBar, ReactionChips } from "./Reactions";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
-import { useSearchFindSeed } from "@/lib/chat-find";
+import { useFindCurrentId, useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
@@ -985,6 +985,8 @@ const MessagesList = memo(function MessagesList({
   // row out of the DOM, and there is nothing for the scroll to land on.
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === bot.threadId ? focus.messageId : null;
+  // the current find hit shows even when the tool-call setting hides its row
+  const findCurrent = useFindCurrentId();
   return (
     <>
       {transcriptIdleAfterOnboarding(transcript) && !bot.busy && (
@@ -1003,15 +1005,18 @@ const MessagesList = memo(function MessagesList({
       )}
       {items.map((item, i) => {
         const { visible, newDay } = rows[i];
-        if (!visible) return null;
+        const found = item.kind === "run"
+          ? item.messages.some((step) => step.id === findCurrent)
+          : item.message.kind === "activity" && item.message.id === findCurrent;
+        if (!visible && !found) return null;
         if (item.kind === "run") {
           const first = item.messages[0];
           return (
             <div key={item.id} className="contents" data-run={item.id}>
               {newDay && <DaySeparator at={first.at} />}
-              <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
+              <ActivityRun messages={item.messages} forceOpen={found || item.messages.some((step) => step.id === focusedId)}>
                 {item.messages
-                  .filter((step) => showActivities || step.tool?.ok === false)
+                  .filter((step) => showActivities || step.tool?.ok === false || step.id === findCurrent)
                   .map((step) => (
                   <div key={step.id} className="contents" data-mid={step.id}>
                     <ActivityStep message={step} />
@@ -1073,7 +1078,7 @@ const MessagesList = memo(function MessagesList({
                   />
                 );
               }
-              if (!activityVisibleInChat(m, showActivities)) return null;
+              if (!activityVisibleInChat(m, showActivities) && !found) return null;
               return <ActivityChip message={m} />;
             }
             case "screen":
