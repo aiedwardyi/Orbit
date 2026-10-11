@@ -184,6 +184,12 @@ describe("terminal grouping", () => {
     ]);
   });
 
+  it("groups other engines' reads and searches by their Claude Code verb", () => {
+    const items = groupActivityRuns([tool("read"), tool("grep_search"), tool("bash"), tool("view_file"), tool("find")], true);
+    expect(items.map((i) => (i.kind === "run" ? `run:${i.messages.length}` : i.message.tool?.name))).toEqual(["run:2", "bash", "run:2"]);
+    expect(describeSearch([tool("view_file"), tool("grep")])).toBe("Searched for 1 pattern, read 1 file");
+  });
+
   it("keeps the default fold for every other skin", () => {
     expect(groupActivityRuns([tool("Grep"), tool("Read"), tool("Edit")]).map((i) => i.kind)).toEqual(["run"]);
   });

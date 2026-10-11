@@ -9,7 +9,7 @@ import type { Message } from "@/state/store";
 import { describeRun, describeSearch } from "@/lib/activity-runs";
 import { useI18n } from "@/lib/i18n";
 import { useSkin } from "@/lib/skins";
-import { TERM_STEP_WORD, termResultLine, termStepAria, termStepState, termVerb } from "@/lib/terminal-skin";
+import { TERM_STEP_WORD, termBlock, termHeaderArgs, termResultLine, termStepAria, termStepState, termUpdatedLine, termVerb } from "@/lib/terminal-skin";
 
 function StepStatus({ ok }: { ok: boolean | undefined }) {
   if (ok === undefined) return <Loader2 size={13} className="shrink-0 animate-spin" />;
@@ -45,7 +45,7 @@ export function ActivityStep({ message }: { message: Message }) {
   if (!tool) return null;
   const Icon = stepIcon(tool.name);
   const elapsed = running ? Math.max(0, now - new Date(message.at).getTime()) : tool.durationMs;
-  if (terminal) return <TermStep name={tool.name} summary={tool.summary} ok={tool.ok} elapsed={elapsed} />;
+  if (terminal) return <TermStep name={tool.name} summary={tool.summary} ok={tool.ok} elapsed={elapsed} detail={tool.detail} />;
   return (
     <div className="flex max-w-[min(42rem,100%)] items-center gap-2 px-3 py-0.5 text-[13px] text-ink-secondary">
       <Icon size={13} className="shrink-0" />
@@ -57,20 +57,34 @@ export function ActivityStep({ message }: { message: Message }) {
   );
 }
 
-/** Claude Code's call: `● Verb(summary)` over one `⎿ Done (1.2s)` line. */
-function TermStep({ name, summary, ok, elapsed }: { name: string; summary?: string; ok: boolean | undefined; elapsed: number | undefined }) {
+type ToolDetail = NonNullable<Message["tool"]>["detail"];
+
+/** Claude Code's call: `● Verb(args)` over its output, or one `⎿ Done (1.2s)` line. */
+function TermStep({ name, summary, ok, elapsed, detail }: { name: string; summary?: string; ok: boolean | undefined; elapsed: number | undefined; detail?: ToolDetail }) {
   const { t } = useI18n();
   const verb = termVerb(name);
   const state = termStepState(ok);
   const aria = termStepAria(state, elapsed);
+  const args = termHeaderArgs(verb, summary, detail);
+  const block = termBlock(detail, state === "failed");
   return (
     <div data-term-step={state} className="term-step min-w-0 max-w-full">
       <span className="sr-only">{t(aria.key, { tool: summary ? `${verb} ${summary}` : verb, seconds: aria.seconds ?? 0 })}</span>
       <div aria-hidden="true" className="term-step-head truncate">
         <span className="font-semibold text-ink">{verb}</span>
-        {summary && `(${summary})`}
+        {args && `(${args})`}
       </div>
-      <div aria-hidden="true" className="term-step-result truncate">{termResultLine(t(TERM_STEP_WORD[state]), elapsed)}</div>
+      {block?.kind === "hidden" ? (
+        <div className="term-step-out">{t("term.step.hidden")}</div>
+      ) : block ? (
+        <div className="term-step-out">
+          {block.changes && detail?.input && <div>{termUpdatedLine(t, detail.input, block.changes)}</div>}
+          {block.rows.map((row, index) => <div key={index} data-term-row={row.tone}>{row.text}</div>)}
+          {block.more && <div>{t(block.more === 1 ? "term.step.moreOne" : "term.step.moreMany", { count: block.more })}</div>}
+        </div>
+      ) : (
+        <div aria-hidden="true" className="term-step-result truncate">{termResultLine(t(TERM_STEP_WORD[state]), elapsed)}</div>
+      )}
     </div>
   );
 }
