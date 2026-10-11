@@ -228,15 +228,15 @@ export function ModelPickerControl({
       aria-expanded={open}
       aria-haspopup="dialog"
       aria-keyshortcuts={shortcutEnabled ? "Alt+M" : undefined}
-      className="flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover"
+      className="flex min-w-0 max-w-full items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-raised-hover"
       title={modelChipTitle({ mode: selection.mode, instance: active, model: selection.model, effort: selection.effort }, t) + (shortcutEnabled ? ` (${shortcut}+M)` : "")}
     >
-      {active ? <ProviderMark driverKind={active.driverKind} size={14} /> : <Sparkles size={14} className="text-accent" />}
+      {active ? <ProviderMark driverKind={active.driverKind} size={14} className="shrink-0" /> : <Sparkles size={14} className="shrink-0 text-accent" />}
       {/* Only the label side may shrink: a long name truncates in place while
           the accent dot, effort, and chevron stay visible at any width. The
           label is always the full selected model — never the bare engine
           name — so the header matches Bot details at every width. */}
-      <span className="min-w-0 max-w-[160px] truncate">
+      <span data-model-label className="min-w-0 max-w-[160px] truncate">
         {phoneName === chipName ? chipName : (
           <>
             <span className="max-md:hidden">{chipName}</span>
