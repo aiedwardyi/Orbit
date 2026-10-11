@@ -87,6 +87,7 @@ export function ActivityRun({
   /** the individual chips, rendered by whichever transcript owns them */
   children: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const terminal = useSkin() === "terminal";
   const failed = messages.some((message) => message.tool?.ok === false);
   const running = messages.some((message) => message.tool?.ok === undefined);
@@ -99,6 +100,8 @@ export function ActivityRun({
       <div className="flex flex-col">
         <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="term-search self-start text-left">
           {describeSearch(messages)}
+          {running && <span> · {t("task.running")}</span>}
+          {failed && <span> · {t("workers.failed")}</span>}
         </button>
         {open && children}
       </div>

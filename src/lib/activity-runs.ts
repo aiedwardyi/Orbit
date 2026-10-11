@@ -93,6 +93,7 @@ export function describeRun(messages: Message[]): string {
 
 /** Claude Code's one line for a stretch of reads and searches. */
 export function describeSearch(messages: Message[]): string {
+  if (!messages.length) return "Searched";
   const patterns = messages.filter((message) => message.tool?.name !== "Read").length;
   const files = messages.length - patterns;
   return [

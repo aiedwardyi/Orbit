@@ -195,6 +195,10 @@ describe("terminal grouping", () => {
 });
 
 describe("describeSearch", () => {
+  it("names an empty search instead of rendering an empty button", () => {
+    expect(describeSearch([])).toBe("Searched");
+  });
+
   it("counts patterns and files the way Claude Code does", () => {
     expect(describeSearch([tool("Grep"), tool("Read"), tool("Read")])).toBe("Searched for 1 pattern, read 2 files");
     expect(describeSearch([tool("Glob"), tool("Grep")])).toBe("Searched for 2 patterns");

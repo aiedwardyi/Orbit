@@ -19,6 +19,18 @@ const rows = (messages: Message[], showToolCalls = false, emergingId?: string | 
   chatTranscriptRows(groupActivityRuns(messages), { showToolCalls, emergingId, transcript: messages });
 
 describe("chatTranscriptRows", () => {
+  it("shows Terminal activity without revealing hidden screen frames", () => {
+    const messages: Message[] = [
+      step("Read"),
+      { id: "hidden-screen", at: at(1), role: "bot", kind: "screen", hasImage: true },
+      { id: "shown-screen", at: at(1), role: "bot", kind: "screen", hasImage: true, shown: true },
+    ];
+    const items = groupActivityRuns(messages, true);
+    const options = { showToolCalls: false, showActivities: true, transcript: messages };
+    expect(chatTranscriptRows(items, options).map((row) => row.visible)).toEqual([true, false, true]);
+    expect(chatTranscriptRows(items, { ...options, showToolCalls: true }).map((row) => row.visible)).toEqual([true, true, true]);
+  });
+
   it("keeps the day divider on the first visible line after hidden activity crosses midnight", () => {
     const result = rows([
       say("Late.", at(1, 23)),

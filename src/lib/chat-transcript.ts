@@ -11,6 +11,7 @@ import type { Message } from "@/state/store";
 
 export interface ChatTranscriptOptions {
   showToolCalls: boolean;
+  showActivities?: boolean;
   /** the newest reply, animating in above the transcript instead of inside it */
   emergingId?: string | null;
   /** Full active-branch transcript, used to hide a talked-past onboarding card. */
@@ -40,7 +41,7 @@ export function messageVisible(message: Message, options: ChatTranscriptOptions)
       return true;
     case "activity":
       return Boolean(
-        message.tool?.name.startsWith("error:") || activityVisibleInChat(message, options.showToolCalls),
+        message.tool?.name.startsWith("error:") || activityVisibleInChat(message, options.showActivities ?? options.showToolCalls),
       );
     case "screen":
       return Boolean(message.png || message.image || message.hasImage) && (message.shown || options.showToolCalls);
@@ -58,7 +59,7 @@ export function chatTranscriptRows(
     const first = item.kind === "run" ? item.messages[0] : item.message;
     const visible =
       item.kind === "run"
-        ? activityRunVisible(item.messages, options.showToolCalls)
+        ? activityRunVisible(item.messages, options.showActivities ?? options.showToolCalls)
         : messageVisible(first, options);
     if (!visible) return { visible, newDay: false };
     const newDay = !prev || new Date(prev.at).toDateString() !== new Date(first.at).toDateString();

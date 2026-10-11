@@ -1,38 +1,44 @@
 // The Terminal skin's two-line status under the composer. It takes the place
 // of the 5h/7d strip, so the meters still open Usage.
-import { useStore, type Bot, type InstanceInfo } from "@/state/store";
+import { useId } from "react";
+import { shownModelSelection, useStore, visibleMessages, type Bot, type InstanceInfo } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import { shortPath } from "@/lib/short-path";
-import { planMeterWindows, readingAge, resetCompact } from "@/lib/usage";
+import { museReading, planMeterWindows, readingAge, resetCompact } from "@/lib/usage";
 import { useUsageMode } from "@/lib/usage-preferences";
 import { termMeter } from "@/lib/terminal-skin";
+import { readContextCompaction } from "../../shared/context-compaction";
 import { PLAN_WINDOW_SHORT_LABEL_KEY, useNow } from "./PlanUsageBar";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 
-export function TermStatusLine({ bot, engine, turns }: { bot: Bot; engine: InstanceInfo | undefined; turns?: number }) {
+export function TermStatusLine({ bot, engine, cwd = bot.cwd, turns }: { bot: Bot; engine: InstanceInfo | undefined; cwd?: string | null; turns?: number }) {
   const { t } = useI18n();
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   const mode = useUsageMode();
   const now = useNow();
-  const model = engine?.models.options.find((option) => option.id === bot.modelSelection.model)?.label ?? bot.modelSelection.model;
+  const selection = shownModelSelection(bot);
+  const selectedEngine = engine?.instanceId === selection.instanceId ? engine : state.instances.find((instance) => instance.instanceId === selection.instanceId);
+  const model = selectedEngine?.models.options.find((option) => option.id === selection.model)?.label ?? selection.model;
+  const reading = museReading(engine?.driverKind, engine?.rateLimits?.observedAt, now);
+  const ageId = useId();
   const meters = planMeterWindows(engine?.rateLimits?.windows, now).map((window) => ({
     ...termMeter(window, now, mode),
     reset: resetCompact(window.resetsAt, now),
   }));
-  const summary = [...bot.messages].reverse().find((message) => message.kind === "compaction");
+  const summary = visibleMessages(bot).findLast((message) => message.kind === "compaction" && readContextCompaction({ value: message.compaction }).status === "valid");
   const age = summary && readingAge(new Date(summary.at).toISOString(), now);
   return (
     <div data-term-status role="group" aria-label={t("term.status.aria")} className="term-status">
       <div>
         <span aria-hidden="true" className="text-accent">◆</span> {model}
-        {bot.cwd && (
+        {cwd && (
           <>
             <span aria-hidden="true" className="text-ink-secondary"> │ </span>
-            {shortPath(bot.cwd, capabilities.host.homeDir)}
+            {shortPath(cwd, capabilities.host.homeDir)}
           </>
         )}
-        {bot.modelSelection.effort && <span className="text-ink-secondary"> · {bot.modelSelection.effort}</span>}
+        {selection.effort && <span className="text-ink-secondary"> · {selection.effort}</span>}
       </div>
       <div>
         {meters.length > 0 && (
@@ -40,8 +46,16 @@ export function TermStatusLine({ bot, engine, turns }: { bot: Bot; engine: Insta
             type="button"
             onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
             title={t("usage.limits.openAria")}
-            className="hover:text-accent-text"
+            aria-label={t("usage.limits.openAria")}
+            aria-describedby={reading ? ageId : undefined}
+            className={reading?.stale ? "text-ink-secondary hover:text-accent-text" : "hover:text-accent-text"}
           >
+            {reading && (
+              <>
+                <span id={ageId} className="text-ink-secondary">{reading.label(t)}</span>
+                <span aria-hidden="true" className="text-ink-secondary"> · </span>
+              </>
+            )}
             {meters.map((meter, i) => (
               <span key={meter.id}>
                 {i > 0 && <span aria-hidden="true" className="text-ink-secondary"> │ </span>}

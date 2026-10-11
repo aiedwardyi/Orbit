@@ -322,7 +322,8 @@ const Transcript = memo(function Transcript({
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
   const terminal = useSkin() === "terminal";
-  const showToolCalls = showToolCallsEnabled(state.config) || terminal;
+  const showToolCalls = showToolCallsEnabled(state.config);
+  const showActivities = showToolCalls || terminal;
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   // Several bots working at once turn a room into a wall of chips; fold the
   // finished ones the same way a 1:1 chat does.
@@ -332,8 +333,8 @@ const Transcript = memo(function Transcript({
   );
   const { workerAt, open, toggle } = useWorkerRows(workers, messages);
   const rows = useMemo(
-    () => roomTranscriptRows(items, { showToolCalls, workerRows: new Set([...workerAt].filter(([, shown]) => shown).map(([id]) => id)) }),
-    [items, showToolCalls, workerAt],
+    () => roomTranscriptRows(items, { showToolCalls, showActivities, workerRows: new Set([...workerAt].filter(([, shown]) => shown).map(([id]) => id)) }),
+    [items, showToolCalls, showActivities, workerAt],
   );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
@@ -381,7 +382,7 @@ const Transcript = memo(function Transcript({
               )}
               <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
                 {item.messages
-                  .filter((step) => showToolCalls || step.tool?.ok === false)
+                  .filter((step) => showActivities || step.tool?.ok === false)
                   .map((step) => (
                   <div key={step.id} className="contents" data-mid={step.id}>
                     <RoomToolChip
@@ -1159,8 +1160,9 @@ export function GroupView({ group }: { group: Group }) {
   const lastGroupMessage = group.messages.at(-1);
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
   const terminal = useSkin() === "terminal";
-  const showToolCalls = showToolCallsEnabled(state.config) || terminal;
-  const activityLabel = liveActivityLabel(lastGroupMessage, showToolCalls);
+  const showToolCalls = showToolCallsEnabled(state.config);
+  const showActivities = showToolCalls || terminal;
+  const activityLabel = liveActivityLabel(lastGroupMessage, showActivities);
   const waiting = turnPresenceWaiting({
     busy: Boolean(speaker),
     turnActive: stream.signal[group.threadId] !== undefined,
@@ -1193,8 +1195,8 @@ export function GroupView({ group }: { group: Group }) {
   const workers = useMemo(() => workerRuns(group.messages).map((run) => ({ run, state: shownState(run, null) })), [group.messages]);
   const rowWorkers = useMemo(() => jump.messages ? workerRuns(group.messages, jump.messages).map((run) => ({ run, state: shownState(run, null) })) : workers, [group.messages, jump.messages, workers]);
   const renders = useCallback(
-    (index: number) => messageVisible(group.messages[index], showToolCalls),
-    [group.messages, showToolCalls],
+    (index: number) => messageVisible(group.messages[index], showToolCalls, showActivities),
+    [group.messages, showToolCalls, showActivities],
   );
   const [transcriptWindow, setTranscriptWindow] = useState<{
     key: string;
@@ -1208,6 +1210,15 @@ export function GroupView({ group }: { group: Group }) {
   }));
   if (transcriptWindow.key !== transcriptKey) {
     setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
+  }
+  const [windowTerminal, setWindowTerminal] = useState(terminal);
+  if (windowTerminal !== terminal) {
+    setWindowTerminal(terminal);
+    setTranscriptWindow({
+      key: transcriptKey,
+      start: tailWindowStart(shown.length, TRANSCRIPT_WINDOW_SIZE, (index) => messageVisible(shown[index], showToolCalls, showActivities)),
+      end: null,
+    });
   }
   // The window is index-based, so an older page landing on top shifts it.
   const loadOlder = useOlderMessages(dispatch, group.threadId, group.messages[0]?.id, group.hasMore);
@@ -1246,7 +1257,7 @@ export function GroupView({ group }: { group: Group }) {
   const listedStreaming = liveTail ? streamingMessage : null;
   let tail: Message | null = listedStreaming;
   for (let i = windowedMessages.length - 1; liveTail && !tail && i >= 0; i--) {
-    if (messageVisible(windowedMessages[i], showToolCalls)) tail = windowedMessages[i];
+    if (messageVisible(windowedMessages[i], showToolCalls, showActivities)) tail = windowedMessages[i];
   }
   const tailSlot = tail?.role === "bot" && tail.kind === "text" ? replySlot(group.threadId, tail, shown) : null;
   const docked = useReplyDock(listedStreaming ? tailSlot : null, tailSlot, waiting);
@@ -1612,6 +1623,7 @@ export function GroupView({ group }: { group: Group }) {
       <div
         ref={scrollRef}
         data-orbit-transcript
+        data-room-transcript
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
         style={{ overflowAnchor: follow ? "none" : "auto" }}
         onWheel={(e) => {
@@ -1728,7 +1740,7 @@ export function GroupView({ group }: { group: Group }) {
               visible={waiting && !dockLive}
               docked={dockLive}
               label={activityLabel}
-              since={[...group.messages].reverse().find((m) => m.role === "user")?.at}
+              since={group.messages.findLast((m) => m.role === "user")?.at}
             />
           )}
         </div>

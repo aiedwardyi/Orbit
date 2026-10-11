@@ -1335,6 +1335,27 @@
     max-width: none;
   }
 
+  [data-room-transcript] [data-orbit-message-body] {
+    padding-bottom: 2rem;
+  }
+
+  [data-room-transcript] [data-orbit-message-body]:has(> [data-message-reactions]) {
+    padding-bottom: 2.75rem;
+  }
+
+  [data-room-transcript] [data-message-reactions] {
+    bottom: 2.75rem;
+  }
+
+  [data-room-transcript] [data-message-hover-actions] {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    margin: 0;
+    transform: none;
+  }
+
   [data-orbit-message-content] {
     position: relative;
     width: 100%;

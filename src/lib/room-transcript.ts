@@ -8,6 +8,7 @@ import type { Message } from "@/state/store";
 
 export interface RoomTranscriptOptions {
   showToolCalls: boolean;
+  showActivities?: boolean;
   /** Worker run rows, which messageVisible alone hides. */
   workerRows?: ReadonlySet<string>;
 }
@@ -22,12 +23,12 @@ export interface RoomTranscriptRow {
  * and a bot⇄bot chip stay whatever the setting says: one is the reason to
  * look, the other is a link to another conversation, not tool work. Failed
  * named-tool pills stay too — quiet default-off hides success, not failure. */
-export function messageVisible(message: Message, showToolCalls: boolean): boolean {
+export function messageVisible(message: Message, showToolCalls: boolean, showActivities = showToolCalls): boolean {
   switch (message.kind) {
     case "text":
       return Boolean(message.text) && isShownMessage(message);
     case "activity":
-      return activityVisibleInChat(message, showToolCalls);
+      return activityVisibleInChat(message, showActivities);
     case "secret":
       return Boolean(message.secret && message.from?.botId);
     case "connector":
@@ -52,8 +53,8 @@ export function roomTranscriptRows(
     const first = item.kind === "run" ? item.messages[0] : item.message;
     const visible =
       item.kind === "run"
-        ? activityRunVisible(item.messages, options.showToolCalls)
-        : messageVisible(first, options.showToolCalls) || Boolean(options.workerRows?.has(first.id));
+        ? activityRunVisible(item.messages, options.showActivities ?? options.showToolCalls)
+        : messageVisible(first, options.showToolCalls, options.showActivities) || Boolean(options.workerRows?.has(first.id));
     if (!visible) return { visible, newDay: false, cluster: false };
     const newDay = !prev || new Date(prev.at).toDateString() !== new Date(first.at).toDateString();
     const cluster = !prev || prev.role !== first.role || prev.from?.botId !== first.from?.botId || newDay;

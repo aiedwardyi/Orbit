@@ -12,6 +12,7 @@ import { Check, Copy } from "lucide-react";
 import { z } from "zod";
 
 import { useI18n } from "@/lib/i18n";
+import { useSkin } from "@/lib/skins";
 
 // tiny highlight cache so revisiting a thread doesn't re-tokenize settled
 // blocks; keys are content-hashed and capped. Streamed partials may land here
@@ -106,6 +107,7 @@ export const resolveRelativePath = (href: string, base?: string | null): string 
 };
 
 const StreamingContext = createContext(false);
+const MarkdownTextContext = createContext("");
 
 // Streaming replies split at blank lines that open a top-level block, so only
 // the growing block re-parses per frame. HTML or a fence of unclear depth stops
@@ -225,9 +227,11 @@ export function streamBlocks(text: string): string[] {
 
 const MarkdownBlock = memo(function MarkdownBlock({ text, components }: { text: string; components: Components }) {
   return (
-    <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
-      {text}
-    </Markdown>
+    <MarkdownTextContext.Provider value={text}>
+      <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
+        {text}
+      </Markdown>
+    </MarkdownTextContext.Provider>
   );
 });
 
@@ -366,13 +370,17 @@ function linkedFileSrc(threadId: string, filePath: string): string {
 function DesktopFileLink({ filePath, base, children }: { filePath: string; base?: string; children?: ReactNode }) {
   const [reason, setReason] = useState("");
   const ref = useRef<HTMLButtonElement>(null);
+  const terminal = useSkin() === "terminal";
+  const text = useContext(MarkdownTextContext);
   // No bridge at all means a phone or browser, not an outdated desktop app.
   const desktop = Boolean(window.ogb);
   // A link alone on its line is the one the Terminal skin draws as `⎿ path`.
   useLayoutEffect(() => {
+    if (!terminal) return;
     const link = ref.current;
     if (link) link.toggleAttribute("data-file-line", link.parentElement?.textContent?.trim() === link.textContent?.trim());
-  });
+    return () => link?.removeAttribute("data-file-line");
+  }, [terminal, text, children]);
 
   const open = async () => {
     const openFile = window.ogb?.openFile;

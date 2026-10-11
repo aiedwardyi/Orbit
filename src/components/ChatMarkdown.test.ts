@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChatMarkdown, isRelativeHref, resolveRelativePath, settleStreamTail, streamBlocks } from "./ChatMarkdown";
+import { applySkin } from "@/lib/skins";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -156,6 +157,69 @@ describe("streaming tail", () => {
 });
 
 describe("relative file links", () => {
+  it.each(["precision", "tui", "ledger"] as const)("does not measure file-only lines in %s", async (skin) => {
+    applySkin(skin);
+    const measure = vi.spyOn(HTMLElement.prototype, "toggleAttribute");
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(ChatMarkdown, { text: "[a](/tmp/a.ts)", streaming: true })));
+      await act(async () => root.render(createElement(ChatMarkdown, { text: "[a](/tmp/a.ts) more", streaming: true })));
+      expect(measure.mock.calls.filter(([name]) => name === "data-file-line")).toHaveLength(0);
+      expect(host.querySelector("[data-file-line]")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      measure.mockRestore();
+      applySkin("precision");
+    }
+  });
+
+  it("updates a Terminal file line when only sibling text streams in", async () => {
+    applySkin("terminal");
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(ChatMarkdown, { text: "[a](/tmp/a.ts)", streaming: true })));
+      const link = host.querySelector("[data-file-link]")!;
+      expect(link.hasAttribute("data-file-line")).toBe(true);
+      await act(async () => root.render(createElement(ChatMarkdown, { text: "[a](/tmp/a.ts) more", streaming: true })));
+      expect(host.querySelector("[data-file-link]")).toBe(link);
+      expect(link.hasAttribute("data-file-line")).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      applySkin("precision");
+    }
+  });
+
+  it("measures a file line only when its Terminal text or skin changes", async () => {
+    applySkin("terminal");
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      const props = { text: "[a](/tmp/a.ts)", streaming: true };
+      await act(async () => root.render(createElement(ChatMarkdown, props)));
+      const link = host.querySelector("[data-file-link]")!;
+      const measure = vi.spyOn(link, "toggleAttribute");
+      await act(async () => root.render(createElement(ChatMarkdown, { ...props, streaming: false })));
+      expect(measure).not.toHaveBeenCalled();
+      await act(async () => applySkin("precision"));
+      expect(link.hasAttribute("data-file-line")).toBe(false);
+      await act(async () => applySkin("terminal"));
+      expect(host.querySelector("[data-file-link]")).toBe(link);
+      expect(link.hasAttribute("data-file-line")).toBe(true);
+      measure.mockRestore();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      applySkin("precision");
+    }
+  });
+
   it("resolves against a Windows base", () => {
     const base = "C:\\Users\\me\\proj";
     expect(resolveRelativePath("reps.py", base)).toBe("C:\\Users\\me\\proj\\reps.py");

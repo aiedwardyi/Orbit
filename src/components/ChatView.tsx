@@ -966,7 +966,8 @@ const MessagesList = memo(function MessagesList({
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const terminal = useSkin() === "terminal";
-  const showToolCalls = showToolCallsEnabled(state.config) || terminal;
+  const showToolCalls = showToolCallsEnabled(state.config);
+  const showActivities = showToolCalls || terminal;
   const { workerAt, open, toggle } = useWorkerRows(workers, messages);
   // Fold finished tool chips into runs, so a stretch of them cannot bury
   // what the bot actually said. Hidden unless Settings → Tool calls is on.
@@ -975,8 +976,8 @@ const MessagesList = memo(function MessagesList({
     [messages, streamingMessage, terminal],
   );
   const rows = useMemo(
-    () => chatTranscriptRows(items, { showToolCalls, transcript }),
-    [items, showToolCalls, transcript],
+    () => chatTranscriptRows(items, { showToolCalls, showActivities, transcript }),
+    [items, showToolCalls, showActivities, transcript],
   );
   // A search hit inside a folded run has to open it: the fold keeps the
   // row out of the DOM, and there is nothing for the scroll to land on.
@@ -1008,7 +1009,7 @@ const MessagesList = memo(function MessagesList({
               {newDay && <DaySeparator at={first.at} />}
               <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
                 {item.messages
-                  .filter((step) => showToolCalls || step.tool?.ok === false)
+                  .filter((step) => showActivities || step.tool?.ok === false)
                   .map((step) => (
                   <div key={step.id} className="contents" data-mid={step.id}>
                     <ActivityStep message={step} />
@@ -1070,7 +1071,7 @@ const MessagesList = memo(function MessagesList({
                   />
                 );
               }
-              if (!activityVisibleInChat(m, showToolCalls)) return null;
+              if (!activityVisibleInChat(m, showActivities)) return null;
               return <ActivityChip message={m} />;
             }
             case "screen":
@@ -1236,10 +1237,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const workers = useMemo(() => runs.map((run) => ({ run, state: shownState(run, livePanes) })), [runs, livePanes]);
   const rowWorkers = useMemo(() => jump.messages ? workerRuns(messages, jump.messages).map((run) => ({ run, state: shownState(run, livePanes) })) : workers, [messages, jump.messages, livePanes, workers]);
   const terminal = useSkin() === "terminal";
-  const showToolCalls = showToolCallsEnabled(state.config) || terminal;
+  const showToolCalls = showToolCallsEnabled(state.config);
+  const showActivities = showToolCalls || terminal;
   const renders = useCallback(
-    (index: number) => messageVisible(messages[index], { showToolCalls, transcript: messages }),
-    [messages, showToolCalls],
+    (index: number) => messageVisible(messages[index], { showToolCalls, showActivities, transcript: messages }),
+    [messages, showToolCalls, showActivities],
   );
   // `expanded`: the reader asked for scrollback, so the followed tail never slides it away.
   const [transcriptWindow, setTranscriptWindow] = useState<{
@@ -1254,6 +1256,15 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   }));
   if (transcriptWindow.key !== transcriptKey) {
     setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
+  }
+  const [windowTerminal, setWindowTerminal] = useState(terminal);
+  if (windowTerminal !== terminal) {
+    setWindowTerminal(terminal);
+    setTranscriptWindow({
+      key: transcriptKey,
+      start: tailWindowStart(shown.length, TRANSCRIPT_WINDOW_SIZE, (index) => messageVisible(shown[index], { showToolCalls, showActivities, transcript: shown })),
+      end: null,
+    });
   }
   // The window is index-based, so an older page landing on top shifts it.
   const loadOlder = useOlderMessages(dispatch, bot.threadId, bot.messages[0]?.id, bot.hasMore);
@@ -1403,7 +1414,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
   const activityLabel = turnStageLabel(
     turnPhase({ signal: stream.signal[bot.threadId], lastMessage, streaming, reasoning }),
-    liveActivityLabel(lastMessage, showToolCalls),
+    liveActivityLabel(lastMessage, showActivities),
   );
   const waiting = turnPresenceWaiting({
     busy: bot.busy,
@@ -1428,7 +1439,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   // stays until a row lands below it. At turn end it fades out in place.
   let tail: Message | null = listedStreaming;
   for (let i = listed.length - 1; liveTail && !tail && i >= 0; i--) {
-    if (messageVisible(listed[i], { showToolCalls, transcript: messages })) tail = listed[i];
+    if (messageVisible(listed[i], { showToolCalls, showActivities, transcript: messages })) tail = listed[i];
   }
   const tailSlot = tail?.role === "bot" && tail.kind === "text" ? replySlot(bot.threadId, tail, shown) : null;
   const docked = useReplyDock(listedStreaming ? tailSlot : null, tailSlot, waiting);
@@ -1966,7 +1977,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           onRestoreReply={restoreReply}
           onEditLast={lastUserMessage && !bot.busy ? () => setEditingId(lastUserMessage.id) : undefined}
         />
-        {terminal && <TermStatusLine bot={bot} engine={engine} turns={activeTask?.usage?.turns} />}
+        {terminal && <TermStatusLine bot={bot} engine={engine} cwd={activeTask?.cwd === undefined ? bot.cwd : activeTask.cwd} turns={activeTask?.usage?.turns} />}
       </div>
       </div>
 

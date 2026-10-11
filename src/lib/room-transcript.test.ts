@@ -52,6 +52,18 @@ const rows = (messages: Message[], showToolCalls = false) =>
   roomTranscriptRows(groupActivityRuns(messages), { showToolCalls });
 
 describe("roomTranscriptRows", () => {
+  it("shows Terminal activity without revealing hidden screen frames", () => {
+    const messages: Message[] = [
+      step("a", "Read"),
+      { id: "hidden-screen", at: at(1), role: "bot", kind: "screen", hasImage: true },
+      { id: "shown-screen", at: at(1), role: "bot", kind: "screen", hasImage: true, shown: true },
+    ];
+    const items = groupActivityRuns(messages, true);
+    const options = { showToolCalls: false, showActivities: true };
+    expect(roomTranscriptRows(items, options).map((row) => row.visible)).toEqual([true, false, true]);
+    expect(roomTranscriptRows(items, { ...options, showToolCalls: true }).map((row) => row.visible)).toEqual([true, true, true]);
+  });
+
   it("labels a bot whose first visible line follows its own hidden step", () => {
     const result = rows([
       say("defense", "Here is the argument."),

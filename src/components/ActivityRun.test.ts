@@ -46,6 +46,28 @@ describe("ActivityStep in the Terminal skin", () => {
 });
 
 describe("ActivityRun in the Terminal skin", () => {
+  it.each([undefined, false])("keeps a folded search's %s verdict visible and accessible", (ok) => {
+    const message = step("Read", "a.ts", true, 300);
+    message.tool!.ok = ok;
+    const host = document.createElement("div");
+    host.innerHTML = render("terminal", createElement(ActivityRun, { messages: [message], children: null }));
+    const button = host.querySelector("button")!;
+    const state = ok === false ? "Failed" : "Running";
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(button.textContent).toContain(state);
+    expect(button.querySelector('[aria-hidden="true"]')?.textContent).not.toBe(state);
+  });
+
+  it("keeps both failure and running state on a mixed folded search", () => {
+    const pending = step("Grep", "x", true, 300);
+    delete pending.tool!.ok;
+    const html = render("terminal", createElement(ActivityRun, {
+      messages: [step("Read", "a.ts", false, 300), pending], children: null,
+    }));
+    expect(html).toContain("Failed");
+    expect(html).toContain("Running");
+  });
+
   it("names a search stretch the way Claude Code does", () => {
     const html = render("terminal", createElement(ActivityRun, { messages: [step("Grep", "x", true, 800), step("Read", "a.ts", true, 300)], children: null }));
     expect(html).toContain("Searched for 1 pattern, read 1 file");
