@@ -206,11 +206,11 @@ export function createApiServer(opts: ApiOptions): Server {
       const cors = directoryCors(origin);
       const peer = peerPrefix(req.socket.remoteAddress);
       if (req.method !== "GET" && req.method !== "OPTIONS") return reply(res, 405, { error: "method" }, cors);
+      if (req.method === "OPTIONS") return replyEmpty(res, 204, cors);
       if (!pcsLimit.take(ip)) {
         log.log("pcs-rejected", { peer, reason: "rate-limited" });
         return reply(res, 429, { error: "rate-limited" }, cors);
       }
-      if (req.method === "OPTIONS") return replyEmpty(res, 204, cors);
       const token = bearer(headerOne(req.headers.authorization));
       if (!token) return reply(res, 401, { error: "bad-token" }, cors);
       const who = await accounts.identity(token);

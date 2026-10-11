@@ -1,16 +1,16 @@
-import { createPublicKey } from "node:crypto";
+import { createHash, createPublicKey } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { request } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { googleSubHash } from "../../shared/google-id-token.ts";
-import { verifyAccountTicket } from "../../shared/relay-protocol.ts";
+import { signAccountTicket, verifyAccountTicket } from "../../shared/relay-protocol.ts";
 import { signAccountRequest } from "../src/accounts.ts";
 import { loadConfig } from "../src/config.ts";
 import { mintInvite } from "../../shared/relay-protocol.ts";
 import { signEnrollment } from "../src/enroll.ts";
-import { event, makePc, openControl, startRelay, ticketFor, type Harness, type Pc } from "./fixtures.ts";
+import { event, makeOperator, makePc, openControl, startRelay, ticketFor, type Harness, type Pc } from "./fixtures.ts";
 import { makeIssuer, type TestIssuer } from "./google-issuer.ts";
 
 const DESKTOP = "desktop-client.apps.googleusercontent.com";
@@ -231,6 +231,27 @@ describe("account directory", () => {
     expect(blocked.headers["access-control-allow-origin"]).toBeUndefined();
   });
 
+  it("answers an OPTIONS preflight before spending a directory rate-limit token", async () => {
+    const issuer = makeIssuer();
+    h = await startRelay({
+      google: google(issuer),
+      limits: { pcsPerIpPerMin: 1, connPerIpPerSec: 100, connPerIpBurst: 100 },
+    });
+    const headers = {
+      origin: ORIGIN,
+      "access-control-request-method": "GET",
+      "access-control-request-headers": "authorization",
+    };
+    const first = await call(h, "OPTIONS", "/v1/pcs", { headers });
+    const second = await call(h, "OPTIONS", "/v1/pcs", { headers });
+    expect(first.status).toBe(204);
+    expect(second.status).toBe(204);
+    expect(first.headers["access-control-allow-origin"]).toBe(ORIGIN);
+    const token = issuer.sign(idClaims(WEB, "preflight-sub"));
+    expect((await pcs(h, token, ORIGIN)).status).toBe(200);
+    expect((await pcs(h, token, ORIGIN)).status).toBe(429);
+  });
+
   it("rate-limits directory reads to 30 a minute per IP", async () => {
     const issuer = makeIssuer();
     h = await startRelay({
@@ -242,6 +263,54 @@ describe("account directory", () => {
     for (let i = 0; i < 31; i++) results.push(await pcs(h, token));
     expect(results.slice(0, 30).every((res) => res.status === 200)).toBe(true);
     expect(results[30]).toMatchObject({ status: 429, body: { error: "rate-limited" } });
+  });
+
+  it("connects a pc with an expired, malformed, or unverifiable account ticket and leaves it unlisted", async () => {
+    const issuer = makeIssuer();
+    h = await startRelay({ google: google(issuer), limits: { accountPerIpPerHour: 100, pcsPerIpPerMin: 100 } });
+    const web = issuer.sign(idClaims(WEB, "bad-ticket-sub"));
+    const now = Math.floor(Date.now() / 1000);
+    const stranger = makeOperator();
+    const harness = h;
+    const cases: { reason: string; ticket: (pc: Pc) => string }[] = [
+      {
+        reason: "account-expired",
+        ticket: (pc) =>
+          signAccountTicket(
+            { label: pc.label, subHash: googleSubHash("expired-sub"), iat: now - 10_000, exp: now - 4_000 },
+            harness.operator,
+          ),
+      },
+      { reason: "account-malformed", ticket: () => "wka1.%%%.sig" },
+      {
+        reason: "account-bad-signature",
+        ticket: (pc) =>
+          signAccountTicket(
+            { label: pc.label, subHash: googleSubHash("forged-sub"), iat: now, exp: now + 3600 },
+            stranger,
+          ),
+      },
+      {
+        reason: "account-not-yet-valid",
+        ticket: (pc) =>
+          signAccountTicket(
+            { label: pc.label, subHash: googleSubHash("early-sub"), iat: now + 10_000, exp: now + 20_000 },
+            harness.operator,
+          ),
+      },
+    ];
+    for (const row of cases) {
+      const pc = makePc();
+      const account = row.ticket(pc);
+      const ctl = await openControl(h, pc, { account, name: "Desk" });
+      expect(ctl.ready.account).toBeUndefined();
+      expect(h.relay.hub.status(pc.label).online).toBe(true);
+      expect((await pcs(h, web)).body).toEqual([]);
+      const subHash = createHash("sha256").update(account, "utf8").digest("base64url");
+      await h.waitLog(event("account-ignored", { label: pc.label, reason: row.reason, subHash }));
+      expect(h.logs.join("\n")).not.toContain(account);
+      ctl.socket.destroy();
+    }
   });
 
   it("leaves a pc that sends no account connected and unlisted", async () => {

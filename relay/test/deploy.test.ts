@@ -469,6 +469,20 @@ describe("google deploy flags", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("uses the same client-id and origin patterns as relay config", () => {
+    const source = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
+    const pattern = (text: string, name: string) => {
+      const line = text.split("\n").find((row) => row.includes(`const ${name} =`));
+      const match = line?.match(/=\s*(\/.*\/[a-z]*)\s*;/);
+      if (!match?.[1]) throw new Error(`missing ${name}`);
+      return match[1];
+    };
+    const config = source("../src/config.ts");
+    const plan = source("../deploy/plan.ts");
+    expect(pattern(plan, "CLIENT_ID_RE")).toBe(pattern(config, "CLIENT_ID_RE"));
+    expect(pattern(plan, "ORIGIN_RE")).toBe(pattern(config, "ORIGIN_RE"));
+  });
 });
 
 /** In-memory gcloud and DNS. Records every call; never reaches a provider. */

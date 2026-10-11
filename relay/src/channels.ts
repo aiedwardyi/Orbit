@@ -41,7 +41,7 @@ export interface ChannelContext {
 
 type AccountSet = { subHash: string; name: string; refreshed?: string };
 type Check =
-  | { ok: true; label: string; ticket?: string; account?: AccountSet | null }
+  | { ok: true; label: string; ticket?: string; account?: AccountSet | null; ignored?: { reason: string; hash: string } }
   | { ok: false; reason: string; notice?: NoticeCode };
 
 /** Checks an `auth` frame against the hello nonce. Pure apart from the clock. */
@@ -77,7 +77,15 @@ export function checkAuth(ctx: ChannelContext, msg: AuthMessage, nonce: string):
   if (msg.account === undefined) return { ok: true, label: claims.label, ticket: refreshed };
 
   const account = verifyAccountTicket(msg.account, ctx.operatorPublicKey, { now });
-  if (!account.ok) return { ok: false, reason: `account-${account.reason}` };
+  // A bad account ticket must not take down a valid relay login.
+  if (!account.ok) {
+    return {
+      ok: true,
+      label: claims.label,
+      ticket: refreshed,
+      ignored: { reason: account.reason, hash: createHash("sha256").update(msg.account, "utf8").digest("base64url") },
+    };
+  }
   if (account.value.label !== claims.label) return { ok: false, reason: "account-label-mismatch" };
   let refreshedAccount: string | undefined;
   if (nowSec >= account.value.iat + (account.value.exp - account.value.iat) / 2) {
@@ -158,6 +166,15 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
         if (result.notice) link.notice(result.notice);
         link.close();
         return true;
+      }
+      if (result.ignored) {
+        // subHash is sha256 of the ticket. The logger has no other hash-shaped field.
+        log.log("account-ignored", {
+          peer,
+          label: result.label,
+          reason: `account-${result.ignored.reason}`,
+          subHash: result.ignored.hash,
+        });
       }
       if (!hub.canRegister(result.label) || hub.draining) {
         log.log("control-rejected", { peer, label: result.label, reason: "capacity" });
