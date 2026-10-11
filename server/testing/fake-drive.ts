@@ -9,7 +9,8 @@ const metadataSchema = z.object({
 });
 interface RecordFile { file: DriveFile; bytes: Buffer; parents: string[] }
 interface FilePage { files: DriveFile[]; nextPageToken?: string }
-const json = (body: DriveFile | FilePage, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+interface ChangeRecord { at: number; fileId: string; removed: boolean; file?: DriveFile; parents: string[] }
+const json = (body: DriveFile | FilePage | { startPageToken: string } | { changes: Array<{ fileId: string; removed: boolean; file?: DriveFile & { parents: string[] } }>; nextPageToken?: string; newStartPageToken?: string }, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const unquote = (value: string) => value.replace(/\\(.)/g, "$1");
 
 export class FakeDrive {
@@ -19,10 +20,14 @@ export class FakeDrive {
   readonly downloads: string[] = [];
   readonly responses: Array<Response | Error> = [];
   pageSize = 2;
+  missGets = 0;
+  readonly hiddenFromSearch = new Set<string>();
   onCreate?: (file: DriveFile) => void | Promise<void>;
   onDownload?: (file: DriveFile) => void | Promise<void>;
   private tick = 1_800_000_000_000;
   private nextId = 1;
+  private cursor = 0;
+  private history: ChangeRecord[] = [];
 
   add(name: string, properties: Record<string, string>, bytes = Buffer.alloc(0), parents: string[] = [], folder = false): DriveFile {
     const time = new Date(this.tick++).toISOString();
@@ -33,7 +38,30 @@ export class FakeDrive {
     };
     if (!folder) { file.md5Checksum = createHash("md5").update(bytes).digest("hex"); file.size = String(bytes.length); }
     this.records.set(file.id, { file, bytes: Buffer.from(bytes), parents: [...parents] });
+    this.note(file.id);
     return structuredClone(file);
+  }
+
+  trash(id: string): void {
+    const record = this.records.get(id);
+    if (!record) return;
+    record.file.trashed = true;
+    this.note(id);
+  }
+
+  remove(id: string): void {
+    if (!this.records.has(id)) return;
+    this.note(id, true);
+    this.records.delete(id);
+  }
+
+  private note(id: string, removed = false): void {
+    this.cursor += 1;
+    const record = this.records.get(id);
+    this.history.push({
+      at: this.cursor, fileId: id, removed, parents: record ? [...record.parents] : [],
+      file: record ? structuredClone(record.file) : undefined,
+    });
   }
 
   root(): DriveFile {
@@ -47,6 +75,7 @@ export class FakeDrive {
     record.file.md5Checksum = createHash("md5").update(bytes).digest("hex");
     record.file.size = String(bytes.length);
     record.file.modifiedTime = new Date(this.tick++).toISOString();
+    this.note(id);
     return structuredClone(record.file);
   }
 
@@ -59,10 +88,28 @@ export class FakeDrive {
     if (response) return response;
     if (url.origin !== "https://www.googleapis.com") throw new Error("Unexpected fake Drive origin");
     const id = decodeURIComponent(url.pathname.split("/").at(-1)!);
+    if (request.method === "GET" && url.pathname === "/drive/v3/changes/startPageToken") return json({ startPageToken: String(this.cursor) });
+    if (request.method === "GET" && url.pathname === "/drive/v3/changes") {
+      const token = url.searchParams.get("pageToken") ?? "";
+      const page = /^p:(\d+):(\d+)$/.exec(token);
+      const since = page ? Number(page[1]) : /^\d+$/.test(token) ? Number(token) : NaN;
+      const offset = page ? Number(page[2]) : 0;
+      if (!Number.isInteger(since) || since < 0 || since > this.cursor || !Number.isInteger(offset) || offset < 0) return new Response(null, { status: 404 });
+      const pending = this.history.filter((change) => change.at > since);
+      const slice = pending.slice(offset, offset + this.pageSize);
+      const changes = slice.map((change) => ({
+        fileId: change.fileId, removed: change.removed,
+        file: change.file ? { ...change.file, parents: change.parents } : undefined,
+      }));
+      if (offset + this.pageSize < pending.length) return json({ changes, nextPageToken: `p:${since}:${offset + this.pageSize}` });
+      return json({ changes, newStartPageToken: String(this.cursor) });
+    }
     if (request.method === "GET" && id === "files") {
       const q = url.searchParams.get("q") ?? "";
-      let records = [...this.records.values()];
+      let records = [...this.records.values()].filter(({ file }) => !this.hiddenFromSearch.has(file.id));
       if (q.includes("trashed = false")) records = records.filter(({ file }) => !file.trashed);
+      const named = /(?:^| )name = '((?:\\.|[^'])*)'/.exec(q);
+      if (named) records = records.filter(({ file }) => file.name === unquote(named[1]));
       if (q.includes("mimeType = 'application/vnd.google-apps.folder'")) records = records.filter(({ file }) => file.mimeType === "application/vnd.google-apps.folder");
       const property = /key\s*=\s*'((?:\\.|[^'])*)'\s+and\s+value\s*=\s*'((?:\\.|[^'])*)'/.exec(q);
       if (property) records = records.filter(({ file }) => file.appProperties?.[unquote(property[1])] === unquote(property[2]));
@@ -77,6 +124,12 @@ export class FakeDrive {
       const page: FilePage = { files: records.slice(start, end).map(({ file }) => file) };
       if (end < records.length) page.nextPageToken = String(end);
       return json(page);
+    }
+    if (request.method === "GET" && url.searchParams.get("alt") !== "media" && id !== "files") {
+      if (this.missGets > 0) { this.missGets -= 1; return new Response(null, { status: 404 }); }
+      const record = this.records.get(id);
+      if (!record) return new Response(null, { status: 404 });
+      return json(record.file);
     }
     if (request.method === "GET" && url.searchParams.get("alt") === "media") {
       const record = this.records.get(id);

@@ -18,9 +18,23 @@ let root: string;
 let drive: FakeDrive;
 let pcs: PC[];
 
+// Fake Drive returns parents only when the request asks for them.
+const withParents: typeof fetch = async (input, init) => {
+  const responsePromise = drive.fetch(input, init);
+  const raw = input instanceof URL ? input.href : input instanceof Request ? input.url : input;
+  const url = new URL(raw);
+  if (url.searchParams.get("alt") === "media" || !url.searchParams.get("fields")?.endsWith(",parents")) return responsePromise;
+  return responsePromise.then(async (response) => {
+    if (!response.ok) return response;
+    const parents = drive.records.get(decodeURIComponent(url.pathname.split("/").at(-1) ?? ""))?.parents;
+    const parsed = z.object({}).passthrough().parse(await response.json());
+    return Response.json(parents ? { ...parsed, parents } : parsed);
+  });
+};
+
 function mirrorFor(pc: Omit<PC, "mirror">, options: Partial<Parameters<typeof createDriveMirror>[0]> = {}) {
   return createDriveMirror({ owner: OWNER, mirrorPath: pc.folder, statePath: pc.statePath, ownIds: pc.ids,
-    client: createDriveClient({ getAccessToken: async () => "test-access", fetch: drive.fetch }), now: () => 100, ...options });
+    client: createDriveClient({ getAccessToken: async () => "test-access", fetch: withParents }), now: () => 100, ...options });
 }
 
 function write(pc: PC, path: string, bytes: string | Buffer): void {
@@ -584,6 +598,261 @@ describe("Drive mirror", () => {
     let attempts = 0;
     await expect(renameDriveFile("source", "target", () => { if (++checks === 2) throw new DriveMirrorError("binding"); }, () => { attempts++; throw Object.assign(new Error("busy"), { code: "EPERM" }); })).rejects.toMatchObject({ problem: "binding" });
     expect(attempts).toBe(1);
+  });
+
+  it("uses a constant number of Drive calls on an idle pass", async () => {
+    for (let i = 0; i < 6; i++) write(pcs[0], `pictures/p${i}.png`, `file-${i}`);
+    await pcs[0].mirror.syncOnce();
+    const before = drive.calls.length;
+    const summary = await pcs[0].mirror.syncOnce();
+    expect(summary.skipped).toHaveLength(6);
+    expect(summary.retryAfterMs).toBeNull();
+    expect(drive.calls.slice(before).map((call) => call.url.pathname)).toEqual([
+      `/drive/v3/files/${drive.root().id}`, "/drive/v3/files", "/drive/v3/changes",
+    ]);
+  });
+
+  it("transfers a changed file without listing the rest", async () => {
+    for (let i = 0; i < 4; i++) write(pcs[0], `pictures/p${i}.png`, "same");
+    write(pcs[0], "devices/device-home.json", "own");
+    await pcs[0].mirror.syncOnce();
+    write(pcs[0], "devices/device-home.json", "edited");
+    const before = drive.calls.length;
+    const summary = await pcs[0].mirror.syncOnce();
+    expect(summary.uploaded).toEqual(["devices/device-home.json"]);
+    expect(summary.retryAfterMs).toBeNull();
+    const calls = drive.calls.slice(before);
+    expect(calls.filter((call) => call.method === "PATCH")).toHaveLength(1);
+    expect(calls.some((call) => call.url.searchParams.get("q")?.includes("in parents"))).toBe(false);
+  });
+
+  it("ignores changes outside the root", async () => {
+    for (let i = 0; i < 4; i++) write(pcs[0], `pictures/p${i}.png`, "same");
+    await pcs[0].mirror.syncOnce();
+    drive.add("outside.txt", {}, Buffer.from("other"));
+    const inside = seed("devices/device-work.json", "peer");
+    const before = drive.calls.length;
+    const summary = await pcs[0].mirror.syncOnce();
+    expect(summary.downloaded).toEqual(["devices/device-work.json"]);
+    expect(summary.uploaded).toEqual([]);
+    expect(existsSync(join(pcs[0].folder, "outside.txt"))).toBe(false);
+    expect(read(pcs[0], "devices/device-work.json")).toBe("peer");
+    expect(drive.records.get(inside.id)!.bytes.toString()).toBe("peer");
+    const calls = drive.calls.slice(before);
+    expect(calls.some((call) => call.url.pathname === "/drive/v3/changes")).toBe(true);
+    expect(calls.some((call) => call.url.searchParams.get("q")?.includes("in parents"))).toBe(false);
+  });
+
+  it("lists everything once when the cursor is rejected, then idles", async () => {
+    for (const path of ["pictures/a.png", "pictures/b.png", "pictures/c.png"]) write(pcs[0], path, path);
+    await pcs[0].mirror.syncOnce();
+    const state = JSON.parse(readFileSync(pcs[0].statePath, "utf8"));
+    state.changeToken = "missing-cursor";
+    writeFileSync(pcs[0].statePath, JSON.stringify(state));
+    const before = drive.calls.length;
+    await pcs[0].mirror.syncOnce();
+    const recovery = drive.calls.slice(before);
+    expect(recovery.some((call) => call.url.pathname === "/drive/v3/changes" && call.url.searchParams.get("pageToken") === "missing-cursor")).toBe(true);
+    expect(recovery.some((call) => call.url.searchParams.get("q")?.includes("in parents"))).toBe(true);
+    const idleAt = drive.calls.length;
+    await pcs[0].mirror.syncOnce();
+    expect(drive.calls.slice(idleAt).map((call) => call.url.pathname)).toEqual([
+      `/drive/v3/files/${table(pcs[0]).binding.rootId}`, "/drive/v3/files", "/drive/v3/changes",
+    ]);
+  });
+
+  it("does not call a brand-new root split when search has not listed it", async () => {
+    drive.onCreate = (file) => { if (file.appProperties?.winkRoot === "1") drive.hiddenFromSearch.add(file.id); };
+    write(pcs[0], "devices/device-home.json", "own");
+    const summary = await pcs[0].mirror.syncOnce();
+    expect(summary.uploaded).toEqual(["devices/device-home.json"]);
+    expect(summary.retryAfterMs).toBeNull();
+    expect(drive.calls.some((call) => call.url.pathname === `/drive/v3/files/${table(pcs[0]).binding.rootId}` && call.url.searchParams.get("alt") !== "media")).toBe(true);
+    drive.onCreate = undefined;
+  });
+
+  it("retries soon when the new root is missing from both search and files.get", async () => {
+    drive.missGets = 1;
+    drive.onCreate = (file) => { if (file.appProperties?.winkRoot === "1") drive.hiddenFromSearch.add(file.id); };
+    write(pcs[0], "pictures/a.png", "local");
+    const summary = await pcs[0].mirror.syncOnce();
+    expect(summary.retryAfterMs).toBe(1_000);
+    expect(summary.uploaded).toEqual([]);
+    expect(read(pcs[0], "pictures/a.png")).toBe("local");
+    expect(drive.uploads).toEqual([]);
+    const next = await pcs[0].mirror.syncOnce();
+    expect(next.uploaded).toEqual(["pictures/a.png"]);
+    expect(next.retryAfterMs).toBeNull();
+    drive.onCreate = undefined;
+  });
+
+  it("backs off once when Drive returns a 429 storm", async () => {
+    drive.root();
+    for (let i = 0; i < 6; i++) write(pcs[0], `pictures/p${i}.png`, `p${i}`);
+    await pcs[0].mirror.syncOnce();
+    const uploads = drive.uploads.length;
+    const before = drive.calls.length;
+    drive.responses.push(new Response("private-quota-detail", { status: 429, headers: { "retry-after": "9" } }));
+    const summary = await pcs[0].mirror.syncOnce();
+    expect(summary.retryAfterMs).toBe(9_000);
+    expect(summary.failed).toEqual([]);
+    expect(summary.uploaded).toEqual([]);
+    expect(drive.calls).toHaveLength(before + 1);
+    expect(drive.uploads).toHaveLength(uploads);
+    expect(JSON.stringify(summary)).not.toContain("private-quota-detail");
+  });
+
+  it("honors Retry-After and otherwise backs off up to five minutes", async () => {
+    drive.root();
+    const waits: Array<number | null> = [];
+    for (let i = 0; i < 10; i++) {
+      drive.responses.push(new Response(null, { status: 429 }));
+      waits.push((await pcs[0].mirror.syncOnce()).retryAfterMs);
+    }
+    expect(waits).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000, 300_000]);
+    drive.responses.push(new Response(null, { status: 429, headers: { "retry-after": "12" } }));
+    expect((await pcs[0].mirror.syncOnce()).retryAfterMs).toBe(12_000);
+    expect((await pcs[0].mirror.syncOnce()).retryAfterMs).toBeNull();
+    drive.responses.push(new Response(null, { status: 429 }));
+    expect((await pcs[0].mirror.syncOnce()).retryAfterMs).toBe(1_000);
+  });
+
+  it("caps a Retry-After header at five minutes", async () => {
+    drive.root();
+    drive.responses.push(new Response(null, { status: 429, headers: { "retry-after": "86400" } }));
+    expect((await pcs[0].mirror.syncOnce()).retryAfterMs).toBe(300_000);
+    const soon = new Date(Date.now() + 30_000).toUTCString();
+    drive.responses.push(new Response(null, { status: 429, headers: { "retry-after": soon } }));
+    const wait = (await pcs[0].mirror.syncOnce()).retryAfterMs ?? 0;
+    expect(wait).toBeGreaterThanOrEqual(20_000);
+    expect(wait).toBeLessThanOrEqual(30_000);
+    const far = new Date("2099-01-01T00:00:00.000Z").toUTCString();
+    drive.responses.push(new Response(null, { status: 429, headers: { "retry-after": far } }));
+    expect((await pcs[0].mirror.syncOnce()).retryAfterMs).toBe(300_000);
+  });
+
+  it.each(["devices/device-work.json", "pictures/a.png"])("restores a missing local %s after the cursor exists", async (path) => {
+    seed(path, path);
+    await pcs[0].mirror.syncOnce();
+    unlinkSync(join(pcs[0].folder, ...path.split("/")));
+    const summary = await pcs[0].mirror.syncOnce();
+    expect(summary.downloaded).toEqual([path]);
+    expect(read(pcs[0], path)).toBe(path);
+  });
+
+  it("does not read or write a file that left the mirror root", async () => {
+    const path = "devices/device-work.json";
+    const file = seed(path, "peer");
+    await pcs[0].mirror.syncOnce();
+    const record = drive.records.get(file.id)!;
+    record.parents = ["elsewhere"];
+    drive.edit(file.id, Buffer.from("external"));
+    const downloads = drive.downloads.length;
+    const summary = await pcs[0].mirror.syncOnce();
+    expect(summary.downloaded).not.toContain(path);
+    expect(read(pcs[0], path)).toBe("peer");
+    expect(drive.records.get(file.id)!.bytes.toString()).toBe("external");
+    expect(drive.downloads).toHaveLength(downloads);
+    expect(drive.uploads.filter((upload) => upload.id === file.id)).toEqual([]);
+    const placed = drive.calls.find((call) => call.method === "GET" && call.url.pathname === `/drive/v3/files/${file.id}` && call.url.searchParams.get("alt") !== "media");
+    expect(placed?.url.searchParams.get("fields")).toContain("parents");
+  });
+
+  it("stops the pass on a rate-limit 403 and continues after a plain 403", async () => {
+    drive.root();
+    write(pcs[0], "assets/a.png", "asset");
+    write(pcs[0], "pictures/b.png", "picture");
+    seed("devices/device-laptop.json", "peer");
+    const limited = createDriveClient({
+      getAccessToken: async () => "test-access",
+      fetch: async (input, init) => init?.method === "POST"
+        ? new Response(JSON.stringify({ error: { errors: [{ domain: "usageLimits", reason: "userRateLimitExceeded" }] } }), { status: 403, headers: { "retry-after": "3" } })
+        : drive.fetch(input, init),
+    });
+    const stopped = await mirrorFor(pcs[0], { client: limited }).syncOnce();
+    expect(stopped.retryAfterMs).toBe(3_000);
+    expect(stopped.uploaded).toEqual([]);
+    expect(stopped.downloaded).toEqual([]);
+    expect(existsSync(join(pcs[0].folder, "devices/device-laptop.json"))).toBe(false);
+    write(pcs[1], "assets/a.png", "asset");
+    const plain = createDriveClient({
+      getAccessToken: async () => "test-access",
+      fetch: async (input, init) => init?.method === "POST"
+        ? new Response(JSON.stringify({ error: { errors: [{ domain: "global", reason: "forbidden" }] } }), { status: 403 })
+        : drive.fetch(input, init),
+    });
+    const continued = await mirrorFor(pcs[1], { client: plain }).syncOnce();
+    expect(continued.failed).toEqual(["assets/a.png"]);
+    expect(continued.downloaded).toEqual(["devices/device-laptop.json"]);
+    expect(continued.retryAfterMs).toBeNull();
+    expect(read(pcs[1], "assets/a.png")).toBe("asset");
+  });
+
+  it("reports the extra root and keeps both", async () => {
+    await pcs[0].mirror.syncOnce();
+    const oldest = drive.root();
+    const extra = drive.add("Other root", { winkRoot: "1" }, undefined, [], true);
+    const summary = await pcs[0].mirror.syncOnce();
+    expect(summary.duplicates).toEqual([{ path: "", selectedId: oldest.id, ids: [oldest.id, extra.id] }]);
+    expect(summary.retryAfterMs).toBeNull();
+    writeFileSync(pcs[1].statePath, JSON.stringify({ version: 1, binding: { owner: OWNER, rootId: extra.id, mirrorPath: pcs[1].folder, generation: 1 }, files: {}, syncedAt: 100 }));
+    await expect(mirrorFor(pcs[1]).syncOnce()).rejects.toMatchObject({ problem: "split-root" });
+    expect(drive.records.has(oldest.id)).toBe(true);
+    expect(drive.records.has(extra.id)).toBe(true);
+    expect(drive.calls.every((call) => call.method !== "DELETE")).toBe(true);
+    expect(JSON.parse(readFileSync(pcs[1].statePath, "utf8")).binding.rootId).toBe(extra.id);
+  });
+
+  it("stops when the root is trashed and deletes nothing locally or on Drive", async () => {
+    write(pcs[0], "assets/a.png", "asset");
+    write(pcs[0], "devices/device-home.json", "own");
+    await pcs[0].mirror.syncOnce();
+    const names = readdirSync(pcs[0].folder);
+    const count = drive.records.size;
+    const rootId = drive.root().id;
+    drive.records.get(rootId)!.file.trashed = true;
+    const before = drive.calls.length;
+    await expect(pcs[0].mirror.syncOnce()).rejects.toMatchObject({ problem: "split-root" });
+    expect(drive.calls.slice(before).map((call) => call.url.pathname)).toEqual([`/drive/v3/files/${rootId}`]);
+    expect(readdirSync(pcs[0].folder)).toEqual(names);
+    expect(read(pcs[0], "assets/a.png")).toBe("asset");
+    expect(read(pcs[0], "devices/device-home.json")).toBe("own");
+    expect(drive.records.size).toBe(count);
+    expect(drive.calls.every((call) => call.method !== "DELETE")).toBe(true);
+  });
+
+  it("keeps the local file when its Drive copy is trashed or missing", async () => {
+    const picture = seed("pictures/a.png", "picture");
+    const device = seed("devices/device-work.json", "peer");
+    await pcs[0].mirror.syncOnce();
+    drive.trash(picture.id);
+    drive.remove(device.id);
+    await pcs[0].mirror.syncOnce();
+    expect(read(pcs[0], "pictures/a.png")).toBe("picture");
+    expect(read(pcs[0], "devices/device-work.json")).toBe("peer");
+    expect(drive.calls.every((call) => call.method !== "DELETE")).toBe(true);
+  });
+
+  it("keeps syncing after a dropped connection and does not back off", async () => {
+    drive.root();
+    write(pcs[0], "assets/a.png", "asset");
+    write(pcs[0], "pictures/b.png", "picture");
+    seed("devices/device-work.json", "peer");
+    let dropped = false;
+    const client = createDriveClient({
+      getAccessToken: async () => "test-access",
+      fetch: async (input, init) => {
+        if (!dropped && init?.method === "POST") { dropped = true; throw new Error("offline"); }
+        return drive.fetch(input, init);
+      },
+    });
+    const summary = await mirrorFor(pcs[0], { client }).syncOnce();
+    expect(summary.failed).toEqual(["assets/a.png"]);
+    expect(summary.downloaded).toEqual(["devices/device-work.json"]);
+    expect(summary.uploaded).toEqual(["pictures/b.png"]);
+    expect(summary.retryAfterMs).toBeNull();
+    expect(read(pcs[0], "assets/a.png")).toBe("asset");
+    expect(read(pcs[0], "devices/device-work.json")).toBe("peer");
   });
 });
 

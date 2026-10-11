@@ -5,7 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
-import { DriveClientError, type DriveClient, type DriveFile } from "./drive-client.ts";
+import { DriveClientError, type DriveChange, type DriveClient, type DriveFile } from "./drive-client.ts";
 import { driveOwnIdsSchema, type DriveOwnIds } from "./drive-own-ids.ts";
 
 const ownerSchema = z.object({ issuer: z.literal("https://accounts.google.com"), sub: z.string().min(1) }).strict();
@@ -31,7 +31,12 @@ function validPath(path: string): boolean {
 const pathSchema = z.string().refine(validPath);
 const entrySchema = z.object({ driveId: z.string().min(1), md5: z.string().regex(/^[a-f0-9]{32}$/), size: z.string().regex(/^\d+$/) }).strict();
 const bindingSchema = z.object({ owner: ownerSchema, rootId: z.string().min(1).nullable(), mirrorPath: z.string().min(1), generation: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) }).strict();
-const tableSchema = z.object({ version: z.literal(1), binding: bindingSchema, files: z.record(pathSchema, entrySchema), syncedAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict();
+const tableSchema = z.object({
+  version: z.literal(1), binding: bindingSchema, files: z.record(pathSchema, entrySchema),
+  syncedAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), changeToken: z.string().min(1).optional(),
+}).strict();
+const RETRY_BASE_MS = 1_000;
+const RETRY_MAX_MS = 5 * 60 * 1_000;
 type Table = z.infer<typeof tableSchema>;
 type Binding = z.infer<typeof bindingSchema>;
 type ContentFile = DriveFile & { md5Checksum: string; size: string };
@@ -43,6 +48,7 @@ export interface DriveMirrorSummary {
   conflicts: string[];
   failed: string[];
   duplicates: Array<{ path: string; selectedId: string; ids: string[] }>;
+  retryAfterMs: number | null;
 }
 
 type Options = { owner: DriveOwner; mirrorPath: string; statePath: string; ownIds: DriveOwnIds; client: DriveClient; now?: () => number };
@@ -162,6 +168,7 @@ export function createDriveMirror(options: Options) {
   let rootIdentity: { dev: number; ino: number } | null = null;
   let bound: Binding | null = null;
   let inflight: Promise<DriveMirrorSummary> | null = null;
+  let rateStrikes = 0;
 
   function checkRoot(): void {
     try {
@@ -290,40 +297,130 @@ export function createDriveMirror(options: Options) {
       table!.syncedAt = now();
       writeFileAtomic(statePath, `${JSON.stringify(table, null, 2)}\n`, { mode: 0o600 });
     }
+    const summary: DriveMirrorSummary = { uploaded: [], downloaded: [], skipped: [], conflicts: [], failed: [], duplicates: [], retryAfterMs: null };
+    function rateWait(error: DriveClientError): number {
+      if (error.retryAfterMs !== null) return Math.min(error.retryAfterMs, RETRY_MAX_MS);
+      const wait = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** rateStrikes);
+      if (rateStrikes < 20) rateStrikes += 1;
+      return wait;
+    }
+    async function drive<T>(work: () => Promise<T>): Promise<T | null> {
+      check();
+      try {
+        const result = await work();
+        check();
+        return result;
+      } catch (error) {
+        check();
+        if (error instanceof DriveClientError && error.rateLimited) {
+          summary.retryAfterMs = rateWait(error);
+          return null;
+        }
+        throw error;
+      }
+    }
+    let createdThisPass = false;
     if (!table.binding.rootId) {
-      check();
-      const root = await client.findOrCreateRoot();
-      check();
+      const root = await drive(() => client.findOrCreateRoot());
+      if (!root) return summary;
       if (root.trashed || root.mimeType !== "application/vnd.google-apps.folder" || root.appProperties?.winkRoot !== "1") throw new DriveMirrorError("invalid-remote");
       table.binding.rootId = root.id;
       save();
       captured = structuredClone(table.binding);
       bound = structuredClone(captured);
+      createdThisPass = true;
     }
-    check();
     const rootId = table.binding.rootId;
-    const roots = await client.listRoots();
-    check();
+    if (!rootId) throw new DriveMirrorError("invalid-remote");
+    let got: DriveFile;
+    try {
+      const found = await drive(() => client.getFile(rootId));
+      if (!found) return summary;
+      got = found;
+    } catch (error) {
+      // A 404 on the pass that just bound the root is search lag, not a lost root.
+      if (error instanceof DriveClientError && error.status === 404 && createdThisPass) {
+        summary.retryAfterMs = RETRY_BASE_MS;
+        return summary;
+      }
+      if (error instanceof DriveClientError && error.status === 404) throw new DriveMirrorError("split-root");
+      throw error;
+    }
+    if (got.trashed || got.mimeType !== "application/vnd.google-apps.folder" || got.appProperties?.winkRoot !== "1") throw new DriveMirrorError("split-root");
+    const listedRoots = await drive(() => client.listRoots());
+    if (!listedRoots) return summary;
+    const roots = listedRoots.some((item) => item.id === rootId) ? listedRoots : [...listedRoots, got].sort((a, b) => Date.parse(a.createdTime) - Date.parse(b.createdTime) || a.id.localeCompare(b.id));
     if (roots[0]?.id !== rootId) throw new DriveMirrorError("split-root");
-    const files = await client.listChildren(rootId);
-    check();
-    const summary: DriveMirrorSummary = { uploaded: [], downloaded: [], skipped: [], conflicts: [], failed: [], duplicates: [] };
+    if (roots.length > 1) summary.duplicates.push({ path: "", selectedId: roots[0].id, ids: roots.map((item) => item.id) });
     const remote = new Map<string, ContentFile[]>();
     const remotePaths = new Set<string>();
-    for (const file of files) {
+    const changed = new Set<string>();
+    function accept(file: DriveFile): string | null {
       const path = decodeDrivePath(file.name);
       if (!path || file.trashed || file.appProperties?.ph !== drivePathHash(path) || file.mimeType === "application/vnd.google-apps.folder") {
         summary.skipped.push(path ?? file.name);
-        continue;
+        return null;
       }
       if (process.platform === "win32" && path.split("/").some((part) => /~\d/.test(part))) throw new DriveMirrorError("path-alias");
-      if (drivePathRule(path, ids) === "ignore") { summary.skipped.push(path); continue; }
+      if (drivePathRule(path, ids) === "ignore") { summary.skipped.push(path); return null; }
       remotePaths.add(path);
-      if (drivePathRule(path, ids) === "unknown") { summary.skipped.push(path); continue; }
+      if (drivePathRule(path, ids) === "unknown") { summary.skipped.push(path); return null; }
       if (!hasContent(file)) throw new DriveMirrorError("invalid-remote");
       const copies = remote.get(path) ?? [];
-      copies.push(file);
+      const index = copies.findIndex((copy) => copy.id === file.id);
+      if (index >= 0) copies[index] = file;
+      else copies.push(file);
       remote.set(path, copies);
+      return path;
+    }
+    function drop(path: string, id: string): void {
+      const copies = (remote.get(path) ?? []).filter((copy) => copy.id !== id);
+      if (copies.length) remote.set(path, copies);
+      else remote.delete(path);
+      changed.add(path);
+      remotePaths.add(path);
+    }
+    function ingestChange(change: DriveChange): string | null {
+      const known = Object.entries(table!.files).find(([, entry]) => entry.driveId === change.fileId)?.[0] ?? null;
+      const inside = change.parents.includes(rootId);
+      if (change.file && !inside) {
+        if (!known) return null;
+        drop(known, change.fileId);
+        return known;
+      }
+      if (change.removed || !change.file || change.file.trashed) {
+        const path = known ?? (change.file ? decodeDrivePath(change.file.name) : null);
+        if (!path || (!inside && !known)) return null;
+        drop(path, change.fileId);
+        return path;
+      }
+      const path = accept(change.file);
+      if (path) changed.add(path);
+      return path;
+    }
+    let fullList = false;
+    let cursor = "";
+    const savedToken = table.changeToken;
+    if (savedToken) {
+      try {
+        const page = await drive(() => client.listChanges(savedToken));
+        if (!page) return summary;
+        for (const change of page.changes) ingestChange(change);
+        cursor = page.newStartPageToken;
+      } catch (error) {
+        if (!(error instanceof DriveClientError) || error.rateLimited || (error.status !== 404 && error.status !== 410)) throw error;
+        delete table.changeToken;
+        fullList = true;
+      }
+    } else fullList = true;
+    if (fullList) {
+      // Cursor from before the listing, then one catch-up, so a write during the pass is not lost.
+      const token = await drive(() => client.getStartPageToken());
+      if (!token) return summary;
+      cursor = token;
+      const files = await drive(() => client.listChildren(rootId));
+      if (!files) return summary;
+      for (const file of files) accept(file);
     }
     const paths = new Set([...remotePaths, ...Object.keys(table.files)]);
     function scan(dir: string, prefix: string): void {
@@ -366,18 +463,47 @@ export function createDriveMirror(options: Options) {
       save();
     }
 
+    function needsWork(path: string): boolean {
+      if (fullList || changed.has(path)) return true;
+      const entry = table!.files[path];
+      const bytes = localBytes(path);
+      if (!entry) return bytes !== null || remote.has(path);
+      if (!bytes) return drivePathRule(path, ids) === "peer" || drivePathRule(path, ids) === "once";
+      return entry.md5 !== md5(bytes) || entry.size !== String(bytes.byteLength);
+    }
+
     async function syncPath(path: string): Promise<void> {
       check();
       const rule = drivePathRule(path, ids);
       if (rule === "ignore" || rule === "unknown") { summary.skipped.push(path); return; }
-      const copies = remote.get(path) ?? [];
+      let copies = remote.get(path) ?? [];
+      if (copies.length === 0) {
+        const known = table!.files[path];
+        const bytes = localBytes(path);
+        if (known) {
+          try {
+            const placed = await client.getPlaced(known.driveId);
+            check();
+            if (!placed.file.trashed && placed.parents.includes(rootId)) accept(placed.file);
+          } catch (error) {
+            check();
+            // 404 means that copy is gone. A rate limit still has to stop the pass.
+            if (!(error instanceof DriveClientError) || error.status !== 404) throw error;
+          }
+        } else if (bytes && !fullList) {
+          const found = await client.listNamed(rootId, encodeDrivePath(path));
+          check();
+          for (const file of found) accept(file);
+        }
+        copies = remote.get(path) ?? [];
+      }
       copies.sort((a, b) => rule === "once"
         ? Date.parse(a.createdTime) - Date.parse(b.createdTime) || a.id.localeCompare(b.id)
         : Date.parse(b.modifiedTime) - Date.parse(a.modifiedTime) || Date.parse(b.createdTime) - Date.parse(a.createdTime) || a.id.localeCompare(b.id));
       const file = copies[0];
-      if (copies.length > 1) {
+      if (copies.length > 1 && !summary.duplicates.some((item) => item.path === path)) {
         summary.duplicates.push({ path, selectedId: file.id, ids: copies.map((copy) => copy.id) });
-        if (rule === "once" && copies.some((copy) => copy.md5Checksum !== file.md5Checksum || copy.size !== file.size)) summary.conflicts.push(path);
+        if (rule === "once" && copies.some((copy) => copy.md5Checksum !== file.md5Checksum || copy.size !== file.size) && !summary.conflicts.includes(path)) summary.conflicts.push(path);
       }
       const bytes = localBytes(path);
       if (!file) {
@@ -413,15 +539,56 @@ export function createDriveMirror(options: Options) {
         } else if (!summary.conflicts.includes(path)) summary.conflicts.push(path);
       }
     }
-    for (const path of [...paths].sort((a, b) => priority(a) - priority(b) || a.localeCompare(b))) {
+    let stopped = false;
+    async function one(path: string): Promise<void> {
+      if (!needsWork(path)) { summary.skipped.push(path); return; }
       try {
         await syncPath(path);
       } catch (error) {
         check();
+        if (error instanceof DriveClientError && error.rateLimited) {
+          summary.retryAfterMs = rateWait(error);
+          stopped = true;
+          return;
+        }
         if (!(error instanceof DriveClientError) || (error.status >= 200 && error.status < 300)) throw error;
         summary.failed.push(path);
       }
     }
+    const ordered = (items: Iterable<string>) => [...items].sort((a, b) => priority(a) - priority(b) || a.localeCompare(b));
+    for (const path of ordered(paths)) {
+      await one(path);
+      if (stopped) return summary;
+    }
+    if (fullList && summary.failed.length === 0) {
+      const page = await drive(() => client.listChanges(cursor));
+      if (!page) return summary;
+      const again: string[] = [];
+      for (const change of page.changes) {
+        const path = ingestChange(change);
+        if (path) again.push(path);
+      }
+      cursor = page.newStartPageToken;
+      for (const path of ordered(new Set(again))) {
+        await one(path);
+        if (stopped) return summary;
+      }
+    }
+    function remember(token: string): void {
+      if (summary.retryAfterMs !== null || !token) return;
+      if (summary.failed.length > 0) {
+        if (table!.changeToken !== undefined) {
+          delete table!.changeToken;
+          save();
+        }
+        return;
+      }
+      if (table!.changeToken === token) return;
+      table!.changeToken = token;
+      save();
+    }
+    remember(cursor);
+    if (summary.retryAfterMs === null) rateStrikes = 0;
     check();
     summary.skipped = [...new Set(summary.skipped)];
     return summary;
