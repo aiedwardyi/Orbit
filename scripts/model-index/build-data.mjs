@@ -153,7 +153,8 @@ export function buildData(from = dir) {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const dirFlag = process.argv.indexOf("--dir");
-  const text = buildData(dirFlag >= 0 ? process.argv[dirFlag + 1] : dir);
+  if (dirFlag >= 0 && !process.argv[dirFlag + 1]) throw new Error("--dir needs a folder");
+  const text =buildData(dirFlag >= 0 ? process.argv[dirFlag + 1] : dir);
   if (process.argv.includes("--print")) process.stdout.write(text);
   else writeFileSync(target, text);
 }

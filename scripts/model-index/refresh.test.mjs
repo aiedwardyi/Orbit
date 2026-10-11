@@ -335,11 +335,16 @@ describe("refresh run state", () => {
 
   it("writes a snapshot via a temp file in the same folder, then renames it", () => {
     const dir = mkdtempSync(join(tmpdir(), "mi-snap-"));
+    // A writeSnapshot that ignores its dir argument writes to the real sources folder
     const stray = join(sourcesDir, "probe-guards.json");
-    mkdirSync(join(dir, "probe-guards.json"));
     try {
+      writeSnapshot("probe-guards", { ok: true }, dir);
+      expect(JSON.parse(readFileSync(join(dir, "probe-guards.json"), "utf8"))).toEqual({ ok: true });
+      expect(readdirSync(dir)).toEqual(["probe-guards.json"]);
+      rmSync(join(dir, "probe-guards.json"));
+      mkdirSync(join(dir, "probe-guards.json"));
       expect(() => writeSnapshot("probe-guards", { ok: true }, dir)).toThrow();
-      expect(readdirSync(dir).some((name) => name !== "probe-guards.json")).toBe(true);
+      expect(readdirSync(dir).some((name) => /^\.probe-guards\.\d+\.tmp$/.test(name))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
       rmSync(stray, { force: true });
