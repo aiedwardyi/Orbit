@@ -891,7 +891,7 @@ async function startServerOn(port) {
     // the server prefers these over config.json, whose plaintext fields
     // the boot migration has deleted
     ...workspaceCredentialEnv(childEnvCredentials),
-    ...googleServerEnv(GOOGLE_CLIENT, secureCredentials),
+    ...googleServerEnv(GOOGLE_CLIENT),
     ...(terminalBridgeAccess
       ? {
           OMB_TERMINAL_URL: terminalBridgeAccess.url,
@@ -2348,8 +2348,9 @@ app.whenReady().then(async () => {
     await secureWorkspaceConfig();
   } else {
     await syncDevTerminalBridge();
-    if (secureCredentials.googleAccount) await pushGoogleSession(secureCredentials.googleAccount);
   }
+  // Null means there is no saved session. The server stays pending until this push.
+  await pushGoogleSession(secureCredentials.googleAccount ?? null);
   // The companion the user left on comes back without anyone finding the
   // toggle again — one attempt, after the harness port is settled, with the
   // exact options the IPC handler uses. A failure surfaces in companionState

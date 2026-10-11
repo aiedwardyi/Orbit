@@ -12,7 +12,7 @@ export const GOOGLE_CLIENT_ID_ENV = "WINK_GOOGLE_CLIENT_ID";
 export const GOOGLE_CLIENT_SECRET_ENV = "WINK_GOOGLE_CLIENT_SECRET";
 export const GOOGLE_ACCOUNT_ENV = "OMB_GOOGLE_ACCOUNT_TOKEN";
 
-export type GoogleAccountState = "unavailable" | "signed-out" | "signed-in" | "needs-sign-in" | "blocked" | "offline";
+export type GoogleAccountState = "unavailable" | "pending" | "signed-out" | "signed-in" | "needs-sign-in" | "blocked" | "offline";
 export type GoogleAccountStatus = { state: GoogleAccountState; email?: string };
 export type GoogleClient = { id: string; secret: string };
 export type GoogleSession = { refreshToken: string; sub: string; email: string };
@@ -66,7 +66,7 @@ export function takeGoogleEnv(env: NodeJS.ProcessEnv): { client: GoogleClient | 
   return { client: id && secret ? { id, secret } : null, session };
 }
 
-type Options = { fetch?: typeof fetch; now?: () => number; log?: (line: string) => void };
+type Options = { fetch?: typeof fetch; now?: () => number; log?: (line: string) => void; awaitSession?: boolean };
 
 export class GoogleAccount {
   private readonly client: GoogleClient | null;
@@ -74,6 +74,7 @@ export class GoogleAccount {
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private session: GoogleSession | null;
+  private sessionKnown: boolean;
   private access: { token: string; expiresAt: number } | null = null;
   private problem: "needs-sign-in" | "blocked" | "offline" | null = null;
   private failures = 0;
@@ -83,6 +84,7 @@ export class GoogleAccount {
   constructor(client: GoogleClient | null, session: GoogleSession | null, options: Options = {}) {
     this.client = client;
     this.session = session;
+    this.sessionKnown = options.awaitSession !== true;
     this.fetch = options.fetch ?? globalThis.fetch;
     this.now = options.now ?? Date.now;
     this.log = options.log ?? ((line) => console.warn(line));
@@ -90,11 +92,13 @@ export class GoogleAccount {
 
   status(): GoogleAccountStatus {
     if (!this.client) return { state: "unavailable" };
+    if (!this.sessionKnown) return { state: "pending" };
     if (!this.session) return { state: "signed-out" };
     return { state: this.problem ?? "signed-in", email: this.session.email };
   }
 
   setSession(session: GoogleSession | null) {
+    this.sessionKnown = true;
     this.session = session;
     this.access = null;
     this.problem = null;
@@ -105,6 +109,7 @@ export class GoogleAccount {
 
   getAccessToken(): Promise<string> {
     if (!this.client) return Promise.reject(new GoogleAccountError("unavailable"));
+    if (!this.sessionKnown) return Promise.reject(new GoogleAccountError("pending"));
     if (!this.session) return Promise.reject(new GoogleAccountError("signed-out"));
     if (this.problem === "needs-sign-in" || this.problem === "blocked") return Promise.reject(new GoogleAccountError(this.problem));
     if (this.access && this.now() < this.access.expiresAt - EXPIRY_MARGIN_MS) return Promise.resolve(this.access.token);

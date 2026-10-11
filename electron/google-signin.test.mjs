@@ -178,6 +178,23 @@ describe("google sign-in", () => {
     await closed(address);
   });
 
+  it("a cancel before listen never opens the browser", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const openExternal = vi.fn(async () => {});
+    let address;
+    const run = runGoogleSignIn({
+      client: CLIENT,
+      openExternal,
+      fetch: vi.fn(),
+      signal: controller.signal,
+      onListening: (value) => (address = value),
+    });
+    await expect(run).rejects.toMatchObject({ code: "cancelled" });
+    expect(openExternal).not.toHaveBeenCalled();
+    await closed(address);
+  });
+
   it("closes on timeout", async () => {
     let address;
     const run = runGoogleSignIn({ client: CLIENT, openExternal: async () => {}, fetch: vi.fn(), timeoutMs: 50, onListening: (value) => (address = value) });
@@ -300,14 +317,14 @@ describe("google sign-in", () => {
     expect(googleClient({}, () => ({ id: "only-id" }))).toBeNull();
   });
 
-  it("hands the server the client and stored session, or nothing without a client", () => {
-    const googleAccount = { refreshToken: "r", sub: "s", email: "e@x.com" };
-    expect(googleServerEnv(CLIENT, { googleAccount })).toEqual({
-      WINK_GOOGLE_CLIENT_ID: CLIENT.id,
-      WINK_GOOGLE_CLIENT_SECRET: CLIENT.secret,
-      OMB_GOOGLE_ACCOUNT_TOKEN: JSON.stringify(googleAccount),
-    });
-    expect(googleServerEnv(CLIENT, {})).toEqual({ WINK_GOOGLE_CLIENT_ID: CLIENT.id, WINK_GOOGLE_CLIENT_SECRET: CLIENT.secret });
+  it("hands the server the client and never the stored session", () => {
+    const googleAccount = { refreshToken: "refresh-token-SECRET", sub: "s", email: "e@x.com" };
+    for (const credentials of [{ googleAccount }, {}]) {
+      const env = googleServerEnv(CLIENT, credentials);
+      expect(env).toEqual({ WINK_GOOGLE_CLIENT_ID: CLIENT.id, WINK_GOOGLE_CLIENT_SECRET: CLIENT.secret });
+      expect(JSON.stringify(env)).not.toContain("refresh-token-SECRET");
+      expect(env).not.toHaveProperty("OMB_GOOGLE_ACCOUNT_TOKEN");
+    }
     expect(googleServerEnv(null, { googleAccount })).toEqual({});
   });
 });
@@ -361,9 +378,13 @@ describe("Google session delivery", () => {
     expect(log).toHaveBeenLastCalledWith("google account sync failed: closed");
   });
 
-  it("uses the live credential document when starting the server", () => {
-    const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
-    expect(source.includes("googleServerEnv(GOOGLE_CLIENT, secureCredentials)")).toBe(true);
+  it("keeps the boot session out of the server env and pushes the live account", () => {
+    const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+    const signin = readFileSync(new URL("./google-signin.mjs", import.meta.url), "utf8");
+    expect(signin.includes("OMB_GOOGLE_ACCOUNT_TOKEN")).toBe(false);
+    expect(main.includes("OMB_GOOGLE_ACCOUNT_TOKEN")).toBe(false);
+    expect(main.includes("googleServerEnv(GOOGLE_CLIENT,")).toBe(false);
+    expect(main.includes("pushGoogleSession(secureCredentials.googleAccount ?? null)")).toBe(true);
   });
 });
 
