@@ -51,6 +51,16 @@ export function syncContentHash(value: unknown): string {
 }
 /* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-runtime-typeof */
 
+const IDENTITY_TABLE = "CREATE TABLE IF NOT EXISTS sync_v2_identity (id INTEGER PRIMARY KEY CHECK (id = 1), device TEXT NOT NULL, writer TEXT NOT NULL)";
+
+/** The Drive mirror needs this writer id before any engine sees a folder. */
+export function ensureSyncV2Identity(deviceId: string): void {
+  withMessageTransaction((db) => {
+    db.exec(IDENTITY_TABLE);
+    db.prepare("INSERT OR IGNORE INTO sync_v2_identity VALUES (1, ?, ?)").run(idSchema.parse(deviceId), randomUUID());
+  });
+}
+
 export function createSyncEngine(input: SyncOptions) {
   const options = syncOptionsSchema.parse(input);
   if (!options.dataDir || !options.folder || resolve(options.dataDir) === resolve(options.folder)) throw new Error("Separate local and sync directories are required");
@@ -62,7 +72,7 @@ export function createSyncEngine(input: SyncOptions) {
   database.exec("PRAGMA synchronous = FULL");
   withMessageTransaction((db) => {
     db.exec(`
-      CREATE TABLE IF NOT EXISTS sync_v2_identity (id INTEGER PRIMARY KEY CHECK (id = 1), device TEXT NOT NULL, writer TEXT NOT NULL);
+      ${IDENTITY_TABLE};
       CREATE TABLE IF NOT EXISTS sync_v2_threads (thread TEXT PRIMARY KEY, bot TEXT NOT NULL, next_seq INTEGER NOT NULL DEFAULT 1,
         cut INTEGER NOT NULL DEFAULT 0, generation INTEGER NOT NULL DEFAULT 0, head TEXT);
       CREATE TABLE IF NOT EXISTS sync_v2_packets (thread TEXT NOT NULL, writer TEXT NOT NULL, seq INTEGER NOT NULL,

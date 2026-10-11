@@ -300,6 +300,7 @@ import { PhoneAccess } from "./phone-access.ts";
 import { postPhoneKeepAwake, type PhoneKeepAwakeMessage } from "./phone-keep-awake.ts";
 import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
 import { GoogleAccount, applyGoogleAccountMessage, googleAccountRoute, takeGoogleEnv } from "./google-account.ts";
+import { createGoogleSync, googleSyncRoute } from "./google-sync.ts";
 import type { PublicPhone } from "./phone-devices.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
 import * as vps from "./vps-computer.ts";
@@ -340,7 +341,7 @@ import {
   type SyncedBot,
   type SyncEntityValues,
 } from "./profile-sync.ts";
-import { loadLegacyMemoryLedger, loadMemorySyncLedger, markTalked, saveMemorySyncLedger, syncBotMemory } from "./memory-sync.ts";
+import { ensureMemorySyncDevice, loadLegacyMemoryLedger, loadMemorySyncLedger, markTalked, saveMemorySyncLedger, syncBotMemory } from "./memory-sync.ts";
 import {
   CONFLICT_NOTICE,
   chatSyncBotId,
@@ -359,6 +360,7 @@ import {
 import { publishUnsyncedPictures, pullSyncedPicture, pruneSyncedPictures } from "./picture-sync.ts";
 import { createThreadSyncV2Store } from "./thread-sync-v2-store.ts";
 import { createThreadSyncV2Gate } from "./thread-sync-v2-gate.ts";
+import { ensureSyncV2Identity } from "./thread-sync-v2-engine.ts";
 import { serveLinkedFile } from "./linked-files.ts";
 import { missingStaticResponse } from "./static-fallback.ts";
 import { sendJson, sendStaticFile, sendText } from "./compression.ts";
@@ -1301,7 +1303,7 @@ function portableSyncChanges(bot: BotRecord, folder: string): Record<string, unk
 
 function localSectionChanges(): SyncEntityValues[] {
   const sections: SyncEntityValues[] = [];
-  for (const bot of store.bots) {
+  for (const bot of profileSyncBots()) {
     const id = syncSectionId(bot.section);
     if (!id || sections.some((section) => section.entityId === id)) continue;
     sections.push({ entity: "section", entityId: id, changes: { name: bot.section, order: sections.length } });
@@ -1313,7 +1315,7 @@ function localSectionChanges(): SyncEntityValues[] {
 function localOrderChanges(assign: boolean): Record<string, unknown> {
   const sectionOrder: string[] = [];
   const itemOrder: Record<string, string[]> = {};
-  for (const bot of store.bots) {
+  for (const bot of profileSyncBots()) {
     const sectionId = syncSectionId(bot.section);
     if (sectionId && !sectionOrder.includes(sectionId)) sectionOrder.push(sectionId);
     const globalId = assign ? syncBotId(bot.id) : profileSyncSettings.botMap[bot.id];
@@ -1362,9 +1364,10 @@ function publishProfileChanges(): number {
   const now = Date.now();
   const baseCheckpoint = profileSyncSettings.seenCheckpoint || undefined;
   const synced = profileSyncSettings.syncedHashes;
-  const unmapped = store.bots.filter((bot) => !profileSyncSettings.botMap[bot.id]);
+  const bots = profileSyncBots();
+  const unmapped = bots.filter((bot) => !profileSyncSettings.botMap[bot.id]);
   const changed = unsyncedChanges(synced, [
-    ...store.bots.map((bot) => ({ entity: "bot" as const, entityId: syncBotId(bot.id), changes: portableSyncChanges(bot, folder) })),
+    ...bots.map((bot) => ({ entity: "bot" as const, entityId: syncBotId(bot.id), changes: portableSyncChanges(bot, folder) })),
     ...localSectionChanges(),
     { entity: "order", entityId: profileSyncSettings.workspaceId, changes: localOrderChanges(true) },
   ]);
@@ -2107,6 +2110,43 @@ store.onBeforeWrite((threadId) => {
   if (threadSyncGate.enabled) return;
   if (markThreadDirty(threadSyncLedger, threadId)) saveThreadSyncLedger(DATA_DIR, threadSyncLedger);
 });
+
+function botTalkedTo(botId: string): boolean {
+  const bot = store.bot(botId);
+  return !!bot && [bot.threadId, ...store.tasks(botId).map((task) => task.threadId)].some((threadId) => store.messagesFor(threadId).some((message) => message.role === "user"));
+}
+
+const googleSync = createGoogleSync({
+  dataDir: DATA_DIR,
+  account: googleAccount,
+  folder: () => profileSyncSettings.folder,
+  prepare: () => {
+    const device = memorySyncLedger.device;
+    if (ensureMemorySyncDevice(memorySyncLedger) !== device) {
+      saveMemorySyncLedger(DATA_DIR, memorySyncLedger);
+      savedMemoryLedger = JSON.stringify(memorySyncLedger);
+    }
+    ensureSyncV2Identity(profileSyncSettings.deviceId);
+  },
+  unusedBots: () => store.bots.filter((bot) => !botTalkedTo(bot.id)).map((bot) => bot.id),
+  activate: (mirror) => {
+    if (profileSyncSettings.folder !== mirror) {
+      profileSyncSettings.reviewedResolutions = {};
+      profileSyncSettings.seenCheckpoint = "";
+    }
+    ensureProfileSyncWorkspace(mirror);
+    profileSyncSettings.folder = mirror;
+    profileSyncSettings.syncChats = true;
+    profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+    syncAllThreads();
+    return profileSyncSettings.workspaceId;
+  },
+});
+
+/** Bots a joining PC held back stay local until someone talks to them. */
+function profileSyncBots(): BotRecord[] {
+  return store.bots.filter((bot) => profileSyncSettings.botMap[bot.id] || !googleSync.held(bot.id) || botTalkedTo(bot.id));
+}
 
 store.onChange((change) => {
   if (threadSyncGate.enabled || store.importingSync) return;
@@ -9909,6 +9949,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && path === "/api/google-account") {
       return json(res, 200, googleAccount.status());
     }
+    const googleSyncReply = await googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk }, googleSync);
+    if (googleSyncReply) return json(res, googleSyncReply.status, googleSyncReply.body);
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);
       const patch = parseConfigPatch(body);
@@ -10347,6 +10389,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 };
 
 syncAllThreads();
+googleSync.resume();
 // Wake timers die with the process; re-arm teachers whose stored notes are
 // undelivered. Untracked legacy tasks wait for the next send, as before.
 for (const bot of store.bots) {

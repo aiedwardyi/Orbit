@@ -80,6 +80,7 @@ export class GoogleAccount {
   private failures = 0;
   private retryAt = 0;
   private inflight: Promise<string> | null = null;
+  private readonly listeners = new Set<() => void>();
 
   constructor(client: GoogleClient | null, session: GoogleSession | null, options: Options = {}) {
     this.client = client;
@@ -97,6 +98,16 @@ export class GoogleAccount {
     return { state: this.problem ?? "signed-in", email: this.session.email };
   }
 
+  /** The signed-in account, never its token. */
+  owner(): { sub: string; email: string } | null {
+    return this.session ? { sub: this.session.sub, email: this.session.email } : null;
+  }
+
+  onSession(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
   setSession(session: GoogleSession | null) {
     this.sessionKnown = true;
     this.session = session;
@@ -105,6 +116,7 @@ export class GoogleAccount {
     this.failures = 0;
     this.retryAt = 0;
     this.inflight = null;
+    for (const listener of this.listeners) listener();
   }
 
   getAccessToken(): Promise<string> {
