@@ -66,7 +66,9 @@ const dump = () => {
 const finishTurn = () => {
   // bench-quiet never started tool items (see turn/start), so there is
   // nothing to complete — a text-only fixture turn.
-  if (mode !== "bench-quiet") {
+  if (process.env.FAKE_CODEX_TOOL_FIXTURE) {
+    for (const frame of JSON.parse(readFileSync(process.env.FAKE_CODEX_TOOL_FIXTURE, "utf8"))) notify(frame.method, frame.params);
+  } else if (mode !== "bench-quiet") {
     notify("item/completed", { item: { id: "i1", type: "commandExecution", status: "completed" } });
     notify("item/completed", { item: { id: "w1", type: "webSearch", status: "completed" } });
   }
@@ -241,7 +243,7 @@ process.stdin.on("data", (chunk) => {
               `\"Get-Content -Raw -LiteralPath 'C:\\Users\\Ada\\workspaces\\${"very-long-folder\\".repeat(8)}NOTES.md'\"`,
             ].join(" ")
           : "ls -la";
-        if (mode !== "bench-quiet") {
+        if (mode !== "bench-quiet" && !process.env.FAKE_CODEX_TOOL_FIXTURE) {
           notify("item/started", { item: { id: "i1", type: "commandExecution", command } });
           notify("item/started", { item: { id: "w1", type: "webSearch", query: "OpenMausBot" } });
         }

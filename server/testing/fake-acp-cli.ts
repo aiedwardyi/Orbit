@@ -301,6 +301,12 @@ function driveMcp(entry: McpEntry, calls: Array<{ name: string; args: (prev: str
 }
 
 function playTurn() {
+  if (process.env.FAKE_ACP_TOOL_FIXTURE) {
+    for (const update of JSON.parse(readFileSync(process.env.FAKE_ACP_TOOL_FIXTURE, "utf8"))) {
+      out({ jsonrpc: "2.0", method: "session/update", params: { update } });
+    }
+    return;
+  }
   out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: "hello from fake acp" } } } });
   out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "tool_call", toolCallId: "tc-1", title: "run" } } });
   out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "tool_call_update", toolCallId: "tc-1", status: "completed" } } });
