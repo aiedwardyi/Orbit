@@ -26,6 +26,7 @@ import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
 import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, startUpdater, updaterBridge } from "./updater.mjs";
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
+import { createCloseGuard } from "./close-guard.mjs";
 import { applyStartFresh, requestStartFresh } from "./start-fresh.mjs";
 import { installMainCrashLogging } from "./crash-log.mjs";
 import { companionParkedOnDesktop } from "./companion-policy.mjs";
@@ -1529,12 +1530,37 @@ ipcMain.on("desktop:notify", (event, payload) => {
   });
 });
 
+let botBusy = false;
 ipcMain.on("desktop:taskbar-busy", (event, value) => {
   const sender = BrowserWindow.fromWebContents(event.sender);
   if (!sender || sender !== mainWindow || sender.isDestroyed()) return;
+  botBusy = value === true;
   if (process.platform !== "win32") return;
-  const { progress, mode } = taskbarBusyIndicator(value === true);
+  const { progress, mode } = taskbarBusyIndicator(botBusy);
   sender.setProgressBar(progress, { mode });
+});
+
+const closeGuard = createCloseGuard({
+  platform: process.platform,
+  workerCount: () => terminalHost.liveWorkerCount(),
+  botBusy: () => botBusy,
+  reveal() {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  },
+  async confirm({ key, vars }) {
+    const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+    const { response } = await dialog.showMessageBox(parent, {
+      type: "none",
+      message: nativeText("close.title"),
+      detail: nativeText(key, vars),
+      buttons: [nativeText("close.confirm"), nativeText("close.cancel")],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    return response === 0;
+  },
 });
 
 function createWindow() {
@@ -1579,6 +1605,13 @@ function createWindow() {
   win.once("closed", () => {
     if (mainWindow === win) mainWindow = null;
   });
+  win.on("close", (event) => {
+    void closeGuard.handleClose(event, () => {
+      if (!win.isDestroyed()) win.close();
+    });
+  });
+  win.on("query-session-end", () => closeGuard.leaveBriefly());
+  win.on("session-end", () => closeGuard.leave());
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     const open = safeExternalUrl(url);
@@ -2411,6 +2444,9 @@ const requestSignalQuit = () => {
 };
 process.once("SIGINT", requestSignalQuit);
 process.once("SIGTERM", requestSignalQuit);
+
+// app.quit() emits this before any window close, so every in-app quit skips the prompt.
+app.on("before-quit", () => closeGuard.leave());
 
 app.on("before-quit", (e) => {
   if (cuaCleanedUp) return;
