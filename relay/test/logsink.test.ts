@@ -1,7 +1,9 @@
 import { request } from "node:https";
 import { afterEach, describe, expect, it } from "vitest";
 import { encodeFrame, mintInvite, signAuth } from "../../shared/relay-protocol.ts";
+import { signAccountRequest } from "../src/accounts.ts";
 import { signEnrollment } from "../src/enroll.ts";
+import { makeIssuer } from "./google-issuer.ts";
 import { createLogger, sanitize } from "../src/log.ts";
 import {
   FrameReader,
@@ -12,6 +14,7 @@ import {
   openControl,
   openData,
   startRelay,
+  ticketFor,
   type Harness,
   type LogEntry,
 } from "./fixtures.ts";
@@ -38,6 +41,7 @@ const ALLOWED = new Set([
   "count",
   "limit",
   "notAfter",
+  "subHash",
 ]);
 
 function post(h: Harness, path: string, body: string, cookie: string): Promise<number> {
@@ -148,4 +152,64 @@ describe("log sink", () => {
     logger.log("Not An Event!", { reason: "ok" });
     expect(JSON.parse(lines[0])).toMatchObject({ event: "invalid-event", reason: "ok" });
   });
+
+  it("never logs a raw sub, email or id token", async () => {
+    const issuer = makeIssuer();
+    const desktop = "desktop-client.apps.googleusercontent.com";
+    const web = "web-client.apps.googleusercontent.com";
+    h = await startRelay({
+      google: { desktopClientId: desktop, webClientId: web, signinOrigin: "https://signin.test", keys: issuer },
+      limits: { accountPerIpPerHour: 20 },
+    });
+    const sub = "google-sub-SECRET-0123456789abcdef";
+    const email = "secret-email-UNIQUE@example.com";
+    const now = Math.floor(Date.now() / 1000);
+    const claims = { iss: "https://accounts.google.com", sub, email, email_verified: true, iat: now, exp: now + 3600 };
+    const idToken = issuer.sign({ ...claims, aud: desktop });
+    const pc = makePc();
+    const ticket = ticketFor(pc, h.operator);
+    const posted = await post(
+      h,
+      "/v1/account",
+      JSON.stringify({ idToken, ticket, pk: pc.pk, sig: signAccountRequest(pc.privateKey, idToken, ticket, pc.pk) }),
+      "",
+    );
+    expect(posted).toBe(200);
+    const webToken = issuer.sign({ ...claims, aud: web });
+    expect(await getBearer(h, "/v1/pcs", webToken)).toBe(200);
+    const leaked = `TOKSECRET.${sub}.${email}`;
+    expect(await post(h, "/v1/account", JSON.stringify({ idToken: leaked, ticket, pk: pc.pk, sig: "nope" }), "")).toBeGreaterThanOrEqual(400);
+
+    const all = h.logs.join("\n");
+    for (const secret of [sub, email, idToken, webToken, leaked]) expect(all).not.toContain(secret);
+    for (const line of h.logs) {
+      expect(line.length).toBeLessThan(400);
+      // SAFETY: the logger writes one JSON object of sanitized scalar fields per line.
+      const entry = JSON.parse(line) as LogEntry;
+      for (const key of Object.keys(entry)) expect(ALLOWED.has(key)).toBe(true);
+    }
+  });
 });
+
+function getBearer(h: Harness, path: string, token: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        host: "127.0.0.1",
+        port: h.port,
+        servername: `relay.${h.base}`,
+        ca: h.ca.certPem,
+        method: "GET",
+        path,
+        agent: false,
+        headers: { host: `relay.${h.base}`, authorization: `Bearer ${token}` },
+      },
+      (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode!));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
