@@ -90,6 +90,39 @@ describe("Store", () => {
     expect(tool).toEqual({ name: "git status", verb: "Bash", ok: true, spoken: "running a command" });
   });
 
+  it.each(["append", "patch"])("tool detail safety scrubs %s before storage and SSE emission", async (action) => {
+    const { messageDatabase } = await import("./message-db.ts");
+    const secret = "BoundaryCanary987654321";
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const emitted: string[] = [];
+    store.onChange((change) => emitted.push(JSON.stringify(change)));
+    const tool = { name: "Bash", detail: { input: "npm run diagnose", output: [`postgres://admin:${secret}@db.example/test`, `Cookie: session=${secret}`], more: 7 } };
+    const row = store.appendMessage(bot.threadId, { role: "bot", kind: "activity", tool: action === "append" ? tool : { name: "Bash" } });
+    if (action === "patch") store.patchMessage(bot.threadId, row.id, { tool });
+    expect(JSON.stringify(store.messagesFor(bot.threadId))).not.toContain(secret);
+    expect(JSON.stringify(emitted)).not.toContain(secret);
+    expect(JSON.stringify(messageDatabase().prepare("SELECT json FROM messages WHERE id = ?").get(row.id))).not.toContain(secret);
+    expect(store.messagesFor(bot.threadId).find((message) => message.id === row.id)?.tool?.detail?.more).toBe(7);
+  });
+
+  it.each(["bot", "user"] as const)("tool detail safety scrubs the %s HTTP projection without changing reply text", async (role) => {
+    const { redactBotAuthored } = await import("./store.ts");
+    const text = "postgres://admin:ReplyCanary987654321@db.example/test Cookie: session=ReplyCanary987654321 KEY=ReplyCanary987654321";
+    const message = { role, kind: "text" as const, text, tool: { name: "Bash", detail: { output: [text] } } };
+    const projected = redactBotAuthored(message);
+    expect(projected.text).toBe(text);
+    expect(JSON.stringify(projected.tool)).not.toContain("ReplyCanary987654321");
+    expect(message.tool.detail.output).toEqual([text]);
+  });
+
+  it("tool detail safety sends SSE message rows through the HTTP projection", () => {
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    expect(source).toContain('kind: "message", threadId: change.threadId, message: clientMessage(change.message)');
+    expect(source).toContain('kind: "message.patch", threadId: change.threadId, message: clientMessage(change.message)');
+    expect(source).toContain("return flagShownImage(redactBotAuthored(message));");
+  });
+
   it("createBot seeds an onboarding card without a fake chat bubble", () => {
     const store = new Store(selection);
     const bot = store.createBot();

@@ -86,6 +86,43 @@ describe("thread sync v2", () => {
     expect(await rows(b)).toEqual([row]);
   });
 
+  it("tool detail safety scrubs raw previews before sync export", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const b = pc(folder, "b").client;
+    const row = msg("preview", "unchanged", { tool: { name: "Bash", detail: { output: ["Cookie: session=SyncBoundaryCanary987654321"] } } });
+    await a.commit(scope, [{ kind: "row", value: row }]);
+    await a.flush(scope);
+    const wire = readFileSync(join(await writerDir(a, folder), "head.json"), "utf8");
+    expect(wire).not.toContain("SyncBoundaryCanary");
+    await b.pull(scope);
+    expect(JSON.stringify(await rows(b))).not.toContain("SyncBoundaryCanary");
+    expect((await rows(b))[0].text).toBe("unchanged");
+  });
+
+  it("tool detail safety scrubs an old peer before storage and preserves wire identity", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const peer = pc(folder, "b");
+    await a.commit(scope, [{ kind: "row", value: msg("preview", "unchanged") }]);
+    await a.flush(scope);
+    const path = join(await writerDir(a, folder), "head.json");
+    const raw = readFileSync(path, "utf8").replace('"text":"unchanged"', '"text":"unchanged","tool":{"name":"Edit","detail":{"input":"cert.pem","diff":["+SyncPrivateBody987654321"]}}');
+    writeFileSync(path, raw);
+    expect((await peer.client.pull(scope)).rejected).toBe(0);
+    const database = new DatabaseSync(join(peer.options.dataDir, "messages.db"));
+    try {
+      expect(JSON.stringify(database.prepare("SELECT json FROM messages").all())).not.toContain("SyncPrivateBody");
+      expect(JSON.stringify(database.prepare("SELECT json FROM sync_v2_frontier").all())).not.toContain("SyncPrivateBody");
+      expect(JSON.stringify(database.prepare("SELECT json FROM sync_v2_packets").all())).not.toContain("SyncPrivateBody");
+    } finally {
+      database.close();
+    }
+    expect((await peer.client.pull(scope)).rejected).toBe(0);
+    expect(JSON.stringify(await peer.client.variants(scope, "row", "preview"))).not.toContain("SyncPrivateBody");
+    expect(readFileSync(path, "utf8")).toBe(raw);
+  });
+
   it("orders legacy main heads by timestamp then id and preserves native selection", async () => {
     const client = pc(temp(), "a").client;
     const main = { sourceHash: "a".repeat(64), source: "main" as const };

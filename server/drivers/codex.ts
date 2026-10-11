@@ -64,6 +64,7 @@ function codexToolDetail(item: z.infer<typeof toolItemSchema>, isError: boolean)
   return captureToolDetail({
     name: item.type,
     input: item.changes?.map((change) => change.path).join(", ") || item.query,
+    paths: item.changes?.map((change) => change.path),
     rawInput: item.arguments,
     command: item.command ?? undefined,
     output: item.error?.message ?? item.aggregatedOutput ?? item.result?.content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n"),

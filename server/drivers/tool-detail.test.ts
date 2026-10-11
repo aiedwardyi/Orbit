@@ -115,6 +115,43 @@ describe.each(engines)("$name tool detail", ({ name, driver, cli, fixtureEnv }) 
     return event;
   };
 
+  it("safety hides sensitive edit fragments and output", async () => {
+    const event = await capture({ id: "private-edit", path: "cert.pem", oldText: "OldBody987654321", newText: "PartialPrivateBody987654321", output: "PartialPrivateBody987654321" });
+    expect(event.detail).toEqual({ input: "cert.pem", outputHidden: true });
+  });
+
+  it.skipIf(name !== "Codex").each(["add", "update", "delete"])("safety hides a sensitive fileChange %s", async (type) => {
+    writeFileSync(fixturePath, JSON.stringify([{ method: "item/completed", params: { item: { id: "private-file", type: "fileChange", status: "completed", changes: [{ path: ".env.production", kind: { type }, diff: "@@ -1 +1 @@\n-OldBody987654321\n+PartialPrivateBody987654321" }] } } }]));
+    saveConfig({ features: { toolDetailCapture: true } });
+    await create();
+    const events = await run();
+    expect(events).toMatchObject([{ detail: { input: ".env.production", outputHidden: true } }]);
+    expect(JSON.stringify(events.map((event) => "detail" in event ? event.detail : undefined))).not.toContain("PartialPrivateBody");
+  });
+
+  it.skipIf(fixtureEnv !== "FAKE_ACP_TOOL_FIXTURE")("safety checks every ACP diff path independently of rawInput", async () => {
+    writeFileSync(fixturePath, JSON.stringify([
+      { sessionUpdate: "tool_call", toolCallId: "mixed", title: "Edit public.ts", kind: "edit", rawInput: { path: "public.ts" } },
+      { sessionUpdate: "tool_call_update", toolCallId: "mixed", status: "completed", content: [{ type: "diff", path: "cert.pem", oldText: "OldBody987654321", newText: "PartialPrivateBody987654321" }] },
+    ]));
+    saveConfig({ features: { toolDetailCapture: true } });
+    await create();
+    expect(await run()).toMatchObject([{ detail: { input: "public.ts", outputHidden: true } }]);
+  });
+
+  it.skipIf(fixtureEnv !== "FAKE_ACP_TOOL_FIXTURE").each(["path", "file_path", "absolute_path", "filePath", "locations", "string"])("safety checks ACP read target metadata in %s", async (field) => {
+    const path = "C:\\work\\.ssh\\config";
+    writeFileSync(fixturePath, JSON.stringify([
+      { sessionUpdate: "tool_call", toolCallId: "private-read", title: "read", kind: "read", ...(field === "locations" ? { locations: [{ path }] } : { rawInput: field === "string" ? path : { [field]: path } }) },
+      { sessionUpdate: "tool_call_update", toolCallId: "private-read", status: "failed", content: [{ type: "content", content: { type: "text", text: "PartialPrivateBody987654321" } }] },
+    ]));
+    saveConfig({ features: { toolDetailCapture: true } });
+    await create();
+    const [event] = await run();
+    expect(event).toMatchObject({ detail: { outputHidden: true } });
+    expect(JSON.stringify(event)).not.toContain("PartialPrivateBody");
+  });
+
   it.skipIf(name === "Pi")("names a command and a file change with Claude Code verbs", async () => {
     writeFixture([
       { id: "command", command: "git status", output: "clean" },

@@ -610,6 +610,7 @@ function claudeToolDetail(name: string, input: unknown, output: string, isError:
   return captureToolDetail({
     name,
     input: header,
+    paths: path ? [path] : [],
     command,
     output,
     edits,

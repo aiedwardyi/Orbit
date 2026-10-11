@@ -58,6 +58,7 @@ const DRIVER_KIND = "piAgent";
 const PI_ARGS = ["--mode", "rpc", "--no-session"];
 const NODE_ENV_FLAG = { ELECTRON_RUN_AS_NODE: "1" };
 const toolResultSchema = z.object({ content: z.array(z.object({ type: z.string(), text: z.string().optional() })) });
+const toolInputSchema = z.object({ path: z.string().optional().catch(undefined) });
 
 /** Harness effort → pi thinking level (`set_thinking_level`). The sets match
  * one-for-one except for the name of the lowest rung: the harness calls it
@@ -653,9 +654,11 @@ export const PiDriver: ProviderDriver<PiConfig> = {
             const call = evt.toolCallId ? toolCalls.get(evt.toolCallId) : undefined;
             if (evt.toolCallId) toolCalls.delete(evt.toolCallId);
             const result = toolResultSchema.safeParse(evt.result);
+            const args = toolInputSchema.safeParse(call?.args);
             const detail = captureToolDetail({
               name: evt.toolName ?? call?.name ?? "tool",
               rawInput: call?.args,
+              paths: args.success && args.data.path ? [args.data.path] : [],
               output: result.success ? result.data.content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n") : undefined,
               isError: evt.isError,
             });

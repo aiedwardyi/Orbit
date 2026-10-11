@@ -10,6 +10,7 @@ import { applySyncedRows, messageDatabase, withMessageTransaction } from "./mess
 import type { Message } from "./store.ts";
 import { syncRoots, syncWriteRoot } from "./sync-roots.ts";
 import { THREAD_SYNC_V2_HEAD_BYTES } from "./thread-sync-v2.ts";
+import { redactToolMessage } from "./tool-detail.ts";
 import type { SealCrash, SyncApplyResult, SyncChange, SyncFlushResult, SyncFragment, SyncHead, SyncKind, SyncMutation, SyncOptions, SyncPacket, SyncRecovery, SyncScope, SyncSeen, SyncState, SyncVariant, SyncVersion } from "./thread-sync-v2.ts";
 
 const idSchema = z.string().min(1).max(96).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
@@ -149,7 +150,7 @@ export function createSyncEngine(input: SyncOptions) {
     const preferred = sql("SELECT writer, seq FROM sync_v2_selection WHERE thread = ? AND kind = ? AND row_id = ?").get(scope.threadId, kind, rowId);
     const rank = (item: SyncVariant) => !item.version.legacy ? 0 : preferred?.writer === item.writerId && preferred?.seq === item.version.seq ? 1 : 2;
     const found = all(writerJsonSchema, "SELECT writer, json FROM sync_v2_frontier WHERE thread = ? AND kind = ? AND row_id = ? ORDER BY writer DESC, seq DESC", scope.threadId, kind, rowId)
-      .map((row): SyncVariant => ({ writerId: row.writer, version: JSON.parse(row.json) }))
+      .map((row): SyncVariant => ({ writerId: row.writer, version: previewVersion(JSON.parse(row.json)) }))
       .sort((a, b) => rank(a) - rank(b));
     return kind === "head" ? mainHeadFirst(scope, found) : found;
   }
@@ -222,6 +223,12 @@ export function createSyncEngine(input: SyncOptions) {
     }
   }
 
+  function previewVersion(version: SyncVersion): SyncVersion {
+    if (version.kind !== "row") return version;
+    // SAFETY: validateVersion checks the message envelope before this projection.
+    return { ...version, value: redactToolMessage(version.value as Message) };
+  }
+
   function validateHead(bytes: Buffer, scope: SyncScope, writer: string): SyncHead {
     if (bytes.length > headBytes) throw new Error("Oversized sync file");
     const head: SyncHead = headSchema.parse(JSON.parse(bytes.toString("utf8")));
@@ -243,6 +250,7 @@ export function createSyncEngine(input: SyncOptions) {
   }
 
   function applyVersion(scope: SyncScope, writer: string, version: SyncVersion, result: SyncApplyResult): void {
+    version = previewVersion(version);
     const added = sql("INSERT OR IGNORE INTO sync_v2_content VALUES (?, ?, ?, ?)").run(scope.threadId, version.kind, version.rowId, contentHash(version)).changes;
     if (version.legacy && !added) return;
     const current = variants(scope, version.kind, version.rowId);
@@ -394,7 +402,8 @@ export function createSyncEngine(input: SyncOptions) {
       localWrite?.(database!);
       let seq = get(nextSeqSchema, "SELECT next_seq FROM sync_v2_threads WHERE thread = ?", scope.threadId).next_seq;
       const context = seen(scope.threadId);
-      for (const mutation of mutations) {
+      for (const source of mutations) {
+        const mutation = source.kind === "row" ? { ...source, value: redactToolMessage(source.value) } : source;
         const rowId = mutation.kind === "row" ? mutation.value.id : "";
         if (recovery && sql("SELECT 1 FROM sync_v2_content WHERE thread = ? AND kind = ? AND row_id = ? AND hash = ?")
           .get(scope.threadId, mutation.kind, rowId, contentHash(mutation))) continue;
@@ -590,9 +599,11 @@ export function createSyncEngine(input: SyncOptions) {
     }
     withMessageTransaction(() => {
       for (const packet of head.versions) {
-        const json = JSON.stringify(packet);
+        // Preserve peer byte fingerprints while storing scrubbed row content.
+        const wire = JSON.stringify(packet);
+        const json = JSON.stringify(packet.kind === "fragment" ? packet : previewVersion(packet));
         sql("INSERT OR IGNORE INTO sync_v2_packets(thread, writer, seq, json, hash) VALUES (?, ?, ?, ?, ?)")
-          .run(scope.threadId, writer, packet.seq, json, hash(json));
+          .run(scope.threadId, writer, packet.seq, json, hash(wire));
       }
       if (!segment) sql("INSERT INTO sync_v2_heads VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(thread, writer) DO UPDATE SET generation = excluded.generation, cut = excluded.cut, last_seq = excluded.last_seq, hash = excluded.hash")
         .run(scope.threadId, writer, head.generation, head.sealedThrough, head.lastSeq, hash(bytes));
@@ -691,7 +702,7 @@ export function createSyncEngine(input: SyncOptions) {
     if (!Number.isSafeInteger(after) || after < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 128) throw new Error("Invalid change page");
     return all(jsonSchema.extend({ cursor: integer, kind: z.enum(["row", "metadata", "head", "delete"]), row_id: z.string(), conflict: integer }),
       "SELECT cursor, kind, row_id, json, conflict FROM sync_v2_changes WHERE thread = ? AND cursor > ? ORDER BY cursor LIMIT ?", scope.threadId, after, limit)
-      .map((row) => ({ cursor: row.cursor, kind: row.kind, rowId: row.row_id, value: JSON.parse(row.json), conflict: Boolean(row.conflict) }));
+      .map((row) => ({ cursor: row.cursor, kind: row.kind, rowId: row.row_id, value: row.kind === "row" ? redactToolMessage(JSON.parse(row.json)) : JSON.parse(row.json), conflict: Boolean(row.conflict) }));
   }
 
   function applyPending(scope: SyncScope): SyncApplyResult {

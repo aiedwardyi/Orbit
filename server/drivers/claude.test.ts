@@ -490,6 +490,21 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(event.detail).toEqual({ input: "notes.md", output: ["Wrote four lines", "one", "two"], more: 1 });
   });
 
+  it.each(["Read", "Write", "Edit", "MultiEdit"])("tool detail safety hides sensitive %s content and keeps the path", async (name) => {
+    const secret = "PartialPrivateBody987654321";
+    const input = { file_path: "cert.pem", content: secret, old_string: "OldBody987654321", new_string: secret, edits: [{ old_string: "OldBody987654321", new_string: secret }] };
+    const event = await capture(name, input, secret);
+    expect(event.detail).toEqual({ input: "cert.pem", outputHidden: true });
+    const started = recorder.events.find((event) => event.type === "item.started");
+    if (name === "Edit") expect(started).toMatchObject({ summary: "cert.pem +1 -1" });
+    if (name === "Write") expect(started).toMatchObject({ summary: "cert.pem +1" });
+  });
+
+  it("tool detail safety hides a sensitive Read error", async () => {
+    const event = await capture("Read", { file_path: "C:\\work\\.ssh\\config" }, "PartialPrivateBody987654321\nfailed", true);
+    expect(event.detail).toEqual({ input: "C:\\work\\.ssh\\config", outputHidden: true });
+  });
+
   it.each(["Read", "Grep", "Glob"])("tool detail keeps %s output grouped", async (name) => {
     const input = name === "Read" ? { file_path: "notes.md" } : { pattern: "hello", path: "src" };
     const event = await capture(name, input, "large grouped result\nsecond line");
@@ -513,7 +528,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
   it("tool detail redacts edit secrets before removing unchanged context", async () => {
     const body = "PrivateMaterial0123456789+/".repeat(4);
-    const event = await capture("Edit", { file_path: "key.pem", old_string: `-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----`, new_string: `-----BEGIN PRIVATE KEY-----\n${body}Extra\n-----END PRIVATE KEY-----` }, "updated");
+    const event = await capture("Edit", { file_path: "notes.txt", old_string: `-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----`, new_string: `-----BEGIN PRIVATE KEY-----\n${body}Extra\n-----END PRIVATE KEY-----` }, "updated");
     expect(event.detail?.diff).toBeDefined();
     expect(JSON.stringify(event.detail)).not.toContain("PrivateMaterial");
   });

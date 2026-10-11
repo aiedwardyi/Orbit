@@ -12,6 +12,7 @@ interface ToolDetailInput {
   diff?: string[];
   outputHidden?: boolean;
   isError?: boolean;
+  more?: number;
 }
 
 const encoder = new TextEncoder();
@@ -31,14 +32,16 @@ export function buildToolDetail(source: ToolDetailInput, redact: (text: string) 
     if (preview.length) {
       // Reserve a character per line so a long header cannot erase the output.
       detail[field] = preview.map((line) => clip(line, 1));
-      if (lines.length > preview.length) detail.more = lines.length - preview.length;
+      const more = (source.more ?? 0) + lines.length - preview.length;
+      if (more > 0) detail.more = more;
       while (bytes(detail) > 256) detail.input = shorten(detail.input!);
       detail[field] = preview;
       while (bytes(detail) > 256) {
-        const index = preview.map((line, index) => ({ line, index }))
+        const longest = preview.map((line, index) => ({ line, index }))
           .filter(({ line }) => Array.from(line).length > 1)
-          .sort((a, b) => bytes(b.line) - bytes(a.line))[0]!.index;
-        preview[index] = shorten(preview[index]);
+          .sort((a, b) => bytes(b.line) - bytes(a.line))[0];
+        if (!longest) break;
+        preview[longest.index] = shorten(preview[longest.index]);
       }
     }
   }

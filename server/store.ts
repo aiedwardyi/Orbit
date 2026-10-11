@@ -18,6 +18,7 @@ import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./
 import { pickBotName } from "./names.ts";
 import { applyPendingModel } from "./pending-model.ts";
 import { redactSecretsInText } from "./redact.ts";
+import { redactToolMessage } from "./tool-detail.ts";
 import type { NativePrompt, ResumeSeed } from "./turn-context.ts";
 import {
   deleteTaskResumePacket,
@@ -320,6 +321,7 @@ export interface TaskUsage {
  * is replayed into every rebuild, and a leaked key would otherwise be
  * permanent. */
 export function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number }>(message: T): T {
+  message = redactToolMessage(message);
   // A peer message lands in the recipient's transcript as role "user", so the
   // presence of `from`, not the role, decides who authored it. Test presence
   // rather than a truthy botId: this predicate must never fail open.

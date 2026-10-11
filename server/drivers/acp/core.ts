@@ -19,6 +19,7 @@ import { acpConnection } from "./connection.ts";
 import { canReuseWarmSession, warmToolsKey, type WarmEligibilityInput } from "./warm-eligibility.ts";
 
 import { applyCredentialAllowlist } from "../../config.ts";
+import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
 import { captureToolDetail } from "../../tool-detail.ts";
 import { decodeInjectId, LOCAL_HOSTS } from "../local-inject.ts";
 
@@ -33,11 +34,18 @@ const toolCallSchema = z.object({
   status: z.string().optional(),
   rawInput: z.unknown().optional(),
   rawOutput: z.unknown().optional(),
+  locations: z.array(z.object({ path: z.string() })).optional().catch(undefined),
   content: z.array(z.discriminatedUnion("type", [
     z.object({ type: z.literal("content"), content: z.object({ type: z.string(), text: z.string().optional() }) }),
     z.object({ type: z.literal("diff"), path: z.string(), oldText: z.string().nullable(), newText: z.string() }),
     z.object({ type: z.literal("terminal"), terminalId: z.string() }),
   ])).optional(),
+});
+const toolInputSchema = z.object({
+  path: z.string().optional().catch(undefined),
+  file_path: z.string().optional().catch(undefined),
+  absolute_path: z.string().optional().catch(undefined),
+  filePath: z.string().optional().catch(undefined),
 });
 
 function acpToolDetail(call: z.infer<typeof toolCallSchema>) {
@@ -45,10 +53,15 @@ function acpToolDetail(call: z.infer<typeof toolCallSchema>) {
   const text = content.flatMap((block) => block.type === "content" && block.content.type === "text" ? [block.content.text ?? ""] : []).join("\n");
   const rawOutput = z.string().safeParse(call.rawOutput);
   const rawInput = z.string().safeParse(call.rawInput);
+  const args = toolInputSchema.safeParse(call.rawInput);
+  const paths = [...(call.locations ?? []).map((location) => location.path), ...content.flatMap((block) => block.type === "diff" ? [block.path] : [])];
+  if (args.success) paths.push(...Object.values(args.data).filter((path): path is string => path !== undefined));
+  if ((call.kind === "read" || call.kind === "edit") && rawInput.success) paths.push(rawInput.data);
   return captureToolDetail({
     name: call.title ?? "tool",
     rawInput: call.rawInput,
-    input: call.rawInput === undefined ? content.find((block) => block.type === "diff")?.path ?? call.title : undefined,
+    paths,
+    input: call.rawInput === undefined ? content.find((block) => block.type === "diff")?.path ?? paths[0] ?? call.title : undefined,
     command: call.kind === "execute" ? rawInput.success ? rawInput.data : call.rawInput === undefined ? call.title : undefined : undefined,
     output: text || (rawOutput.success ? rawOutput.data : JSON.stringify(call.rawOutput)),
     edits: content.flatMap((block) => block.type === "diff" ? [{ oldText: block.oldText ?? "", newText: block.newText }] : []),
@@ -56,7 +69,6 @@ function acpToolDetail(call: z.infer<typeof toolCallSchema>) {
     isError: call.status === "failed",
   });
 }
-import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
 import { isWslCommand, withWslProbeReason, wslBlockedReason, wslProbeAllowed } from "../../wsl-gate.ts";
 import { inputDigest } from "../../repeat-detector.ts";
 import { startTurnTimer } from "../../turn-timing.ts";
@@ -1187,6 +1199,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                 ...parsed.data,
                 rawInput: parsed.data.rawInput ?? previous?.rawInput,
                 rawOutput: parsed.data.rawOutput ?? previous?.rawOutput,
+                locations: parsed.data.locations ?? previous?.locations,
               } : undefined;
               if (call) toolCalls.set(call.toolCallId, call);
               if (u.status === "completed" || u.status === "failed") {

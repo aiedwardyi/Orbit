@@ -1725,10 +1725,10 @@ const groupWithThread = (group: GroupRecord) => ({
 store.onChange((change) => {
   switch (change.type) {
     case "message":
-      broadcast({ kind: "message", threadId: change.threadId, message: flagShownImage(change.message), ...(change.imported ? { imported: true } : {}) });
+      broadcast({ kind: "message", threadId: change.threadId, message: clientMessage(change.message), ...(change.imported ? { imported: true } : {}) });
       break;
     case "message.patch":
-      broadcast({ kind: "message.patch", threadId: change.threadId, message: flagShownImage(change.message) });
+      broadcast({ kind: "message.patch", threadId: change.threadId, message: clientMessage(change.message) });
       break;
     case "thread":
       broadcast({ kind: "thread", threadId: change.threadId, activeLeafId: change.activeLeafId });
