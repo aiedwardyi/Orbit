@@ -3604,6 +3604,24 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   color: var(--color-ink);
 }
 
+::highlight(orbit-find-current) {
+  background-color: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+
+/* The current find match sits in a clipped or one-line row: let it wrap while it is current. */
+[data-find-unclamp] {
+  max-height: none !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: none !important;
+  mask-image: none !important;
+  min-width: 0 !important;
+  flex-shrink: 1 !important;
+}
+
 /* Styling a scrollbar turns off a phone's thin overlay one, so touch screens keep their own. */
 @media not all and (pointer: coarse) {
   ::-webkit-scrollbar {

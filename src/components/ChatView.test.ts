@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { StoreProvider, useStore, type Bot, type Group, type InstanceInfo, type Message } from "@/state/store";
 
+import { setFindCurrent } from "@/lib/chat-find";
+
 import { ChatView } from "./ChatView";
 import { GroupView } from "./GroupView";
 import type { TurnStreamState } from "@/lib/turn-stage";
@@ -1601,6 +1603,49 @@ describe("phone header name floor", () => {
       expect(decoyLabel.style.display).toBe("");
     } finally {
       await view.unmount();
+    }
+  });
+});
+
+describe("ChatView find reveal", () => {
+  const tool = (id: string, name: string): Message => ({ id, at: 1, role: "bot", kind: "activity", tool: { name, ok: true } });
+
+  it("shows a hidden tool row while it is the current find hit, then hides it again", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // SAFETY: botB is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botB, messages: [
+      userMsg("ub", "go"),
+      tool("single", "auto-approved Bash: gh api replies -X POST"),
+      userMsg("between", "and"),
+      tool("r1", "Read"),
+      tool("r2", "auto-approved Bash: curl -X POST /talk"),
+      tool("r3", "Edit"),
+    ] } as Bot;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current }))));
+    try {
+      expect(host.querySelector('[data-mid="single"]')).toBeNull();
+      await act(async () => setFindCurrent({ messageId: "single", query: "post" }));
+      expect(host.querySelector('[data-mid="single"]')?.textContent).toContain("-X POST");
+      await act(async () => setFindCurrent({ messageId: "r2", query: "post" }));
+      expect(host.querySelector('[data-mid="single"]')).toBeNull();
+      expect(host.querySelector('[data-mid="r2"]')?.textContent).toContain("curl -X POST");
+      expect(host.querySelector('[data-mid="r1"]')).toBeNull();
+      await act(async () => setFindCurrent(null));
+      expect(host.querySelector('[data-mid="r2"]')).toBeNull();
+    } finally {
+      setFindCurrent(null);
+      await act(async () => root.unmount());
+      host.remove();
     }
   });
 });
