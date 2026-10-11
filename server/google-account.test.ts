@@ -164,6 +164,22 @@ describe("google account", () => {
     expect(source.indexOf("takeGoogleEnv(process.env)")).toBeLessThan(source.indexOf("await registry.load("));
   });
 
+  it("does not report signed out before the boot push", async () => {
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    expect(source.includes("new GoogleAccount(googleEnv.client, null, { awaitSession: true })")).toBe(true);
+    const google = new GoogleAccount(CLIENT, null, { awaitSession: true, log: () => {} });
+    expect(google.status()).toEqual({ state: "pending" });
+    expect(await stateOf(google.getAccessToken())).toBe("pending");
+    expect(applyGoogleAccountMessage({ type: "orbit:google-account", session: { refreshToken: 1 } }, google)).toBe(true);
+    expect(google.status()).toEqual({ state: "pending" });
+    expect(applyGoogleAccountMessage({ type: "orbit:google-account", session: SESSION }, google)).toBe(true);
+    expect(google.status()).toEqual({ state: "signed-in", email: SESSION.email });
+    const empty = new GoogleAccount(CLIENT, null, { awaitSession: true, log: () => {} });
+    expect(applyGoogleAccountMessage({ type: "orbit:google-account", session: null }, empty)).toBe(true);
+    expect(empty.status()).toEqual({ state: "signed-out" });
+    expect(JSON.stringify([google.status(), empty.status()])).not.toContain(SESSION.refreshToken);
+  });
+
   it("never writes tokens to logs, config or the sync folder", async () => {
     const lines: string[] = [];
     const spies = (["log", "info", "warn", "error", "debug"] as const).map((level) =>
