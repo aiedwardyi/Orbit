@@ -30,13 +30,18 @@ export function termStepState(ok: boolean | undefined): TermStepState {
   return ok === undefined ? "running" : ok ? "done" : "failed";
 }
 
+export const TERM_STEP_WORD = {
+  running: "term.step.running",
+  done: "term.step.done",
+  failed: "term.step.failed",
+} as const satisfies Record<TermStepState, MessageKey>;
+
 export function termDuration(ms: number): string {
   return ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
 }
 
 /** Status and duration are always known, so the ⎿ line is never empty. */
-export function termResultLine(state: TermStepState, elapsedMs: number | undefined): string {
-  const word = state === "running" ? "Running…" : state === "done" ? "Done" : "Failed";
+export function termResultLine(word: string, elapsedMs: number | undefined): string {
   return elapsedMs === undefined ? word : `${word} (${termDuration(elapsedMs)})`;
 }
 

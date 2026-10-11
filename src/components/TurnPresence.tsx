@@ -35,7 +35,7 @@ export class MessageBoundary extends Component<{ children: ReactNode; fallbackTe
   }
 }
 
-export type ReplyDock = { slot: string; live: boolean; avatar: ReactNode; label: string };
+export type ReplyDock = { slot: string; live: boolean; avatar: ReactNode; label: string; since?: number };
 
 // The parent identifies a reply slot before the server assigns its message id.
 export function replySlot(threadId: string, message: Message, transcript: Message[]) {
@@ -97,7 +97,7 @@ export function TurnPresence({
 
 /** The mascot docked in a live reply's action strip. It fades out in place
  * when the turn ends, so the reply's own actions take the strip unmoved. */
-export function DockedPresence({ avatar, label, live, className }: { avatar: ReactNode; label: string; live: boolean; className?: string }) {
+export function DockedPresence({ avatar, label, live, since, className }: { avatar: ReactNode; label: string; live: boolean; since?: number; className?: string }) {
   const terminal = useSkin() === "terminal";
   const [gone, setGone] = useState(!live);
   if (live && gone) setGone(false);
@@ -117,6 +117,7 @@ export function DockedPresence({ avatar, label, live, className }: { avatar: Rea
     >
       {terminal ? <TermGlyph /> : avatar}
       {live ? <WorkingLabel label={label} /> : null}
+      {live && terminal && since ? <Elapsed since={since} /> : null}
     </div>
   );
 }

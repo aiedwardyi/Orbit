@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { termElapsed, termMeter, termResultLine, termStepAria, termStepState, termVerb } from "./terminal-skin";
+import { TERM_STEP_WORD, termElapsed, termMeter, termResultLine, termStepAria, termVerb } from "./terminal-skin";
+import { en, ko } from "./i18n-catalog";
 
 describe("termVerb", () => {
   it("maps tool names to Claude Code verbs across engines", () => {
@@ -21,15 +22,20 @@ describe("termVerb", () => {
 
 describe("termResultLine", () => {
   it("settles into Done or Failed with the duration", () => {
-    expect(termResultLine(termStepState(true), 1200)).toBe("Done (1.2s)");
-    expect(termResultLine(termStepState(false), 400)).toBe("Failed (0.4s)");
-    expect(termResultLine(termStepState(true), 62_000)).toBe("Done (1m 2s)");
+    expect(termResultLine("Done", 1200)).toBe("Done (1.2s)");
+    expect(termResultLine("Failed", 400)).toBe("Failed (0.4s)");
+    expect(termResultLine("Done", 62_000)).toBe("Done (1m 2s)");
   });
 
   it("is never empty without a duration", () => {
-    expect(termResultLine("done", undefined)).toBe("Done");
-    expect(termResultLine("failed", undefined)).toBe("Failed");
-    expect(termResultLine(termStepState(undefined), 3000)).toBe("Running… (3.0s)");
+    expect(termResultLine("Done", undefined)).toBe("Done");
+    expect(termResultLine("Failed", undefined)).toBe("Failed");
+    expect(termResultLine("Running…", 3000)).toBe("Running… (3.0s)");
+  });
+
+  it("takes its words from the catalogs", () => {
+    expect(Object.values(TERM_STEP_WORD).map((key) => en[key])).toEqual(["Running…", "Done", "Failed"]);
+    expect(Object.values(TERM_STEP_WORD).map((key) => ko[key])).toEqual(["실행 중…", "완료", "실패"]);
   });
 });
 

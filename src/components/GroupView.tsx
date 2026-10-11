@@ -560,7 +560,7 @@ const Transcript = memo(function Transcript({
                 <span className={cn("text-[11px] tabular-nums text-ink-secondary/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100", streaming && "invisible")}>
                   {formatTime(m.at, localeTag(locale))}
                 </span>
-                {docked && <DockedPresence avatar={docked.avatar} label={docked.label} live={docked.live} className="absolute inset-y-0 left-0" />}
+                {docked && <DockedPresence avatar={docked.avatar} label={docked.label} live={docked.live} since={docked.since} className="absolute inset-y-0 left-0" />}
               </div>
             </div>
           ) : null;
@@ -1263,10 +1263,12 @@ export function GroupView({ group }: { group: Group }) {
   const docked = useReplyDock(listedStreaming ? tailSlot : null, tailSlot, waiting);
   const dockSlot = docked?.slot;
   const dockLive = docked?.live ?? false;
+  const lastUserAt = group.messages.findLast((m) => m.role === "user")?.at;
   const dock = useMemo<ReplyDock | null>(() => dockSlot ? {
     slot: dockSlot,
     live: dockLive,
     label: activityLabel,
+    since: lastUserAt,
     avatar: (
       <BotAvatar
         bot={presenceSpeaker ?? { name: group.name, color: DEFAULT_MAUS_COLOR }}
@@ -1277,7 +1279,7 @@ export function GroupView({ group }: { group: Group }) {
         trackPointer={false}
       />
     ),
-  } : null, [dockSlot, dockLive, activityLabel, presenceSpeaker, group.name, toolInFlight]);
+  } : null, [dockSlot, dockLive, activityLabel, lastUserAt, presenceSpeaker, group.name, toolInFlight]);
 
   const appliedFocus = useRef<number | null>(null);
   const requestedFocus = useRef<number | null>(null);
@@ -1740,7 +1742,7 @@ export function GroupView({ group }: { group: Group }) {
               visible={waiting && !dockLive}
               docked={dockLive}
               label={activityLabel}
-              since={group.messages.findLast((m) => m.role === "user")?.at}
+              since={lastUserAt}
             />
           )}
         </div>

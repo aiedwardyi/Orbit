@@ -774,6 +774,26 @@ describe("open window and jump pill", () => {
     expect(host.querySelector("[data-term-status]")?.textContent).not.toContain("/new-default");
   });
 
+  it.each(["chat", "room"] as const)("keeps the Terminal working timer when a %s reply docks", async (view) => {
+    applySkin("terminal");
+    const threadId = view === "chat" ? "thread-a" : "thread-g";
+    const thread = [{ ...say("prompt", null, "user", "fixture prompt;"), at: Date.now() - 125_000 }];
+    live.current = { streaming: { [threadId]: "typing;" }, reasoning: {}, signal: {}, gen: {}, turn: { [threadId]: "0:prompt" } };
+    try {
+      const member = { ...bot([], false), busy: true };
+      pagedServer(threadId, thread, view === "chat"
+        ? { bots: [{ ...member, messages: thread }], groups: [] }
+        : { bots: [member], groups: [{ ...room(thread, false), memberIds: [member.id], busyBotId: member.id }] });
+      const host = await mount(view);
+      await vi.waitFor(() => expect(host.querySelector("[data-turn-mascot].turn-mascot-docked")).not.toBeNull());
+      expect(host.querySelector("[data-turn-mascot].turn-mascot-docked")?.textContent).toMatch(/\(2m \d+s\)/);
+      await act(async () => applySkin("precision"));
+      expect(host.querySelector("[data-turn-mascot].turn-mascot-docked")?.textContent).not.toMatch(/\(\d+m/);
+    } finally {
+      live.current = { streaming: {}, reasoning: {}, signal: {}, gen: {}, turn: {} };
+    }
+  });
+
   it("does not copy a room transcript to time its Terminal working line", async () => {
     applySkin("terminal");
     const thread = [say("prompt", null, "user", "fixture prompt;"), say("reply", "prompt", "bot", "fixture reply;")];

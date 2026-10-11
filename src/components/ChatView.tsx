@@ -632,7 +632,7 @@ const Bubble = memo(function Bubble({
             </MessageBoundary>
           ) : null}
         </div>
-        {dock && <DockedPresence avatar={dock.avatar} label={dock.label} live={dock.live} className="absolute bottom-0 left-0 h-[26px]" />}
+        {dock && <DockedPresence avatar={dock.avatar} label={dock.label} live={dock.live} since={dock.since} className="absolute bottom-0 left-0 h-[26px]" />}
         {!user && !streaming && !dock?.live && (
           <div
             data-message-hover-actions
@@ -1449,6 +1449,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     slot: dockSlot,
     live: dockLive,
     label: activityLabel,
+    since: lastUserMessage?.at,
     avatar: (
       <BotAvatar
         bot={bot}
@@ -1459,7 +1460,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         trackPointer={false}
       />
     ),
-  } : null, [dockSlot, dockLive, activityLabel, bot, toolInFlight]);
+  } : null, [dockSlot, dockLive, activityLabel, lastUserMessage?.at, bot, toolInFlight]);
 
   // regenerate = fork the last user message with the same text — reuses the
   // existing branch machinery, so the old answer stays reachable via ‹ ›

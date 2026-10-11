@@ -9,7 +9,7 @@ import type { Message } from "@/state/store";
 import { describeRun, describeSearch } from "@/lib/activity-runs";
 import { useI18n } from "@/lib/i18n";
 import { useSkin } from "@/lib/skins";
-import { termResultLine, termStepAria, termStepState, termVerb } from "@/lib/terminal-skin";
+import { TERM_STEP_WORD, termResultLine, termStepAria, termStepState, termVerb } from "@/lib/terminal-skin";
 
 function StepStatus({ ok }: { ok: boolean | undefined }) {
   if (ok === undefined) return <Loader2 size={13} className="shrink-0 animate-spin" />;
@@ -70,7 +70,7 @@ function TermStep({ name, summary, ok, elapsed }: { name: string; summary?: stri
         <span className="font-semibold text-ink">{verb}</span>
         {summary && `(${summary})`}
       </div>
-      <div aria-hidden="true" className="term-step-result truncate">{termResultLine(state, elapsed)}</div>
+      <div aria-hidden="true" className="term-step-result truncate">{termResultLine(t(TERM_STEP_WORD[state]), elapsed)}</div>
     </div>
   );
 }

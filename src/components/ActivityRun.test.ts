@@ -38,6 +38,16 @@ describe("ActivityStep in the Terminal skin", () => {
     expect(html).toContain("Failed (0.4s)");
   });
 
+  it("speaks the result line in Korean", () => {
+    document.documentElement.dataset.skin = "terminal";
+    applyLocale("ko");
+    const html = renderToStaticMarkup(createElement(ActivityStep, { message: step("Edit", "src/a.ts", true, 1200) }));
+    expect(html).toContain("완료 (1.2s)");
+    expect(html).not.toContain("Done");
+    const failed = renderToStaticMarkup(createElement(ActivityStep, { message: step("Edit", "src/a.ts", false, 400) }));
+    expect(failed).toContain("실패 (0.4s)");
+  });
+
   it("leaves other skins on the chip row", () => {
     const html = render("tui", createElement(ActivityStep, { message: step("Edit", "src/a.ts", true, 1200) }));
     expect(html).not.toContain("term-step");
