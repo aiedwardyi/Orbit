@@ -2,7 +2,7 @@
 // Writes shared/model-index-data.ts from the snapshots; --print writes it to stdout instead.
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const dir = join(root, "shared/model-index-sources");
@@ -80,9 +80,9 @@ const literal = (value) =>
         .join(", ")} }`
     : JSON.stringify(value);
 
-function priceLabel(row) {
+function priceLabel(row, benchmark) {
   const vendor = VENDOR[new URL(row.source_url).hostname];
-  if (!vendor) throw new Error(`no vendor name for ${row.source_url}`);
+  if (!vendor) throw new Error(`${benchmark} ${row.model}: no vendor name for ${row.source_url}`);
   const notes = [
     row.price.upToTokens && `prompts up to ${row.price.upToTokens / 1000}k tokens`,
     row.price.until && `promo price through ${row.price.until}`,
@@ -90,16 +90,22 @@ function priceLabel(row) {
   return `${[vendor, ...notes].join(", ")} (USD per 1M tokens)`;
 }
 
-function buildData() {
-  const models = JSON.parse(readFileSync(join(dir, "models.json"), "utf8"));
-  const snapshots = readdirSync(dir)
+export function buildData(from = dir) {
+  const models = JSON.parse(readFileSync(join(from, "models.json"), "utf8"));
+  const snapshots = readdirSync(from)
     .filter((name) => name.endsWith(".json") && name !== "models.json")
     .sort()
-    .map((name) => JSON.parse(readFileSync(join(dir, name), "utf8")));
+    .map((name) => JSON.parse(readFileSync(join(from, name), "utf8")));
   const entries = [];
   const sources = {};
+  const rowKeys = new Set();
   for (const snap of snapshots) {
+    if (sources[snap.benchmark]) throw new Error(`duplicate benchmark ${snap.benchmark}`);
+    if (!Array.isArray(snap.rows) || snap.rows.length === 0) throw new Error(`${snap.benchmark}: snapshot has no rows`);
     for (const row of snap.rows) {
+      const key = `${snap.benchmark} ${row.model} ${row.effort}`;
+      if (rowKeys.has(key)) throw new Error(`repeated ${key}`);
+      rowKeys.add(key);
       const meta = models[row.model];
       if (!meta) throw new Error(`${snap.benchmark}: no provider or label for ${row.model}`);
       const { price } = row;
@@ -116,7 +122,7 @@ function buildData() {
         costSource: row.cost_source,
         interval: row.interval,
         source: row.source_url,
-        sourceLabel: price ? priceLabel(row) : snap.label,
+        sourceLabel: price ? priceLabel(row, snap.benchmark) : snap.label,
         benchmark: snap.benchmark,
         version: snap.version,
         kind: row.kind,
@@ -145,5 +151,10 @@ function buildData() {
   ].join("\n");
 }
 
-if (process.argv.includes("--print")) process.stdout.write(buildData());
-else writeFileSync(target, buildData());
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const dirFlag = process.argv.indexOf("--dir");
+  if (dirFlag >= 0 && !process.argv[dirFlag + 1]) throw new Error("--dir needs a folder");
+  const text =buildData(dirFlag >= 0 ? process.argv[dirFlag + 1] : dir);
+  if (process.argv.includes("--print")) process.stdout.write(text);
+  else writeFileSync(target, text);
+}

@@ -1,11 +1,12 @@
 // Re-fetches every source we may fetch, rewrites its snapshot, rebuilds shared/model-index-data.ts and prints what changed. Exit 0 = no change, 2 = changed, 1 = error. Usage: node scripts/model-index/refresh.mjs
+// Weekly routine: commit the rewritten snapshots on exit 0 and exit 2, so the checked date stays true.
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as deepswe from "./fetch-deepswe.mjs";
 import * as listPrices from "./fetch-list-prices.mjs";
 import * as vals from "./fetch-vals.mjs";
-import { readModels, readSnapshot, root, saveRaw, writeSnapshot } from "./lib.mjs";
+import { beginRun, readModels, readSnapshot, root, saveRaw, writeSnapshot } from "./lib.mjs";
 
 const FETCHED = [
   { name: "deepswe", fetcher: deepswe },
@@ -66,7 +67,13 @@ function report(name, before, after, unmapped, models, today) {
   return { lines, changed: diff.any };
 }
 
+/** stderr is null when spawn itself fails, so prefer error.message. */
+export function formatBuildFailure(build) {
+  return `build-data: FAILED - ${build.error?.message ?? build.stderr?.trim()}`;
+}
+
 export async function refresh(today = day(new Date().toISOString())) {
+  beginRun();
   const models = readModels();
   const out = [];
   let changed = false;
@@ -94,7 +101,7 @@ export async function refresh(today = day(new Date().toISOString())) {
     const build = spawnSync(process.execPath, [join(root, "scripts/model-index/build-data.mjs")], { encoding: "utf8" });
     if (build.status !== 0) {
       failed = true;
-      out.push(`build-data: FAILED - ${build.stderr.trim()}`);
+      out.push(formatBuildFailure(build));
     }
   }
   return { out, code: failed ? 1 : changed ? 2 : 0 };

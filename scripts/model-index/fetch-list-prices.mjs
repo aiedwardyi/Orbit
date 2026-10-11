@@ -90,10 +90,13 @@ export function parseMeta(html, names) {
   const prices = {};
   const tiers = [...text.matchAll(/Models:([^\n]*)\n[\s\S]{0,700}?Usage Price per 1M tokens\s+Cached input \$([\d.]+)\s+Input \$([\d.]+)\s+Output \$([\d.]+)/g)];
   if (tiers.length === 0) throw new Unverifiable("Meta pricing tiers not found");
+  const listed = [...text.matchAll(/Models:([^\n]*)/g)].map((m) => m[1]);
   for (const id of names) {
-    const found = tiers.filter((t) => new RegExp(`(?<![\\w.-])${escape(id)}(?![\\w-]|\\.\\d)`).test(t[1]));
+    const onLine = (line) => new RegExp(`(?<![\\w.-])${escape(id)}(?![\\w-]|\\.\\d)`).test(line);
+    const found = tiers.filter((t) => onLine(t[1]));
     if (found.length > 1) throw new Unverifiable(`Meta ${id}: listed in more than one tier`);
     if (found.length) prices[id] = { input: Number(found[0][3]), cachedInput: Number(found[0][2]), output: Number(found[0][4]) };
+    else if (listed.some(onLine)) throw new Unverifiable(`Meta ${id}: row shape changed`);
   }
   return prices;
 }
@@ -118,8 +121,10 @@ export function parseXai(html, names) {
   if (!/Model Context Short context Long context\s+Input Cached Output Input Cached Output/.test(text)) throw new Unverifiable("xAI pricing table header not found");
   const prices = {};
   for (const id of names) {
+    // Captures the short-context columns, the first Input / Cached / Output group.
     const m = text.match(new RegExp(`\\n\\s*${escape(id)} Long context[^\\n]*\\n\\s*[\\w.]+ \\$([\\d.]+) \\$([\\d.]+) \\$([\\d.]+) \\$[\\d.]+ \\$[\\d.]+ \\$[\\d.]+`));
     if (m) prices[id] = { input: Number(m[1]), cachedInput: Number(m[2]), output: Number(m[3]) };
+    else if (new RegExp(`\\n\\s*${escape(id)} `).test(text)) throw new Unverifiable(`xAI ${id}: row shape changed`);
   }
   return prices;
 }

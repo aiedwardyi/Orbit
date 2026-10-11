@@ -1,5 +1,5 @@
 // Shared by the fetch-*.mjs scripts: polite fetch, raw cache, snapshot IO, id mapping.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,7 +16,12 @@ export class Unverifiable extends Error {}
 const seen = new Set();
 let lastRequest = 0;
 
-/** One request per second, each URL at most once per process. */
+export function beginRun() {
+  seen.clear();
+  lastRequest = 0;
+}
+
+/** One request per second, each URL at most once per run. */
 export async function get(url) {
   if (seen.has(url)) throw new Error(`${url} already fetched this run`);
   seen.add(url);
@@ -44,8 +49,11 @@ export function readSnapshot(name) {
   return JSON.parse(readFileSync(join(sourcesDir, `${name}.json`), "utf8"));
 }
 
-export function writeSnapshot(name, snapshot) {
-  writeFileSync(join(sourcesDir, `${name}.json`), `${JSON.stringify(snapshot, null, 2)}\n`);
+export function writeSnapshot(name, snapshot, dir = sourcesDir) {
+  const path = join(dir, `${name}.json`);
+  const temp = join(dir, `.${name}.${process.pid}.tmp`);
+  writeFileSync(temp, `${JSON.stringify(snapshot, null, 2)}\n`);
+  renameSync(temp, path);
 }
 
 export function readModels() {
