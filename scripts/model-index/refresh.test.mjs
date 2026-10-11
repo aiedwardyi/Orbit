@@ -1,12 +1,14 @@
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import * as deepswe from "./fetch-deepswe.mjs";
 import * as listPrices from "./fetch-list-prices.mjs";
 import * as vals from "./fetch-vals.mjs";
-import { percent, sourceIds, Unverifiable } from "./lib.mjs";
-import { diffSnapshots } from "./refresh.mjs";
+import { percent, sourceIds, sourcesDir, Unverifiable, writeSnapshot } from "./lib.mjs";
+import { diffSnapshots, refresh } from "./refresh.mjs";
 
 const fixture = (name) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", name), "utf8");
 const leaderboard = () => JSON.parse(fixture("deepswe-leaderboard.json"));
@@ -224,5 +226,129 @@ describe("diffSnapshots", () => {
     const before = { updated: null, rows: [row("a", 1)] };
     const after = { updated: null, rows: [{ ...row("a", 1), retrieved_at: "later" }] };
     expect(diffSnapshots(before, after).any).toBe(false);
+  });
+});
+
+describe("listed rows that no longer parse", () => {
+  it("fails when a listed xAI or Meta row no longer parses", () => {
+    const xai = fixture("xai-pricing.html").replace("<a>grok-4.6</a><div>Long context", "<a>grok-4.6</a><div>Extended");
+    expect(() => listPrices.parseXai(xai, ["grok-4.6"])).toThrow(Unverifiable);
+    expect(listPrices.parseXai(xai, ["grok-5"])["grok-5"]).toBeUndefined();
+    const meta = fixture("meta-pricing.html").replace("$0.002", "n/a");
+    expect(() => listPrices.parseMeta(meta, ["muse-spark-1.3-contributor"])).toThrow(Unverifiable);
+    expect(listPrices.parseMeta(meta, ["muse-spark-1.3"])["muse-spark-1.3"]).toEqual({ input: 1.25, cachedInput: 0.15, output: 4.25 });
+    expect(listPrices.parseMeta(meta, ["muse-spark-9"])["muse-spark-9"]).toBeUndefined();
+  });
+});
+
+describe("repeated rows", () => {
+  const wink = { "gpt-6-astra": { provider: "openai", label: "GPT-6 Astra" } };
+  const score = (effort) => ({
+    model: "gpt-6-astra",
+    effort,
+    value: 74,
+    source_url: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+    retrieved_at: "2026-10-10T00:00:00.000Z",
+    kind: "independent",
+  });
+  const snap = (rows) => ({ benchmark: "deepswe", version: "1.1", index: "coding", label: "L", updated: "2026-09-22", rows });
+  const runBuild = (files) => {
+    const dir = mkdtempSync(join(tmpdir(), "mi-build-"));
+    try {
+      for (const [name, value] of Object.entries(files)) writeFileSync(join(dir, name), JSON.stringify(value));
+      return spawnSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "build-data.mjs"), "--dir", dir, "--print"], { encoding: "utf8" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("fails when a model and effort is repeated", () => {
+    const leaderboard = deepswe.parseLeaderboard(fixture("deepswe-leaderboard.json"));
+    const row = leaderboard.rows.get("mini_swe_agent_gpt_6_astra_xhigh");
+    leaderboard.rows.set("mini_swe_agent_gpt_6_astra_xhigh_rerun", { ...row, config: "mini_swe_agent_gpt_6_astra_xhigh_rerun" });
+    const hydration = deepswe.parseHydration(fixture("deepswe-page.html"));
+    hydration.set("mini_swe_agent_gpt_6_astra_xhigh_rerun", hydration.get("mini_swe_agent_gpt_6_astra_xhigh"));
+    expect(() => deepswe.buildSnapshot({ leaderboard, hydration, models, retrievedAt: "T", previous })).toThrow(/repeated gpt-6-astra xhigh/);
+    const built = runBuild({ "models.json": wink, "deepswe.json": snap([score("xhigh"), score("xhigh")]) });
+    expect(built.status).not.toBe(0);
+    expect(built.stderr).toMatch(/repeated deepswe gpt-6-astra xhigh/);
+  });
+
+  it("fails on an empty snapshot or a duplicate benchmark id", () => {
+    const empty = runBuild({ "models.json": wink, "deepswe.json": snap([]) });
+    expect(empty.status).not.toBe(0);
+    expect(empty.stderr).toMatch(/deepswe: snapshot has no rows/);
+    const dup = runBuild({
+      "models.json": wink,
+      "a.json": snap([score("xhigh")]),
+      "b.json": snap([score("high")]),
+    });
+    expect(dup.status).not.toBe(0);
+    expect(dup.stderr).toMatch(/duplicate benchmark deepswe/);
+  });
+
+  it("names the benchmark and model when a price URL has no vendor", () => {
+    const built = runBuild({
+      "models.json": { "grok-4.6": { provider: "xai", label: "Grok 4.6" } },
+      "list-prices.json": {
+        benchmark: "list-prices",
+        version: null,
+        index: "cost",
+        label: "List price",
+        updated: null,
+        rows: [{
+          model: "grok-4.6",
+          effort: "all",
+          price: { input: 2, cachedInput: 0.5, output: 6 },
+          source_url: "https://example.com/pricing",
+          retrieved_at: "2026-10-10T00:00:00.000Z",
+          kind: "vendor",
+        }],
+      },
+    });
+    expect(built.status).not.toBe(0);
+    expect(built.stderr).toMatch(/list-prices grok-4.6: no vendor name for https:\/\/example.com\/pricing/);
+  });
+});
+
+describe("refresh run state", () => {
+  it("fetches again on a second refresh() in one process", async () => {
+    const original = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = async (url) => {
+      calls.push(String(url));
+      throw new Error("offline");
+    };
+    try {
+      const first = await refresh("2026-10-11");
+      const second = await refresh("2026-10-11");
+      expect(first.out.join("\n")).not.toMatch(/already fetched/);
+      expect(second.out.join("\n")).not.toMatch(/already fetched/);
+      expect(second.out.join("\n")).toMatch(/offline/);
+      expect(calls).toHaveLength(6);
+    } finally {
+      globalThis.fetch = original;
+      const { beginRun } = await import("./lib.mjs");
+      if (typeof beginRun === "function") beginRun();
+    }
+  });
+
+  it("writes a snapshot via a temp file in the same folder, then renames it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mi-snap-"));
+    const stray = join(sourcesDir, "probe-guards.json");
+    mkdirSync(join(dir, "probe-guards.json"));
+    try {
+      expect(() => writeSnapshot("probe-guards", { ok: true }, dir)).toThrow();
+      expect(readdirSync(dir).some((name) => name !== "probe-guards.json")).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(stray, { force: true });
+    }
+  });
+
+  it("reports a build-data spawn error when stderr is empty", async () => {
+    const { formatBuildFailure } = await import("./refresh.mjs");
+    expect(formatBuildFailure({ status: 1, error: { message: "spawn ENOENT" }, stderr: null })).toBe("build-data: FAILED - spawn ENOENT");
+    expect(formatBuildFailure({ status: 1, error: null, stderr: "boom\n" })).toBe("build-data: FAILED - boom");
   });
 });

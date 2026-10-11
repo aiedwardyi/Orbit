@@ -3,8 +3,8 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { I18nProvider, applyLocale } from "@/lib/i18n";
-import { MODEL_INDEX_ENTRIES } from "../../shared/model-index-data.ts";
+import { I18nProvider, applyLocale, localeTag } from "@/lib/i18n";
+import { MODEL_INDEX_ENTRIES, MODEL_INDEX_SOURCES } from "../../shared/model-index-data.ts";
 
 vi.mock("@/state/store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/state/store")>()),
@@ -111,45 +111,64 @@ describe("coding tabs", () => {
 
 describe("source freshness", () => {
   const STALE = "Not updated since";
+  const sourceFor = (index: string) => {
+    const source = Object.values(MODEL_INDEX_SOURCES).find((entry) => entry.index === index);
+    if (!source) throw new Error(`no source for ${index}`);
+    return source;
+  };
+  const nbDay = (iso: string) =>
+    new Date(iso.slice(0, 10))
+      .toLocaleDateString(localeTag("en"), { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })
+      .replace(/ /g, "\u00a0");
+  const atLocal = (iso: string, plusDays: number, hour: number, minute: number) => {
+    const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
+    if (year === undefined || month === undefined || day === undefined) throw new Error(`bad date ${iso}`);
+    return new Date(year, month - 1, day + plusDays, hour, minute);
+  };
   afterEach(() => vi.useRealTimers());
 
   it("says when it was checked when the source publishes no date", () => {
-    expect(host.textContent).toContain("Checked Oct\u00a010,\u00a02026");
+    expect(host.textContent).toContain(`Checked ${nbDay(sourceFor("intelligence").retrievedAt)}`);
     expect(host.textContent).not.toContain("Source updated");
   });
 
   it("shows the source's own date beside the check", () => {
+    const legal = sourceFor("legal");
+    if (legal.updated === null) throw new Error("legal publishes no date");
     pick("Benchmark", "Legal");
-    expect(host.textContent).toContain("Source updated Oct\u00a01,\u00a02026 \u00b7 checked Oct\u00a010,\u00a02026");
+    expect(host.textContent).toContain(`Source updated ${nbDay(legal.updated)} \u00b7 checked ${nbDay(legal.retrievedAt)}`);
     expect(host.textContent).not.toContain(STALE);
   });
 
   it("flags a source not updated for more than 14 days", async () => {
+    const coding = sourceFor("coding");
+    if (coding.updated === null) throw new Error("coding publishes no date");
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(2026, 9, 6, 23, 30));
+    vi.setSystemTime(atLocal(coding.updated, 14, 23, 30));
     await mount();
     pick("Benchmark", "Coding");
     pick("Coding benchmark", "DeepSWE");
-    expect(host.textContent).toContain("Source updated Sep\u00a022,\u00a02026");
+    expect(host.textContent).toContain(`Source updated ${nbDay(coding.updated)}`);
     expect(host.textContent).not.toContain(STALE);
-    vi.setSystemTime(new Date(2026, 9, 7, 0, 30));
+    vi.setSystemTime(atLocal(coding.updated, 15, 0, 30));
     await mount();
     pick("Benchmark", "Coding");
     pick("Coding benchmark", "DeepSWE");
-    const badge = [...host.querySelectorAll("span")].find((el) => el.textContent === `${STALE} Sep\u00a022,\u00a02026`);
+    const badge = [...host.querySelectorAll("span")].find((el) => el.textContent === `${STALE} ${nbDay(coding.updated)}`);
     expect(badge?.className).toContain("text-warning");
   });
 
   it("flags a source with no published date once it was last checked more than 14 days ago", async () => {
     const CHECKED = "Not checked since";
+    const checked = nbDay(sourceFor("intelligence").retrievedAt);
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(2026, 9, 24, 23, 30));
+    vi.setSystemTime(atLocal(sourceFor("intelligence").retrievedAt, 14, 23, 30));
     await mount();
-    expect(host.textContent).toContain("Checked Oct 10, 2026");
+    expect(host.textContent).toContain(`Checked ${checked}`);
     expect(host.textContent).not.toContain(CHECKED);
-    vi.setSystemTime(new Date(2026, 9, 25, 0, 30));
+    vi.setSystemTime(atLocal(sourceFor("intelligence").retrievedAt, 15, 0, 30));
     await mount();
-    const badge = [...host.querySelectorAll("span")].find((el) => el.textContent === `${CHECKED} Oct 10, 2026`);
+    const badge = [...host.querySelectorAll("span")].find((el) => el.textContent === `${CHECKED} ${checked}`);
     expect(badge?.className).toContain("text-warning");
     expect(host.textContent).not.toContain(STALE);
   });

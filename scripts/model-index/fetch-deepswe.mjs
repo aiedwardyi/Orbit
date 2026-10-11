@@ -67,6 +67,7 @@ export function buildSnapshot({ leaderboard, hydration, models, retrievedAt, pre
   const ids = sourceIds(models, "deepswe");
   const unmapped = new Set();
   const rows = [];
+  const landed = new Set();
   for (const [config, row] of leaderboard.rows) {
     const model = ids[row.model];
     if (!model) {
@@ -76,6 +77,9 @@ export function buildSnapshot({ leaderboard, hydration, models, retrievedAt, pre
     const shown = hydration.get(config);
     if (!shown) throw new Unverifiable(`${config}: not in the page hydration data`);
     if (shown.passAt1 !== row.pass_at_1) throw new Unverifiable(`${config}: page and JSON disagree on pass_at_1`);
+    const key = `${model} ${row.reasoning_effort}`;
+    if (landed.has(key)) throw new Unverifiable(`repeated ${key}`);
+    landed.add(key);
     rows.push({
       model,
       effort: row.reasoning_effort,
