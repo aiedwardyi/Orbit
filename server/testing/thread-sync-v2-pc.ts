@@ -9,6 +9,7 @@ import { CONFLICT_NOTICE, loadThreadSyncLedger, pullThread, saveThreadSyncLedger
 import { ThreadSyncV2 } from "../thread-sync-v2.ts";
 import { createThreadSyncV2Store } from "../thread-sync-v2-store.ts";
 import { createThreadSyncV2Gate } from "../thread-sync-v2-gate.ts";
+import { createSyncEngine } from "../thread-sync-v2-engine.ts";
 
 export interface TestArgs {
   threadId?: string;
@@ -148,6 +149,23 @@ parentPort!.on("message", async ({ id, method, args = {} }: { id: number; method
       case "race": live = false; runningCalls = 0; startAt = 3; break;
       case "flush": value = await sync?.flush(threadId); break;
       case "pull": await sync?.pull(threadId); break;
+      case "consumeForkByWriter": {
+        const scope = { botSyncId: "bot", threadId };
+        const engine = createSyncEngine({ folder: input.folder, dataDir: input.dataDir, deviceId: input.deviceId, staged: true });
+        engine.pull(scope);
+        while (engine.applyPending(scope).applied) {}
+        let cursor = 0;
+        for (;;) {
+          const changes = engine.changes(scope, cursor);
+          if (!changes.length) break;
+          store.applySyncChanges(bot.id, threadId, changes);
+          cursor = changes.at(-1)!.cursor;
+        }
+        const head = messageDatabase().prepare("SELECT json FROM sync_v2_frontier WHERE thread = ? AND kind = 'head' ORDER BY writer DESC, seq DESC LIMIT 1").get(threadId)!;
+        store.applySyncChanges(bot.id, threadId, [{ cursor: 0, kind: "head", rowId: "", value: JSON.parse(String(head.json)).value, conflict: false }]);
+        messageDatabase().prepare("UPDATE sync_v2_store SET cursor = ? WHERE threadId = ?").run(cursor, threadId);
+        break;
+      }
       case "poll":
         if (input.auto && !gate.check(input.folder)) {
           uploadThread(v1, "bot", threadId);

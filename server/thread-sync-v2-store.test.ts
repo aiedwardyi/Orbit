@@ -419,6 +419,132 @@ describe("store delta sync", () => {
     expect((await b.snapshot()).outbox).toBe(outbox);
   });
 
+  it("applies the main head to the local store after upgrading an already consumed fork", async () => {
+    const folder = temp();
+    const a = pc(folder, "a", true, false, false, LOW);
+    const c = pc(folder, "c", true, false, false, HIGH);
+    await a.call("append", { text: "base" });
+    await a.call("flush");
+    await c.call("pull");
+    await a.call("batch", { count: 20 });
+    await a.call("flush");
+    const main = (await a.snapshot()).leaf;
+    await c.call("batch", { count: 4 });
+    await c.call("flush");
+    const before = await c.snapshot();
+    await c.call("consumeForkByWriter");
+    expect(heads(c.dataDir)[0].value).toBe(before.leaf);
+    const db = new DatabaseSync(join(c.dataDir, "messages.db"), { readOnly: true });
+    try {
+      await c.call("restart");
+      expect((await c.snapshot()).leaf).toBe(before.leaf);
+      expect(heads(c.dataDir)).toHaveLength(2);
+      await c.call("pull");
+      const after = await c.snapshot();
+      expect(after.leaf).toBe(main);
+      expect(db.prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?").get("thread")?.active_leaf_id).toBe(main);
+      expect(after.disk).toEqual(after.rows);
+      expect(after.events.some((event) => event.type === "thread" && event.activeLeafId === main && event.importing)).toBe(true);
+      expect(after.outbox).toBe(before.outbox + 1);
+      expect(heads(c.dataDir).map((head) => head.value)).toEqual([main]);
+      await c.call("restart");
+      await c.call("poll");
+      expect((await c.snapshot()).leaf).toBe(main);
+      expect((await c.snapshot()).outbox).toBe(after.outbox);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("resolves a later head fork after migrating a live chat with a stale v1 tombstone", async () => {
+    const folder = temp();
+    const dir = join(folder, "threads", "bot");
+    mkdirSync(dir, { recursive: true });
+    const base: Message = { id: "base", parentId: null, at: 1, role: "user", kind: "text", text: "base" };
+    writeFileSync(join(dir, "thread.json"), JSON.stringify({ format: "orbit.thread-sync", version: 1, revision: 1, writerDeviceId: "old", updatedAt: 1,
+      task: { threadId: "thread", title: "Chat", createdAt: 1 }, messages: [base], activeLeafId: base.id }));
+    const tombstone = JSON.stringify({ syncedRevision: 1 });
+    writeFileSync(join(dir, "thread.deleted.json"), tombstone);
+    const a = pc(folder, "a", true, false, true, LOW);
+    const c = pc(folder, "c", true, false, true, HIGH);
+    for (const peer of [a, c]) {
+      await peer.call("seed", { rows: [base], leaf: base.id });
+      await peer.call("poll");
+      await peer.call("flush");
+      expect(migrationRow(peer.dataDir, "thread")).toEqual({ phase: "done", error: null, eligible: 1 });
+    }
+    await a.call("pull");
+    await a.call("batch", { count: 20 });
+    await a.call("flush");
+    const main = (await a.snapshot()).leaf;
+    await c.call("batch", { count: 4 });
+    await c.call("flush");
+    const before = await c.snapshot();
+    const db = new DatabaseSync(join(c.dataDir, "messages.db"), { readOnly: true });
+    try {
+      expect(db.prepare("SELECT json_extract(json, '$.legacy') AS legacy FROM sync_v2_frontier WHERE kind = 'delete'").get()?.legacy).toBeTruthy();
+      expect(db.prepare("SELECT deleted FROM sync_v2_store WHERE threadId = ?").get("thread")?.deleted).toBe(0);
+      await c.call("pull");
+      expect((await c.snapshot()).outbox).toBe(before.outbox + 1);
+      expect(heads(c.dataDir).map((head) => head.value)).toEqual([main]);
+    } finally {
+      db.close();
+    }
+    await c.call("flush");
+    await a.call("pull");
+    for (const peer of [a, c]) {
+      const after = await peer.snapshot();
+      expect(after.leaf).toBe(main);
+      expect(after.rows.filter(isConflictNotice)).toHaveLength(0);
+      expect(after.disk).toEqual(after.rows);
+      await peer.call("restart");
+      await peer.call("poll");
+      expect((await peer.snapshot()).leaf).toBe(main);
+      expect((await peer.snapshot()).outbox).toBe(after.outbox);
+    }
+    expect(readFileSync(join(dir, "thread.deleted.json"), "utf8")).toBe(tombstone);
+  });
+
+  it("blocks head resolution for native deletion conflicts and effective deletions", async () => {
+    const all = isolated([LOW, MID, HIGH]);
+    const [a, b, c] = all;
+    await a.peer.call("append", { text: "base" });
+    await a.peer.call("flush");
+    share(all, [a]);
+    for (const item of [b, c]) await item.peer.call("pull");
+    await b.peer.call("create");
+    await b.peer.call("delete");
+    await b.peer.call("flush");
+    await a.peer.call("batch", { count: 20 });
+    await a.peer.call("flush");
+    await c.peer.call("batch", { count: 4 });
+    await c.peer.call("flush");
+    share([c], [a, b]);
+    const before = await c.peer.snapshot();
+    await c.peer.call("pull");
+    expect((await c.peer.snapshot()).outbox).toBe(before.outbox);
+    expect(heads(c.peer.dataDir)).toHaveLength(2);
+    expect((await c.peer.snapshot()).tasks.some((task) => task.threadId === "thread")).toBe(true);
+    const transport = new ThreadSyncV2({ folder: c.folder, dataDir: c.peer.dataDir, deviceId: "pc2", staged: true });
+    try {
+      const scope = { botSyncId: "bot", threadId: "thread" };
+      expect((await transport.variants(scope, "delete")).some((item) => !item.version.legacy)).toBe(true);
+      expect((await transport.state(scope)).deleted).toBe(false);
+      await c.peer.call("create");
+      await c.peer.call("delete");
+      const deleted = await c.peer.snapshot();
+      expect((await transport.state(scope)).deleted).toBe(true);
+      await c.peer.call("poll");
+      const after = await c.peer.snapshot();
+      expect(after.outbox).toBe(deleted.outbox);
+      expect(after.tasks.some((task) => task.threadId === "thread")).toBe(false);
+      expect(after.disk).toEqual([]);
+      expect(heads(c.peer.dataDir)).toHaveLength(2);
+    } finally {
+      await transport.close();
+    }
+  });
+
   for (const count of [2, 3]) {
     it(`folds equal heads from ${count} PCs that resolve at once into one head with one more write`, async () => {
       const all = isolated([LOW, MID, HIGH]);

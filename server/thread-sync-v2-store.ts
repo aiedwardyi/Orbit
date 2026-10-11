@@ -343,7 +343,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
   }
 
   function resolveHeads(task: StoredTask): void {
-    if (host.running(task.threadId) || task.deleted || engine.variants(task, "delete").length || engine.changes(task, task.cursor, 1).length) return;
+    if (host.running(task.threadId) || task.deleted || engine.variants(task, "delete").some((item) => !item.version.legacy) || engine.changes(task, task.cursor, 1).length) return;
     const heads = engine.variants(task, "head").filter((item) => !item.version.legacy);
     if (heads.length < 2) return;
     if (heads.every((item) => item.version.value === heads[0].version.value)) {
@@ -352,7 +352,10 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       if ((resolvers.length ? resolvers : heads).map((item) => item.writerId).sort()[0] !== engine.state(task).writerId) return;
     }
     // One head that has seen every head lets older builds, which pick by writer id, converge too.
-    engine.commit(task, [{ kind: "head", value: z.string().nullable().parse(heads[0].version.value) }]);
+    const value = z.string().nullable().parse(heads[0].version.value);
+    engine.commit(task, [{ kind: "head", value }], undefined, () => {
+      host.store.applySyncChanges(task.botId, task.threadId, [{ cursor: 0, kind: "head", rowId: "", value, conflict: false }]);
+    });
     schedule(task.threadId);
   }
 
