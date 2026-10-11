@@ -116,11 +116,51 @@ describe("Drive client", () => {
     expect(drive.calls).toHaveLength(1);
   });
 
-  it.each(["not json", JSON.stringify({ files: [{}] }), JSON.stringify({ files: [], incompleteSearch: true })])("rejects an unusable successful list", async (body) => {
+  it.each(["not json", JSON.stringify({ files: [{}] })])("rejects an unusable successful list", async (body) => {
     const drive = new FakeDrive();
     drive.responses.push(new Response(body));
     await expect(clientFor(drive).listChildren("root")).rejects.toMatchObject({ status: 200 });
     expect(drive.calls).toHaveLength(1);
+  });
+
+  it("reports an incomplete search with its own error type", async () => {
+    const drive = new FakeDrive();
+    drive.responses.push(new Response('{"files":[],"incompleteSearch":true}'));
+    const error = await clientFor(drive).listChildren("root").catch((error) => error);
+    expect(error).toMatchObject({ name: "DriveIncompleteSearchError", message: "Drive search is incomplete" });
+    expect(error.status).toBeUndefined();
+    expect(drive.calls).toHaveLength(1);
+  });
+
+  it("sizes transfer timeouts by bytes and leaves metadata at 30 seconds", async () => {
+    const drive = new FakeDrive();
+    const root = drive.root();
+    const client = clientFor(drive);
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    try {
+      await client.listChildren(root.id);
+      const bytes = new Uint8Array(65_536);
+      const file = await client.createFile(root.id, "pictures%2Fa.png", {}, bytes);
+      await client.updateMedia(file.id, bytes);
+      await client.downloadFile(file.id, "5242880");
+      await client.downloadFile(file.id, "999999999999999999999999");
+      expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([30_000, 32_000, 31_000, 110_000, 2_147_483_647]);
+    } finally { timeout.mockRestore(); }
+  });
+
+  it("reports a failed download body as a transport error", async () => {
+    const drive = new FakeDrive();
+    drive.responses.push(new Response(new ReadableStream({ start(controller) { controller.error(new Error("private body detail")); } })));
+    await expect(clientFor(drive).downloadFile("file")).rejects.toMatchObject({ status: 0, message: "Drive request failed (HTTP 0)" });
+  });
+
+  it.each(["create", "update"])("reports a failed %s response body as a transport error", async (kind) => {
+    const drive = new FakeDrive();
+    const root = drive.root();
+    drive.responses.push(new Response(new ReadableStream({ start(controller) { controller.error(new Error("private body detail")); } })));
+    const client = clientFor(drive);
+    const result = kind === "create" ? client.createFile(root.id, "pictures%2Fa.png", {}, Buffer.from("data")) : client.updateMedia("file", Buffer.from("data"));
+    await expect(result).rejects.toMatchObject({ status: 0, message: "Drive request failed (HTTP 0)" });
   });
 
   it("stops a repeating page token", async () => {

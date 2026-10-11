@@ -5,13 +5,13 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
-import type { DriveClient, DriveFile } from "./drive-client.ts";
+import { DriveClientError, type DriveClient, type DriveFile } from "./drive-client.ts";
 import { driveOwnIdsSchema, type DriveOwnIds } from "./drive-own-ids.ts";
 
 const ownerSchema = z.object({ issuer: z.literal("https://accounts.google.com"), sub: z.string().min(1) }).strict();
 export type DriveOwner = z.infer<typeof ownerSchema>;
 export type DrivePathRule = "own" | "once" | "peer" | "ignore" | "unknown";
-export type DriveMirrorProblem = "binding" | "corrupt-table" | "missing-table" | "mirror-unavailable" | "unsafe-path" | "invalid-remote" | "content-changed" | "busy";
+export type DriveMirrorProblem = "binding" | "corrupt-table" | "missing-table" | "mirror-unavailable" | "unsafe-path" | "path-alias" | "split-root" | "invalid-remote" | "content-changed" | "busy";
 
 export class DriveMirrorError extends Error {
   readonly problem: DriveMirrorProblem;
@@ -41,6 +41,7 @@ export interface DriveMirrorSummary {
   downloaded: string[];
   skipped: string[];
   conflicts: string[];
+  failed: string[];
   duplicates: Array<{ path: string; selectedId: string; ids: string[] }>;
 }
 
@@ -99,7 +100,7 @@ function canonicalPath(path: string): string {
   const missing: string[] = [];
   for (;;) {
     try {
-      return resolve(realpathSync(parent), ...missing.reverse());
+      return resolve(realpathSync.native(parent), ...missing.reverse());
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw new DriveMirrorError("unsafe-path");
       const next = dirname(parent);
@@ -107,6 +108,16 @@ function canonicalPath(path: string): string {
       missing.push(relative(next, parent));
       parent = next;
     }
+  }
+}
+
+function fileIdentity(path: string): string | null {
+  try {
+    const stat = lstatSync(path, { bigint: true });
+    return `${stat.dev}:${stat.ino}`;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    throw error;
   }
 }
 
@@ -182,20 +193,51 @@ export function createDriveMirror(options: Options) {
     return true;
   }
 
-  function localBytes(path: string): Buffer | null {
-    if (!parents(path, false)) return null;
+  function assertSafePath(path: string): boolean {
+    if (!parents(path, false)) return false;
     const target = join(mirrorPath, ...path.split("/"));
     try {
       const stat = lstatSync(target);
       if (!stat.isFile() || stat.isSymbolicLink()) throw new DriveMirrorError("unsafe-path");
-      return readFileSync(target);
+      return true;
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
       throw error;
     }
   }
 
-  async function download(path: string, bytes: Buffer, once: boolean, check: () => void): Promise<boolean> {
+  function localBytes(path: string): Buffer | null {
+    return assertSafePath(path) ? readFileSync(join(mirrorPath, ...path.split("/"))) : null;
+  }
+
+  function ownTargetPath(path: string): string | null {
+    const parts = path.split("/");
+    if (parts[0] === "devices" && parts.length === 2) parts[1] = `${ids.profileDeviceId}.json`;
+    else if (/^memory-v2(?: \([1-9]\d*\))?$/.test(parts[0]) && parts.length === 3) parts[2] = `${ids.memoryDeviceId}.json`;
+    else if (/^threads-v2(?: \([1-9]\d*\))?$/.test(parts[0]) && parts.length === 5 && parts[4] === "head.json") parts[3] = ids.writerId;
+    else if (parts[0] === "changes" && parts.length === 2) {
+      const prefix = /^\d+-/.exec(parts[1])?.[0];
+      if (!prefix) return null;
+      parts[1] = `${prefix}${ids.profileDeviceId}${parts[1].slice(prefix.length + ids.profileDeviceId.length)}`;
+    } else return null;
+    const own = parts.join("/");
+    return drivePathRule(own, ids) === "own" ? own : null;
+  }
+
+  function assertDownloadPath(path: string, ownPaths: string[]): void {
+    assertSafePath(path);
+    const target = join(mirrorPath, ...path.split("/"));
+    const resolved = canonicalPath(target);
+    if (drivePathRule(relative(mirrorPath, resolved).split(sep).join("/"), ids) === "own") throw new DriveMirrorError("path-alias");
+    const identity = fileIdentity(target);
+    const candidate = ownTargetPath(path);
+    for (const own of candidate ? [...ownPaths, candidate] : ownPaths) {
+      const ownTarget = join(mirrorPath, ...own.split("/"));
+      if (samePath(resolved, canonicalPath(ownTarget)) || (identity && identity === fileIdentity(ownTarget))) throw new DriveMirrorError("path-alias");
+    }
+  }
+
+  async function download(path: string, bytes: Buffer, once: boolean, check: () => void, ownPaths: string[]): Promise<boolean> {
     check();
     parents(path, true);
     const target = join(mirrorPath, ...path.split("/"));
@@ -209,8 +251,8 @@ export function createDriveMirror(options: Options) {
         closeSync(fd);
       }
       check();
-      localBytes(path);
-      if (!once) await renameDriveFile(tmp, target, () => { check(); parents(path, false); localBytes(path); });
+      assertDownloadPath(path, ownPaths);
+      if (!once) await renameDriveFile(tmp, target, () => { check(); assertDownloadPath(path, ownPaths); });
       else {
         try {
           linkSync(tmp, target);
@@ -259,23 +301,31 @@ export function createDriveMirror(options: Options) {
       bound = structuredClone(captured);
     }
     check();
-    const files = await client.listChildren(table.binding.rootId);
+    const rootId = table.binding.rootId;
+    const roots = await client.listRoots();
     check();
-    const summary: DriveMirrorSummary = { uploaded: [], downloaded: [], skipped: [], conflicts: [], duplicates: [] };
+    if (roots[0]?.id !== rootId) throw new DriveMirrorError("split-root");
+    const files = await client.listChildren(rootId);
+    check();
+    const summary: DriveMirrorSummary = { uploaded: [], downloaded: [], skipped: [], conflicts: [], failed: [], duplicates: [] };
     const remote = new Map<string, ContentFile[]>();
+    const remotePaths = new Set<string>();
     for (const file of files) {
       const path = decodeDrivePath(file.name);
       if (!path || file.trashed || file.appProperties?.ph !== drivePathHash(path) || file.mimeType === "application/vnd.google-apps.folder") {
         summary.skipped.push(path ?? file.name);
         continue;
       }
-      if (drivePathRule(path, ids) === "ignore" || drivePathRule(path, ids) === "unknown") { summary.skipped.push(path); continue; }
+      if (process.platform === "win32" && path.split("/").some((part) => /~\d/.test(part))) throw new DriveMirrorError("path-alias");
+      if (drivePathRule(path, ids) === "ignore") { summary.skipped.push(path); continue; }
+      remotePaths.add(path);
+      if (drivePathRule(path, ids) === "unknown") { summary.skipped.push(path); continue; }
       if (!hasContent(file)) throw new DriveMirrorError("invalid-remote");
       const copies = remote.get(path) ?? [];
       copies.push(file);
       remote.set(path, copies);
     }
-    const paths = new Set([...remote.keys(), ...Object.keys(table.files)]);
+    const paths = new Set([...remotePaths, ...Object.keys(table.files)]);
     function scan(dir: string, prefix: string): void {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const path = prefix ? `${prefix}/${entry.name}` : entry.name;
@@ -288,6 +338,27 @@ export function createDriveMirror(options: Options) {
     }
     scan(mirrorPath, "");
 
+    const names = new Set<string>();
+    const resolvedPaths = new Set<string>();
+    const identities = new Set<string>();
+    for (const path of paths) {
+      const name = process.platform === "win32" ? path.toLowerCase() : path;
+      const target = join(mirrorPath, ...path.split("/"));
+      const resolved = canonicalPath(target);
+      const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+      const identity = fileIdentity(target);
+      if (names.has(name) || resolvedPaths.has(key) || (identity && identities.has(identity))) throw new DriveMirrorError("path-alias");
+      const own = ownTargetPath(path);
+      if (own && drivePathRule(path, ids) !== "own") {
+        const ownTarget = join(mirrorPath, ...own.split("/"));
+        if (samePath(resolved, canonicalPath(ownTarget)) || (identity && identity === fileIdentity(ownTarget))) throw new DriveMirrorError("path-alias");
+      }
+      names.add(name);
+      resolvedPaths.add(key);
+      if (identity) identities.add(identity);
+    }
+    const ownPaths = [...paths].filter((path) => drivePathRule(path, ids) === "own");
+
     function track(path: string, file: ContentFile): void {
       const previous = table!.files[path];
       if (previous?.driveId === file.id && previous.md5 === file.md5Checksum && previous.size === file.size) return;
@@ -295,10 +366,10 @@ export function createDriveMirror(options: Options) {
       save();
     }
 
-    for (const path of [...paths].sort((a, b) => priority(a) - priority(b) || a.localeCompare(b))) {
+    async function syncPath(path: string): Promise<void> {
       check();
       const rule = drivePathRule(path, ids);
-      if (rule === "ignore" || rule === "unknown") { summary.skipped.push(path); continue; }
+      if (rule === "ignore" || rule === "unknown") { summary.skipped.push(path); return; }
       const copies = remote.get(path) ?? [];
       copies.sort((a, b) => rule === "once"
         ? Date.parse(a.createdTime) - Date.parse(b.createdTime) || a.id.localeCompare(b.id)
@@ -310,8 +381,8 @@ export function createDriveMirror(options: Options) {
       }
       const bytes = localBytes(path);
       if (!file) {
-        if (!bytes) { summary.skipped.push(path); continue; }
-        const created = await client.createFile(table.binding.rootId, encodeDrivePath(path), { ph: drivePathHash(path) }, bytes);
+        if (!bytes) { summary.skipped.push(path); return; }
+        const created = await client.createFile(rootId, encodeDrivePath(path), { ph: drivePathHash(path) }, bytes);
         check();
         if (!hasContent(created) || !matches(created, bytes) || created.name !== encodeDrivePath(path) || created.appProperties?.ph !== drivePathHash(path) || created.trashed) throw new DriveMirrorError("invalid-remote");
         summary.uploaded.push(path);
@@ -322,17 +393,17 @@ export function createDriveMirror(options: Options) {
       } else if (rule === "once" && bytes) {
         if (!summary.conflicts.includes(path)) summary.conflicts.push(path);
       } else if (rule === "own") {
-        if (!bytes) { summary.skipped.push(path); continue; }
+        if (!bytes) { summary.skipped.push(path); return; }
         const updated = await client.updateMedia(file.id, bytes);
         check();
         if (!hasContent(updated) || updated.id !== file.id || !matches(updated, bytes) || updated.trashed) throw new DriveMirrorError("invalid-remote");
         summary.uploaded.push(path);
         track(path, updated);
       } else {
-        const downloaded = await client.downloadFile(file.id);
+        const downloaded = await client.downloadFile(file.id, file.size);
         check();
         if (!matches(file, downloaded)) throw new DriveMirrorError("content-changed");
-        const written = await download(path, downloaded, rule === "once", check);
+        const written = await download(path, downloaded, rule === "once", check, ownPaths);
         check();
         const current = localBytes(path);
         if (current && matches(file, current)) {
@@ -340,6 +411,15 @@ export function createDriveMirror(options: Options) {
           else summary.skipped.push(path);
           track(path, file);
         } else if (!summary.conflicts.includes(path)) summary.conflicts.push(path);
+      }
+    }
+    for (const path of [...paths].sort((a, b) => priority(a) - priority(b) || a.localeCompare(b))) {
+      try {
+        await syncPath(path);
+      } catch (error) {
+        check();
+        if (!(error instanceof DriveClientError) || (error.status >= 200 && error.status < 300)) throw error;
+        summary.failed.push(path);
       }
     }
     check();
