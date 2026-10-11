@@ -17,7 +17,7 @@ function bake(env) {
   const dir = mkdtempSync(join(tmpdir(), "google-client-"));
   dirs.push(dir);
   const target = join(dir, "google-client.json");
-  const { WINK_GOOGLE_CLIENT_ID, WINK_GOOGLE_CLIENT_SECRET, ...rest } = process.env;
+  const { WINK_GOOGLE_CLIENT_ID, WINK_GOOGLE_CLIENT_SECRET, WINK_GOOGLE_WEB_CLIENT_ID: _webClientId, ...rest } = process.env;
   execFileSync(process.execPath, [SCRIPT, target], { env: { ...rest, ...env } });
   return target;
 }
@@ -36,5 +36,17 @@ describe("google sign-in client", () => {
     const target = bake({ WINK_GOOGLE_CLIENT_ID: " id ", WINK_GOOGLE_CLIENT_SECRET: "secret" });
     expect(JSON.parse(readFileSync(target, "utf8"))).toEqual({ id: "id", secret: "secret" });
     expect(existsSync(bake({ WINK_GOOGLE_CLIENT_ID: "id" }))).toBe(false);
+  });
+
+  it("adds the web client id for phone sign-in only when set", () => {
+    const both = { WINK_GOOGLE_CLIENT_ID: "id", WINK_GOOGLE_CLIENT_SECRET: "secret" };
+    expect(JSON.parse(readFileSync(bake({ ...both, WINK_GOOGLE_WEB_CLIENT_ID: " web " }), "utf8"))).toEqual({ id: "id", secret: "secret", webId: "web" });
+    expect(JSON.parse(readFileSync(bake(both), "utf8"))).toEqual({ id: "id", secret: "secret" });
+    expect(existsSync(bake({ WINK_GOOGLE_WEB_CLIENT_ID: "web" }))).toBe(false);
+  });
+
+  it("takes the web client id from the release variable", () => {
+    const release = readFileSync(join(ROOT, ".github", "workflows", "release.yml"), "utf8");
+    expect(release).toContain("WINK_GOOGLE_WEB_CLIENT_ID: ${{ vars.WINK_GOOGLE_WEB_CLIENT_ID }}");
   });
 });

@@ -82,6 +82,10 @@ export interface RelayClientOptions {
   onGo(socket: TLSSocket, head: Buffer, peer: string): void;
   /** The relay sent a refreshed ticket. Return false to keep the current one. */
   onTicket(ticket: string): boolean;
+  /** The account directory entry for the next auth: a wka1 with a name, null to drop it, undefined for none. */
+  account?(): { account: string; name: string } | null | undefined;
+  /** The relay sent a refreshed wka1. */
+  onAccount?(account: string): void;
   /** Something in snapshot() changed. */
   onChange(): void;
 }
@@ -182,6 +186,12 @@ export class RelayClient {
     });
   }
 
+  /** The account changed: authenticate again on a fresh control channel. Spliced phones stay up. */
+  reauth(): void {
+    if (this.stopped || this.state === "rejected" || !this.session?.authSent) return;
+    this.wake();
+  }
+
   /** After OS sleep: the old TCP connection is likely dead, so start over now. */
   private wake(): void {
     if (this.state === "rejected") return;
@@ -270,13 +280,16 @@ export class RelayClient {
         if (session.authSent) throw new Error("unexpected hello");
         if (msg.v !== PROTOCOL_VERSION) throw new Error(`unsupported relay protocol ${msg.v}`);
         const { label, pk, privateKey } = this.opts.identity;
-        this.send(session.socket, { type: "auth", label, pk, ticket: this.ticket, sig: signAuth(privateKey, msg.nonce, label) });
+        const entry = this.opts.account?.();
+        const account = entry === undefined ? {} : entry === null ? { account: null } : entry;
+        this.send(session.socket, { type: "auth", label, pk, ticket: this.ticket, sig: signAuth(privateKey, msg.nonce, label), ...account });
         session.authSent = true;
         return;
       }
       case "ready":
         if (!session.authSent || session.ready) throw new Error("unexpected ready");
         this.onReady(session, msg.session, msg.poolToken, msg.pool.min, msg.pool.max, msg.ticket);
+        if (msg.account) this.opts.onAccount?.(msg.account);
         return;
       case "want":
         if (!session.ready) throw new Error("unexpected want");

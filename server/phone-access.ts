@@ -1,6 +1,6 @@
 // Phone access from anywhere, inside the harness (docs/phone-relay-design.md
 // sections 7 to 9): relay lifecycle, the gate in front of every relay request,
-// pairing, and the PC-only management routes. Relay requests are known by
+// pairing by code or Google sign-in, and the PC-only management routes. Relay requests are known by
 // socket identity; no header can make a request look like one.
 import { readFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -8,7 +8,8 @@ import { join } from "node:path";
 import type { Duplex } from "node:stream";
 import { z } from "zod";
 
-import { PHONE_RELAY_OFF, SETUP_PREFIX, parseSetupCode, type PhoneRelayStatus, type SetupCodeProblem } from "../shared/relay-protocol.ts";
+import { googleDiscoveryKeySource, type GoogleKeySource } from "../shared/google-id-token.ts";
+import { PHONE_RELAY_OFF, SETUP_PREFIX, labelFromHost, parseSetupCode, type PhoneRelayStatus, type SetupCodeProblem } from "../shared/relay-protocol.ts";
 import type { HarnessHandler } from "./early-listen.ts";
 import {
   RateLimiter,
@@ -24,6 +25,7 @@ import {
   type RelayProblem,
 } from "./phone-auth.ts";
 import { PhoneDevices, type PairError, type PublicPhone } from "./phone-devices.ts";
+import { GPAIR_CLEAR_COOKIE, PhoneGoogle, gpairCookie, type GoogleSignInError } from "./phone-google.ts";
 import { realClock, type Clock } from "./phone-relay/clock.ts";
 import type { PhoneRelay, PhoneRelayConfig, PhoneRelayEnrollOptions, PhoneRelayOptions } from "./phone-relay/index.ts";
 import { relayMode } from "./phone-relay/mode.ts";
@@ -32,6 +34,8 @@ import { parseJson } from "./schema.ts";
 
 const MINUTE_MS = 60_000;
 const MAX_BODY_BYTES = 4096;
+/** Room for a Google ID token, which runs to a few KB. */
+const GOOGLE_BODY_BYTES = 16 * 1024;
 /** States in which this PC holds a ticket for its relay host. */
 const ENROLLED = new Set<PhoneRelayStatus["state"]>(["connected", "certifying", "reconnecting", "cert-error"]);
 const PAIR_STATUS = {
@@ -41,6 +45,21 @@ const PAIR_STATUS = {
   "too-many-phones": 409,
   "save-failed": 500,
 } satisfies Record<PairError, number>;
+const GOOGLE_STATUS = {
+  unavailable: 409,
+  "no-challenge": 401,
+  "wrong-account": 403,
+  malformed: 401,
+  "unsupported-alg": 401,
+  "bad-signature": 401,
+  "unknown-kid": 401,
+  "bad-issuer": 401,
+  "bad-audience": 401,
+  expired: 401,
+  "not-yet-valid": 401,
+  "nonce-mismatch": 401,
+  "key-source": 503,
+} satisfies Record<GoogleSignInError, number>;
 const DEVICE_ROUTE = /^\/api\/phone\/devices\/([\w-]{1,64})$/;
 const MANAGEMENT_ROUTES = new Set(["/api/phone-relay", "/api/phone-relay/status", "/api/phone-relay/enroll", "/api/phone-relay/setup", "/api/phone/pairing", "/api/phone/devices"]);
 
@@ -49,6 +68,7 @@ const pairBodySchema = z.object({
   name: z.string().max(200).optional(),
   requestId: z.string().max(200).optional(),
 });
+const googleBodySchema = z.object({ credential: z.string().max(8192), name: z.string().max(200).optional() });
 const toggleBodySchema = z.object({ enabled: z.boolean() });
 const enrollBodySchema = z.object({ invite: z.string().trim().min(1).max(4096) });
 const setupBodySchema = z.object({ code: z.string().trim().min(1).max(4096) });
@@ -72,6 +92,21 @@ export interface PhoneAccessOptions {
   start?(options: PhoneRelayOptions): PhoneRelay;
   enroll?(options: PhoneRelayEnrollOptions): Promise<void>;
   loadClient?(): Promise<RelayClient>;
+  /** Phone sign-in with Google. Without it, or without a Web client id, the Google button stays hidden. */
+  google?: PhoneGoogleAccount;
+}
+
+/** This PC's Google sign-in, as phone sign-in needs it. */
+export interface PhoneGoogleAccount {
+  webClientId: string | null;
+  /** The signed-in sub, null when signed out, undefined until the desktop says which. */
+  sub(): string | null | undefined;
+  /** The newest Desktop ID token, for the relay's account directory. */
+  idToken(): string | null;
+  freshIdToken(): Promise<string | null>;
+  /** The PC name phones see in the directory. */
+  name(): string;
+  keys?: GoogleKeySource;
 }
 
 interface RelayClient {
@@ -107,13 +142,13 @@ type Reply =
   | { phones: PublicPhone[] }
   | { url: string; code: string; expiresAt: number };
 
-function send(res: ServerResponse, status: number, body: Reply, headers: Record<string, string> = {}): void {
+function send(res: ServerResponse, status: number, body: Reply, headers: Record<string, string | string[]> = {}): void {
   res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...headers });
   res.end(JSON.stringify(body));
 }
 
 /** The request body parsed by `schema`, or null when it is too large, not JSON or the wrong shape. */
-function readBody<T>(req: IncomingMessage, schema: z.ZodType<T>): Promise<T | null> {
+function readBody<T>(req: IncomingMessage, schema: z.ZodType<T>, maxBytes = MAX_BODY_BYTES): Promise<T | null> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -126,7 +161,7 @@ function readBody<T>(req: IncomingMessage, schema: z.ZodType<T>): Promise<T | nu
     req.on("data", (chunk: Buffer) => {
       if (done) return;
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) return finish(null);
+      if (size > maxBytes) return finish(null);
       chunks.push(chunk);
     });
     req.on("end", () => {
@@ -154,6 +189,10 @@ export class PhoneAccess {
   private readonly sockets = new Map<string, Set<Duplex>>();
   private readonly peerLimit: RateLimiter;
   private readonly pcLimit: RateLimiter;
+  private readonly startLimit: RateLimiter;
+  private readonly google: PhoneGoogle | null;
+  /** The Google sub last seen, so a new ID token does not drop a lost sign-in. */
+  private seenGoogleSub: string | null | undefined;
 
   constructor(options: PhoneAccessOptions) {
     this.options = options;
@@ -161,6 +200,20 @@ export class PhoneAccess {
     const now = () => this.clock.now();
     this.peerLimit = new RateLimiter(10, MINUTE_MS, now);
     this.pcLimit = new RateLimiter(30, MINUTE_MS, now);
+    this.startLimit = new RateLimiter(10, MINUTE_MS, now);
+    const google = options.google;
+    this.google = google?.webClientId
+      ? new PhoneGoogle({
+          clock: this.clock,
+          webClientId: google.webClientId,
+          owner: () => {
+            const sub = google.sub();
+            return sub ? { sub } : null;
+          },
+          keys: google.keys ?? googleDiscoveryKeySource(),
+        })
+      : null;
+    this.seenGoogleSub = options.google?.sub();
   }
 
   /** Created on first use, so a PC without the relay never reads or writes phone files. */
@@ -201,14 +254,19 @@ export class PhoneAccess {
     if (!handler || relayMode(config, this.options.env).kind === "off") return;
     try {
       this.client ??= await (this.options.loadClient ?? loadRelayClient)();
-      const relay: PhoneRelay = (this.options.start ?? this.client.start)({
+      const relayOptions: PhoneRelayOptions = {
         dataDir: this.options.dataDir,
         config,
         handler,
         onStatus: () => {
           if (this.relay === relay) this.options.onChange?.();
         },
-      });
+      };
+      const google = this.options.google;
+      if (this.google && google) {
+        relayOptions.account = { sub: () => google.sub(), idToken: () => google.idToken(), freshIdToken: () => google.freshIdToken(), name: () => google.name() };
+      }
+      const relay: PhoneRelay = (this.options.start ?? this.client.start)(relayOptions);
       this.relay = relay;
     } catch (cause) {
       this.failure = cause instanceof Error ? cause.message : String(cause);
@@ -219,6 +277,21 @@ export class PhoneAccess {
 
   status(): PhoneRelayStatus {
     return this.relay?.status() ?? { ...PHONE_RELAY_OFF, lastError: this.failure };
+  }
+
+  /** This PC's Google sign-in changed or brought a new ID token. */
+  googleChanged(): void {
+    const sub = this.options.google?.sub();
+    if (sub !== this.seenGoogleSub) {
+      this.seenGoogleSub = sub;
+      this.google?.dropReplays();
+    }
+    if (this.google) this.relay?.syncAccount?.();
+  }
+
+  /** The name phones see changed, so the relay authenticates again. */
+  nameChanged(): void {
+    this.relay?.reauth?.();
   }
 
   /** This PC's relay host while it holds a ticket, for the device picker. */
@@ -274,6 +347,12 @@ export class PhoneAccess {
         return HANDLED;
       case "pair":
         await this.pair(req, res);
+        return HANDLED;
+      case "google-start":
+        this.googleStart(req, res, host);
+        return HANDLED;
+      case "google":
+        await this.googleSignIn(req, res, host);
         return HANDLED;
     }
     const phone = this.session(req, res);
@@ -344,6 +423,52 @@ export class PhoneAccess {
     const result = this.phones.redeem(body.credential, body.name, body.requestId);
     if (!result.ok) return send(res, PAIR_STATUS[result.error], { error: result.error });
     send(res, 200, { ok: true, phone: { id: result.phone.id, name: result.phone.name } }, { "set-cookie": phoneSetCookie(result.token) });
+  }
+
+  /** This PC's label while it can take a Google sign-in: Web client, signed in, and listed in the relay directory. */
+  private googleLabel(host: string): string | null {
+    const base = this.base();
+    if (!this.google?.configured() || !this.relay?.accountReady?.() || !base) return null;
+    return labelFromHost(host, base);
+  }
+
+  /** GET sends the phone to the sign-in page with a fresh challenge; HEAD only says whether it would. */
+  private googleStart(req: IncomingMessage, res: ServerResponse, host: string): void {
+    const label = this.googleLabel(host);
+    const base = this.base();
+    if (!this.google || !label || !base) return send(res, 409, { error: "google-unavailable" });
+    if (req.method === "HEAD") {
+      res.writeHead(204, { "cache-control": "no-store" });
+      res.end();
+      return;
+    }
+    if (!this.startLimit.take(rateKey(this.client?.peer(req) ?? null))) return send(res, 429, { error: "rate-limited" });
+    const { cookie, location } = this.google.start(label, `https://${base}/signin`);
+    res.writeHead(302, { location, "set-cookie": cookie, "cache-control": "no-store", "referrer-policy": "no-referrer" });
+    res.end();
+  }
+
+  private async googleSignIn(req: IncomingMessage, res: ServerResponse, host: string): Promise<void> {
+    if (!this.peerLimit.take(rateKey(this.client?.peer(req) ?? null)) || !this.pcLimit.take("pc")) {
+      return send(res, 429, { error: "rate-limited" });
+    }
+    const body = await readBody(req, googleBodySchema, GOOGLE_BODY_BYTES);
+    if (!body) return send(res, 400, { error: "bad-request" });
+    // The challenge is already consumed, so a repeat has to be answered before verify.
+    const challenge = gpairCookie(req.headers.cookie);
+    const again = this.google?.replay(challenge, body.credential) ?? null;
+    if (again?.ok === false) return send(res, GOOGLE_STATUS["no-challenge"], { error: "no-challenge" });
+    if (again?.ok === true) {
+      return send(res, 200, { ok: true, phone: { id: again.phone.id, name: again.phone.name } }, { "set-cookie": [phoneSetCookie(again.token), GPAIR_CLEAR_COOKIE] });
+    }
+    const label = this.googleLabel(host);
+    if (!this.google || !label) return send(res, 409, { error: "unavailable" });
+    const proof = await this.google.verify(challenge, body.credential, label);
+    if (!proof.ok) return send(res, GOOGLE_STATUS[proof.error], { error: proof.error });
+    const result = this.phones.admit(body.name, "google");
+    if (!result.ok) return send(res, PAIR_STATUS[result.error], { error: result.error });
+    if (challenge) this.google.remember(challenge, body.credential, { phone: { id: result.phone.id, name: result.phone.name }, token: result.token });
+    send(res, 200, { ok: true, phone: { id: result.phone.id, name: result.phone.name } }, { "set-cookie": [phoneSetCookie(result.token), GPAIR_CLEAR_COOKIE] });
   }
 
   /** Trades `invite` for a ticket. The failure reason, or null once enrolled. */
@@ -437,6 +562,7 @@ export class PhoneAccess {
         if (!this.phones.revoke(id)) return reply(404, { error: "no such phone" });
       } finally {
         // A revoke whose write failed still refuses the phone, so cut it either way.
+        this.google?.dropPhone(id);
         for (const socket of this.sockets.get(id) ?? []) socket.destroy();
         this.sockets.delete(id);
       }

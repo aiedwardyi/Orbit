@@ -145,11 +145,62 @@ describe("google account", () => {
     const env: NodeJS.ProcessEnv = {
       WINK_GOOGLE_CLIENT_ID: "id",
       WINK_GOOGLE_CLIENT_SECRET: "secret",
+      WINK_GOOGLE_WEB_CLIENT_ID: " web-id ",
       OMB_GOOGLE_ACCOUNT_TOKEN: JSON.stringify(SESSION),
     };
-    expect(takeGoogleEnv(env)).toEqual({ client: { id: "id", secret: "secret" }, session: SESSION });
+    expect(takeGoogleEnv(env)).toEqual({ client: { id: "id", secret: "secret" }, webClientId: "web-id", session: SESSION });
     expect(env).toEqual({});
-    expect(takeGoogleEnv({ WINK_GOOGLE_CLIENT_ID: "id", OMB_GOOGLE_ACCOUNT_TOKEN: "{bad" })).toEqual({ client: null, session: null });
+    expect(takeGoogleEnv({ WINK_GOOGLE_CLIENT_ID: "id", OMB_GOOGLE_ACCOUNT_TOKEN: "{bad" })).toEqual({ client: null, webClientId: null, session: null });
+  });
+
+  it("holds the newest ID token from sign-in or refresh, and drops it on sign-out", async () => {
+    const clock = { t: 0 };
+    const endpoint = tokenEndpoint(ok("first"), { body: { access_token: "second", expires_in: 3600, id_token: "id-token-refreshed" } });
+    const google = account(endpoint, clock, null);
+    const refreshed = vi.fn();
+    google.onIdToken(refreshed);
+    google.setSession(SESSION, "id-token-signin");
+    expect(google.idToken()).toBe("id-token-signin");
+    await google.getAccessToken();
+    expect(google.idToken()).toBe("id-token-signin");
+    expect(refreshed).not.toHaveBeenCalled();
+    clock.t = 3600_000;
+    await google.getAccessToken();
+    expect(google.idToken()).toBe("id-token-refreshed");
+    expect(refreshed).toHaveBeenCalledOnce();
+    google.setSession(SESSION);
+    expect(google.idToken()).toBeNull();
+    google.setSession(null, "id-token-orphan");
+    expect(google.idToken()).toBeNull();
+    expect(JSON.stringify(google.status())).not.toContain("id-token");
+  });
+
+  it("refreshes for a fresh ID token on demand, even with a cached access token", async () => {
+    const withId = (access: string, id?: string) => ({ body: { access_token: access, expires_in: 3600, id_token: id } });
+    const endpoint = tokenEndpoint(withId("first", "id-token-1"), withId("second", "id-token-2"), withId("third"));
+    const google = account(endpoint);
+    await google.getAccessToken();
+    expect(await google.freshIdToken()).toBe("id-token-2");
+    expect(await google.getAccessToken()).toBe("second");
+    expect(await google.freshIdToken()).toBeNull();
+    expect(google.idToken()).toBe("id-token-2");
+    expect(endpoint.mock).toHaveBeenCalledTimes(3);
+    expect(endpoint.calls[1]!.get("refresh_token")).toBe("refresh-token-SECRET");
+  });
+
+  it("gives no fresh ID token on invalid_grant, keeps needs-sign-in and stops calling Google", async () => {
+    const endpoint = tokenEndpoint({ status: 400, body: { error: "invalid_grant" } });
+    const google = account(endpoint);
+    expect(await google.freshIdToken()).toBeNull();
+    expect(await google.freshIdToken()).toBeNull();
+    expect(google.status().state).toBe("needs-sign-in");
+    expect(endpoint.mock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a fresh ID token request while offline", async () => {
+    const google = account(tokenEndpoint(new TypeError("fetch failed")));
+    expect(await stateOf(google.freshIdToken())).toBe("offline");
+    expect(await stateOf(google.freshIdToken())).toBe("offline");
   });
 
   it("keeps the account variable out of an engine child env", () => {
@@ -230,6 +281,19 @@ describe("desktop Google account updates", () => {
     } finally {
       log.mockRestore();
     }
+  });
+
+  it("takes a pushed ID token beside the session, from the parent port or the dev route", async () => {
+    const google = account(tokenEndpoint(ok()), { t: 0 }, null);
+    applyGoogleAccountMessage({ type: "orbit:google-account", session: { ...SESSION, idToken: "id-token-port" } }, google);
+    expect(google.idToken()).toBe("id-token-port");
+    expect(google.owner()).toEqual({ sub: SESSION.sub, email: SESSION.email });
+    applyGoogleAccountMessage({ type: "orbit:google-account", session: { ...SESSION, idToken: 7 } }, google);
+    expect(google.idToken()).toBeNull();
+    await googleAccountRoute("PUT", false, async () => ({ ...SESSION, idToken: "id-token-dev" }), google);
+    expect(google.idToken()).toBe("id-token-dev");
+    await googleAccountRoute("DELETE", false, async () => ({}), google);
+    expect(google.idToken()).toBeNull();
   });
 
   it.each(["PUT", "DELETE"] as const)("refuses authenticated %s with a parent port and permits dev updates", async (method) => {

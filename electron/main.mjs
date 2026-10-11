@@ -2162,10 +2162,10 @@ const pushGoogleSession = createGoogleSessionPush({
 const googleAccount = createGoogleAccountController({
   client: GOOGLE_CLIENT,
   openExternal: (url) => shell.openExternal(url),
-  saveSession: async (session) => {
+  saveSession: async (session, idToken) => {
     if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("The operating-system credential store is unavailable");
     await updateSecureCredentialDocument((credentials) => ({ ...credentials, googleAccount: session }));
-    await pushGoogleSession(session);
+    await pushGoogleSession(session, idToken);
   },
   clearSession: async () => {
     await updateSecureCredentialDocument((credentials) => {

@@ -23,17 +23,37 @@ export interface PhoneRelayConfig {
   acmeAccounts?: Record<string, AcmeAccountConfig>;
 }
 
+/** This PC's Google sign-in, as the relay's account directory needs it. */
+export interface RelayAccountSource {
+  /** The signed-in Google sub, null when signed out, undefined until the desktop says which. */
+  sub(): string | null | undefined;
+  /** The newest Desktop ID token, or null. */
+  idToken(): string | null;
+  /** Refreshes for a new ID token: null when none is coming before a sign-in, rejects when one may come later. */
+  freshIdToken(): Promise<string | null>;
+  /** The PC name phones see in the directory. */
+  name(): string;
+}
+
 export interface PhoneRelayOptions {
   dataDir: string;
   config: PhoneRelayConfig;
   /** The harness request handler that relay traffic is dispatched to. */
   handler: HarnessHandler;
   onStatus: (status: PhoneRelayStatus) => void;
+  /** Without it the relay never hears of a Google account. */
+  account?: RelayAccountSource;
 }
 
 export interface PhoneRelay {
   status(): PhoneRelayStatus;
   stop(): Promise<void>;
+  /** The Google sign-in changed or brought a new ID token. */
+  syncAccount?(): void;
+  /** The PC name changed: authenticate again. Spliced phones stay up. */
+  reauth?(): void;
+  /** Whether this PC holds a wka1 for the signed-in account, so phones can find it. */
+  accountReady?(): boolean;
 }
 
 export interface PhoneRelayEnrollOptions {

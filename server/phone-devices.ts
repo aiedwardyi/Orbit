@@ -34,8 +34,12 @@ const storedPhoneSchema = z.object({
   createdAt: storedTime,
   lastSeenAt: storedTime,
   cookieAt: storedTime,
+  via: z.enum(["code", "google"]).optional().catch(undefined),
 });
 const phonesFileSchema = z.object({ phones: z.array(z.unknown()) });
+
+/** How a phone proved itself: a pairing code or QR, or this PC's Google account. */
+export type PhoneVia = "code" | "google";
 
 interface PhoneRecord {
   id: string;
@@ -44,6 +48,7 @@ interface PhoneRecord {
   createdAt: number;
   lastSeenAt: number;
   cookieAt: number;
+  via?: PhoneVia;
   /** Refused, but kept until a write leaves it out, so a failed removal can be retried. */
   revoked?: boolean;
 }
@@ -63,6 +68,7 @@ export interface PairingWindow {
 
 export type PairError = "no-pairing" | "wrong-credential" | "too-many-attempts" | "too-many-phones" | "save-failed";
 export type PairResult = { ok: true; phone: PublicPhone; token: string } | { ok: false; error: PairError };
+export type AdmitResult = { ok: true; phone: PublicPhone; token: string } | { ok: false; error: "too-many-phones" | "save-failed" };
 
 interface Replay {
   requestId: string;
@@ -94,6 +100,7 @@ function storedPhone(entry: z.infer<typeof storedPhoneSchema>, now: number): Pho
     createdAt,
     lastSeenAt: entry.lastSeenAt ?? createdAt,
     cookieAt: entry.cookieAt ?? createdAt,
+    via: entry.via,
   };
 }
 
@@ -181,6 +188,19 @@ export class PhoneDevices {
     // After the guess check, so a full list tells a guesser nothing and the window survives a removal.
     if (this.phones.length >= MAX_PHONES) return { ok: false, error: "too-many-phones" };
     this.window = null;
+    const result = this.admit(name, "code");
+    if (!result.ok) return result;
+    if (id) {
+      this.replay = { requestId: id, credentialHash: sha256(presented), expiresAt: window.expiresAt, result };
+      this.replayTimer = this.clock.schedule(window.expiresAt - now, () => this.clearReplay());
+    }
+    return result;
+  }
+
+  /** Adds a phone and mints its cookie token. The caller has already checked its proof. */
+  admit(name: string | undefined, via: PhoneVia): AdmitResult {
+    if (this.phones.length >= MAX_PHONES) return { ok: false, error: "too-many-phones" };
+    const now = this.clock.now();
     const token = `${TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
     const record: PhoneRecord = {
       id: randomUUID(),
@@ -189,6 +209,7 @@ export class PhoneDevices {
       createdAt: now,
       lastSeenAt: now,
       cookieAt: now,
+      via,
     };
     this.phones.push(record);
     try {
@@ -197,12 +218,7 @@ export class PhoneDevices {
       this.phones.pop();
       return { ok: false, error: "save-failed" };
     }
-    const result: PairResult = { ok: true, phone: publicPhone(record), token };
-    if (id) {
-      this.replay = { requestId: id, credentialHash: sha256(presented), expiresAt: window.expiresAt, result };
-      this.replayTimer = this.clock.schedule(window.expiresAt - now, () => this.clearReplay());
-    }
-    return result;
+    return { ok: true, phone: publicPhone(record), token };
   }
 
   /** The phone holding `token`, or null. `refreshCookie` asks the caller to re-set the cookie (weekly). */

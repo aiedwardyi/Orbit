@@ -84,6 +84,9 @@ describe("relay routes", () => {
       "/api/phone/devices",
       "/api/phone/devices/abc",
       "/api/phone/anything",
+      "/api/phone/google/wait",
+      "/api/phone/google/start/x",
+      "/api/phone/approvals",
       "/api/phone-relay",
       "/api/phone-relay/status",
       "/api/phone-relay/enroll",
@@ -101,6 +104,24 @@ describe("relay routes", () => {
     expect(verdict("GET", "/pair").kind).toBe("pair-page");
     expect(verdict("POST", "/api/phone/pair", withOrigin).kind).toBe("pair");
     expect(verdict("GET", "/api/phone/pair", withOrigin)).toMatchObject({ kind: "deny", status: 404 });
+  });
+
+  it("answers the Google start and sign-in routes before auth", () => {
+    expect(verdict("GET", "/api/phone/google/start").kind).toBe("google-start");
+    expect(verdict("HEAD", "/api/phone/google/start").kind).toBe("google-start");
+    expect(verdict("GET", "/api/phone/google/start?g=1", withOrigin).kind).toBe("google-start");
+    expect(verdict("POST", "/api/phone/google", withOrigin).kind).toBe("google");
+    for (const [method, path] of [["POST", "/api/phone/google/start"], ["GET", "/api/phone/google"], ["PUT", "/api/phone/google"], ["DELETE", "/api/phone/google"]]) {
+      expect(verdict(method!, path!, withOrigin), `${method} ${path}`).toEqual({ kind: "deny", status: 404, error: "not found" });
+    }
+  });
+
+  it("holds the Google sign-in POST to the exact Origin rule", () => {
+    expect(verdict("POST", "/api/phone/google")).toEqual({ kind: "deny", status: 403, error: "forbidden: origin required" });
+    for (const origin of ["https://wink.test", "https://evil.example", "null", `http://${HOST}`]) {
+      expect(verdict("POST", "/api/phone/google", [["host", HOST], ["origin", origin]])).toMatchObject({ kind: "deny", status: 403 });
+    }
+    expect(verdict("GET", "/api/phone/google/start", [["host", HOST], ["origin", "https://wink.test"]])).toMatchObject({ kind: "deny", status: 403 });
   });
 
   it("leaves everything else to the app behind the phone session", () => {
