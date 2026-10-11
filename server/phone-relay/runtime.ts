@@ -57,6 +57,7 @@ export function createPhoneRelay(options: PhoneRelayOptions, deps: PhoneRelayDep
     status: () => runtime.status(),
     stop: () => runtime.stop(),
     syncAccount: () => runtime.syncAccount(),
+    reauth: () => runtime.reauth(),
     accountReady: () => runtime.accountReady(),
   };
 }
@@ -202,6 +203,10 @@ class RelayRuntime {
 
   accountReady(): boolean {
     return this.account !== null;
+  }
+
+  reauth(): void {
+    this.client?.reauth();
   }
 
   /** What the next auth says about the account directory. */

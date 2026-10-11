@@ -191,6 +191,8 @@ export class PhoneAccess {
   private readonly pcLimit: RateLimiter;
   private readonly startLimit: RateLimiter;
   private readonly google: PhoneGoogle | null;
+  /** The Google sub last seen, so a new ID token does not drop a lost sign-in. */
+  private seenGoogleSub: string | null | undefined;
 
   constructor(options: PhoneAccessOptions) {
     this.options = options;
@@ -211,6 +213,7 @@ export class PhoneAccess {
           keys: google.keys ?? googleDiscoveryKeySource(),
         })
       : null;
+    this.seenGoogleSub = options.google?.sub();
   }
 
   /** Created on first use, so a PC without the relay never reads or writes phone files. */
@@ -278,7 +281,17 @@ export class PhoneAccess {
 
   /** This PC's Google sign-in changed or brought a new ID token. */
   googleChanged(): void {
+    const sub = this.options.google?.sub();
+    if (sub !== this.seenGoogleSub) {
+      this.seenGoogleSub = sub;
+      this.google?.dropReplays();
+    }
     if (this.google) this.relay?.syncAccount?.();
+  }
+
+  /** The name phones see changed, so the relay authenticates again. */
+  nameChanged(): void {
+    this.relay?.reauth?.();
   }
 
   /** This PC's relay host while it holds a ticket, for the device picker. */
@@ -441,12 +454,20 @@ export class PhoneAccess {
     }
     const body = await readBody(req, googleBodySchema, GOOGLE_BODY_BYTES);
     if (!body) return send(res, 400, { error: "bad-request" });
+    // The challenge is already consumed, so a repeat has to be answered before verify.
+    const challenge = gpairCookie(req.headers.cookie);
+    const again = this.google?.replay(challenge, body.credential) ?? null;
+    if (again?.ok === false) return send(res, GOOGLE_STATUS["no-challenge"], { error: "no-challenge" });
+    if (again?.ok === true) {
+      return send(res, 200, { ok: true, phone: { id: again.phone.id, name: again.phone.name } }, { "set-cookie": [phoneSetCookie(again.token), GPAIR_CLEAR_COOKIE] });
+    }
     const label = this.googleLabel(host);
     if (!this.google || !label) return send(res, 409, { error: "unavailable" });
-    const proof = await this.google.verify(gpairCookie(req.headers.cookie), body.credential, label);
+    const proof = await this.google.verify(challenge, body.credential, label);
     if (!proof.ok) return send(res, GOOGLE_STATUS[proof.error], { error: proof.error });
     const result = this.phones.admit(body.name, "google");
     if (!result.ok) return send(res, PAIR_STATUS[result.error], { error: result.error });
+    if (challenge) this.google.remember(challenge, body.credential, { phone: { id: result.phone.id, name: result.phone.name }, token: result.token });
     send(res, 200, { ok: true, phone: { id: result.phone.id, name: result.phone.name } }, { "set-cookie": [phoneSetCookie(result.token), GPAIR_CLEAR_COOKIE] });
   }
 
@@ -541,6 +562,7 @@ export class PhoneAccess {
         if (!this.phones.revoke(id)) return reply(404, { error: "no such phone" });
       } finally {
         // A revoke whose write failed still refuses the phone, so cut it either way.
+        this.google?.dropPhone(id);
         for (const socket of this.sockets.get(id) ?? []) socket.destroy();
         this.sockets.delete(id);
       }

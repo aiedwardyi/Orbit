@@ -153,4 +153,51 @@ describe("phone Google sign-in", () => {
     for (let i = 0; i < MAX_CHALLENGES; i++) begin();
     expect(await phoneGoogle.verify(first.challenge, first.token(), LABEL)).toEqual({ ok: false, error: "no-challenge" });
   });
+
+  it("replays one admission for the same challenge and credential until it is dropped", async () => {
+    const { phoneGoogle, begin, clock } = rig();
+    const browser = begin();
+    const token = browser.token();
+    const admitted = { phone: { id: "p1", name: "Pixel" }, token: "phone-token" };
+    expect(await phoneGoogle.verify(browser.challenge, token, LABEL)).toEqual({ ok: true });
+    phoneGoogle.remember(browser.challenge!, token, admitted);
+    expect(phoneGoogle.replay(browser.challenge, token)).toEqual({ ok: true, ...admitted });
+    expect(phoneGoogle.replay(browser.challenge, `${token}x`)).toEqual({ ok: false, error: "no-challenge" });
+    expect(phoneGoogle.replay(null, token)).toBeNull();
+    expect(phoneGoogle.replay("other-cookie", token)).toBeNull();
+
+    const revoked = begin();
+    const revokedToken = revoked.token();
+    expect(await phoneGoogle.verify(revoked.challenge, revokedToken, LABEL)).toEqual({ ok: true });
+    phoneGoogle.remember(revoked.challenge!, revokedToken, { phone: { id: "p2", name: "Other" }, token: "other-token" });
+    phoneGoogle.dropPhone("p2");
+    expect(phoneGoogle.replay(revoked.challenge, revokedToken)).toEqual({ ok: false, error: "no-challenge" });
+    expect(phoneGoogle.replay(browser.challenge, token)).toEqual({ ok: true, ...admitted });
+
+    phoneGoogle.dropReplays();
+    expect(phoneGoogle.replay(browser.challenge, token)).toEqual({ ok: false, error: "no-challenge" });
+
+    const expiring = begin();
+    const expiringToken = expiring.token();
+    expect(await phoneGoogle.verify(expiring.challenge, expiringToken, LABEL)).toEqual({ ok: true });
+    phoneGoogle.remember(expiring.challenge!, expiringToken, admitted);
+    clock.jump(GPAIR_TTL_MS);
+    expect(phoneGoogle.replay(expiring.challenge, expiringToken)).toBeNull();
+    expect(await phoneGoogle.verify(expiring.challenge, expiringToken, LABEL)).toEqual({ ok: false, error: "no-challenge" });
+  });
+
+  it("keeps a bounded number of Google replays, dropping the oldest", async () => {
+    const { phoneGoogle, begin } = rig();
+    const first = begin();
+    const firstToken = first.token();
+    expect(await phoneGoogle.verify(first.challenge, firstToken, LABEL)).toEqual({ ok: true });
+    phoneGoogle.remember(first.challenge!, firstToken, { phone: { id: "first", name: "A" }, token: "t0" });
+    for (let i = 0; i < MAX_CHALLENGES; i++) {
+      const browser = begin();
+      const token = browser.token();
+      expect(await phoneGoogle.verify(browser.challenge, token, LABEL)).toEqual({ ok: true });
+      phoneGoogle.remember(browser.challenge!, token, { phone: { id: `p${i}`, name: "A" }, token: `t${i}` });
+    }
+    expect(phoneGoogle.replay(first.challenge, firstToken)).toBeNull();
+  });
 });

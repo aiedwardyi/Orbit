@@ -7587,6 +7587,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!name.success) return json(res, 400, { error: "name must be 1-64 characters" });
       deviceName = saveDeviceName(DATA_DIR, name.data);
       publishDeviceRecord();
+      phoneAccess.nameChanged();
       return json(res, 200, { name: deviceName });
     }
 

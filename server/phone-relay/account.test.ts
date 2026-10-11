@@ -292,6 +292,35 @@ describe("relay account directory", () => {
     expect(existsSync(join(rr.dataDir, "phone-relay", "account.json"))).toBe(true);
   });
 
+  it("authenticates again when the PC is renamed, and not while the relay is off", async () => {
+    r = await rig();
+    const rr = r;
+    let name = "Desk PC";
+    const source = google(SUB, idToken(SUB, Date.now()));
+    source.name = () => name;
+    const handle = start(rr, source);
+    await vi.waitFor(() => expect(handle.accountReady?.()).toBe(true));
+    await settle();
+    const before = rr.relay.auths.length;
+    expect(rr.relay.auths[before - 1]).toMatchObject({ name: "Desk PC" });
+    name = "Kitchen";
+    handle.reauth?.();
+    await vi.waitFor(() => expect(rr.relay.auths).toHaveLength(before + 1));
+    expect(rr.relay.auths[before]).toMatchObject({ name: "Kitchen" });
+    await settle();
+    expect(rr.relay.auths).toHaveLength(before + 1);
+
+    const off = createPhoneRelay(
+      { dataDir: rr.dataDir, config: { enabled: false }, handler: (_req, res) => res.end(), onStatus: () => {} },
+      { clock, env: {}, random: () => 0, connector: rr.relay.connector(), ctSource: null, acmeInsecureDirectories: true },
+    );
+    expect(off.reauth).toBeUndefined();
+    off.reauth?.();
+    await settle();
+    expect(rr.relay.auths).toHaveLength(before + 1);
+    await off.stop();
+  });
+
   it("logs a refused registration without the token and stays off", async () => {
     r = await rig();
     const rr = r;

@@ -50,6 +50,8 @@ export interface PhoneRelay {
   stop(): Promise<void>;
   /** The Google sign-in changed or brought a new ID token. */
   syncAccount?(): void;
+  /** The PC name changed: authenticate again. Spliced phones stay up. */
+  reauth?(): void;
   /** Whether this PC holds a wka1 for the signed-in account, so phones can find it. */
   accountReady?(): boolean;
 }

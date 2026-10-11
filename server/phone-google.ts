@@ -45,6 +45,20 @@ function sameText(a: string, b: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
+/** A phone admitted by Google. The token is the cookie value, kept only in memory. */
+export interface GoogleAdmission {
+  phone: { id: string; name: string };
+  token: string;
+}
+
+interface ReplayEntry {
+  challengeHash: string;
+  credentialHash: string;
+  expiresAt: number;
+  /** Null once the phone was revoked or this PC's Google account changed. */
+  admitted: GoogleAdmission | null;
+}
+
 export interface PhoneGoogleOptions {
   clock: Clock;
   /** The Web client id this build carries, or null. */
@@ -58,6 +72,10 @@ export class PhoneGoogle {
   private readonly options: PhoneGoogleOptions;
   /** digest(challenge) to expiry. The challenge itself lives only in the phone's cookie. */
   private readonly challenges = new Map<string, number>();
+  /** digest(challenge) to the expiry verify consumed, until remember takes it. */
+  private readonly spent = new Map<string, number>();
+  /** One admission per challenge, oldest first. Digests only, never the cookie or the credential. */
+  private readonly replays = new Map<string, ReplayEntry>();
 
   constructor(options: PhoneGoogleOptions) {
     this.options = options;
@@ -104,7 +122,55 @@ export class PhoneGoogle {
     if (!owner) return { ok: false, error: "unavailable" };
     if (!sameText(sub, owner.sub)) return { ok: false, error: "wrong-account" };
     // Once per challenge, even for requests that raced through the key fetch.
-    if (!this.challenges.delete(key)) return { ok: false, error: "no-challenge" };
+    if (!key || !this.challenges.delete(key)) return { ok: false, error: "no-challenge" };
+    this.hold(key, expiresAt);
     return { ok: true };
+  }
+
+  /** Keeps a finished admission until the challenge's own expiry. */
+  remember(challenge: string, credential: string, admitted: GoogleAdmission): void {
+    const key = digest(challenge);
+    const expiresAt = this.spent.get(key);
+    if (expiresAt === undefined || expiresAt <= this.options.clock.now()) return;
+    this.spent.delete(key);
+    const now = this.options.clock.now();
+    for (const [replayKey, entry] of this.replays) if (entry.expiresAt <= now) this.replays.delete(replayKey);
+    if (this.replays.size >= MAX_CHALLENGES) this.replays.delete(this.replays.keys().next().value!);
+    this.replays.set(key, { challengeHash: key, credentialHash: digest(credential), expiresAt, admitted });
+  }
+
+  /** The stored admission, no-challenge if it was dropped, or null if this is not a repeat. */
+  replay(challenge: string | null, credential: string): ({ ok: true } & GoogleAdmission) | { ok: false; error: "no-challenge" } | null {
+    if (!challenge) return null;
+    const now = this.options.clock.now();
+    const challengeHash = digest(challenge);
+    const credentialHash = digest(credential);
+    for (const [key, entry] of this.replays) {
+      if (entry.expiresAt <= now) {
+        this.replays.delete(key);
+        continue;
+      }
+      if (!sameText(entry.challengeHash, challengeHash)) continue;
+      if (!entry.admitted || !sameText(entry.credentialHash, credentialHash)) return { ok: false, error: "no-challenge" };
+      return { ok: true, phone: entry.admitted.phone, token: entry.admitted.token };
+    }
+    return null;
+  }
+
+  /** Forgets every admission. A repeat then answers no-challenge. */
+  dropReplays(): void {
+    for (const entry of this.replays.values()) entry.admitted = null;
+  }
+
+  /** Forgets the admission for one phone. */
+  dropPhone(id: string): void {
+    for (const entry of this.replays.values()) if (entry.admitted?.phone.id === id) entry.admitted = null;
+  }
+
+  private hold(key: string, expiresAt: number): void {
+    const now = this.options.clock.now();
+    for (const [spentKey, spentAt] of this.spent) if (spentAt <= now) this.spent.delete(spentKey);
+    if (this.spent.size >= MAX_CHALLENGES) this.spent.delete(this.spent.keys().next().value!);
+    this.spent.set(key, expiresAt);
   }
 }

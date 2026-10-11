@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { IncomingMessage, ServerResponse, createServer, request, type IncomingHttpHeaders } from "node:http";
 import { Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { TLSSocket } from "node:tls";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -17,7 +17,7 @@ import { serveLinkedFile } from "./linked-files.ts";
 import { PhoneAccess, loadRelayClient, type PhoneAccessOptions } from "./phone-access.ts";
 import { phoneSetCookie, requestCredentials } from "./phone-auth.ts";
 import { PAIRING_TTL_MS, PHONES_FILE, PhoneDevices } from "./phone-devices.ts";
-import { pairNonce } from "./phone-google.ts";
+import { GPAIR_TTL_MS, pairNonce } from "./phone-google.ts";
 import type { PhoneRelayConfig } from "./phone-relay/index.ts";
 import { enrollWith } from "./phone-relay/enroll.ts";
 import { createPhoneRelay } from "./phone-relay/runtime.ts";
@@ -335,11 +335,10 @@ describe("phone Google sign-in through the relay", () => {
     expect(JSON.parse(readFileSync(join(w.r.dataDir, PHONES_FILE), "utf8")).phones[0].via).toBe("google");
   });
 
-  it("refuses a replay, another Google account, a Desktop token and another browser's cookie", async () => {
+  it("refuses another Google account, a Desktop token and another browser's cookie", async () => {
     const w = await world({ google: {} });
     const first = await googleSignIn(w);
     expect(first.res.status).toBe(200);
-    expect(await first.post(first.gpair)).toMatchObject({ status: 401, body: '{"error":"no-challenge"}' });
     expect((await googleSignIn(w, { sub: "sub-stranger" })).res).toMatchObject({ status: 403, body: '{"error":"wrong-account"}' });
     expect((await googleSignIn(w, { aud: "desktop-client" })).res).toMatchObject({ status: 401, body: '{"error":"bad-audience"}' });
     const other = await viaRelay(w.r, "/api/phone/google/start");
@@ -390,6 +389,126 @@ describe("phone Google sign-in through the relay", () => {
       expect(res.status, `${method} ${path}`).toBe(404);
     }
     expect(w.reached).toEqual([]);
+  });
+
+  it("repeats a lost Google admission for the same cookie and credential", async () => {
+    const w = await world({ google: {} });
+    const first = await googleSignIn(w);
+    expect(first.res.status).toBe(200);
+    const again = await first.post(first.gpair);
+    expect(again.status).toBe(200);
+    expect(again.body).toBe(first.res.body);
+    expect(again.headers["set-cookie"]).toEqual(first.res.headers["set-cookie"]);
+    expect(phonesSchema.parse(JSON.parse((await w.local("/api/phone/devices")).body)).phones).toHaveLength(1);
+
+    const other = await viaRelay(w.r, "/api/phone/google", {
+      method: "POST",
+      headers: { origin: w.origin, "content-type": "application/json", cookie: first.gpair },
+      body: JSON.stringify({ credential: `${first.token}x`, name: "Galaxy S25" }),
+    });
+    const missing = await viaRelay(w.r, "/api/phone/google", {
+      method: "POST",
+      headers: { origin: w.origin, "content-type": "application/json" },
+      body: JSON.stringify({ credential: first.token, name: "Galaxy S25" }),
+    });
+    const wrongCookie = await viaRelay(w.r, "/api/phone/google", {
+      method: "POST",
+      headers: { origin: w.origin, "content-type": "application/json", cookie: "__Host-wink_gpair=other-cookie" },
+      body: JSON.stringify({ credential: first.token, name: "Galaxy S25" }),
+    });
+    expect(other).toMatchObject({ status: 401, body: '{"error":"no-challenge"}' });
+    expect(missing).toMatchObject({ status: 401, body: '{"error":"no-challenge"}' });
+    expect(wrongCookie).toMatchObject({ status: 401, body: '{"error":"no-challenge"}' });
+    expect(phonesSchema.parse(JSON.parse((await w.local("/api/phone/devices")).body)).phones).toHaveLength(1);
+  });
+
+  it("stops replaying a Google admission once the challenge expires", async () => {
+    const w = await world({ google: {} });
+    const first = await googleSignIn(w);
+    expect((await first.post(first.gpair)).status).toBe(200);
+    w.clock.jump(GPAIR_TTL_MS);
+    expect(await first.post(first.gpair)).toMatchObject({ status: 401, body: '{"error":"no-challenge"}' });
+  });
+
+  it("stops replaying a Google admission when this PC changes Google account", async () => {
+    const w = await world({ google: {} });
+    const first = await googleSignIn(w);
+    expect((await first.post(first.gpair)).status).toBe(200);
+    const ready = w.r.relay.count("control:ready");
+    w.google.pc.sub = "sub-next";
+    w.access.googleChanged();
+    await w.r.relay.until(() => w.r.relay.count("control:ready") > ready);
+    await w.r.relay.until(() => w.r.relay.idleCount(w.r.identity.label) > 0);
+    expect(await first.post(first.gpair)).toMatchObject({ status: 401, body: '{"error":"no-challenge"}' });
+    expect(phonesSchema.parse(JSON.parse((await w.local("/api/phone/devices")).body)).phones).toHaveLength(1);
+  });
+
+  it("stops replaying a Google admission when this PC signs out", async () => {
+    const w = await world({ google: {} });
+    const first = await googleSignIn(w);
+    expect((await first.post(first.gpair)).status).toBe(200);
+    const ready = w.r.relay.count("control:ready");
+    w.google.pc.sub = null;
+    w.access.googleChanged();
+    await w.r.relay.until(() => w.r.relay.count("control:ready") > ready);
+    await w.r.relay.until(() => w.r.relay.idleCount(w.r.identity.label) > 0);
+    expect(await first.post(first.gpair)).toMatchObject({ status: 401, body: '{"error":"no-challenge"}' });
+  });
+
+  it("stops replaying a Google admission when the phone is revoked", async () => {
+    const w = await world({ google: {} });
+    const first = await googleSignIn(w);
+    expect((await first.post(first.gpair)).status).toBe(200);
+    const { phones } = phonesSchema.parse(JSON.parse((await w.local("/api/phone/devices")).body));
+    expect(phones).toHaveLength(1);
+    expect((await w.local(`/api/phone/devices/${phones[0]!.id}`, { method: "DELETE" })).status).toBe(200);
+    expect(await first.post(first.gpair)).toMatchObject({ status: 401, body: '{"error":"no-challenge"}' });
+    expect(phonesSchema.parse(JSON.parse((await w.local("/api/phone/devices")).body)).phones).toHaveLength(0);
+  });
+
+  it("rate-limits a repeated Google admission before replaying it", async () => {
+    const w = await world({ google: {} });
+    const first = await googleSignIn(w);
+    expect(first.res.status).toBe(200);
+    for (let i = 0; i < 9; i++) {
+      const res = await viaRelay(w.r, "/api/phone/google", {
+        method: "POST",
+        headers: { origin: w.origin, "content-type": "application/json" },
+        body: "{}",
+      });
+      expect(res.status).not.toBe(429);
+    }
+    expect((await first.post(first.gpair)).status).toBe(429);
+    expect(phonesSchema.parse(JSON.parse((await w.local("/api/phone/devices")).body)).phones).toHaveLength(1);
+  });
+
+  it("reauthenticates once when this PC is renamed, and not while the relay is off", async () => {
+    const w = await world({ google: {} });
+    const before = w.r.relay.auths.length;
+    w.access.nameChanged();
+    await vi.waitFor(() => expect(w.r.relay.auths).toHaveLength(before + 1));
+
+    let started = false;
+    const off = new PhoneAccess({
+      dataDir: w.r.dataDir,
+      env: { ORBIT_RELAY: "0" },
+      staticDir: null,
+      config: () => ({ base: BASE, enabled: true }),
+      saveEnabled: () => {},
+      start: () => {
+        started = true;
+        return { status: () => ({ ...PHONE_RELAY_OFF }), stop: async () => {}, reauth: () => { started = true; } };
+      },
+    });
+    await off.start((_req, res) => res.end());
+    off.nameChanged();
+    expect(started).toBe(false);
+    await off.stop();
+
+    const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
+    const at = index.indexOf('if (method === "PUT" && path === "/api/devices/name")');
+    const route = index.slice(at, index.indexOf("web push", at));
+    expect(route.split("\n").filter((line) => line.includes("phoneAccess."))).toEqual(["      phoneAccess.nameChanged();"]);
   });
 
   it("lets a removed phone back in with Google, since there is no Allow tap", async () => {
