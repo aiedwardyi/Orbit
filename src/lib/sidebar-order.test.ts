@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  listedGroups,
   moveSidebarItem,
   moveSidebarItemWithinTier,
   normalizeSidebarOrder,
@@ -113,8 +114,23 @@ describe("sidebar item order", () => {
   });
 });
 
+describe("listedGroups", () => {
+  it("drops bot-to-bot channels and keeps rooms in order", () => {
+    const groups = [{ id: "r1" }, { id: "dm", dm: true }, { id: "r2", dm: false }];
+    expect(listedGroups(groups).map((group) => group.id)).toEqual(["r1", "r2"]);
+  });
+});
+
 describe("preferredStartupSelectionId", () => {
   const EMPTY_ORDER = { sectionOrder: [], itemOrder: {} };
+
+  it("skips a bot-to-bot channel that leads the saved order", () => {
+    const order = {
+      sectionOrder: [UNASSIGNED_SECTION_ID],
+      itemOrder: { [UNASSIGNED_SECTION_ID]: ["group:dm", "bot:a"] },
+    };
+    expect(preferredStartupSelectionId([{ id: "a" }], [{ id: "dm", dm: true }], order)).toBe("a");
+  });
 
   it("picks the chief of staff bot over server creation order", () => {
     const bots = [{ id: "b1" }, { id: "chief", chiefOfStaff: true }, { id: "b2" }];

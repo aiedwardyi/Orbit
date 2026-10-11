@@ -24,6 +24,11 @@ export function sidebarPriorityFor(value: { chiefOfStaff?: boolean; pinned?: boo
   return null;
 }
 
+/** Bot-to-bot channels stay out of every list; their comm chips open them. */
+export function listedGroups<T extends { dm?: boolean }>(groups: readonly T[]): T[] {
+  return groups.filter((group) => !group.dm);
+}
+
 export function sidebarItemKey(kind: SidebarItemKind, id: string): string {
   return `${kind}:${id}`;
 }
@@ -150,6 +155,7 @@ export type SidebarStartupBot = {
 
 export type SidebarStartupGroup = {
   id: string;
+  dm?: boolean;
   section?: string;
 };
 
@@ -162,7 +168,7 @@ export function preferredStartupSelectionId(
 ): string {
   const sectionIdFor = (section?: string) => (section?.trim() ? userSectionId(section.trim()) : UNASSIGNED_SECTION_ID);
   const items = [
-    ...groups.map((group) => ({
+    ...listedGroups(groups).map((group) => ({
       key: sidebarItemKey("group", group.id),
       id: group.id,
       sectionId: sectionIdFor(group.section),

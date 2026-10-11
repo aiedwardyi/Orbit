@@ -94,6 +94,7 @@ import {
   type SidebarLayout,
 } from "@/lib/sidebar-preferences";
 import {
+  listedGroups,
   moveSidebarItem,
   moveSidebarItemWithinTier,
   normalizeSidebarOrder,
@@ -615,7 +616,7 @@ function SectionPicker({
   const sections = [
     ...new Set([
       ...state.bots.filter((b) => !b.hidden && b.section).map((b) => b.section!),
-      ...state.groups.filter((g) => g.section).map((g) => g.section!),
+      ...listedGroups(state.groups).filter((g) => g.section).map((g) => g.section!),
     ]),
   ];
 
@@ -1341,7 +1342,7 @@ export function Sidebar({
   const sidebarOnRight = sidebarSide === "right";
   const collapsedUnread = sidebarCollapsed ? collapsedUnreadCount(state.bots, state.groups, state.selectedId) : 0;
   const collapsedUnreadBadge = formatCollapsedUnreadBadge(collapsedUnread);
-  const collapsedAsking = sidebarCollapsed && anyChatNeedsYou([...state.bots, ...state.groups], state.selectedId);
+  const collapsedAsking = sidebarCollapsed && anyChatNeedsYou([...state.bots, ...listedGroups(state.groups)], state.selectedId);
   const collapsedBadgeRef = useRef<HTMLSpanElement>(null);
   const lastCollapsedUnread = useRef(collapsedUnread);
   useEffect(() => {
@@ -1774,8 +1775,9 @@ export function Sidebar({
   };
   const sectionIdFor = (section?: string) => section?.trim() ? userSectionId(section.trim()) : UNASSIGNED_SECTION_ID;
   const activeBots = state.bots.filter((bot) => !bot.hidden);
+  const listed = listedGroups(state.groups);
   const items: SidebarItem[] = [
-    ...state.groups.map((group) => ({
+    ...listed.map((group) => ({
       key: sidebarItemKey("group", group.id),
       kind: "group" as const,
       id: group.id,
@@ -1811,7 +1813,7 @@ export function Sidebar({
       (bot.title ?? "").toLowerCase().includes(q) ||
       preview(bot, showToolCalls).toLowerCase().includes(q),
   );
-  const visibleGroups = state.groups.filter((group) => !q || group.name.toLowerCase().includes(q));
+  const visibleGroups = listed.filter((group) => !q || group.name.toLowerCase().includes(q));
   const matchingKeys = new Set([
     ...matchingBots.map((bot) => sidebarItemKey("bot", bot.id)),
     ...visibleGroups.map((group) => sidebarItemKey("group", group.id)),

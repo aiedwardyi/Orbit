@@ -11,6 +11,10 @@ describe("unreadConversationCount", () => {
       ),
     ).toBe(2);
   });
+
+  it("ignores bot-to-bot channels but still counts normal rooms", () => {
+    expect(unreadConversationCount([], [{ dm: true, unread: true }, { unread: true }])).toBe(1);
+  });
 });
 
 describe("collapsedUnreadCount", () => {
@@ -24,6 +28,11 @@ describe("collapsedUnreadCount", () => {
     expect(collapsedUnreadCount(bots, groups, "a")).toBe(2);
     expect(collapsedUnreadCount(bots, groups, "g1")).toBe(2);
     expect(collapsedUnreadCount(bots, groups, "none")).toBe(3);
+  });
+
+  it("ignores bot-to-bot channels", () => {
+    const groups = [{ id: "dm", dm: true, unread: true }, { id: "g1", unread: true }];
+    expect(collapsedUnreadCount([], groups, "none")).toBe(1);
   });
 
   it("ignores hidden bots, same as unreadConversationCount", () => {

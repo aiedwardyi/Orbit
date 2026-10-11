@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bot as BotIcon, Bug, MessageSquare, Search, Users } from "lucide-react";
 import { api, useStore, type Bot, type Group } from "@/state/store";
 import { rankByName } from "@/lib/palette-rank";
+import { listedGroups } from "@/lib/sidebar-order";
 import { cn } from "@/lib/cn";
 import type { SearchHit } from "@/lib/search-hit";
 import { landOnSearchHit } from "@/lib/focus-message";
@@ -104,7 +105,7 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
   if (!presence.mounted) return null;
 
   const bots = rankByName(state.bots.filter((b) => !b.hidden), q);
-  const rooms = rankByName(state.groups, q);
+  const rooms = rankByName(listedGroups(state.groups), q);
   const activeBot = state.bots.find((bot) => bot.id === state.selectedId);
   const commands: PaletteCommand[] =
     activeBot && "inspector runtime events protocol debug".includes(q)
