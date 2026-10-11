@@ -8,6 +8,8 @@ import type { Message } from "@/state/store";
 
 export interface RoomTranscriptOptions {
   showToolCalls: boolean;
+  /** Worker run rows, which messageVisible alone hides. */
+  workerRows?: ReadonlySet<string>;
 }
 
 export interface RoomTranscriptRow {
@@ -51,7 +53,7 @@ export function roomTranscriptRows(
     const visible =
       item.kind === "run"
         ? activityRunVisible(item.messages, options.showToolCalls)
-        : messageVisible(first, options.showToolCalls);
+        : messageVisible(first, options.showToolCalls) || Boolean(options.workerRows?.has(first.id));
     if (!visible) return { visible, newDay: false, cluster: false };
     const newDay = !prev || new Date(prev.at).toDateString() !== new Date(first.at).toDateString();
     const cluster = !prev || prev.role !== first.role || prev.from?.botId !== first.from?.botId || newDay;
