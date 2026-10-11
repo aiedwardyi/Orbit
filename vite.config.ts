@@ -20,6 +20,7 @@ export default defineConfig({
       "src/**/*.test.ts",
       "companion/**/*.test.ts",
       "scripts/**/*.test.mjs",
+      "site/**/*.test.ts",
     ],
     setupFiles: ["server/testing/setup.ts"],
     // the suite spawns fake provider CLIs and a real harness server;

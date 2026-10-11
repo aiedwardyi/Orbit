@@ -1,0 +1,120 @@
+:root {
+  color-scheme: dark;
+  --app: #121316;
+  --inset: #0f1013;
+  --hairline: #353944;
+  --ink: #eeeff3;
+  --ink-secondary: #a3a7b3;
+  --accent: #929fff;
+  --danger: #ff8c98;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--app);
+  color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+main {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 24px 16px;
+}
+.panel {
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+}
+h1 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.quiet {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 13px;
+}
+.privacy {
+  display: inline-block;
+  margin-top: 28px;
+  color: var(--ink-secondary);
+  font-size: 12px;
+}
+.privacy:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.doc .panel {
+  max-width: 36rem;
+  min-width: 0;
+  text-align: left;
+}
+.doc h2 {
+  margin: 22px 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.doc p,
+.doc li {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 14px;
+}
+.doc .meta {
+  margin-bottom: 18px;
+  font-size: 13px;
+}
+.doc ul {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.doc li + li {
+  margin-top: 8px;
+}
+.doc a {
+  color: var(--accent);
+}
+.status {
+  min-height: 21px;
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: 13px;
+}
+.error {
+  color: var(--danger);
+}
+.list,
+#google {
+  margin-top: 24px;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.list button {
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--inset);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+}
+.list button:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+[hidden] {
+  display: none !important;
+}
