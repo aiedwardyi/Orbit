@@ -1309,6 +1309,20 @@ it("keeps full-width pane labels, shows the strip scrollbar, and switches panes 
   Reflect.deleteProperty(Element.prototype, "scrollIntoView");
 });
 
+it("puts the pane tabs in their own row directly above the terminal, outside the header", async () => {
+  const open = vi.fn(async (input: { sessionId?: string }) => ({ id: input.sessionId ?? "session-main", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
+  const panes = ["one", "two"].map((label) => ({ sessionId: `pane-${label}`, generation: 1, label, cwd: "C:\\work", main: false, exited: false }));
+  const readBot = vi.fn(async () => ({ botId: "bot-1", seq: 0, capturedAt: 0, exitCode: null, exited: false, screenText: "", recentText: "", truncated: false, panes }));
+  const bot = mountBridge({ appearance: vi.fn(async () => null), open, readBot, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() });
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); });
+
+  const tablist = host.querySelector<HTMLElement>('[role="tablist"]');
+  expect(tablist?.closest("header")).toBeNull();
+  expect(tablist?.parentElement?.tagName).toBe("MAIN");
+  expect(tablist?.nextElementSibling).toBe(host.querySelector("[data-orbit-terminal]"));
+});
+
 it("activates the pane a notification names, once its tab exists, and ignores unknown panes", async () => {
   const open = vi.fn(async (input: { sessionId?: string }) => ({ id: input.sessionId ?? "session-main", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
   const panes = ["one", "two"].map((label) => ({ sessionId: `pane-${label}`, generation: 1, label, cwd: "C:\\work", main: false, exited: false }));
