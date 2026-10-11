@@ -142,6 +142,7 @@ export function SyncPanel() {
     if (!picked) return;
     await run(async () => {
       setFolder(await api("/api/profile-sync", { method: "PUT", body: JSON.stringify({ folder: picked }) }));
+      // The chats switch is gone, so folder sync always includes chats.
       setFolder(await api("/api/profile-sync/chats", { method: "PUT", body: JSON.stringify({ enabled: true }) }));
     });
   };
@@ -193,6 +194,7 @@ export function SyncPanel() {
       line = google.progress
         ? t("settings.sync.syncing", { done: google.progress.done, total: google.progress.total })
         : t("settings.sync.syncingNoProgress");
+      quiet = signOutAction;
     } else if (google.state === "up-to-date") {
       line = t("settings.sync.upToDateAs", { email });
       quiet = signOutAction;

@@ -118,11 +118,12 @@ afterEach(async () => {
 describe("SyncPanel Google states", () => {
   const rows: [string, GoogleBody, string | null, string[]][] = [
     ["signed-out", google("signed-out", { email: null }), null, ["Sign in with Google", "Use a Drive folder instead"]],
+    ["ready, no join", google("ready"), "edward@example.com", ["Start", "Sign out"]],
     ["ready, first PC", google("ready", { join: { first: true, pcs: 1 } }), "First PC on edward@example.com", ["Start", "Sign out"]],
     ["ready, joining", google("ready", { join: { first: false, pcs: 3 } }), "Joining edward@example.com · 3 PCs", ["Start", "Sign out"]],
-    ["joining", google("joining", { progress: { done: 2, total: 9 } }), "Syncing 2 of 9", []],
-    ["syncing", google("syncing", { progress: { done: 4, total: 9 } }), "Syncing 4 of 9", []],
-    ["syncing without progress", google("syncing"), "Syncing…", []],
+    ["joining", google("joining", { progress: { done: 2, total: 9 } }), "Syncing 2 of 9", ["Sign out"]],
+    ["syncing", google("syncing", { progress: { done: 4, total: 9 } }), "Syncing 4 of 9", ["Sign out"]],
+    ["syncing without progress", google("syncing"), "Syncing…", ["Sign out"]],
     ["up-to-date", google("up-to-date"), "Up to date · edward@example.com", ["Sign out"]],
     ["offline", google("offline"), "Offline. Changes sync when you're back online.", ["Sign out"]],
     ["needs-sign-in", google("needs-sign-in"), "Sign in again to keep syncing.", ["Sign in with Google", "Sign out"]],
@@ -252,7 +253,7 @@ describe("SyncPanel actions", () => {
     await click(button(host, "Start"));
     expect(calls).toContain("POST /api/google-sync/start");
     expect(line(host)).toBe("Syncing 0 of 5");
-    expect(buttons(host)).toEqual([]);
+    expect(buttons(host)).toEqual(["Sign out"]);
   });
 
   it("shows the error when Start is refused", async () => {
