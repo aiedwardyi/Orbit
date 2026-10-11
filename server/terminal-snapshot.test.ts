@@ -69,7 +69,7 @@ describe("remote terminal start", () => {
 
   it("routes the remote start through the app's own auth", () => {
     expect(server).toContain("terminalStartResponse(terminalBridgeAccess, bot.id)");
-    expect(remoteAccess).toContain('BEARER_ONLY_PATHS = new Set(["/api/internal/terminal-bridge"])');
+    expect(remoteAccess).toMatch(/BEARER_ONLY_PATHS = new Set\(\[[^\]]*"\/api\/internal\/terminal-bridge"/);
   });
 });
 

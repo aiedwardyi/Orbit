@@ -117,7 +117,7 @@ export function remoteCookieAuthorized(cookieHeader: string | undefined, remoteK
   return remoteKeyMatches(remoteCookieValue(cookieHeader), remoteKey);
 }
 
-const BEARER_ONLY_PATHS = new Set(["/api/internal/terminal-bridge"]);
+const BEARER_ONLY_PATHS = new Set(["/api/internal/terminal-bridge", "/api/internal/google-account"]);
 
 /** /api/* accepts the boot token or, when remote mode is on, the cookie; bearer-only paths refuse the cookie. */
 export function apiRequestAuthorized(

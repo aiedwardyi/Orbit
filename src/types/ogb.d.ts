@@ -196,6 +196,11 @@ type SkillRecordingPayload = {
         retry(): Promise<CompanionAccountState>;
         signOut(): Promise<CompanionAccountState>;
       };
+      googleAccount?: {
+        signIn(): Promise<{ ok: true; email: string } | { ok: false; error: string }>;
+        cancel(): Promise<void>;
+        signOut(): Promise<{ ok: true }>;
+      };
       localControl: {
         status(): Promise<LinuxLocalControlStatus>;
         enable(): Promise<LinuxLocalControlStatus>;

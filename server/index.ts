@@ -299,6 +299,7 @@ import {
 import { PhoneAccess } from "./phone-access.ts";
 import { postPhoneKeepAwake, type PhoneKeepAwakeMessage } from "./phone-keep-awake.ts";
 import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
+import { GoogleAccount, parseGoogleSession, takeGoogleEnv } from "./google-account.ts";
 import type { PublicPhone } from "./phone-devices.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
 import * as vps from "./vps-computer.ts";
@@ -469,6 +470,10 @@ const mailboxAutoDedup = new MailboxAutoDedup();
 // the Host/Origin gates and /api/* cookie auth to one tailnet hostname;
 // unset means loopback-only until a running Tailscale is detected below.
 let { host: REMOTE_HOST, key: REMOTE_KEY } = initRemoteAccess(process.env, DATA_DIR);
+
+// Google sign-in for Drive sync. Taken out of the env before any engine CLI can inherit it.
+const googleEnv = takeGoogleEnv(process.env);
+const googleAccount = new GoogleAccount(googleEnv.client, googleEnv.session);
 
 // Phone access from anywhere through the relay (docs/phone-relay-design.md).
 // Absent unless phoneRelay.base is configured and enabled; it starts only
@@ -6560,6 +6565,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         terminalBridgeAccess = { url, token };
         return json(res, 200, { ok: true });
       }
+      // The desktop shell pushes its sign-in here after saving it to credentials.bin.
+      if ((method === "PUT" || method === "DELETE") && path === "/api/internal/google-account") {
+        const session = method === "PUT" ? parseGoogleSession(await readBody(req)) : null;
+        if (method === "PUT" && !session) return json(res, 400, { error: "invalid Google account" });
+        googleAccount.setSession(session);
+        return json(res, 200, googleAccount.status());
+      }
       if (method === "POST" && path === "/api/internal/task-state") {
         const parsed = taskStateUpdateEnvelopeSchema.safeParse(await readBody(req));
         if (!parsed.success) return json(res, 400, { error: taskStateUpdateError(parsed.error) });
@@ -9895,6 +9907,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // ── app config (API keys — never echoed back, booleans only) ──
     if (method === "GET" && path === "/api/config") {
       return json(res, 200, configStatus());
+    }
+    if (method === "GET" && path === "/api/google-account") {
+      return json(res, 200, googleAccount.status());
     }
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);
