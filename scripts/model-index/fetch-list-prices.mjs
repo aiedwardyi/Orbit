@@ -88,7 +88,8 @@ export function parseGoogle(html, names) {
 export function parseMeta(html, names) {
   const text = pageText(html);
   const prices = {};
-  const tiers = [...text.matchAll(/Models:([^\n]*)\n[\s\S]{0,700}?Usage Price per 1M tokens\s+Cached input \$([\d.]+)\s+Input \$([\d.]+)\s+Output \$([\d.]+)/g)];
+  // A tier ends at the next Models: line, so a broken tier cannot take the next tier's prices.
+  const tiers = [...text.matchAll(/Models:([^\n]*)\n(?:(?!Models:)[\s\S]){0,700}?Usage Price per 1M tokens\s+Cached input \$([\d.]+)\s+Input \$([\d.]+)\s+Output \$([\d.]+)/g)];
   if (tiers.length === 0) throw new Unverifiable("Meta pricing tiers not found");
   const listed = [...text.matchAll(/Models:([^\n]*)/g)].map((m) => m[1]);
   for (const id of names) {

@@ -181,6 +181,11 @@ function deviceId(ledger: MemorySyncLedger, host: string): string {
   return ledger.device;
 }
 
+/** Mints this PC's memory device before the first sync, as the first sync would. */
+export function ensureMemorySyncDevice(ledger: MemorySyncLedger): string {
+  return deviceId(ledger, machine());
+}
+
 function tick(ledger: MemorySyncLedger): number {
   ledger.clock = (ledger.clock ?? 0) + 1;
   return ledger.clock;

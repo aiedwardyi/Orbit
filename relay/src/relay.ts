@@ -6,8 +6,10 @@ import { createPublicKey, type KeyObject } from "node:crypto";
 import { createServer as createNetServer, type AddressInfo, type Socket } from "node:net";
 import { join } from "node:path";
 import { createSecureContext, createServer as createTlsServer, type SecureContext, type TLSSocket } from "node:tls";
+import { googleDiscoveryKeySource, type GoogleKeySource } from "../../shared/google-id-token.ts";
 import { ALPN_ACME, ALPN_CONTROL, ALPN_DATA, labelFromHost } from "../../shared/relay-protocol.ts";
 import { parseClientHello } from "../../shared/tls-client-hello.ts";
+import { Accounts } from "./accounts.ts";
 import { CertManager, type AcmeClientLike } from "./acme.ts";
 import { BASE_RE } from "./config.ts";
 import { handleControl, handleData, type ChannelContext } from "./channels.ts";
@@ -47,6 +49,13 @@ export interface RelayOptions {
     email?: string;
     termsOfServiceAgreed: boolean;
     createClient?: (opts: { directoryUrl: string; accountKey: Buffer }) => AcmeClientLike;
+  };
+  /** Without this, /v1/account and /v1/pcs answer 404. `keys` is injected by tests. */
+  google?: {
+    desktopClientId: string;
+    webClientId: string;
+    signinOrigin: string;
+    keys?: GoogleKeySource;
   };
   limits?: Partial<RelayLimits>;
   log?: Logger;
@@ -106,7 +115,29 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
   const connLimit = new RateLimiter(limits.connPerIpPerSec, limits.connPerIpBurst, now);
   const authLimit = RateLimiter.perMinute(limits.controlAuthPerIpPerMin, now);
 
-  const api = createApiServer({ base, relayHost, hub, enroller, limits, log, now });
+  const accounts = opts.google
+    ? new Accounts({
+        desktopClientId: opts.google.desktopClientId,
+        webClientId: opts.google.webClientId,
+        keys: opts.google.keys ?? googleDiscoveryKeySource(),
+        operatorPrivateKey: opts.operatorPrivateKey,
+        operatorPublicKey,
+        isRevoked: (label) => revoked.has(label),
+        now,
+        ticketTtlSec,
+      })
+    : undefined;
+  const api = createApiServer({
+    base,
+    relayHost,
+    hub,
+    enroller,
+    accounts,
+    signinOrigin: opts.google?.signinOrigin,
+    limits,
+    log,
+    now,
+  });
 
   const relayTls = createTlsServer({
     SNICallback: (name, cb) => (name === relayHost && serving ? cb(null, serving) : cb(new Error("no certificate"))),

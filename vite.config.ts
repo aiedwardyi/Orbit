@@ -15,10 +15,12 @@ export default defineConfig({
     environment: "node",
     include: [
       "server/**/*.test.ts",
+      "shared/**/*.test.ts",
       "electron/**/*.test.mjs",
       "src/**/*.test.ts",
       "companion/**/*.test.ts",
       "scripts/**/*.test.mjs",
+      "site/**/*.test.ts",
     ],
     setupFiles: ["server/testing/setup.ts"],
     // the suite spawns fake provider CLIs and a real harness server;

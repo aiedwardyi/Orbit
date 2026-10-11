@@ -1,0 +1,65 @@
+# Static phone sign-in page. The Web client id is a repo variable, never a file in git.
+name: Pages
+
+on:
+  push:
+    branches: [review-base]
+    paths:
+      - "site/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: write CNAME and config
+        env:
+          WINK_GOOGLE_WEB_CLIENT_ID: ${{ vars.WINK_GOOGLE_WEB_CLIENT_ID }}
+          WINK_RELAY_BASE: ${{ vars.WINK_RELAY_BASE }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { readFileSync, writeFileSync } from "node:fs";
+
+          const clientId = (process.env.WINK_GOOGLE_WEB_CLIENT_ID ?? "").trim();
+          const requested = (process.env.WINK_RELAY_BASE ?? "").trim();
+          const base = requested || "wink.edwardyi.dev";
+          const clientOk = /^[0-9A-Za-z_-]+(?:\.[0-9A-Za-z_-]+)*\.apps\.googleusercontent\.com$/.test(clientId);
+          const baseOk = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(base);
+          if (!clientOk) {
+            console.error("WINK_GOOGLE_WEB_CLIENT_ID must be the Web client id");
+            process.exit(1);
+          }
+          if (!baseOk) {
+            console.error("WINK_RELAY_BASE must be a domain");
+            process.exit(1);
+          }
+          const relay = `https://relay.${base}`;
+          const page = readFileSync("site/signin/index.html", "utf8").replaceAll("https://relay.wink.edwardyi.dev", relay);
+          writeFileSync("site/signin/config.js", `globalThis.WINK_SIGNIN = ${JSON.stringify({ clientId, base })};\n`);
+          writeFileSync("site/CNAME", "wink.edwardyi.dev\n");
+          writeFileSync("site/signin/index.html", page);
+          writeFileSync("site/index.html", page);
+          EOF
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

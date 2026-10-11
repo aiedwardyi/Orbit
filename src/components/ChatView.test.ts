@@ -1444,6 +1444,169 @@ describe("docked reply mascot", () => {
   });
 });
 
+describe("phone header name floor", () => {
+  const MODEL = "claude-opus-5-5";
+  const originals = [Element.prototype, HTMLElement.prototype, SVGElement.prototype].map((proto) => ({
+    proto,
+    rect: proto.getBoundingClientRect,
+  }));
+
+  const box = (left: number, width: number, top = 16, height = 28) => new DOMRect(left, top, width, height);
+
+  const restoreRects = () => {
+    for (const item of originals) item.proto.getBoundingClientRect = item.rect;
+  };
+
+  const headerOf = (el: Element) => el.closest("[class*='chathead']");
+
+  const modelLabelOf = (root: ParentNode) => {
+    const found = [...root.querySelectorAll("span.truncate")].find((el) => el.textContent?.includes(MODEL));
+    return found instanceof HTMLElement ? found : null;
+  };
+
+  const installRects = (overlap: boolean) => {
+    const rect = function (this: Element) {
+      if (this instanceof HTMLElement && this.style.left === "-9999px") return box(0, 80, 0, 20);
+      const header = headerOf(this);
+      const label = header ? modelLabelOf(header) : null;
+      const hidden = label?.style.display === "none";
+      const chip = label?.closest("button");
+      const name = header && [...header.querySelectorAll("button")].find((el) => el.textContent === "Bounty-Watch" && el.className.includes("md:hidden"));
+      const cluster = name?.parentElement ?? null;
+      if (header && this === header) return box(0, 360, 0, 60);
+      if (cluster && this === cluster) return overlap && !hidden ? box(0, 280, 8, 44) : box(0, 160, 8, 44);
+      if (name && this === name) return box(46, 100, 16, 22);
+      if (cluster && this === cluster.firstElementChild) return box(6, 40, 10, 40);
+      if (chip && this === chip) return overlap && !hidden ? box(40, 200, 14, 30) : box(240, 100, 14, 30);
+      if (label && this === label) return box(80, 100, 18, 16);
+      if (this instanceof HTMLElement && this.classList.contains("truncate")) return box(80, 100, 18, 16);
+      if (this instanceof HTMLElement && this.hasAttribute("data-model-effort")) return box(160, 40, 18, 14);
+      if (this instanceof SVGElement && chip?.contains(this)) return box(50, 14, 20, 14);
+      return box(0, 0, 0, 0);
+    };
+    for (const item of originals) item.proto.getBoundingClientRect = rect;
+  };
+
+  const pinWhole = (el: HTMLElement) => {
+    for (const key of ["scrollWidth", "clientWidth"]) {
+      Object.defineProperty(el, key, { configurable: true, get: () => 48 });
+    }
+  };
+
+  const mount = async (overlap: boolean) => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    installRects(overlap);
+    const bot: Bot = {
+      ...botB,
+      name: "Bounty-Watch",
+      modelSelection: { instanceId: "inst", model: MODEL, effort: "max", mode: "pinned" },
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot, onOpenTerminal: () => undefined }))));
+    await act(async () => { await Promise.resolve(); });
+    const header = host.querySelector("[class*='chathead']");
+    const modelLabel = header ? modelLabelOf(header) : null;
+    const nameButton = header && [...header.querySelectorAll("button")].find((el) => el.textContent === "Bounty-Watch" && el.className.includes("md:hidden"));
+    const cluster = nameButton?.parentElement ?? null;
+    if (modelLabel) pinWhole(modelLabel);
+    const effort = header?.querySelector("[data-model-effort]");
+    if (effort instanceof HTMLElement) pinWhole(effort);
+    if (nameButton instanceof HTMLElement) pinWhole(nameButton);
+    await act(async () => { window.dispatchEvent(new Event("resize")); });
+    return {
+      host,
+      header: header instanceof HTMLElement ? header : null,
+      modelLabel,
+      nameButton: nameButton instanceof HTMLButtonElement ? nameButton : null,
+      cluster: cluster instanceof HTMLElement ? cluster : null,
+      unmount: async () => {
+        await act(async () => root.unmount());
+        host.remove();
+        restoreRects();
+      },
+    };
+  };
+
+  afterEach(restoreRects);
+
+  it("hides a long model label at 360 when no device tag is rendered", async () => {
+    const view = await mount(true);
+    try {
+      expect(view.header).not.toBeNull();
+      expect(view.modelLabel).not.toBeNull();
+      expect(view.cluster).not.toBeNull();
+      if (!view.header || !view.modelLabel || !view.cluster) return;
+      expect(view.header.querySelector("[data-device-tag]")).toBeNull();
+      expect(view.modelLabel.style.display).toBe("none");
+      const chip = view.modelLabel.closest("button");
+      expect(chip).toBeInstanceOf(HTMLElement);
+      if (!(chip instanceof HTMLElement)) return;
+      expect(chip.getBoundingClientRect().left).toBeGreaterThanOrEqual(view.cluster.getBoundingClientRect().right - 1);
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("includes both cluster paddings in the minimum width", async () => {
+    const view = await mount(false);
+    try {
+      expect(view.cluster).not.toBeNull();
+      expect(view.nameButton).not.toBeNull();
+      if (!view.cluster || !view.nameButton) return;
+      view.cluster.style.paddingLeft = "6px";
+      view.cluster.style.paddingRight = "8px";
+      await act(async () => { window.dispatchEvent(new Event("resize")); });
+      const cs = getComputedStyle(view.cluster);
+      const pad = Number.parseFloat(cs.paddingLeft) + Number.parseFloat(cs.paddingRight);
+      expect(Number.parseFloat(cs.paddingRight)).toBe(8);
+      const gap = Number.parseFloat(cs.columnGap);
+      const gapPx = Number.isFinite(gap) ? gap : 0;
+      let fixed = 0;
+      let others = 0;
+      for (const child of view.cluster.children) {
+        if (!(child instanceof HTMLElement) || child === view.nameButton || getComputedStyle(child).display === "none") continue;
+        fixed += child.getBoundingClientRect().width;
+        others += 1;
+      }
+      const nameMin = Number.parseFloat(view.nameButton.style.minWidth);
+      expect(view.cluster.style.minWidth).toBe(`${Math.ceil(pad + fixed + gapPx * others + nameMin)}px`);
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("styles the data-model-label chip and ignores an earlier truncate", async () => {
+    const view = await mount(false);
+    try {
+      expect(view.header).not.toBeNull();
+      expect(view.modelLabel).not.toBeNull();
+      if (!view.header || !view.modelLabel) return;
+      const decoy = document.createElement("button");
+      const decoyLabel = document.createElement("span");
+      decoyLabel.className = "truncate";
+      decoyLabel.textContent = "Decoy label";
+      decoy.append(decoyLabel);
+      await act(async () => { view.header?.prepend(decoy); });
+      expect(view.modelLabel.hasAttribute("data-model-label")).toBe(true);
+      expect(view.modelLabel.style.minWidth).toBe("max-content");
+      expect(decoyLabel.style.minWidth).toBe("");
+      expect(decoyLabel.style.display).toBe("");
+    } finally {
+      await view.unmount();
+    }
+  });
+});
+
 describe("ChatView find reveal", () => {
   const tool = (id: string, name: string): Message => ({ id, at: 1, role: "bot", kind: "activity", tool: { name, ok: true } });
 

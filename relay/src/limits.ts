@@ -15,6 +15,10 @@ export interface RelayLimits {
   /** Control channel auth attempts per source IP. */
   controlAuthPerIpPerMin: number;
   enrollPerIpPerHour: number;
+  /** POST /v1/account, when the google block is set. */
+  accountPerIpPerHour: number;
+  /** GET /v1/pcs, when the google block is set. */
+  pcsPerIpPerMin: number;
   statusPerIpPerMin: number;
   /** PC must send `auth` (control) or `join` (data) within this. */
   authTimeoutMs: number;
@@ -49,6 +53,8 @@ export const DEFAULT_LIMITS: Readonly<RelayLimits> = Object.freeze({
   connPerIpBurst: 60,
   controlAuthPerIpPerMin: 6,
   enrollPerIpPerHour: 5,
+  accountPerIpPerHour: 30,
+  pcsPerIpPerMin: 30,
   statusPerIpPerMin: 60,
   authTimeoutMs: 10_000,
   joinTimeoutMs: 10_000,

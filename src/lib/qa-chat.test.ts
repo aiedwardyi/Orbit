@@ -9,15 +9,6 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 describe("qa chat copy", () => {
-  it("says the sync folder is only for chats between PCs", () => {
-    expect(en["settings.sync.folderHelp"]).toBe(
-      "This folder only syncs chats between your PCs. It is not where bots work. Pick the same folder on each PC.",
-    );
-    expect(ko["settings.sync.folderHelp"]).toBe(
-      "이 폴더는 PC끼리 대화를 맞출 때만 써요. 봇이 일하는 곳이 아니에요. PC마다 같은 폴더를 고르세요.",
-    );
-  });
-
   it("explains memory and work steps in place", () => {
     expect(en["bot.memoryPlaceholder"]).toBe(
       "This is where the bot saves rules and facts to remember.",

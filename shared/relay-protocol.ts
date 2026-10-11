@@ -26,21 +26,27 @@ const count = z.int().min(0);
 
 /** Relay to PC: first frame on a control channel. */
 export const helloMessageSchema = z.object({ type: z.literal("hello"), v: count, nonce: z.string() });
-/** PC to relay: `sig` covers authPayload(nonce, label). */
+/** Display name a PC may attach to its account directory entry. */
+export const PC_NAME_MAX = 200;
+
+/** PC to relay: `sig` covers authPayload(nonce, label). `account` is a wka1, or null to drop it. */
 export const authMessageSchema = z.object({
   type: z.literal("auth"),
   label: z.string(),
   pk: z.string(),
   ticket: z.string(),
   sig: z.string(),
+  account: z.string().min(1).max(4096).nullable().optional(),
+  name: z.string().max(PC_NAME_MAX).optional(),
 });
-/** Relay to PC: session accepted. `ticket` is a refreshed ticket past half life. */
+/** Relay to PC: session accepted. `ticket` and `account` are refreshes past half life. */
 export const readyMessageSchema = z.object({
   type: z.literal("ready"),
   session: z.string(),
   poolToken: z.string(),
   pool: z.object({ min: count, max: count }).refine((pool) => pool.min <= pool.max, "pool.min exceeds pool.max"),
   ticket: z.string().optional(),
+  account: z.string().optional(),
 });
 /** Relay to PC: a phone waits on an empty pool. */
 export const wantMessageSchema = z.object({ type: z.literal("want"), n: count });
@@ -241,6 +247,9 @@ export const NONCE_BYTES = 32;
 export const CLOCK_SKEW_SEC = 300;
 
 export const TICKET_PREFIX = "wkt1";
+export const ACCOUNT_TICKET_PREFIX = "wka1";
+/** base64url(sha256(utf8 Google sub)), no padding. */
+export const SUB_HASH_RE = /^[A-Za-z0-9_-]{43}$/;
 export const INVITE_PREFIX = "wki1";
 export const AUTH_CONTEXT = "wink-relay-auth/1";
 
@@ -317,7 +326,7 @@ export const inviteClaimsSchema = z.object({ exp: z.int(), nonce: z.string().min
 export type InviteClaims = z.infer<typeof inviteClaimsSchema>;
 
 /** Signed `<prefix>.<b64url json>.<b64url sig>`; the signature covers `<prefix>.<b64url json>`. */
-function signToken(prefix: string, payload: TicketClaims | InviteClaims, privateKey: KeyObject): string {
+function signToken(prefix: string, payload: TicketClaims | InviteClaims | AccountTicketClaims, privateKey: KeyObject): string {
   const signed = `${prefix}.${Buffer.from(JSON.stringify(payload), "utf8").toString("base64url")}`;
   return `${signed}.${sign(null, Buffer.from(signed, "ascii"), privateKey).toString("base64url")}`;
 }
@@ -344,6 +353,31 @@ function checkTimes(iat: number, exp: number, now: number | undefined): string |
 
 export function signTicket(claims: TicketClaims, operatorPrivateKey: KeyObject): string {
   return signToken(TICKET_PREFIX, ticketClaimsSchema.parse(claims), operatorPrivateKey);
+}
+
+/** Operator-signed binding of one PC label to one Google account. Times are seconds since epoch. */
+export const accountTicketClaimsSchema = z.object({
+  label: z.string().regex(LABEL_RE),
+  subHash: z.string().regex(SUB_HASH_RE),
+  iat: z.int(),
+  exp: z.int(),
+});
+export type AccountTicketClaims = z.infer<typeof accountTicketClaimsSchema>;
+
+export function signAccountTicket(claims: AccountTicketClaims, operatorPrivateKey: KeyObject): string {
+  return signToken(ACCOUNT_TICKET_PREFIX, accountTicketClaimsSchema.parse(claims), operatorPrivateKey);
+}
+
+/** Checks the operator signature and lifetime. The label inside must match the authenticated PC. */
+export function verifyAccountTicket(
+  ticket: string,
+  operatorPublicKey: KeyObject,
+  options: VerifyOptions = {},
+): VerifyResult<AccountTicketClaims> {
+  const opened = openToken(ACCOUNT_TICKET_PREFIX, ticket, operatorPublicKey, accountTicketClaimsSchema);
+  if (!opened.ok) return opened;
+  const timeError = checkTimes(opened.value.iat, opened.value.exp, options.now);
+  return timeError ? { ok: false, reason: timeError } : opened;
 }
 
 /** Checks signature, label derived from pk, and lifetime with CLOCK_SKEW_SEC slack. */

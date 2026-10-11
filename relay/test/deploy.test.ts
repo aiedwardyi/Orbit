@@ -1,4 +1,7 @@
 import { readFileSync } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import { getCACertificates, setDefaultCACertificates, type TLSSocket } from "node:tls";
@@ -410,6 +413,75 @@ describe("dry run and discovery", () => {
     expect(parsed.opts).toMatchObject({ region: "asia-northeast3", zone: "asia-northeast3-a", tier: "STANDARD", base: BASE });
     expect(() => parseOptions(["pause", "--project", "p", "--base", BASE, "--dns-zone", "example.com", "--offline"])).toThrow(/offline/);
     expect(() => parseOptions(["move", "--project", "wink-new-proj", "--base", BASE, "--dns-zone", "example.com"])).toThrow(/from-project/);
+  });
+});
+
+const DESKTOP_CLIENT = "desktop-client.apps.googleusercontent.com";
+const WEB_CLIENT = "web-client.apps.googleusercontent.com";
+const SIGNIN_ORIGIN = "https://wink.edwardyi.dev";
+
+describe("google deploy flags", () => {
+  const argv = (action: string, extra: string[] = []) => [action, "--project", "wink-new-proj", "--base", BASE, "--dns-zone", "example.com", ...extra];
+  const flags = ["--google-desktop-client-id", DESKTOP_CLIENT, "--google-web-client-id", WEB_CLIENT, "--google-signin-origin", SIGNIN_ORIGIN];
+
+  it("parses all three flags for provision and update", () => {
+    for (const action of ["provision", "update"]) {
+      expect(parseOptions(argv(action, flags)).opts.google).toEqual({
+        desktopClientId: DESKTOP_CLIENT,
+        webClientId: WEB_CLIENT,
+        signinOrigin: SIGNIN_ORIGIN,
+      });
+    }
+  });
+
+  it("rejects a partial set, a bad origin, and equal client ids", () => {
+    expect(() => parseOptions(argv("provision", ["--google-desktop-client-id", DESKTOP_CLIENT]))).toThrow(PlanError);
+    expect(() => parseOptions(argv("update", ["--google-web-client-id", WEB_CLIENT, "--google-signin-origin", SIGNIN_ORIGIN]))).toThrow(PlanError);
+    expect(() =>
+      parseOptions(argv("provision", ["--google-desktop-client-id", DESKTOP_CLIENT, "--google-web-client-id", WEB_CLIENT, "--google-signin-origin", `${SIGNIN_ORIGIN}/signin`])),
+    ).toThrow(PlanError);
+    expect(() =>
+      parseOptions(argv("provision", ["--google-desktop-client-id", DESKTOP_CLIENT, "--google-web-client-id", DESKTOP_CLIENT, "--google-signin-origin", SIGNIN_ORIGIN])),
+    ).toThrow(PlanError);
+    expect(() =>
+      planProvision(opts({ google: { desktopClientId: DESKTOP_CLIENT, webClientId: DESKTOP_CLIENT, signinOrigin: SIGNIN_ORIGIN } }), EMPTY),
+    ).toThrow(PlanError);
+  });
+
+  it("writes the google block only when the flags were set, and otherwise matches today", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "wink-relay-cfg-"));
+    try {
+      const local = realLocal("/r", dir);
+      const plain = {
+        base: BASE,
+        listen: { host: "::", port: 443 },
+        dataDir: "/var/lib/wink-relay",
+        revokedLabelsFile: "/etc/wink-relay/revoked-labels",
+        acme: { directoryUrl: opts().acmeDirectory, termsOfServiceAgreed: true },
+      };
+      await local.writeConfig(opts());
+      expect(await readFile(join(dir, "wink-relay.config.json"), "utf8")).toBe(`${JSON.stringify(plain, null, 2)}\n`);
+      await local.writeConfig(opts({ google: { desktopClientId: DESKTOP_CLIENT, webClientId: WEB_CLIENT, signinOrigin: SIGNIN_ORIGIN } }));
+      expect(await readFile(join(dir, "wink-relay.config.json"), "utf8")).toBe(
+        `${JSON.stringify({ ...plain, google: { desktopClientId: DESKTOP_CLIENT, webClientId: WEB_CLIENT, signinOrigin: SIGNIN_ORIGIN } }, null, 2)}\n`,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the same client-id and origin patterns as relay config", () => {
+    const source = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
+    const pattern = (text: string, name: string) => {
+      const line = text.split("\n").find((row) => row.includes(`const ${name} =`));
+      const match = line?.match(/=\s*(\/.*\/[a-z]*)\s*;/);
+      if (!match?.[1]) throw new Error(`missing ${name}`);
+      return match[1];
+    };
+    const config = source("../src/config.ts");
+    const plan = source("../deploy/plan.ts");
+    expect(pattern(plan, "CLIENT_ID_RE")).toBe(pattern(config, "CLIENT_ID_RE"));
+    expect(pattern(plan, "ORIGIN_RE")).toBe(pattern(config, "ORIGIN_RE"));
   });
 });
 
