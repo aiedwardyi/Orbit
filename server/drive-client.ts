@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 const FILES_URL = "https://www.googleapis.com/drive/v3/files";
+const CHANGES_URL = "https://www.googleapis.com/drive/v3/changes";
 const UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
 const FOLDER_TYPE = "application/vnd.google-apps.folder";
 const FILE_FIELDS = "id,name,mimeType,appProperties,md5Checksum,size,createdTime,modifiedTime,trashed";
@@ -13,12 +14,29 @@ const fileSchema = z.object({
   createdTime: z.iso.datetime({ offset: true }), modifiedTime: z.iso.datetime({ offset: true }), trashed: z.boolean(),
 });
 const pageSchema = z.object({ files: z.array(fileSchema), nextPageToken: z.string().min(1).optional(), incompleteSearch: z.boolean().optional() });
+const changeFileSchema = fileSchema.extend({ parents: z.array(z.string()).optional() });
+const changePageSchema = z.object({
+  changes: z.array(z.object({ fileId: z.string().min(1), removed: z.boolean().optional(), file: changeFileSchema.optional() })),
+  nextPageToken: z.string().min(1).optional(), newStartPageToken: z.string().min(1).optional(),
+});
+const usageSchema = z.object({ error: z.object({ errors: z.array(z.object({ domain: z.string().optional(), reason: z.string().optional() })).optional() }).optional() });
 
 export type DriveFile = z.infer<typeof fileSchema>;
+export interface DriveChange {
+  fileId: string;
+  removed: boolean;
+  parents: string[];
+  file?: DriveFile;
+}
+export interface DriveChangePage { changes: DriveChange[]; newStartPageToken: string }
 export interface DriveClient {
   listRoots(): Promise<DriveFile[]>;
   findOrCreateRoot(): Promise<DriveFile>;
   listChildren(rootId: string): Promise<DriveFile[]>;
+  listNamed(rootId: string, name: string): Promise<DriveFile[]>;
+  getFile(id: string): Promise<DriveFile>;
+  getStartPageToken(): Promise<string>;
+  listChanges(pageToken: string): Promise<DriveChangePage>;
   createFile(rootId: string, name: string, appProperties: Record<string, string>, bytes: Uint8Array): Promise<DriveFile>;
   updateMedia(id: string, bytes: Uint8Array): Promise<DriveFile>;
   downloadFile(id: string, size?: string): Promise<Buffer>;
@@ -26,10 +44,14 @@ export interface DriveClient {
 
 export class DriveClientError extends Error {
   readonly status: number;
-  constructor(status: number) {
+  readonly rateLimited: boolean;
+  readonly retryAfterMs: number | null;
+  constructor(status: number, rateLimited = false, retryAfterMs: number | null = null) {
     super(`Drive request failed (HTTP ${status})`);
     this.name = "DriveClientError";
     this.status = status;
+    this.rateLimited = rateLimited;
+    this.retryAfterMs = rateLimited ? retryAfterMs : null;
   }
 }
 
@@ -48,6 +70,23 @@ function transferTimeout(size: number | string): number {
   return Number(ms > 2_147_483_647n ? 2_147_483_647n : ms);
 }
 
+function retryAfterMs(header: string | null): number | null {
+  if (!header) return null;
+  const trimmed = header.trim();
+  if (/^\d+(\.\d+)?$/.test(trimmed)) return Math.round(Number(trimmed) * 1_000);
+  const when = Date.parse(trimmed);
+  return Number.isNaN(when) ? null : Math.max(0, when - Date.now());
+}
+
+async function usageLimit(response: Response): Promise<boolean> {
+  try {
+    const body = usageSchema.parse(JSON.parse(await response.text()));
+    return body.error?.errors?.some((item) => item.domain === "usageLimits" || /rateLimit|dailyLimitExceeded/i.test(item.reason ?? "")) ?? false;
+  } catch {
+    return false;
+  }
+}
+
 export function createDriveClient(options: Options): DriveClient {
   const getAccessToken = options.getAccessToken;
   const fetch = options.fetch ?? globalThis.fetch;
@@ -58,7 +97,12 @@ export function createDriveClient(options: Options): DriveClient {
       const headers = new Headers(init.headers);
       headers.set("authorization", `Bearer ${token}`);
       const response = await fetch(url, { ...init, headers, signal: AbortSignal.timeout(timeout) });
-      if (!response.ok) throw new DriveClientError(response.status);
+      if (!response.ok) {
+        const wait = retryAfterMs(response.headers.get("retry-after"));
+        const rateLimited = response.status === 429 || (response.status === 403 && await usageLimit(response));
+        if (!rateLimited && response.status !== 403) await response.body?.cancel().catch(() => undefined);
+        throw new DriveClientError(response.status, rateLimited, wait);
+      }
       return response;
     } catch (error) {
       if (error instanceof DriveClientError) throw error;
@@ -120,6 +164,51 @@ export function createDriveClient(options: Options): DriveClient {
     },
     listChildren(rootId) {
       return list(`trashed = false and '${quoted(rootId)}' in parents`);
+    },
+    listNamed(rootId, name) {
+      return list(`trashed = false and name = '${quoted(name)}' and '${quoted(rootId)}' in parents`);
+    },
+    getFile(id) {
+      return metadata(new URL(`${FILES_URL}/${encodeURIComponent(id)}`));
+    },
+    async getStartPageToken() {
+      const response = await request(new URL(`${CHANGES_URL}/startPageToken`));
+      try {
+        return z.object({ startPageToken: z.string().min(1) }).parse(await response.json()).startPageToken;
+      } catch (error) {
+        throw new DriveClientError(error instanceof SyntaxError || error instanceof z.ZodError ? response.status : 0);
+      }
+    },
+    async listChanges(pageToken) {
+      const changes: DriveChange[] = [];
+      const seen = new Set<string>();
+      let token: string | undefined = pageToken;
+      let newStartPageToken = "";
+      while (token) {
+        const url = new URL(CHANGES_URL);
+        url.searchParams.set("pageToken", token);
+        url.searchParams.set("pageSize", "1000");
+        url.searchParams.set("spaces", "drive");
+        url.searchParams.set("includeRemoved", "true");
+        url.searchParams.set("fields", `nextPageToken,newStartPageToken,changes(fileId,removed,file(${FILE_FIELDS},parents))`);
+        const response = await request(url);
+        let page: z.infer<typeof changePageSchema>;
+        try {
+          page = changePageSchema.parse(await response.json());
+        } catch (error) {
+          throw new DriveClientError(error instanceof SyntaxError || error instanceof z.ZodError ? response.status : 0);
+        }
+        if (page.nextPageToken && seen.has(page.nextPageToken)) throw new DriveClientError(response.status);
+        for (const change of page.changes) changes.push({
+          fileId: change.fileId, removed: change.removed ?? false, parents: change.file?.parents ?? [],
+          file: change.file ? fileSchema.parse(change.file) : undefined,
+        });
+        if (page.nextPageToken) { seen.add(page.nextPageToken); token = page.nextPageToken; continue; }
+        if (!page.newStartPageToken) throw new DriveClientError(response.status);
+        newStartPageToken = page.newStartPageToken;
+        token = undefined;
+      }
+      return { changes, newStartPageToken };
     },
     createFile(rootId, name, appProperties, bytes) {
       const boundary = `wink-${randomUUID()}`;
