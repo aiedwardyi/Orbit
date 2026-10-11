@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { t } from "@/lib/i18n";
-import type { Message } from "@/state/store";
 import { parsePaneNote } from "../../shared/pane-note";
-import { notePreview, noteText, paneReports } from "./pane-note";
+import { notePreview, noteText } from "./pane-note";
 
 const BOT = "61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b";
 const stored = (text: string, label: string | null = "QCARD-FIX | Opus 5.5 | high") =>
@@ -69,18 +68,5 @@ describe("notePreview", () => {
   it("leads with the status word", () => {
     expect(notePreview(parsePaneNote(stored("DONE N branch=x sha=y dirty=no\nAll green.\nShipped.")), t)).toBe("Finished: All green. Shipped.");
     expect(notePreview(parsePaneNote(stored("BLOCKED N branch=x sha=y dirty=no")), t)).toBe("Needs an answer");
-  });
-});
-
-describe("paneReports", () => {
-  it("keeps the newest report per pane and skips watcher notes", () => {
-    const note = (id: string, text: string): Message => ({ id, at: 1, role: "bot", kind: "note", text: stored(text) });
-    const reports = paneReports([
-      note("n1", "FAIL N branch=x sha=y dirty=no\nfirst try"),
-      note("n2", "DONE N branch=x sha=y dirty=no\nsecond try"),
-      note("n3", "STALLED: no screen change for 3 min and no report. Last lines:\nx"),
-    ]);
-    expect([...reports.keys()]).toEqual(["bc9c674b"]);
-    expect(reports.get("bc9c674b")?.body).toBe("second try");
   });
 });

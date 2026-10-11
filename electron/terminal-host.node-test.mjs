@@ -751,6 +751,22 @@ test("paneLabels lists each bot's open worker panes, not main terminals or exite
   assert.deepEqual(f.host.paneLabels(), { "bot-1": ["w2"] });
 });
 
+test("liveWorkerCount counts open worker panes, not main terminals or exited panes", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  assert.equal(f.host.liveWorkerCount(), 0);
+  await f.host.open(f.event, f.input);
+  assert.equal(f.host.liveWorkerCount(), 0);
+  const first = await f.host.openForBot("bot-1", { label: "w1" });
+  await f.host.openForBot("bot-2", { label: "w2" });
+  assert.equal(f.host.liveWorkerCount(), 2);
+  f.children[2].exit({ exitCode: 0 });
+  assert.equal(f.host.liveWorkerCount(), 1);
+  await f.host.close(f.event, first.sessionId);
+  assert.equal(f.host.liveWorkerCount(), 0);
+});
+
 test("only bot-spawned panes turn off Claude prompt suggestions", async () => {
   let owner;
   const f = fixture({ owner: () => owner });

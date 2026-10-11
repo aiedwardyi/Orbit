@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  api,
   useStore,
   useStreaming,
   formatDateTime,
@@ -62,6 +63,7 @@ import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
+import { WorkerRow, WorkerStrip, useWorkerRows, type ShownRun } from "./WorkerRows";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { ModelPicker } from "./ModelPicker";
 import { DeviceTag } from "./DeviceSwitcher";
@@ -104,7 +106,8 @@ import { localeTag, useI18n } from "@/lib/i18n";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { activeRunForBot, routineWorkingElsewhere } from "../../shared/working-thread";
 import { parsePaneNote, type PaneNote } from "../../shared/pane-note";
-import { LAUNCH_STATUS_KEY, NOTE_STATUS_KEY, noteText, paneReports } from "@/lib/pane-note";
+import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
+import { shownState, workerRuns } from "@/lib/worker-runs";
 import { ContextCompactionDivider, TaskRecoveryCard } from "./TaskRecoveryCard";
 
 /** Long user messages collapse behind a fade so pasted walls of text don't
@@ -825,9 +828,13 @@ function NoteMessage({ message }: { message: Message }) {
   );
 }
 
-/** Bot-spawned pane ids still open, null until the bridge answers. One snapshot read per bot. */
-function useLivePanes(botId: string, enabled: boolean): Set<string> | null {
+/** One comparable string for a bot's pane labels; a blank slot still counts. */
+const paneLabelsKey = (labels: string[] | undefined) => `${labels?.length ?? 0}:${labels?.join("\n") ?? ""}`;
+
+/** Bot-spawned pane ids still open, null until the bridge or the host answers. */
+function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionKey: string): Set<string> | null {
   const [live, setLive] = useState<Set<string> | null>(null);
+  const phoneRead = useRef<{ busy: boolean; next: (() => void) | null }>({ busy: false, next: null });
   useEffect(() => {
     const bridge = window.ogb?.terminal;
     setLive(null);
@@ -836,7 +843,7 @@ function useLivePanes(botId: string, enabled: boolean): Set<string> | null {
     const closed = new Set<string>();
     void Promise.resolve().then(() => bridge.readBot?.(botId)).then((snapshot) => {
       if (!alive || !snapshot?.panes) return;
-      const ids = snapshot.panes.filter((p) => !p.main && !closed.has(p.sessionId)).map((p) => p.sessionId);
+      const ids = snapshot.panes.filter((p) => !p.main && !p.exited && !closed.has(p.sessionId)).map((p) => p.sessionId);
       setLive((current) => new Set([...ids, ...(current ?? [])]));
     }).catch(() => {});
     const offOpened = bridge.onOpened?.((event) => {
@@ -847,46 +854,65 @@ function useLivePanes(botId: string, enabled: boolean): Set<string> | null {
       closed.add(event.id);
       setLive((current) => { const next = new Set(current ?? []); next.delete(event.id); return next; });
     });
-    return () => { alive = false; offOpened?.(); offClosed?.(); };
+    const offExit = bridge.onExit?.((event) => {
+      closed.add(event.id);
+      setLive((current) => { const next = new Set(current ?? []); next.delete(event.id); return next; });
+    });
+    return () => { alive = false; offOpened?.(); offClosed?.(); offExit?.(); };
   }, [botId, enabled]);
+  useEffect(() => {
+    if (window.ogb || !enabled) return;
+    let alive = true;
+    let latest = 0;
+    let delay = 1000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const pending = phoneRead.current;
+    const read = () => {
+      if (document.visibilityState === "hidden") return;
+      const call = ++latest;
+      clearTimeout(timer);
+      const run = () => {
+        if (!alive || document.visibilityState === "hidden") return;
+        if (pending.busy) { pending.next = run; return; }
+        pending.busy = true;
+        const retry = () => {
+          timer = setTimeout(read, delay);
+          delay = Math.min(delay * 2, 15_000);
+        };
+        api(`/api/bots/${encodeURIComponent(botId)}/terminal`).then(
+          (body) => {
+            if (!alive || call !== latest) return;
+            if (!Array.isArray(body?.panes)) { retry(); return; }
+            setLive(new Set(body.panes.filter((p: { main?: boolean; exited?: boolean }) => !p.main && !p.exited).map((p: { sessionId: string }) => p.sessionId)));
+            delay = 1000;
+          },
+          (cause) => {
+            if (!alive || call !== latest) return;
+            if (/unknown terminal/i.test(cause instanceof Error ? cause.message : "")) { setLive(new Set()); delay = 1000; }
+            else retry();
+          },
+        ).finally(() => {
+          pending.busy = false;
+          const next = pending.next;
+          pending.next = null;
+          next?.();
+        });
+      };
+      run();
+    };
+    read();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") read();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+      pending.next = null;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [botId, enabled, paneKey, sessionKey]);
   return live;
-}
-
-function LaunchMessage({ message, livePanes, reports, onOpenTerminalPane }: { message: Message; livePanes: Set<string> | null; reports: Map<string, PaneNote>; onOpenTerminalPane?: (sessionId: string) => void }) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const [header = "", ...details] = (message.text ?? "").split("\n");
-  const field = (name: string) => details.find((l) => l.startsWith(`${name}: `))?.slice(name.length + 2).trim();
-  const sessionId = field("Session");
-  // unknown (no bridge answer yet, or a phone) behaves like closed minus the label: expand only
-  const live = livePanes && sessionId ? livePanes.has(sessionId) : null;
-  const jump = live && sessionId && onOpenTerminalPane ? () => onOpenTerminalPane(sessionId) : null;
-  const report = !live && sessionId ? reports.get(sessionId.slice(0, 8)) : undefined;
-  const title = report?.status ? t(LAUNCH_STATUS_KEY[report.status], { header }) : live === false ? t("chat.launchClosed", { header }) : header;
-  const where = live ? "chat.launchRunningIn" : live === false ? "chat.launchRanIn" : "chat.launchFolder";
-  const rowClass = "flex items-center gap-1 rounded-lg border border-hairline/30 bg-inset/25 text-[12.5px] text-ink-secondary";
-  return (
-    <div className="flex w-full flex-col items-start gap-1">
-      {jump ? (
-        <div className={rowClass}>
-          <button type="button" onClick={jump} className="py-1.5 pl-3 hover:text-ink">{header}</button>
-          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-label="Details" className="py-1.5 pl-1 pr-3 hover:text-ink">
-            <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
-          </button>
-        </div>
-      ) : (
-        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className={cn(rowClass, "px-3 py-1.5 hover:text-ink")}>
-          <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
-          {title}
-        </button>
-      )}
-      {open && (
-        <div data-orbit-launch className="w-full max-w-2xl whitespace-pre-wrap break-words rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-[12.5px] leading-relaxed text-ink-secondary">
-          {report ? <NoteReport note={report} /> : t(where, { folder: field("Working folder") ?? "" })}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // Keep the live reply in its transcript slot when the canonical message arrives.
@@ -908,6 +934,8 @@ const MessagesList = memo(function MessagesList({
   onReply,
   onFocusComposer,
   onOpenTerminalPane,
+  workers,
+  livePanes,
 }: {
   bot: Bot;
   messages: Message[];
@@ -928,12 +956,13 @@ const MessagesList = memo(function MessagesList({
   onReply: (message: Message) => void;
   onFocusComposer: () => void;
   onOpenTerminalPane?: (sessionId: string) => void;
+  workers: ShownRun[];
+  livePanes: Set<string> | null;
 }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
-  const livePanes = useLivePanes(bot.id, useMemo(() => messages.some((m) => m.kind === "launch"), [messages]));
-  const reports = useMemo(() => paneReports(transcript), [transcript]);
+  const { workerAt, open, toggle } = useWorkerRows(workers, messages);
   // Fold finished tool chips into runs, so a stretch of them cannot bury
   // what the bot actually said. Hidden unless Settings → Tool calls is on.
   const items = useMemo(
@@ -1044,9 +1073,13 @@ const MessagesList = memo(function MessagesList({
               if (m.png) return <ScreenFrame src={`data:${m.mime ?? "image/png"};base64,${m.png}`} caption={m.text} />;
               return m.hasImage ? <ScreenFrame src={screenImageUrl(bot.threadId, m.id)} caption={m.text} /> : null;
             case "note":
-              return <NoteMessage message={m} />;
-            case "launch":
-              return <LaunchMessage message={m} livePanes={livePanes} reports={reports} onOpenTerminalPane={onOpenTerminalPane} />;
+            case "launch": {
+              const worker = workerAt.get(m.id);
+              if (worker === undefined) return m.kind === "note" ? <NoteMessage message={m} /> : null;
+              if (!worker) return null;
+              const live = livePanes && worker.run.sessionId ? livePanes.has(worker.run.sessionId) : null;
+              return <WorkerRow {...worker} live={live} onOpenTerminalPane={onOpenTerminalPane} open={open.has(worker.run.id)} onToggle={() => toggle(worker.run.id)} />;
+            }
             default:
               return (
                 <Bubble
@@ -1192,6 +1225,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   // an old jump shows its own window; the live pages below keep taking arrivals
   const jump = useJumpWindow(dispatch, transcriptKey, bot.threadId, bot.messages, bot.activeLeafId, state.olderPatches[bot.threadId], state.snapshots);
   const shown = jump.messages ?? messages;
+  const runs = useMemo(() => workerRuns(messages), [messages]);
+  const sessionKey = runs.map((run) => run.sessionId).filter(Boolean).sort().join("\n");
+  const livePanes = useLivePanes(bot.id, runs.length > 0, paneLabelsKey(state.terminalPanes[bot.id]), sessionKey);
+  const workers = useMemo(() => runs.map((run) => ({ run, state: shownState(run, livePanes) })), [runs, livePanes]);
+  const rowWorkers = useMemo(() => jump.messages ? workerRuns(messages, jump.messages).map((run) => ({ run, state: shownState(run, livePanes) })) : workers, [messages, jump.messages, livePanes, workers]);
   const showToolCalls = showToolCallsEnabled(state.config);
   const renders = useCallback(
     (index: number) => messageVisible(messages[index], { showToolCalls, transcript: messages }),
@@ -1801,6 +1839,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             </div>
           )}
           <MessagesList
+            key={`${transcriptKey}:${jump.messages ? `jump:${jump.messages.at(-1)?.id}` : "live"}`}
             bot={bot}
             messages={listed}
             transcript={shown}
@@ -1818,6 +1857,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             onReply={selectReply}
             onFocusComposer={focusComposer}
             onOpenTerminalPane={onOpenTerminalPane}
+            workers={rowWorkers}
+            livePanes={livePanes}
           />
           {laterCount > 0 && (
             <div className="flex justify-center">
@@ -1903,6 +1944,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           observedAt={engine?.rateLimits?.observedAt}
           onOpenUsage={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
         />
+        <WorkerStrip name={bot.name} runs={workers} />
         <Composer
           key={bot.threadId}
           bot={bot}

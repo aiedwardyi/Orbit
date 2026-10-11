@@ -35,12 +35,10 @@ export function googleClient(env, readBaked) {
   return null;
 }
 
-/** Env for the packaged server child; it removes these from its own env at boot. */
-export function googleServerEnv(client, credentials) {
+/** Client env for the packaged server child. The boot session is pushed, never placed here. */
+export function googleServerEnv(client) {
   if (!client) return {};
-  const env = { WINK_GOOGLE_CLIENT_ID: client.id, WINK_GOOGLE_CLIENT_SECRET: client.secret };
-  if (credentials?.googleAccount) env.OMB_GOOGLE_ACCOUNT_TOKEN = JSON.stringify(credentials.googleAccount);
-  return env;
+  return { WINK_GOOGLE_CLIENT_ID: client.id, WINK_GOOGLE_CLIENT_SECRET: client.secret };
 }
 
 export function createGoogleSessionPush({ isPackaged, getServerProcess, getToken, getPort, fetch = globalThis.fetch, log = () => {} }) {
@@ -115,7 +113,7 @@ export async function runGoogleSignIn({ client, openExternal, fetch = globalThis
       const reject = (error) => (done(), fail(error));
       const cancel = () => reject(new GoogleSignInError("cancelled"));
       const timer = setTimeout(() => reject(new GoogleSignInError("timeout")), timeoutMs);
-      if (signal?.aborted) cancel();
+      if (signal?.aborted) return cancel();
       signal?.addEventListener("abort", cancel, { once: true });
       server.on("request", (req, res) => {
         let query;

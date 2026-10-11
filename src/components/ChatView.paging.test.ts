@@ -30,6 +30,15 @@ class FakeEventSource {
 const row = (i: number): Message => ({ id: `m${i}`, at: 1, role: "user", kind: "text", text: `row ${i};` });
 const rows = (from: number, to: number) => Array.from({ length: to - from }, (_, i) => row(from + i));
 
+const workerLaunch = (id: string, at: number, nick = "JOB", session = "aaaaaaaa-1"): Message => ({
+  id, at, role: "bot", kind: "launch", from: { botId: "a", name: "A", color: "blue" },
+  text: `Launched ${nick} | script\nLabel: ${nick} | script\nSession: ${session}`,
+});
+const workerDone = (id: string, at: number): Message => ({
+  id, at, role: "bot", kind: "note", from: { botId: "a", name: "A", color: "blue" },
+  text: `[pane aaaaaaaa] [JOB | script] from A (a): DONE JOB branch=x sha=y dirty=no\nUNIQUE_REPORT_${id}`,
+});
+
 const bot = (messages: Message[], hasMore: boolean) =>
   ({
     id: "a",
@@ -154,6 +163,67 @@ const button = (host: HTMLElement, label: string) =>
   Array.from(host.querySelectorAll("button")).find((b) => b.textContent?.includes(label));
 
 describe("paged transcripts", () => {
+  it.each(["chat", "room"] as const)("keeps a %s worker's anchor and open report when showing earlier messages", async (view) => {
+    const thread = [workerLaunch("launch", 0), ...rows(0, 180), workerDone("report", 182)];
+    const threadId = view === "chat" ? "thread-a" : "thread-g";
+    pagedServer(threadId, thread, { bots: view === "chat" ? [bot(thread, false)] : [], groups: view === "room" ? [room(thread, false)] : [] });
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.querySelector("[data-worker-run]")).not.toBeNull());
+    const worker = host.querySelector("[data-worker-run]")!;
+    expect(worker.closest("[data-mid]")?.getAttribute("data-mid")).toBe("report");
+    await act(async () => worker.querySelector("button")!.click());
+    expect(host.textContent).toContain("UNIQUE_REPORT_report");
+    await act(async () => button(host, "Show earlier messages")!.click());
+    expect(host.querySelector("[data-worker-run]")).toBe(worker);
+    expect(worker.closest("[data-mid]")?.getAttribute("data-mid")).toBe("report");
+    expect(worker.querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
+    expect(host.textContent).toContain("UNIQUE_REPORT_report");
+  });
+
+  it.each(["chat", "room"] as const)("keeps current %s workers and final evidence during a detached search jump", async (view) => {
+    const history = [row(0), workerLaunch("old-launch", 1), { ...row(2), id: "old-hit" }];
+    const current = [row(100), workerDone("final", 101), workerLaunch("current", 102, "CURRENT", "bbbbbbbb-1")];
+    const threadId = view === "chat" ? "thread-a" : "thread-g";
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/bots?messages=200") return Response.json({ bots: view === "chat" ? [bot(current, true)] : [], groups: view === "room" ? [room(current, true)] : [], computerControl: {} });
+      if (url.includes("around=old-hit")) return Response.json({ messages: history, hasMore: false });
+      if (url.endsWith("/terminal")) return Response.json({ panes: ["aaaaaaaa-1", "bbbbbbbb-1"].map((sessionId) => ({ sessionId, main: false })) });
+      return new Promise<Response>(() => {});
+    }));
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.querySelectorAll("[data-worker-run]")).toHaveLength(2));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId, messageId: "old-hit" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="old-hit"]')).not.toBeNull());
+    expect(host.querySelector("[data-worker-run] [data-worker-state]")?.getAttribute("data-worker-state")).toBe("done");
+    const strip = host.querySelector<HTMLButtonElement>("[data-worker-strip]")!;
+    expect(strip.getAttribute("aria-label")).toBe("1 working, 0 waiting. Show workers");
+    await act(async () => strip.click());
+    expect(Array.from(document.querySelectorAll("[data-worker-list] li")).map((li) => li.textContent)).toEqual(["CURRENTscript●Working", "JOBscript✓Done"]);
+    await act(async () => host.querySelector<HTMLButtonElement>("[data-worker-run] > button")!.click());
+    expect(host.textContent).toContain("UNIQUE_REPORT_final");
+  });
+
+  it("does not subscribe to pane liveness for workers only in a detached jump page", async () => {
+    const current = rows(100, 104);
+    const history = [workerLaunch("old-launch", 1), { ...row(2), id: "old-hit" }];
+    const readBot = vi.fn(async () => ({ panes: [{ sessionId: "aaaaaaaa-1", main: false }] }));
+    const onExit = vi.fn(() => () => {});
+    vi.stubGlobal("ogb", { platform: "win32", terminal: { readBot, onExit } });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/bots?messages=200") return Response.json({ bots: [bot(current, true)], groups: [], computerControl: {} });
+      if (url.includes("around=old-hit")) return Response.json({ messages: history, hasMore: false });
+      return new Promise<Response>(() => {});
+    }));
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 103;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "old-hit" }));
+    await vi.waitFor(() => expect(host.querySelector('[data-mid="old-hit"]')).not.toBeNull());
+    expect(readBot).not.toHaveBeenCalled();
+    expect(onExit).not.toHaveBeenCalled();
+    expect(host.querySelector("[data-worker-strip]")).toBeNull();
+    expect(host.querySelector("[data-worker-run]")).not.toBeNull();
+  });
+
   it("hydrates each conversation with one bounded page", async () => {
     const thread = rows(0, 500);
     const calls = pagedServer("thread-a", thread, { bots: [bot(thread.slice(-200), true)], groups: [] });

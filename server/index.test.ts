@@ -2338,14 +2338,22 @@ describe("harness HTTP API", () => {
       const completed = await stream.until((frame) =>
         frame.kind === "runtime" && frame.event?.type === "turn.completed" && frame.event?.turnId === turnId,
       );
-      // the fake prints this right after its late reply, so the reply was read
-      await stream.until((frame) =>
-        frame.kind === "runtime" && frame.event?.type === "item.updated" && frame.event?.threadId === bot.threadId,
-      );
+      // the fake prints this right after its late reply; the driver logs a line natively before it drops it
+      await expect.poll(async () => {
+        const page = (await api("GET", `/api/threads/${bot.threadId}/events?limit=2000`)).body;
+        return page.entries.some((entry: { kind: string; data: { msg?: { subtype?: string } } }) =>
+          entry.kind === "native" && entry.data.msg?.subtype === "thinking_tokens");
+      }, { timeout: 10_000 }).toBe(true);
       expect(stream.frames.filter((frame) =>
         frame.kind === "runtime"
         && frame.event?.type === "item.completed"
         && frame.event?.turnId === turnId
+        && frame.seq > completed.seq,
+      )).toEqual([]);
+      expect(stream.frames.filter((frame) =>
+        frame.kind === "runtime"
+        && frame.event?.type === "item.updated"
+        && frame.event?.threadId === bot.threadId
         && frame.seq > completed.seq,
       )).toEqual([]);
       const state = (await api("GET", "/api/bots?messages=20")).body.bots.find(

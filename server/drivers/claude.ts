@@ -742,6 +742,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
        * started it was attended Auto; such tasks die with this process */
       background: Map<string, { at: number; autoAttended: boolean }>;
       closing: boolean;
+      /** a task_notification landed between turns; the CLI's wake is due by then */
+      wakeDeadline: number | null;
       stderr: string;
       /** settle the current turn; set once the spawn handlers exist */
       settleTurn?: (ok: boolean, stopReason: string | null) => void;
@@ -761,6 +763,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     const liveBackground = (s: Session) =>
       s.closing || s.child.exitCode !== null ? [] : [...s.background.values()].filter(({ at }) => Date.now() - at < BACKGROUND_TASK_TTL_MS);
     const hasLiveBackgroundWork = (s: Session) => liveBackground(s).length > 0;
+    const wakeDue = (s: Session) =>
+      s.wakeDeadline !== null && !s.closing && s.child.exitCode === null && Date.now() < s.wakeDeadline;
     // An ask can't be traced to its task, so every live task must have come
     // from an attended Auto turn.
     const backgroundAutoAttended = (s: Session) => {
@@ -802,15 +806,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       // child's later close event must never unlink a new broker.
       detachBroker(s);
     };
-    const armIdle = (threadId: string) => {
+    const armIdle = (threadId: string, ms = SESSION_IDLE_MS) => {
       const s = sessions.get(threadId);
       if (!s) return;
       if (s.idleTimer) clearTimeout(s.idleTimer);
       s.idleTimer = setTimeout(() => {
         // closing stdin ends the CLI and every background task it still runs
         if (hasLiveBackgroundWork(s)) armIdle(threadId);
+        else if (wakeDue(s)) armIdle(threadId, s.wakeDeadline! - Date.now());
         else closeSession(threadId, "idle");
-      }, SESSION_IDLE_MS);
+      }, ms);
       s.idleTimer.unref?.();
     };
     const writeUser = (s: Session, threadId: string, text: string, attachImages = true): Promise<boolean> => {
@@ -1151,6 +1156,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         autoAttended,
         background: new Map(),
         closing: false,
+        wakeDeadline: null,
         stderr: "",
       };
       sessions.set(threadId, session);
@@ -1205,6 +1211,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           contextWindow: t.contextWindow,
           ...(t.promptAccepted ? { promptAccepted: true } : {}),
         });
+        session.wakeDeadline = null;
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
       };
       session.settleTurn = settle;
@@ -1216,6 +1223,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (sessions.get(threadId) !== session || active.has(threadId)) return;
         if (session.idleTimer) clearTimeout(session.idleTimer);
         session.idleTimer = null;
+        session.wakeDeadline = null;
         const continuationId = newId();
         const timer = startTurnTimer({ engine: "claude", model: turn.model, effort: turn.effort ?? null });
         session.turn = { turnId: continuationId, settled: false, sawStreamDelta: false, continuation: true, timer };
@@ -1232,6 +1240,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       };
       const currentTurnId = () => session.turn?.turnId ?? turnId;
       const toolCalls = new Map<string, { at: number; name: string; input: unknown; summary?: string }>();
+      let droppedLate = false;
 
       const handleLine = (line: string) => {
         let o: any;
@@ -1241,6 +1250,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return;
         }
         appendNative(threadId, { dir: "in", source: "claude.sdk.message", msg: o });
+        // a closed or replaced process outlives its turns; its output belongs to none
+        if (!session.turn && (session.closing || sessions.get(threadId) !== session)) {
+          if (!droppedLate) console.warn(`claude session for ${threadId} closed; dropping its late output`);
+          droppedLate = true;
+          return;
+        }
         // a subagent's output belongs to the turn that spawned it; it never opens one
         if (
           !session.turn &&
@@ -1265,7 +1280,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 autoAttended: session.turn ? session.autoAttended : backgroundAutoAttended(session),
               });
             } else if (o.subtype === "task_notification" && typeof o.task_id === "string") {
-              session.background.delete(o.task_id);
+              const tracked = session.background.delete(o.task_id);
+              // a duplicate never renews the deadline; a later task's completion may
+              if (!session.turn && !session.closing && !wakeDue(session) && (tracked || session.wakeDeadline === null)) {
+                session.wakeDeadline = Date.now() + SESSION_IDLE_MS;
+              }
             }
             break;
           case "stream_event": {
@@ -1760,7 +1779,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         },
         sendTurn,
         steer,
-        interruptTurn: async (threadId) => active.get(threadId)?.stop(),
+        interruptTurn: async (threadId) => {
+          const turn = active.get(threadId);
+          if (turn) return turn.stop();
+          const s = sessions.get(threadId);
+          // expired, not cleared: a duplicate notification must not re-arm it
+          if (s) s.wakeDeadline = 0;
+        },
         respondToRequest: async (threadId, requestId, decision) => {
           // fail-closed by construction: no broker, or an ask that already
           // timed out / settled, is `unavailable` — the caller denies
@@ -1773,7 +1798,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         hasSession: (threadId) => active.has(threadId),
         hasBackgroundWork: (threadId) => {
           const s = sessions.get(threadId);
-          return Boolean(s && hasLiveBackgroundWork(s));
+          return Boolean(s && (hasLiveBackgroundWork(s) || wakeDue(s)));
         },
         stopAll: async () => {
           for (const { stop } of active.values()) stop();

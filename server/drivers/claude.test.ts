@@ -396,6 +396,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_RATE_LIMITS;
     delete process.env.FAKE_CLAUDE_USER_ALLOW;
     delete process.env.FAKE_CLAUDE_TASK_GATE;
+    delete process.env.FAKE_CLAUDE_WAKE_DELAY_MS;
+    delete process.env.FAKE_CLAUDE_NOTIFY_REPEAT_MS;
     delete process.env.FAKE_CLAUDE_AUTH_GATE;
     delete process.env.FAKE_CLAUDE_STEER_LOG;
     delete process.env.FAKE_CLAUDE_NARRATION_TEXT;
@@ -1450,6 +1452,109 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const woken = await recorder.until((e) => e.type === "turn.started" && e.turnId !== first.turnId);
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === woken.turnId);
     expect(await exited(pid)).toBe(true);
+  });
+
+  it("opens the woken turn when its init lands after the idle window", async () => {
+    process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS = "10";
+    process.env.OMB_CLAUDE_SESSION_IDLE_MS = "400";
+    process.env.FAKE_CLAUDE_WAKE_DELAY_MS = "250";
+    const gate = join(scratch, "task-done");
+    process.env.FAKE_CLAUDE_TASK_GATE = gate;
+    await create("background-task");
+    const dump = join(scratch, "bg-late-wake.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const first = await instance.adapter.sendTurn({ threadId: "t-bg-late-wake", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    writeFileSync(gate, "");
+    const woken = await recorder.until((e) => e.type === "turn.started" && e.turnId !== first.turnId);
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === woken.turnId);
+    expect(recorder.events).toContainEqual(
+      expect.objectContaining({ type: "item.completed", itemType: "assistant_text", text: "background task done", turnId: woken.turnId }),
+    );
+    expect(await exited(JSON.parse(readFileSync(dump, "utf8")).pid)).toBe(true);
+  });
+
+  it("still idle-closes when a task notification never wakes the CLI", async () => {
+    process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS = "10";
+    process.env.OMB_CLAUDE_SESSION_IDLE_MS = "50";
+    process.env.FAKE_CLAUDE_WAKE_DELAY_MS = "never";
+    const gate = join(scratch, "task-done");
+    process.env.FAKE_CLAUDE_TASK_GATE = gate;
+    await create("background-task");
+    const dump = join(scratch, "bg-no-wake.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const first = await instance.adapter.sendTurn({ threadId: "t-bg-no-wake", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+
+    writeFileSync(gate, "");
+    expect(await exited(JSON.parse(readFileSync(dump, "utf8")).pid)).toBe(true);
+    expect(instance.adapter.hasBackgroundWork!("t-bg-no-wake")).toBe(false);
+    expect(recorder.events.filter((e) => e.type === "turn.started")).toHaveLength(1);
+  });
+
+  const pendingWake = async (threadId: string, idleMs: string, wakeDelayMs: string) => {
+    process.env.OMB_CLAUDE_SESSION_IDLE_MIN_MS = "10";
+    process.env.OMB_CLAUDE_SESSION_IDLE_MS = idleMs;
+    process.env.FAKE_CLAUDE_WAKE_DELAY_MS = wakeDelayMs;
+    const gate = join(scratch, `${threadId}-gate`);
+    process.env.FAKE_CLAUDE_TASK_GATE = gate;
+    await create("background-task");
+    const dump = join(scratch, `${threadId}.json`);
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const first = await instance.adapter.sendTurn({ threadId, text: "one" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === first.turnId);
+    const started = recorder.events.find((e) => e.type === "session.started");
+    const cursor = started?.type === "session.started" ? started.sessionId ?? undefined : undefined;
+    writeFileSync(gate, "");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    // a later spawn must not finish a task of its own
+    process.env.FAKE_CLAUDE_TASK_GATE = join(scratch, `${threadId}-never`);
+    return { first, cursor, pid: JSON.parse(readFileSync(dump, "utf8")).pid, dump };
+  };
+  const wakeReplies = () =>
+    recorder.events.filter((e) => e.type === "item.completed" && e.itemType === "assistant_text" && e.text === "background task done");
+
+  it("counts a pending wake as background work, so a deferred recycle absorbs it", async () => {
+    const { first, cursor, pid, dump } = await pendingWake("t-wake-recycle", "400", "600");
+    expect(instance.adapter.hasBackgroundWork!("t-wake-recycle")).toBe(true);
+
+    const second = await instance.adapter.sendTurn({ threadId: "t-wake-recycle", text: "two", resumeCursor: cursor });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(JSON.parse(readFileSync(dump, "utf8")).pid).toBe(pid);
+    expect(wakeReplies().map((e) => e.turnId)).toEqual([second.turnId]);
+    expect(recorder.events.filter((e) => e.type === "turn.started").map((e) => e.turnId)).toEqual([first.turnId, second.turnId]);
+  });
+
+  it("drops a pending wake's late reply when a model switch replaces its session", async () => {
+    const { first, cursor, pid, dump } = await pendingWake("t-wake-switch", "400", "600");
+    const second = await instance.adapter.sendTurn({ threadId: "t-wake-switch", text: "two", resumeCursor: cursor, model: "claude-sonnet-5" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(JSON.parse(readFileSync(dump, "utf8")).pid).not.toBe(pid);
+    expect(await exited(pid)).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(wakeReplies()).toEqual([]);
+    expect(recorder.events.filter((e) => e.type === "turn.started").map((e) => e.turnId)).toEqual([first.turnId, second.turnId]);
+  });
+
+  it("lets Stop between turns release a pending wake", async () => {
+    const { first, pid } = await pendingWake("t-wake-stop", "300", "450");
+    expect(instance.adapter.hasBackgroundWork!("t-wake-stop")).toBe(true);
+
+    await instance.adapter.interruptTurn("t-wake-stop");
+    expect(instance.adapter.hasBackgroundWork!("t-wake-stop")).toBe(false);
+    expect(await exited(pid)).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(wakeReplies()).toEqual([]);
+    expect(recorder.events.filter((e) => e.type === "turn.started").map((e) => e.turnId)).toEqual([first.turnId]);
+  });
+
+  it("never renews a pending wake on repeated notifications", async () => {
+    process.env.FAKE_CLAUDE_NOTIFY_REPEAT_MS = "100";
+    const { pid } = await pendingWake("t-wake-repeat", "300", "never");
+    expect(await exited(pid)).toBe(true);
+    expect(instance.adapter.hasBackgroundWork!("t-wake-repeat")).toBe(false);
   });
 
   it("never counts a foreground task as background work", async () => {
