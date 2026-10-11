@@ -271,14 +271,14 @@
     const pc = params.get("pc");
     const m = params.get("m");
     if (pc === null && m === null) {
-      void coldStart();
+      void coldStart().catch(() => say(GOOGLE_DOWN, "error"));
       return;
     }
     if (pc === null || m === null || !LABEL_RE.test(pc) || !M_RE.test(m)) {
       say(BAD_LINK, "error");
       return;
     }
-    void returnLeg(pc, m);
+    void returnLeg(pc, m).catch(() => say(GOOGLE_DOWN, "error"));
   }
 
   const ready = googleId();

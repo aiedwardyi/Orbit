@@ -21,6 +21,8 @@ const DIR_TOKEN = "dir-token";
 const PC_TOKEN = "pc-token";
 const EMPTY = "Sign in with Google in Wink on your PC first: Settings, Sync.";
 const OFFLINE = "Could not reach your PC. Check your connection and try again.";
+const GOOGLE_DOWN = "Could not load Google sign-in. Check your connection and try again.";
+const GIS_BOOM = "gis-initialize-blew-up";
 const LAST_PC = "wink-signin-pc";
 
 interface Pc {
@@ -59,7 +61,7 @@ const prompts: Array<(moment: GisMoment) => void> = [];
 const calls: FetchCall[] = [];
 let renders = 0;
 
-function installGoogle(): void {
+function installGoogle(gisError?: string): void {
   inits.length = 0;
   prompts.length = 0;
   renders = 0;
@@ -67,6 +69,7 @@ function installGoogle(): void {
     accounts: {
       id: {
         initialize(options: GisInit): void {
+          if (gisError) throw new Error(gisError);
           inits.push(options);
         },
         renderButton(): void {
@@ -96,11 +99,11 @@ function installFetch(body: Pc[] | "fail"): void {
   });
 }
 
-function open(url: string, body: Pc[] | "fail"): void {
+function open(url: string, body: Pc[] | "fail", gisError?: string): void {
   document.body.innerHTML = MARKUP;
   history.replaceState(null, "", url);
   vi.stubGlobal("WINK_SIGNIN", { clientId: CLIENT, base: BASE });
-  installGoogle();
+  installGoogle(gisError);
   installFetch(body);
   runInThisContext(SCRIPT);
 }
@@ -291,5 +294,19 @@ describe("phone sign-in page", () => {
     inits[0]?.callback({ credential: DIR_TOKEN });
     await vi.waitFor(() => expect(document.getElementById("status")?.textContent).toBe(OFFLINE));
     expect(location.href).not.toContain("/pair");
+  });
+
+  it("shows the generic error when a cold start is rejected", async () => {
+    open("/signin", [], GIS_BOOM);
+    await vi.waitFor(() => expect(document.getElementById("status")?.textContent).toBe(GOOGLE_DOWN));
+    expect(document.getElementById("status")?.className).toBe("status error");
+    expect(document.body.textContent).not.toContain(GIS_BOOM);
+  });
+
+  it("shows the generic error when a return leg is rejected", async () => {
+    open(`/signin?pc=${LABEL_B}&m=${M}`, [{ label: LABEL_B, name: "Zed" }], GIS_BOOM);
+    await vi.waitFor(() => expect(document.getElementById("status")?.textContent).toBe(GOOGLE_DOWN));
+    expect(document.getElementById("status")?.className).toBe("status error");
+    expect(document.body.textContent).not.toContain(GIS_BOOM);
   });
 });
