@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { request } from "node:http";
 import { connect } from "node:net";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { createGoogleAccountController, googleClient, googleServerEnv, pkcePair, runGoogleSignIn } from "./google-signin.mjs";
+import { createGoogleAccountController, createGoogleSessionPush, googleClient, googleServerEnv, pkcePair, runGoogleSignIn } from "./google-signin.mjs";
 
 const CLIENT = { id: "client-id-test", secret: "client-secret-test" };
 const DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
@@ -308,5 +309,153 @@ describe("google sign-in", () => {
     });
     expect(googleServerEnv(CLIENT, {})).toEqual({ WINK_GOOGLE_CLIENT_ID: CLIENT.id, WINK_GOOGLE_CLIENT_SECRET: CLIENT.secret });
     expect(googleServerEnv(null, { googleAccount })).toEqual({});
+  });
+});
+
+describe("Google session delivery", () => {
+  it.each([null, { refreshToken: "r", sub: "s", email: "e@x.com" }])("pushes %j over the parent port without HTTP", async (session) => {
+    let serverProc = { postMessage: vi.fn() };
+    const original = serverProc;
+    const fetch = vi.fn();
+    const push = createGoogleSessionPush({ isPackaged: true, getServerProcess: () => serverProc, getToken: () => null, getPort: () => 1234, fetch });
+    serverProc = { postMessage: vi.fn() };
+    await push(session);
+    expect(serverProc.postMessage).toHaveBeenCalledExactlyOnceWith({ type: "orbit:google-account", session });
+    expect(original.postMessage).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("uses the current token and port for dev PUT and DELETE", async () => {
+    let token = null;
+    let port = 1234;
+    const fetch = vi.fn(async () => ({ ok: true }));
+    const getServerProcess = vi.fn();
+    const push = createGoogleSessionPush({ isPackaged: false, getServerProcess, getToken: () => token, getPort: () => port, fetch });
+    await push(null);
+    expect(fetch).not.toHaveBeenCalled();
+    token = "first";
+    const session = { refreshToken: "r", sub: "s", email: "e@x.com" };
+    await push(session);
+    expect(fetch).toHaveBeenLastCalledWith("http://127.0.0.1:1234/api/internal/google-account", expect.objectContaining({
+      method: "PUT", headers: { Authorization: "Bearer first", "content-type": "application/json" }, redirect: "error", body: JSON.stringify(session),
+    }));
+    token = "second";
+    port = 2345;
+    await push(null);
+    expect(fetch).toHaveBeenLastCalledWith("http://127.0.0.1:2345/api/internal/google-account", expect.objectContaining({
+      method: "DELETE", headers: { Authorization: "Bearer second" }, redirect: "error",
+    }));
+    expect(fetch.mock.calls.at(-1)[1]).not.toHaveProperty("body");
+    expect(getServerProcess).not.toHaveBeenCalled();
+  });
+
+  it("logs failed session pushes without rejecting", async () => {
+    const log = vi.fn();
+    const fetch = vi.fn().mockResolvedValueOnce({ ok: false, status: 503 }).mockRejectedValueOnce(new Error("offline"));
+    const push = createGoogleSessionPush({ isPackaged: false, getServerProcess: vi.fn(), getToken: () => "token", getPort: () => 1234, fetch, log });
+    await expect(push(null)).resolves.toBeUndefined();
+    await expect(push(null)).resolves.toBeUndefined();
+    expect(log.mock.calls).toEqual([["google account sync failed: HTTP 503"], ["google account sync failed: offline"]]);
+    const packaged = createGoogleSessionPush({ isPackaged: true, getServerProcess: () => ({ postMessage: () => { throw new Error("closed"); } }), log });
+    await expect(packaged(null)).resolves.toBeUndefined();
+    expect(log).toHaveBeenLastCalledWith("google account sync failed: closed");
+  });
+
+  it("uses the live credential document when starting the server", () => {
+    const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+    expect(source.includes("googleServerEnv(GOOGLE_CLIENT, secureCredentials)")).toBe(true);
+  });
+});
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => (resolve = done));
+  return { promise, resolve };
+}
+
+describe("Google session persistence", () => {
+  it("clears after a pending save and pushes null last", async () => {
+    const begun = deferred();
+    const release = deferred();
+    let stored = null;
+    const pushes = [];
+    const clearSession = vi.fn(async () => { stored = null; pushes.push(null); });
+    const google = createGoogleAccountController({
+      client: CLIENT, openExternal: browser().openExternal, fetch: tokenEndpoint().fetch,
+      saveSession: async (session) => {
+        begun.resolve();
+        await release.promise;
+        stored = session;
+        pushes.push(session);
+      },
+      clearSession,
+    });
+    const older = google.signIn();
+    await begun.promise;
+    const out = google.signOut();
+    await Promise.resolve();
+    const clearedEarly = clearSession.mock.calls.length;
+    release.resolve();
+    await Promise.all([older, out]);
+    expect(clearedEarly).toBe(0);
+    expect(stored).toBeNull();
+    expect(pushes.at(-1)).toBeNull();
+  });
+
+  it("saves the newer account after a pending older save", async () => {
+    const begun = deferred();
+    const release = deferred();
+    const exchanged = deferred();
+    let stored;
+    let calls = 0;
+    const endpoint = tokenEndpoint();
+    const fetch = vi.fn(async (...args) => {
+      const response = await endpoint.fetch(...args);
+      const body = await response.json();
+      if (++calls === 2) {
+        body.id_token = idToken({ iss: "accounts.google.com", aud: CLIENT.id, sub: "sub-2", email: "new@example.com" });
+        exchanged.resolve();
+      }
+      return new Response(JSON.stringify(body));
+    });
+    const google = createGoogleAccountController({
+      client: CLIENT, openExternal: browser().openExternal, fetch, clearSession: vi.fn(),
+      saveSession: async (session) => {
+        if (session.sub === "sub-1") { begun.resolve(); await release.promise; }
+        stored = session;
+      },
+    });
+    const older = google.signIn();
+    await begun.promise;
+    const newer = google.signIn();
+    await exchanged.promise;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release.resolve();
+    await Promise.all([older, newer]);
+    expect(stored.email).toBe("new@example.com");
+  });
+
+  it("skips an aborted save queued behind a clear", async () => {
+    const begun = deferred();
+    const release = deferred();
+    const exchanged = deferred();
+    const endpoint = tokenEndpoint();
+    const saveSession = vi.fn();
+    const google = createGoogleAccountController({
+      client: CLIENT, openExternal: browser().openExternal,
+      fetch: async (...args) => { const response = await endpoint.fetch(...args); exchanged.resolve(); return response; },
+      saveSession,
+      clearSession: async () => { begun.resolve(); await release.promise; },
+    });
+    const out = google.signOut();
+    await begun.promise;
+    const run = google.signIn();
+    await exchanged.promise;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    google.cancel();
+    release.resolve();
+    await out;
+    expect(await run).toEqual({ ok: false, error: "cancelled" });
+    expect(saveSession).not.toHaveBeenCalled();
   });
 });

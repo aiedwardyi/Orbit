@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { acpChildEnv } from "./drivers/acp/core.ts";
 import { grokSupport } from "./drivers/acp/grok.ts";
-import { GOOGLE_ACCOUNT_ENV, GoogleAccount, GoogleAccountError, takeGoogleEnv, type GoogleSession } from "./google-account.ts";
+import { GOOGLE_ACCOUNT_ENV, GoogleAccount, GoogleAccountError, applyGoogleAccountMessage, googleAccountRoute, takeGoogleEnv, type GoogleSession } from "./google-account.ts";
 
 const CLIENT = { id: "client-id-test", secret: "client-secret-test" };
 const SESSION: GoogleSession = { refreshToken: "refresh-token-SECRET", sub: "sub-1", email: "me@example.com" };
@@ -182,5 +182,49 @@ describe("google account", () => {
       readdirSync(root).flatMap((name) => (statSync(join(root, name)).isDirectory() ? files(join(root, name)) : [join(root, name)]));
     const written = [...lines, ...files(homedir()).map((file) => readFileSync(file, "utf8")), JSON.stringify(google.status())].join("\n");
     for (const secret of ["refresh-token-SECRET", "access-token-SECRET", "client-secret-test"]) expect(written).not.toContain(secret);
+  });
+});
+
+describe("desktop Google account updates", () => {
+  it("applies valid parent messages, clears null and ignores malformed sessions", () => {
+    const google = account(tokenEndpoint(ok()), { t: 0 }, null);
+    const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(applyGoogleAccountMessage({ type: "orbit:google-account", session: SESSION }, google)).toBe(true);
+      expect(google.status()).toEqual({ state: "signed-in", email: SESSION.email });
+      for (const session of [undefined, {}, { ...SESSION, refreshToken: 123 }]) {
+        expect(applyGoogleAccountMessage({ type: "orbit:google-account", session }, google)).toBe(true);
+        expect(google.status().state).toBe("signed-in");
+      }
+      expect(log).toHaveBeenCalledTimes(3);
+      expect(JSON.stringify(log.mock.calls)).not.toContain(SESSION.refreshToken);
+      expect(applyGoogleAccountMessage({ type: "orbit:google-account", session: null }, google)).toBe(true);
+      expect(google.status().state).toBe("signed-out");
+      for (const message of [null, {}, { type: "orbit:other" }]) {
+        expect(applyGoogleAccountMessage(message, google)).toBe(false);
+      }
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each(["PUT", "DELETE"] as const)("refuses authenticated %s with a parent port and permits dev updates", async (method) => {
+    const google = account(tokenEndpoint(ok()));
+    const readBody = vi.fn(async () => SESSION);
+    expect((await googleAccountRoute(method, true, readBody, google)).status).toBe(404);
+    expect(readBody).not.toHaveBeenCalled();
+    expect(google.status().state).toBe("signed-in");
+    expect((await googleAccountRoute(method, false, readBody, google)).status).toBe(200);
+    expect(google.status().state).toBe(method === "PUT" ? "signed-in" : "signed-out");
+  });
+
+  it.each(["invalid_client", "unauthorized_client"])("blocks %s without retrying", async (error) => {
+    const clock = { t: 0 };
+    const endpoint = tokenEndpoint({ status: 400, body: { error } });
+    const google = account(endpoint, clock);
+    expect(await stateOf(google.getAccessToken())).toBe("blocked");
+    clock.t = 24 * 3600_000;
+    expect(await stateOf(google.getAccessToken())).toBe("blocked");
+    expect(endpoint.mock).toHaveBeenCalledTimes(1);
   });
 });

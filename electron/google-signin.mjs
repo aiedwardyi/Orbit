@@ -43,6 +43,29 @@ export function googleServerEnv(client, credentials) {
   return env;
 }
 
+export function createGoogleSessionPush({ isPackaged, getServerProcess, getToken, getPort, fetch = globalThis.fetch, log = () => {} }) {
+  return async (session) => {
+    try {
+      if (isPackaged) {
+        getServerProcess()?.postMessage({ type: "orbit:google-account", session });
+        return;
+      }
+      const token = getToken();
+      if (!token) return;
+      const response = await fetch(`http://127.0.0.1:${getPort()}/api/internal/google-account`, {
+        method: session ? "PUT" : "DELETE",
+        headers: { Authorization: `Bearer ${token}`, ...(session ? { "content-type": "application/json" } : {}) },
+        redirect: "error",
+        ...(session ? { body: JSON.stringify(session) } : {}),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      log(`google account sync failed: ${error?.message ?? error}`);
+    }
+  };
+}
+
 export function pkcePair() {
   const verifier = randomBytes(32).toString("base64url");
   return { verifier, challenge: createHash("sha256").update(verifier).digest("base64url") };
@@ -163,6 +186,12 @@ async function exchangeCode({ client, code, verifier, redirectUri, fetch, signal
 /** The main-process side of the preload actions. Secrets stay in here and in saveSession. */
 export function createGoogleAccountController({ client, openExternal, saveSession, clearSession, fetch, log = () => {} }) {
   let active = null;
+  let transition = Promise.resolve();
+  const serialize = (work) => {
+    const next = transition.then(work, work);
+    transition = next.then(() => {}, () => {});
+    return next;
+  };
   return {
     async signIn() {
       if (!client) return { ok: false, error: "unavailable" };
@@ -172,7 +201,11 @@ export function createGoogleAccountController({ client, openExternal, saveSessio
       try {
         const session = await runGoogleSignIn({ client, openExternal, fetch, signal: controller.signal });
         if (controller.signal.aborted) return { ok: false, error: "cancelled" };
-        await saveSession(session);
+        await serialize(async () => {
+          if (controller.signal.aborted) throw new GoogleSignInError("cancelled");
+          await saveSession(session);
+        });
+        if (controller.signal.aborted) return { ok: false, error: "cancelled" };
         return { ok: true, email: session.email };
       } catch (error) {
         const code = error instanceof GoogleSignInError ? error.code : "store-failed";
@@ -187,7 +220,7 @@ export function createGoogleAccountController({ client, openExternal, saveSessio
     },
     async signOut() {
       active?.abort();
-      await clearSession();
+      await serialize(clearSession);
       return { ok: true };
     },
   };

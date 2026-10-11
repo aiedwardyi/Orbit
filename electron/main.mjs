@@ -18,7 +18,7 @@ import {
 } from "./skill-recorder.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { openEngineSignIn } from "./engine-signin.mjs";
-import { createGoogleAccountController, googleClient, googleServerEnv } from "./google-signin.mjs";
+import { createGoogleAccountController, createGoogleSessionPush, googleClient, googleServerEnv } from "./google-signin.mjs";
 import { createTerminalHost, trustedTerminalSender } from "./terminal-host.mjs";
 import { installOrbitMsg, readMailboxSecret } from "./terminal-mailbox.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
@@ -891,7 +891,7 @@ async function startServerOn(port) {
     // the server prefers these over config.json, whose plaintext fields
     // the boot migration has deleted
     ...workspaceCredentialEnv(childEnvCredentials),
-    ...googleServerEnv(GOOGLE_CLIENT, childEnvCredentials),
+    ...googleServerEnv(GOOGLE_CLIENT, secureCredentials),
     ...(terminalBridgeAccess
       ? {
           OMB_TERMINAL_URL: terminalBridgeAccess.url,
@@ -2118,22 +2118,13 @@ ipcMain.handle("assemblyai:streaming-token", () =>
 
 // The refresh token lives in credentials.bin and the server's memory only.
 // Sign out never revokes: one grant covers every PC on the account.
-async function pushGoogleSession(session) {
-  if (!serverToken) return;
-  const port = app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT);
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/internal/google-account`, {
-      method: session ? "PUT" : "DELETE",
-      headers: { Authorization: `Bearer ${serverToken}`, ...(session ? { "content-type": "application/json" } : {}) },
-      redirect: "error",
-      ...(session ? { body: JSON.stringify(session) } : {}),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  } catch (error) {
-    slog(`google account sync failed: ${error?.message ?? error}`);
-  }
-}
+const pushGoogleSession = createGoogleSessionPush({
+  isPackaged: app.isPackaged,
+  getServerProcess: () => serverProc,
+  getToken: () => serverToken,
+  getPort: () => Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT),
+  log: slog,
+});
 
 const googleAccount = createGoogleAccountController({
   client: GOOGLE_CLIENT,

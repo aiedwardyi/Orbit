@@ -299,7 +299,7 @@ import {
 import { PhoneAccess } from "./phone-access.ts";
 import { postPhoneKeepAwake, type PhoneKeepAwakeMessage } from "./phone-keep-awake.ts";
 import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
-import { GoogleAccount, parseGoogleSession, takeGoogleEnv } from "./google-account.ts";
+import { GoogleAccount, applyGoogleAccountMessage, googleAccountRoute, takeGoogleEnv } from "./google-account.ts";
 import type { PublicPhone } from "./phone-devices.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
 import * as vps from "./vps-computer.ts";
@@ -424,6 +424,7 @@ type UtilityParentPort = {
   postMessage(message: { type: string; token: string } | PhoneKeepAwakeMessage): void;
 };
 const utilityParentPort = (process as NodeJS.Process & { parentPort?: UtilityParentPort }).parentPort;
+const googleAccount = new GoogleAccount(googleEnv.client, googleEnv.session);
 let hostShutdown = () => {};
 let hostShutdownStarted = false;
 utilityParentPort?.on("message", (event) => {
@@ -437,6 +438,7 @@ utilityParentPort?.on("message", (event) => {
     broadcast({ kind: "update.state", state: updateState });
     return;
   }
+  if (applyGoogleAccountMessage(message, googleAccount)) return;
   try {
     composio.applyManagedBrokerMessage(message);
   } catch (error) {
@@ -472,8 +474,6 @@ const mailboxAutoDedup = new MailboxAutoDedup();
 // the Host/Origin gates and /api/* cookie auth to one tailnet hostname;
 // unset means loopback-only until a running Tailscale is detected below.
 let { host: REMOTE_HOST, key: REMOTE_KEY } = initRemoteAccess(process.env, DATA_DIR);
-
-const googleAccount = new GoogleAccount(googleEnv.client, googleEnv.session);
 
 // Phone access from anywhere through the relay (docs/phone-relay-design.md).
 // Absent unless phoneRelay.base is configured and enabled; it starts only
@@ -6565,12 +6565,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         terminalBridgeAccess = { url, token };
         return json(res, 200, { ok: true });
       }
-      // The desktop shell pushes its sign-in here after saving it to credentials.bin.
       if ((method === "PUT" || method === "DELETE") && path === "/api/internal/google-account") {
-        const session = method === "PUT" ? parseGoogleSession(await readBody(req)) : null;
-        if (method === "PUT" && !session) return json(res, 400, { error: "invalid Google account" });
-        googleAccount.setSession(session);
-        return json(res, 200, googleAccount.status());
+        const result = await googleAccountRoute(method, Boolean(utilityParentPort), () => readBody(req), googleAccount);
+        return json(res, result.status, result.body);
       }
       if (method === "POST" && path === "/api/internal/task-state") {
         const parsed = taskStateUpdateEnvelopeSchema.safeParse(await readBody(req));

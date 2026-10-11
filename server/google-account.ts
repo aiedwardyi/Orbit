@@ -32,6 +32,24 @@ export function parseGoogleSession(value: unknown): GoogleSession | null {
   return { refreshToken, sub, email };
 }
 
+export function applyGoogleAccountMessage(message: unknown, account: GoogleAccount): boolean {
+  if (!message || typeof message !== "object" || !("type" in message) || message.type !== "orbit:google-account") return false;
+  const value = "session" in message ? message.session : undefined;
+  const session = parseGoogleSession(value);
+  if (value === null || session) account.setSession(session);
+  else console.warn("[google] rejected malformed desktop session");
+  return true;
+}
+
+export async function googleAccountRoute(method: "PUT" | "DELETE", hasParentPort: boolean, readBody: () => Promise<unknown>, account: GoogleAccount) {
+  // Bots share the comms bearer; packaged account changes require the private parent port.
+  if (hasParentPort) return { status: 404, body: { error: "not found" } };
+  const session = method === "PUT" ? parseGoogleSession(await readBody()) : null;
+  if (method === "PUT" && !session) return { status: 400, body: { error: "invalid Google account" } };
+  account.setSession(session);
+  return { status: 200, body: account.status() };
+}
+
 /** Reads the client and boot session, then deletes them so engine CLIs never inherit them. */
 export function takeGoogleEnv(env: NodeJS.ProcessEnv): { client: GoogleClient | null; session: GoogleSession | null } {
   const id = env[GOOGLE_CLIENT_ID_ENV]?.trim();
@@ -128,7 +146,7 @@ export class GoogleAccount {
       return body.access_token;
     }
     const code = typeof body.error === "string" ? body.error : `HTTP ${response.status}`;
-    if (code === "admin_policy_enforced" || body.error_subtype === "admin_policy_enforced") return this.fail(session, "blocked", code);
+    if (code === "admin_policy_enforced" || code === "invalid_client" || code === "unauthorized_client" || body.error_subtype === "admin_policy_enforced") return this.fail(session, "blocked", code);
     if (code === "invalid_grant") return this.fail(session, "needs-sign-in", code);
     return this.fail(session, "offline", code);
   }
