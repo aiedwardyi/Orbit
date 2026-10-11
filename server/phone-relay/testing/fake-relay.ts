@@ -1,6 +1,6 @@
 // In-process stand-in for relay.<base> built on the shared protocol: SNI
-// routing on one port, control and data channels, go splicing and the
-// enroll API. It never decrypts phone traffic, like the real relay.
+// routing on one port, control and data channels, go splicing, and the
+// enroll and account APIs. It never decrypts phone traffic, like the real relay.
 
 import { EventEmitter } from "node:events";
 import { generateKeyPairSync, verify, type KeyObject } from "node:crypto";
@@ -8,6 +8,7 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { createServer as createNetServer, type LookupFunction, type Server, type Socket } from "node:net";
 import { connect as tlsConnect, createServer as createTlsServer, type TLSSocket } from "node:tls";
 
+import { googleSubHash } from "../../../shared/google-id-token.ts";
 import {
   ALPN_CONTROL,
   ALPN_DATA,
@@ -18,14 +19,17 @@ import {
   newNonce,
   publicKeyFromRaw,
   rawPublicKey,
+  signAccountTicket,
   signTicket,
   verifyAuth,
   verifyInvite,
   verifyTicket,
+  type AuthMessage,
   type ReadyMessage,
   type RelayMessage,
 } from "../../../shared/relay-protocol.ts";
 import { parseClientHello } from "../../../shared/tls-client-hello.ts";
+import { accountPayload, idTokenClaims } from "../account.ts";
 import type { RelayConnector } from "../client.ts";
 import { enrollPayload } from "../enroll.ts";
 import { SpliceStream } from "../ingress.ts";
@@ -65,6 +69,11 @@ export class FakeRelay extends EventEmitter {
   peer = "203.0.113.7";
   authMode: AuthMode = "accept";
   refreshTicket: string | null = null;
+  refreshAccount: string | null = null;
+  accountAnswer: ((body: string) => EnrollAnswer) | null = null;
+  readonly accountBodies: string[] = [];
+  /** Every auth frame, in order. */
+  readonly auths: AuthMessage[] = [];
   answerPings = true;
   enrollAnswer: ((body: string) => EnrollAnswer) | null = null;
   /** When set, enroll answers wait for it. */
@@ -269,6 +278,7 @@ export class FakeRelay extends EventEmitter {
       for (let msg = safeNext(decoder); msg; msg = safeNext(decoder)) {
         if (msg === "error") return socket.destroy();
         if (msg.type === "auth") {
+          this.auths.push(msg);
           this.record("control:auth");
           if (this.authMode === "close") return socket.destroy();
           if (this.authMode === "revoke") {
@@ -286,6 +296,7 @@ export class FakeRelay extends EventEmitter {
           if (old) old.socket.write(encodeFrame({ type: "notice", code: "superseded" }));
           const ready: ReadyMessage = { type: "ready", session: control.session, poolToken: control.poolToken, pool: this.pool };
           if (this.refreshTicket) ready.ticket = this.refreshTicket;
+          if (this.refreshAccount && msg.account) ready.account = this.refreshAccount;
           socket.write(encodeFrame(ready));
           this.record("control:ready");
         } else if (msg.type === "ping") {
@@ -337,6 +348,13 @@ export class FakeRelay extends EventEmitter {
     req.on("data", (chunk: Buffer) => chunks.push(chunk));
     req.on("end", async () => {
       const body = Buffer.concat(chunks).toString("utf8");
+      if (req.method === "POST" && req.url === "/v1/account") {
+        this.accountBodies.push(body);
+        this.record("account");
+        const answer = this.accountAnswer ? this.accountAnswer(body) : this.defaultAccount(body);
+        res.writeHead(answer.status, { "content-type": "application/json" }).end(answer.body);
+        return;
+      }
       if (req.method !== "POST" || req.url !== "/v1/enroll") {
         res.writeHead(404).end();
         return;
@@ -347,6 +365,33 @@ export class FakeRelay extends EventEmitter {
       const answer = this.enrollAnswer ? this.enrollAnswer(body) : this.defaultEnroll(body);
       res.writeHead(answer.status, { "content-type": "application/json", ...answer.headers }).end(answer.body);
     });
+  }
+
+  /** Mints a wka1 for `label` and Google `sub`, as the relay would. */
+  accountFor(label: string, sub: string, lifetimeSec = 365 * 24 * 3600, now = Date.now()): string {
+    const iat = Math.floor(now / 1000);
+    return signAccountTicket({ label, subHash: googleSubHash(sub), iat, exp: iat + lifetimeSec }, this.operatorKey);
+  }
+
+  /** Checks the PC signature and ticket; trusts the ID token's sub, which GP-1's own tests cover. */
+  private defaultAccount(body: string): EnrollAnswer {
+    let parsed: { idToken?: string; ticket?: string; pk?: string; sig?: string };
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return { status: 400, body: JSON.stringify({ error: "bad-request" }) };
+    }
+    const { idToken, ticket, pk, sig } = parsed;
+    if (!idToken || !ticket || !pk || !sig) return { status: 400, body: JSON.stringify({ error: "bad-request" }) };
+    const claims = verifyTicket(ticket, this.operatorKey);
+    const key = publicKeyFromRaw(pk);
+    if (!claims.ok || claims.value.pk !== pk) return { status: 403, body: JSON.stringify({ error: "ticket-invalid" }) };
+    if (!key || !verify(null, accountPayload(idToken, ticket, pk), key, Buffer.from(sig, "base64url"))) {
+      return { status: 403, body: JSON.stringify({ error: "bad-signature" }) };
+    }
+    const token = idTokenClaims(idToken);
+    if (!token) return { status: 403, body: JSON.stringify({ error: "bad-token" }) };
+    return { status: 200, body: JSON.stringify({ account: this.accountFor(claims.value.label, token.sub) }) };
   }
 
   private defaultEnroll(body: string): EnrollAnswer {

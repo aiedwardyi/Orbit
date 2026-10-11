@@ -12,22 +12,26 @@ import {
   randomUUID,
   type KeyObject,
 } from "node:crypto";
-import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
 import { writeFileAtomic } from "../atomic.ts";
 import {
+  ACCOUNT_TICKET_PREFIX,
   TICKET_PREFIX,
+  accountTicketClaimsSchema,
   labelForPublicKey,
   rawPublicKey,
   ticketClaimsSchema,
+  type AccountTicketClaims,
   type TicketClaims,
 } from "../../shared/relay-protocol.ts";
 
 export const RELAY_DIR_NAME = "phone-relay";
 const IDENTITY_FILE = "identity.pem";
 const TICKET_FILE = "ticket.json";
+const ACCOUNT_FILE = "account.json";
 const CERT_FILE = "cert.json";
 const KEY_HISTORY_FILE = "key-history.json";
 const ACME_STATE_FILE = "acme-state.json";
@@ -173,6 +177,45 @@ export function readTicket(dataDir: string): Loaded<string> {
 export function writeTicket(dataDir: string, ticket: string): void {
   const dir = ensureDir(dataDir);
   writeFileAtomic(join(dir, TICKET_FILE), `${JSON.stringify({ ticket })}\n`, { mode: PRIVATE_MODE });
+}
+
+// ---------------------------------------------------------------------------
+// Account ticket: this PC's entry in the relay's Google account directory
+
+const accountFileSchema = z.object({ account: z.string().min(1).max(4096) });
+
+/** Account ticket claims without the operator signature check, like decodeTicketClaims. */
+export function decodeAccountClaims(account: string): AccountTicketClaims | null {
+  const parts = account.split(".");
+  if (parts.length !== 3 || parts[0] !== ACCOUNT_TICKET_PREFIX || !/^[A-Za-z0-9_-]+$/.test(parts[1])) return null;
+  const claims = accountTicketClaimsSchema.safeParse(parseJsonText(Buffer.from(parts[1], "base64url").toString("utf8")));
+  return claims.success ? claims.data : null;
+}
+
+/** null when `account` names this PC and this Google account and has not expired, else the reason. */
+export function accountProblem(account: string, identity: Identity, subHash: string, now: number): string | null {
+  const claims = decodeAccountClaims(account);
+  if (!claims) return "malformed account ticket";
+  if (claims.label !== identity.label) return "account ticket is for another PC";
+  if (claims.subHash !== subHash) return "account ticket is for another Google account";
+  if (claims.exp * 1000 <= now) return "account ticket expired";
+  return null;
+}
+
+export function readAccount(dataDir: string): Loaded<string> {
+  const text = readText(join(relayDir(dataDir), ACCOUNT_FILE));
+  if (text.kind !== "ok") return text;
+  const parsed = accountFileSchema.safeParse(parseJsonText(text.value));
+  return parsed.success ? { kind: "ok", value: parsed.data.account } : { kind: "invalid", reason: "account file is corrupt" };
+}
+
+export function writeAccount(dataDir: string, account: string): void {
+  const dir = ensureDir(dataDir);
+  writeFileAtomic(join(dir, ACCOUNT_FILE), `${JSON.stringify({ account })}\n`, { mode: PRIVATE_MODE });
+}
+
+export function clearAccount(dataDir: string): void {
+  rmSync(join(relayDir(dataDir), ACCOUNT_FILE), { force: true });
 }
 
 // ---------------------------------------------------------------------------

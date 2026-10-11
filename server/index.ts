@@ -502,8 +502,17 @@ const phoneAccess: PhoneAccess = new PhoneAccess({
     relayPresenceHost = host;
     startDevicePresence();
   },
+  google: {
+    webClientId: googleEnv.webClientId,
+    sub: () => (googleAccount.status().state === "pending" ? undefined : (googleAccount.owner()?.sub ?? null)),
+    idToken: () => googleAccount.idToken(),
+    freshIdToken: () => googleAccount.freshIdToken(),
+    name: () => deviceDisplayName(deviceName, process.env.ORBIT_DEVICE_NAME, osHostname()),
+  },
 });
 postPhoneKeepAwake(phoneAccess, utilityParentPort);
+googleAccount.onSession(() => phoneAccess.googleChanged());
+googleAccount.onIdToken(() => phoneAccess.googleChanged());
 
 /** Constant-time bearer check for the internal comms endpoints. The token
  * is high-entropy and loopback-only, so a timing oracle is a long shot —

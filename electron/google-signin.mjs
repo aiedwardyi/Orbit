@@ -19,15 +19,16 @@ export class GoogleSignInError extends Error {
   }
 }
 
-/** Env first (local dev), then the file release.yml bakes into the package. */
+/** Env first (local dev), then the file release.yml bakes into the package. `webId` is the phone sign-in client. */
 export function googleClient(env, readBaked) {
   const id = env.WINK_GOOGLE_CLIENT_ID?.trim();
   const secret = env.WINK_GOOGLE_CLIENT_SECRET?.trim();
-  if (id && secret) return { id, secret };
+  const webId = env.WINK_GOOGLE_WEB_CLIENT_ID?.trim();
+  if (id && secret) return withWebId({ id, secret }, webId);
   try {
     const baked = readBaked();
     if (typeof baked?.id === "string" && baked.id && typeof baked?.secret === "string" && baked.secret) {
-      return { id: baked.id, secret: baked.secret };
+      return withWebId({ id: baked.id, secret: baked.secret }, baked.webId);
     }
   } catch {
     // No baked client: a self-built copy keeps sign-in hidden.
@@ -35,14 +36,23 @@ export function googleClient(env, readBaked) {
   return null;
 }
 
+function withWebId(client, webId) {
+  if (webId) client.webId = String(webId);
+  return client;
+}
+
 /** Client env for the packaged server child. The boot session is pushed, never placed here. */
 export function googleServerEnv(client) {
   if (!client) return {};
-  return { WINK_GOOGLE_CLIENT_ID: client.id, WINK_GOOGLE_CLIENT_SECRET: client.secret };
+  const env = { WINK_GOOGLE_CLIENT_ID: client.id, WINK_GOOGLE_CLIENT_SECRET: client.secret };
+  if (client.webId) env.WINK_GOOGLE_WEB_CLIENT_ID = client.webId;
+  return env;
 }
 
+/** `idToken` rides along once, from a fresh sign-in, and is never stored. */
 export function createGoogleSessionPush({ isPackaged, getServerProcess, getToken, getPort, fetch = globalThis.fetch, log = () => {} }) {
-  return async (session) => {
+  return async (stored, idToken) => {
+    const session = stored && idToken ? { ...stored, idToken } : stored;
     try {
       if (isPackaged) {
         getServerProcess()?.postMessage({ type: "orbit:google-account", session });
@@ -198,7 +208,7 @@ async function exchangeCode({ client, code, verifier, redirectUri, fetch, signal
   if (!ISSUERS.includes(claims?.iss) || claims.aud !== client.id || typeof claims.sub !== "string" || !claims.sub || typeof claims.email !== "string") {
     throw new GoogleSignInError("exchange-failed");
   }
-  return { refreshToken: body.refresh_token, sub: claims.sub, email: claims.email };
+  return { refreshToken: body.refresh_token, sub: claims.sub, email: claims.email, idToken: body.id_token };
 }
 
 /** The main-process side of the preload actions. Secrets stay in here and in saveSession. */
@@ -217,11 +227,11 @@ export function createGoogleAccountController({ client, openExternal, saveSessio
       const controller = new AbortController();
       active = controller;
       try {
-        const session = await runGoogleSignIn({ client, openExternal, fetch, signal: controller.signal });
+        const { idToken, ...session } = await runGoogleSignIn({ client, openExternal, fetch, signal: controller.signal });
         if (controller.signal.aborted) return { ok: false, error: "cancelled" };
         await serialize(async () => {
           if (controller.signal.aborted) throw new GoogleSignInError("cancelled");
-          await saveSession(session);
+          await saveSession(session, idToken);
         });
         if (controller.signal.aborted) return { ok: false, error: "cancelled" };
         return { ok: true, email: session.email };
