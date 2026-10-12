@@ -520,7 +520,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
   const narrationPart1 = `https://example.com/a/${"a".repeat(478)}`;
   const narrationPart2 = "b".repeat(200);
   const narrationNotice = (summary: string) =>
-    `[Wink note, not from the user] Your last message between tool calls was long, so the user never saw it; the engine kept only this summary: "${summary}". If it held anything they need (links, numbers, commands, steps), send just that again now in one short line, or put it in your final reply. Otherwise ignore this note and don't mention it.`;
+    `[Wink note, not from the user] Your last message between tool calls was long, so the user never saw it; the engine kept only this summary: "${summary}". If it answered the user, send that answer again now in one short line. If it held anything else they need (links, numbers, commands, steps), send just that now in one short line, or put it in your final reply. Otherwise ignore this note and don't mention it.`;
   const armSteerLog = () => {
     process.env.FAKE_CLAUDE_STEER_LOG = join(scratch, "steers.json");
   };
@@ -536,6 +536,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed");
 
     const quoted = `${narrationPart1} / ${narrationPart2}`.slice(0, 600);
+    expect(readSteers().join("\n")).toContain("If it answered the user, send that answer again now");
     expect(readSteers()).toEqual([narrationNotice(quoted)]);
     expect(quoted).toContain("https://example.com/a/");
     expect(quoted.endsWith("b".repeat(97))).toBe(true);
