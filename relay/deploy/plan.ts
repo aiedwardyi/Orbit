@@ -36,6 +36,8 @@ export interface DeployOptions {
   acceptAcmeTerms: boolean;
   /** Written into wink-relay.config.json. All three CLI flags, or none. */
   google?: { desktopClientId: string; webClientId: string; signinOrigin: string };
+  /** Written into wink-relay.config.json. Needs the Google flags. */
+  teamOwnerEmail?: string;
 }
 
 export interface AddressState {
@@ -132,6 +134,12 @@ export function validate(opts: DeployOptions): void {
   }
   if (opts.acmeEmail && !/^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+$/.test(opts.acmeEmail)) throw new PlanError("invalid --acme-email");
   if (opts.google) googleDeployConfig(opts.google.desktopClientId, opts.google.webClientId, opts.google.signinOrigin);
+  if (opts.teamOwnerEmail !== undefined) {
+    if (!opts.google) throw new PlanError("--team-owner-email needs the Google flags");
+    if (!/^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$/.test(opts.teamOwnerEmail)) {
+      throw new PlanError("invalid --team-owner-email");
+    }
+  }
 }
 
 export function names(opts: Pick<DeployOptions, "prefix" | "addressName">) {

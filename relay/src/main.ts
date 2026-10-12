@@ -17,6 +17,7 @@ async function main(): Promise<void> {
     revokedLabelsFile: config.revokedLabelsFile,
     acme: config.acme,
     google: config.google,
+    teamOwnerEmail: config.teamOwnerEmail,
     limits: config.limits,
     log,
   });

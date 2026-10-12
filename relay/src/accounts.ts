@@ -114,6 +114,14 @@ export class Accounts {
     return { ok: true, subHash: googleSubHash(claims.token.sub) };
   }
 
+  /** Web-client token for GET /v1/team: only a verified `email` (lowercase) passes. */
+  async owner(idToken: string, email: string): Promise<IdentityResult> {
+    const claims = await this.google(idToken, [this.opts.webClientId], (this.opts.now ?? Date.now)());
+    if (!claims.ok) return claims;
+    if (!claims.token.emailVerified || claims.token.email.toLowerCase() !== email) return fail(403, "not-owner");
+    return { ok: true, subHash: googleSubHash(claims.token.sub) };
+  }
+
   private async google(
     idToken: string,
     audiences: readonly string[],

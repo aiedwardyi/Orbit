@@ -9,6 +9,7 @@ import type { RelayLimits } from "./limits.ts";
 import type { Logger } from "./log.ts";
 import { ALERT_UNRECOGNIZED_NAME, peerPrefix, sendAlert } from "./net-util.ts";
 import { splice, type SplicedPair } from "./splice.ts";
+import type { TeamLog } from "./team.ts";
 
 /** What the hub needs from a control channel. */
 export interface ControlLink {
@@ -46,6 +47,8 @@ export interface HubOptions {
   limits: RelayLimits;
   log: Logger;
   now?: () => number;
+  /** Set only when the relay has a team owner. */
+  team?: TeamLog;
 }
 
 export type JoinResult = "parked" | "spliced" | "unknown-session" | "bad-token" | "pool-full";
@@ -109,7 +112,10 @@ export class Hub {
     this.byLabel.set(label, session);
     this.byId.set(session.id, session);
     if (old) this.end(old, "superseded");
-    else this.markChanged(label);
+    else {
+      this.markChanged(label);
+      this.opts.team?.pcUp(label);
+    }
     this.opts.log.log("session-up", { label, reason: old ? "superseded-old" : "new" });
     return session;
   }
@@ -126,6 +132,7 @@ export class Hub {
     if (this.byLabel.get(session.label) === session) {
       this.byLabel.delete(session.label);
       this.markChanged(session.label);
+      this.opts.team?.pcDown(session.label);
       this.failWaiting(session.label);
     }
     this.unindex(session);
@@ -148,6 +155,12 @@ export class Hub {
     const bucket = this.bySub.get(subHash) ?? new Map<string, string>();
     bucket.set(session.label, name);
     this.bySub.set(subHash, bucket);
+    this.opts.team?.setName(session.label, name);
+  }
+
+  /** A control frame arrived on the label's current session. */
+  seen(session: Session): void {
+    if (this.byLabel.get(session.label) === session) this.opts.team?.pcSeen(session.label);
   }
 
   /** Kills everything for a label: control, pool, waiting phones and live splices. */
@@ -277,6 +290,7 @@ export class Hub {
     this.parked.get(data)?.();
     this.parked.delete(data);
     this.splicedPerLabel.set(label, (this.splicedPerLabel.get(label) ?? 0) + 1);
+    const phoneId = this.opts.team?.phoneStart(label);
     const pair: LabeledPair = Object.assign(splice({
       phone,
       data,
@@ -286,6 +300,7 @@ export class Hub {
       now: this.now,
       onEnd: (stats) => {
         this.pairs.delete(pair);
+        if (phoneId !== undefined) this.opts.team?.phoneEnd(phoneId);
         if (this.pairs.size === 0) this.splicesEmpty?.();
         const left = (this.splicedPerLabel.get(label) ?? 1) - 1;
         if (left > 0) this.splicedPerLabel.set(label, left);

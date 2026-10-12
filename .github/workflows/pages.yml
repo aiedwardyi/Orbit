@@ -56,6 +56,8 @@ jobs:
           writeFileSync("site/CNAME", "wink.edwardyi.dev\n");
           writeFileSync("site/signin/index.html", page);
           writeFileSync("site/index.html", page);
+          const team = readFileSync("site/team/index.html", "utf8").replaceAll("https://relay.wink.edwardyi.dev", relay);
+          writeFileSync("site/team/index.html", team);
           EOF
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1

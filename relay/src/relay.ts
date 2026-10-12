@@ -29,6 +29,7 @@ import {
   sendAlert,
 } from "./net-util.ts";
 import { RevocationList } from "./revocation.ts";
+import { TeamLog } from "./team.ts";
 
 /** ALPN ids served on relay.<base>, besides acme-tls/1. */
 export const RELAY_ALPNS: readonly string[] = [ALPN_CONTROL, ALPN_DATA, "http/1.1"];
@@ -57,6 +58,8 @@ export interface RelayOptions {
     signinOrigin: string;
     keys?: GoogleKeySource;
   };
+  /** With `google`, turns on session recording and GET /v1/team for this Google account. */
+  teamOwnerEmail?: string;
   limits?: Partial<RelayLimits>;
   log?: Logger;
   now?: () => number;
@@ -86,7 +89,9 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
   const operatorPublicKey = createPublicKey(opts.operatorPrivateKey);
   if (operatorPublicKey.asymmetricKeyType !== "ed25519") throw new Error("operator key must be Ed25519");
 
-  const hub = new Hub({ limits, log, now });
+  const teamOwnerEmail = opts.google ? opts.teamOwnerEmail?.toLowerCase() : undefined;
+  const team = teamOwnerEmail ? await TeamLog.open(opts.dataDir, now, log) : undefined;
+  const hub = new Hub({ limits, log, now, team });
   const revoked = new RevocationList(opts.revokedLabelsFile, log);
   await revoked.load();
   const store = await InviteStore.open(opts.dataDir, now);
@@ -134,6 +139,8 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
     enroller,
     accounts,
     signinOrigin: opts.google?.signinOrigin,
+    team,
+    teamOwnerEmail,
     limits,
     log,
     now,
@@ -355,6 +362,7 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
       api.closeIdleConnections();
       await hub.whenSplicesDone(limits.drainGraceMs);
       hub.destroySplices();
+      await team?.close();
       api.closeAllConnections();
       for (const socket of sockets) socket.destroy();
       await listening;
