@@ -146,6 +146,11 @@ describe("ChatView peer reply labels", () => {
     expect(chips(host).map((chip) => chip.closest("[data-mid]")?.getAttribute("data-mid"))).toEqual(["first reply", "next reply"]);
   });
 
+  it("skips blank bot text and labels the real reply", async () => {
+    const { host } = await mount(bot([inbound, { ...text("blank"), text: " \n" }, text("answer")]));
+    expect(chips(host).map((chip) => chip.closest("[data-mid]")?.getAttribute("data-mid"))).toEqual(["answer"]);
+  });
+
   it("keeps the label and bubble when a streamed peer reply settles", async () => {
     const current = bot([inbound], true);
     const { host, render } = await mount(current);

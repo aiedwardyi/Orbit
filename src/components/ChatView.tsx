@@ -987,7 +987,7 @@ const MessagesList = memo(function MessagesList({
     let comm: Message["comm"];
     for (const message of streamingMessage ? [...transcript, streamingMessage] : transcript) {
       if (message.role === "user") comm = message.from ? message.comm : undefined;
-      else if (comm && message.kind === "text" && isShownMessage(message)) {
+      else if (comm && message.kind === "text" && isShownMessage(message) && message.text?.trim()) {
         replies.set(message.id, comm);
         comm = undefined;
       }
