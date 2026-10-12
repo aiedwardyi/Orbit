@@ -398,9 +398,9 @@ describe("SettingsModal friends chrome", () => {
     expect(connections).not.toContain("<PhoneNotificationSettings");
     const search = readFileSync(join(here, "../lib/settings-search.ts"), "utf8");
     const generalKeys = search.slice(search.indexOf("  general: ["), search.indexOf("  themes: ["));
-    expect(generalKeys).not.toContain("settings.phoneNotifications.title");
+    expect(generalKeys).toContain("settings.phoneNotifications.title");
     const accountKeys = search.slice(search.indexOf("  account: ["), search.indexOf("  shortcuts: ["));
-    expect(accountKeys).toContain("settings.phoneNotifications.title");
+    expect(accountKeys).not.toContain("settings.phoneNotifications.title");
   });
 
   it("hides phone notifications in the desktop app", () => {

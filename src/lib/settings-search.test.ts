@@ -85,9 +85,15 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("general", "sign in")).toBe(false);
   });
 
-  it.each(["Google", "phone", "profile", "동기화", "휴대폰", "프로필"])("finds %s on Account", (query) => {
+  it.each(["Google", "profile", "동기화", "프로필"])("finds %s on Account", (query) => {
     expect(settingsSectionMatches("account", query)).toBe(true);
     expect(settingsSectionMatches("general", query)).toBe(false);
+    expect(settingsSectionMatches("connections", query)).toBe(false);
+  });
+
+  it.each(["phone", "휴대폰"])("finds %s on Account and on General's phone notifications", (query) => {
+    expect(settingsSectionMatches("account", query)).toBe(true);
+    expect(settingsSectionMatches("general", query)).toBe(true);
     expect(settingsSectionMatches("connections", query)).toBe(false);
   });
 });

@@ -18,8 +18,6 @@ export const SECTION_PHRASE_KEYS = {
     "settings.phoneAccess.help",
     "settings.phoneLink.title",
     "settings.phoneLink.help",
-    "settings.phoneNotifications.title",
-    "settings.phoneNotifications.help",
   ],
   shortcuts: [
     "settings.section.shortcuts",
@@ -50,6 +48,8 @@ export const SECTION_PHRASE_KEYS = {
     "settings.notifications.title",
     "settings.notifications.terminal",
     "settings.notifications.terminalHelp",
+    "settings.phoneNotifications.title",
+    "settings.phoneNotifications.help",
     "settings.experimental.title",
     "settings.experimental.skill",
     "settings.experimental.browser",
