@@ -2585,10 +2585,10 @@ export function Sidebar({
         )}
         <div className={cn("flex min-w-0 items-center", density === "icons" && "justify-center")} data-sidebar-profile-row>
           <button
-            onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}
+            onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "account" })}
             className={cn("flex min-w-0 items-center rounded-xl py-2 text-left hover:bg-raised/50", density === "icons" ? "justify-center px-2" : "flex-1 gap-3 px-3")}
-            aria-label={density === "icons" ? t("chrome.appSettings") : undefined}
-            title={density === "icons" ? (state.config?.profile?.name?.trim() || t("chrome.appSettings")) : undefined}
+            aria-label={density === "icons" ? t("settings.section.account") : undefined}
+            title={density === "icons" ? t("settings.section.account") : undefined}
           >
             <InitialsAvatar initials={profileInitials(state.config?.profile)} size={28} />
             <span className={cn("truncate text-[14px] text-ink", density === "icons" && "hidden")}>
@@ -2607,7 +2607,7 @@ export function Sidebar({
             />
           )}
           {density !== "icons" && <button
-            onClick={() => dispatch({ type: "toggleAppSettings" })}
+            onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "general" })}
             aria-label={t("chrome.appSettings")}
             className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
             title={t("chrome.appSettings")}

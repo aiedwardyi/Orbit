@@ -29,13 +29,12 @@ describe("bot list menu", () => {
     expect(sidebar).not.toContain("writeText(bot.threadId)");
   });
 
-  it("opens Connections from the profile and leaves the gear on General", () => {
+  it("opens Account from the profile and General from the gear", () => {
     const start = sidebar.indexOf("data-sidebar-profile-row");
     const row = sidebar.slice(start, sidebar.indexOf("{menu &&", start));
-    const profile = row.indexOf('section: "connections"');
-    const gear = row.indexOf('dispatch({ type: "toggleAppSettings" })');
+    const profile = row.indexOf('section: "account"');
+    const gear = row.indexOf('dispatch({ type: "toggleAppSettings", open: true, section: "general" })');
     expect(profile).toBeGreaterThan(-1);
     expect(gear).toBeGreaterThan(profile);
-    expect(row.slice(gear, gear + 40)).not.toContain("section:");
   });
 });

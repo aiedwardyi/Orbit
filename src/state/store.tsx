@@ -568,6 +568,7 @@ export interface InstanceInfo {
 }
 
 export type AppSettingsSection =
+  | "account"
   | "general"
   | "connections"
   | "themes"

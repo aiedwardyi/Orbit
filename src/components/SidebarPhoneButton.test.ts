@@ -101,11 +101,11 @@ describe("sidebar phone status", () => {
     });
   });
 
-  it("opens Settings directly on the internal Phone section", () => {
+  it("opens Settings directly on Account", () => {
     expect(phoneSettingsAction()).toEqual({
       type: "toggleAppSettings",
       open: true,
-      section: "companion",
+      section: "account",
     });
   });
 });

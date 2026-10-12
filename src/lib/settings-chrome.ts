@@ -29,13 +29,14 @@ export function friendsSettingsNavVisible(
   input: { phoneAvailable: boolean },
 ): boolean {
   void input;
-  if (id === "companion" || id === "computer") return false;
+  if (id === "sync" || id === "companion" || id === "computer") return false;
   if (id === "engines" && !showSettingsEnginesNav()) return false;
   return settingsSectionMatches(id, query);
 }
 
-/** Deep links to Engines land on the unified Connections page. */
+/** Preserve old section links after regrouping Settings. */
 export function resolvedAppSettingsSection(id: AppSettingsSection): AppSettingsSection {
+  if (id === "sync" || id === "companion") return "account";
   if (id === "engines" && !showSettingsEnginesNav()) return "connections";
   return id;
 }
