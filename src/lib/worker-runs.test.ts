@@ -297,6 +297,28 @@ describe("byUrgency", () => {
     const sorted = runs.map((run) => ({ run, state: shownState(run, null) })).sort(byUrgency);
     expect(sorted.map((r) => r.run.nick)).toEqual(["D", "C", "A", "E", "B"]);
   });
+
+  it("lists AI workers before scripts in the same state, oldest first within each kind", () => {
+    const runs = workerRuns([
+      launch("s1", 1, "S1 | script", "11111111"),
+      launch("b", 2, "B | Grok 4.7 | high", "22222222"),
+      launch("c", 3, "C | Grok 4.7 | high", "33333333"),
+      launch("s2", 4, "S2 | script", "44444444"),
+    ]);
+    const sorted = runs.map((run) => ({ run, state: shownState(run, null) })).sort(byUrgency);
+    expect(sorted.map((r) => r.run.nick)).toEqual(["B", "C", "S1", "S2"]);
+  });
+
+  it("keeps a waiting script before working AI workers, AI before script within working", () => {
+    const runs = workerRuns([
+      launch("ws", 1, "WS | script", "11111111"),
+      launch("wa", 2, "WA | Grok 4.7 | high", "22222222"),
+      launch("ts", 3, "TS | script", "33333333"),
+      note("tn", 4, STALLED, "TS | script", "33333333"),
+    ]);
+    const sorted = runs.map((run) => ({ run, state: shownState(run, null) })).sort(byUrgency);
+    expect(sorted.map((r) => r.run.nick)).toEqual(["TS", "WA", "WS"]);
+  });
 });
 
 describe("listedRuns", () => {
