@@ -92,6 +92,60 @@ describe("TermStatusLine", () => {
     expect(host.textContent).not.toContain("low");
   });
 
+  it("hides bars when a busy bot's pending pick reports no windows", async () => {
+    const gemini: InstanceInfo = {
+      ...engine,
+      instanceId: "gemini",
+      driverKind: "geminiAgent",
+      rateLimits: undefined,
+      models: { default: "gemini-flash", options: [{ id: "gemini-flash", label: "Gemini 3.8 Flash" }] },
+    };
+    const host = await render(
+      { ...bot, busy: true, pendingModelSelection: { instanceId: "gemini", model: "gemini-flash", effort: "high" } },
+      engine,
+      undefined,
+      [engine, gemini],
+    );
+    expect(host.querySelector("[data-term-status] button")).toBeNull();
+    expect(host.textContent).not.toContain("5h");
+    expect(host.textContent).not.toContain("29%");
+  });
+
+  it("shows the pending instance's windows and reading", async () => {
+    const muse: InstanceInfo = {
+      ...engine,
+      instanceId: "muse",
+      driverKind: "museAgent",
+      models: { default: "muse-model", options: [{ id: "muse-model", label: "Muse model" }] },
+      rateLimits: {
+        observedAt: new Date(now - 4 * 86400_000).toISOString(),
+        windows: [
+          { id: "five_hour", usedPercent: 10, resetsAt: now + 3_600_000 },
+          { id: "seven_day", usedPercent: 40, resetsAt: now + 86_400_000 },
+        ],
+      },
+    };
+    const host = await render(
+      { ...bot, busy: true, pendingModelSelection: { instanceId: "muse", model: "muse-model", effort: "high" } },
+      engine,
+      undefined,
+      [engine, muse],
+    );
+    const status = host.querySelector("[data-term-status]")!;
+    expect(status.textContent).toContain("Last seen 4d ago");
+    expect(status.textContent).toContain("90%");
+    expect(status.textContent).toContain("60%");
+    expect(status.textContent).not.toContain("29%");
+  });
+
+  it("shows the running engine's bars when nothing is pending", async () => {
+    const host = await render({ ...bot, busy: true });
+    const status = host.querySelector("[data-term-status]")!;
+    expect(status.textContent).toContain("5h");
+    expect(status.textContent).toContain("29%");
+    expect(status.textContent).not.toContain("Last seen");
+  });
+
   it.each(["/pinned", null])("uses the task's %s folder instead of the bot default", async (cwd) => {
     const host = await render(bot, engine, cwd);
     expect(host.textContent).not.toContain("/default");

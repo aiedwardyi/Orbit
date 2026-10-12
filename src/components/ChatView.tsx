@@ -32,6 +32,7 @@ import {
   formatTime,
   messageVersions,
   openNotificationTarget,
+  shownModelSelection,
   visibleMessages,
   type Bot,
   type InstanceInfo,
@@ -1399,6 +1400,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const provisioning = state.provisioning[bot.id];
   const activeTask = bot.tasks?.find((task) => task.threadId === bot.threadId);
   const engine = state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId);
+  const shownEngine = state.instances.find((i) => i.instanceId === shownModelSelection(bot).instanceId);
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const callAvailable =
     capabilitiesReady && capabilities.dictation.available && Boolean(window.ogb?.speechStart);
@@ -2179,9 +2181,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         />
         {!terminal && (
           <ChatPlanMeters
-            windows={engine?.rateLimits?.windows}
-            driverKind={engine?.driverKind}
-            observedAt={engine?.rateLimits?.observedAt}
+            windows={shownEngine?.rateLimits?.windows}
+            driverKind={shownEngine?.driverKind}
+            observedAt={shownEngine?.rateLimits?.observedAt}
             onOpenUsage={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
           />
         )}

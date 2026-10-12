@@ -20,9 +20,9 @@ export function TermStatusLine({ bot, engine, cwd = bot.cwd, turns }: { bot: Bot
   const selection = shownModelSelection(bot);
   const selectedEngine = engine?.instanceId === selection.instanceId ? engine : state.instances.find((instance) => instance.instanceId === selection.instanceId);
   const model = selectedEngine?.models.options.find((option) => option.id === selection.model)?.label ?? selection.model;
-  const reading = museReading(engine?.driverKind, engine?.rateLimits?.observedAt, now);
+  const reading = museReading(selectedEngine?.driverKind, selectedEngine?.rateLimits?.observedAt, now);
   const ageId = useId();
-  const meters = planMeterWindows(engine?.rateLimits?.windows, now).map((window) => ({
+  const meters = planMeterWindows(selectedEngine?.rateLimits?.windows, now).map((window) => ({
     ...termMeter(window, now, mode),
     reset: resetCompact(window.resetsAt, now),
   }));
