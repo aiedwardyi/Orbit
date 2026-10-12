@@ -4408,29 +4408,28 @@ button:disabled.bg-danger {
 
 /* A sidebar row (or the control hiding it) whose chat is waiting on the
    person: the theme accent as a thin ring plus a soft outer glow that
-   breathes. Box shadows only, so the row never changes size, and no
-   `filter`, so provider model dots keep their own colors on every skin. */
+   pulses fully out and back in. Box shadows only, so the row never
+   changes size, and no `filter`, so provider model dots keep their own
+   colors on every skin. */
 /* The glow's ::after anchors to the element, so callers keep it positioned
    (`relative`, or the `absolute` it already has). */
-.needs-you-glow {
-  box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--color-accent) 92%, transparent);
-}
-
 .needs-you-glow::after {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  box-shadow: 0 0 14px 3px color-mix(in oklab, var(--color-accent) 60%, transparent);
-  animation: needs-you-breathe 2.4s ease-in-out infinite;
+  box-shadow:
+    0 0 0 1.5px color-mix(in oklab, var(--color-accent) 92%, transparent),
+    0 0 14px 3px color-mix(in oklab, var(--color-accent) 60%, transparent);
+  animation: needs-you-pulse 2s ease-in-out infinite;
 }
 
-@keyframes needs-you-breathe {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+@keyframes needs-you-pulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .needs-you-glow::after { animation: none; }
+  .needs-you-glow::after { animation: none; opacity: 1; }
 }
