@@ -92,6 +92,7 @@ describe("WorkerChip", () => {
     await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: opts?.livePanes, onOpenTerminalPane: opts?.onOpenTerminalPane })));
     return {
       host,
+      root,
       chip: () => host.querySelector<HTMLButtonElement>("[data-worker-strip]"),
       unmount: async () => { await act(async () => root.unmount()); host.remove(); },
     };
@@ -209,6 +210,56 @@ describe("WorkerChip", () => {
     }
   });
 
+  it.each([false, true])("counts and opens a renamed pane once with phone=%s", async (phone) => {
+    stubMedia({ matches: phone });
+    const runs = workerRuns([
+      { id: "l1", at: 1, role: "bot", kind: "launch", text: "Launched GO-GOOGLE | Opus 5.5 | high\nLabel: GO-GOOGLE | Opus 5.5 | high\nSession: aaaaaaaa-1" },
+      { id: "n1", at: 2, role: "bot", kind: "note", text: "[pane aaaaaaaa] [GO-GOOGLE | Opus 5.5 | high] from Wink (61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b): BLOCKED CHAIN-GP2 branch=x sha=y dirty=no" },
+    ]).map((run) => ({ run, state: run.state }));
+    const onOpen = vi.fn();
+    const { host, root, chip, unmount } = await mount(runs, { livePanes: new Set(["aaaaaaaa-1"]), onOpenTerminalPane: onOpen });
+    try {
+      expect(chip()!.getAttribute("aria-label")).toBe("0 working, 1 waiting, 0 failed, 0 done. Show workers");
+      expect(host.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")).toHaveLength(1);
+      expect(host.querySelector("[data-worker-chip-phone]")!.textContent).toBe("");
+      await act(async () => chip()!.click());
+      const list = document.body.querySelector("[data-worker-list]")!;
+      expect(list.querySelectorAll("li")).toHaveLength(1);
+      expect(list.querySelector("li")!.textContent).toBe("CHAIN-GP2Opus 5.5‖Waiting");
+      await act(async () => list.querySelector<HTMLButtonElement>("li > button")!.click());
+      expect(onOpen).toHaveBeenCalledExactlyOnceWith("aaaaaaaa-1");
+      await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: null })));
+      expect(chip()!.getAttribute("aria-label")).toBe("1 working, 1 waiting, 0 failed, 0 done. Show workers");
+      await act(async () => chip()!.click());
+      const roomList = document.body.querySelector("[data-worker-list]")!;
+      expect(roomList.querySelectorAll("li")).toHaveLength(2);
+      expect(roomList.querySelector("li > button")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it.each([false, true])("keeps an unverified pane visible without a click target with phone=%s", async (phone) => {
+    stubMedia({ matches: phone });
+    const runs = [shown("WORK", "working", "work-1", 1)];
+    const onOpen = vi.fn();
+    const { root, chip, unmount } = await mount(runs, { livePanes: null, onOpenTerminalPane: onOpen });
+    try {
+      await act(async () => chip()!.click());
+      const list = document.body.querySelector("[data-worker-list]")!;
+      expect(list.querySelectorAll("li")).toHaveLength(1);
+      expect(list.querySelector("li > button")).toBeNull();
+      await act(async () => list.querySelector<HTMLDivElement>("li > div")!.click());
+      expect(onOpen).not.toHaveBeenCalled();
+      await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: new Set(["work-1"]), onOpenTerminalPane: onOpen })));
+      const entry = document.body.querySelector<HTMLButtonElement>("[data-worker-list] li > button")!;
+      await act(async () => entry.click());
+      expect(onOpen).toHaveBeenCalledExactlyOnceWith("work-1");
+    } finally {
+      await unmount();
+    }
+  });
+
   it("hides the chip when no pane is live", async () => {
     vi.stubGlobal("matchMedia", () => ({ matches: false }));
     const { host, unmount } = await mount([
@@ -273,7 +324,7 @@ describe("WorkerChip", () => {
   it("insets entries on the desktop dropdown but not in the phone sheet", async () => {
     const runs = [shown("WORK", "working", "work-1", 1)];
     stubMedia({ matches: false });
-    const desktop = await mount(runs, { onOpenTerminalPane: () => {} });
+    const desktop = await mount(runs, { onOpenTerminalPane: () => {}, livePanes: new Set(["work-1"]) });
     try {
       await act(async () => desktop.chip()!.click());
       expect(desktop.host.querySelector("[data-worker-list] li > button")?.className).toContain("px-3");
@@ -281,7 +332,7 @@ describe("WorkerChip", () => {
       await desktop.unmount();
     }
     stubMedia({ matches: true });
-    const phone = await mount(runs, { onOpenTerminalPane: () => {} });
+    const phone = await mount(runs, { onOpenTerminalPane: () => {}, livePanes: new Set(["work-1"]) });
     try {
       await act(async () => phone.chip()!.click());
       const entry = document.body.querySelector("[data-worker-list] li > button")!;

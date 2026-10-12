@@ -320,6 +320,61 @@ describe("listedRuns", () => {
     expect(listed.map((shown) => shown.run.nick)).toEqual(["WAIT", "WORK"]);
   });
 
+  it("lists a renamed pane once under its newest report nickname", () => {
+    const runs = workerRuns([
+      launch("l1", 1, "GO-GOOGLE | GPT-6.1 Sol | high"),
+      note("n1", 2, report("BLOCKED", "CHAIN-GP2"), "GO-GOOGLE | GPT-6.1 Sol | high"),
+    ]).map((run) => ({ run, state: run.state }));
+    expect(listedRuns(runs, new Set([PANE])).map((shown) => shown.run.nick)).toEqual(["CHAIN-GP2"]);
+    expect(listedRuns(runs, null).map((shown) => shown.run.nick)).toEqual(["CHAIN-GP2", "GO-GOOGLE"]);
+  });
+
+  it.each(["launch", "resume", "note"])("keeps the run with the newest %s event when a pane is reused", (kind) => {
+    const label = "A | Opus 5.5 | high";
+    const latest = kind === "launch" ? launch("a2", 5, label) : kind === "resume" ? resume("a2", 5, label) : note("a2", 5, report("DONE", "A"), label);
+    const runs = workerRuns([
+      launch("a1", 1, label),
+      note("an", 2, report("DONE", "A"), label),
+      launch("b1", 3, "B | Opus 5.5 | high"),
+      note("bn", 4, report("BLOCKED", "B"), "B | Opus 5.5 | high"),
+      latest,
+      launch("side", 6, "SIDE | Opus 5.5 | high", OTHER),
+    ]).map((run) => ({ run, state: run.state }));
+    const listed = listedRuns(runs, new Set([PANE, OTHER]));
+    expect(listed).toHaveLength(2);
+    expect(listed.find((shown) => shown.run.sessionId === PANE)?.run.nick).toBe("A");
+    expect(listed.find((shown) => shown.run.sessionId === OTHER)).toBe(runs.find((shown) => shown.run.sessionId === OTHER));
+    expect(listed.find((shown) => shown.run.nick === "A")?.run.at).toBe(1);
+  });
+
+  it("uses event time when notes from a reused pane arrive out of order", () => {
+    const runs = workerRuns([
+      launch("a1", 1, "A | script"),
+      launch("b1", 2, "B | script"),
+      note("an", 4, report("DONE", "A"), "A | script"),
+      note("bn", 3, report("BLOCKED", "B"), "B | script"),
+    ]).map((run) => ({ run, state: run.state }));
+    expect(listedRuns(runs, new Set([PANE])).map((shown) => shown.run.nick)).toEqual(["A"]);
+  });
+
+  it("uses transcript order for equal-time events from a reused pane", () => {
+    const runs = workerRuns([
+      launch("a1", 1, "A | script"),
+      launch("b1", 2, "B | script"),
+      note("bn", 3, report("BLOCKED", "B"), "B | script"),
+      note("an", 3, report("DONE", "A"), "A | script"),
+    ]).map((run) => ({ run, state: run.state }));
+    expect(listedRuns(runs, new Set([PANE])).map((shown) => shown.run.nick)).toEqual(["A"]);
+  });
+
+  it("only confirms a launch session after pane liveness loads", () => {
+    const run = workerRuns([launch("l1", 1, "A | Opus 5.5 | high")])[0]!;
+    expect(listedSessionId(run, null)).toBeNull();
+    expect(listedRuns([{ run, state: run.state }], null)).toHaveLength(1);
+    expect(listedSessionId(run, new Set([PANE]))).toBe(PANE);
+    expect(listedSessionId(run, new Set([OTHER]))).toBeNull();
+  });
+
   it("lists a note-only run when one live pane starts with its pane id", () => {
     const run = workerRuns([note("n1", 5, report("BLOCKED", "OLD-JOB"), "OLD-JOB | Opus 5.5 | high", "5d09c0d0-not-loaded")])[0]!;
     expect(run.sessionId).toBeNull();
