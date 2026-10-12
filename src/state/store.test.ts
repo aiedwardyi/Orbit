@@ -27,6 +27,19 @@ import {
 } from "./store";
 import { openLiveEvents, type LiveEventSourceLike, type LiveEventsPlatform } from "../lib/live-events";
 
+it("tool detail reaches the client store through message frames unchanged", async () => {
+  const { buildToolDetail } = await import("../../shared/tool-detail.ts");
+  const { redactSecretsInText } = await import("../../server/redact.ts");
+  const detail = buildToolDetail({ input: "echo hi", output: "hi" }, redactSecretsInText);
+  const group: Group = { id: "g1", threadId: "t1", name: "room", memberIds: [], defaultResponder: { kind: "everyone" }, bulletin: "", unread: false, messages: [], createdAt: 1 };
+  const row: Message = { id: "m1", role: "bot", kind: "activity", at: 1, tool: { name: "Bash", ok: true, detail } };
+  const added = reducer({ ...initialState, groups: [group] }, { type: "messageAdded", threadId: "t1", message: row });
+  const updated = { ...row, tool: { ...row.tool!, durationMs: 12 } };
+  const patched = reducer(added, { type: "messagePatched", threadId: "t1", message: updated });
+  expect(patched.groups[0].messages).toEqual([updated]);
+  expect(patched.groups[0].messages[0].tool?.detail).toEqual(detail);
+});
+
 type SnapshotFrame =
   | { kind: "hello"; resumed: boolean; cursor: string }
   | { kind: "message"; threadId: string; message: { id: string } };

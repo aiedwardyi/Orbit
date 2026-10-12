@@ -14,20 +14,65 @@
 // session/update notifications, so updates are double-gated: nothing emits
 // before the prompt is sent, and `_meta.isReplay` updates are dropped.
 import { homedir } from "node:os";
+import { z } from "zod";
 import { acpConnection } from "./connection.ts";
 import { canReuseWarmSession, warmToolsKey, type WarmEligibilityInput } from "./warm-eligibility.ts";
 
 import { applyCredentialAllowlist } from "../../config.ts";
-import { decodeInjectId, LOCAL_HOSTS } from "../local-inject.ts";
-
-const LOCAL_HOST_KEY_ENVS = [
-  ...new Set(LOCAL_HOSTS.map((host) => host.apiKeyEnv).filter((key): key is string => Boolean(key))),
-];
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
+import { captureToolDetail } from "../../tool-detail.ts";
+import { decodeInjectId, LOCAL_HOSTS } from "../local-inject.ts";
 import { isWslCommand, withWslProbeReason, wslBlockedReason, wslProbeAllowed } from "../../wsl-gate.ts";
 import { inputDigest } from "../../repeat-detector.ts";
 import { startTurnTimer } from "../../turn-timing.ts";
 import { exhaustedWindow, grokRateLimitWindows, isConfirmedNonUsage, usageLimitFromError } from "../rate-limits.ts";
+
+const LOCAL_HOST_KEY_ENVS = [
+  ...new Set(LOCAL_HOSTS.map((host) => host.apiKeyEnv).filter((key): key is string => Boolean(key))),
+];
+
+const toolCallSchema = z.object({
+  toolCallId: z.string(),
+  title: z.string().optional(),
+  kind: z.string().optional(),
+  status: z.string().optional(),
+  rawInput: z.unknown().optional(),
+  rawOutput: z.unknown().optional(),
+  locations: z.array(z.object({ path: z.string() })).optional().catch(undefined),
+  content: z.array(z.discriminatedUnion("type", [
+    z.object({ type: z.literal("content"), content: z.object({ type: z.string(), text: z.string().optional() }) }),
+    z.object({ type: z.literal("diff"), path: z.string(), oldText: z.string().nullable(), newText: z.string() }),
+    z.object({ type: z.literal("terminal"), terminalId: z.string() }),
+  ])).optional(),
+});
+const toolInputSchema = z.object({
+  path: z.string().optional().catch(undefined),
+  file_path: z.string().optional().catch(undefined),
+  absolute_path: z.string().optional().catch(undefined),
+  filePath: z.string().optional().catch(undefined),
+});
+
+function acpToolDetail(call: z.infer<typeof toolCallSchema>) {
+  const content = call.content ?? [];
+  const text = content.flatMap((block) => block.type === "content" && block.content.type === "text" ? [block.content.text ?? ""] : []).join("\n");
+  const rawOutput = z.string().safeParse(call.rawOutput);
+  const rawInput = z.string().safeParse(call.rawInput);
+  const args = toolInputSchema.safeParse(call.rawInput);
+  const paths = [...(call.locations ?? []).map((location) => location.path), ...content.flatMap((block) => block.type === "diff" ? [block.path] : [])];
+  if (args.success) paths.push(...Object.values(args.data).filter((path): path is string => path !== undefined));
+  if ((call.kind === "read" || call.kind === "edit") && rawInput.success) paths.push(rawInput.data);
+  return captureToolDetail({
+    name: call.title ?? "tool",
+    rawInput: call.rawInput,
+    paths,
+    input: call.rawInput === undefined ? content.find((block) => block.type === "diff")?.path ?? paths[0] ?? call.title : undefined,
+    command: call.kind === "execute" ? rawInput.success ? rawInput.data : call.rawInput === undefined ? call.title : undefined : undefined,
+    output: text || (rawOutput.success ? rawOutput.data : JSON.stringify(call.rawOutput)),
+    edits: content.flatMap((block) => block.type === "diff" ? [{ oldText: block.oldText ?? "", newText: block.newText }] : []),
+    grouped: call.kind === "read" || call.kind === "search",
+    isError: call.status === "failed",
+  });
+}
 
 /**
  * A `host::model` pick talks to a loopback server with its own key.
@@ -821,6 +866,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
         // promptAccepted: the agent answered this prompt, so its session holds it
         const state = { settled: false, promptSent: false, promptAccepted: false, text: "" };
+        const toolCalls = new Map<string, z.infer<typeof toolCallSchema>>();
         const interjections = new Set<string>();
         const interjectionWaiters = new Map<string, (delivered: boolean) => void>();
         // Steer prompts Grok has not answered. If the running prompt ends
@@ -1064,6 +1110,20 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           });
         };
 
+        const completeTool = (itemId: string, ok: boolean, call: z.infer<typeof toolCallSchema> | undefined) => {
+          const detail = call ? acpToolDetail(call) : undefined;
+          toolCalls.delete(itemId);
+          const event: Extract<RuntimeEvent, { type: "item.completed"; itemType: "tool" }> = {
+            ...base(threadId, turnId),
+            type: "item.completed",
+            itemType: "tool",
+            itemId,
+            ok,
+          };
+          if (detail) event.detail = detail;
+          emit(event);
+        };
+
         const handleNotification = (msg: any) => {
           if (support.grokInterjections && msg.method === "_x.ai/session/interjection" && msg.params?.sessionId === sessionId) {
             flushAssistantText();
@@ -1107,26 +1167,43 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
             }
             case "tool_call": {
               flushAssistantText();
+              const call = toolCallSchema.safeParse(u);
+              if (call.success) toolCalls.set(call.data.toolCallId, call.data);
               const args = String(u.rawInput?.command ?? u.title ?? "tool");
-              emit({
+              const kind = call.success ? call.data.kind : undefined;
+              const verb =
+                kind === "execute" ? "Bash"
+                : kind === "edit" ? "Edit"
+                : kind === "read" ? "Read"
+                : kind === "search" ? "Grep"
+                : kind === "fetch" ? "WebFetch"
+                : undefined;
+              const started: Extract<RuntimeEvent, { type: "item.started" }> = {
                 ...base(threadId, turnId),
                 type: "item.started",
                 itemType: "tool",
                 itemId: u.toolCallId,
                 title: args.slice(0, 80),
                 inputDigest: inputDigest(u.rawInput ?? args),
-              });
+              };
+              if (verb) started.verb = verb;
+              emit(started);
+              if (u.status === "completed" || u.status === "failed") completeTool(u.toolCallId, u.status !== "failed", call.success ? call.data : undefined);
               break;
             }
             case "tool_call_update": {
+              const parsed = toolCallSchema.safeParse(u);
+              const previous = parsed.success ? toolCalls.get(parsed.data.toolCallId) : undefined;
+              const call = parsed.success ? {
+                ...previous,
+                ...parsed.data,
+                rawInput: parsed.data.rawInput ?? previous?.rawInput,
+                rawOutput: parsed.data.rawOutput ?? previous?.rawOutput,
+                locations: parsed.data.locations ?? previous?.locations,
+              } : undefined;
+              if (call) toolCalls.set(call.toolCallId, call);
               if (u.status === "completed" || u.status === "failed") {
-                emit({
-                  ...base(threadId, turnId),
-                  type: "item.completed",
-                  itemType: "tool",
-                  itemId: u.toolCallId,
-                  ok: u.status !== "failed",
-                });
+                completeTool(u.toolCallId, u.status !== "failed", call);
               } else {
                 emit({
                   ...base(threadId, turnId),

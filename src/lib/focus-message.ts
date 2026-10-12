@@ -4,7 +4,7 @@
 // after any day separator — is what gets scrolled and highlighted.
 import { useEffect } from "react";
 import { api, useStore, type Action } from "@/state/store";
-import { findCurrentId, revealFindMatch, subscribeFindCurrent } from "@/lib/chat-find";
+import { findCurrentId, findRowSelector, revealFindMatch, subscribeFindCurrent } from "@/lib/chat-find";
 import type { SearchHit } from "@/lib/search-hit";
 
 interface SearchOwner {
@@ -103,7 +103,7 @@ export function useFocusMessage(threadId: string, ready: boolean) {
     let target: HTMLElement | null = null;
     const attempt = () => {
       if (cancelled) return;
-      const wrapper = document.querySelector<HTMLElement>(`[data-mid="${CSS.escape(focus.messageId)}"]`);
+      const wrapper = document.querySelector<HTMLElement>(findRowSelector(focus.messageId));
       target = wrapper?.lastElementChild as HTMLElement | null;
       if (!target) {
         if (tries++ < 20) retryTimer = setTimeout(attempt, 100);

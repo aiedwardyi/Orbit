@@ -1435,6 +1435,61 @@
     content: "⎿\00a0\00a0";
   }
 
+  .term-notice {
+    padding-left: 5ch;
+    text-indent: -3ch;
+    font-size: 13.5px;
+    line-height: 1.55;
+    font-weight: 400;
+    color: var(--color-ink-secondary);
+  }
+
+  .term-step .term-notice {
+    padding-left: 3ch;
+    font-size: inherit;
+    line-height: inherit;
+  }
+
+  .term-notice::before {
+    content: "⎿\00a0\00a0";
+  }
+
+  .term-notice[data-term-notice="failed"] {
+    color: var(--color-danger);
+  }
+
+  .term-step-out {
+    position: relative;
+    padding-left: 3ch;
+  }
+
+  .term-step-out::before {
+    content: "⎿\00a0\00a0" / "";
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+
+  /* Claude Code clips output at the right edge instead of wrapping */
+  .term-step-out > div {
+    overflow: hidden;
+    white-space: pre;
+  }
+
+  .term-step[data-term-step="failed"] .term-step-out > div {
+    color: var(--color-danger);
+  }
+
+  [data-term-row="add"] {
+    background: color-mix(in srgb, var(--color-success) 22%, var(--color-app));
+    color: var(--color-ink);
+  }
+
+  [data-term-row="remove"] {
+    background: color-mix(in srgb, var(--color-danger) 22%, var(--color-app));
+    color: var(--color-ink);
+  }
+
   .term-search {
     padding-left: 2ch;
     font-size: 13.5px;

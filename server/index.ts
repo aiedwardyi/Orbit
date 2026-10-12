@@ -187,6 +187,7 @@ import {
   type Message,
   type TaskRecord,
 } from "./store.ts";
+import { completedTool } from "./tool-activity.ts";
 import {
   clearTaskBlockers,
   foldCompletedNextAction,
@@ -1739,10 +1740,10 @@ const groupWithThread = (group: GroupRecord) => ({
 store.onChange((change) => {
   switch (change.type) {
     case "message":
-      broadcast({ kind: "message", threadId: change.threadId, message: flagShownImage(change.message), ...(change.imported ? { imported: true } : {}) });
+      broadcast({ kind: "message", threadId: change.threadId, message: clientMessage(change.message), ...(change.imported ? { imported: true } : {}) });
       break;
     case "message.patch":
-      broadcast({ kind: "message.patch", threadId: change.threadId, message: flagShownImage(change.message) });
+      broadcast({ kind: "message.patch", threadId: change.threadId, message: clientMessage(change.message) });
       break;
     case "thread":
       broadcast({ kind: "thread", threadId: change.threadId, activeLeafId: change.activeLeafId });
@@ -3081,19 +3082,10 @@ bus.subscribe((event: RuntimeEvent) => {
           : undefined;
         let toolName = "tool";
         if (messageId) {
-          // the whole tool object is replaced, so carry `spoken` across —
-          // dropping it here would silently un-narrate every completed tool
           const existing = store.messagesFor(event.threadId).find((m) => m.id === messageId)?.tool;
           toolName = existing?.name ?? "tool";
-          const summary = event.summary ?? existing?.summary;
           store.patchMessage(event.threadId, messageId, {
-            tool: {
-              name: toolName,
-              ok: event.ok,
-              spoken: existing?.spoken,
-              ...(summary ? { summary } : {}),
-              ...(typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
-            },
+            tool: completedTool(existing, event),
           });
           toolMessageByItem.delete(itemKey);
         }
@@ -3140,10 +3132,14 @@ bus.subscribe((event: RuntimeEvent) => {
         // narration is folded in here, once, so call mode can read the
         // chip aloud without re-deriving it — and so the phrase a user
         // hears and the chip they see can never drift apart
+        const tool: NonNullable<Message["tool"]> = {
+          name, spoken: narrateTool(name) ?? undefined, ...(event.summary ? { summary: event.summary } : {}),
+        };
+        if (event.verb) tool.verb = event.verb;
         const message = pushMessage({
           role: "bot",
           kind: "activity",
-          tool: { name, spoken: narrateTool(name) ?? undefined, ...(event.summary ? { summary: event.summary } : {}) },
+          tool,
         });
         if (event.itemId) toolMessageByItem.set(`${event.threadId}:${event.itemId}`, { messageId: message.id, turnId: event.turnId });
       }
