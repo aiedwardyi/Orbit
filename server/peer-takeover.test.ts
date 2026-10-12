@@ -44,6 +44,14 @@ describe("ask_bot takeover", () => {
     expect(answers).toEqual([false]);
   });
 
+  it("reports a user takeover after some text as a reply", () => {
+    const answers: Array<{ text: string; replied: boolean }> = [];
+    const answer = peerAnswer("t-partial-takeover", "Wink", () => "Edward", (text, replied) => answers.push({ text, replied }));
+    answer.add("Partial");
+    takeOverPeerTurn("t-partial-takeover");
+    expect(answers).toEqual([{ text: "Partial", replied: true }]);
+  });
+
   it("answers the asker with only the text from before the user's message", () => {
     const { answer, answers } = ask("t-ask-1");
     answer.add("The build is green.");

@@ -259,9 +259,9 @@ describe("comms e2e (fake ACP fleet)", () => {
       expect(reply.text).toContain("Helper replied:");
       expect(reply.text).toContain("hello from fake acp"); // B's happy-path turn text
 
-      // visibility: A's thread shows a clickable "Messaged @Helper" chip
+      // visibility: A's thread shows a clickable chip, settled to "@Helper replied",
       // that links to the auto-created bot⇄bot channel
-      const note = askerBot.messages.find((m: any) => m.kind === "activity" && m.tool?.name === "Messaged @Helper");
+      const note = askerBot.messages.find((m: any) => m.kind === "activity" && m.tool?.name === "@Helper replied");
       expect(note).toBeTruthy();
       expect(note.comm?.groupId).toBeTruthy();
       expect(note.comm?.withName).toBe("Helper");
