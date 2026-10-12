@@ -375,7 +375,9 @@ export function realLocal(relayDir: string, buildDir: string): Local {
         revokedLabelsFile: "/etc/wink-relay/revoked-labels",
         acme,
       };
-      await writeFile(join(buildDir, "wink-relay.config.json"), `${JSON.stringify(config, null, 2)}\n`);
+      const withGoogle = opts.google ? { ...config, google: opts.google } : config;
+      const file = opts.teamOwnerEmail ? { ...withGoogle, teamOwnerEmail: opts.teamOwnerEmail } : withGoogle;
+      await writeFile(join(buildDir, "wink-relay.config.json"), `${JSON.stringify(file, null, 2)}\n`);
     },
     async waitDns(fqdn, ip) {
       const { Resolver } = await import("node:dns/promises");

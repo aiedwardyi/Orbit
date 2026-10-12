@@ -89,6 +89,14 @@ function SidebarWithDispatch() {
   return createElement(Sidebar, { open: false, onClose: () => {} });
 }
 
+function SidebarSettingsProbe() {
+  const { state } = useStore();
+  return createElement("div", null,
+    createElement(Sidebar, { open: false, onClose: () => {} }),
+    createElement("output", { "data-settings-section": true }, `${state.appSettingsSection}:${state.appSettingsOpen}`),
+  );
+}
+
 // happy-dom drag events carry no dataTransfer, and the row handlers write to it.
 const fire = (target: Element, type: string) => {
   const event = new Event(type, { bubbles: true, cancelable: true });
@@ -742,6 +750,38 @@ describe("Sidebar layout controls", () => {
     }
   });
 
+  it.each(["comfortable", "icons"])("opens Account from the %s profile row and General from the gear", async (density) => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, density === "icons" ? "1" : "0");
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+      if (path === "/api/bots?messages=200") return Response.json({ bots: [], groups: [] });
+      if (path === "/api/config") return Response.json({ composio: { configured: false }, profile: { name: "Edward" } });
+      return Response.json({ error: "not in this test" }, { status: 404 });
+    }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(SidebarSettingsProbe))));
+      const row = host.querySelector("[data-sidebar-profile-row]")!;
+      const profile = row.querySelector("button")!;
+      if (density === "icons") {
+        expect(profile.getAttribute("aria-label")).toBe("Account");
+        expect(profile.getAttribute("title")).toBe("Account");
+      }
+      await act(async () => profile.click());
+      expect(host.querySelector("output")?.textContent).toBe("account:true");
+      if (density === "comfortable") {
+        await act(async () => row.querySelector(".lucide-settings")!.closest("button")!.click());
+        expect(host.querySelector("output")?.textContent).toBe("general:true");
+      }
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+    }
+  });
+
   it("keeps the update control in the footer rail and uses the tighter labeled row geometry", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "Sidebar.tsx"), "utf8");
     const footer = source.slice(source.indexOf("{/* Footer */}"), source.indexOf("{menu &&"));
@@ -749,7 +789,8 @@ describe("Sidebar layout controls", () => {
     expect(footer).toContain("<UpdateButton />");
     const profileRow = footer.indexOf("data-sidebar-profile-row");
     const expandedUpdate = footer.lastIndexOf("data-sidebar-update");
-    const profileButton = footer.indexOf('onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}', profileRow);
+    const profileButton = footer.indexOf('onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "account" })}', profileRow);
+    expect(profileButton).toBeGreaterThan(-1);
     expect(profileButton).toBeLessThan(expandedUpdate);
     expect(footer).toContain("overflow-x-hidden");
     expect(footer).not.toContain("border-t");

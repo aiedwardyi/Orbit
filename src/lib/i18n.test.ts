@@ -969,7 +969,7 @@ describe("plan usage", () => {
     expect(chatPlanMeters).toContain('t("usage.limits.openAria")');
     expect(chatPlanMeters).not.toMatch(/Resets in/);
     expect(chatView).toContain("<ChatPlanMeters");
-    expect(chatView).toContain("engine?.rateLimits?.windows");
+    expect(chatView).toContain("shownEngine?.rateLimits?.windows");
   });
 });
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 
-import { findHitIndex, watchChatFindHighlight } from "@/lib/chat-find";
+import { findHitIndex, setFindCurrent, watchChatFindHighlight } from "@/lib/chat-find";
 import { landOnSearchHit, restoreChatChrome } from "@/lib/focus-message";
 import type { SearchHit } from "@/lib/search-hit";
 import { api, useStore } from "@/state/store";
@@ -33,12 +33,16 @@ export function ChatFindBar({
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
-    return () => restoreChatChrome();
+    return () => {
+      setFindCurrent(null);
+      restoreChatChrome();
+    };
   }, []);
 
   useEffect(() => {
     const trimmed = query.trim();
     const request = ++requestRef.current;
+    setFindCurrent(null);
     if (!trimmed) {
       hitsQueryRef.current = "";
       setHits([]);
@@ -70,6 +74,7 @@ export function ChatFindBar({
     const hit = hits[next];
     if (!hit) return;
     setIndex(next);
+    setFindCurrent({ messageId: hit.messageId, query });
     void landOnSearchHit(hit, state, dispatch).catch((error) =>
       dispatch({ type: "error", message: error instanceof Error ? error.message : "That message is unavailable" }),
     );

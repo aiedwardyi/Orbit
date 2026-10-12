@@ -15,6 +15,7 @@ import {
   botAvatarUrlFromStoredPath,
   botNotifyIconPath,
   BOT_AVATAR_PICKER_ORDER,
+  DEFAULT_MASCOT_STYLE,
 } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import { defaultModelEffort, isEffortOffered } from "../shared/model-effort.ts";
@@ -141,7 +142,7 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
-import { getOrCreateChannel, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
+import { getOrCreateChannel, mirrorExchange, mirrorReply, settleAskChip, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
@@ -236,7 +237,7 @@ import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
 import { botClosedPanes, paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
-import { launchNoteText } from "./launch-note.ts";
+import { launchNoteFor } from "./launch-note.ts";
 import { MailboxAutoDedup, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
@@ -301,6 +302,7 @@ import { PhoneAccess } from "./phone-access.ts";
 import { postPhoneKeepAwake, type PhoneKeepAwakeMessage } from "./phone-keep-awake.ts";
 import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
 import { GoogleAccount, applyGoogleAccountMessage, googleAccountRoute, takeGoogleEnv } from "./google-account.ts";
+import { createGoogleSync, googleSyncRoute } from "./google-sync.ts";
 import type { PublicPhone } from "./phone-devices.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
 import * as vps from "./vps-computer.ts";
@@ -325,6 +327,7 @@ import {
   planProfileImport,
   profileImportDue,
   syncedDeleteChoice,
+  syncedInFolder,
   readSyncAvatarAsset,
   readSyncOperations,
   syncAvatarMatches,
@@ -341,7 +344,7 @@ import {
   type SyncedBot,
   type SyncEntityValues,
 } from "./profile-sync.ts";
-import { loadLegacyMemoryLedger, loadMemorySyncLedger, markTalked, saveMemorySyncLedger, syncBotMemory } from "./memory-sync.ts";
+import { ensureMemorySyncDevice, loadLegacyMemoryLedger, loadMemorySyncLedger, markTalked, saveMemorySyncLedger, syncBotMemory } from "./memory-sync.ts";
 import {
   CONFLICT_NOTICE,
   chatSyncBotId,
@@ -360,6 +363,7 @@ import {
 import { publishUnsyncedPictures, pullSyncedPicture, pruneSyncedPictures } from "./picture-sync.ts";
 import { createThreadSyncV2Store } from "./thread-sync-v2-store.ts";
 import { createThreadSyncV2Gate } from "./thread-sync-v2-gate.ts";
+import { ensureSyncV2Identity } from "./thread-sync-v2-engine.ts";
 import { serveLinkedFile } from "./linked-files.ts";
 import { missingStaticResponse } from "./static-fallback.ts";
 import { sendJson, sendStaticFile, sendText } from "./compression.ts";
@@ -425,8 +429,8 @@ type UtilityParentPort = {
   postMessage(message: { type: string; token: string } | PhoneKeepAwakeMessage): void;
 };
 const utilityParentPort = (process as NodeJS.Process & { parentPort?: UtilityParentPort }).parentPort;
-// Pending until the desktop push; takeGoogleEnv only sweeps an env session, never uses it. Null is an explicit empty session, not "still booting".
-const googleAccount = new GoogleAccount(googleEnv.client, null, { awaitSession: true });
+// Packaged: pending until the desktop push. Standalone and dev start signed out; dev desktop pushes again when the server restarts.
+const googleAccount = new GoogleAccount(googleEnv.client, null, { awaitSession: Boolean(utilityParentPort) });
 let hostShutdown = () => {};
 let hostShutdownStarted = false;
 utilityParentPort?.on("message", (event) => {
@@ -501,8 +505,17 @@ const phoneAccess: PhoneAccess = new PhoneAccess({
     relayPresenceHost = host;
     startDevicePresence();
   },
+  google: {
+    webClientId: googleEnv.webClientId,
+    sub: () => (googleAccount.status().state === "pending" ? undefined : (googleAccount.owner()?.sub ?? null)),
+    idToken: () => googleAccount.idToken(),
+    freshIdToken: () => googleAccount.freshIdToken(),
+    name: () => deviceDisplayName(deviceName, process.env.ORBIT_DEVICE_NAME, osHostname()),
+  },
 });
 postPhoneKeepAwake(phoneAccess, utilityParentPort);
+googleAccount.onSession(() => phoneAccess.googleChanged());
+googleAccount.onIdToken(() => phoneAccess.googleChanged());
 
 /** Constant-time bearer check for the internal comms endpoints. The token
  * is high-entropy and loopback-only, so a timing oracle is a long shot —
@@ -711,16 +724,16 @@ function askBotAndWait(
   depth: number,
   fromBotId?: string,
   peer?: { sender: BotRecord; channel?: GroupRecord; sourceThreadId: string; transcriptText?: string },
-): Promise<string> {
+): Promise<{ text: string; replied: boolean }> {
   const target = store.bot(targetBotId);
-  if (!target) return Promise.resolve("(no such bot)");
+  if (!target) return Promise.resolve({ text: "(no such bot)", replied: false });
   const threadId = target.threadId;
   return new Promise((resolve) => {
-    const answer = peerAnswer(threadId, target.name, () => cfg.profile?.name?.trim() || "User", (out) => {
+    const answer = peerAnswer(threadId, target.name, () => cfg.profile?.name?.trim() || "User", (text, replied) => {
       clearTimeout(timer);
       unsub();
       peerTurnSource.delete(threadId);
-      resolve(out);
+      resolve({ text, replied });
     });
     const reply = ownTurnReply(staleTurnEvent);
     const unsub = bus.subscribe((e: RuntimeEvent) => {
@@ -729,7 +742,7 @@ function askBotAndWait(
       if (step === "completed") answer.end("(the bot finished without a text reply)");
       else if (step) answer.add(step.text);
     });
-    const timer = setTimeout(() => answer.end("(timed out waiting for the bot to reply)"), 4 * 60_000);
+    const timer = setTimeout(() => answer.end("(timed out waiting for the bot to reply)", false), 4 * 60_000);
     if (peer) peerTurnSource.set(threadId, peer.sourceThreadId);
     startTurn(targetBotId, message, {
       commsDepth: depth + 1,
@@ -737,7 +750,7 @@ function askBotAndWait(
       transcriptText: peer?.transcriptText,
       ...peerAttribution(peer?.sender, peer?.channel),
     }).catch((err) =>
-      answer.end(`(couldn't start that bot: ${err instanceof Error ? err.message : String(err)})`),
+      answer.end(`(couldn't start that bot: ${err instanceof Error ? err.message : String(err)})`, false),
     );
   });
 }
@@ -1302,7 +1315,7 @@ function portableSyncChanges(bot: BotRecord, folder: string): Record<string, unk
 
 function localSectionChanges(): SyncEntityValues[] {
   const sections: SyncEntityValues[] = [];
-  for (const bot of store.bots) {
+  for (const bot of profileSyncBots()) {
     const id = syncSectionId(bot.section);
     if (!id || sections.some((section) => section.entityId === id)) continue;
     sections.push({ entity: "section", entityId: id, changes: { name: bot.section, order: sections.length } });
@@ -1314,7 +1327,7 @@ function localSectionChanges(): SyncEntityValues[] {
 function localOrderChanges(assign: boolean): Record<string, unknown> {
   const sectionOrder: string[] = [];
   const itemOrder: Record<string, string[]> = {};
-  for (const bot of store.bots) {
+  for (const bot of profileSyncBots()) {
     const sectionId = syncSectionId(bot.section);
     if (sectionId && !sectionOrder.includes(sectionId)) sectionOrder.push(sectionId);
     const globalId = assign ? syncBotId(bot.id) : profileSyncSettings.botMap[bot.id];
@@ -1363,9 +1376,10 @@ function publishProfileChanges(): number {
   const now = Date.now();
   const baseCheckpoint = profileSyncSettings.seenCheckpoint || undefined;
   const synced = profileSyncSettings.syncedHashes;
-  const unmapped = store.bots.filter((bot) => !profileSyncSettings.botMap[bot.id]);
+  const bots = profileSyncBots();
+  const unmapped = bots.filter((bot) => !profileSyncSettings.botMap[bot.id]);
   const changed = unsyncedChanges(synced, [
-    ...store.bots.map((bot) => ({ entity: "bot" as const, entityId: syncBotId(bot.id), changes: portableSyncChanges(bot, folder) })),
+    ...bots.map((bot) => ({ entity: "bot" as const, entityId: syncBotId(bot.id), changes: portableSyncChanges(bot, folder) })),
     ...localSectionChanges(),
     { entity: "order", entityId: profileSyncSettings.workspaceId, changes: localOrderChanges(true) },
   ]);
@@ -1485,13 +1499,14 @@ function importProfileChanges(): void | Promise<void> {
     let bot = item.localId ? store.bot(item.localId) : null;
     const created = !bot;
     if (!bot) {
+      const remoteStyle = botAvatarChoiceSchema.safeParse(remoteBot.mascotStyle);
       bot = store.createBot({
         name: String(remoteBot.name ?? "Imported bot"),
         title: String(remoteBot.title ?? ""),
         description: String(remoteBot.description ?? ""),
         color: remoteBot.color as BotRecord["color"],
         mascotExpression: remoteBot.mascotExpression as BotRecord["mascotExpression"],
-        mascotStyle: remoteBot.mascotStyle as BotRecord["mascotStyle"],
+        mascotStyle: remoteStyle.success ? remoteStyle.data : DEFAULT_MASCOT_STYLE,
         section: typeof remoteBot.sectionId === "string" ? sectionNames.get(remoteBot.sectionId) : undefined,
         autoApprove: true,
       }, { seedMessages: false, id: item.localId ?? undefined });
@@ -2108,6 +2123,46 @@ store.onBeforeWrite((threadId) => {
   if (threadSyncGate.enabled) return;
   if (markThreadDirty(threadSyncLedger, threadId)) saveThreadSyncLedger(DATA_DIR, threadSyncLedger);
 });
+
+function botTalkedTo(botId: string): boolean {
+  const bot = store.bot(botId);
+  return !!bot && [bot.threadId, ...store.tasks(botId).map((task) => task.threadId)].some((threadId) => store.messagesFor(threadId).some((message) => message.role === "user"));
+}
+
+const googleSync = createGoogleSync({
+  dataDir: DATA_DIR,
+  account: googleAccount,
+  folder: () => profileSyncSettings.folder,
+  prepare: () => {
+    const device = memorySyncLedger.device;
+    if (ensureMemorySyncDevice(memorySyncLedger) !== device) {
+      saveMemorySyncLedger(DATA_DIR, memorySyncLedger);
+      savedMemoryLedger = JSON.stringify(memorySyncLedger);
+    }
+    ensureSyncV2Identity(profileSyncSettings.deviceId);
+  },
+  unusedBots: () => store.bots.filter((bot) => !botTalkedTo(bot.id)).map((bot) => bot.id),
+  activate: (mirror) => {
+    if (profileSyncSettings.folder !== mirror) {
+      profileSyncSettings.reviewedResolutions = {};
+      profileSyncSettings.seenCheckpoint = "";
+    }
+    ensureProfileSyncWorkspace(mirror);
+    profileSyncSettings.folder = mirror;
+    profileSyncSettings.syncChats = true;
+    profileSyncSettings.syncedHashes = syncedInFolder(profileSyncSettings.syncedHashes, mirror);
+    profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
+    syncAllThreads();
+    threadSyncV2?.republish();
+    return profileSyncSettings.workspaceId;
+  },
+  republishing: () => threadSyncV2?.republishing() ?? false,
+});
+
+/** Bots a joining PC held back stay local until someone talks to them. */
+function profileSyncBots(): BotRecord[] {
+  return store.bots.filter((bot) => profileSyncSettings.botMap[bot.id] || !googleSync.held(bot.id) || botTalkedTo(bot.id));
+}
 
 store.onChange((change) => {
   if (threadSyncGate.enabled || store.importingSync) return;
@@ -6783,7 +6838,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           currentTarget = freshTarget;
         }
         const channel = getOrCreateChannel(store, currentFrom, currentTarget);
-        mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
+        const sourceChipId = mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
         const prefixed = `[Message from @${currentFrom.name}, another bot in this Wink workspace. Reply to them.]\n\n${message}`;
         const reply = await askBotAndWait(toBotId, prefixed, depth, fromBotId, {
           sender: currentFrom,
@@ -6791,8 +6846,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           sourceThreadId: fromThreadId,
           transcriptText: message,
         });
-        mirrorReply(commsBus, currentTarget, reply, channel);
-        return json(res, 200, { botName: currentTarget.name, text: reply });
+        mirrorReply(commsBus, currentTarget, reply.text, channel);
+        settleAskChip(commsBus, currentTarget, fromThreadId, sourceChipId, reply.replied);
+        return json(res, 200, { botName: currentTarget.name, text: reply.text });
       }
       // The react tool: a bot leaving an emoji on the user's message, the
       // way the user already can on the bot's. Always targets the latest
@@ -6841,9 +6897,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const body = await readBody(req);
         const from = store.bot(String(body.fromBotId ?? ""));
         if (!from) return json(res, 403, { error: "unknown sender" });
-        const text = await launchNoteText(terminalBridgeAccess, from.id, String(body.sessionId ?? ""));
-        if (!text) return json(res, 404, { error: "Unknown terminal" });
-        const message = store.appendMessage(from.threadId, { role: "bot", kind: "launch", text });
+        const note = await launchNoteFor(terminalBridgeAccess, from.id, String(body.sessionId ?? ""), body.resumed === true);
+        if ("error" in note) {
+          if (note.error === "main terminal") return json(res, 400, { error: "main terminal" });
+          return json(res, 404, { error: "Unknown terminal" });
+        }
+        const message = store.appendMessage(from.threadId, { role: "bot", kind: "launch", text: note.text });
         return json(res, 201, { messageId: message.id });
       }
       // The show_image tool: a copy of a local image lands as a settled
@@ -7534,6 +7593,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!name.success) return json(res, 400, { error: "name must be 1-64 characters" });
       deviceName = saveDeviceName(DATA_DIR, name.data);
       publishDeviceRecord();
+      phoneAccess.nameChanged();
       return json(res, 200, { name: deviceName });
     }
 
@@ -9905,6 +9965,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && path === "/api/google-account") {
       return json(res, 200, googleAccount.status());
     }
+    const googleSyncReply = await googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk }, googleSync);
+    if (googleSyncReply) return json(res, googleSyncReply.status, googleSyncReply.body);
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);
       const patch = parseConfigPatch(body);
@@ -10343,6 +10405,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 };
 
 syncAllThreads();
+googleSync.resume();
 // Wake timers die with the process; re-arm teachers whose stored notes are
 // undelivered. Untracked legacy tasks wait for the next send, as before.
 for (const bot of store.bots) {

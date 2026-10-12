@@ -3,6 +3,9 @@
 // it in memory and trades it for short-lived access tokens. Signing out
 // forgets the token and never calls Google's revoke endpoint: one grant is
 // shared by every PC on the account, so a revoke would sign them all out.
+// The newest ID token stays in memory only, for the phone relay's account.
+
+import { z } from "zod";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const EXPIRY_MARGIN_MS = 60_000;
@@ -11,6 +14,10 @@ const BACKOFF_MS = [5_000, 15_000, 60_000, 5 * 60_000];
 export const GOOGLE_CLIENT_ID_ENV = "WINK_GOOGLE_CLIENT_ID";
 export const GOOGLE_CLIENT_SECRET_ENV = "WINK_GOOGLE_CLIENT_SECRET";
 export const GOOGLE_ACCOUNT_ENV = "OMB_GOOGLE_ACCOUNT_TOKEN";
+export const GOOGLE_WEB_CLIENT_ID_ENV = "WINK_GOOGLE_WEB_CLIENT_ID";
+const idTokenSchema = z.string().min(1).max(8192);
+/** The ID token a fresh desktop sign-in pushes beside the session. */
+const pushedIdTokenSchema = z.object({ idToken: idTokenSchema });
 
 export type GoogleAccountState = "unavailable" | "pending" | "signed-out" | "signed-in" | "needs-sign-in" | "blocked" | "offline";
 export type GoogleAccountStatus = { state: GoogleAccountState; email?: string };
@@ -36,7 +43,8 @@ export function applyGoogleAccountMessage(message: unknown, account: GoogleAccou
   if (!message || typeof message !== "object" || !("type" in message) || message.type !== "orbit:google-account") return false;
   const value = "session" in message ? message.session : undefined;
   const session = parseGoogleSession(value);
-  if (value === null || session) account.setSession(session);
+  const pushed = pushedIdTokenSchema.safeParse(value);
+  if (value === null || session) account.setSession(session, pushed.success ? pushed.data.idToken : null);
   else console.warn("[google] rejected malformed desktop session");
   return true;
 }
@@ -44,16 +52,19 @@ export function applyGoogleAccountMessage(message: unknown, account: GoogleAccou
 export async function googleAccountRoute(method: "PUT" | "DELETE", hasParentPort: boolean, readBody: () => Promise<unknown>, account: GoogleAccount) {
   // Bots share the comms bearer; packaged account changes require the private parent port.
   if (hasParentPort) return { status: 404, body: { error: "not found" } };
-  const session = method === "PUT" ? parseGoogleSession(await readBody()) : null;
+  const body = method === "PUT" ? await readBody() : null;
+  const session = parseGoogleSession(body);
   if (method === "PUT" && !session) return { status: 400, body: { error: "invalid Google account" } };
-  account.setSession(session);
+  const pushed = pushedIdTokenSchema.safeParse(body);
+  account.setSession(session, pushed.success ? pushed.data.idToken : null);
   return { status: 200, body: account.status() };
 }
 
-/** Reads the client and boot session, then deletes them so engine CLIs never inherit them. */
-export function takeGoogleEnv(env: NodeJS.ProcessEnv): { client: GoogleClient | null; session: GoogleSession | null } {
+/** Reads the clients and boot session, then deletes them so engine CLIs never inherit them. */
+export function takeGoogleEnv(env: NodeJS.ProcessEnv): { client: GoogleClient | null; webClientId: string | null; session: GoogleSession | null } {
   const id = env[GOOGLE_CLIENT_ID_ENV]?.trim();
   const secret = env[GOOGLE_CLIENT_SECRET_ENV]?.trim();
+  const webClientId = env[GOOGLE_WEB_CLIENT_ID_ENV]?.trim() || null;
   let session: GoogleSession | null = null;
   try {
     session = parseGoogleSession(JSON.parse(env[GOOGLE_ACCOUNT_ENV] ?? "null"));
@@ -63,7 +74,8 @@ export function takeGoogleEnv(env: NodeJS.ProcessEnv): { client: GoogleClient | 
   delete env[GOOGLE_CLIENT_ID_ENV];
   delete env[GOOGLE_CLIENT_SECRET_ENV];
   delete env[GOOGLE_ACCOUNT_ENV];
-  return { client: id && secret ? { id, secret } : null, session };
+  delete env[GOOGLE_WEB_CLIENT_ID_ENV];
+  return { client: id && secret ? { id, secret } : null, webClientId, session };
 }
 
 type Options = { fetch?: typeof fetch; now?: () => number; log?: (line: string) => void; awaitSession?: boolean };
@@ -74,12 +86,15 @@ export class GoogleAccount {
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private session: GoogleSession | null;
+  private latestIdToken: string | null = null;
   private sessionKnown: boolean;
   private access: { token: string; expiresAt: number } | null = null;
   private problem: "needs-sign-in" | "blocked" | "offline" | null = null;
   private failures = 0;
   private retryAt = 0;
   private inflight: Promise<string> | null = null;
+  private readonly listeners = new Set<() => void>();
+  private readonly idTokenListeners = new Set<() => void>();
 
   constructor(client: GoogleClient | null, session: GoogleSession | null, options: Options = {}) {
     this.client = client;
@@ -97,14 +112,50 @@ export class GoogleAccount {
     return { state: this.problem ?? "signed-in", email: this.session.email };
   }
 
-  setSession(session: GoogleSession | null) {
+  /** The signed-in account, never its token. */
+  owner(): { sub: string; email: string } | null {
+    return this.session ? { sub: this.session.sub, email: this.session.email } : null;
+  }
+
+  onSession(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /** The newest ID token from sign-in or a refresh, or null. */
+  idToken(): string | null {
+    return this.latestIdToken;
+  }
+
+  /** Refreshes now for a new ID token. Null when none came or none can before a sign-in; rejects while offline. */
+  async freshIdToken(): Promise<string | null> {
+    const before = this.latestIdToken;
+    if (!this.inflight) this.access = null;
+    try {
+      await this.getAccessToken();
+    } catch (error) {
+      if (error instanceof GoogleAccountError && error.state === "offline") throw error;
+      return null;
+    }
+    return this.latestIdToken !== before ? this.latestIdToken : null;
+  }
+
+  /** A refresh brought a new ID token. Sign-in and sign-out arrive through onSession. */
+  onIdToken(listener: () => void): () => void {
+    this.idTokenListeners.add(listener);
+    return () => this.idTokenListeners.delete(listener);
+  }
+
+  setSession(session: GoogleSession | null, idToken: string | null = null) {
     this.sessionKnown = true;
     this.session = session;
+    this.latestIdToken = session ? idToken : null;
     this.access = null;
     this.problem = null;
     this.failures = 0;
     this.retryAt = 0;
     this.inflight = null;
+    for (const listener of this.listeners) listener();
   }
 
   getAccessToken(): Promise<string> {
@@ -145,6 +196,11 @@ export class GoogleAccount {
     if (response.ok && typeof body.access_token === "string" && body.access_token) {
       const seconds = typeof body.expires_in === "number" && body.expires_in > 0 ? body.expires_in : 3600;
       this.access = { token: body.access_token, expiresAt: this.now() + seconds * 1000 };
+      const idToken = idTokenSchema.safeParse(body.id_token);
+      if (idToken.success) {
+        this.latestIdToken = idToken.data;
+        for (const listener of this.idTokenListeners) listener();
+      }
       if (this.problem) this.log("[google] token refresh recovered");
       this.problem = null;
       this.failures = 0;

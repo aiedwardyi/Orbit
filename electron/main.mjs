@@ -18,7 +18,7 @@ import {
 } from "./skill-recorder.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { openEngineSignIn } from "./engine-signin.mjs";
-import { createGoogleAccountController, createGoogleSessionPush, googleClient, googleServerEnv } from "./google-signin.mjs";
+import { createGoogleAccountController, createGoogleSessionPush, googleClient, googleServerEnv, watchDevServer } from "./google-signin.mjs";
 import { createTerminalHost, trustedTerminalSender } from "./terminal-host.mjs";
 import { installOrbitMsg, readMailboxSecret } from "./terminal-mailbox.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
@@ -2162,10 +2162,10 @@ const pushGoogleSession = createGoogleSessionPush({
 const googleAccount = createGoogleAccountController({
   client: GOOGLE_CLIENT,
   openExternal: (url) => shell.openExternal(url),
-  saveSession: async (session) => {
+  saveSession: async (session, idToken) => {
     if (!(await safeStorage.isAsyncEncryptionAvailable())) throw new Error("The operating-system credential store is unavailable");
     await updateSecureCredentialDocument((credentials) => ({ ...credentials, googleAccount: session }));
-    await pushGoogleSession(session);
+    await pushGoogleSession(session, idToken);
   },
   clearSession: async () => {
     await updateSecureCredentialDocument((credentials) => {
@@ -2384,6 +2384,9 @@ app.whenReady().then(async () => {
   }
   // Null means there is no saved session. The server stays pending until this push.
   await pushGoogleSession(secureCredentials.googleAccount ?? null);
+  if (!app.isPackaged) {
+    watchDevServer({ getPort: () => Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT), push: () => pushGoogleSession(secureCredentials.googleAccount ?? null) });
+  }
   // The companion the user left on comes back without anyone finding the
   // toggle again — one attempt, after the harness port is settled, with the
   // exact options the IPC handler uses. A failure surfaces in companionState

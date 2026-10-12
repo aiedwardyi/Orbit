@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
 import { mascotSvgMarkup, scopeMascotSvgIds } from "@/lib/mascot-art";
@@ -23,6 +24,7 @@ import {
   type BotAvatarCrop,
   type MascotStyle,
 } from "../../shared/bot-avatar";
+import { OrbitRingFrame, workingRingStyle } from "./OrbitRing";
 
 /** Legacy face-placement knobs — accepted, ignored. */
 export const FACE_X = 80;
@@ -144,6 +146,8 @@ export type BotAvatarProps = Omit<MausAvatarProps, "color" | "mascotStyle"> & {
     avatarUrl?: string | null;
     avatarCrop?: BotAvatarCrop;
   };
+  /** Working-row only. Other call sites leave this off. */
+  orbitRing?: boolean;
 };
 
 /**
@@ -151,14 +155,16 @@ export type BotAvatarProps = Omit<MausAvatarProps, "color" | "mascotStyle"> & {
  * values and images that fail to load both fall back to the cute mascot,
  * so an old/corrupt profile can never leave a broken-image icon in the app.
  */
-export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarProps) {
+export function BotAvatar({ bot, size = 44, label, orbitRing = false, ...mascotProps }: BotAvatarProps) {
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => setImageFailed(false), [profile.avatarUrl, profile.mascotStyle]);
 
+  const image = profile.avatarCrop !== "mascot" && Boolean(profile.avatarUrl) && !imageFailed;
+  let face: ReactNode;
   if (profile.avatarCrop === "mascot" && isBotAvatarId(profile.mascotStyle) && !imageFailed) {
-    return (
+    face = (
       <img
         src={botAvatarAssetPath(profile.mascotStyle)}
         alt={label ?? (bot.name ? `${bot.name} avatar` : "Bot avatar")}
@@ -170,10 +176,8 @@ export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarPr
         style={{ width: size, height: size }}
       />
     );
-  }
-
-  if (profile.avatarCrop === "mascot" || !profile.avatarUrl || imageFailed) {
-    return (
+  } else if (profile.avatarCrop === "mascot" || !profile.avatarUrl || imageFailed) {
+    face = (
       <MausAvatar
         {...mascotProps}
         color={bot.color}
@@ -182,25 +186,39 @@ export function BotAvatar({ bot, size = 44, label, ...mascotProps }: BotAvatarPr
         label={label ?? bot.name}
       />
     );
+  } else {
+    const radius =
+      profile.avatarCrop === "circle"
+        ? "50%"
+        : profile.avatarCrop === "rounded"
+          ? "22%"
+          : "0";
+    face = (
+      <img
+        src={profile.avatarUrl}
+        alt={label ?? (bot.name ? `${bot.name} avatar` : "Bot avatar")}
+        width={size}
+        height={size}
+        draggable={false}
+        onError={() => setImageFailed(true)}
+        className="block shrink-0 bg-raised object-cover"
+        style={{ width: size, height: size, borderRadius: radius }}
+      />
+    );
   }
 
-  const radius =
-    profile.avatarCrop === "circle"
-      ? "50%"
-      : profile.avatarCrop === "rounded"
-        ? "22%"
-        : "0";
+  if (!orbitRing) return face;
   return (
-    <img
-      src={profile.avatarUrl}
-      alt={label ?? (bot.name ? `${bot.name} avatar` : "Bot avatar")}
-      width={size}
-      height={size}
-      draggable={false}
-      onError={() => setImageFailed(true)}
-      className="block shrink-0 bg-raised object-cover"
-      style={{ width: size, height: size, borderRadius: radius }}
-    />
+    <OrbitRingFrame
+      style={workingRingStyle({
+        size,
+        crop: profile.avatarCrop,
+        mascotStyle: profile.mascotStyle,
+        image,
+      })}
+    >
+      {face}
+    </OrbitRingFrame>
   );
 }
 

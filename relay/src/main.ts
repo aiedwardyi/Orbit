@@ -16,6 +16,8 @@ async function main(): Promise<void> {
     dataDir: config.dataDir,
     revokedLabelsFile: config.revokedLabelsFile,
     acme: config.acme,
+    google: config.google,
+    teamOwnerEmail: config.teamOwnerEmail,
     limits: config.limits,
     log,
   });

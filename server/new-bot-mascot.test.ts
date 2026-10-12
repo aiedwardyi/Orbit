@@ -1,4 +1,4 @@
-// New bots persist the white Soft squircle. Existing colour-mapped profiles
+// New bots persist a white Wink icon. Existing colour-mapped profiles
 // are a different path and stay peach/teal/lavender/coral.
 import type { ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -89,12 +89,12 @@ afterAll(async () => {
 });
 
 describe("new bot mascot default", () => {
-  it("stores white squircle on POST /api/bots", async () => {
+  it("stores a white Wink icon on POST /api/bots", async () => {
     const created = await api("POST", "/api/bots", { job: "Keep a weekly competitor brief." });
     expect(created.status).toBe(201);
     const bot = z.object({ bot: createdBot }).parse(created.body).bot;
-    expect(bot).toMatchObject({ color: "white", mascotStyle: "squircle" });
-    expect(await listedBot(bot.id)).toMatchObject({ color: "white", mascotStyle: "squircle" });
+    expect(bot).toMatchObject({ color: "white", mascotStyle: "icon-31" });
+    expect(await listedBot(bot.id)).toMatchObject({ color: "white", mascotStyle: "icon-31" });
   });
 
   it("keeps a colour and style sent on POST /api/bots", async () => {
@@ -105,7 +105,7 @@ describe("new bot mascot default", () => {
     expect(await listedBot(bot.id)).toMatchObject({ color: "purple", mascotStyle: "lavender" });
   });
 
-  it("stores white squircle on POST /api/internal/create-bot", async () => {
+  it("stores the next Wink icon on POST /api/internal/create-bot", async () => {
     const chiefRes = await api("POST", "/api/bots", { name: "Channel Chief" });
     expect(chiefRes.status).toBe(201);
     const chief = z.object({ bot: createdBot }).parse(chiefRes.body).bot;
@@ -125,10 +125,10 @@ describe("new bot mascot default", () => {
     });
     expect(created.status).toBe(201);
     const body = z.object({ id: z.string() }).parse(await created.json());
-    expect(await listedBot(body.id)).toMatchObject({ color: "white", mascotStyle: "squircle" });
+    expect(await listedBot(body.id)).toMatchObject({ color: "white", mascotStyle: "icon-34" });
   });
 
-  it("stores white squircle on package import when the file has no style", async () => {
+  it("stores the next Wink icon on package import when the file has no style", async () => {
     const imported = await api("POST", "/api/teams/import", {
       format: "openmaus.team",
       version: 2,
@@ -140,7 +140,7 @@ describe("new bot mascot default", () => {
     expect(imported.status).toBe(201);
     const bots = z.object({ bots: z.array(createdBot) }).parse(imported.body).bots;
     expect(bots).toHaveLength(1);
-    expect(bots[0]).toMatchObject({ name: "White Squircle Import", color: "white", mascotStyle: "squircle" });
+    expect(bots[0]).toMatchObject({ name: "White Squircle Import", color: "white", mascotStyle: "icon-35" });
   });
 
   it("keeps a colour and style sent on package import", async () => {

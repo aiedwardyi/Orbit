@@ -7,6 +7,9 @@ import { z } from "zod";
 import type { RelayLimits } from "./limits.ts";
 
 export const BASE_RE = /^(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+const CLIENT_ID_RE = /^[A-Za-z0-9._-]{8,200}$/;
+/** Origin only: no path. http is limited to loopback, for a dev sign-in page. */
+const ORIGIN_RE = /^https:\/\/[a-z0-9.-]+(?::[0-9]{1,5})?$|^http:\/\/(?:localhost|127\.0\.0\.1)(?::[0-9]{1,5})?$/;
 
 // SAFETY: every value is a non-negative number, like every RelayLimits field; keys that are not limits are never read.
 const limitsSchema = z
@@ -29,6 +32,17 @@ export const configSchema = z.strictObject({
     email: z.email().optional(),
     termsOfServiceAgreed: z.literal(true),
   }),
+  /** Absent: /v1/account and /v1/pcs answer 404. The two client ids must differ. */
+  google: z
+    .strictObject({
+      desktopClientId: z.string().regex(CLIENT_ID_RE),
+      webClientId: z.string().regex(CLIENT_ID_RE),
+      signinOrigin: z.string().regex(ORIGIN_RE),
+    })
+    .refine((google) => google.desktopClientId !== google.webClientId)
+    .optional(),
+  /** Needs `google`. Absent: no session recording and /v1/team answers 404. */
+  teamOwnerEmail: z.email().max(320).optional(),
   limits: limitsSchema,
 });
 

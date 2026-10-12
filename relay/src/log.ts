@@ -29,6 +29,8 @@ const CHECKS = {
   count: null,
   limit: null,
   notAfter: null,
+  /** base64url(sha256(sub)). A raw sub or token fails the shape check and is redacted. */
+  subHash: (v: string) => /^[A-Za-z0-9_-]{43}$/.test(v),
 } satisfies Record<string, ((v: string) => boolean) | null>;
 
 export type LogKey = keyof typeof CHECKS;

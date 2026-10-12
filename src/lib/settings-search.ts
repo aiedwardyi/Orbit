@@ -5,6 +5,20 @@ import { catalogs, type MessageKey } from "./i18n-catalog";
 /** Settings nav search matches both English and Korean labels/body copy so a
  * Korean query still finds a section when the chrome is English, and vice versa. */
 export const SECTION_PHRASE_KEYS = {
+  account: [
+    "settings.section.account",
+    "settings.profile.title",
+    "settings.profile.subtitle",
+    "settings.profile.namePlaceholder",
+    "settings.profile.save",
+    "settings.section.sync",
+    "settings.sync.subtitle",
+    "settings.section.companion",
+    "settings.phoneAccess.title",
+    "settings.phoneAccess.help",
+    "settings.phoneLink.title",
+    "settings.phoneLink.help",
+  ],
   shortcuts: [
     "settings.section.shortcuts",
     "shortcuts.help",
@@ -26,10 +40,6 @@ export const SECTION_PHRASE_KEYS = {
     "terminal.appearance.title",
     "terminal.appearance.help",
     "language.title",
-    "settings.profile.title",
-    "settings.profile.subtitle",
-    "settings.profile.namePlaceholder",
-    "settings.profile.save",
     "settings.channelTurns.title",
     "settings.channelTurns.subtitle",
     "settings.toolCalls.title",
@@ -124,12 +134,7 @@ export const SECTION_PHRASE_KEYS = {
     "connections.vps.label",
     "connections.transcription.label",
   ],
-  sync: [
-    "settings.section.sync",
-    "settings.sync.title",
-    "settings.sync.subtitle",
-    "settings.sync.folderHelp",
-  ],
+  sync: [],
   engines: [
     "settings.section.engines",
     "settings.engines.title",
@@ -137,9 +142,7 @@ export const SECTION_PHRASE_KEYS = {
     "engines.setCli",
     "engines.none",
   ],
-  companion: [
-    "settings.section.companion",
-  ],
+  companion: [],
   computer: [
     "settings.section.computer",
   ],
@@ -170,20 +173,23 @@ function phraseKeysFor(id: AppSettingsSection): readonly MessageKey[] {
 }
 
 const EXTRA_KEYWORDS = {
+  account: ["profile", "name", "sync", "google", "sign in", "drive", "google drive", "shared folder", "profiles", "동기화", "구글", "로그인", "Drive", "공유 폴더", "companion", "phone", "pair", "mobile"],
   shortcuts: ["keyboard", "hotkeys", "keys", "단축키", "키보드"],
-  general: ["profile", "name", "updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
+  general: ["updates", "tools", "tool calls", "language", "locale", "vm", "diagnostics", "experimental"],
   connections: ["keys", "api", "gemini", "muse", "claude", "grok", "codex", "antigravity", "cli"],
-  sync: ["sync", "drive", "google drive", "shared folder", "profiles", "동기화", "Drive", "공유 폴더"],
+  sync: [],
   themes: ["skin", "theme", "appearance", "claude", "kanagawa", "hurtado", "rose", "nord", "github", "dimmed", "tui", "terminal", "amber", "slate", "smoke", "vscode", "visual studio code", "studio gray", "steel gray", "graphite", "periwinkle", "mint", "precision", "linear", "issue discussion", "notebook", "notion", "document", "paper", "messenger", "messages", "bubbles", "community", "discord", "sender", "code review", "code-review", "github light", "review", "pull request", "pr", "blueprint", "blueprint gray", "blueprint charcoal", "mid gray", "mid-gray", "charcoal", "technical drawing", "technical drawing dark", "drafting", "청사진", "중간 회색", "깊은 차콜", "도면", "instrument", "plex", "engineering", "matte", "stone", "soft", "carbon", "monospace", "jetbrains", "pastel", "파스텔", "pewter", "outline", "manrope", "coal", "soft black", "keycap", "coral", "space grotesk", "folio", "serif", "gold", "literata", "wink", "wink cyber", "wink violet", "wink black", "wink day", "윙크", "rainbow", "glow", "animation", "무지개"],
   engines: ["models", "claude", "grok", "providers", "cli"],
-  companion: ["companion", "phone", "pair", "mobile"],
+  companion: [],
   computer: ["vm", "virtual", "desktop"],
   usage: ["tokens", "cost", "billing"],
   "models-index": ["benchmark", "benchmarks", "intelligence", "coding", "agentic", "legal", "price", "compare", "벤치마크"],
 } as const satisfies Record<AppSettingsSection, readonly string[]>;
 
 export function settingsSectionSearchHaystack(id: AppSettingsSection): string {
-  const phrases = phraseKeysFor(id).flatMap((key) => [catalogs.en[key], catalogs.ko[key]]);
+  const phrases = phraseKeysFor(id)
+    .flatMap((key) => [catalogs.en[key], catalogs.ko[key]])
+    .map((phrase) => phrase.replace(/\{[^}]+\}/g, ""));
   return [...phrases, ...EXTRA_KEYWORDS[id]].join("\n").toLowerCase();
 }
 

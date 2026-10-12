@@ -17,7 +17,6 @@ import {
   BOT_AVATAR_CROPS,
   BOT_AVATAR_LABELS,
   BOT_AVATAR_PICKER_ORDER,
-  DEFAULT_MASCOT_STYLE,
   MASCOT_STYLE_LABELS,
   botAvatarUrlFromStoredPath,
   isBotAvatarId,
@@ -153,7 +152,7 @@ export function BotProfileAvatarCard({
               avatarCrop: "mascot",
               color: DEFAULT_MAUS_COLOR,
               mascotExpression: null,
-              mascotStyle: DEFAULT_MASCOT_STYLE,
+              mascotStyle: "icon-31",
             })
           }
           className="rounded-md px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink"

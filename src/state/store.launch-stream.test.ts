@@ -80,4 +80,47 @@ describe("launch rows while streaming", () => {
     await act(async () => store.dispatch({ type: "select", id: "b1" }));
     expect(stream.streaming.t1).toBe("Opening worker worker worker ");
   });
+
+  it("keeps a mid-turn resume in transcript order with the reply after it", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback: FrameRequestCallback) => { frame = callback; return 1; }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // SAFETY: the probe bot is a full Bot fixture; only the opening user message is set.
+    const bot = {
+      id: "b1", threadId: "t1", name: "Bot", busy: true, unread: false,
+      modelSelection: { instanceId: "inst", model: "m" },
+      messages: [{ id: "u1", at: 1, role: "user", kind: "text", text: "Send the follow-up" }],
+    } as Bot;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => String(url) === "/api/bots?messages=200"
+      ? Response.json({ bots: [bot], groups: [], computerControl: {} })
+      : Response.json({}, { status: 404 })));
+    function Probe() {
+      store = useStore();
+      stream = useStreaming();
+      return null;
+    }
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    unmount = async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    };
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(Probe))));
+    await emit({ kind: "hello", resumed: false, cursor: "c1" });
+    await vi.waitFor(() => expect(store.state.hydrated).toBe(true));
+    await delta("Opening ");
+    await emit({ kind: "message", threadId: "t1", message: {
+      id: "r1", parentId: "u1", at: 2, role: "bot", kind: "launch",
+      text: "Resumed worker\nLabel: worker\nWorking folder: C:\\repo\nSession: p1",
+    } });
+    const ids = store.state.bots[0]!.messages.map((message) => message.id);
+    expect(ids).toEqual(["u1", "r1"]);
+    expect(buffersForTurn(stream, "t1", "r1").streaming).toBe("Opening ");
+    await delta("more");
+    expect(buffersForTurn(stream, "t1", "r1").streaming).toBe("Opening more");
+    expect(buffersForTurn(stream, "t1", "u1").streaming).toBeUndefined();
+  });
 });

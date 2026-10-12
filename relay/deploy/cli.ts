@@ -12,6 +12,7 @@ import {
   ownerMarker,
   planMove,
   planPause,
+  googleDeployConfig,
   planProvision,
   planUpdate,
   type DeployOptions,
@@ -26,6 +27,8 @@ const USAGE = `usage: wink-relay <provision|update|move|pause> --project P --bas
   [--machine e2-small] [--prefix wink-relay] [--address-name <prefix>-ip] [--operator-key FILE]
   [--dns namecom|manual]
   [--acme-directory URL] [--acme-email E] [--accept-acme-terms]
+  [--google-desktop-client-id ID --google-web-client-id ID --google-signin-origin ORIGIN]
+  [--team-owner-email E]   (needs the Google flags)
   [--from-project OLD]   (move)
   [--offline]            (provision/update: plan without reading cloud state)
   [--apply]              (without it, nothing is changed)
@@ -73,6 +76,10 @@ export function parseOptions(argv: string[]): ParsedArgs {
       "operator-key": { type: "string" },
       "acme-directory": { type: "string", default: "https://acme-v02.api.letsencrypt.org/directory" },
       "acme-email": { type: "string" },
+      "google-desktop-client-id": { type: "string" },
+      "google-web-client-id": { type: "string" },
+      "google-signin-origin": { type: "string" },
+      "team-owner-email": { type: "string" },
       "accept-acme-terms": { type: "boolean", default: false },
       offline: { type: "boolean", default: false },
       apply: { type: "boolean", default: false },
@@ -98,6 +105,13 @@ export function parseOptions(argv: string[]): ParsedArgs {
     acmeEmail: values["acme-email"],
     acceptAcmeTerms: values["accept-acme-terms"]!,
   };
+  const google = googleDeployConfig(
+    values["google-desktop-client-id"],
+    values["google-web-client-id"],
+    values["google-signin-origin"],
+  );
+  if (google) opts.google = google;
+  if (values["team-owner-email"] !== undefined) opts.teamOwnerEmail = values["team-owner-email"].toLowerCase();
   if (action === "move" && !values["from-project"]) throw new PlanError("move needs --from-project");
   if (values.offline && values.apply) throw new PlanError("--offline cannot be combined with --apply");
   if (values.offline && (action === "move" || action === "pause")) {

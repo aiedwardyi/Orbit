@@ -41,6 +41,30 @@ describe("QA 17 one Bot-details header entry", () => {
     expect(chatHeader).toContain('onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}');
   });
 
+  it("shows the bot name below md and opens Bot details with no pencil", () => {
+    const phoneTitle = 'min-w-0 shrink truncate text-left text-[15px] font-semibold text-ink md:hidden';
+    const at = chatHeader.indexOf(phoneTitle);
+    expect(at).toBeGreaterThan(-1);
+    const phone = chatHeader.slice(at - 240, at + phoneTitle.length);
+    expect(phone).toContain('onClick={() => dispatch({ type: "toggleSettings", open: true })}');
+    expect(phone).not.toContain("avatar:");
+    expect(phone).not.toContain("Pencil");
+    expect(phone).not.toContain("showEditButton");
+    expect(phone).not.toContain("onDoubleClick");
+    expect(phone).not.toContain("w-full");
+    expect(chatHeader).toContain("max-md:flex-[0_1000_auto]");
+    expect(chatHeader).not.toContain("minmax(4.5rem,1fr)");
+    expect(chatView).toContain('cluster.style.flex = "0 1000 auto"');
+    expect(chatView).toContain("phoneHeaderSlots(text, 4 * rem)");
+    expect(chatView).not.toContain("4.5 * rem");
+    const hook = chatView.slice(chatView.indexOf("function usePhoneHeaderNameFloor"), chatView.indexOf("export function ChatView"));
+    expect(hook).not.toContain("aria-label");
+    expect(hook).toContain('querySelector("[data-chat-terminal]")');
+    expect(chatHeader).toContain("data-chat-terminal");
+    expect(chatHeader).toContain('className="min-w-0 flex-1 overflow-hidden max-md:hidden"');
+    expect(chatHeader).toContain("showEditButton");
+  });
+
   it("keeps the Chief of Staff name when the badge folds to the crown", () => {
     expect(chatHeader).toContain('aria-label={t("chrome.chiefOfStaff")}');
     expect(chatHeader).toContain("@max-xs/chathead:sr-only");
@@ -51,7 +75,9 @@ describe("QA 17 one Bot-details header entry", () => {
     expect(chatHeader).toContain("flex min-w-0 flex-wrap items-center justify-between");
     expect(chatHeader).toContain("flex min-w-0 flex-1 items-center");
     expect(chatHeader).not.toContain("max-md:min-w-32");
-    expect(chatHeader).toContain("max-md:flex-[1_0_auto]");
+    expect(chatHeader).toContain("max-md:flex-[0_1000_auto]");
+    expect(chatHeader).not.toContain("max-md:flex-[1_0_auto]");
+    expect(chatHeader).not.toContain("max-md:min-w-min");
     expect(chatHeader).toContain("max-md:flex-nowrap");
     expect(chatHeader).toContain("rounded-md p-1.5 hover:bg-raised max-md:hidden");
     expect(chatHeader).toContain("flex max-w-full shrink-0 flex-wrap items-center justify-end");

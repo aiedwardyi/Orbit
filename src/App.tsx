@@ -693,7 +693,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
                 {window.ogb?.terminal ? (
                   <TerminalWorkspace key={bot.id} bot={bot} visible={terminalOpen} focusBlocked={nativeViewOverlayOpen} paneHotkey={paneHotkey} paneFocus={paneFocus} onClose={closeTerminal} />
                 ) : (
-                  <RemoteTerminalView key={bot.id} bot={bot} visible={terminalOpen} paneHotkey={paneHotkey} onClose={closeTerminal} />
+                  <RemoteTerminalView key={bot.id} bot={bot} visible={terminalOpen} paneHotkey={paneHotkey} paneFocus={paneFocus} onClose={closeTerminal} />
                 )}
               </LazyView>
             </div>

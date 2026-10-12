@@ -4,6 +4,7 @@
 // after any day separator — is what gets scrolled and highlighted.
 import { useEffect } from "react";
 import { api, useStore, type Action } from "@/state/store";
+import { findCurrentId, revealFindMatch, subscribeFindCurrent } from "@/lib/chat-find";
 import type { SearchHit } from "@/lib/search-hit";
 
 interface SearchOwner {
@@ -98,6 +99,7 @@ export function useFocusMessage(threadId: string, ready: boolean) {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let flashTimer: ReturnType<typeof setTimeout> | null = null;
+    let unsubscribe: (() => void) | null = null;
     let target: HTMLElement | null = null;
     const attempt = () => {
       if (cancelled) return;
@@ -108,7 +110,8 @@ export function useFocusMessage(threadId: string, ready: boolean) {
         return;
       }
       const scroller = target.closest("[data-orbit-transcript]");
-      if (scroller instanceof HTMLElement) scrollElementIntoContainer(scroller, target);
+      const match = scroller ? revealFindMatch(scroller, focus.messageId) : null;
+      if (scroller instanceof HTMLElement) scrollElementIntoContainer(scroller, match ?? target);
       else {
         const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
         target.scrollIntoView({ block: "nearest", behavior: reducedMotion ? "auto" : "smooth" });
@@ -119,13 +122,20 @@ export function useFocusMessage(threadId: string, ready: boolean) {
       // `consumed` is intentionally not an effect dependency, so this active
       // flash survives the bookkeeping update while future remounts ignore it.
       dispatch({ type: "focusMessageConsumed", nonce: focus.nonce });
-      flashTimer = setTimeout(() => target?.classList.remove(...FLASH_CLASSES), 1800);
+      const unflash = () => target?.classList.remove(...FLASH_CLASSES);
+      // a find hit with nothing to mark keeps its ring until find moves on
+      if (!match && findCurrentId() === focus.messageId) {
+        unsubscribe = subscribeFindCurrent(() => {
+          if (findCurrentId() !== focus.messageId) unflash();
+        });
+      } else flashTimer = setTimeout(unflash, 1800);
     };
     attempt();
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
       if (flashTimer) clearTimeout(flashTimer);
+      unsubscribe?.();
       target?.classList.remove(...FLASH_CLASSES);
     };
   }, [dispatch, focus?.nonce, focus?.threadId, focus?.messageId, threadId, ready]);

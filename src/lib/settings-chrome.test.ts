@@ -45,6 +45,10 @@ describe("friendsSettingsNavVisible", () => {
 });
 
 describe("resolvedAppSettingsSection", () => {
+  it.each(["sync", "companion"] as const)("folds %s into Account", (section) => {
+    expect(resolvedAppSettingsSection(section)).toBe("account");
+  });
+
   it("folds Engines into Connections", () => {
     expect(resolvedAppSettingsSection("engines")).toBe("connections");
     expect(resolvedAppSettingsSection("connections")).toBe("connections");

@@ -32,6 +32,7 @@ import {
   formatTime,
   messageVersions,
   openNotificationTarget,
+  shownModelSelection,
   visibleMessages,
   type Bot,
   type InstanceInfo,
@@ -43,6 +44,7 @@ import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock,
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { useSkin } from "@/lib/skins";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
+import { phoneHeaderSlots, type PhoneHeaderSlot } from "@/lib/phone-header";
 import { isPhone } from "@/lib/phone-swipe";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
@@ -65,7 +67,7 @@ import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
-import { WorkerRow, WorkerStrip, useWorkerRows, type ShownRun } from "./WorkerRows";
+import { WorkerRow, WorkerChip, useWorkerRows, type ShownRun } from "./WorkerRows";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { ModelPicker } from "./ModelPicker";
 import { DeviceTag } from "./DeviceSwitcher";
@@ -75,7 +77,7 @@ import { ReactionBar, ReactionChips } from "./Reactions";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
-import { useSearchFindSeed } from "@/lib/chat-find";
+import { useFindCurrentId, useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
@@ -981,10 +983,24 @@ const MessagesList = memo(function MessagesList({
     () => chatTranscriptRows(items, { showToolCalls, showActivities, transcript }),
     [items, showToolCalls, showActivities, transcript],
   );
+  const peerReplies = useMemo(() => {
+    const replies = new Map<string, NonNullable<Message["comm"]>>();
+    let comm: Message["comm"];
+    for (const message of streamingMessage ? [...transcript, streamingMessage] : transcript) {
+      if (message.role === "user") comm = message.from ? message.comm : undefined;
+      else if (comm && message.kind === "text" && isShownMessage(message) && message.text?.trim()) {
+        replies.set(message.id, comm);
+        comm = undefined;
+      }
+    }
+    return replies;
+  }, [transcript, streamingMessage]);
   // A search hit inside a folded run has to open it: the fold keeps the
   // row out of the DOM, and there is nothing for the scroll to land on.
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === bot.threadId ? focus.messageId : null;
+  // the current find hit shows even when the tool-call setting hides its row
+  const findCurrent = useFindCurrentId();
   return (
     <>
       {transcriptIdleAfterOnboarding(transcript) && !bot.busy && (
@@ -1003,15 +1019,18 @@ const MessagesList = memo(function MessagesList({
       )}
       {items.map((item, i) => {
         const { visible, newDay } = rows[i];
-        if (!visible) return null;
+        const found = item.kind === "run"
+          ? item.messages.some((step) => step.id === findCurrent)
+          : item.message.kind === "activity" && item.message.id === findCurrent;
+        if (!visible && !found) return null;
         if (item.kind === "run") {
           const first = item.messages[0];
           return (
             <div key={item.id} className="contents" data-run={item.id}>
               {newDay && <DaySeparator at={first.at} />}
-              <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
+              <ActivityRun messages={item.messages} forceOpen={found || item.messages.some((step) => step.id === focusedId)}>
                 {item.messages
-                  .filter((step) => showActivities || step.tool?.ok === false)
+                  .filter((step) => showActivities || step.tool?.ok === false || step.id === findCurrent)
                   .map((step) => (
                   <div key={step.id} className="contents" data-mid={step.id}>
                     <ActivityStep message={step} />
@@ -1073,7 +1092,7 @@ const MessagesList = memo(function MessagesList({
                   />
                 );
               }
-              if (!activityVisibleInChat(m, showActivities)) return null;
+              if (!activityVisibleInChat(m, showActivities) && !found) return null;
               return <ActivityChip message={m} />;
             }
             case "screen":
@@ -1110,10 +1129,12 @@ const MessagesList = memo(function MessagesList({
           }
         })();
         if (!row) return null;
+        const replyComm = peerReplies.get(m.id);
         const key = m.role === "bot" && m.kind === "text" ? replySlot(bot.threadId, m, transcript) : m.sendId ?? m.id;
         return (
           <div key={key} className="contents" data-mid={m.id}>
             {newDay && <DaySeparator at={m.at} />}
+            {replyComm && <ActivityChip message={{ ...m, kind: "activity", comm: replyComm, tool: { name: t("chat.replyToBot", { name: replyComm.withName }) } }} />}
             {row}
           </div>
         );
@@ -1174,6 +1195,204 @@ export function PinnedBanner({
   );
 }
 
+function px(value: string): number {
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function naturalWidth(el: HTMLElement): number {
+  const copy = el.cloneNode(true);
+  if (!(copy instanceof HTMLElement)) return 0;
+  copy.style.position = "fixed";
+  copy.style.left = "-9999px";
+  copy.style.width = "max-content";
+  copy.style.minWidth = "0px";
+  copy.style.maxWidth = "none";
+  copy.style.flex = "none";
+  copy.style.display = "";
+  copy.style.overflow = "visible";
+  copy.style.textOverflow = "clip";
+  document.body.appendChild(copy);
+  const width = copy.getBoundingClientRect().width;
+  copy.remove();
+  return width;
+}
+
+// Chromium drops min() around max-content, so the phone name floor is applied in px.
+function usePhoneHeaderNameFloor(
+  clusterRef: { current: HTMLDivElement | null },
+  nameRef: { current: HTMLButtonElement | null },
+  name: string,
+) {
+  const skin = useSkin();
+  useLayoutEffect(() => {
+    const cluster = clusterRef.current;
+    const button = nameRef.current;
+    const header = cluster?.parentElement;
+    if (!cluster || !button || !header) return;
+    let alive = true;
+    let text = naturalWidth(button);
+    let rem = px(getComputedStyle(document.documentElement).fontSize) || 16;
+    const chipOf = () => {
+      const label = header.querySelector("[data-model-label]");
+      const effort = header.querySelector("[data-model-effort]");
+      const chip = (label instanceof HTMLElement ? label.closest("button") : null)
+        ?? (effort instanceof HTMLElement ? effort.closest("button") : null);
+      return {
+        label: label instanceof HTMLElement ? label : null,
+        effort: effort instanceof HTMLElement ? effort : null,
+        chip,
+      };
+    };
+    const clearChip = () => {
+      const { label, effort, chip } = chipOf();
+      if (label) {
+        label.style.display = "";
+        label.style.flexShrink = "";
+        label.style.minWidth = "";
+        label.style.maxWidth = "";
+        label.style.overflow = "";
+        label.style.textOverflow = "";
+        label.style.whiteSpace = "";
+      }
+      if (effort) effort.style.display = "";
+      if (chip) {
+        chip.style.flexShrink = "";
+        chip.style.minWidth = "";
+        chip.style.maxWidth = "";
+      }
+    };
+    const apply = () => {
+      if (!alive) return;
+      if (!isPhone()) {
+        button.style.minWidth = "";
+        cluster.style.minWidth = "";
+        cluster.style.flex = "";
+        clearChip();
+        return;
+      }
+      const slots = phoneHeaderSlots(text, 4 * rem);
+      const place = (nameMin: number) => {
+        const cs = getComputedStyle(cluster);
+        const pad = px(cs.paddingLeft) + px(cs.paddingRight);
+        const gap = px(cs.columnGap);
+        let fixed = 0;
+        let others = 0;
+        for (const child of cluster.children) {
+          if (!(child instanceof HTMLElement) || child === button || getComputedStyle(child).display === "none") continue;
+          fixed += child.getBoundingClientRect().width;
+          others += 1;
+        }
+        const min = `${Math.ceil(pad + fixed + gap * others + nameMin)}px`;
+        const nameMinPx = `${nameMin}px`;
+        if (button.style.minWidth !== nameMinPx) button.style.minWidth = nameMinPx;
+        if (cluster.style.flex !== "0 1000 auto") cluster.style.flex = "0 1000 auto";
+        if (cluster.style.minWidth !== min) cluster.style.minWidth = min;
+      };
+      const paint = (slot: PhoneHeaderSlot) => {
+        const { label, effort, chip } = chipOf();
+        if (effort) effort.style.display = slot.showEffort ? "" : "none";
+        if (label) {
+          if (slot.showLabel) {
+            label.style.display = "";
+            label.style.flexShrink = "0";
+            label.style.minWidth = "max-content";
+            label.style.maxWidth = "none";
+            label.style.overflow = "hidden";
+            label.style.textOverflow = "clip";
+            label.style.whiteSpace = "nowrap";
+          } else {
+            label.style.display = "none";
+          }
+        }
+        if (chip) {
+          if (slot.showLabel) {
+            chip.style.flexShrink = "0";
+            chip.style.minWidth = "max-content";
+            chip.style.maxWidth = "none";
+          } else {
+            chip.style.flexShrink = "";
+            chip.style.minWidth = "";
+            chip.style.maxWidth = "";
+          }
+        }
+        place(slot.nameMin);
+      };
+      const fits = (slot: PhoneHeaderSlot) => {
+        const { label, effort, chip } = chipOf();
+        const limit = header.getBoundingClientRect().right - px(getComputedStyle(header).paddingRight);
+        if (slot.showLabel && label) {
+          const rect = label.getBoundingClientRect();
+          if (rect.width < 1 || rect.right > limit + 0.5) return false;
+          if (label.scrollWidth > label.clientWidth + 1) return false;
+        }
+        if (slot.showEffort && effort) {
+          const rect = effort.getBoundingClientRect();
+          if (rect.right > limit + 0.5) return false;
+          if (effort.scrollWidth > effort.clientWidth + 1) return false;
+        }
+        if (button.getBoundingClientRect().width + 1 < slot.nameMin) return false;
+        if (slot.nameMin >= text - 0.5 && button.scrollWidth > button.clientWidth + 1) return false;
+        const device = cluster.querySelector("[data-device-tag]");
+        const term = header.querySelector("[data-chat-terminal]");
+        if (device instanceof HTMLElement && term instanceof HTMLElement) {
+          const a = device.getBoundingClientRect();
+          const b = term.getBoundingClientRect();
+          if (a.left < b.right - 1 && a.right > b.left + 1 && a.top < b.bottom - 1 && a.bottom > b.top + 1) return false;
+        }
+        const controls = header.lastElementChild !== cluster ? header.lastElementChild : null;
+        const edge = chip ?? controls;
+        if (edge instanceof HTMLElement) {
+          const rect = edge.getBoundingClientRect();
+          if (rect.width >= 1 && rect.left < cluster.getBoundingClientRect().right - 1) return false;
+        }
+        const logo = chip?.querySelector("svg");
+        if (logo) {
+          const rect = logo.getBoundingClientRect();
+          if (rect.width < 12 || rect.right > limit + 0.5) return false;
+        }
+        const dot = chip?.querySelector("span.rounded-full");
+        if (dot) {
+          const rect = dot.getBoundingClientRect();
+          if (rect.width < 5 || rect.right > limit + 0.5) return false;
+        }
+        return true;
+      };
+      const last = slots.at(-1);
+      if (!last) return;
+      let chosen = last;
+      for (const slot of slots) {
+        paint(slot);
+        if (fits(slot)) {
+          chosen = slot;
+          break;
+        }
+      }
+      paint(chosen);
+    };
+    apply();
+    const mutations = new MutationObserver(apply);
+    mutations.observe(header, { childList: true, subtree: true, characterData: true });
+    window.addEventListener("resize", apply);
+    void document.fonts?.ready.then(() => {
+      if (!alive) return;
+      text = naturalWidth(button);
+      rem = px(getComputedStyle(document.documentElement).fontSize) || 16;
+      apply();
+    });
+    return () => {
+      alive = false;
+      mutations.disconnect();
+      window.removeEventListener("resize", apply);
+      button.style.minWidth = "";
+      button.style.width = "";
+      cluster.style.minWidth = "";
+      cluster.style.flex = "";
+      clearChip();
+    };
+  }, [clusterRef, nameRef, name, skin]);
+}
+
 export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, onOpenTerminalPane }: { bot: Bot; focusComposerBlocked?: boolean; onOpenTerminal?: () => void; onOpenTerminalPane?: (sessionId: string) => void }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
@@ -1183,6 +1402,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const contentRef = useRef<HTMLDivElement>(null);
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const phoneClusterRef = useRef<HTMLDivElement>(null);
+  const phoneNameRef = useRef<HTMLButtonElement>(null);
+  usePhoneHeaderNameFloor(phoneClusterRef, phoneNameRef, bot.name);
   const composerDock = useComposerDockPad(composerDockRef);
   const focusComposer = useCallback(() => {
     focusComposerOnActivation({ composer: composerInputRef.current });
@@ -1192,6 +1414,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const provisioning = state.provisioning[bot.id];
   const activeTask = bot.tasks?.find((task) => task.threadId === bot.threadId);
   const engine = state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId);
+  const shownEngine = state.instances.find((i) => i.instanceId === shownModelSelection(bot).instanceId);
   const mascotMotion = state.mascotMotion?.botId === bot.id ? state.mascotMotion : null;
   const callAvailable =
     capabilitiesReady && capabilities.dictation.available && Boolean(window.ogb?.speechStart);
@@ -1654,7 +1877,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT,
         )}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-1.5 py-1 max-md:flex-[1_0_auto]">
+        <div ref={phoneClusterRef} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-1.5 py-1 max-md:flex-[0_1000_auto]">
           <button
             data-orbit-chat-focus-fallback=""
             onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}
@@ -1669,6 +1892,16 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
               motion={mascotMotion?.kind ?? "none"}
               motionKey={mascotMotion?.nonce ?? 0}
             />
+          </button>
+          <button
+            ref={phoneNameRef}
+            type="button"
+            onClick={() => dispatch({ type: "toggleSettings", open: true })}
+            className="min-w-0 shrink truncate text-left text-[15px] font-semibold text-ink md:hidden"
+            title={t("chat.openProfile", { name: bot.name })}
+            aria-label={t("chat.openProfile", { name: bot.name })}
+          >
+            {bot.name}
           </button>
           <div className="min-w-0 flex-1 overflow-hidden max-md:hidden">
             <RenameTitle
@@ -1693,13 +1926,15 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary max-md:hidden" />}
         </div>
         <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 max-md:min-w-0 max-md:shrink max-md:flex-nowrap">
+          <WorkerChip name={bot.name} runs={workers} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} />
           {onOpenTerminal && (
             <button
               type="button"
               onClick={onOpenTerminal}
+              data-chat-terminal=""
               aria-label={t("terminal.open")}
               title={`${t("terminal.open")} (${window.ogb?.platform === "darwin" ? "⌘" : "Ctrl+"}\`)`}
-              className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
+              className="shrink-0 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
             >
               <TerminalSquare size={18} />
             </button>
@@ -1961,13 +2196,12 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         />
         {!terminal && (
           <ChatPlanMeters
-            windows={engine?.rateLimits?.windows}
-            driverKind={engine?.driverKind}
-            observedAt={engine?.rateLimits?.observedAt}
+            windows={shownEngine?.rateLimits?.windows}
+            driverKind={shownEngine?.driverKind}
+            observedAt={shownEngine?.rateLimits?.observedAt}
             onOpenUsage={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
           />
         )}
-        <WorkerStrip name={bot.name} runs={workers} />
         <Composer
           key={bot.threadId}
           bot={bot}

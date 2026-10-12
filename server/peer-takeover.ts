@@ -36,15 +36,15 @@ export function peerAnswer(
   threadId: string,
   botName: string,
   userName: () => string,
-  resolve: (text: string) => void,
+  resolve: (text: string, replied: boolean) => void,
 ) {
   let text = "";
   let done = false;
-  const finish = (out: string) => {
+  const finish = (out: string, replied = true) => {
     if (done) return;
     done = true;
     endTakeover();
-    resolve(out);
+    resolve(out, replied && Boolean(text.trim()));
   };
   const endTakeover = onPeerTakeover(threadId, () =>
     finish(text || `${botName} switched to ${userName()}'s message before answering. Ask again later.`),
@@ -53,6 +53,6 @@ export function peerAnswer(
     add: (step: string) => {
       if (!done) text += (text ? "\n" : "") + step;
     },
-    end: (fallback: string) => finish(text || fallback),
+    end: (fallback: string, replied = true) => finish(text || fallback, replied),
   };
 }

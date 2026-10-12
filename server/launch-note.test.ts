@@ -1,14 +1,15 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import { paneNotesForTurn, paneNotesSinceLastUserTurn, prepareModelContext } from "./context-compaction.ts";
-import { launchNoteText } from "./launch-note.ts";
+import { launchNoteFor, launchNoteText } from "./launch-note.ts";
 import type { Message } from "./store.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 
 const ACCESS = { url: "http://127.0.0.1:52150", token: "bridge-token" };
 const LABEL = "THEME-CYCLE | Sonnet 5.5 | medium";
 
-function bridge(body: Record<string, string>, status = 200) {
+function bridge(body: { sessionId?: string; label?: string; cwd?: string; error?: string; panes?: Array<{ sessionId: string; main: boolean }> }, status = 200) {
   return vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify(body), { status }));
 }
 
@@ -28,6 +29,24 @@ describe("launchNoteText", () => {
     expect(text).not.toContain(secret);
     expect(text).not.toContain("\x1b");
     expect(text?.split("\n")).toHaveLength(4);
+  });
+
+  it("heads a follow-up with Resumed and writes nothing for the main terminal", async () => {
+    const panes = [
+      { sessionId: "m1", main: true },
+      { sessionId: "0f3c9a1e-full", main: false },
+    ];
+    const text = await launchNoteText(ACCESS, "bot-1", "0f3c9a1e-full", bridge({ sessionId: "0f3c9a1e-full", label: LABEL, cwd: "C:\\repo\\wt", panes }), true);
+    expect(text).toBe(`Resumed ${LABEL}\nLabel: ${LABEL}\nWorking folder: C:\\repo\\wt\nSession: 0f3c9a1e-full`);
+    expect(await launchNoteFor(ACCESS, "bot-1", "m1", true, bridge({ sessionId: "m1", label: "main", cwd: "C:\\", panes: [{ sessionId: "m1", main: true }] }))).toEqual({ error: "main terminal" });
+  });
+
+  it("refuses a resumed note for the main terminal on the launch-note route", () => {
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const route = source.slice(source.indexOf('path === "/api/internal/launch-note"'));
+    const handler = route.slice(0, route.indexOf('path === "/api/internal/show-image"'));
+    expect(handler).toContain("body.resumed === true");
+    expect(handler).toContain('{ error: "main terminal" }');
   });
 
   it("adds nothing for an unknown pane, a missing session id, or no bridge", async () => {

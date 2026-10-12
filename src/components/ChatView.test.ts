@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { StoreProvider, useStore, type Bot, type Group, type InstanceInfo, type Message } from "@/state/store";
 
+import { setFindCurrent } from "@/lib/chat-find";
+
 import { ChatView } from "./ChatView";
 import { GroupView } from "./GroupView";
 import type { TurnStreamState } from "@/lib/turn-stage";
@@ -238,6 +240,32 @@ describe("ChatView worker rows", () => {
     }
   });
 
+  it("shows a resumed worker working again on the original row", async () => {
+    stubDom();
+    const pane = "bc9c674b-2844-43b0-982e-88305df70570";
+    const resume: Message = {
+      id: "r1", at: 4, role: "bot", kind: "launch",
+      text: `Resumed A | Opus 5.5 | high\nLabel: A | Opus 5.5 | high\nWorking folder: C:\\repo\nSession: ${pane}`,
+    };
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [
+      userMsg("ua", "go"),
+      launch(pane, "A | Opus 5.5 | high"),
+      note("n1", pane, "DONE A branch=x sha=y dirty=no\nAll green.", 3, "A | Opus 5.5 | high"),
+      resume,
+    ] } as Bot;
+    const { host, unmount } = await mountChat(current);
+    try {
+      expect(rows(host)).toHaveLength(1);
+      expect(rows(host)[0]!.textContent).toBe("AOpus 5.5●Working");
+      expect(host.querySelector("[data-worker-run]")!.closest("[data-mid]")?.getAttribute("data-mid")).toBe(pane);
+      await act(async () => { rows(host)[0]!.click(); });
+      expect(host.querySelector("[data-orbit-worker]")?.textContent).toContain("All green.");
+    } finally {
+      await unmount();
+    }
+  });
+
   it("takes the newest report as the state and keeps it over a closed pane", async () => {
     stubDom();
     vi.stubGlobal("ogb", { platform: "win32", terminal: { readBot: vi.fn(async () => ({ panes: [] })) } });
@@ -356,16 +384,19 @@ describe("ChatView worker rows", () => {
     try {
       expect(states(host)).toEqual(["working", "waiting", "done", "failed"]);
       const strip = host.querySelector<HTMLButtonElement>("[data-worker-strip]")!;
-      expect(strip.getAttribute("aria-label")).toBe("1 working, 1 waiting. Show workers");
-      expect(strip.textContent).toBe("");
-      expect(Array.from(strip.querySelectorAll("[data-worker-state]")).map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "working"]);
-      expect(strip.querySelectorAll("svg")).toHaveLength(2);
+      expect(strip.closest("[class*='@container/chathead']")).not.toBeNull();
+      expect(host.querySelector("[data-orbit-composer]")?.closest("[class*='z-[2]']")?.querySelector("[data-worker-strip]") ?? null).toBeNull();
+      expect(strip.getAttribute("aria-label")).toBe("1 working, 1 waiting, 0 failed, 0 done. Show workers");
+      const desktop = strip.querySelector("[data-worker-chip-desktop]")!;
+      expect(desktop.textContent).toBe("");
+      expect(Array.from(desktop.querySelectorAll("[data-worker-state]")).map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "working"]);
+      expect(desktop.querySelectorAll("svg")).toHaveLength(2);
       await act(async () => { strip.click(); });
       const list = document.body.querySelector("[data-worker-list]")!;
       expect(list.getAttribute("role")).toBe("dialog");
       expect(list.querySelector("h2")?.textContent).toBe("A's workers");
       expect(Array.from(list.querySelectorAll("li")).map((li) => li.textContent)).toEqual([
-        "GUIDEOpus 5.5‖Waiting", "SHIPGrok 4.7!Failed", "BUILDGPT-6 Astra●Working", "COPYGemini 3.8✓Done",
+        "GUIDEOpus 5.5‖Waiting", "BUILDGPT-6 Astra●Working",
       ]);
       await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
       expect(document.body.querySelector("[data-worker-list]")).toBeNull();
@@ -374,16 +405,56 @@ describe("ChatView worker rows", () => {
     }
   });
 
-  it("caps the strip at five marks and counts the rest", async () => {
+  it("caps the header chip at three marks and counts the rest", async () => {
     stubDom();
     // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
     const current = { ...botA, messages: [userMsg("ua", "go"), ...Array.from({ length: 7 }, (_, i) => launch(`${i}0000000-1`, `W${i} | Opus 5.5 | high`, i + 1))] } as Bot;
     const { host, unmount } = await mountChat(current);
     try {
       const strip = host.querySelector("[data-worker-strip]")!;
-      expect(strip.querySelectorAll("[data-worker-state]")).toHaveLength(5);
-      expect(strip.textContent).toBe("+2");
-      expect(strip.getAttribute("aria-label")).toBe("7 working, 0 waiting. Show workers");
+      const desktop = strip.querySelector("[data-worker-chip-desktop]")!;
+      expect(desktop.querySelectorAll("[data-worker-state]")).toHaveLength(3);
+      expect(desktop.textContent).toBe("+4");
+      const phone = strip.querySelector("[data-worker-chip-phone]")!;
+      expect(phone.querySelectorAll("[data-worker-state]")).toHaveLength(1);
+      expect(phone.textContent).toBe("7");
+      expect(strip.getAttribute("aria-label")).toBe("7 working, 0 waiting, 0 failed, 0 done. Show workers");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("lists a done run whose pane is live and opens it, not a working run whose pane closed", async () => {
+    stubDom();
+    const closedWork = "aaaaaaaa-1";
+    const liveDone = "cccccccc-1";
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/terminal")) {
+        return new Response(JSON.stringify({ panes: [{ sessionId: liveDone, main: false }] }), { status: 200 });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [
+      launch(closedWork, "WORK | Opus 5.5 | high", 1),
+      launch(liveDone, "COPY | Opus 5.5 | high", 2),
+      note("n1", liveDone, "DONE COPY branch=x sha=y dirty=no", 3),
+    ] } as Bot;
+    const onOpen = vi.fn();
+    const { host, unmount } = await mountChat(current, onOpen);
+    try {
+      await vi.waitFor(() => expect(host.querySelector("[data-worker-chip-desktop] [data-worker-state]")?.getAttribute("data-worker-state")).toBe("done"));
+      const chip = host.querySelector<HTMLButtonElement>("[data-worker-strip]")!;
+      expect(chip.closest("[class*='@container/chathead']")).not.toBeNull();
+      expect(host.querySelector("[data-orbit-composer]")?.closest("[class*='z-[2]']")?.querySelector("[data-worker-strip]") ?? null).toBeNull();
+      expect([...chip.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")].map((el) => el.getAttribute("data-worker-state"))).toEqual(["done"]);
+      await act(async () => chip.click());
+      const entry = document.body.querySelector<HTMLButtonElement>("[data-worker-list] li button")!;
+      expect(entry.textContent).toContain("COPY");
+      expect(entry.textContent).not.toContain("WORK");
+      await act(async () => entry.click());
+      expect(onOpen).toHaveBeenCalledWith(liveDone);
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
     } finally {
       await unmount();
     }
@@ -429,7 +500,7 @@ describe("ChatView worker rows", () => {
       try {
         await settle();
         expect(states(host)).toEqual(["working", "ended", "working"]);
-        expect(host.querySelector("[data-worker-strip]")?.querySelectorAll("[data-worker-state]")).toHaveLength(2);
+        expect(host.querySelector("[data-worker-chip-desktop]")?.querySelectorAll("[data-worker-state]")).toHaveLength(2);
         expect(calls).toEqual([`GET ${terminalPath}`]);
       } finally {
         await unmount();
@@ -677,7 +748,17 @@ describe("ChatView worker rows", () => {
       await act(async () => root.render(createElement(StoreProvider, null, createElement(GroupView, { group }))));
       expect(rows(host).map((b) => b.textContent)).toEqual(["CHECKOpus 5.5✓Done", "REVIEWGPT-6.1 Sol●Working"]);
       expect(host.textContent).not.toContain("Green.");
-      expect(host.querySelector("[data-worker-strip]")?.getAttribute("aria-label")).toBe("1 working, 0 waiting. Show workers");
+      const chip = host.querySelector("[data-worker-strip]");
+      const find = host.querySelector('button[aria-label="Find in conversation"]')!;
+      if (!chip) throw new Error("chip missing");
+      expect(chip.closest("[class*='@container/chathead']")).not.toBeNull();
+      expect(chip.compareDocumentPosition(find) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+      expect(chip?.getAttribute("aria-label")).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers");
+      await act(async () => chip?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      const list = document.querySelector("[data-worker-list]");
+      expect(list).not.toBeNull();
+      expect(list?.querySelectorAll("li")).toHaveLength(1);
+      expect(list?.querySelector("button")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -1436,6 +1517,212 @@ describe("docked reply mascot", () => {
       expect(settled?.firstElementChild).toBe(label);
       expect(host.querySelectorAll('[data-orbit-message="bot"]')).toHaveLength(1);
     } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
+describe("phone header name floor", () => {
+  const MODEL = "claude-opus-5-5";
+  const originals = [Element.prototype, HTMLElement.prototype, SVGElement.prototype].map((proto) => ({
+    proto,
+    rect: proto.getBoundingClientRect,
+  }));
+
+  const box = (left: number, width: number, top = 16, height = 28) => new DOMRect(left, top, width, height);
+
+  const restoreRects = () => {
+    for (const item of originals) item.proto.getBoundingClientRect = item.rect;
+  };
+
+  const headerOf = (el: Element) => el.closest("[class*='chathead']");
+
+  const modelLabelOf = (root: ParentNode) => {
+    const found = [...root.querySelectorAll("span.truncate")].find((el) => el.textContent?.includes(MODEL));
+    return found instanceof HTMLElement ? found : null;
+  };
+
+  const installRects = (overlap: boolean) => {
+    const rect = function (this: Element) {
+      if (this instanceof HTMLElement && this.style.left === "-9999px") return box(0, 80, 0, 20);
+      const header = headerOf(this);
+      const label = header ? modelLabelOf(header) : null;
+      const hidden = label?.style.display === "none";
+      const chip = label?.closest("button");
+      const name = header && [...header.querySelectorAll("button")].find((el) => el.textContent === "Bounty-Watch" && el.className.includes("md:hidden"));
+      const cluster = name?.parentElement ?? null;
+      if (header && this === header) return box(0, 360, 0, 60);
+      if (cluster && this === cluster) return overlap && !hidden ? box(0, 280, 8, 44) : box(0, 160, 8, 44);
+      if (name && this === name) return box(46, 100, 16, 22);
+      if (cluster && this === cluster.firstElementChild) return box(6, 40, 10, 40);
+      if (chip && this === chip) return overlap && !hidden ? box(40, 200, 14, 30) : box(240, 100, 14, 30);
+      if (label && this === label) return box(80, 100, 18, 16);
+      if (this instanceof HTMLElement && this.classList.contains("truncate")) return box(80, 100, 18, 16);
+      if (this instanceof HTMLElement && this.hasAttribute("data-model-effort")) return box(160, 40, 18, 14);
+      if (this instanceof SVGElement && chip?.contains(this)) return box(50, 14, 20, 14);
+      return box(0, 0, 0, 0);
+    };
+    for (const item of originals) item.proto.getBoundingClientRect = rect;
+  };
+
+  const pinWhole = (el: HTMLElement) => {
+    for (const key of ["scrollWidth", "clientWidth"]) {
+      Object.defineProperty(el, key, { configurable: true, get: () => 48 });
+    }
+  };
+
+  const mount = async (overlap: boolean) => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    installRects(overlap);
+    const bot: Bot = {
+      ...botB,
+      name: "Bounty-Watch",
+      modelSelection: { instanceId: "inst", model: MODEL, effort: "max", mode: "pinned" },
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot, onOpenTerminal: () => undefined }))));
+    await act(async () => { await Promise.resolve(); });
+    const header = host.querySelector("[class*='chathead']");
+    const modelLabel = header ? modelLabelOf(header) : null;
+    const nameButton = header && [...header.querySelectorAll("button")].find((el) => el.textContent === "Bounty-Watch" && el.className.includes("md:hidden"));
+    const cluster = nameButton?.parentElement ?? null;
+    if (modelLabel) pinWhole(modelLabel);
+    const effort = header?.querySelector("[data-model-effort]");
+    if (effort instanceof HTMLElement) pinWhole(effort);
+    if (nameButton instanceof HTMLElement) pinWhole(nameButton);
+    await act(async () => { window.dispatchEvent(new Event("resize")); });
+    return {
+      host,
+      header: header instanceof HTMLElement ? header : null,
+      modelLabel,
+      nameButton: nameButton instanceof HTMLButtonElement ? nameButton : null,
+      cluster: cluster instanceof HTMLElement ? cluster : null,
+      unmount: async () => {
+        await act(async () => root.unmount());
+        host.remove();
+        restoreRects();
+      },
+    };
+  };
+
+  afterEach(restoreRects);
+
+  it("hides a long model label at 360 when no device tag is rendered", async () => {
+    const view = await mount(true);
+    try {
+      expect(view.header).not.toBeNull();
+      expect(view.modelLabel).not.toBeNull();
+      expect(view.cluster).not.toBeNull();
+      if (!view.header || !view.modelLabel || !view.cluster) return;
+      expect(view.header.querySelector("[data-device-tag]")).toBeNull();
+      expect(view.modelLabel.style.display).toBe("none");
+      const chip = view.modelLabel.closest("button");
+      expect(chip).toBeInstanceOf(HTMLElement);
+      if (!(chip instanceof HTMLElement)) return;
+      expect(chip.getBoundingClientRect().left).toBeGreaterThanOrEqual(view.cluster.getBoundingClientRect().right - 1);
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("includes both cluster paddings in the minimum width", async () => {
+    const view = await mount(false);
+    try {
+      expect(view.cluster).not.toBeNull();
+      expect(view.nameButton).not.toBeNull();
+      if (!view.cluster || !view.nameButton) return;
+      view.cluster.style.paddingLeft = "6px";
+      view.cluster.style.paddingRight = "8px";
+      await act(async () => { window.dispatchEvent(new Event("resize")); });
+      const cs = getComputedStyle(view.cluster);
+      const pad = Number.parseFloat(cs.paddingLeft) + Number.parseFloat(cs.paddingRight);
+      expect(Number.parseFloat(cs.paddingRight)).toBe(8);
+      const gap = Number.parseFloat(cs.columnGap);
+      const gapPx = Number.isFinite(gap) ? gap : 0;
+      let fixed = 0;
+      let others = 0;
+      for (const child of view.cluster.children) {
+        if (!(child instanceof HTMLElement) || child === view.nameButton || getComputedStyle(child).display === "none") continue;
+        fixed += child.getBoundingClientRect().width;
+        others += 1;
+      }
+      const nameMin = Number.parseFloat(view.nameButton.style.minWidth);
+      expect(view.cluster.style.minWidth).toBe(`${Math.ceil(pad + fixed + gapPx * others + nameMin)}px`);
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("styles the data-model-label chip and ignores an earlier truncate", async () => {
+    const view = await mount(false);
+    try {
+      expect(view.header).not.toBeNull();
+      expect(view.modelLabel).not.toBeNull();
+      if (!view.header || !view.modelLabel) return;
+      const decoy = document.createElement("button");
+      const decoyLabel = document.createElement("span");
+      decoyLabel.className = "truncate";
+      decoyLabel.textContent = "Decoy label";
+      decoy.append(decoyLabel);
+      await act(async () => { view.header?.prepend(decoy); });
+      expect(view.modelLabel.hasAttribute("data-model-label")).toBe(true);
+      expect(view.modelLabel.style.minWidth).toBe("max-content");
+      expect(decoyLabel.style.minWidth).toBe("");
+      expect(decoyLabel.style.display).toBe("");
+    } finally {
+      await view.unmount();
+    }
+  });
+});
+
+describe("ChatView find reveal", () => {
+  const tool = (id: string, name: string): Message => ({ id, at: 1, role: "bot", kind: "activity", tool: { name, ok: true } });
+
+  it("shows a hidden tool row while it is the current find hit, then hides it again", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // SAFETY: botB is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botB, messages: [
+      userMsg("ub", "go"),
+      tool("single", "auto-approved Bash: gh api replies -X POST"),
+      userMsg("between", "and"),
+      tool("r1", "Read"),
+      tool("r2", "auto-approved Bash: curl -X POST /talk"),
+      tool("r3", "Edit"),
+    ] } as Bot;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot: current }))));
+    try {
+      expect(host.querySelector('[data-mid="single"]')).toBeNull();
+      await act(async () => setFindCurrent({ messageId: "single", query: "post" }));
+      expect(host.querySelector('[data-mid="single"]')?.textContent).toContain("-X POST");
+      await act(async () => setFindCurrent({ messageId: "r2", query: "post" }));
+      expect(host.querySelector('[data-mid="single"]')).toBeNull();
+      expect(host.querySelector('[data-mid="r2"]')?.textContent).toContain("curl -X POST");
+      expect(host.querySelector('[data-mid="r1"]')).toBeNull();
+      await act(async () => setFindCurrent(null));
+      expect(host.querySelector('[data-mid="r2"]')).toBeNull();
+    } finally {
+      setFindCurrent(null);
       await act(async () => root.unmount());
       host.remove();
     }

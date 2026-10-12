@@ -1,0 +1,271 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { request } from "node:https";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadConfig } from "../src/config.ts";
+import { TEAM_KEEP_MS, TeamLog, type TeamStats } from "../src/team.ts";
+import { event, makePc, openControl, openData, startRelay, type Harness } from "./fixtures.ts";
+import { makeIssuer, type IdClaims, type TestIssuer } from "./google-issuer.ts";
+import { phoneConnect, serveInner } from "./pc-side.ts";
+
+const DESKTOP = "desktop-client.apps.googleusercontent.com";
+const WEB = "web-client.apps.googleusercontent.com";
+const ORIGIN = "https://signin.test";
+const OWNER = "owner@example.com";
+const MIN = 60_000;
+const HOUR = 60 * MIN;
+const T0 = Date.parse("2026-10-12T01:00:00Z");
+
+let h: Harness | undefined;
+const dirs: string[] = [];
+afterEach(async () => {
+  await h?.close();
+  h = undefined;
+  for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true });
+});
+
+async function tempDir(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "wink-team-"));
+  dirs.push(dir);
+  return dir;
+}
+
+function google(issuer: TestIssuer) {
+  return { desktopClientId: DESKTOP, webClientId: WEB, signinOrigin: ORIGIN, keys: issuer };
+}
+
+function claims(over: IdClaims = {}): IdClaims {
+  const now = Math.floor(Date.now() / 1000);
+  return { iss: "https://accounts.google.com", aud: WEB, sub: "owner-sub", email: OWNER, email_verified: true, iat: now, exp: now + 3600, ...over };
+}
+
+interface Reply {
+  status: number;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+}
+
+function get(harness: Harness, path: string, headers: Record<string, string> = {}, method = "GET"): Promise<Reply> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        host: "127.0.0.1",
+        port: harness.port,
+        servername: `relay.${harness.base}`,
+        ca: harness.ca.certPem,
+        method,
+        path,
+        agent: false,
+        headers: { host: `relay.${harness.base}`, ...headers },
+      },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk: string) => (body += chunk));
+        res.on("end", () => resolve({ status: res.statusCode!, headers: res.headers, body }));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+// SAFETY: a 200 from /v1/team is TeamLog.stats() as JSON.
+const statsOf = (reply: Reply): TeamStats => JSON.parse(reply.body) as TeamStats;
+
+const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
+
+function clock(start = T0) {
+  let t = start;
+  return { now: () => t, advance: (ms: number) => (t += ms) };
+}
+
+describe("team session log", () => {
+  it("records control up and down and each phone splice on a live relay", async () => {
+    const issuer = makeIssuer();
+    h = await startRelay({ google: google(issuer), teamOwnerEmail: OWNER });
+    const pc = makePc();
+    const ctl = await openControl(h, pc);
+    const data = await openData(h, ctl.ready.session, ctl.ready.poolToken);
+    await h.waitLog(event("join", { label: pc.label }));
+    const inner = serveInner(data, await h.ca.issue(`${pc.label}.${h.base}`));
+    const phone = await phoneConnect(h, pc.label);
+    await inner;
+
+    const during = statsOf(await get(h, "/v1/team", bearer(issuer.sign(claims()))));
+    expect(during.pcs).toMatchObject([{ label: pc.label, name: pc.label, online: true }]);
+    expect(during.pcs[0]?.phone.at(-1)?.count).toBe(1);
+
+    phone.destroy();
+    await h.waitLog(event("splice-end", { label: pc.label }));
+    ctl.socket.destroy();
+    await h.waitLog(event("session-down", { label: pc.label }));
+    const journal = join(h.dataDir, "team-sessions");
+    await vi.waitFor(async () => {
+      const lines = (await readFile(journal, "utf8")).trim().split("\n");
+      expect(lines.map((line) => line.split(" ").slice(0, 2).join(" ")).sort()).toEqual([`pc ${pc.label}`, `phone ${pc.label}`]);
+    });
+    for (const line of (await readFile(journal, "utf8")).trim().split("\n")) {
+      const [, , start, end] = line.split(" ");
+      expect(Number(end)).toBeGreaterThanOrEqual(Number(start));
+    }
+    const after = statsOf(await get(h, "/v1/team", bearer(issuer.sign(claims()))));
+    expect(after.pcs).toMatchObject([{ label: pc.label, online: false }]);
+    expect(after.pcs[0]?.lastSeen).toBeGreaterThan(0);
+  });
+
+  it("names a pc as the phone list does, else by label", async () => {
+    const team = await TeamLog.open(await tempDir(), clock().now);
+    team.pcUp("aaaaaaaaaaaaaaaa");
+    team.setName("aaaaaaaaaaaaaaaa", "  Home  ");
+    team.pcUp("bbbbbbbbbbbbbbbb");
+    expect(team.stats(0).pcs.map((pc) => pc.name)).toEqual(["bbbbbbbbbbbbbbbb", "Home"]);
+    await team.close();
+  });
+
+  it("closes sessions a crash left open at their last ping on the next boot", async () => {
+    const dir = await tempDir();
+    const c = clock();
+    const team = await TeamLog.open(dir, c.now);
+    team.pcUp("aaaaaaaaaaaaaaaa");
+    team.setName("aaaaaaaaaaaaaaaa", "Home");
+    c.advance(MIN);
+    team.phoneStart("aaaaaaaaaaaaaaaa");
+    c.advance(4 * MIN);
+    team.pcSeen("aaaaaaaaaaaaaaaa");
+    c.advance(MIN);
+    await team.checkpoint();
+    // No close(): the process dies here.
+    c.advance(HOUR);
+    const reboot = await TeamLog.open(dir, c.now);
+    const [pc] = reboot.stats(0).pcs;
+    expect(pc).toMatchObject({ name: "Home", online: false, lastSeen: T0 + 5 * MIN, firstSeen: T0 });
+    expect(pc?.hours.at(-1)).toBe(0.08);
+    expect(pc?.phone.at(-1)).toEqual({ count: 1, minutes: 5 });
+    expect((await readFile(join(dir, "team-sessions"), "utf8")).split("\n")).toEqual(
+      expect.arrayContaining([`pc aaaaaaaaaaaaaaaa ${T0} ${T0 + 5 * MIN}`, `phone aaaaaaaaaaaaaaaa ${T0 + MIN} ${T0 + 6 * MIN}`]),
+    );
+    await reboot.close();
+  });
+
+  it("drops sessions older than 90 days on boot and hourly", async () => {
+    const dir = await tempDir();
+    const c = clock();
+    const team = await TeamLog.open(dir, c.now);
+    team.pcUp("aaaaaaaaaaaaaaaa");
+    c.advance(HOUR);
+    team.pcDown("aaaaaaaaaaaaaaaa");
+    c.advance(TEAM_KEEP_MS - HOUR);
+    team.pcUp("bbbbbbbbbbbbbbbb");
+    c.advance(MIN);
+    team.pcDown("bbbbbbbbbbbbbbbb");
+    await team.close();
+    expect((await readFile(join(dir, "team-sessions"), "utf8")).match(/^pc /gm)).toHaveLength(2);
+
+    c.advance(2 * HOUR);
+    const reboot = await TeamLog.open(dir, c.now);
+    expect(reboot.stats(0).pcs.map((pc) => pc.label)).toEqual(["bbbbbbbbbbbbbbbb"]);
+    expect(await readFile(join(dir, "team-sessions"), "utf8")).not.toContain("aaaaaaaaaaaaaaaa");
+
+    c.advance(TEAM_KEEP_MS);
+    await reboot.checkpoint();
+    await reboot.close();
+    expect(reboot.stats(0).pcs).toEqual([]);
+    expect(await readFile(join(dir, "team-sessions"), "utf8")).toBe("");
+  });
+
+  it("buckets hours and phone sessions by the viewer's local day", async () => {
+    const c = clock(Date.parse("2026-10-11T16:00:00Z"));
+    const team = await TeamLog.open(await tempDir(), c.now);
+    const label = "aaaaaaaaaaaaaaaa";
+    team.pcUp(label);
+    c.advance(2 * HOUR);
+    // Joins a minute apart are one phone session; one 10 minutes later is another.
+    const first = team.phoneStart(label);
+    const second = team.phoneStart(label);
+    c.advance(2 * MIN);
+    team.phoneEnd(first);
+    team.phoneEnd(second);
+    c.advance(MIN);
+    team.phoneEnd(team.phoneStart(label));
+    c.advance(10 * MIN);
+    const third = team.phoneStart(label);
+    c.advance(3 * MIN);
+    team.phoneEnd(third);
+    c.advance(HOUR);
+    team.pcDown(label);
+
+    // Seoul (UTC+9): all of it is on 10-12. UTC: it is on 10-11.
+    const seoul = team.stats(540);
+    expect(seoul.days.at(-1)).toBe("2026-10-12");
+    expect(seoul.days).toHaveLength(14);
+    expect(seoul.pcs[0]?.hours.at(-1)).toBe(3.27);
+    expect(seoul.pcs[0]?.phone.at(-1)).toEqual({ count: 2, minutes: 6 });
+    const utc = team.stats(0);
+    expect(utc.days.at(-1)).toBe("2026-10-11");
+    expect(utc.pcs[0]?.hours.at(-1)).toBe(3.27);
+    expect(utc.pcs[0]?.hours.at(-2)).toBe(0);
+    await team.close();
+  });
+});
+
+describe("GET /v1/team", () => {
+  it("404s without an owner or without the google block", async () => {
+    const issuer = makeIssuer();
+    h = await startRelay({ google: google(issuer) });
+    expect((await get(h, "/v1/team", bearer(issuer.sign(claims())))).status).toBe(404);
+    await h.close();
+    h = await startRelay({ teamOwnerEmail: OWNER });
+    expect((await get(h, "/v1/team", bearer(issuer.sign(claims())))).status).toBe(404);
+  });
+
+  it("answers only the owner's verified web token", async () => {
+    const issuer = makeIssuer();
+    h = await startRelay({ google: google(issuer), teamOwnerEmail: "Owner@Example.com", limits: { pcsPerIpPerMin: 100 } });
+    expect(await get(h, "/v1/team")).toMatchObject({ status: 401 });
+    expect(await get(h, "/v1/team", { authorization: "Bearer nope" })).toMatchObject({ status: 401 });
+    const denied = [
+      claims({ email: "someone@example.com" }),
+      claims({ email_verified: false }),
+      claims({ aud: DESKTOP }),
+    ];
+    for (const c of denied) expect((await get(h, "/v1/team", bearer(issuer.sign(c)))).status).toBe(403);
+    expect(JSON.parse((await get(h, "/v1/team", bearer(issuer.sign(claims({ email: "someone@example.com" }))))).body)).toEqual({
+      error: "not-owner",
+    });
+
+    const ok = await get(h, "/v1/team?tz=540", bearer(issuer.sign(claims({ email: "OWNER@example.com" }))));
+    expect(ok.status).toBe(200);
+    expect(JSON.parse(ok.body)).toMatchObject({ days: expect.any(Array), pcs: [] });
+    expect((await get(h, "/v1/team?tz=9999", bearer(issuer.sign(claims())))).status).toBe(400);
+    expect((await get(h, "/v1/team/x", bearer(issuer.sign(claims())))).status).toBe(404);
+    expect(h.logs.join("\n")).not.toMatch(/example\.com/i);
+  });
+
+  it("allows CORS only for the sign-in origin", async () => {
+    const issuer = makeIssuer();
+    h = await startRelay({ google: google(issuer), teamOwnerEmail: OWNER, limits: { pcsPerIpPerMin: 100 } });
+    const token = issuer.sign(claims());
+    const ok = await get(h, "/v1/team", { ...bearer(token), origin: ORIGIN });
+    expect(ok.headers["access-control-allow-origin"]).toBe(ORIGIN);
+    const evil = await get(h, "/v1/team", { ...bearer(token), origin: "https://evil.test" });
+    expect(evil.headers["access-control-allow-origin"]).toBeUndefined();
+    const preflight = await get(h, "/v1/team", { origin: ORIGIN, "access-control-request-method": "GET" }, "OPTIONS");
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers["access-control-allow-origin"]).toBe(ORIGIN);
+    expect(String(preflight.headers["access-control-allow-headers"])).toMatch(/authorization/i);
+    const blocked = await get(h, "/v1/team", { origin: "https://evil.test" }, "OPTIONS");
+    expect(blocked.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("loads teamOwnerEmail from config", async () => {
+    const dir = await tempDir();
+    const file = join(dir, "config.json");
+    const base = { base: "relay-test.example", acme: { directoryUrl: "https://acme.test/dir", termsOfServiceAgreed: true } };
+    await writeFile(file, JSON.stringify({ ...base, teamOwnerEmail: OWNER }));
+    expect((await loadConfig(file)).teamOwnerEmail).toBe(OWNER);
+    await writeFile(file, JSON.stringify({ ...base, teamOwnerEmail: "not an email" }));
+    await expect(loadConfig(file)).rejects.toThrow(/teamOwnerEmail/);
+  });
+});

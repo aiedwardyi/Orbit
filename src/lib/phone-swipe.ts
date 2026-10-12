@@ -12,8 +12,10 @@ export const VIBRATION_KEY = "omb-vibration";
 export type SwipeAxis = "x" | "y" | null;
 export type SwipeStep = -1 | 0 | 1;
 
+export const PHONE_QUERY = `(max-width: ${SIDEBAR_INLINE_BREAKPOINT - 0.02}px)`;
+
 export function isPhone(win: typeof window = window): boolean {
-  return win.matchMedia?.(`(max-width: ${SIDEBAR_INLINE_BREAKPOINT - 0.02}px)`).matches ?? false;
+  return win.matchMedia?.(PHONE_QUERY).matches ?? false;
 }
 
 export function reducedMotion(win: typeof window = window): boolean {

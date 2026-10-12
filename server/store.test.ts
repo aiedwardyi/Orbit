@@ -294,12 +294,27 @@ describe("Store", () => {
     expect(reloaded.bot(bot.id)?.composio).toBe(false);
   });
 
-  it("defaults a new bot without an explicit color to white squircle", () => {
+  it("defaults a new bot without an explicit color to white and a Wink icon", () => {
     const store = new Store(selection);
     const bot = store.createBot();
     expect(bot.color).toBe("white");
-    expect(bot.mascotStyle).toBe("squircle");
-    expect(new Store(selection).bot(bot.id)).toMatchObject({ color: "white", mascotStyle: "squircle" });
+    expect(bot.mascotStyle).toBe("icon-31");
+    expect(new Store(selection).bot(bot.id)).toMatchObject({ color: "white", mascotStyle: "icon-31" });
+  });
+
+  it("gives a bot created without an avatar the least-used Wink icon", () => {
+    const store = new Store(selection);
+    store.seedIfEmpty();
+    const seeded = store.bots[0]!;
+    const rest = Array.from({ length: 5 }, () => store.createBot().mascotStyle);
+    const styles = [seeded.mascotStyle, ...rest];
+    expect(styles).toEqual(["icon-31", "icon-33", "icon-34", "icon-35", "icon-32", "icon-31"]);
+    expect(new Set(styles.slice(0, 5)).size).toBe(5);
+    const chosen = store.createBot({ mascotStyle: "icon-11" });
+    expect(chosen.mascotStyle).toBe("icon-11");
+    expect(new Store(selection).bot(chosen.id)?.mascotStyle).toBe("icon-11");
+    for (const style of ["icon-33", "icon-34", "icon-35", "icon-32"] as const) store.createBot({ mascotStyle: style });
+    expect(store.createBot().mascotStyle).toBe("icon-31");
   });
 
   it("keeps an explicit stored green color instead of reminting white", () => {

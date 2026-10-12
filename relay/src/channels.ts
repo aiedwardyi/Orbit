@@ -9,6 +9,8 @@ import {
   newNonce,
   publicKeyFromRaw,
   rawPublicKey,
+  signAccountTicket,
+  verifyAccountTicket,
   verifyAuth,
   verifyTicket,
   signTicket,
@@ -37,7 +39,10 @@ export interface ChannelContext {
   now: () => number;
 }
 
-type Check = { ok: true; label: string; ticket?: string } | { ok: false; reason: string; notice?: NoticeCode };
+type AccountSet = { subHash: string; name: string; refreshed?: string };
+type Check =
+  | { ok: true; label: string; ticket?: string; account?: AccountSet | null; ignored?: { reason: string; hash: string } }
+  | { ok: false; reason: string; notice?: NoticeCode };
 
 /** Checks an `auth` frame against the hello nonce. Pure apart from the clock. */
 export function checkAuth(ctx: ChannelContext, msg: AuthMessage, nonce: string): Check {
@@ -67,7 +72,34 @@ export function checkAuth(ctx: ChannelContext, msg: AuthMessage, nonce: string):
       ctx.operatorPrivateKey,
     );
   }
-  return { ok: true, label: claims.label, ticket: refreshed };
+
+  if (msg.account === null) return { ok: true, label: claims.label, ticket: refreshed, account: null };
+  if (msg.account === undefined) return { ok: true, label: claims.label, ticket: refreshed };
+
+  const account = verifyAccountTicket(msg.account, ctx.operatorPublicKey, { now });
+  // A bad account ticket must not take down a valid relay login.
+  if (!account.ok) {
+    return {
+      ok: true,
+      label: claims.label,
+      ticket: refreshed,
+      ignored: { reason: account.reason, hash: createHash("sha256").update(msg.account, "utf8").digest("base64url") },
+    };
+  }
+  if (account.value.label !== claims.label) return { ok: false, reason: "account-label-mismatch" };
+  let refreshedAccount: string | undefined;
+  if (nowSec >= account.value.iat + (account.value.exp - account.value.iat) / 2) {
+    refreshedAccount = signAccountTicket(
+      { label: account.value.label, subHash: account.value.subHash, iat: nowSec, exp: nowSec + ctx.ticketTtlSec },
+      ctx.operatorPrivateKey,
+    );
+  }
+  return {
+    ok: true,
+    label: claims.label,
+    ticket: refreshed,
+    account: { subHash: account.value.subHash, name: msg.name ?? "", refreshed: refreshedAccount },
+  };
 }
 
 /** Control frames are tiny; a peer that stops reading is cut instead of buffered for. */
@@ -135,6 +167,15 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
         link.close();
         return true;
       }
+      if (result.ignored) {
+        // subHash is sha256 of the ticket. The logger has no other hash-shaped field.
+        log.log("account-ignored", {
+          peer,
+          label: result.label,
+          reason: `account-${result.ignored.reason}`,
+          subHash: result.ignored.hash,
+        });
+      }
       if (!hub.canRegister(result.label) || hub.draining) {
         log.log("control-rejected", { peer, label: result.label, reason: "capacity" });
         link.notice("draining");
@@ -142,8 +183,10 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
         return true;
       }
       session = hub.register(result.label, link);
+      if (result.account) hub.setAccount(session, result.account.subHash, result.account.name);
       const ready: ReadyMessage = { type: "ready", session: session.id, poolToken: session.poolToken, pool: { ...POOL } };
       if (result.ticket) ready.ticket = result.ticket;
+      if (result.account?.refreshed) ready.account = result.account.refreshed;
       send(socket, ready);
       const waiting = hub.waitingCount(result.label);
       if (waiting > 0) link.want(waiting);
@@ -159,6 +202,7 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
     }
     if (msg.type === "ping") send(socket, { type: "pong" });
     else if (msg.type !== "pong") return false;
+    hub.seen(session);
     return true;
   };
 

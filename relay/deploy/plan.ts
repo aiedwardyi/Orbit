@@ -34,6 +34,10 @@ export interface DeployOptions {
   acmeDirectory: string;
   acmeEmail?: string;
   acceptAcmeTerms: boolean;
+  /** Written into wink-relay.config.json. All three CLI flags, or none. */
+  google?: { desktopClientId: string; webClientId: string; signinOrigin: string };
+  /** Written into wink-relay.config.json. Needs the Google flags. */
+  teamOwnerEmail?: string;
 }
 
 export interface AddressState {
@@ -87,6 +91,27 @@ const REGION_RE = /^[a-z]+-[a-z]+[0-9]{1,2}$/;
 const PREFIX_RE = /^[a-z][a-z0-9-]{0,30}[a-z0-9]$/;
 const MACHINE_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
 const BASE_RE = /^(?=.{4,200}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+// Same rules as the google block in relay/src/config.ts.
+const CLIENT_ID_RE = /^[A-Za-z0-9._-]{8,200}$/;
+const ORIGIN_RE = /^https:\/\/[a-z0-9.-]+(?::[0-9]{1,5})?$|^http:\/\/(?:localhost|127\.0\.0\.1)(?::[0-9]{1,5})?$/;
+
+/** The three Google flags, or none. Checked again by validate before any plan step. */
+export function googleDeployConfig(
+  desktop: string | undefined,
+  web: string | undefined,
+  origin: string | undefined,
+): DeployOptions["google"] {
+  const count = [desktop, web, origin].filter((value) => value !== undefined).length;
+  if (count === 0) return undefined;
+  if (count !== 3 || desktop === undefined || web === undefined || origin === undefined) {
+    throw new PlanError("--google-desktop-client-id, --google-web-client-id and --google-signin-origin are all or none");
+  }
+  if (!CLIENT_ID_RE.test(desktop)) throw new PlanError("invalid --google-desktop-client-id");
+  if (!CLIENT_ID_RE.test(web)) throw new PlanError("invalid --google-web-client-id");
+  if (desktop === web) throw new PlanError("--google-desktop-client-id and --google-web-client-id must differ");
+  if (!ORIGIN_RE.test(origin)) throw new PlanError("invalid --google-signin-origin");
+  return { desktopClientId: desktop, webClientId: web, signinOrigin: origin };
+}
 
 export function validate(opts: DeployOptions): void {
   if (!PROJECT_RE.test(opts.project)) throw new PlanError("invalid --project");
@@ -108,6 +133,13 @@ export function validate(opts: DeployOptions): void {
     throw new PlanError("invalid --acme-directory");
   }
   if (opts.acmeEmail && !/^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+$/.test(opts.acmeEmail)) throw new PlanError("invalid --acme-email");
+  if (opts.google) googleDeployConfig(opts.google.desktopClientId, opts.google.webClientId, opts.google.signinOrigin);
+  if (opts.teamOwnerEmail !== undefined) {
+    if (!opts.google) throw new PlanError("--team-owner-email needs the Google flags");
+    if (!/^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$/.test(opts.teamOwnerEmail)) {
+      throw new PlanError("invalid --team-owner-email");
+    }
+  }
 }
 
 export function names(opts: Pick<DeployOptions, "prefix" | "addressName">) {

@@ -247,4 +247,9 @@ describe("sidebar preview of worker rows", () => {
     const launch: Message = { id: "l1", role: "bot", kind: "launch", at: 1, text: "Launched QCARD-FIX | Opus 5.5 | high\nLabel: QCARD-FIX | Opus 5.5 | high\nWorking folder: C:/repo\nSession: bc9c674b-2844-43b0-982e-88305df70570" };
     expect(conversationPreview(bot([launch]))).toBe("Launched QCARD-FIX | Opus 5.5 | high");
   });
+
+  it("previews a resume by its header line", () => {
+    const resume: Message = { id: "r1", role: "bot", kind: "launch", at: 2, text: "Resumed QCARD-FIX | Opus 5.5 | high\nLabel: QCARD-FIX | Opus 5.5 | high\nWorking folder: C:/repo\nSession: bc9c674b-2844-43b0-982e-88305df70570" };
+    expect(conversationPreview(bot([resume]))).toBe("Resumed QCARD-FIX | Opus 5.5 | high");
+  });
 });

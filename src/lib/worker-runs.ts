@@ -14,6 +14,7 @@ export type WorkerRun = {
   provider: string | null;
   state: WorkerState;
   at: number;
+  latest: { at: number; index: number };
   pane8: string | null;
   sessionId: string | null;
   folder: string | null;
@@ -51,6 +52,30 @@ export function byUrgency<T extends { run: WorkerRun; state: WorkerShownState }>
   return URGENCY[a.state] - URGENCY[b.state] || a.run.at - b.run.at;
 }
 
+/** Pane this run opens. A note-only run matches when one live id starts with its pane8. */
+export function listedSessionId(run: { sessionId: string | null; pane8: string | null }, livePanes: ReadonlySet<string> | null): string | null {
+  if (run.sessionId) return livePanes?.has(run.sessionId) ? run.sessionId : null;
+  const pane8 = run.pane8;
+  if (!livePanes || !pane8) return null;
+  const matches = [...livePanes].filter((id) => id.startsWith(pane8));
+  const [only, extra] = matches;
+  return extra === undefined ? only ?? null : null;
+}
+
+/** Live panes in any state. Unknown liveness keeps today's working and waiting runs. */
+export function listedRuns<T extends { run: WorkerRun; state: WorkerShownState }>(runs: readonly T[], livePanes: ReadonlySet<string> | null): T[] {
+  if (!livePanes) return runs.filter((shown) => shown.state === "working" || shown.state === "waiting").sort(byUrgency);
+  const panes = new Map<string, T>();
+  for (const shown of runs) {
+    const sessionId = listedSessionId(shown.run, livePanes);
+    if (!sessionId) continue;
+    const held = panes.get(sessionId);
+    const latest = shown.run.latest;
+    if (!held || latest.at > held.run.latest.at || (latest.at === held.run.latest.at && latest.index > held.run.latest.index)) panes.set(sessionId, shown);
+  }
+  return [...panes.values()].sort(byUrgency);
+}
+
 export function shownState(run: WorkerRun, livePanes: Set<string> | null): WorkerShownState {
   if (!livePanes || run.state === "done" || run.state === "failed") return run.state;
   const live = run.sessionId ? livePanes.has(run.sessionId) : run.pane8 ? [...livePanes].some((id) => id.startsWith(run.pane8!)) : true;
@@ -82,15 +107,17 @@ export function workerRuns(messages: readonly Message[], older: readonly Message
   const runs = new Map<string, WorkerRun>();
   // newest run per pane, for notes that carry no nickname of their own
   const paneRun = new Map<string, WorkerRun>();
-  const events = new Map<WorkerRun, Array<{ at: number; index: number; state: WorkerState; launch?: boolean }>>();
+  const paneNotes = new Map<string, { at: number; index: number }>();
+  const events = new Map<WorkerRun, Array<{ at: number; index: number; state: WorkerState; launch?: boolean; resume?: boolean }>>();
   const launches = new Map<WorkerRun, number>();
-  const add = (key: string, seed: Omit<WorkerRun, "id" | "state" | "messageIds" | "notes">): WorkerRun => {
+  const add = (key: string, seed: Omit<WorkerRun, "id" | "state" | "latest" | "messageIds" | "notes">, index: number): WorkerRun => {
     let run = runs.get(key);
     if (!run) {
-      run = { ...seed, id: key, state: "working", messageIds: [], notes: [] };
+      run = { ...seed, id: key, state: "working", latest: { at: seed.at, index }, messageIds: [], notes: [] };
       runs.set(key, run);
       events.set(run, []);
     }
+    if (seed.at > run.latest.at || (seed.at === run.latest.at && index > run.latest.index)) run.latest = { at: seed.at, index };
     if (seed.pane8) paneRun.set(`${seed.botId ?? ""}:${seed.pane8}`, run);
     return run;
   };
@@ -99,19 +126,26 @@ export function workerRuns(messages: readonly Message[], older: readonly Message
     if (message.kind === "launch") {
       const [header = "", ...details] = (message.text ?? "").split("\n");
       const field = (name: string) => details.find((line) => line.startsWith(`${name}: `))?.slice(name.length + 2).trim() || null;
-      const label = field("Label") ?? header.replace(/^Launched /, "");
+      const resumed = header.startsWith("Resumed ");
+      const label = field("Label") ?? header.replace(/^(?:Launched|Resumed) /, "");
       const { nick, model } = parseWorkerLabel(label);
       const sessionId = field("Session");
       const pane8 = sessionId?.slice(0, 8) ?? null;
       const name = nick ?? pane8 ?? "pane";
       const key = pane8 ? `${botId ?? ""}:${pane8}:${name.toLowerCase()}` : message.id;
-      const run = add(key, { nick: name, model, provider: workerProvider(model), at: message.at, pane8, sessionId, folder: field("Working folder"), botId });
+      const run = add(key, { nick: name, model, provider: workerProvider(model), at: message.at, pane8, sessionId, folder: field("Working folder"), botId }, index);
+      run.sessionId ??= sessionId;
+      run.folder ??= field("Working folder");
+      // A follow-up is not a leading launch, so the row stays where it is.
+      if (resumed) {
+        run.messageIds.push(message.id);
+        events.get(run)!.push({ at: message.at, index, state: "working", resume: true });
+        return;
+      }
       // a launch after its notes in the transcript still leads, so the row sits at the launch
       const launched = launches.get(run) ?? 0;
       run.messageIds.splice(launched, 0, message.id);
       launches.set(run, launched + 1);
-      run.sessionId ??= sessionId;
-      run.folder ??= field("Working folder");
       run.at = Math.min(run.at, message.at);
       events.get(run)!.push({ at: message.at, index, state: "working", launch: true });
       return;
@@ -122,14 +156,23 @@ export function workerRuns(messages: readonly Message[], older: readonly Message
     const labelled = parseWorkerLabel(note.label);
     const nick = note.nick ?? (paneRun.get(`${botId ?? ""}:${note.pane8}`)?.nick || labelled.nick || note.pane8);
     const key = `${botId ?? ""}:${note.pane8}:${nick.toLowerCase()}`;
-    const run = add(key, { nick, model: labelled.model, provider: workerProvider(labelled.model), at: message.at, pane8: note.pane8, sessionId: null, folder: null, botId });
+    const run = add(key, { nick, model: labelled.model, provider: workerProvider(labelled.model), at: message.at, pane8: note.pane8, sessionId: null, folder: null, botId }, index);
     run.messageIds.push(message.id);
     run.notes.push({ id: message.id, at: message.at, note });
     events.get(run)!.push({ at: message.at, index, state: noteState(note) });
+    const pane = `${botId ?? ""}:${note.pane8}`;
+    const newest = paneNotes.get(pane);
+    if (!newest || message.at > newest.at || (message.at === newest.at && index > newest.index)) paneNotes.set(pane, { at: message.at, index });
   });
   for (const [run, list] of events) {
+    const noted = run.pane8 ? paneNotes.get(`${run.botId ?? ""}:${run.pane8}`) : undefined;
+    const pending = list.filter((event) => !event.resume || !noted || event.at > noted.at || (event.at === noted.at && event.index >= noted.index));
+    if (!pending.length) {
+      runs.delete(run.id);
+      continue;
+    }
     // A fast pane's final report can land before its launch note.
-    const updates = list.some((event) => event.state === "done" || event.state === "failed") ? list.filter((event) => !event.launch) : list;
+    const updates = pending.some((event) => event.state === "done" || event.state === "failed") ? pending.filter((event) => !event.launch) : pending;
     run.state = updates.reduce((newest, event) => (event.at > newest.at || (event.at === newest.at && event.index > newest.index) ? event : newest)).state;
     run.notes.sort((a, b) => a.at - b.at);
   }

@@ -17,6 +17,7 @@ import {
   rawPublicKey,
   signAuth,
   signTicket,
+  type AuthMessage,
   type ReadyMessage,
   type RelayMessage,
 } from "../../shared/relay-protocol.ts";
@@ -248,7 +249,14 @@ export interface Control {
 export async function openControl(
   h: Harness,
   pc: Pc,
-  opts: { ticket?: string; label?: string; pk?: string; sign?: (nonce: string) => string } = {},
+  opts: {
+    ticket?: string;
+    label?: string;
+    pk?: string;
+    sign?: (nonce: string) => string;
+    account?: string | null;
+    name?: string;
+  } = {},
 ): Promise<Control> {
   const socket = await connectRelay(h, ALPN_CONTROL);
   socket.on("error", () => {});
@@ -256,15 +264,16 @@ export async function openControl(
   const hello = await reader.next();
   if (hello?.type !== "hello") throw new Error("no hello");
   const label = opts.label ?? pc.label;
-  socket.write(
-    encodeFrame({
-      type: "auth",
-      label,
-      pk: opts.pk ?? pc.pk,
-      ticket: opts.ticket ?? ticketFor(pc, h.operator),
-      sig: opts.sign ? opts.sign(hello.nonce) : signAuth(pc.privateKey, hello.nonce, label),
-    }),
-  );
+  const auth: AuthMessage = {
+    type: "auth",
+    label,
+    pk: opts.pk ?? pc.pk,
+    ticket: opts.ticket ?? ticketFor(pc, h.operator),
+    sig: opts.sign ? opts.sign(hello.nonce) : signAuth(pc.privateKey, hello.nonce, label),
+  };
+  if (opts.account !== undefined) auth.account = opts.account;
+  if (opts.name !== undefined) auth.name = opts.name;
+  socket.write(encodeFrame(auth));
   const ready = await reader.next();
   if (ready?.type !== "ready") {
     throw Object.assign(new Error(ready ? `got ${ready.type}` : "closed"), { frame: ready });

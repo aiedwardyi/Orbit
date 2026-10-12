@@ -114,7 +114,7 @@ type ToggleAppSettingsAction = Extract<Action, { type: "toggleAppSettings" }>;
 export const phoneSettingsAction = (): ToggleAppSettingsAction => ({
   type: "toggleAppSettings",
   open: true,
-  section: "companion",
+  section: "account",
 });
 
 function useSidebarPhoneStatus(): SidebarPhoneStatus {

@@ -806,6 +806,57 @@ describe("RemoteTerminalView", () => {
     }
   });
 
+  it("selects the focused pane when it is listed and stays on main otherwise", async () => {
+    const panes = [
+      { sessionId: "main", label: "Main", main: true },
+      { sessionId: "worker", label: "Worker", main: false },
+    ];
+    store.api.mockImplementation(async (path: string) => {
+      const sessionId = String(path).includes("sessionId=worker") ? "worker" : "main";
+      return { screenText: sessionId, sessionId, generation: 1, panes };
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const view = (paneFocus: { sessionId: string } | null) =>
+      createElement(I18nProvider, null, createElement(RemoteTerminalView, { bot: { id: "bot-1", name: "Ada" }, visible: true, onClose: () => {}, paneFocus }));
+    try {
+      await act(async () => root.render(view({ sessionId: "worker" })));
+      const tab = (name: string) => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((el) => el.textContent === name)!;
+      expect(tab("Worker").getAttribute("aria-selected")).toBe("true");
+      await act(async () => root.render(view({ sessionId: "missing" })));
+      expect(tab("Worker").getAttribute("aria-selected")).toBe("true");
+      await act(async () => root.render(view({ sessionId: "main" })));
+      expect(tab("Main").getAttribute("aria-selected")).toBe("true");
+      expect(app.slice(app.indexOf("<RemoteTerminalView"), app.indexOf("<RemoteTerminalView") + 240)).toContain("paneFocus={paneFocus}");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("selects a focused pane once a later roster lists it", async () => {
+    let panes = [{ sessionId: "main", label: "Main", main: true }];
+    store.api.mockImplementation(async (path: string) => {
+      const asked = String(path).includes("sessionId=worker");
+      return { screenText: asked ? "worker" : "main", sessionId: asked ? "worker" : "main", generation: panes.length, panes };
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const view = (paneFocus: { sessionId: string } | null) =>
+      createElement(I18nProvider, null, createElement(RemoteTerminalView, { bot: { id: "bot-1", name: "Ada" }, visible: true, onClose: () => {}, paneFocus }));
+    try {
+      await act(async () => root.render(view({ sessionId: "worker" })));
+      const tab = (name: string) => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((el) => el.textContent === name);
+      expect(host.querySelector('[role="tablist"]')).toBeNull();
+      panes = [...panes, { sessionId: "worker", label: "Worker", main: false }];
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Refresh"]')!.click());
+      await vi.waitFor(() => expect(tab("Worker")?.getAttribute("aria-selected")).toBe("true"), { timeout: 2000 });
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("offers the terminal button without the preload and picks the remote view there", () => {
     expect(app).toContain("onOpenTerminal={openTerminal}");
     expect(app).not.toContain("onOpenTerminal={window.ogb?.terminal ? openTerminal : undefined}");

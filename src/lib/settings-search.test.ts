@@ -75,4 +75,25 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("themes", "seaglass")).toBe(false);
     expect(settingsSectionMatches("themes", "updates")).toBe(false);
   });
+
+  it("finds Account by Google sign-in, not by the strings it dropped", () => {
+    expect(settingsSectionMatches("account", "google")).toBe(true);
+    expect(settingsSectionMatches("account", "sign in")).toBe(true);
+    expect(settingsSectionMatches("account", "로그인")).toBe(true);
+    expect(settingsSectionMatches("account", "drive")).toBe(true);
+    expect(settingsSectionMatches("account", "shared bot setup")).toBe(false);
+    expect(settingsSectionMatches("general", "sign in")).toBe(false);
+  });
+
+  it.each(["Google", "profile", "동기화", "프로필"])("finds %s on Account", (query) => {
+    expect(settingsSectionMatches("account", query)).toBe(true);
+    expect(settingsSectionMatches("general", query)).toBe(false);
+    expect(settingsSectionMatches("connections", query)).toBe(false);
+  });
+
+  it.each(["phone", "휴대폰"])("finds %s on Account and on General's phone notifications", (query) => {
+    expect(settingsSectionMatches("account", query)).toBe(true);
+    expect(settingsSectionMatches("general", query)).toBe(true);
+    expect(settingsSectionMatches("connections", query)).toBe(false);
+  });
 });

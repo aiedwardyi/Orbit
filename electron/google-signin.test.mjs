@@ -5,7 +5,7 @@ import { connect } from "node:net";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { createGoogleAccountController, createGoogleSessionPush, googleClient, googleServerEnv, pkcePair, runGoogleSignIn } from "./google-signin.mjs";
+import { createGoogleAccountController, createGoogleSessionPush, googleClient, googleServerEnv, pkcePair, runGoogleSignIn, watchDevServer } from "./google-signin.mjs";
 
 const CLIENT = { id: "client-id-test", secret: "client-secret-test" };
 const DRIVE_FILE = "https://www.googleapis.com/auth/drive.file";
@@ -100,7 +100,7 @@ describe("google sign-in", () => {
     let address;
     const session = await runGoogleSignIn({ client: CLIENT, openExternal, fetch: endpoint.fetch, onListening: (value) => (address = value) });
 
-    expect(session).toEqual({ refreshToken: "refresh-SECRET", sub: "sub-1", email: "me@example.com" });
+    expect(session).toEqual({ refreshToken: "refresh-SECRET", sub: "sub-1", email: "me@example.com", idToken: expect.stringMatching(/^ey/) });
     expect(address.address).toBe("127.0.0.1");
     expect(Object.fromEntries(seen.auth.searchParams)).toMatchObject({
       client_id: CLIENT.id,
@@ -265,7 +265,8 @@ describe("google sign-in", () => {
     const saveSession = vi.fn();
     const google = createGoogleAccountController({ client: CLIENT, openExternal: browser().openExternal, fetch: endpoint.fetch, saveSession, clearSession: vi.fn() });
     expect(await google.signIn()).toEqual({ ok: true, email: "me@example.com" });
-    expect(saveSession).toHaveBeenCalledExactlyOnceWith({ refreshToken: "refresh-SECRET", sub: "sub-1", email: "me@example.com" });
+    // The ID token goes beside the stored session, never inside it.
+    expect(saveSession).toHaveBeenCalledExactlyOnceWith({ refreshToken: "refresh-SECRET", sub: "sub-1", email: "me@example.com" }, expect.stringMatching(/^ey/));
   });
 
   it("keeps tokens out of logs and results", async () => {
@@ -317,6 +318,13 @@ describe("google sign-in", () => {
     expect(googleClient({}, () => ({ id: "only-id" }))).toBeNull();
   });
 
+  it("reads the phone sign-in web client beside the desktop one", () => {
+    const env = { WINK_GOOGLE_CLIENT_ID: "env-id", WINK_GOOGLE_CLIENT_SECRET: "env-secret", WINK_GOOGLE_WEB_CLIENT_ID: "env-web" };
+    expect(googleClient(env, () => null)).toEqual({ id: "env-id", secret: "env-secret", webId: "env-web" });
+    expect(googleClient({}, () => ({ id: "baked-id", secret: "baked-secret", webId: "baked-web" }))).toEqual({ id: "baked-id", secret: "baked-secret", webId: "baked-web" });
+    expect(googleServerEnv({ id: "i", secret: "s", webId: "w" })).toEqual({ WINK_GOOGLE_CLIENT_ID: "i", WINK_GOOGLE_CLIENT_SECRET: "s", WINK_GOOGLE_WEB_CLIENT_ID: "w" });
+  });
+
   it("hands the server the client and never the stored session", () => {
     const googleAccount = { refreshToken: "refresh-token-SECRET", sub: "s", email: "e@x.com" };
     for (const credentials of [{ googleAccount }, {}]) {
@@ -340,6 +348,17 @@ describe("Google session delivery", () => {
     expect(serverProc.postMessage).toHaveBeenCalledExactlyOnceWith({ type: "orbit:google-account", session });
     expect(original.postMessage).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("adds a fresh ID token to the pushed session only when given one", async () => {
+    const serverProc = { postMessage: vi.fn() };
+    const push = createGoogleSessionPush({ isPackaged: true, getServerProcess: () => serverProc, getToken: () => null, getPort: () => 1234 });
+    const session = { refreshToken: "r", sub: "s", email: "e@x.com" };
+    await push(session, "id-token");
+    await push(session);
+    await push(null, "id-token");
+    expect(serverProc.postMessage.mock.calls.map(([message]) => message.session)).toEqual([{ ...session, idToken: "id-token" }, session, null]);
+    expect(session).not.toHaveProperty("idToken");
   });
 
   it("uses the current token and port for dev PUT and DELETE", async () => {
@@ -376,6 +395,32 @@ describe("Google session delivery", () => {
     const packaged = createGoogleSessionPush({ isPackaged: true, getServerProcess: () => ({ postMessage: () => { throw new Error("closed"); } }), log });
     await expect(packaged(null)).resolves.toBeUndefined();
     expect(log).toHaveBeenLastCalledWith("google account sync failed: closed");
+  });
+
+  it("pushes again only when a new dev server process answers", async () => {
+    vi.useFakeTimers();
+    try {
+      const pids = [1, 1, null, 2, 2];
+      const fetch = vi.fn(async () => {
+        const pid = pids.shift();
+        if (pid === null) throw new Error("down");
+        return { json: async () => ({ pid }) };
+      });
+      const push = vi.fn(async () => {});
+      const stop = watchDevServer({ getPort: () => 1234, push, fetch, intervalMs: 100 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(push).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(200);
+      expect(push).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(push).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(push).toHaveBeenCalledOnce();
+      expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:1234/api/health", expect.anything());
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the boot session out of the server env and pushes the live account", () => {

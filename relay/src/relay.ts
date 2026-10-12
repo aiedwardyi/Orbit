@@ -6,8 +6,10 @@ import { createPublicKey, type KeyObject } from "node:crypto";
 import { createServer as createNetServer, type AddressInfo, type Socket } from "node:net";
 import { join } from "node:path";
 import { createSecureContext, createServer as createTlsServer, type SecureContext, type TLSSocket } from "node:tls";
+import { googleDiscoveryKeySource, type GoogleKeySource } from "../../shared/google-id-token.ts";
 import { ALPN_ACME, ALPN_CONTROL, ALPN_DATA, labelFromHost } from "../../shared/relay-protocol.ts";
 import { parseClientHello } from "../../shared/tls-client-hello.ts";
+import { Accounts } from "./accounts.ts";
 import { CertManager, type AcmeClientLike } from "./acme.ts";
 import { BASE_RE } from "./config.ts";
 import { handleControl, handleData, type ChannelContext } from "./channels.ts";
@@ -27,6 +29,7 @@ import {
   sendAlert,
 } from "./net-util.ts";
 import { RevocationList } from "./revocation.ts";
+import { TeamLog } from "./team.ts";
 
 /** ALPN ids served on relay.<base>, besides acme-tls/1. */
 export const RELAY_ALPNS: readonly string[] = [ALPN_CONTROL, ALPN_DATA, "http/1.1"];
@@ -48,6 +51,15 @@ export interface RelayOptions {
     termsOfServiceAgreed: boolean;
     createClient?: (opts: { directoryUrl: string; accountKey: Buffer }) => AcmeClientLike;
   };
+  /** Without this, /v1/account and /v1/pcs answer 404. `keys` is injected by tests. */
+  google?: {
+    desktopClientId: string;
+    webClientId: string;
+    signinOrigin: string;
+    keys?: GoogleKeySource;
+  };
+  /** With `google`, turns on session recording and GET /v1/team for this Google account. */
+  teamOwnerEmail?: string;
   limits?: Partial<RelayLimits>;
   log?: Logger;
   now?: () => number;
@@ -77,7 +89,9 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
   const operatorPublicKey = createPublicKey(opts.operatorPrivateKey);
   if (operatorPublicKey.asymmetricKeyType !== "ed25519") throw new Error("operator key must be Ed25519");
 
-  const hub = new Hub({ limits, log, now });
+  const teamOwnerEmail = opts.google ? opts.teamOwnerEmail?.toLowerCase() : undefined;
+  const team = teamOwnerEmail ? await TeamLog.open(opts.dataDir, now, log) : undefined;
+  const hub = new Hub({ limits, log, now, team });
   const revoked = new RevocationList(opts.revokedLabelsFile, log);
   await revoked.load();
   const store = await InviteStore.open(opts.dataDir, now);
@@ -106,7 +120,31 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
   const connLimit = new RateLimiter(limits.connPerIpPerSec, limits.connPerIpBurst, now);
   const authLimit = RateLimiter.perMinute(limits.controlAuthPerIpPerMin, now);
 
-  const api = createApiServer({ base, relayHost, hub, enroller, limits, log, now });
+  const accounts = opts.google
+    ? new Accounts({
+        desktopClientId: opts.google.desktopClientId,
+        webClientId: opts.google.webClientId,
+        keys: opts.google.keys ?? googleDiscoveryKeySource(),
+        operatorPrivateKey: opts.operatorPrivateKey,
+        operatorPublicKey,
+        isRevoked: (label) => revoked.has(label),
+        now,
+        ticketTtlSec,
+      })
+    : undefined;
+  const api = createApiServer({
+    base,
+    relayHost,
+    hub,
+    enroller,
+    accounts,
+    signinOrigin: opts.google?.signinOrigin,
+    team,
+    teamOwnerEmail,
+    limits,
+    log,
+    now,
+  });
 
   const relayTls = createTlsServer({
     SNICallback: (name, cb) => (name === relayHost && serving ? cb(null, serving) : cb(new Error("no certificate"))),
@@ -324,6 +362,7 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
       api.closeIdleConnections();
       await hub.whenSplicesDone(limits.drainGraceMs);
       hub.destroySplices();
+      await team?.close();
       api.closeAllConnections();
       for (const socket of sockets) socket.destroy();
       await listening;

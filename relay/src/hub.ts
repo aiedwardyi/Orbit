@@ -9,6 +9,7 @@ import type { RelayLimits } from "./limits.ts";
 import type { Logger } from "./log.ts";
 import { ALERT_UNRECOGNIZED_NAME, peerPrefix, sendAlert } from "./net-util.ts";
 import { splice, type SplicedPair } from "./splice.ts";
+import type { TeamLog } from "./team.ts";
 
 /** What the hub needs from a control channel. */
 export interface ControlLink {
@@ -24,6 +25,8 @@ export class Session {
   readonly label: string;
   readonly since: number;
   readonly control: ControlLink;
+  /** Set when this session's auth carried a wka1. Null after sign-out or before that. */
+  account: { subHash: string; name: string } | null = null;
   live = true;
 
   constructor(label: string, control: ControlLink, since: number) {
@@ -44,6 +47,8 @@ export interface HubOptions {
   limits: RelayLimits;
   log: Logger;
   now?: () => number;
+  /** Set only when the relay has a team owner. */
+  team?: TeamLog;
 }
 
 export type JoinResult = "parked" | "spliced" | "unknown-session" | "bad-token" | "pool-full";
@@ -59,6 +64,8 @@ export class Hub {
   private readonly parked = new WeakMap<TLSSocket, () => void>();
   /** label -> ms of the last online/offline change, for /v1/status. Insertion ordered, bounded. */
   private readonly changedAt = new Map<string, number>();
+  /** subHash -> label -> display name. Live sessions only. */
+  private readonly bySub = new Map<string, Map<string, string>>();
   private readonly opts: HubOptions;
   private splicesEmpty: (() => void) | null = null;
   private readonly now: () => number;
@@ -105,7 +112,10 @@ export class Hub {
     this.byLabel.set(label, session);
     this.byId.set(session.id, session);
     if (old) this.end(old, "superseded");
-    else this.markChanged(label);
+    else {
+      this.markChanged(label);
+      this.opts.team?.pcUp(label);
+    }
     this.opts.log.log("session-up", { label, reason: old ? "superseded-old" : "new" });
     return session;
   }
@@ -122,9 +132,35 @@ export class Hub {
     if (this.byLabel.get(session.label) === session) {
       this.byLabel.delete(session.label);
       this.markChanged(session.label);
+      this.opts.team?.pcDown(session.label);
       this.failWaiting(session.label);
     }
+    this.unindex(session);
     this.opts.log.log("session-down", { label: session.label, reason: code ?? "closed" });
+  }
+
+  /** Lists this account's live PCs. Empty when the sub has none. */
+  pcsFor(subHash: string): { label: string; name: string }[] {
+    const bucket = this.bySub.get(subHash);
+    if (!bucket) return [];
+    return [...bucket.entries()]
+      .map(([label, name]) => ({ label, name }))
+      .sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+  }
+
+  /** Publishes this session in the account directory. Replaces any earlier account for the label. */
+  setAccount(session: Session, subHash: string, name: string): void {
+    if (session.account) this.unindex(session);
+    session.account = { subHash, name };
+    const bucket = this.bySub.get(subHash) ?? new Map<string, string>();
+    bucket.set(session.label, name);
+    this.bySub.set(subHash, bucket);
+    this.opts.team?.setName(session.label, name);
+  }
+
+  /** A control frame arrived on the label's current session. */
+  seen(session: Session): void {
+    if (this.byLabel.get(session.label) === session) this.opts.team?.pcSeen(session.label);
   }
 
   /** Kills everything for a label: control, pool, waiting phones and live splices. */
@@ -254,6 +290,7 @@ export class Hub {
     this.parked.get(data)?.();
     this.parked.delete(data);
     this.splicedPerLabel.set(label, (this.splicedPerLabel.get(label) ?? 0) + 1);
+    const phoneId = this.opts.team?.phoneStart(label);
     const pair: LabeledPair = Object.assign(splice({
       phone,
       data,
@@ -263,6 +300,7 @@ export class Hub {
       now: this.now,
       onEnd: (stats) => {
         this.pairs.delete(pair);
+        if (phoneId !== undefined) this.opts.team?.phoneEnd(phoneId);
         if (this.pairs.size === 0) this.splicesEmpty?.();
         const left = (this.splicedPerLabel.get(label) ?? 1) - 1;
         if (left > 0) this.splicedPerLabel.set(label, left);
@@ -291,6 +329,18 @@ export class Hub {
       this.waitingTotal -= 1;
       sendAlert(entry.socket, ALERT_UNRECOGNIZED_NAME);
     }
+  }
+
+  private unindex(session: Session): void {
+    const account = session.account;
+    if (!account) return;
+    session.account = null;
+    const current = this.byLabel.get(session.label);
+    if (current && current !== session && current.account?.subHash === account.subHash) return;
+    const bucket = this.bySub.get(account.subHash);
+    if (!bucket) return;
+    bucket.delete(session.label);
+    if (bucket.size === 0) this.bySub.delete(account.subHash);
   }
 
   private markChanged(label: string): void {
