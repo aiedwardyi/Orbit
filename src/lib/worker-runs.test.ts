@@ -258,7 +258,8 @@ describe("parseWorkerLabel", () => {
 describe("workerProvider", () => {
   it.each([
     ["Sonnet 5.5", "claudeAgent"], ["Opus 5.5", "claudeAgent"], ["Fable 5.1", "claudeAgent"],
-    ["GPT-6 Astra", "codex"], ["GPT-6.1 Sol", "codex"], ["Muse 1.3", "museAgent"],
+    ["GPT-6 Astra", "codex"], ["GPT-6.1 Sol", "codex"], ["Astra", "codex"], ["Sol", "codex"], ["Terra", "codex"], ["Luna", "codex"],
+    ["Muse 1.3", "museAgent"],
     ["Grok 4.7", "grokAgent"], ["Gemini 3.8", "geminiAgent"], ["script", "script"], ["Mystery 2", null],
   ])("maps %s to %s", (model, provider) => {
     expect(workerProvider(model)).toBe(provider);

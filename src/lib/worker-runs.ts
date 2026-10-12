@@ -30,7 +30,7 @@ export type WorkerRun = {
 const PROVIDERS: Array<[RegExp, string]> = [
   [/^script\b/i, "script"],
   [/\b(opus|sonnet|haiku|fable|claude)\b/i, "claudeAgent"],
-  [/\b(gpt|codex)\b/i, "codex"],
+  [/\b(gpt|codex|astra|sol|terra|luna)\b/i, "codex"],
   [/\bgemini\b/i, "geminiAgent"],
   [/\bgrok\b/i, "grokAgent"],
   [/\b(muse|meta|llama)\b/i, "museAgent"],
