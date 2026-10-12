@@ -656,9 +656,7 @@ export function SettingsModal({
                 <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")}>
                   <ProfileFields />
                 </Card>
-                <Card title={t("settings.section.sync")}>
-                  <SyncPanel />
-                </Card>
+                <SyncPanel />
                 <div className="flex flex-col gap-4 rounded-xl bg-card p-4 empty:hidden">
                   <PhoneAccessSettings />
                   <PhoneLinkSettings />
