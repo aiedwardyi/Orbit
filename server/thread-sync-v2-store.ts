@@ -446,12 +446,33 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     }));
   }
 
+  /** `scanned` skips a second walk when the caller just ran followBotIds. */
+  function republishChats(scanned = false): void {
+    const folder = host.folder();
+    if (!host.enabled() || !folder) return;
+    if (!scanned) followBotIds();
+    const tasks = withMessageTransaction((db) => {
+      db.prepare("UPDATE sync_v2_threads SET cut = 0").run();
+      return z.array(z.object({ threadId: z.string() })).parse(db.prepare("SELECT threadId FROM sync_v2_store WHERE eligible = 1").all());
+    });
+    for (const { threadId } of tasks) {
+      publishThreadPictures({ folder, dataDir: host.dataDir, messages: host.store.messagesFor(threadId) });
+      republishing++;
+      void serial(() => flush(threadId)).then((result) => {
+        if (result === "running") schedule(threadId);
+      }, () => { retry.add(threadId); }).finally(() => { republishing--; });
+    }
+  }
+
   async function poll(): Promise<void> {
     const transport = await client();
     if (!transport) return;
     for (const threadId of retry) schedule(threadId);
     const pendingMaintenance = host.maintenance();
     if (pendingMaintenance instanceof Promise) await pendingMaintenance;
+    // Maintenance can mint sync ids after start() saw an empty bot map.
+    const moved = followBotIds();
+    if (moved.length) republishChats(true);
     const tasks: StoredTask[] = [];
     for (const target of host.bots()) {
       for (const local of host.store.tasks(target.botId)) {
@@ -488,20 +509,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     poll: () => serial(poll),
     /** Sends every sealed segment and fresh picture again; files the folder already holds are kept. */
     republish(): void {
-      const folder = host.folder();
-      if (!host.enabled() || !folder) return;
-      followBotIds();
-      const tasks = withMessageTransaction((db) => {
-        db.prepare("UPDATE sync_v2_threads SET cut = 0").run();
-        return z.array(z.object({ threadId: z.string() })).parse(db.prepare("SELECT threadId FROM sync_v2_store WHERE eligible = 1").all());
-      });
-      for (const { threadId } of tasks) {
-        publishThreadPictures({ folder, dataDir: host.dataDir, messages: host.store.messagesFor(threadId) });
-        republishing++;
-        void serial(() => flush(threadId)).then((result) => {
-          if (result === "running") schedule(threadId);
-        }, () => { retry.add(threadId); }).finally(() => { republishing--; });
-      }
+      republishChats();
     },
     republishing: () => republishing > 0,
     messageWriter(threadId: string, messageId: string): string | null {
@@ -517,7 +525,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       }
       const tasks = withMessageTransaction((db) => z.array(z.object({ threadId: z.string() })).parse(db.prepare("SELECT threadId FROM sync_v2_store").all()));
       for (const task of tasks) schedule(task.threadId);
-      if (moved.length) this.republish();
+      if (moved.length) republishChats(true);
     },
     stop(): void {
       clearInterval(pollTimer);
