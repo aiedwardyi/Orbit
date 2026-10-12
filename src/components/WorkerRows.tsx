@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, ScrollText, X } from "lucide-react";
+import { Bot, ChevronRight, ScrollText, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
@@ -39,10 +39,10 @@ export function useWorkerRows(workers: ShownRun[], messages: Message[]) {
 }
 
 function WorkerMark({ provider }: { provider: string | null }) {
-  // brand marks stay untinted; only the script glyph takes the ink color
+  // brand marks stay untinted; only the script and unknown-model glyphs take the ink color
   return (
     <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-hairline/40 bg-raised">
-      {provider && provider !== "script" ? <ProviderMark driverKind={provider} size={14} /> : <ScrollText size={14} className="text-ink-secondary" aria-hidden />}
+      {provider === "script" ? <ScrollText size={14} className="text-ink-secondary" aria-hidden /> : provider ? <ProviderMark driverKind={provider} size={14} /> : <Bot size={14} className="text-ink-secondary" aria-hidden />}
     </span>
   );
 }

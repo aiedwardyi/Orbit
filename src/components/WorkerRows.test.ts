@@ -49,6 +49,12 @@ describe("WorkerRow", () => {
     expect(markup).not.toContain("#D97757");
   });
 
+  it.each(["NOVA | Nova 2 | high", "DEV"])("gives an unknown model '%s' a neutral bot glyph, not the script scroll", (label) => {
+    const markup = renderToStaticMarkup(createElement(WorkerRow, { run: run(label), state: "working", live: null }));
+    expect(markup).toContain("lucide-bot");
+    expect(markup).not.toContain("lucide-scroll-text");
+  });
+
   it.each([
     ["done", true, "Ran in C:\\repo"],
     ["failed", true, "Ran in C:\\repo"],
@@ -230,8 +236,8 @@ describe("WorkerChip", () => {
         "REL-CHAIN-166script‖Waiting", "AGrok 4.7●Working",
       ]);
       const marks = [...list.querySelectorAll("svg")];
-      expect(marks).toHaveLength(2);
-      expect(marks.filter((svg) => svg.classList.contains("lucide-scroll-text"))).toHaveLength(1);
+      expect(marks.map((svg) => svg.classList.contains("lucide-scroll-text"))).toEqual([true, false]);
+      expect(marks[1]!.getAttribute("class") ?? "").not.toContain("lucide");
     } finally {
       await unmount();
     }
