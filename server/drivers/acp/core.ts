@@ -22,6 +22,10 @@ import { applyCredentialAllowlist } from "../../config.ts";
 import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
 import { captureToolDetail } from "../../tool-detail.ts";
 import { decodeInjectId, LOCAL_HOSTS } from "../local-inject.ts";
+import { isWslCommand, withWslProbeReason, wslBlockedReason, wslProbeAllowed } from "../../wsl-gate.ts";
+import { inputDigest } from "../../repeat-detector.ts";
+import { startTurnTimer } from "../../turn-timing.ts";
+import { exhaustedWindow, grokRateLimitWindows, isConfirmedNonUsage, usageLimitFromError } from "../rate-limits.ts";
 
 const LOCAL_HOST_KEY_ENVS = [
   ...new Set(LOCAL_HOSTS.map((host) => host.apiKeyEnv).filter((key): key is string => Boolean(key))),
@@ -69,10 +73,6 @@ function acpToolDetail(call: z.infer<typeof toolCallSchema>) {
     isError: call.status === "failed",
   });
 }
-import { isWslCommand, withWslProbeReason, wslBlockedReason, wslProbeAllowed } from "../../wsl-gate.ts";
-import { inputDigest } from "../../repeat-detector.ts";
-import { startTurnTimer } from "../../turn-timing.ts";
-import { exhaustedWindow, grokRateLimitWindows, isConfirmedNonUsage, usageLimitFromError } from "../rate-limits.ts";
 
 /**
  * A `host::model` pick talks to a loopback server with its own key.
