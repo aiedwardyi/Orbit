@@ -79,6 +79,28 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     return withMessageTransaction((db) => storedTaskSchema.optional().parse(db.prepare("SELECT * FROM sync_v2_store WHERE threadId = ?").get(threadId)));
   }
 
+  /** A cleared bot map mints new sync ids; chats stay on the old ones until this runs. */
+  function followBotIds(): string[] {
+    const wanted = new Map(host.bots().map((bot) => [bot.botId, bot.botSyncId]));
+    const tasks = withMessageTransaction((db) => z.array(storedTaskSchema).parse(db.prepare("SELECT * FROM sync_v2_store").all()));
+    const moved: string[] = [];
+    for (const task of tasks) {
+      const botSyncId = wanted.get(task.botId);
+      if (!botSyncId) continue;
+      const rebound = engine.rebind(task.threadId, botSyncId);
+      if (botSyncId === task.botSyncId) {
+        if (rebound) moved.push(task.threadId);
+        continue;
+      }
+      withMessageTransaction((db) => {
+        db.prepare("UPDATE sync_v2_store SET botSyncId = ? WHERE threadId = ?").run(botSyncId, task.threadId);
+        db.prepare("UPDATE sync_v2_migration SET bot = ? WHERE thread = ?").run(botSyncId, task.threadId);
+      });
+      moved.push(task.threadId);
+    }
+    return moved;
+  }
+
   function register(threadId: string, target: Target, legacy = false): StoredTask {
     const task = host.store.taskByThread(target.botId, threadId);
     const existing = stored(threadId);
@@ -468,6 +490,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     republish(): void {
       const folder = host.folder();
       if (!host.enabled() || !folder) return;
+      followBotIds();
       const tasks = withMessageTransaction((db) => {
         db.prepare("UPDATE sync_v2_threads SET cut = 0").run();
         return z.array(z.object({ threadId: z.string() })).parse(db.prepare("SELECT threadId FROM sync_v2_store WHERE eligible = 1").all());
@@ -486,6 +509,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       return task ? engine.variants(task, "row", messageId)[0]?.version.origin ?? null : null;
     },
     start(): void {
+      const moved = followBotIds();
       void serial(poll).catch(() => {});
       if (!pollTimer) {
         pollTimer = setInterval(() => void serial(poll).catch(() => {}), THREAD_SYNC_POLL_MS);
@@ -493,6 +517,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       }
       const tasks = withMessageTransaction((db) => z.array(z.object({ threadId: z.string() })).parse(db.prepare("SELECT threadId FROM sync_v2_store").all()));
       for (const task of tasks) schedule(task.threadId);
+      if (moved.length) this.republish();
     },
     stop(): void {
       clearInterval(pollTimer);

@@ -190,4 +190,62 @@ describe("Google Start after folder sync", () => {
     home.sync.resume();
     expect(home.activations).toBe(2);
   });
+
+  it("keeps a joining PC's chats under its bots' current sync ids", { timeout: 120_000 }, async () => {
+    const { home } = await folderEra(true);
+    await start(home);
+    await rounds(2);
+    const work = makePC("work");
+    await work.call("seed", { bots: [{ name: "Local QA", chats: [{ title: "QA notes", rows: 4 }] }] });
+    await work.call("folder", { folder: join(root, "other-qa-folder") });
+    await work.call("pass");
+    await work.call("folder", { folder: null });
+    await start(work);
+    await rounds(4);
+    const local = await work.report();
+    const remote = await home.report();
+    const qa = local.find((bot) => bot.name === "Local QA");
+    const synced = remote.find((bot) => bot.name === "Local QA");
+    expect(qa?.chats).toEqual(["QA notes:4"]);
+    expect(synced?.chats).toEqual(["QA notes:4"]);
+    expect(synced?.syncId).toBe(qa?.syncId);
+    expect(drivePaths().some((path) => path.startsWith(`threads-v2/${qa?.syncId}/`))).toBe(true);
+    expect([home.sync.status().state, work.sync.status().state]).toEqual(["up-to-date", "up-to-date"]);
+  });
+
+  it("heals a PC that already joined under the old bot ids, once", { timeout: 120_000 }, async () => {
+    const { home } = await folderEra(true);
+    await start(home);
+    await rounds(2);
+    const work = makePC("work", false);
+    await work.call("seed", { bots: [{ name: "Local QA", chats: [{ title: "QA notes", rows: 4 }] }] });
+    await work.call("folder", { folder: join(root, "other-qa-folder") });
+    await work.call("pass");
+    await work.call("folder", { folder: null });
+    await start(work);
+    await rounds(3);
+    const missed = (await home.report()).find((bot) => bot.name === "Local QA");
+    expect(missed?.syncId).toBeTruthy();
+    expect(missed?.chats).toEqual([]);
+    expect((await work.report()).find((bot) => bot.name === "Local QA")?.chats).toEqual(["QA notes:4"]);
+
+    await work.call("start");
+    await rounds(4);
+    const once = await home.report();
+    const local = await work.report();
+    const qa = local.find((bot) => bot.name === "Local QA");
+    const synced = once.find((bot) => bot.name === "Local QA");
+    expect(qa?.chats).toEqual(["QA notes:4"]);
+    expect(synced?.chats).toEqual(["QA notes:4"]);
+    expect(synced?.syncId).toBe(qa?.syncId);
+    expect(once.filter((bot) => bot.name === "Local QA")).toHaveLength(1);
+    expect(local.filter((bot) => bot.name === "Local QA")).toHaveLength(1);
+    expect([home.sync.status().state, work.sync.status().state]).toEqual(["up-to-date", "up-to-date"]);
+
+    await work.call("start");
+    await rounds(2);
+    expect(await home.report()).toEqual(once);
+    expect(await work.report()).toEqual(local);
+    expect(work.activations).toBe(1);
+  });
 });

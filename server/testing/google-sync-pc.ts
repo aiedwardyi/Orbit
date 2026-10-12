@@ -162,7 +162,12 @@ async function run(method: string, args: TestArgs): Promise<TestResult> {
       save();
       return;
     case "republish":
+      // index.ts activate mints bot sync ids, then republishes chats under them.
+      if (settings.folder && settings.syncChats) syncProfile(settings.folder);
       chats()?.republish();
+      return chats()?.republishing() ?? false;
+    case "start":
+      chats()?.start();
       return chats()?.republishing() ?? false;
     case "pass": {
       // One app pass: the v2 poll runs the profile and memory maintenance, then every thread flushes.
