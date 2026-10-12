@@ -102,6 +102,12 @@ h1 {
   flex-direction: column;
   gap: 8px;
 }
+#google {
+  display: flex;
+  justify-content: center;
+  /* Chrome paints a white box behind Google's frame when its color scheme differs from the page's. */
+  color-scheme: light;
+}
 .list button {
   padding: 12px;
   border: 1px solid var(--hairline);
