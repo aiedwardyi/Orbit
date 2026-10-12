@@ -10,6 +10,48 @@ function ask(threadId: string) {
 }
 
 describe("ask_bot takeover", () => {
+  it.each(["A real answer", "(timed out waiting for the bot to reply)"])("reports a real text reply without inspecting its wording: %s", (text) => {
+    const answers: Array<{ text: string; replied: boolean }> = [];
+    const answer = peerAnswer("t-signal", "Wink", () => "Edward", (out, replied) => answers.push({ text: out, replied }));
+    answer.add(text);
+    answer.end("(the bot finished without a text reply)");
+    expect(answers).toEqual([{ text, replied: true }]);
+  });
+
+  it.each([
+    ["timeout", "(timed out waiting for the bot to reply)"],
+    ["no text", "(the bot finished without a text reply)"],
+    ["start failure", "(couldn't start that bot: unavailable)"],
+  ])("does not report a reply after %s", (outcome, fallback) => {
+    const answers: Array<{ text: string; replied: boolean }> = [];
+    const answer = peerAnswer("t-no-reply", "Wink", () => "Edward", (text, replied) => answers.push({ text, replied }));
+    answer.end(fallback, outcome === "no text");
+    expect(answers).toEqual([{ text: fallback, replied: false }]);
+  });
+
+  it("does not report a timed-out partial answer as a reply", () => {
+    const answers: Array<{ text: string; replied: boolean }> = [];
+    const answer = peerAnswer("t-partial", "Wink", () => "Edward", (text, replied) => answers.push({ text, replied }));
+    answer.add("Partial answer");
+    answer.end("(timed out waiting for the bot to reply)", false);
+    expect(answers).toEqual([{ text: "Partial answer", replied: false }]);
+  });
+
+  it("does not report a user takeover before any text as a reply", () => {
+    const answers: boolean[] = [];
+    peerAnswer("t-signal-takeover", "Wink", () => "Edward", (_text, replied) => answers.push(replied));
+    takeOverPeerTurn("t-signal-takeover");
+    expect(answers).toEqual([false]);
+  });
+
+  it("reports a user takeover after some text as a reply", () => {
+    const answers: Array<{ text: string; replied: boolean }> = [];
+    const answer = peerAnswer("t-partial-takeover", "Wink", () => "Edward", (text, replied) => answers.push({ text, replied }));
+    answer.add("Partial");
+    takeOverPeerTurn("t-partial-takeover");
+    expect(answers).toEqual([{ text: "Partial", replied: true }]);
+  });
+
   it("answers the asker with only the text from before the user's message", () => {
     const { answer, answers } = ask("t-ask-1");
     answer.add("The build is green.");

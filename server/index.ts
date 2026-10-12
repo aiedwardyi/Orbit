@@ -142,7 +142,7 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
-import { getOrCreateChannel, mirrorExchange, mirrorReply, type CommsBus } from "./comms-visibility.ts";
+import { getOrCreateChannel, mirrorExchange, mirrorReply, settleAskChip, type CommsBus } from "./comms-visibility.ts";
 import { searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
@@ -723,16 +723,16 @@ function askBotAndWait(
   depth: number,
   fromBotId?: string,
   peer?: { sender: BotRecord; channel?: GroupRecord; sourceThreadId: string; transcriptText?: string },
-): Promise<string> {
+): Promise<{ text: string; replied: boolean }> {
   const target = store.bot(targetBotId);
-  if (!target) return Promise.resolve("(no such bot)");
+  if (!target) return Promise.resolve({ text: "(no such bot)", replied: false });
   const threadId = target.threadId;
   return new Promise((resolve) => {
-    const answer = peerAnswer(threadId, target.name, () => cfg.profile?.name?.trim() || "User", (out) => {
+    const answer = peerAnswer(threadId, target.name, () => cfg.profile?.name?.trim() || "User", (text, replied) => {
       clearTimeout(timer);
       unsub();
       peerTurnSource.delete(threadId);
-      resolve(out);
+      resolve({ text, replied });
     });
     const reply = ownTurnReply(staleTurnEvent);
     const unsub = bus.subscribe((e: RuntimeEvent) => {
@@ -741,7 +741,7 @@ function askBotAndWait(
       if (step === "completed") answer.end("(the bot finished without a text reply)");
       else if (step) answer.add(step.text);
     });
-    const timer = setTimeout(() => answer.end("(timed out waiting for the bot to reply)"), 4 * 60_000);
+    const timer = setTimeout(() => answer.end("(timed out waiting for the bot to reply)", false), 4 * 60_000);
     if (peer) peerTurnSource.set(threadId, peer.sourceThreadId);
     startTurn(targetBotId, message, {
       commsDepth: depth + 1,
@@ -749,7 +749,7 @@ function askBotAndWait(
       transcriptText: peer?.transcriptText,
       ...peerAttribution(peer?.sender, peer?.channel),
     }).catch((err) =>
-      answer.end(`(couldn't start that bot: ${err instanceof Error ? err.message : String(err)})`),
+      answer.end(`(couldn't start that bot: ${err instanceof Error ? err.message : String(err)})`, false),
     );
   });
 }
@@ -6842,7 +6842,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           currentTarget = freshTarget;
         }
         const channel = getOrCreateChannel(store, currentFrom, currentTarget);
-        mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
+        const sourceChipId = mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
         const prefixed = `[Message from @${currentFrom.name}, another bot in this Wink workspace. Reply to them.]\n\n${message}`;
         const reply = await askBotAndWait(toBotId, prefixed, depth, fromBotId, {
           sender: currentFrom,
@@ -6850,8 +6850,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           sourceThreadId: fromThreadId,
           transcriptText: message,
         });
-        mirrorReply(commsBus, currentTarget, reply, channel);
-        return json(res, 200, { botName: currentTarget.name, text: reply });
+        mirrorReply(commsBus, currentTarget, reply.text, channel);
+        settleAskChip(commsBus, currentTarget, fromThreadId, sourceChipId, reply.replied);
+        return json(res, 200, { botName: currentTarget.name, text: reply.text });
       }
       // The react tool: a bot leaving an emoji on the user's message, the
       // way the user already can on the bot's. Always targets the latest
