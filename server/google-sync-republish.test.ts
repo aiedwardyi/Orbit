@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
@@ -21,7 +21,7 @@ const BOTS: BotSpec[] = [
 ];
 
 interface PC {
-  dataDir: string; account: GoogleAccount; sync: GoogleSync; activations: number; fixed: boolean;
+  dataDir: string; account: GoogleAccount; sync: GoogleSync; activations: number; fixed: boolean; deferActivate: boolean;
   call(method: string, args?: TestArgs): Promise<TestResult>;
   report(): Promise<ReportBot[]>;
   close(): Promise<void>;
@@ -46,6 +46,8 @@ function boot(pc: Booting): GoogleSync {
     // index.ts activate; `fixed: false` is the 1.0.170 one.
     activate: (mirror) => {
       pc.activations++;
+      // Join finishes before PUT /api/profile-sync. Minting here would hide that path.
+      if (pc.deferActivate) return loadOrCreateSyncWorkspace(mirror, loadProfileSyncSettings(pc.dataDir).workspaceId);
       let settings = loadProfileSyncSettings(pc.dataDir);
       if (settings.folder !== mirror) settings = { ...settings, reviewedResolutions: {}, seenCheckpoint: "" };
       const workspaceId = loadOrCreateSyncWorkspace(mirror, settings.workspaceId);
@@ -76,7 +78,7 @@ function makePC(name: string, fixed = true): PC {
   });
   const exited = new Promise<void>((resolve) => worker.on("exit", () => resolve()));
   const base: Booting = {
-    dataDir, activations: 0, fixed,
+    dataDir, activations: 0, fixed, deferActivate: false,
     account: new GoogleAccount(CLIENT, null, { fetch: tokenFetch, log: () => {} }),
     call: (method, args = {}) => new Promise<TestResult>((resolve, reject) => {
       const id = ++sequence;
@@ -189,5 +191,92 @@ describe("Google Start after folder sync", () => {
     home.sync = boot(home);
     home.sync.resume();
     expect(home.activations).toBe(2);
+  });
+
+  it("keeps a joining PC's chats under its bots' current sync ids", { timeout: 120_000 }, async () => {
+    const { home } = await folderEra(true);
+    await start(home);
+    await rounds(2);
+    const work = makePC("work");
+    await work.call("seed", { bots: [{ name: "Local QA", chats: [{ title: "QA notes", rows: 4 }] }] });
+    await work.call("folder", { folder: join(root, "other-qa-folder") });
+    await work.call("pass");
+    await work.call("folder", { folder: null });
+    await start(work);
+    await rounds(4);
+    const local = await work.report();
+    const remote = await home.report();
+    const qa = local.find((bot) => bot.name === "Local QA");
+    const synced = remote.find((bot) => bot.name === "Local QA");
+    expect(qa?.chats).toEqual(["QA notes:4"]);
+    expect(synced?.chats).toEqual(["QA notes:4"]);
+    expect(synced?.syncId).toBe(qa?.syncId);
+    expect(drivePaths().some((path) => path.startsWith(`threads-v2/${qa?.syncId}/`))).toBe(true);
+    expect([home.sync.status().state, work.sync.status().state]).toEqual(["up-to-date", "up-to-date"]);
+  });
+
+  it("heals a PC that already joined under the old bot ids, once", { timeout: 120_000 }, async () => {
+    const { home } = await folderEra(true);
+    await start(home);
+    await rounds(2);
+    const work = makePC("work", false);
+    await work.call("seed", { bots: [{ name: "Local QA", chats: [{ title: "QA notes", rows: 4 }] }] });
+    await work.call("folder", { folder: join(root, "other-qa-folder") });
+    await work.call("pass");
+    await work.call("folder", { folder: null });
+    await start(work);
+    await rounds(4);
+    const once = await home.report();
+    const local = await work.report();
+    const qa = local.find((bot) => bot.name === "Local QA");
+    const synced = once.find((bot) => bot.name === "Local QA");
+    expect(qa?.chats).toEqual(["QA notes:4"]);
+    expect(synced?.chats).toEqual(["QA notes:4"]);
+    expect(synced?.syncId).toBe(qa?.syncId);
+    expect(once.filter((bot) => bot.name === "Local QA")).toHaveLength(1);
+    expect(local.filter((bot) => bot.name === "Local QA")).toHaveLength(1);
+    expect([home.sync.status().state, work.sync.status().state]).toEqual(["up-to-date", "up-to-date"]);
+
+    await work.call("start");
+    await rounds(2);
+    expect(await home.report()).toEqual(once);
+    expect(await work.report()).toEqual(local);
+    expect(work.activations).toBe(1);
+  });
+
+  it("keeps chats under the current bot id when the profile folder workspace changes", { timeout: 120_000 }, async () => {
+    const { home } = await folderEra(true);
+    await start(home);
+    await rounds(2);
+    const work = makePC("work");
+    work.deferActivate = true;
+    await work.call("seed", { bots: [{ name: "Local QA", chats: [{ title: "QA notes", rows: 4 }] }] });
+    await work.call("folder", { folder: join(root, "qa-folder") });
+    await work.call("pass");
+    await work.call("folder", { folder: null });
+    await start(work);
+    const mirror = realpathSync(join(work.dataDir, "google-drive"));
+    await work.call("putFolder", { folder: mirror });
+    await work.call("pass");
+    await work.sync.kick();
+    expect(work.sync.status().state).toBe("syncing");
+    await work.sync.idle();
+    await rounds(4);
+
+    const local = await work.report();
+    const remote = await home.report();
+    const names = (bots: ReportBot[]) => bots.map((bot) => bot.name).sort();
+    const qa = local.find((bot) => bot.name === "Local QA");
+    const synced = remote.filter((bot) => bot.name === "Local QA");
+    expect(names(local)).toEqual(["Counsel", "Ledger", "Local QA", "Scribe"]);
+    expect(names(remote)).toEqual(["Counsel", "Ledger", "Local QA", "Scribe"]);
+    expect(synced).toHaveLength(1);
+    expect(local.filter((bot) => bot.name === "Local QA")).toHaveLength(1);
+    expect(qa?.chats).toEqual(["QA notes:4"]);
+    expect(synced[0]?.chats).toEqual(["QA notes:4"]);
+    expect(synced[0]?.syncId).toBe(qa?.syncId);
+    expect(remote.find((bot) => bot.name === "Counsel")?.chats).toEqual(["After sync:3", "Case one:32"]);
+    expect(drivePaths().some((path) => path.startsWith(`threads-v2/${qa?.syncId}/`))).toBe(true);
+    expect([home.sync.status().state, work.sync.status().state]).toEqual(["up-to-date", "up-to-date"]);
   });
 });

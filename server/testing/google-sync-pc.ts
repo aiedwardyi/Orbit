@@ -167,7 +167,7 @@ async function run(method: string, args: TestArgs): Promise<TestResult> {
       return;
     }
     case "folder":
-      // PUT /api/profile-sync then chats on, or DELETE (Disconnect).
+      // First folder sync, or DELETE (Disconnect). Does not clear a bot map.
       if (args.folder) {
         mkdirSync(args.folder, { recursive: true });
         settings.workspaceId = loadOrCreateSyncWorkspace(args.folder, settings.workspaceId);
@@ -176,8 +176,32 @@ async function run(method: string, args: TestArgs): Promise<TestResult> {
       } else settings.folder = null;
       save();
       return;
+    case "putFolder": {
+      // index.ts PUT /api/profile-sync. A workspace change clears the bot map, then start() runs before maintenance mints ids.
+      mkdirSync(args.folder!, { recursive: true });
+      const workspaceId = loadOrCreateSyncWorkspace(args.folder!, settings.workspaceId);
+      if (workspaceId !== settings.workspaceId) {
+        settings = { ...settings, workspaceId, botMap: {}, sectionMap: {}, reviewedResolutions: {}, seenCheckpoint: "", syncedHashes: {} };
+      } else if (settings.folder !== args.folder) {
+        settings = { ...settings, reviewedResolutions: {}, seenCheckpoint: "" };
+      }
+      settings.folder = args.folder!;
+      save();
+      const sync = settings.syncChats ? chats() : null;
+      sync?.start();
+      if (sync) {
+        await sync.poll();
+        while (sync.republishing()) await new Promise((done) => setTimeout(done, 5));
+      }
+      return;
+    }
     case "republish":
+      // index.ts activate mints bot sync ids, then republishes chats under them.
+      if (settings.folder && settings.syncChats) syncProfile(settings.folder);
       chats()?.republish();
+      return chats()?.republishing() ?? false;
+    case "start":
+      chats()?.start();
       return chats()?.republishing() ?? false;
     case "pass": {
       // One app pass: the v2 poll runs the profile and memory maintenance, then every thread flushes.

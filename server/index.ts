@@ -2151,6 +2151,8 @@ const googleSync = createGoogleSync({
     profileSyncSettings.folder = mirror;
     profileSyncSettings.syncChats = true;
     profileSyncSettings.syncedHashes = syncedInFolder(profileSyncSettings.syncedHashes, mirror);
+    // Chats republish under these ids. A cleared map would leave them on the old ones.
+    for (const bot of profileSyncBots()) syncBotId(bot.id);
     profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
     syncAllThreads();
     if (!move) threadSyncV2?.republish();

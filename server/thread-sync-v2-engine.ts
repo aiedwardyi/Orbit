@@ -776,6 +776,18 @@ export function createSyncEngine(input: SyncOptions) {
     }));
   }
 
+  /** The ownership check stays; a workspace change points the thread at the bot's new sync id. */
+  function rebind(threadId: string, botSyncId: string): boolean {
+    threadIdSchema.parse(threadId);
+    idSchema.parse(botSyncId);
+    const known = get(botSchema, "SELECT bot FROM sync_v2_threads WHERE thread = ?", threadId)?.bot;
+    if (!known || known === botSyncId) return false;
+    withMessageTransaction(() => {
+      sql("UPDATE sync_v2_threads SET bot = ? WHERE thread = ?").run(botSyncId, threadId);
+    });
+    return true;
+  }
+
   const recover = (scope: SyncScope, mutations: SyncRecovery[], crash?: string) => commit(scope, mutations, crash, undefined, true);
-  return { commit, recover, flush, pull, state, variants, automatic, changes, applyPending, threads, conflicted, hadNativeConflict, recoveryRows };
+  return { commit, recover, flush, pull, state, variants, automatic, changes, applyPending, threads, conflicted, hadNativeConflict, recoveryRows, rebind };
 }
