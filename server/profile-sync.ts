@@ -691,6 +691,13 @@ export function forgetSynced(synced: Record<string, string>, entity: SyncEntity,
   for (const key of Object.keys(synced)) if (key.startsWith(prefix)) delete synced[key];
 }
 
+/** Marks only for fields the folder's change log holds, so a folder that never got this device's ops gets them. */
+export function syncedInFolder(synced: Record<string, string>, folder: string): Record<string, string> {
+  const state = applySyncOperations(emptyProfileSyncState(), readSyncOperations(folder).operations);
+  return Object.fromEntries(Object.entries(synced).filter(([key]) =>
+    key in state.fieldVersions || key.split(":").slice(0, 2).join(":") in state.tombstones));
+}
+
 /** Newest remote values another device wrote since the last sync; a field also edited here, or never synced, keeps the local value. */
 export function remoteFieldsToApply(
   state: ProfileSyncState,

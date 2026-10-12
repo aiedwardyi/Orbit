@@ -21,7 +21,7 @@ interface LocalBot { id: string; syncId: string; name: string; talked: boolean; 
 interface PC {
   name: string; dataDir: string; deviceId: string; writerId: string; account: GoogleAccount; sync: GoogleSync; ledger: MemorySyncLedger;
   bots: LocalBot[]; pictures: Record<string, string>; folder: string | null; workspaceId: string; sequence: number;
-  activations: Array<string | null>; logs: string[]; hang: boolean;
+  activations: Array<string | null>; logs: string[]; hang: boolean; republishing: boolean;
 }
 
 type Booting = Omit<PC, "sync"> & { sync?: GoogleSync };
@@ -108,6 +108,7 @@ function boot(pc: Booting): GoogleSync {
       publish(pc);
       return pc.workspaceId;
     },
+    republishing: () => pc.republishing,
     fetch: (input, init) => {
       if (pc.hang) return new Promise(() => {});
       const owner = pc.account.owner();
@@ -122,7 +123,7 @@ function makePC(name: string, options: { bots?: LocalBot[]; pictures?: Record<st
   mkdirSync(dataDir, { recursive: true });
   const base: Booting = {
     name, dataDir, deviceId: `device-${name}`, writerId: `writer-${name}`, ledger: { bots: {} }, bots: options.bots ?? [], pictures: options.pictures ?? {},
-    folder: null, workspaceId: randomUUID(), sequence: 1, activations: [], logs: [], hang: false,
+    folder: null, workspaceId: randomUUID(), sequence: 1, activations: [], logs: [], hang: false, republishing: false,
     account: new GoogleAccount(CLIENT, null, { fetch: tokenFetch, log: () => {} }),
   };
   const pc: PC = Object.assign(base, { sync: boot(base) });
@@ -205,6 +206,20 @@ describe("Google sync journeys", () => {
     await settle(work);
     await settle(home);
     expect(readSyncOperations(home.folder!).operations.filter((op) => op.entity === "bot").map((op) => String(op.changes?.name)).sort()).toEqual(["Counsel", "Paralegal", "Starter"]);
+  });
+
+  it("stays syncing until the engines finish republishing into the mirror", async () => {
+    const home = makePC("home", { bots: [bot("Counsel")] });
+    home.republishing = true;
+    await startOn(home);
+    expect(home.sync.status().state).toBe("syncing");
+
+    home.pictures["late.png"] = "late bytes";
+    publish(home);
+    home.republishing = false;
+    await settle(home);
+    expect(home.sync.status().state).toBe("up-to-date");
+    expect(drivePaths(driveA())).toContain("pictures/late.png");
   });
 
   it("publishes an unused bot on the first PC of an account", async () => {
