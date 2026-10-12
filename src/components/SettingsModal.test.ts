@@ -108,7 +108,7 @@ describe("SettingsModal friends chrome", () => {
 
   it("keeps idle General short: no Advanced, no Local VM / channel / experimental / diagnostics", () => {
     const html = markup("general");
-    expect(html).toContain("Profile");
+    expect(html).not.toContain("Profile");
     expect(html).not.toContain("Skin");
     expect(html).not.toContain("Applies instantly and is remembered");
     expect(html).toContain("Tool calls");
@@ -124,11 +124,11 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toMatch(/aria-checked="false"[^>]*aria-label="Detailed replies"/);
     expect(html).toContain("English");
     expect(html).toContain("한국어");
-    expect(html).toContain("Your name");
+    expect(html).not.toContain("Your name");
     expect(html).not.toContain("you@example.com");
     expect(html).not.toContain("Usage analytics");
     expect(html).not.toContain("Save name and email");
-    expect(html).toContain("Save name");
+    expect(html).not.toContain("Save name");
     expect(html).not.toContain("Advanced");
     expect(html).not.toContain("data-settings-advanced");
     expect(html).not.toContain('aria-label="Search settings"');
@@ -245,18 +245,12 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("Wink Day");
   });
 
-  it("orders Themes and Usage last in the settings left nav", () => {
-    const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
-    const start = source.indexOf("const SECTIONS");
-    const end = source.indexOf("];", start);
-    const block = source.slice(start, end);
-    const themes = block.indexOf('id: "themes"');
-    const usage = block.indexOf('id: "usage"');
-    const shortcuts = block.indexOf('id: "shortcuts"');
-    const connections = block.indexOf('id: "connections"');
-    expect(themes).toBeGreaterThan(shortcuts);
-    expect(themes).toBeGreaterThan(connections);
-    expect(usage).toBeGreaterThan(themes);
+  it("orders Account, General, Connections, Themes, Usage, Model index, and Shortcuts", () => {
+    const html = markup("general");
+    const nav = html.slice(html.indexOf("<nav"), html.indexOf("</nav>"));
+    expect([...nav.matchAll(/<button[^>]*aria-label="([^"]+)"/g)].map((match) => match[1])).toEqual([
+      "Account", "General", "Connections", "Themes", "Usage", "Model index", "Shortcuts",
+    ]);
   });
 
   it("shows Alt+T and Alt+U on the Themes and Usage nav rows", () => {
@@ -389,7 +383,7 @@ describe("SettingsModal friends chrome", () => {
   it("orders General cards so Left/Right sits under Language and switches follow", () => {
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
     const general = source.slice(source.indexOf('section === "general"'), source.indexOf('section === "connections"'));
-    const order = ["<LanguagePicker", "<SidebarSideRow", "settings.profile.title", "<TerminalAppearanceRow", "<ToolCallsRow", "<NotificationsRow", "<VibrationRow", "<UpdatesRow", "data-settings-advanced"].map((marker) => general.indexOf(marker));
+    const order = ["<LanguagePicker", "<SidebarSideRow", "<TerminalAppearanceRow", "<ToolCallsRow", "<NotificationsRow", "<VibrationRow", "<UpdatesRow", "data-settings-advanced"].map((marker) => general.indexOf(marker));
     expect(order.every((at) => at > -1)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
@@ -398,12 +392,15 @@ describe("SettingsModal friends chrome", () => {
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
     const row = source.slice(source.indexOf("function NotificationsRow"), source.indexOf("function RainbowBoxRow"));
     expect(row).toContain("<PhoneNotificationSettings");
-    const connections = source.slice(source.indexOf('section === "connections"'), source.indexOf('section === "sync"'));
-    expect(connections).toContain("<PhoneLinkSettings");
+    const connections = source.slice(source.indexOf('section === "connections"'), source.indexOf('{section === "themes" && (', source.indexOf('section === "connections"')));
+    expect(connections).not.toContain("<PhoneLinkSettings");
+    expect(connections).not.toContain("<PhoneAccessSettings");
     expect(connections).not.toContain("<PhoneNotificationSettings");
     const search = readFileSync(join(here, "../lib/settings-search.ts"), "utf8");
     const generalKeys = search.slice(search.indexOf("  general: ["), search.indexOf("  themes: ["));
-    expect(generalKeys).toContain("settings.phoneNotifications.title");
+    expect(generalKeys).not.toContain("settings.phoneNotifications.title");
+    const accountKeys = search.slice(search.indexOf("  account: ["), search.indexOf("  shortcuts: ["));
+    expect(accountKeys).toContain("settings.phoneNotifications.title");
   });
 
   it("hides phone notifications in the desktop app", () => {

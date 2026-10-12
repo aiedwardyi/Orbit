@@ -3,7 +3,7 @@
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
 import { useEffect, useRef, useState } from "react";
-import { ChartScatter, ChevronDown, Cloud, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Smartphone, Terminal, User, X } from "lucide-react";
+import { ChartScatter, ChevronDown, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Settings, Smartphone, Terminal, User, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { builtInBrowserEnabled, detailedRepliesEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
@@ -52,19 +52,20 @@ const SECTIONS: Array<{
   icon: typeof User;
   shortcut?: string;
 }> = [
-  { id: "general", icon: User },
+  { id: "account", icon: User },
+  { id: "general", icon: Settings },
   { id: "connections", icon: KeyRound },
-  { id: "sync", icon: Cloud },
+  { id: "themes", icon: Palette, shortcut: "Alt+T" },
+  { id: "usage", icon: Coins, shortcut: "Alt+U" },
+  { id: "models-index", icon: ChartScatter, shortcut: "Alt+I" },
   { id: "shortcuts", icon: Keyboard },
   { id: "engines", icon: Terminal },
   { id: "companion", icon: Smartphone },
   { id: "computer", icon: Monitor },
-  { id: "themes", icon: Palette, shortcut: "Alt+T" },
-  { id: "usage", icon: Coins, shortcut: "Alt+U" },
-  { id: "models-index", icon: ChartScatter, shortcut: "Alt+I" },
 ];
 
 const SECTION_KEY = {
+  account: "settings.section.account",
   general: "settings.section.general",
   connections: "settings.section.connections",
   themes: "settings.section.themes",
@@ -650,13 +651,25 @@ export function SettingsModal({
           </div>
 
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 pb-5">
+            {section === "account" && (
+              <>
+                <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")}>
+                  <ProfileFields />
+                </Card>
+                <Card title={t("settings.section.sync")}>
+                  <SyncPanel />
+                </Card>
+                <div className="flex flex-col gap-4 rounded-xl bg-card p-4 empty:hidden">
+                  <PhoneAccessSettings />
+                  <PhoneLinkSettings />
+                </div>
+              </>
+            )}
+
             {section === "general" && (
               <>
                 <LanguagePicker />
                 <SidebarSideRow />
-                <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")}>
-                  <ProfileFields />
-                </Card>
                 <TerminalAppearanceRow />
                 <ToolCallsRow />
                 <DetailedRepliesRow />
@@ -708,8 +721,6 @@ export function SettingsModal({
                   ) : null}
                   <EnginesSettings />
                   <SavedKeys />
-                  <PhoneLinkSettings />
-                  <PhoneAccessSettings />
                   {showSettingsMoreServicesSection() && (
                     <>
                   <button
@@ -742,8 +753,6 @@ export function SettingsModal({
                 </div>
               </Card>
             )}
-
-            {section === "sync" && <SyncPanel />}
 
             {section === "themes" && (
               <>
