@@ -74,10 +74,9 @@ export function mirrorExchange(
   channel: GroupRecord | undefined,
   sourceThreadId = from.threadId,
   sourceChip = true,
-): void {
+): string | undefined {
   const note = (threadId: string, m: Omit<Message, "id" | "at">) => {
-    bus.store.appendMessage(threadId, m);
-    return message;
+    return bus.store.appendMessage(threadId, m);
   };
   if (channel) {
     note(channel.threadId, {
@@ -98,7 +97,7 @@ export function mirrorExchange(
   if (sourceThreadId !== from.threadId) {
     sourceActivity.from = { botId: from.id, name: from.name, color: from.color };
   }
-  if (sourceChip) note(sourceThreadId, sourceActivity);
+  const sourceChipId = sourceChip ? note(sourceThreadId, sourceActivity).id : undefined;
   note(target.threadId, {
     role: "bot",
     kind: "activity",
@@ -110,6 +109,18 @@ export function mirrorExchange(
   if (channel) {
     bus.store.patchGroup(channel.id, { unread: true });
   }
+  return sourceChipId;
+}
+
+export function settleAskChip(
+  bus: CommsBus,
+  target: BotRecord,
+  sourceThreadId: string,
+  sourceChipId: string | undefined,
+  replied: boolean,
+): void {
+  if (!replied || !sourceChipId) return;
+  bus.store.patchMessage(sourceThreadId, sourceChipId, { tool: { name: `@${target.name} replied` } });
 }
 
 /** Close a handoff's loop in the sender's thread: patch its chip in place, or

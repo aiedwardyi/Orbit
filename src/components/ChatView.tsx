@@ -982,6 +982,18 @@ const MessagesList = memo(function MessagesList({
     () => chatTranscriptRows(items, { showToolCalls, showActivities, transcript }),
     [items, showToolCalls, showActivities, transcript],
   );
+  const peerReplies = useMemo(() => {
+    const replies = new Map<string, NonNullable<Message["comm"]>>();
+    let comm: Message["comm"];
+    for (const message of streamingMessage ? [...transcript, streamingMessage] : transcript) {
+      if (message.role === "user") comm = message.from ? message.comm : undefined;
+      else if (comm && message.kind === "text" && isShownMessage(message)) {
+        replies.set(message.id, comm);
+        comm = undefined;
+      }
+    }
+    return replies;
+  }, [transcript, streamingMessage]);
   // A search hit inside a folded run has to open it: the fold keeps the
   // row out of the DOM, and there is nothing for the scroll to land on.
   const focus = state.focusMessage;
@@ -1116,10 +1128,12 @@ const MessagesList = memo(function MessagesList({
           }
         })();
         if (!row) return null;
+        const replyComm = peerReplies.get(m.id);
         const key = m.role === "bot" && m.kind === "text" ? replySlot(bot.threadId, m, transcript) : m.sendId ?? m.id;
         return (
           <div key={key} className="contents" data-mid={m.id}>
             {newDay && <DaySeparator at={m.at} />}
+            {replyComm && <ActivityChip message={{ ...m, kind: "activity", comm: replyComm, tool: { name: t("chat.replyToBot", { name: replyComm.withName }) } }} />}
             {row}
           </div>
         );
