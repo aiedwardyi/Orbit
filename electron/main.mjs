@@ -60,6 +60,7 @@ import {
 import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
 import { WINDOWS_CAPTION_HEIGHT, applyWindowsTitleBarOverlay, windowChromeOptions } from "./window-chrome.mjs";
 import { restoreWindowZoom, routeZoomShortcut, setImageZoomOwned } from "./window-zoom.mjs";
+import { contextMenuTemplate } from "./context-menu.mjs";
 import { openLocalFile } from "./open-file.mjs";
 import {
   ensureManagedComposioCredentials,
@@ -1663,39 +1664,14 @@ function createWindow() {
     routeWindowZoomKeys(event, input, win.webContents);
   });
 
-  // Native context menu for text inputs — without this, right-click does
+  // Native context menu for text inputs: without this, right-click does
   // nothing in the Electron window (no Cut/Copy/Paste/Select All).
   win.webContents.on("context-menu", (_event, params) => {
-    // nothing actionable here — no menu at all, rather than a wall of
-    // disabled items
-    if (!params.isEditable && !params.linkURL && !params.misspelledWord && !params.selectionText) return;
-    const menuItems = [];
-    if (params.misspelledWord) {
-      for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
-        menuItems.push({
-          label: suggestion,
-          click: () => win.webContents.replaceMisspelling(suggestion),
-        });
-      }
-      if (menuItems.length) menuItems.push({ type: "separator" });
-    }
-    if (params.linkURL) {
-      menuItems.push(
-        { label: nativeText("native.copyLink"), click: () => clipboard.writeText(params.linkURL) },
-        { type: "separator" },
-      );
-    }
-    menuItems.push(
-      { label: nativeText("native.undo"), role: "undo", enabled: params.editFlags.canUndo },
-      { label: nativeText("native.redo"), role: "redo", enabled: params.editFlags.canRedo },
-      { type: "separator" },
-      { label: nativeText("native.cut"), role: "cut", enabled: params.editFlags.canCut },
-      { label: nativeText("native.copy"), role: "copy", enabled: params.editFlags.canCopy },
-      { label: nativeText("native.paste"), role: "paste", enabled: params.editFlags.canPaste },
-      { label: nativeText("native.pasteMatch"), role: "pasteAndMatchStyle", enabled: params.editFlags.canPaste },
-      { type: "separator" },
-      { label: nativeText("native.selectAll"), role: "selectAll", enabled: params.editFlags.canSelectAll },
-    );
+    const menuItems = contextMenuTemplate(params, nativeText, {
+      replaceMisspelling: (suggestion) => win.webContents.replaceMisspelling(suggestion),
+      copyLink: (url) => clipboard.writeText(url),
+    });
+    if (!menuItems) return;
     Menu.buildFromTemplate(menuItems).popup({ window: win, frame: params.frame });
   });
 

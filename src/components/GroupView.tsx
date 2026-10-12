@@ -47,6 +47,7 @@ import { shownState, workerRuns } from "@/lib/worker-runs";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
 import { ReactionBar, ReactionChips } from "./Reactions";
+import { MessageMenu, SelectionMenu, contextClickKind, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
 import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
 import { groupActivityRuns, itemMatchesFind, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
@@ -309,6 +310,7 @@ const Transcript = memo(function Transcript({
   dock,
   onReply,
   onFocusComposer,
+  onMessageMenu,
   workers,
 }: {
   group: Group;
@@ -321,6 +323,7 @@ const Transcript = memo(function Transcript({
   dock: ReplyDock | null;
   onReply: (message: Message) => void;
   onFocusComposer: () => void;
+  onMessageMenu: (menu: MessageMenuRequest) => void;
   workers: ShownRun[];
 }) {
   const { t, locale } = useI18n();
@@ -413,6 +416,10 @@ const Transcript = memo(function Transcript({
         slots.add(key);
         const docked = dock && dock.slot === slot && m.id === dockTargetId ? dock : null;
         const attachedImages = user && m.text ? splitAttachedImages(m.text) : null;
+        const menuTarget =
+          m.kind === "text" && m.text && !m.placeholder
+            ? { threadId: group.threadId, message: m, copyText: attachedImages?.display ?? m.text ?? "", user }
+            : null;
         const detectedOptions =
           !user && !streaming && m.kind === "text" ? detectChatOptions(m.text ?? "") : null;
         const answeredChoice = detectedOptions ? laterUserAnswer(transcript, m.id) : null;
@@ -486,6 +493,29 @@ const Transcript = memo(function Transcript({
               data-orbit-message={user ? "user" : "bot"}
               className={cn("group flex w-full flex-col outline-none", user ? "items-end" : "items-start")}
               tabIndex={-1}
+              onContextMenu={menuTarget ? (e) => {
+                if (isTouchPrimary() || !(e.target instanceof Element)) return;
+                const kind = contextClickKind(e.target, e.clientX, e.clientY);
+                if (kind === "native") return;
+                e.preventDefault();
+                e.stopPropagation();
+                onMessageMenu(kind === "selection"
+                  ? { kind, x: e.clientX, y: e.clientY, opener: e.currentTarget, text: window.getSelection()?.toString() ?? "" }
+                  : { kind, x: e.clientX, y: e.clientY, opener: e.currentTarget, target: menuTarget });
+              } : undefined}
+              onKeyDown={menuTarget ? (e) => {
+                if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+                if (e.target instanceof Element && keepsNativeMenu(e.target)) return;
+                e.preventDefault();
+                const rect = e.currentTarget.getBoundingClientRect();
+                onMessageMenu({
+                  kind: "message",
+                  x: rect.left + rect.width / 2,
+                  y: rect.top + rect.height / 2,
+                  opener: e.currentTarget,
+                  target: menuTarget,
+                });
+              } : undefined}
             >
               <div
                 data-orbit-message-body
@@ -1136,6 +1166,13 @@ export function GroupView({ group }: { group: Group }) {
     `group:${group.id}:${group.threadId}`,
     group.messages,
   );
+  const [menu, setMenu] = useState<MessageMenuRequest | null>(null);
+  // Same instance can show another thread without a click outside the menu.
+  const [menuThread, setMenuThread] = useState(group.threadId);
+  if (menuThread !== group.threadId) {
+    setMenuThread(group.threadId);
+    setMenu(null);
+  }
   const membersTriggerRef = useRef<HTMLButtonElement>(null);
   const closeMembers = useCallback(() => setMembersOpen(false), []);
   useEffect(() => {
@@ -1668,6 +1705,13 @@ export function GroupView({ group }: { group: Group }) {
           if (!shouldFocusComposerOnTranscriptClick(e.target, e, window.getSelection()?.isCollapsed ?? true, e.currentTarget)) return;
           focusComposer();
         }}
+        onContextMenu={(e) => {
+          // rows above open their own menu; this catches a selection in the gaps
+          if (e.defaultPrevented || isTouchPrimary() || !(e.target instanceof Element)) return;
+          if (contextClickKind(e.target, e.clientX, e.clientY) !== "selection") return;
+          e.preventDefault();
+          setMenu({ kind: "selection", x: e.clientX, y: e.clientY, opener: e.currentTarget, text: window.getSelection()?.toString() ?? "" });
+        }}
       >
         {setupPending ? (
           <div
@@ -1726,6 +1770,7 @@ export function GroupView({ group }: { group: Group }) {
             dock={dock}
             onReply={selectReply}
             onFocusComposer={focusComposer}
+            onMessageMenu={setMenu}
             workers={rowWorkers}
           />
           {laterCount > 0 && (
@@ -1759,6 +1804,12 @@ export function GroupView({ group }: { group: Group }) {
         </div>
         )}
       </div>
+
+      {menu?.kind === "message" ? (
+        <MessageMenu x={menu.x} y={menu.y} opener={menu.opener} target={menu.target} onReply={selectReply} onClose={() => setMenu(null)} />
+      ) : menu ? (
+        <SelectionMenu x={menu.x} y={menu.y} opener={menu.opener} text={menu.text} onClose={() => setMenu(null)} />
+      ) : null}
 
       {(jump.messages || laterCount > 0 || (!follow && newestBelow)) && (
         <button
