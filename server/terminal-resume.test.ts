@@ -45,7 +45,13 @@ describe("terminal resume route", () => {
     const f = fixture(state);
     const result = await f.post();
     expect(result).toMatchObject({ status: 201, body: { resumed: true, messageId: expect.any(String) } });
-    expect(f.rows().map((row) => row.text)).toEqual([`Resumed ${LABEL}\nLabel: ${LABEL}\nWorking folder: C:\\repo\nSession: ${PANE}`]);
+    expect(f.rows()[0]?.text?.split("\n").slice(0, 4)).toEqual([
+      `Resumed ${LABEL}`,
+      `Label: ${LABEL}`,
+      `Working folder: C:\\repo`,
+      `Session: ${PANE}`,
+    ]);
+    expect(f.rows()[0]?.text?.split("\n")[4]).toMatch(/^Submitted: \d+$/);
     expect(f.stateNow()).toBe("working");
     expect(f.fetchImpl).toHaveBeenCalledWith(`${ACCESS.url}/v1/bots/${f.bot.id}/terminal?sessionId=${PANE}`, expect.objectContaining({
       headers: { authorization: `Bearer ${terminalReadGrant(ACCESS.token, f.bot.id)}` },

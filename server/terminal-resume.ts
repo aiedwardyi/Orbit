@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { latestPaneRun, workerRuns } from "../src/lib/worker-runs.ts";
-import { launchNoteFor } from "./launch-note.ts";
+import { latestPaneRun, samePaneRun, workerRuns } from "../src/lib/worker-runs.ts";
+import { launchNoteFor, submittedResumeText } from "./launch-note.ts";
 import type { requestCredentials } from "./phone-auth.ts";
 import { apiRequestAuthorized } from "./remote-access.ts";
 import type { Store } from "./store.ts";
@@ -40,6 +40,7 @@ export async function terminalResumeResponse(
   if (!parsed.success) return { status: 400, body: { error: "sessionId is required" } };
   const { sessionId } = parsed.data;
   const threadId = bot.threadId;
+  const submittedAt = Date.now();
   const settled = latestRun(store, threadId, sessionId);
   const note = await launchNoteFor(context.access, botId, sessionId, true, fetchImpl);
   if ("error" in note) {
@@ -52,11 +53,10 @@ export async function terminalResumeResponse(
   if (parsed.data.afterMessageId && settled.messageIds.at(-1) !== parsed.data.afterMessageId) {
     return { status: 200, body: { resumed: false } };
   }
-  const current = latestRun(store, threadId, sessionId);
   // A report or another resume can arrive while the bridge snapshot is pending.
-  if (!current || current.id !== settled.id || current.messageIds.at(-1) !== settled.messageIds.at(-1) || current.latest.at !== settled.latest.at || current.latest.index !== settled.latest.index) {
+  if (!samePaneRun(settled, latestRun(store, threadId, sessionId))) {
     return { status: 200, body: { resumed: false } };
   }
-  const message = store.appendMessage(threadId, { role: "bot", kind: "launch", text: note.text });
+  const message = store.appendMessage(threadId, { role: "bot", kind: "launch", text: submittedResumeText(note.text, submittedAt) });
   return { status: 201, body: { resumed: true, messageId: message.id } };
 }

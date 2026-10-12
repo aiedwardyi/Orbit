@@ -82,6 +82,15 @@ export function latestPaneRun(runs: readonly WorkerRun[], sessionId: string): Wo
   return listedRuns(runs.map((run) => ({ run, state: run.state })), new Set([sessionId]))[0]?.run;
 }
 
+/** True when the pane's run is still the one captured before a snapshot await. */
+export function samePaneRun(before: WorkerRun | undefined, after: WorkerRun | undefined): boolean {
+  if (!before || !after) return before === after;
+  return before.id === after.id
+    && before.messageIds.at(-1) === after.messageIds.at(-1)
+    && before.latest.at === after.latest.at
+    && before.latest.index === after.latest.index;
+}
+
 export function shownState(run: WorkerRun, livePanes: Set<string> | null): WorkerShownState {
   if (!livePanes || run.state === "done" || run.state === "failed") return run.state;
   const live = run.sessionId ? livePanes.has(run.sessionId) : run.pane8 ? [...livePanes].some((id) => id.startsWith(run.pane8!)) : true;
@@ -145,7 +154,10 @@ export function workerRuns(messages: readonly WorkerMessage[], older: readonly W
       // A follow-up is not a leading launch, so the row stays where it is.
       if (resumed) {
         run.messageIds.push(message.id);
-        events.get(run)!.push({ at: message.at, index, state: "working", resume: true });
+        const submitted = field("Submitted");
+        const parsed = submitted && /^\d{1,16}$/.test(submitted) ? Number(submitted) : Number.NaN;
+        // The row can land after the report; order it by when the line was submitted.
+        events.get(run)!.push({ at: Number.isSafeInteger(parsed) ? parsed : message.at, index, state: "working", resume: true });
         return;
       }
       // a launch after its notes in the transcript still leads, so the row sits at the launch
