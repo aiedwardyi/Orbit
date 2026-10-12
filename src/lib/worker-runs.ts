@@ -51,6 +51,14 @@ export function byUrgency<T extends { run: WorkerRun; state: WorkerShownState }>
   return URGENCY[a.state] - URGENCY[b.state] || a.run.at - b.run.at;
 }
 
+/** Live panes in any state. Unknown liveness keeps today's working and waiting runs. */
+export function listedRuns<T extends { run: WorkerRun; state: WorkerShownState }>(runs: readonly T[], livePanes: ReadonlySet<string> | null): T[] {
+  const listed = livePanes
+    ? runs.filter((shown) => shown.run.sessionId !== null && livePanes.has(shown.run.sessionId))
+    : runs.filter((shown) => shown.state === "working" || shown.state === "waiting");
+  return listed.slice().sort(byUrgency);
+}
+
 export function shownState(run: WorkerRun, livePanes: Set<string> | null): WorkerShownState {
   if (!livePanes || run.state === "done" || run.state === "failed") return run.state;
   const live = run.sessionId ? livePanes.has(run.sessionId) : run.pane8 ? [...livePanes].some((id) => id.startsWith(run.pane8!)) : true;

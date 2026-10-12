@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Message } from "@/state/store";
-import { byUrgency, parseWorkerLabel, shownState, workerProvider, workerRuns } from "./worker-runs";
+import { byUrgency, listedRuns, parseWorkerLabel, shownState, workerProvider, workerRuns } from "./worker-runs";
 
 const BOT = "61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b";
 const PANE = "5d09c0d0-2844-43b0-982e-88305df70570";
@@ -193,5 +193,27 @@ describe("byUrgency", () => {
     ]);
     const sorted = runs.map((run) => ({ run, state: shownState(run, null) })).sort(byUrgency);
     expect(sorted.map((r) => r.run.nick)).toEqual(["D", "C", "A", "E", "B"]);
+  });
+});
+
+describe("listedRuns", () => {
+  const runs = () => workerRuns([
+    launch("a", 1, "WORK | Opus 5.5 | high", "aaaaaaaa-1"),
+    launch("b", 2, "WAIT | Opus 5.5 | high", "bbbbbbbb-1"),
+    note("bn", 3, STALLED, "WAIT | Opus 5.5 | high", "bbbbbbbb-1"),
+    launch("c", 4, "COPY | Opus 5.5 | high", "cccccccc-1"),
+    note("cn", 5, report("DONE", "COPY"), "COPY | Opus 5.5 | high", "cccccccc-1"),
+    launch("d", 6, "SHIP | Opus 5.5 | high", "dddddddd-1"),
+    note("dn", 7, report("FAIL", "SHIP"), "SHIP | Opus 5.5 | high", "dddddddd-1"),
+  ]).map((run) => ({ run, state: shownState(run, null) }));
+
+  it("keeps every live pane, including a done one, and drops a closed working pane", () => {
+    const listed = listedRuns(runs(), new Set(["bbbbbbbb-1", "cccccccc-1", "dddddddd-1"]));
+    expect(listed.map((shown) => shown.run.nick)).toEqual(["WAIT", "SHIP", "COPY"]);
+  });
+
+  it("falls back to working and waiting when liveness is unknown", () => {
+    const listed = listedRuns(runs(), null);
+    expect(listed.map((shown) => shown.run.nick)).toEqual(["WAIT", "WORK"]);
   });
 });

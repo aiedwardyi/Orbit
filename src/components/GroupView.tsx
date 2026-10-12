@@ -42,7 +42,7 @@ import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
-import { WorkerRow, WorkerStrip, useWorkerRows, type ShownRun } from "./WorkerRows";
+import { WorkerRow, WorkerChip, useWorkerRows, type ShownRun } from "./WorkerRows";
 import { shownState, workerRuns } from "@/lib/worker-runs";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
@@ -1470,7 +1470,7 @@ export function GroupView({ group }: { group: Group }) {
       {/* Header: static member mauses; a ring + dot marks the working bot. */}
       <div
         className={cn(
-          "flex items-center justify-between px-5 py-3",
+          "@container/chathead flex items-center justify-between px-5 py-3",
           // Room for the drawer button, which overlays this corner below md.
           sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT,
         )}
@@ -1515,6 +1515,7 @@ export function GroupView({ group }: { group: Group }) {
               </span>
             </button>
           )}
+          <WorkerChip name={group.name} runs={workers} livePanes={null} />
         </div>
       </div>
 
@@ -1770,7 +1771,6 @@ export function GroupView({ group }: { group: Group }) {
           busy={roomRecoveryBusy(group, recoveryBot.busy)}
         />
       )}
-      <WorkerStrip name={group.name} runs={workers} />
       <Composer
         key={group.threadId}
         group={group}

@@ -198,9 +198,11 @@ describe("paged transcripts", () => {
     await vi.waitFor(() => expect(host.querySelector('[data-mid="old-hit"]')).not.toBeNull());
     expect(host.querySelector("[data-worker-run] [data-worker-state]")?.getAttribute("data-worker-state")).toBe("done");
     const strip = host.querySelector<HTMLButtonElement>("[data-worker-strip]")!;
-    expect(strip.getAttribute("aria-label")).toBe("1 working, 0 waiting. Show workers");
+    expect(strip.closest("[class*='@container/chathead']")).not.toBeNull();
+    // JOB's launch is only on the jumped page, so the chip run has no session id and stays off the list.
+    expect(strip.getAttribute("aria-label")).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers");
     await act(async () => strip.click());
-    expect(Array.from(document.querySelectorAll("[data-worker-list] li")).map((li) => li.textContent)).toEqual(["CURRENTscript●Working", "JOBscript✓Done"]);
+    expect(Array.from(document.querySelectorAll("[data-worker-list] li")).map((li) => li.textContent)).toEqual(["CURRENTscript●Working"]);
     await act(async () => host.querySelector<HTMLButtonElement>("[data-worker-run] > button")!.click());
     expect(host.textContent).toContain("UNIQUE_REPORT_final");
   });
