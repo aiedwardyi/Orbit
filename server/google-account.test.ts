@@ -148,9 +148,16 @@ describe("google account", () => {
       WINK_GOOGLE_WEB_CLIENT_ID: " web-id ",
       OMB_GOOGLE_ACCOUNT_TOKEN: JSON.stringify(SESSION),
     };
-    expect(takeGoogleEnv(env)).toEqual({ client: { id: "id", secret: "secret" }, webClientId: "web-id", session: SESSION });
+    expect(takeGoogleEnv(env)).toEqual({ client: { id: "id", secret: "secret" }, webClientId: "web-id", teamRelay: null, teamOwner: null, session: SESSION });
     expect(env).toEqual({});
-    expect(takeGoogleEnv({ WINK_GOOGLE_CLIENT_ID: "id", OMB_GOOGLE_ACCOUNT_TOKEN: "{bad" })).toEqual({ client: null, webClientId: null, session: null });
+    expect(takeGoogleEnv({ WINK_GOOGLE_CLIENT_ID: "id", OMB_GOOGLE_ACCOUNT_TOKEN: "{bad", WINK_TEAM_RELAY: " wink.example ", WINK_TEAM_OWNER: " abc " })).toEqual({
+      client: null,
+      webClientId: null,
+      teamRelay: "wink.example",
+      teamOwner: "abc",
+      session: null,
+    });
+    expect(takeGoogleEnv({})).toEqual({ client: null, webClientId: null, teamRelay: null, teamOwner: null, session: null });
   });
 
   it("holds the newest ID token from sign-in or refresh, and drops it on sign-out", async () => {

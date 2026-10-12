@@ -87,6 +87,8 @@ jobs:
           WINK_GOOGLE_CLIENT_ID: ${{ secrets.WINK_GOOGLE_CLIENT_ID }}
           WINK_GOOGLE_CLIENT_SECRET: ${{ secrets.WINK_GOOGLE_CLIENT_SECRET }}
           WINK_GOOGLE_WEB_CLIENT_ID: ${{ vars.WINK_GOOGLE_WEB_CLIENT_ID }}
+          WINK_TEAM_RELAY: ${{ vars.WINK_TEAM_RELAY }}
+          WINK_TEAM_OWNER: ${{ vars.WINK_TEAM_OWNER }}
         run: node scripts/write-google-client.mjs
       - run: pnpm package:win
       - name: Verify the packaged tree and start the packaged server

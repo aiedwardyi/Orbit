@@ -24,11 +24,13 @@ export function googleClient(env, readBaked) {
   const id = env.WINK_GOOGLE_CLIENT_ID?.trim();
   const secret = env.WINK_GOOGLE_CLIENT_SECRET?.trim();
   const webId = env.WINK_GOOGLE_WEB_CLIENT_ID?.trim();
-  if (id && secret) return withWebId({ id, secret }, webId);
+  const teamRelay = env.WINK_TEAM_RELAY?.trim();
+  const teamOwner = teamOwnerHash(env.WINK_TEAM_OWNER);
+  if (id && secret) return withExtras({ id, secret }, webId, teamRelay, teamOwner);
   try {
     const baked = readBaked();
     if (typeof baked?.id === "string" && baked.id && typeof baked?.secret === "string" && baked.secret) {
-      return withWebId({ id: baked.id, secret: baked.secret }, baked.webId);
+      return withExtras({ id: baked.id, secret: baked.secret }, baked.webId, baked.teamRelay, baked.teamOwner);
     }
   } catch {
     // No baked client: a self-built copy keeps sign-in hidden.
@@ -36,8 +38,15 @@ export function googleClient(env, readBaked) {
   return null;
 }
 
-function withWebId(client, webId) {
+function teamOwnerHash(email) {
+  const value = email?.trim().toLowerCase();
+  return value ? createHash("sha256").update(value).digest("hex") : "";
+}
+
+function withExtras(client, webId, teamRelay, teamOwner) {
   if (webId) client.webId = String(webId);
+  if (teamRelay) client.teamRelay = String(teamRelay);
+  if (teamOwner) client.teamOwner = String(teamOwner);
   return client;
 }
 
@@ -46,6 +55,8 @@ export function googleServerEnv(client) {
   if (!client) return {};
   const env = { WINK_GOOGLE_CLIENT_ID: client.id, WINK_GOOGLE_CLIENT_SECRET: client.secret };
   if (client.webId) env.WINK_GOOGLE_WEB_CLIENT_ID = client.webId;
+  if (client.teamRelay) env.WINK_TEAM_RELAY = client.teamRelay;
+  if (client.teamOwner) env.WINK_TEAM_OWNER = client.teamOwner;
   return env;
 }
 

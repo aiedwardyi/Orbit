@@ -149,6 +149,12 @@ export const SECTION_PHRASE_KEYS = {
   usage: [
     "settings.section.usage",
   ],
+  team: [
+    "settings.section.team",
+    "team.total",
+    "team.empty",
+    "team.hoursOpen",
+  ],
   "models-index": [
     "settings.section.modelsIndex",
     "modelIndex.subtitle",
@@ -183,6 +189,7 @@ const EXTRA_KEYWORDS = {
   companion: [],
   computer: ["vm", "virtual", "desktop"],
   usage: ["tokens", "cost", "billing"],
+  team: ["teammates", "team"],
   "models-index": ["benchmark", "benchmarks", "intelligence", "coding", "agentic", "legal", "price", "compare", "벤치마크"],
 } as const satisfies Record<AppSettingsSection, readonly string[]>;
 

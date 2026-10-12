@@ -1,0 +1,166 @@
+// @vitest-environment happy-dom
+import { act, createElement, Fragment, useEffect } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { I18nProvider } from "@/lib/i18n";
+import { StoreProvider, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
+import { SettingsModal } from "./SettingsModal";
+
+const config: ConfigStatus = {
+  composio: { configured: false },
+  gemini: { configured: false },
+  box: { configured: false },
+  vps: { configured: false, sshAlias: "" },
+  rooms: { turnTimeoutMinutes: 5 },
+  localVm: { mode: "shared", maxInstances: 1 },
+  profile: { name: "Edward", email: "" },
+  features: { skillRecorder: false, showToolCalls: false },
+};
+
+const days = Array.from({ length: 14 }, (_, index) => {
+  const date = new Date(Date.UTC(2026, 8, 17 + index));
+  return date.toISOString().slice(0, 10);
+});
+const zeros = Array.from({ length: 14 }, () => 0);
+const phone = zeros.map(() => ({ count: 0, minutes: 0 }));
+const now = Date.parse("2026-10-12T12:00:00Z");
+
+function peopleStats(people: unknown[]) {
+  return { now, days, pcs: [], people };
+}
+
+const ownerStats = peopleStats([
+  {
+    id: "ada",
+    name: "Ada",
+    online: true,
+    lastSeen: now,
+    pcs: [
+      { label: "aaaaaaaaaaaaaaaa", name: "Field", online: true },
+      { label: "bbbbbbbbbbbbbbbb", name: "Studio", online: false },
+    ],
+    hours: [...zeros.slice(0, 7), 1, 1, 1, 1, 1, 1, 1.5],
+    phone,
+  },
+  {
+    id: "bea",
+    name: "Bea",
+    online: false,
+    lastSeen: now - 3 * 60 * 60 * 1000,
+    pcs: [{ label: "cccccccccccccccc", name: "Spare", online: false }],
+    hours: [...zeros.slice(0, 13), 1],
+    phone,
+  },
+]);
+
+class FakeEventSource {
+  onmessage = null;
+  close() {}
+}
+
+function SettingsView({ section }: { section: AppSettingsSection }) {
+  const { state, dispatch } = useStore();
+  useEffect(() => {
+    dispatch({ type: "configStatus", config });
+    dispatch({ type: "toggleAppSettings", open: true, section });
+  }, [dispatch, section]);
+  return createElement(Fragment, null, state.appSettingsOpen && createElement(SettingsModal), createElement("output", null, state.appSettingsSection));
+}
+
+describe("Team settings", () => {
+  let host: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+  let signedIn = true;
+  let teamStatus = 200;
+  let teamBody = ownerStats;
+
+  beforeEach(() => {
+    signedIn = true;
+    teamStatus = 200;
+    teamBody = ownerStats;
+    vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+      if (path === "/api/google-account") return Response.json(signedIn ? { state: "signed-in", email: "owner@example.com" } : { state: "signed-out" });
+      if (path === "/api/google-sync") return Response.json({ state: "signed-out" });
+      if (path === "/api/phone-relay/status") return Response.json({ configured: false, available: false });
+      if (path === "/api/remote-link") return Response.json({ url: null });
+      if (path === "/api/key-uses") return Response.json({ uses: {} });
+      if (path === "/api/team") return Response.json(teamBody, { status: teamStatus });
+      return Response.json({ error: "no route" }, { status: 404 });
+    }));
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("ogb", undefined);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    localStorage.setItem("omb-locale", "en");
+    host = document.body.appendChild(document.createElement("div"));
+    root = createRoot(host);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  async function render(section: AppSettingsSection = "account") {
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(StoreProvider, null, createElement(SettingsView, { section })))));
+  }
+
+  function labels() {
+    return [...host.querySelectorAll("nav button")].map((button) => button.getAttribute("aria-label"));
+  }
+
+  it("shows Team after Usage for the owner, with one card per person", async () => {
+    await render();
+    await vi.waitFor(() => expect(labels()).toContain("Team"));
+    expect(labels()).toEqual(["Account", "General", "Connections", "Themes", "Usage", "Team", "Model index", "Shortcuts"]);
+    const team = [...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "Team");
+    await act(async () => team!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await vi.waitFor(() => expect(host.textContent).toContain("Ada"));
+    expect(host.textContent).toContain("Team · 8.5h in 7 days · 1 online");
+    expect(host.textContent).toContain("Online · 2 PCs");
+    expect(host.textContent).toContain("Bea");
+    expect(host.textContent).toContain("3h ago");
+    expect(host.querySelector("[title='Hours Wink was open']")).not.toBeNull();
+    const bar = host.querySelector("article button");
+    await act(async () => bar!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(host.textContent).toContain("online");
+  });
+
+  it("shows an empty team when the owner has no teammates", async () => {
+    teamBody = peopleStats([]);
+    await render();
+    await vi.waitFor(() => expect(labels()).toContain("Team"));
+    const team = [...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "Team");
+    await act(async () => team!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await vi.waitFor(() => expect(host.textContent).toContain("No teammates yet."));
+    expect(team!.getAttribute("aria-current")).toBe("page");
+    expect([...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "General")!.getAttribute("aria-current")).toBeNull();
+  });
+
+  it("says Phone 0 when today had no phone sessions", async () => {
+    await render();
+    await vi.waitFor(() => expect(labels()).toContain("Team"));
+    const team = [...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "Team");
+    await act(async () => team!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await vi.waitFor(() => expect(host.textContent).toContain("Ada"));
+    expect(host.textContent).toContain("Phone 0");
+    expect(host.textContent).not.toContain("Phone -");
+  });
+
+  it("hides Team when the server says not owner", async () => {
+    teamStatus = 403;
+    await render();
+    await vi.waitFor(() => expect(vi.mocked(fetch).mock.calls.some((call) => call[0] === "/api/team")).toBe(true));
+    expect(labels()).not.toContain("Team");
+  });
+
+  it("hides Team with no Google session", async () => {
+    signedIn = false;
+    await render();
+    await vi.waitFor(() => expect(vi.mocked(fetch).mock.calls.some((call) => call[0] === "/api/google-account")).toBe(true));
+    expect(labels()).not.toContain("Team");
+    expect(vi.mocked(fetch).mock.calls.some((call) => call[0] === "/api/team")).toBe(false);
+  });
+});

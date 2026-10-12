@@ -3,7 +3,7 @@
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
 import { useEffect, useRef, useState } from "react";
-import { ChartScatter, ChevronDown, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Settings, Smartphone, Terminal, User, X } from "lucide-react";
+import { ChartScatter, ChevronDown, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Settings, Smartphone, Terminal, User, Users, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { builtInBrowserEnabled, detailedRepliesEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
@@ -25,6 +25,7 @@ import { LocalComputerSection } from "./LocalComputerSection";
 import { ProfileFields } from "./ProfileFields";
 import { Card } from "./SettingsPrimitives";
 import { UsageSection } from "./UsageSection";
+import { TeamSection, type TeamView } from "./TeamSection";
 import { ModelIndexSection } from "./ModelIndexSection";
 import { SkinPicker } from "./SkinPicker";
 import { GeometryPicker } from "./GeometryPicker";
@@ -57,6 +58,7 @@ const SECTIONS: Array<{
   { id: "connections", icon: KeyRound },
   { id: "themes", icon: Palette, shortcut: "Alt+T" },
   { id: "usage", icon: Coins, shortcut: "Alt+U" },
+  { id: "team", icon: Users },
   { id: "models-index", icon: ChartScatter, shortcut: "Alt+I" },
   { id: "shortcuts", icon: Keyboard },
   { id: "engines", icon: Terminal },
@@ -74,6 +76,7 @@ const SECTION_KEY = {
   companion: "settings.section.companion",
   computer: "settings.section.computer",
   usage: "settings.section.usage",
+  team: "settings.section.team",
   "models-index": "settings.section.modelsIndex",
   sync: "settings.section.sync",
 } as const;
@@ -506,15 +509,45 @@ export function SettingsModal({
   const phoneAvailable = phoneSettingsAvailable(capabilities.host);
   const advancedShown = showSettingsAdvancedControls(advancedOpen);
   const moreServicesShown = showSettingsMoreServices(moreServicesOpen);
-  const visibleSections = SECTIONS.filter((entry) => sectionNavVisible(entry, q, phoneAvailable));
+  const [teamOwner, setTeamOwner] = useState(false);
+  const [teamStats, setTeamStats] = useState<TeamView | null>(null);
+  const sectionShown = (entry: (typeof SECTIONS)[number]) => (entry.id !== "team" || teamOwner) && sectionNavVisible(entry, q, phoneAvailable);
+  const visibleSections = SECTIONS.filter(sectionShown);
 
   useEffect(() => {
     if (closing) return;
-    const visible = SECTIONS.filter((entry) => sectionNavVisible(entry, q, phoneAvailable));
+    let gone = false;
+    void (async () => {
+      try {
+        const account = await api("/api/google-account");
+        const email = account?.state === "signed-in" && account.email ? String(account.email) : "";
+        if (!email) throw new Error("session");
+        const body = await api("/api/team");
+        const people = body?.people;
+        const days = body?.days;
+        const now = Number(body?.now);
+        if (!Array.isArray(people) || !Array.isArray(days) || !Number.isFinite(now)) throw new Error("team");
+        if (gone) return;
+        setTeamOwner(true);
+        setTeamStats({ now, days, people });
+      } catch {
+        if (gone) return;
+        setTeamOwner(false);
+        setTeamStats(null);
+      }
+    })();
+    return () => {
+      gone = true;
+    };
+  }, [closing]);
+
+  useEffect(() => {
+    if (closing) return;
+    const visible = SECTIONS.filter(sectionShown);
     if (visible.some((entry) => entry.id === section)) return;
     const first = visible[0];
     if (first) dispatch({ type: "toggleAppSettings", open: true, section: first.id });
-  }, [closing, dispatch, phoneAvailable, q, section]);
+  }, [closing, dispatch, phoneAvailable, q, section, teamOwner]);
 
   useEffect(() => {
     if (closing) return;
@@ -770,6 +803,7 @@ export function SettingsModal({
             {showSettingsAdvancedSection() && section === "computer" && <LocalComputerSection />}
 
             {section === "usage" && <UsageSection />}
+            {section === "team" && teamStats && <TeamSection stats={teamStats} />}
             {section === "models-index" && <ModelIndexSection />}
             {section === "shortcuts" && <KeyboardShortcuts />}
           </div>

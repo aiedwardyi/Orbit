@@ -19,6 +19,7 @@ import {
   newNonce,
   isControlMessage,
   isDataMessage,
+  authMessageSchema,
   relayMessageSchema,
   publicKeyFromRaw,
   rawPublicKey,
@@ -193,6 +194,14 @@ describe("message validation", () => {
 
   it("exports the ALPN ids", () => {
     expect([ALPN_CONTROL, ALPN_DATA, ALPN_ACME]).toEqual(["wink-ctl/1", "wink-data/1", "acme-tls/1"]);
+  });
+
+  it("accepts a wink name and still auths against the 1.0.172 schema", () => {
+    const msg = { type: "auth" as const, label: "l", pk: "p", ticket: "t", sig: "s", name: "Desk", person: "Ada" };
+    expect(authMessageSchema.parse(msg)).toMatchObject({ person: "Ada", name: "Desk" });
+    expect(authMessageSchema.safeParse({ ...msg, person: "x".repeat(65) }).success).toBe(false);
+    const relay172 = authMessageSchema.omit({ person: true });
+    expect(relay172.parse(msg)).not.toHaveProperty("person");
   });
 });
 

@@ -301,6 +301,7 @@ import { PhoneAccess } from "./phone-access.ts";
 import { postPhoneKeepAwake, type PhoneKeepAwakeMessage } from "./phone-keep-awake.ts";
 import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
 import { GoogleAccount, applyGoogleAccountMessage, googleAccountRoute, takeGoogleEnv } from "./google-account.ts";
+import { teamRoute } from "./team-route.ts";
 import { createGoogleSync, googleSyncRoute } from "./google-sync.ts";
 import type { PublicPhone } from "./phone-devices.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
@@ -510,6 +511,7 @@ const phoneAccess: PhoneAccess = new PhoneAccess({
     idToken: () => googleAccount.idToken(),
     freshIdToken: () => googleAccount.freshIdToken(),
     name: () => deviceDisplayName(deviceName, process.env.ORBIT_DEVICE_NAME, osHostname()),
+    person: () => (cfg.profile?.name ?? "").trim(),
   },
 });
 postPhoneKeepAwake(phoneAccess, utilityParentPort);
@@ -9969,6 +9971,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && path === "/api/google-account") {
       return json(res, 200, googleAccount.status());
     }
+    if (method === "GET" && path === "/api/team") {
+      const reply = await teamRoute(phoneAccess.base(), googleEnv.teamRelay, googleEnv.teamOwner, googleAccount.owner()?.email ?? null, googleAccount);
+      return json(res, reply.status, reply.body);
+    }
     const googleSyncReply = await googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk }, googleSync);
     if (googleSyncReply) return json(res, googleSyncReply.status, googleSyncReply.body);
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
@@ -10039,6 +10045,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const check = await tts.verifyKey(newTts.key.trim());
         if (!check.ok) return json(res, 400, { error: check.message });
       }
+      const previousPerson = (cfg.profile?.name ?? "").trim();
       if (externalSecretStorage) {
         // The packaged Electron caller commits supplied credentials to the
         // OS-encrypted store before entering this route. Persist every
@@ -10066,6 +10073,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         syncCredentialEnv(patch);
         Object.assign(cfg, loadConfig());
       }
+      if ((cfg.profile?.name ?? "").trim() !== previousPerson) phoneAccess.nameChanged();
       // Provider keys update their instances. Other settings need no reload.
       const reloadKeys = Object.keys(patch).filter(
         (key) =>
