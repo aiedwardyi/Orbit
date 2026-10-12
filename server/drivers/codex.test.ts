@@ -276,6 +276,20 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(threadStart.params).toMatchObject({ model: "gpt-6-sol", modelProvider: "openai" });
   });
 
+  it("names commandExecution Bash and webSearch WebSearch", async () => {
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-verb", text: "list files" });
+    await recorder.until((event) => event.type === "turn.completed");
+    expect(recorder.events.find((event) => event.type === "item.started" && event.itemId === "i1")).toMatchObject({
+      title: "ls -la",
+      verb: "Bash",
+    });
+    expect(recorder.events.find((event) => event.type === "item.started" && event.itemId === "w1")).toMatchObject({
+      title: "web_search",
+      verb: "WebSearch",
+    });
+  });
+
   it("turns on live web search for the app-server spawn and thread/start", async () => {
     await create();
     const dump = join(scratch, "search-on.json");

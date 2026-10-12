@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, SquareTerminal, X } from "lucide-react";
+import { Bot, ChevronRight, ScrollText, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
@@ -39,10 +39,10 @@ export function useWorkerRows(workers: ShownRun[], messages: Message[]) {
 }
 
 function WorkerMark({ provider }: { provider: string | null }) {
-  // brand marks stay untinted; only the script glyph takes the ink color
+  // brand marks stay untinted; only the script and unknown-model glyphs take the ink color
   return (
     <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-hairline/40 bg-raised">
-      {provider && provider !== "script" ? <ProviderMark driverKind={provider} size={14} /> : <SquareTerminal size={14} className="text-ink-secondary" aria-hidden />}
+      {provider === "script" ? <ScrollText size={14} className="text-ink-secondary" aria-hidden /> : provider ? <ProviderMark driverKind={provider} size={14} /> : <Bot size={14} className="text-ink-secondary" aria-hidden />}
     </span>
   );
 }
@@ -302,11 +302,11 @@ export function WorkerChip({ name, runs, livePanes = null, onOpenTerminalPane }:
         aria-label={t("workers.stripAria", counts)}
         className="relative flex shrink-0 items-center whitespace-nowrap"
       >
-        <span data-worker-chip-desktop className="hidden items-center -space-x-1.5 md:flex @max-4xl/chathead:!hidden">
-          {face.map((shown, index) => (
-            <Mark key={shown.run.id} {...shown} className={index === 0 ? "z-30" : index === 1 ? "z-20" : "z-10"} />
+        <span data-worker-chip-desktop className="hidden items-center gap-1 md:flex @max-4xl/chathead:!hidden">
+          {face.map((shown) => (
+            <Mark key={shown.run.id} {...shown} />
           ))}
-          {more > 0 && <span aria-hidden className="relative z-10 ml-2 text-[12px] text-ink-secondary">+{more}</span>}
+          {more > 0 && <span aria-hidden className="ml-2 text-[12px] text-ink-secondary">+{more}</span>}
         </span>
         <span data-worker-chip-phone className="relative flex items-center gap-0.5 md:hidden @max-4xl/chathead:!flex">
           <Mark {...first} />

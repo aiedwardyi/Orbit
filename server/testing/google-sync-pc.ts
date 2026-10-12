@@ -1,10 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parentPort, workerData } from "node:worker_threads";
 import { z } from "zod";
 
 import { closeMessageDb } from "../message-db.ts";
+import { writeDeviceRecord } from "../device-sync.ts";
 import {
   applySyncOperations, bindSyncId, createSyncOperation, emptyProfileSyncState, loadOrCreateSyncWorkspace, loadProfileSyncSettings,
   markImported, markSynced, planProfileImport, readSyncOperations, saveProfileSyncSettings, unsyncedChanges, writeSyncOperation,
@@ -18,8 +19,8 @@ import { workspaceDir } from "../workspace.ts";
 
 export interface ChatSpec { title: string; rows: number; pictureAges?: number[] }
 export interface BotSpec { name: string; memory?: string; chats?: ChatSpec[] }
-export interface ReportBot { name: string; syncId: string | null; chats: string[]; memory: string | null; pictures: string }
-export interface TestArgs { bots?: BotSpec[]; bot?: string; to?: string; chat?: ChatSpec; folder?: string | null }
+export interface ReportBot { name: string; syncId: string | null; chats: string[]; rows: string[]; memory: string | null; pictures: string }
+export interface TestArgs { bots?: BotSpec[]; bot?: string; to?: string; text?: string; chat?: ChatSpec; folder?: string | null }
 export type TestResult = ReportBot[] | boolean | undefined;
 
 const { dataDir } = z.object({ dataDir: z.string() }).parse(workerData);
@@ -89,6 +90,7 @@ function syncProfile(folder: string): void {
   importProfile(folder);
   publishProfile(folder);
   for (const bot of store.bots) if (settings.botMap[bot.id]) syncBotMemory(folder, settings.botMap[bot.id]!, workspaceDir(bot.id), ledger);
+  writeDeviceRecord(folder, { deviceId: settings.deviceId, name: "Test PC", host: "test.example.ts.net", chatSync: 2 }, Date.now());
   save();
 }
 
@@ -125,6 +127,7 @@ function report(): ReportBot[] {
       name: bot.name,
       syncId: settings.botMap[bot.id] ?? null,
       chats: tasks.map((task) => `${task.title}:${store.messagesFor(task.threadId).length}`).sort(),
+      rows: tasks.map((task) => `${task.title}:${createHash("sha256").update(JSON.stringify(store.messagesFor(task.threadId).map(({ role, kind, text, image }) => ({ role, kind, text, image })))).digest("hex")}`).sort(),
       memory: existsSync(memory) ? readFileSync(memory, "utf8") : null,
       pictures: `${present.length}/${images.length}`,
     };
@@ -151,8 +154,20 @@ async function run(method: string, args: TestArgs): Promise<TestResult> {
     case "rename":
       store.patchBot(store.bots.find((bot) => bot.name === args.bot)!.id, { name: args.to! });
       return;
+    case "memory": {
+      const bot = store.bots.find((bot) => bot.name === args.bot)!;
+      mkdirSync(workspaceDir(bot.id), { recursive: true });
+      writeFileSync(join(workspaceDir(bot.id), "MEMORY.md"), args.text!);
+      return;
+    }
+    case "append": {
+      const bot = store.bots.find((bot) => bot.name === args.bot)!;
+      const task = store.tasks(bot.id).find((task) => task.title === args.chat!.title)!;
+      for (let i = 0; i < args.chat!.rows; i++) store.appendMessage(task.threadId, { role: "user", kind: "text", text: `during upload ${i}`, at: Date.now() + i });
+      return;
+    }
     case "folder":
-      // PUT /api/profile-sync then chats on, or DELETE (Disconnect).
+      // First folder sync, or DELETE (Disconnect). Does not clear a bot map.
       if (args.folder) {
         mkdirSync(args.folder, { recursive: true });
         settings.workspaceId = loadOrCreateSyncWorkspace(args.folder, settings.workspaceId);
@@ -161,8 +176,32 @@ async function run(method: string, args: TestArgs): Promise<TestResult> {
       } else settings.folder = null;
       save();
       return;
+    case "putFolder": {
+      // index.ts PUT /api/profile-sync. A workspace change clears the bot map, then start() runs before maintenance mints ids.
+      mkdirSync(args.folder!, { recursive: true });
+      const workspaceId = loadOrCreateSyncWorkspace(args.folder!, settings.workspaceId);
+      if (workspaceId !== settings.workspaceId) {
+        settings = { ...settings, workspaceId, botMap: {}, sectionMap: {}, reviewedResolutions: {}, seenCheckpoint: "", syncedHashes: {} };
+      } else if (settings.folder !== args.folder) {
+        settings = { ...settings, reviewedResolutions: {}, seenCheckpoint: "" };
+      }
+      settings.folder = args.folder!;
+      save();
+      const sync = settings.syncChats ? chats() : null;
+      sync?.start();
+      if (sync) {
+        await sync.poll();
+        while (sync.republishing()) await new Promise((done) => setTimeout(done, 5));
+      }
+      return;
+    }
     case "republish":
+      // index.ts activate mints bot sync ids, then republishes chats under them.
+      if (settings.folder && settings.syncChats) syncProfile(settings.folder);
       chats()?.republish();
+      return chats()?.republishing() ?? false;
+    case "start":
+      chats()?.start();
       return chats()?.republishing() ?? false;
     case "pass": {
       // One app pass: the v2 poll runs the profile and memory maintenance, then every thread flushes.

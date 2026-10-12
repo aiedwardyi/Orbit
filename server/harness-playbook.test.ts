@@ -24,6 +24,13 @@ describe("harness playbook", () => {
     expect(prompt).toContain("end with one INTEGRATE card");
   });
 
+  it("keeps workers small, fresh and on high effort", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("finishes under about 200k tokens of context");
+    expect(prompt).toContain("A new task gets a FRESH worker");
+    expect(prompt).toContain("Default workers to high effort");
+  });
+
   it("fills the worktree path from the configured root", () => {
     const prompt = loadHarnessPlaybook(undefined, join("D:", "wt"));
     expect(prompt).toContain(join("D:", "wt", "<name>"));

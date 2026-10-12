@@ -29,3 +29,39 @@ export function applyZoomShortcut(webContents, input) {
     return false;
   }
 }
+
+const imageZoomOwners = new Set();
+const savedWindowZoom = new Map();
+
+export function setImageZoomOwned(webContentsId, owned, currentLevel) {
+  if (owned) {
+    if (!imageZoomOwners.has(webContentsId)) {
+      savedWindowZoom.set(webContentsId, Number.isFinite(currentLevel) ? currentLevel : 0);
+    }
+    imageZoomOwners.add(webContentsId);
+    return;
+  }
+  imageZoomOwners.delete(webContentsId);
+  savedWindowZoom.delete(webContentsId);
+}
+
+/** Puts back the zoom level from when the viewer claimed the keys. */
+export function restoreWindowZoom(webContents) {
+  if (!webContents || !imageZoomOwners.has(webContents.id)) return false;
+  const saved = savedWindowZoom.get(webContents.id);
+  if (saved === undefined) return false;
+  try {
+    if (webContents.getZoomLevel() === saved) return false;
+    webContents.setZoomLevel(saved);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function routeZoomShortcut(webContents, input) {
+  const action = zoomShortcut(input);
+  if (!action || !webContents) return null;
+  if (imageZoomOwners.has(webContents.id)) return { target: "image", action };
+  return applyZoomShortcut(webContents, input) ? { target: "window", action } : null;
+}

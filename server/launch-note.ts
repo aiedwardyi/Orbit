@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { latestPaneRun, samePaneRun, workerRuns } from "../src/lib/worker-runs.ts";
 import { redactSecretsInText } from "./redact.ts";
+import type { Store } from "./store.ts";
 import { terminalSnapshotResponse, type TerminalBridgeAccess } from "./terminal-snapshot.ts";
 
 // oxlint-disable-next-line no-control-regex -- pane labels and folders come back from the terminal bridge
@@ -38,6 +40,35 @@ export async function launchNoteFor(
     `Session: ${line(String(snapshot.body.sessionId ?? "")) || line(sessionId)}`,
   ].join("\n");
   return { text: redactSecretsInText(text) };
+}
+
+export function submittedResumeText(text: string, submittedAt: number): string {
+  return `${text}\nSubmitted: ${submittedAt}`;
+}
+
+type LaunchCommit = {
+  access: TerminalBridgeAccess | null;
+  botId: string;
+  threadId: string;
+  activePath: Store["activePath"];
+  appendMessage: (threadId: string, text: string) => { id: string };
+};
+
+/** A resumed row is skipped when the pane's run changed during the snapshot. */
+export async function commitLaunchNote(
+  input: LaunchCommit,
+  sessionId: string,
+  resumed: boolean,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ error: "Unknown terminal" | "main terminal" } | { skipped: true } | { messageId: string }> {
+  const submittedAt = Date.now();
+  const reads = () => latestPaneRun(workerRuns(input.activePath(input.threadId)), sessionId);
+  const settled = resumed ? reads() : undefined;
+  const note = await launchNoteFor(input.access, input.botId, sessionId, resumed, fetchImpl);
+  if ("error" in note) return note;
+  if (resumed && !samePaneRun(settled, reads())) return { skipped: true };
+  const message = input.appendMessage(input.threadId, resumed ? submittedResumeText(note.text, submittedAt) : note.text);
+  return { messageId: message.id };
 }
 
 export async function launchNoteText(

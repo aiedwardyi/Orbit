@@ -35,7 +35,7 @@ describe("failed tool chip", () => {
   });
 
   it("explains itself in plain words on hover", () => {
-    expect(chip).toContain('title={failed ? t("chat.stepDidNotComplete") : undefined}');
+    expect(chip).toContain('title={failed ? t("chat.stepDidNotComplete") : approvalHover(notices, t)}');
   });
 
   it("flickers Saving to memory then the one-line summary", () => {

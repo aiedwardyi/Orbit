@@ -277,6 +277,11 @@ type SkillRecordingPayload = {
       setUnreadCount?(count: number): void;
       /** Windows taskbar progress while any bot turn is running. */
       setTaskbarBusy?(busy: boolean): void;
+      /** Open image preview takes Ctrl/Cmd +/-/0 until it closes. */
+      imageZoom?: {
+        own(owned: boolean): void;
+        onShortcut(cb: (action: "in" | "out" | "reset") => void): () => void;
+      };
       /** Asks the main process to fire a native toast. */
       showNotification?(payload: {
         title: string;

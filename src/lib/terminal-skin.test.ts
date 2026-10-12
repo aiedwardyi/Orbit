@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { TERM_STEP_WORD, termElapsed, termMeter, termResultLine, termStepAria, termVerb } from "./terminal-skin";
+import { TERM_STEP_WORD, termBlock, termElapsed, termHeaderArgs, termMeter, termResultLine, termStepAria, termUpdatedLine, termVerb } from "./terminal-skin";
 import { en, ko } from "./i18n-catalog";
+import { applyLocale, t } from "./i18n";
 
 describe("termVerb", () => {
   it("maps tool names to Claude Code verbs across engines", () => {
@@ -14,9 +15,39 @@ describe("termVerb", () => {
     expect(termVerb("Agent")).toBe("Task");
   });
 
+  it.each([
+    ["commandExecution", "Bash"],
+    ["fileChange", "Update"],
+    ["webSearch", "Web Search"],
+    ["bash", "Bash"],
+    ["read", "Read"],
+    ["edit", "Update"],
+    ["write", "Write"],
+    ["grep", "Grep"],
+    ["find", "Glob"],
+    ["ls", "List"],
+    ["run_command", "Bash"],
+    ["view_file", "Read"],
+    ["write_to_file", "Write"],
+    ["replace_file_content", "Update"],
+    ["multi_replace_file_content", "Update"],
+    ["grep_search", "Grep"],
+    ["find_by_name", "Glob"],
+    ["list_dir", "List"],
+    ["search_web", "Web Search"],
+    ["read_url_content", "Fetch"],
+  ])("maps the driver tool name %s to %s", (name, verb) => {
+    expect(termVerb(name)).toBe(verb);
+  });
+
   it("keeps names it does not know", () => {
     expect(termVerb("Bash")).toBe("Bash");
     expect(termVerb("browser_click")).toBe("browser_click");
+  });
+
+  it("reads an MCP call as server, tool, and MCP", () => {
+    expect(termVerb("mcp__agents__update_task_state")).toBe("agents - update_task_state (MCP)");
+    expect(termVerb("mcp__computer__click")).toBe("computer - click (MCP)");
   });
 });
 
@@ -36,6 +67,68 @@ describe("termResultLine", () => {
   it("takes its words from the catalogs", () => {
     expect(Object.values(TERM_STEP_WORD).map((key) => en[key])).toEqual(["Running…", "Done", "Failed"]);
     expect(Object.values(TERM_STEP_WORD).map((key) => ko[key])).toEqual(["실행 중…", "완료", "실패"]);
+  });
+});
+
+describe("termHeaderArgs", () => {
+  it("heads Bash, Update and Write with the captured command or path", () => {
+    expect(termHeaderArgs("Bash", "git st", { input: "git status" })).toBe("git status");
+    expect(termHeaderArgs("Update", "a.ts +1 -1", { input: "a.ts" })).toBe("a.ts");
+    expect(termHeaderArgs("Write", "a.ts", undefined)).toBe("a.ts");
+  });
+
+  it("keeps the summary for other tools", () => {
+    expect(termHeaderArgs("Fetch", "example.com", { input: '{"url":"https://example.com"}' })).toBe("example.com");
+    expect(termHeaderArgs("mcp_tool", undefined, { input: '{"q":1}' })).toBe('{"q":1}');
+  });
+
+  it("falls back to the step name when a verb has no captured input", () => {
+    expect(termHeaderArgs("Bash", undefined, undefined, "git status")).toBe("git status");
+    expect(termHeaderArgs("Update", undefined, undefined, "src/a.ts")).toBe("src/a.ts");
+    expect(termHeaderArgs("Bash", "git st", { input: "git status" }, "git status")).toBe("git status");
+    expect(termHeaderArgs("Bash", undefined, undefined)).toBeUndefined();
+  });
+});
+
+describe("termBlock", () => {
+  it("keeps the Done line without output", () => {
+    expect(termBlock(undefined, false)).toBeNull();
+    expect(termBlock({ input: "a.ts" }, false)).toBeNull();
+    expect(termBlock({ input: "ls", output: [] }, true)).toBeNull();
+  });
+
+  it("hides secret output", () => {
+    expect(termBlock({ input: "env", outputHidden: true }, false)).toEqual({ kind: "hidden" });
+  });
+
+  it("counts a whole diff and tones its rows", () => {
+    expect(termBlock({ input: "a.ts", diff: ["-a", "+b", "+c"] }, false)).toEqual({
+      kind: "lines",
+      rows: [{ text: "- a", tone: "remove" }, { text: "+ b", tone: "add" }, { text: "+ c", tone: "add" }],
+      changes: { additions: 2, removals: 1 },
+    });
+  });
+
+  it("counts nothing when lines were cut", () => {
+    expect(termBlock({ input: "a.ts", diff: ["+a"], more: 3 }, false)).toEqual({ kind: "lines", rows: [{ text: "+ a", tone: "add" }], more: 3 });
+    expect(termBlock({ output: ["+a"] }, false)).toEqual({ kind: "lines", rows: [{ text: "+a" }] });
+  });
+
+  it("draws a failure's output", () => {
+    expect(termBlock({ input: "x", output: ["boom"], more: 2 }, true)).toEqual({ kind: "lines", rows: [{ text: "boom" }], more: 2 });
+  });
+});
+
+describe("termUpdatedLine", () => {
+  it("names only the changes that happened", () => {
+    applyLocale("en");
+    expect(termUpdatedLine(t, "a.ts", { additions: 2, removals: 1 })).toBe("Updated a.ts with 2 additions and 1 removal");
+    expect(termUpdatedLine(t, "a.ts", { additions: 1, removals: 0 })).toBe("Updated a.ts with 1 addition");
+    expect(termUpdatedLine(t, "a.ts", { additions: 0, removals: 3 })).toBe("Updated a.ts with 3 removals");
+    expect(termUpdatedLine(t, "a.ts", { additions: 0, removals: 0 })).toBeUndefined();
+    applyLocale("ko");
+    expect(termUpdatedLine(t, "a.ts", { additions: 2, removals: 1 })).toBe("a.ts 수정: 2줄 추가, 1줄 삭제");
+    applyLocale("en");
   });
 });
 

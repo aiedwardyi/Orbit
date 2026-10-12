@@ -653,7 +653,16 @@ const playTurn = (prompt: JsonValue) => {
 
   // bench-quiet is a text-only fixture for latency calibration: same usage
   // figures, no tool_use, so a no-tool workload measures a no-tool turn.
-  const quiet = mode === "bench-quiet";
+  const toolFixture = process.env.FAKE_CLAUDE_TOOL_FIXTURE;
+  if (toolFixture) {
+    const steps: Array<{ name: string; input: unknown; content?: unknown; is_error?: boolean }> = JSON.parse(readFileSync(toolFixture, "utf8"));
+    for (const [index, step] of steps.entries()) {
+      const id = `tu-detail-${index}`;
+      out({ type: "assistant", message: { content: [{ type: "tool_use", id, name: step.name, input: step.input }] } });
+      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, content: step.content, is_error: step.is_error ?? false }] } });
+    }
+  }
+  const quiet = mode === "bench-quiet" || Boolean(toolFixture);
   out({
     type: "assistant",
     message: {

@@ -11,11 +11,13 @@
 // and falls back to a fresh thread/start. After Orbit compaction the
 // harness omits resumeCursor and injects the bounded transcript instead.
 import { homedir } from "node:os";
+import { z } from "zod";
 
 import { applyCredentialAllowlist } from "../config.ts";
 import { computerProxyEnv } from "../container-computer.ts";
 import { describeSpawnFailure, execCli, spawnCli } from "../procs.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
+import { captureToolDetail } from "../tool-detail.ts";
 
 import type {
   DriverCreateInput,
@@ -44,6 +46,35 @@ import { cachedSignIn } from "./auth-status.ts";
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
 const DRIVER_KIND = "codex";
+
+const toolItemSchema = z.object({
+  type: z.enum(["commandExecution", "fileChange", "mcpToolCall", "webSearch"]),
+  status: z.string().optional(),
+  command: z.string().nullish(),
+  aggregatedOutput: z.string().nullish(),
+  exitCode: z.number().nullish(),
+  changes: z.array(z.object({ path: z.string(), kind: z.object({ type: z.enum(["add", "delete", "update"]) }), diff: z.string() })).optional(),
+  arguments: z.unknown().optional(),
+  query: z.string().optional(),
+  result: z.object({ content: z.array(z.object({ type: z.string(), text: z.string().optional() })) }).nullish(),
+  error: z.object({ message: z.string() }).nullish(),
+});
+
+function codexToolDetail(item: z.infer<typeof toolItemSchema>, isError: boolean) {
+  return captureToolDetail({
+    name: item.type,
+    input: item.changes?.map((change) => change.path).join(", ") || item.query,
+    paths: item.changes?.map((change) => change.path),
+    rawInput: item.arguments,
+    command: item.command ?? undefined,
+    output: item.error?.message ?? item.aggregatedOutput ?? item.result?.content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n"),
+    edits: item.changes?.flatMap((change) => change.kind.type === "add"
+      ? [{ oldText: "", newText: change.diff }]
+      : change.kind.type === "delete" ? [{ oldText: change.diff, newText: "" }] : []),
+    patches: item.changes?.filter((change) => change.kind.type === "update").map((change) => change.diff),
+    isError,
+  });
+}
 
 export interface CodexConfig {
   cli: string;
@@ -487,7 +518,18 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                     : item.type === "webSearch"
                       ? "web_search"
                       : null;
-            if (title) emit({ ...base(threadId, turnId), type: "item.started", itemType: "tool", itemId: item.id, title });
+            const verb =
+              item.type === "commandExecution" ? "Bash"
+              : item.type === "fileChange" ? "Edit"
+              : item.type === "webSearch" ? "WebSearch"
+              : undefined;
+            if (title) {
+              const started: Extract<RuntimeEvent, { type: "item.started" }> = {
+                ...base(threadId, turnId), type: "item.started", itemType: "tool", itemId: item.id, title,
+              };
+              if (verb) started.verb = verb;
+              emit(started);
+            }
             break;
           }
           case "item/completed": {
@@ -502,13 +544,19 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                 emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: item.text });
               }
             } else if (["commandExecution", "fileChange", "mcpToolCall", "webSearch"].includes(item.type)) {
-              emit({
+              const parsed = toolItemSchema.safeParse(item);
+              const ok = item.status !== "failed" && item.status !== "declined"
+                && !(parsed.success && parsed.data.type === "commandExecution" && parsed.data.exitCode != null && parsed.data.exitCode !== 0);
+              const event: Extract<RuntimeEvent, { type: "item.completed"; itemType: "tool" }> = {
                 ...base(threadId, turnId),
                 type: "item.completed",
                 itemType: "tool",
                 itemId: item.id,
-                ok: item.status !== "failed" && item.status !== "declined",
-              });
+                ok,
+              };
+              const detail = parsed.success ? codexToolDetail(parsed.data, !ok) : undefined;
+              if (detail) event.detail = detail;
+              emit(event);
             } else if (item.type === "reasoning") {
               emit({ ...base(threadId, turnId), type: "item.updated", itemType: "reasoning", tokens: null });
             }

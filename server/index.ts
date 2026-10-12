@@ -187,6 +187,7 @@ import {
   type Message,
   type TaskRecord,
 } from "./store.ts";
+import { completedTool } from "./tool-activity.ts";
 import {
   clearTaskBlockers,
   foldCompletedNextAction,
@@ -236,7 +237,8 @@ import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
 import { botClosedPanes, paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
-import { launchNoteFor } from "./launch-note.ts";
+import { commitLaunchNote } from "./launch-note.ts";
+import { terminalResumeResponse } from "./terminal-resume.ts";
 import { MailboxAutoDedup, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
@@ -1741,10 +1743,10 @@ const groupWithThread = (group: GroupRecord) => ({
 store.onChange((change) => {
   switch (change.type) {
     case "message":
-      broadcast({ kind: "message", threadId: change.threadId, message: flagShownImage(change.message), ...(change.imported ? { imported: true } : {}) });
+      broadcast({ kind: "message", threadId: change.threadId, message: clientMessage(change.message), ...(change.imported ? { imported: true } : {}) });
       break;
     case "message.patch":
-      broadcast({ kind: "message.patch", threadId: change.threadId, message: flagShownImage(change.message) });
+      broadcast({ kind: "message.patch", threadId: change.threadId, message: clientMessage(change.message) });
       break;
     case "thread":
       broadcast({ kind: "thread", threadId: change.threadId, activeLeafId: change.activeLeafId });
@@ -2143,7 +2145,7 @@ const googleSync = createGoogleSync({
     ensureSyncV2Identity(profileSyncSettings.deviceId);
   },
   unusedBots: () => store.bots.filter((bot) => !botTalkedTo(bot.id)).map((bot) => bot.id),
-  activate: (mirror) => {
+  activate: (mirror, move) => {
     if (profileSyncSettings.folder !== mirror) {
       profileSyncSettings.reviewedResolutions = {};
       profileSyncSettings.seenCheckpoint = "";
@@ -2152,9 +2154,11 @@ const googleSync = createGoogleSync({
     profileSyncSettings.folder = mirror;
     profileSyncSettings.syncChats = true;
     profileSyncSettings.syncedHashes = syncedInFolder(profileSyncSettings.syncedHashes, mirror);
+    // Chats republish under these ids. A cleared map would leave them on the old ones.
+    for (const bot of profileSyncBots()) syncBotId(bot.id);
     profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
     syncAllThreads();
-    threadSyncV2?.republish();
+    if (!move) threadSyncV2?.republish();
     return profileSyncSettings.workspaceId;
   },
   republishing: () => threadSyncV2?.republishing() ?? false,
@@ -3083,19 +3087,10 @@ bus.subscribe((event: RuntimeEvent) => {
           : undefined;
         let toolName = "tool";
         if (messageId) {
-          // the whole tool object is replaced, so carry `spoken` across —
-          // dropping it here would silently un-narrate every completed tool
           const existing = store.messagesFor(event.threadId).find((m) => m.id === messageId)?.tool;
           toolName = existing?.name ?? "tool";
-          const summary = event.summary ?? existing?.summary;
           store.patchMessage(event.threadId, messageId, {
-            tool: {
-              name: toolName,
-              ok: event.ok,
-              spoken: existing?.spoken,
-              ...(summary ? { summary } : {}),
-              ...(typeof event.durationMs === "number" ? { durationMs: event.durationMs } : {}),
-            },
+            tool: completedTool(existing, event),
           });
           toolMessageByItem.delete(itemKey);
         }
@@ -3142,10 +3137,14 @@ bus.subscribe((event: RuntimeEvent) => {
         // narration is folded in here, once, so call mode can read the
         // chip aloud without re-deriving it — and so the phrase a user
         // hears and the chip they see can never drift apart
+        const tool: NonNullable<Message["tool"]> = {
+          name, spoken: narrateTool(name) ?? undefined, ...(event.summary ? { summary: event.summary } : {}),
+        };
+        if (event.verb) tool.verb = event.verb;
         const message = pushMessage({
           role: "bot",
           kind: "activity",
-          tool: { name, spoken: narrateTool(name) ?? undefined, ...(event.summary ? { summary: event.summary } : {}) },
+          tool,
         });
         if (event.itemId) toolMessageByItem.set(`${event.threadId}:${event.itemId}`, { messageId: message.id, turnId: event.turnId });
       }
@@ -4000,7 +3999,7 @@ const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. For a video, audio or other file, link its absolute path in markdown, like [clip.mp4](C:\\path\\clip.mp4) or, when the path contains spaces, in angle brackets like [clip.mp4](<C:\\My Files\\clip.mp4>), so the user can open it with one click. Never end with only a file path. To create a new image, call generate_image.";
 
 const ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS =
-  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in a short visible message (for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put answers, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you.";
+  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you.";
 const REPLY_STYLE_INSTRUCTIONS =
   " Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. After tool work, close with a short standalone summary of what you did and found. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
 const ALWAYS_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS + REPLY_STYLE_INSTRUCTIONS;
@@ -6903,13 +6902,19 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const body = await readBody(req);
         const from = store.bot(String(body.fromBotId ?? ""));
         if (!from) return json(res, 403, { error: "unknown sender" });
-        const note = await launchNoteFor(terminalBridgeAccess, from.id, String(body.sessionId ?? ""), body.resumed === true);
+        const note = await commitLaunchNote({
+          access: terminalBridgeAccess,
+          botId: from.id,
+          threadId: from.threadId,
+          activePath: (threadId) => store.activePath(threadId),
+          appendMessage: (threadId, text) => store.appendMessage(threadId, { role: "bot", kind: "launch", text }),
+        }, String(body.sessionId ?? ""), body.resumed === true);
         if ("error" in note) {
           if (note.error === "main terminal") return json(res, 400, { error: "main terminal" });
           return json(res, 404, { error: "Unknown terminal" });
         }
-        const message = store.appendMessage(from.threadId, { role: "bot", kind: "launch", text: note.text });
-        return json(res, 201, { messageId: message.id });
+        if ("skipped" in note) return json(res, 200, { skipped: true });
+        return json(res, 201, { messageId: note.messageId });
       }
       // The show_image tool: a copy of a local image lands as a settled
       // screen message that references the attachment, never inline pixels.
@@ -9052,6 +9057,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const sent = await terminalSendResponse(terminalBridgeAccess, bot.id, await readBody(req));
       return json(res, sent.status, sent.body);
     }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/terminal\/resume$/);
+    if (m && method === "POST") {
+      const resumed = await terminalResumeResponse({ store, access: terminalBridgeAccess, credentials, cookie: req.headers.cookie }, m[1], await readBody(req));
+      return json(res, resumed.status, resumed.body);
+    }
     // ── bot memory: MEMORY.md + memory/ topic files ─────────────────────
     // The files already belong to the user (plain markdown in the bot's
     // workspace); these routes only make them visible without a trip to
@@ -9975,7 +9985,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const reply = await teamRoute(phoneAccess.base(), googleEnv.teamRelay, googleEnv.teamOwner, googleAccount.owner()?.email ?? null, googleAccount);
       return json(res, reply.status, reply.body);
     }
-    const googleSyncReply = await googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk }, googleSync);
+    const googleSyncReply = await googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk }, googleSync, () => readBody(req));
     if (googleSyncReply) return json(res, googleSyncReply.status, googleSyncReply.body);
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);

@@ -10,7 +10,9 @@ import {
   closeMessageDb,
   deleteThread,
   insertMessage,
+  messageDatabase,
   readThread,
+  replaceThread,
   scanThreadRows,
   searchMessages,
   setActiveLeaf,
@@ -48,6 +50,29 @@ describe("message-db", () => {
     const thread = readThread("t1", legacy("t1"));
     expect(thread.messages.map((m) => m.text)).toEqual(["hello, edited", "world"]);
     expect(thread.activeLeafId).toBe("m2");
+  });
+
+  it.each(["insert", "update", "sync", "replace", "legacy"])("tool detail safety scrubs a %s write before SQLite", (action) => {
+    const row = msg("private", "unchanged", { tool: { name: "Edit", detail: { input: "cert.pem", diff: ["+PartialPrivateBody987654321"] } } });
+    if (action === "insert") insertMessage("private", row);
+    else if (action === "update") {
+      insertMessage("private", { ...row, tool: undefined });
+      updateMessage("private", row);
+    } else if (action === "sync") applySyncedRows("private", [row]);
+    else if (action === "replace") replaceThread("private", [row], row.id);
+    else {
+      writeFileSync(legacy("private"), JSON.stringify([row]));
+      readThread("private", legacy("private"));
+    }
+    expect(JSON.stringify(messageDatabase().prepare("SELECT json FROM messages").all())).not.toContain("PartialPrivateBody");
+    expect(readThread("private", legacy("private")).messages[0]).toMatchObject({ text: "unchanged", tool: { detail: { input: "cert.pem", outputHidden: true } } });
+  });
+
+  it("tool detail safety scrubs older SQLite rows for reads and scans", () => {
+    const row = msg("old", "unchanged", { tool: { name: "Bash", detail: { output: ["Cookie: session=OldBoundaryCanary987654321"] } } });
+    messageDatabase().prepare("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?)").run("old", row.id, row.at, row.role, row.kind, row.text ?? null, JSON.stringify(row));
+    expect(JSON.stringify(readThread("old", legacy("old")))).not.toContain("OldBoundaryCanary");
+    expect(JSON.stringify(scanThreadRows("old"))).not.toContain("OldBoundaryCanary");
   });
 
   it("pages rows without moving an edited row or touching unchanged rows", () => {

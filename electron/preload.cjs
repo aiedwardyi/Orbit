@@ -188,6 +188,17 @@ contextBridge.exposeInMainWorld("ogb", {
   setUnreadCount: (count) => ipcRenderer.send("desktop:unread-count", count),
   /** Windows taskbar progress: indeterminate while any bot turn is running. */
   setTaskbarBusy: (busy) => ipcRenderer.send("desktop:taskbar-busy", busy === true),
+  /** Open image preview takes Ctrl/Cmd +/-/0 until it closes. */
+  imageZoom: {
+    own: (owned) => ipcRenderer.send("image-zoom:own", owned === true),
+    onShortcut: (cb) => {
+      const handler = (_event, action) => {
+        if (action === "in" || action === "out" || action === "reset") cb(action);
+      };
+      ipcRenderer.on("image-zoom:shortcut", handler);
+      return () => ipcRenderer.removeListener("image-zoom:shortcut", handler);
+    },
+  },
   /** Main-process toast. Win10 renderer Notification is silent without AUMID. */
   showNotification: (payload) => ipcRenderer.send("desktop:notify", payload),
   onNotificationClick: (cb) => {
