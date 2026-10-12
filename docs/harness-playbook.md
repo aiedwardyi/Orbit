@@ -41,6 +41,18 @@ The exact shape of its final message.
 - Evidence files: the worker regenerates them at the final sha and stamps the
   sha in each file. An earlier draft can contradict the report.
 
+## Token budget
+
+Every step re-reads the worker's whole context, so a worker gets more
+expensive the longer it runs.
+
+- Size each card so its worker finishes under about 200k tokens of context.
+  Split research or probes and the build into separate cards.
+- A new task gets a FRESH worker. Use CURRENT only for a short follow-up on
+  the same task.
+- Default workers to high effort. Save max for a hard bug or an audit: its
+  longer thinking stays in context and is re-read on every later step.
+
 ## Audit cards
 
 - Ask the auditor to walk the user's first real session end to end. That walk
