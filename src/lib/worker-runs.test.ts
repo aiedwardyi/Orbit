@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Message } from "@/state/store";
-import { byUrgency, listedRuns, parseWorkerLabel, shownState, workerProvider, workerRuns } from "./worker-runs";
+import { byUrgency, listedRuns, listedSessionId, parseWorkerLabel, shownState, workerProvider, workerRuns } from "./worker-runs";
 
 const BOT = "61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b";
 const PANE = "5d09c0d0-2844-43b0-982e-88305df70570";
@@ -215,5 +215,16 @@ describe("listedRuns", () => {
   it("falls back to working and waiting when liveness is unknown", () => {
     const listed = listedRuns(runs(), null);
     expect(listed.map((shown) => shown.run.nick)).toEqual(["WAIT", "WORK"]);
+  });
+
+  it("lists a note-only run when one live pane starts with its pane id", () => {
+    const run = workerRuns([note("n1", 5, report("BLOCKED", "OLD-JOB"), "OLD-JOB | Opus 5.5 | high", "5d09c0d0-not-loaded")])[0]!;
+    expect(run.sessionId).toBeNull();
+    const live = new Set(["5d09c0d0-not-loaded"]);
+    expect(listedRuns([{ run, state: run.state }], live).map((shown) => shown.run.nick)).toEqual(["OLD-JOB"]);
+    expect(listedSessionId(run, live)).toBe("5d09c0d0-not-loaded");
+    const both = new Set(["5d09c0d0-a", "5d09c0d0-b"]);
+    expect(listedRuns([{ run, state: run.state }], both)).toEqual([]);
+    expect(listedSessionId(run, both)).toBeNull();
   });
 });

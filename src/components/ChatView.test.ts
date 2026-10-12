@@ -367,7 +367,7 @@ describe("ChatView worker rows", () => {
       expect(desktop.querySelectorAll("svg")).toHaveLength(2);
       await act(async () => { strip.click(); });
       const list = document.body.querySelector("[data-worker-list]")!;
-      expect(list.getAttribute("role")).toBe("menu");
+      expect(list.getAttribute("role")).toBe("dialog");
       expect(list.querySelector("h2")?.textContent).toBe("A's workers");
       expect(Array.from(list.querySelectorAll("li")).map((li) => li.textContent)).toEqual([
         "GUIDEOpus 5.5‖Waiting", "BUILDGPT-6 Astra●Working",
@@ -723,8 +723,16 @@ describe("ChatView worker rows", () => {
       expect(rows(host).map((b) => b.textContent)).toEqual(["CHECKOpus 5.5✓Done", "REVIEWGPT-6.1 Sol●Working"]);
       expect(host.textContent).not.toContain("Green.");
       const chip = host.querySelector("[data-worker-strip]");
-      expect(chip?.closest("[class*='@container/chathead']")).not.toBeNull();
+      const find = host.querySelector('button[aria-label="Find in conversation"]')!;
+      if (!chip) throw new Error("chip missing");
+      expect(chip.closest("[class*='@container/chathead']")).not.toBeNull();
+      expect(chip.compareDocumentPosition(find) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
       expect(chip?.getAttribute("aria-label")).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers");
+      await act(async () => chip?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      const list = document.querySelector("[data-worker-list]");
+      expect(list).not.toBeNull();
+      expect(list?.querySelectorAll("li")).toHaveLength(1);
+      expect(list?.querySelector("button")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();

@@ -7,7 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
 import { isPhone } from "@/lib/phone-swipe";
 import type { Message } from "@/state/store";
-import { listedRuns, workerAnchors, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
+import { listedRuns, listedSessionId, workerAnchors, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
 import { ProviderMark } from "./ProviderIcons";
 
 const CHIP_LIMIT = 3;
@@ -115,31 +115,42 @@ export function WorkerRow({ run, state, live, onOpenTerminalPane, open: expanded
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function openListedPane(shown: ShownRun, onOpenTerminalPane: ((sessionId: string) => void) | undefined, onClose: () => void) {
-  if (!onOpenTerminalPane || !shown.run.sessionId) return;
-  onOpenTerminalPane(shown.run.sessionId);
-  onClose();
-}
+const ENTRY_CLASS = "flex w-full items-center gap-2.5 border-b border-hairline/40 px-3 py-2.5 text-left text-[13px] last:border-b-0";
 
-function WorkerEntries({ runs, onOpenTerminalPane, onClose }: { runs: ShownRun[]; onOpenTerminalPane?: (sessionId: string) => void; onClose: () => void }) {
+function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose }: { runs: ShownRun[]; livePanes: Set<string> | null; onOpenTerminalPane?: (sessionId: string) => void; onClose: () => void }) {
   return (
     <ul className="min-h-0 overflow-y-auto">
-      {runs.map((shown) => (
-        <li key={shown.run.id}>
-          <button
-            type="button"
-            onClick={() => openListedPane(shown, onOpenTerminalPane, onClose)}
-            className="flex w-full items-center gap-2.5 border-b border-hairline/40 px-3 py-2.5 text-left text-[13px] last:border-b-0 hover:bg-raised/40"
-          >
-            <WorkerLine {...shown} />
-          </button>
-        </li>
-      ))}
+      {runs.map((shown) => {
+        const sessionId = listedSessionId(shown.run, livePanes);
+        if (!onOpenTerminalPane || !sessionId) {
+          return (
+            <li key={shown.run.id}>
+              <div className={ENTRY_CLASS}>
+                <WorkerLine {...shown} />
+              </div>
+            </li>
+          );
+        }
+        return (
+          <li key={shown.run.id}>
+            <button
+              type="button"
+              onClick={() => {
+                onOpenTerminalPane(sessionId);
+                onClose();
+              }}
+              className={cn(ENTRY_CLASS, "hover:bg-raised/40")}
+            >
+              <WorkerLine {...shown} />
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }
 
-function WorkerList({ title, runs, onClose, onOpenTerminalPane }: { title: string; runs: ShownRun[]; onClose: () => void; onOpenTerminalPane?: (sessionId: string) => void }) {
+function WorkerList({ title, runs, livePanes, onClose, onOpenTerminalPane }: { title: string; runs: ShownRun[]; livePanes: Set<string> | null; onClose: () => void; onOpenTerminalPane?: (sessionId: string) => void }) {
   const { t } = useI18n();
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -207,7 +218,7 @@ function WorkerList({ title, runs, onClose, onOpenTerminalPane }: { title: strin
             <X size={16} />
           </button>
         </div>
-        <WorkerEntries runs={runs} onOpenTerminalPane={onOpenTerminalPane} onClose={onClose} />
+        <WorkerEntries runs={runs} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} onClose={onClose} />
       </div>
     </div>,
     document.body,
@@ -229,6 +240,7 @@ export function WorkerChip({ name, runs, livePanes = null, onOpenTerminalPane }:
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
   const listed = listedRuns(runs, livePanes);
   const phone = isPhone();
   useEffect(() => {
@@ -236,6 +248,7 @@ export function WorkerChip({ name, runs, livePanes = null, onOpenTerminalPane }:
   }, [listed.length]);
   useEffect(() => {
     if (!open || phone) return;
+    let byEscape = false;
     const onDown = (event: MouseEvent) => {
       const target = event.target;
       if (target instanceof Node && rootRef.current?.contains(target)) return;
@@ -245,6 +258,7 @@ export function WorkerChip({ name, runs, livePanes = null, onOpenTerminalPane }:
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
+      byEscape = true;
       setOpen(false);
     };
     window.addEventListener("mousedown", onDown);
@@ -252,7 +266,7 @@ export function WorkerChip({ name, runs, livePanes = null, onOpenTerminalPane }:
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey, true);
-      buttonRef.current?.focus();
+      if (byEscape) buttonRef.current?.focus();
     };
   }, [open, phone]);
   const first = listed[0];
@@ -274,7 +288,7 @@ export function WorkerChip({ name, runs, livePanes = null, onOpenTerminalPane }:
         data-worker-strip=""
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
-        aria-haspopup={phone ? "dialog" : "menu"}
+        aria-haspopup="dialog"
         aria-label={t("workers.stripAria", counts)}
         className="relative flex shrink-0 items-center whitespace-nowrap"
       >
@@ -290,16 +304,17 @@ export function WorkerChip({ name, runs, livePanes = null, onOpenTerminalPane }:
           <span aria-hidden className="absolute left-1/2 top-1/2 size-11 -translate-x-1/2 -translate-y-1/2" />
         </span>
       </button>
-      {open && phone && <WorkerList title={t("workers.title", { name })} runs={listed} onClose={close} onOpenTerminalPane={onOpenTerminalPane} />}
+      {open && phone && <WorkerList title={t("workers.title", { name })} runs={listed} livePanes={livePanes} onClose={close} onOpenTerminalPane={onOpenTerminalPane} />}
       {open && !phone && (
         <div
           data-worker-list
-          role="menu"
+          role="dialog"
+          aria-labelledby={titleId}
           className="absolute right-0 top-full z-40 mt-1 w-[300px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50"
         >
-          <h2 className="px-3 py-2 text-[15px] font-semibold text-ink">{t("workers.title", { name })}</h2>
-          <div className="max-h-[320px]">
-            <WorkerEntries runs={listed} onOpenTerminalPane={onOpenTerminalPane} onClose={close} />
+          <h2 id={titleId} className="px-3 py-2 text-[15px] font-semibold text-ink">{t("workers.title", { name })}</h2>
+          <div className="max-h-[320px] overflow-y-auto">
+            <WorkerEntries runs={listed} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} onClose={close} />
           </div>
         </div>
       )}

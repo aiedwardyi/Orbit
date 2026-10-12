@@ -180,14 +180,14 @@ export function RemoteTerminalView({
     if (next !== undefined) setSelectedPane(next);
   }, [paneHotkey]);
 
-  // A tap can land before the roster. Apply it once the pane list exists.
+  // A stale roster must not consume the tap. Apply it once that pane is listed.
   const focusedRef = useRef<typeof paneFocus>(null);
   useEffect(() => {
     if (!paneFocus || focusedRef.current === paneFocus) return;
-    if (panes.length === 0) return;
-    focusedRef.current = paneFocus;
     const match = panes.find((pane) => pane.sessionId === paneFocus.sessionId);
-    setSelectedPane(match && !match.main ? match.sessionId : null);
+    if (!match) return;
+    focusedRef.current = paneFocus;
+    setSelectedPane(match.main ? null : match.sessionId);
   }, [paneFocus, panes]);
 
   useEffect(() => {

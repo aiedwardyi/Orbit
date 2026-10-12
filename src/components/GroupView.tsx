@@ -1480,6 +1480,7 @@ export function GroupView({ group }: { group: Group }) {
           {!setupPending && !group.dm && showChannelNewTaskControl() && <GroupTaskPicker group={group} />}
         </div>
         <div className="flex min-w-0 items-center gap-1.5 max-md:gap-1">
+          <WorkerChip name={group.name} runs={workers} livePanes={null} />
           <button
             type="button"
             onClick={() => find.toggleFind()}
@@ -1515,7 +1516,6 @@ export function GroupView({ group }: { group: Group }) {
               </span>
             </button>
           )}
-          <WorkerChip name={group.name} runs={workers} livePanes={null} />
         </div>
       </div>
 

@@ -169,7 +169,10 @@ describe("WorkerChip", () => {
       opener.focus();
       await act(async () => opener.click());
       const list = host.querySelector("[data-worker-list]")!;
-      expect(list.getAttribute("role")).toBe("menu");
+      expect(list.getAttribute("role")).toBe("dialog");
+      expect(list.getAttribute("aria-modal")).toBeNull();
+      expect(opener.getAttribute("aria-haspopup")).toBe("dialog");
+      expect(list.getAttribute("aria-labelledby")).toBe(list.querySelector("h2")?.id);
       expect(list.querySelector("h2")?.textContent).toBe("Ada's workers");
       expect([...list.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
         "WAITOpus 5.5‖Waiting", "SHIPOpus 5.5!Failed", "COPYOpus 5.5✓Done",
@@ -178,7 +181,6 @@ describe("WorkerChip", () => {
       await act(async () => entry.click());
       expect(onOpen).toHaveBeenCalledWith("done-1");
       expect(host.querySelector("[data-worker-list]")).toBeNull();
-      expect(document.activeElement).toBe(opener);
     } finally {
       await unmount();
     }
@@ -228,12 +230,45 @@ describe("WorkerChip", () => {
       await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
       expect(host.querySelector("[data-worker-list]")).toBeNull();
       expect(document.activeElement).toBe(opener);
+      outside.focus();
       await act(async () => opener.click());
       await act(async () => outside.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
       expect(host.querySelector("[data-worker-list]")).toBeNull();
-      expect(document.activeElement).toBe(opener);
+      expect(document.activeElement).toBe(outside);
     } finally {
       outside.remove();
+      await unmount();
+    }
+  });
+
+  it("scrolls a desktop list of eight entries", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const runs = Array.from({ length: 8 }, (_, i) => shown(`W${i}`, "working", `s${i}`, i));
+    const { host, chip, unmount } = await mount(runs, { onOpenTerminalPane: () => {} });
+    try {
+      await act(async () => chip()!.click());
+      const list = host.querySelector("[data-worker-list]")!;
+      const scroller = [...list.querySelectorAll<HTMLElement>("*")].find((el) => el.className.includes("max-h-") && el.className.includes("overflow-y-auto"));
+      expect(scroller?.querySelectorAll("li")).toHaveLength(8);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("opens the one live pane that matches a note-only run", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const base = shown("OLD", "waiting", "ignored", 1);
+    const onOpen = vi.fn();
+    const { host, chip, unmount } = await mount(
+      [{ run: { ...base.run, sessionId: null, pane8: "abcd1234" }, state: "waiting" }],
+      { onOpenTerminalPane: onOpen, livePanes: new Set(["abcd1234-full", "zzzzzzzz-other"]) },
+    );
+    try {
+      await act(async () => chip()!.click());
+      const entry = [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("OLD"))!;
+      await act(async () => entry.click());
+      expect(onOpen).toHaveBeenCalledWith("abcd1234-full");
+    } finally {
       await unmount();
     }
   });

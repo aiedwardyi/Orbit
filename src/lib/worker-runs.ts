@@ -51,10 +51,20 @@ export function byUrgency<T extends { run: WorkerRun; state: WorkerShownState }>
   return URGENCY[a.state] - URGENCY[b.state] || a.run.at - b.run.at;
 }
 
+/** Pane this run opens. A note-only run matches when one live id starts with its pane8. */
+export function listedSessionId(run: { sessionId: string | null; pane8: string | null }, livePanes: ReadonlySet<string> | null): string | null {
+  if (run.sessionId) return !livePanes || livePanes.has(run.sessionId) ? run.sessionId : null;
+  const pane8 = run.pane8;
+  if (!livePanes || !pane8) return null;
+  const matches = [...livePanes].filter((id) => id.startsWith(pane8));
+  const [only, extra] = matches;
+  return extra === undefined ? only ?? null : null;
+}
+
 /** Live panes in any state. Unknown liveness keeps today's working and waiting runs. */
 export function listedRuns<T extends { run: WorkerRun; state: WorkerShownState }>(runs: readonly T[], livePanes: ReadonlySet<string> | null): T[] {
   const listed = livePanes
-    ? runs.filter((shown) => shown.run.sessionId !== null && livePanes.has(shown.run.sessionId))
+    ? runs.filter((shown) => listedSessionId(shown.run, livePanes) !== null)
     : runs.filter((shown) => shown.state === "working" || shown.state === "waiting");
   return listed.slice().sort(byUrgency);
 }
