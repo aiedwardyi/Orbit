@@ -236,7 +236,7 @@ import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
 import { botClosedPanes, paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
-import { launchNoteText } from "./launch-note.ts";
+import { launchNoteFor } from "./launch-note.ts";
 import { MailboxAutoDedup, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
@@ -6896,9 +6896,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const body = await readBody(req);
         const from = store.bot(String(body.fromBotId ?? ""));
         if (!from) return json(res, 403, { error: "unknown sender" });
-        const text = await launchNoteText(terminalBridgeAccess, from.id, String(body.sessionId ?? ""));
-        if (!text) return json(res, 404, { error: "Unknown terminal" });
-        const message = store.appendMessage(from.threadId, { role: "bot", kind: "launch", text });
+        const note = await launchNoteFor(terminalBridgeAccess, from.id, String(body.sessionId ?? ""), body.resumed === true);
+        if ("error" in note) {
+          if (note.error === "main terminal") return json(res, 400, { error: "main terminal" });
+          return json(res, 404, { error: "Unknown terminal" });
+        }
+        const message = store.appendMessage(from.threadId, { role: "bot", kind: "launch", text: note.text });
         return json(res, 201, { messageId: message.id });
       }
       // The show_image tool: a copy of a local image lands as a settled

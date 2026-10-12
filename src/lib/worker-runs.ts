@@ -117,19 +117,26 @@ export function workerRuns(messages: readonly Message[], older: readonly Message
     if (message.kind === "launch") {
       const [header = "", ...details] = (message.text ?? "").split("\n");
       const field = (name: string) => details.find((line) => line.startsWith(`${name}: `))?.slice(name.length + 2).trim() || null;
-      const label = field("Label") ?? header.replace(/^Launched /, "");
+      const resumed = header.startsWith("Resumed ");
+      const label = field("Label") ?? header.replace(/^(?:Launched|Resumed) /, "");
       const { nick, model } = parseWorkerLabel(label);
       const sessionId = field("Session");
       const pane8 = sessionId?.slice(0, 8) ?? null;
       const name = nick ?? pane8 ?? "pane";
       const key = pane8 ? `${botId ?? ""}:${pane8}:${name.toLowerCase()}` : message.id;
       const run = add(key, { nick: name, model, provider: workerProvider(model), at: message.at, pane8, sessionId, folder: field("Working folder"), botId });
+      run.sessionId ??= sessionId;
+      run.folder ??= field("Working folder");
+      // A follow-up is not a leading launch, so the row stays where it is.
+      if (resumed) {
+        run.messageIds.push(message.id);
+        events.get(run)!.push({ at: message.at, index, state: "working" });
+        return;
+      }
       // a launch after its notes in the transcript still leads, so the row sits at the launch
       const launched = launches.get(run) ?? 0;
       run.messageIds.splice(launched, 0, message.id);
       launches.set(run, launched + 1);
-      run.sessionId ??= sessionId;
-      run.folder ??= field("Working folder");
       run.at = Math.min(run.at, message.at);
       events.get(run)!.push({ at: message.at, index, state: "working", launch: true });
       return;

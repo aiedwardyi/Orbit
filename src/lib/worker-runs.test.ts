@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Message } from "@/state/store";
-import { byUrgency, listedRuns, listedSessionId, parseWorkerLabel, shownState, workerProvider, workerRuns } from "./worker-runs";
+import { byUrgency, listedRuns, listedSessionId, parseWorkerLabel, shownState, workerAnchors, workerProvider, workerRuns } from "./worker-runs";
 
 const BOT = "61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b";
 const PANE = "5d09c0d0-2844-43b0-982e-88305df70570";
@@ -124,6 +124,61 @@ describe("workerRuns", () => {
       ["X", null, null, "working"],
       ["5d09c0d0", null, null, "working"],
     ]);
+  });
+
+  it("a follow-up after done or failed is working until the next report", () => {
+    const resume = (id: string, at: number): Message => ({
+      id, at, role: "bot", kind: "launch",
+      text: `Resumed A | Opus 5.5 | high\nLabel: A | Opus 5.5 | high\nWorking folder: C:\\repo\nSession: ${PANE}`,
+    });
+    const done = note("n1", 2, report("DONE", "A"), "A | Opus 5.5 | high");
+    const again = note("n2", 4, report("DONE", "A", "still done"), "A | Opus 5.5 | high");
+    const working = workerRuns([launch("l1", 1, "A | Opus 5.5 | high"), done, resume("r1", 3)]);
+    expect(working).toHaveLength(1);
+    expect(working[0]).toMatchObject({ state: "working", messageIds: ["l1", "n1", "r1"] });
+    expect(working[0]!.notes.map((n) => n.id)).toEqual(["n1"]);
+    const settled = workerRuns([launch("l1", 1, "A | Opus 5.5 | high"), done, resume("r1", 3), again]);
+    expect(settled).toHaveLength(1);
+    expect(settled[0]).toMatchObject({ state: "done", messageIds: ["l1", "n1", "r1", "n2"] });
+    const failed = workerRuns([
+      launch("l1", 1, "A | Opus 5.5 | high"),
+      note("n1", 2, report("FAIL", "A"), "A | Opus 5.5 | high"),
+      resume("r1", 3),
+    ]);
+    expect(failed[0]!.state).toBe("working");
+  });
+
+  it("starts a run from a resume whose launch is not loaded, without a second row or a moved anchor", () => {
+    const resume = (id: string, at: number, session = PANE): Message => ({
+      id, at, role: "bot", kind: "launch",
+      text: `Resumed A | Opus 5.5 | high\nLabel: A | Opus 5.5 | high\nWorking folder: C:\\repo\nSession: ${session}`,
+    });
+    const alone = workerRuns([resume("r1", 5)])[0]!;
+    expect(alone).toMatchObject({ nick: "A", model: "Opus 5.5", state: "working", sessionId: PANE, messageIds: ["r1"] });
+
+    const done = note("n1", 2, report("DONE", "A"), "A | Opus 5.5 | high");
+    const followed = resume("r1", 3);
+    const loaded = workerRuns([launch("l1", 1, "A | Opus 5.5 | high"), done, followed])[0]!;
+    const withLaunch = workerAnchors([{ run: loaded }], [launch("l1", 1, "A | Opus 5.5 | high"), done, followed]);
+    expect(withLaunch.get("l1")?.run.id).toBe(loaded.id);
+    expect(withLaunch.get("r1")).toBeNull();
+
+    const paged = workerRuns([done, followed])[0]!;
+    expect(workerRuns([done, followed])).toHaveLength(1);
+    const withoutLaunch = workerAnchors([{ run: paged }], [done, followed]);
+    expect(withoutLaunch.get("n1")?.run.id).toBe(paged.id);
+    expect(withoutLaunch.get("r1")).toBeNull();
+    expect(paged.messageIds).toEqual(["n1", "r1"]);
+  });
+
+  it("stays done when a plain launch repeats after the report", () => {
+    const runs = workerRuns([
+      launch("l1", 1, "A | Opus 5.5 | high"),
+      note("n1", 2, report("DONE", "A"), "A | Opus 5.5 | high"),
+      launch("l2", 3, "A | Opus 5.5 | high"),
+    ]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ state: "done", messageIds: ["l1", "l2", "n1"] });
   });
 
   it("ignores notes without a pane and other messages", () => {

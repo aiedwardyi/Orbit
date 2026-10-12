@@ -264,6 +264,48 @@ describe("terminal proxy", () => {
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer grant");
   });
 
+  it("posts a resumed launch note for a submitted line, not a key or the main terminal", async () => {
+    const harness = { ...CONFIG, harness: "http://127.0.0.1:2", commsToken: "comms" };
+    const snap = (sessionId: string, main: boolean) => ({
+      sessionId,
+      generation: 2,
+      screenText: "ok",
+      panes: [
+        { sessionId: "main-1", generation: 1, label: null, main: true },
+        { sessionId: "p1", generation: 2, label: "worker", main: sessionId === "p1" ? main : false },
+      ],
+    });
+    const sendTo = async (fetchImpl: FetchMock, args: Parameters<typeof callTool>[3]) => {
+      vi.useFakeTimers({ toFake: ["setTimeout"] });
+      try {
+        const result = callTool("terminal_send", fetchImpl, harness, args);
+        await vi.runAllTimersAsync();
+        return await result;
+      } finally {
+        vi.useRealTimers();
+      }
+    };
+    const notes = (fetchImpl: FetchMock) => fetchImpl.mock.calls.filter(([url]) => String(url).includes("/launch-note"));
+
+    const worker = scripted(snap("p1", false));
+    expect((await sendTo(worker, { text: "echo ok\n", sessionId: "p1", generation: 2 })).isError).toBeUndefined();
+    await vi.waitFor(() => expect(notes(worker)).toHaveLength(1));
+    const [, init] = notes(worker)[0]!;
+    expect(JSON.parse(String(init?.body))).toEqual({ fromBotId: "bot-1", sessionId: "p1", resumed: true });
+
+    const typed = scripted(snap("p1", false));
+    expect((await sendTo(typed, { text: "echo ok", sessionId: "p1", generation: 2 })).isError).toBeUndefined();
+    expect(notes(typed)).toHaveLength(0);
+
+    const keyed = scripted(snap("p1", false));
+    expect((await sendTo(keyed, { key: "enter", sessionId: "p1", generation: 2 })).isError).toBeUndefined();
+    expect(notes(keyed)).toHaveLength(0);
+
+    const main = scripted(snap("main-1", true));
+    expect((await sendTo(main, { text: "echo ok\n", sessionId: "main-1", generation: 2 })).isError).toBeUndefined();
+    expect(notes(main)).toHaveLength(0);
+  });
+
   it.each([
     ["LF submits", "echo ok\n", ["echo ok", "\r"]],
     ["CRLF does not double-submit", "echo ok\r\n", ["echo ok", "\r"]],

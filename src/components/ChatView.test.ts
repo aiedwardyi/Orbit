@@ -240,6 +240,32 @@ describe("ChatView worker rows", () => {
     }
   });
 
+  it("shows a resumed worker working again on the original row", async () => {
+    stubDom();
+    const pane = "bc9c674b-2844-43b0-982e-88305df70570";
+    const resume: Message = {
+      id: "r1", at: 4, role: "bot", kind: "launch",
+      text: `Resumed A | Opus 5.5 | high\nLabel: A | Opus 5.5 | high\nWorking folder: C:\\repo\nSession: ${pane}`,
+    };
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [
+      userMsg("ua", "go"),
+      launch(pane, "A | Opus 5.5 | high"),
+      note("n1", pane, "DONE A branch=x sha=y dirty=no\nAll green.", 3, "A | Opus 5.5 | high"),
+      resume,
+    ] } as Bot;
+    const { host, unmount } = await mountChat(current);
+    try {
+      expect(rows(host)).toHaveLength(1);
+      expect(rows(host)[0]!.textContent).toBe("AOpus 5.5●Working");
+      expect(host.querySelector("[data-worker-run]")!.closest("[data-mid]")?.getAttribute("data-mid")).toBe(pane);
+      await act(async () => { rows(host)[0]!.click(); });
+      expect(host.querySelector("[data-orbit-worker]")?.textContent).toContain("All green.");
+    } finally {
+      await unmount();
+    }
+  });
+
   it("takes the newest report as the state and keeps it over a closed pane", async () => {
     stubDom();
     vi.stubGlobal("ogb", { platform: "win32", terminal: { readBot: vi.fn(async () => ({ panes: [] })) } });

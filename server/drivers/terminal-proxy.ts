@@ -335,15 +335,30 @@ async function typeIntoPane(key: unknown, keyText: string | undefined, typed: st
   return settled;
 }
 
-// Best effort: a missing chat row must never fail the spawn.
-async function postLaunchNote(fetchImpl: typeof fetch, config: TerminalConfig, sessionId: string): Promise<void> {
+// A submitted line ends in a newline. Key presses and bare typed text do not.
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Tool arguments are untyped JSON-RPC input validated here.
+function lineSubmitted(args: Record<string, unknown>): boolean {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Tool arguments are untyped model input.
+  return args.key === undefined && typeof args.text === "string" && args.text.endsWith("\n");
+}
+
+function sentToMain(snapshot: Snapshot): boolean {
+  const id = snapshot.sessionId;
+  if (!id) return false;
+  return snapshot.panes?.some((pane) => pane.main === true && pane.sessionId === id) === true;
+}
+
+// Best effort: a missing chat row must never fail the spawn or the send.
+async function postLaunchNote(fetchImpl: typeof fetch, config: TerminalConfig, sessionId: string, resumed = false): Promise<void> {
   const harness = config.harness ?? HARNESS;
   const token = config.commsToken ?? COMMS_TOKEN;
   if (!harness || !token) return;
+  const fromBotId = config.botId ?? BOT_ID;
+  const payload = resumed ? { fromBotId, sessionId, resumed: true } : { fromBotId, sessionId };
   await fetchImpl(`${harness}/api/internal/launch-note`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ fromBotId: config.botId ?? BOT_ID, sessionId }),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   }).catch(() => undefined);
 }
@@ -371,6 +386,7 @@ export async function callTool(
     }
     if (name === "terminal_send") {
       const snapshot = await sendTerminalText(args, fetchImpl, config);
+      if (lineSubmitted(args) && snapshot.sessionId && !sentToMain(snapshot)) void postLaunchNote(fetchImpl, config, snapshot.sessionId, true);
       return { content: [{ type: "text", text: terminalSnapshotText(snapshot) }] };
     }
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Tool arguments are untyped model input.
