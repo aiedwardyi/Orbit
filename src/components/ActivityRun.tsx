@@ -6,10 +6,10 @@
 import { useEffect, useState } from "react";
 import { Bot, ChevronRight, Check, FileText, Globe, Loader2, Pencil, Search, SquareTerminal, Wrench, X } from "lucide-react";
 import type { Message } from "@/state/store";
-import { describeRun, describeSearch } from "@/lib/activity-runs";
-import { useI18n } from "@/lib/i18n";
+import { classifyServerNotice, describeRun, describeSearch, type LinkedApproval } from "@/lib/activity-runs";
+import { useI18n, type Translate } from "@/lib/i18n";
 import { useSkin } from "@/lib/skins";
-import { TERM_STEP_WORD, termBlock, termHeaderArgs, termResultLine, termStepAria, termStepState, termUpdatedLine, termVerb } from "@/lib/terminal-skin";
+import { APPROVAL_WORD, TERM_STEP_WORD, termBlock, termHeaderArgs, termResultLine, termStepAria, termStepState, termUpdatedLine, termVerb } from "@/lib/terminal-skin";
 
 function StepStatus({ ok }: { ok: boolean | undefined }) {
   if (ok === undefined) return <Loader2 size={13} className="shrink-0 animate-spin" />;
@@ -30,9 +30,19 @@ function stepIcon(name: string) {
 const formatDuration = (ms: number) =>
   ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
 
+export function approvalHover(notices: LinkedApproval[] | undefined, t: Translate): string | undefined {
+  if (!notices?.length) return undefined;
+  return notices.map((notice) => t(APPROVAL_WORD[notice.label])).join(" · ");
+}
+
+function TermNotice({ text, failed }: { text: string; failed: boolean }) {
+  return <div className="term-notice" data-term-notice={failed ? "failed" : "ok"}>{text}</div>;
+}
+
 /** One step inside an open run. A running step ticks its elapsed time, then
  * settles in the same row: same key, same element, only the status swaps. */
-export function ActivityStep({ message }: { message: Message }) {
+export function ActivityStep({ message, notices }: { message: Message; notices?: LinkedApproval[] }) {
+  const { t } = useI18n();
   const terminal = useSkin() === "terminal";
   const tool = message.tool;
   const running = tool?.ok === undefined;
@@ -43,11 +53,16 @@ export function ActivityStep({ message }: { message: Message }) {
     return () => clearInterval(timer);
   }, [running]);
   if (!tool) return null;
+  const notice = classifyServerNotice(tool.name);
+  if (terminal && notice) {
+    const text = notice.kind === "approval" ? t(APPROVAL_WORD[notice.label]) : tool.name;
+    return <TermNotice text={text} failed={tool.ok === false} />;
+  }
   const Icon = stepIcon(tool.name);
   const elapsed = running ? Math.max(0, now - new Date(message.at).getTime()) : tool.durationMs;
-  if (terminal) return <TermStep name={tool.name} rawVerb={tool.verb} summary={tool.summary} ok={tool.ok} elapsed={elapsed} detail={tool.detail} />;
+  if (terminal) return <TermStep name={tool.name} rawVerb={tool.verb} summary={tool.summary} ok={tool.ok} elapsed={elapsed} detail={tool.detail} notices={notices} />;
   return (
-    <div className="flex max-w-[min(42rem,100%)] items-center gap-2 px-3 py-0.5 text-[13px] text-ink-secondary">
+    <div title={approvalHover(notices, t)} className="flex max-w-[min(42rem,100%)] items-center gap-2 px-3 py-0.5 text-[13px] text-ink-secondary">
       <Icon size={13} className="shrink-0" />
       <span className="shrink-0 text-ink">{tool.name}</span>
       {tool.summary && <span className="min-w-0 truncate font-mono text-[12px]">{tool.summary}</span>}
@@ -60,7 +75,7 @@ export function ActivityStep({ message }: { message: Message }) {
 type ToolDetail = NonNullable<Message["tool"]>["detail"];
 
 /** Claude Code's call: `● Verb(args)` over its output, or one `⎿ Done (1.2s)` line. */
-function TermStep({ name, rawVerb, summary, ok, elapsed, detail }: { name: string; rawVerb?: string; summary?: string; ok: boolean | undefined; elapsed: number | undefined; detail?: ToolDetail }) {
+function TermStep({ name, rawVerb, summary, ok, elapsed, detail, notices }: { name: string; rawVerb?: string; summary?: string; ok: boolean | undefined; elapsed: number | undefined; detail?: ToolDetail; notices?: LinkedApproval[] }) {
   const { t } = useI18n();
   const verb = termVerb(rawVerb ?? name);
   const state = termStepState(ok);
@@ -85,6 +100,7 @@ function TermStep({ name, rawVerb, summary, ok, elapsed, detail }: { name: strin
       ) : (
         <div aria-hidden="true" className="term-step-result truncate">{termResultLine(t(TERM_STEP_WORD[state]), elapsed)}</div>
       )}
+      {notices?.map((notice) => <TermNotice key={notice.message.id} text={t(APPROVAL_WORD[notice.label])} failed={false} />)}
     </div>
   );
 }

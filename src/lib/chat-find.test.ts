@@ -6,6 +6,7 @@ import {
   findSeedFor,
   highlightParts,
   paintChatFindHighlight,
+  findRowSelector,
   revealFindMatch,
   setFindCurrent,
 } from "./chat-find";
@@ -96,6 +97,14 @@ describe("current find match", () => {
     paintChatFindHighlight(root, "post");
     expect(marked("orbit-find-current")).toEqual(["b:6"]);
     expect(marked("orbit-find")).toEqual(["a:4", "b:19"]);
+  });
+
+  it("lands an approval notice on its step", () => {
+    const root = mount('<div data-mid="step" data-find-for="notice"><p id="step">Bash npm test</p><p id="line">Auto-approved</p></div>');
+    setFindCurrent({ messageId: "notice", query: "auto-approved" });
+    const range = paintChatFindHighlight(root, "auto-approved");
+    expect(range?.toString()).toBe("Auto-approved");
+    expect(findRowSelector("notice")).toBe('[data-mid="notice"], [data-find-for~="notice"]');
   });
 
   it("leaves every copy soft for a query other than the landed one", () => {

@@ -44,6 +44,11 @@ describe("termVerb", () => {
     expect(termVerb("Bash")).toBe("Bash");
     expect(termVerb("browser_click")).toBe("browser_click");
   });
+
+  it("reads an MCP call as server, tool, and MCP", () => {
+    expect(termVerb("mcp__agents__update_task_state")).toBe("agents - update_task_state (MCP)");
+    expect(termVerb("mcp__computer__click")).toBe("computer - click (MCP)");
+  });
 });
 
 describe("termResultLine", () => {

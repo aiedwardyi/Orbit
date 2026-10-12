@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { activityRunVisible, activityVisibleInChat, describeRun, describeSearch, groupActivityRuns } from "./activity-runs";
+import { activityRunVisible, activityVisibleInChat, classifyServerNotice, describeRun, describeSearch, groupActivityRuns, shownRunStep } from "./activity-runs";
 import type { Message } from "@/state/store";
 
 let seq = 0;
@@ -213,6 +213,142 @@ describe("terminal grouping", () => {
   it("leaves error chips and memory saves out of a search run", () => {
     const items = groupActivityRuns([tool("Read"), tool("error: boom", false), tool("memory.save")], true);
     expect(items.map((i) => i.kind)).toEqual(["run", "message", "message"]);
+  });
+});
+
+describe("server notices", () => {
+  const named = (id: string, name: string, summary?: string, botId?: string, verb?: string): Message => {
+    const step: NonNullable<Message["tool"]> = { name, ok: true };
+    if (summary) step.summary = summary;
+    if (verb) step.verb = verb;
+    const message: Message = { id, at: 1, role: "bot", kind: "activity", tool: step };
+    if (botId) message.from = { botId, name: botId, color: "blue" };
+    return message;
+  };
+
+  it.each([
+    ["auto-approved Bash: npm test", { kind: "approval", label: "auto", tool: "Bash", summary: "npm test" }],
+    ["auto-approved Bash:git (always allowed): git status", { kind: "approval", label: "always", tool: "Bash", summary: "git status" }],
+    ["auto-approved local-computer:Bash:git (always allowed): git status", { kind: "approval", label: "always", tool: "Bash", summary: "git status" }],
+    ["auto-approved mcp__agents__update_task_state: {\"id\":1}", { kind: "approval", label: "auto", tool: "mcp__agents__update_task_state", summary: "{\"id\":1}" }],
+    ["review approved Edit: read-only change", { kind: "approval", label: "review", tool: "Edit", summary: "read-only change" }],
+    ["@Wink is waiting on your approval", { kind: "line" }],
+    ["retrying \u2014 attempt 2/5 in 3s \u2014 connection reset", { kind: "line" }],
+    ["Same call repeated 5× \u2014 Bash: npm test \u2014 it may be stuck", { kind: "line" }],
+    ["A room member is still stopping \u2014 this message was not dispatched", { kind: "line" }],
+    ["Wink is still stopping \u2014 this message was not dispatched", { kind: "line" }],
+  ])("classifies %s", (name, notice) => {
+    expect(classifyServerNotice(name)).toEqual(notice);
+  });
+
+  it("leaves error chips, real tools, and other server lines alone", () => {
+    expect(classifyServerNotice("error: the CLI exited")).toBeNull();
+    expect(classifyServerNotice("Bash")).toBeNull();
+    expect(classifyServerNotice("memory.save")).toBeNull();
+    expect(classifyServerNotice("Auto mode couldn't answer: nope")).toBeNull();
+  });
+
+  it("hides approval notices with the other work steps", () => {
+    expect(activityVisibleInChat(named("n", "auto-approved Bash: npm test"), false)).toBe(false);
+    expect(activityVisibleInChat(named("n2", "retrying \u2014 attempt 1/5 in 1s \u2014 reset"), false)).toBe(false);
+  });
+
+  it("attaches a parallel pair in order, preferring a summary prefix", () => {
+    const items = groupActivityRuns([
+      named("a", "Bash", "npm test"),
+      named("b", "Bash", "npm test --watch"),
+      named("na", "auto-approved Bash: npm test --watch"),
+      named("nb", "auto-approved Bash: npm test"),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].kind === "run" && items[0].messages.map((message) => message.id)).toEqual(["a", "b"]);
+    const notices = items[0].kind === "run" ? items[0].notices : undefined;
+    expect(notices?.get("b")?.map((notice) => notice.message.id)).toEqual(["na"]);
+    expect(notices?.get("a")?.map((notice) => notice.message.id)).toEqual(["nb"]);
+    expect(describeRun(items[0].kind === "run" ? items[0].messages : [])).toBe("2 steps");
+  });
+
+  it("gives each of two prefix-sharing steps its own exact approval", () => {
+    const items = groupActivityRuns([
+      named("a", "Bash", "npm test"),
+      named("b", "Bash", "npm test --watch"),
+      named("na", "auto-approved Bash: npm test"),
+      named("nb", "auto-approved Bash: npm test --watch"),
+    ]);
+    const notices = items[0].kind === "run" ? items[0].notices : undefined;
+    expect(notices?.get("a")?.map((notice) => notice.message.id)).toEqual(["na"]);
+    expect(notices?.get("b")?.map((notice) => notice.message.id)).toEqual(["nb"]);
+  });
+
+  it("never attaches an approval to a step from an earlier turn", () => {
+    const user: Message = { id: "u", at: 1, role: "user", kind: "text", text: "again" };
+    const items = groupActivityRuns([
+      named("old", "Bash", "npm test"),
+      user,
+      named("orphan", "auto-approved Bash: npm test"),
+    ], true);
+    expect(items.some((item) => item.kind === "message" && item.message.id === "orphan")).toBe(true);
+    expect(items.some((item) => item.kind === "message" && (item.notices?.length ?? 0) > 0)).toBe(false);
+  });
+
+  it("gives the first unmatched step the notice when summaries do not match", () => {
+    const items = groupActivityRuns([
+      named("a", "Bash", "one"),
+      named("b", "Bash", "two"),
+      named("n1", "auto-approved Bash: nope"),
+      named("n2", "auto-approved Bash: nada"),
+    ]);
+    const notices = items[0].kind === "run" ? items[0].notices : undefined;
+    expect(notices?.get("a")?.map((notice) => notice.message.id)).toEqual(["n1"]);
+    expect(notices?.get("b")?.map((notice) => notice.message.id)).toEqual(["n2"]);
+  });
+
+  it("keeps an approval on the same bot and the same tool", () => {
+    const items = groupActivityRuns([
+      named("edit", "Edit", "a.ts", "alice"),
+      named("alice", "Bash", "pwd", "alice"),
+      named("bob-edit", "Edit", "b.ts", "bob"),
+      named("bob", "Bash", "pwd", "bob"),
+      named("notice", "auto-approved Bash: pwd", undefined, "bob"),
+    ]);
+    const bob = items.find((item) => item.kind === "run" && item.messages.some((message) => message.id === "bob"));
+    const alice = items.find((item) => item.kind === "run" && item.messages.some((message) => message.id === "alice"));
+    expect(bob?.kind === "run" && bob.notices?.get("bob")?.map((notice) => notice.label)).toEqual(["auto"]);
+    expect(bob?.kind === "run" && bob.messages.some((message) => message.id === "notice")).toBe(false);
+    expect(alice?.kind === "run" && (alice.notices?.size ?? 0)).toBe(0);
+  });
+
+  it("matches an always-allow key and a review to the step verb", () => {
+    const items = groupActivityRuns([
+      named("bash", "git status", "git status", undefined, "Bash"),
+      named("always", "auto-approved Bash:git (always allowed): git status"),
+      named("edit", "src/a.ts", "src/a.ts", undefined, "Edit"),
+      named("review", "review approved Edit: read-only"),
+    ], true);
+    const bash = items.find((item) => item.kind === "message" && item.message.id === "bash");
+    const edit = items.find((item) => item.kind === "message" && item.message.id === "edit");
+    expect(bash?.kind === "message" && bash.notices?.map((notice) => notice.label)).toEqual(["always"]);
+    expect(edit?.kind === "message" && edit.notices?.map((notice) => notice.label)).toEqual(["review"]);
+    expect(items.some((item) => item.kind === "message" && item.message.id === "always")).toBe(false);
+  });
+
+  it("keeps an approval with no step as its own row", () => {
+    const items = groupActivityRuns([
+      named("read", "Read"),
+      named("orphan", "auto-approved Bash: curl -X POST /talk"),
+      named("edit", "Edit"),
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].kind === "run" && items[0].messages.map((message) => message.tool?.name)).toEqual([
+      "Read",
+      "auto-approved Bash: curl -X POST /talk",
+      "Edit",
+    ]);
+    expect(describeRun(items[0].kind === "run" ? items[0].messages : [])).toBe("2 steps");
+    const orphan = items[0].kind === "run" ? items[0].messages[1] : named("x", "Bash");
+    expect(shownRunStep(orphan, { terminal: false, showActivities: true, findId: null })).toBe(false);
+    expect(shownRunStep(orphan, { terminal: false, showActivities: false, findId: "orphan" })).toBe(true);
+    expect(shownRunStep(items[0].kind === "run" ? items[0].messages[0] : orphan, { terminal: false, showActivities: false, findId: "orphan" })).toBe(false);
   });
 });
 

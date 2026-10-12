@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { applyLocale } from "@/lib/i18n";
 import type { Message } from "@/state/store";
 
+import type { LinkedApproval } from "@/lib/activity-runs";
+
 import { ActivityRun, ActivityStep } from "./ActivityRun";
 
 function step(name: string, summary: string | undefined, ok: boolean, durationMs: number, verb?: string): Message {
@@ -176,6 +178,72 @@ describe("ActivityStep in the Terminal skin", () => {
     const html = render("tui", createElement(ActivityStep, { message: step("Edit", "src/a.ts", true, 1200) }));
     expect(html).not.toContain("term-step");
     expect(html).toContain(">Edit</span>");
+  });
+
+  it("names an MCP call like Claude Code", () => {
+    const html = render("terminal", createElement(ActivityStep, { message: step("mcp__agents__update_task_state", undefined, true, 400) }));
+    expect(html).toContain(">agents - update_task_state (MCP)</span>");
+    expect(html).not.toContain("mcp__agents__update_task_state");
+  });
+
+  it("puts an auto-approval under its step as one dim line", () => {
+    const bash = step("Bash", "npm test", true, 800);
+    const notice: LinkedApproval = {
+      message: { ...step("auto-approved Bash: npm test", undefined, true, 0), id: "notice" },
+      label: "auto",
+      tool: "Bash",
+      summary: "npm test",
+    };
+    const html = render("terminal", createElement(ActivityStep, { message: bash, notices: [notice] }));
+    expect(html).toContain(">Bash</span>(npm test)");
+    expect(html).toContain("term-notice");
+    expect(html).toContain("Auto-approved");
+    expect(html).not.toContain("auto-approved Bash");
+    expect(html.match(/data-term-step/g)).toHaveLength(1);
+  });
+
+  it.each([
+    ["auto-approved Bash:git (always allowed): git status", "Always allowed"],
+    ["review approved Bash: looks fine", "Approved by review"],
+    ["auto-approved Bash: npm test", "Auto-approved"],
+  ] as const)("renders an orphan %s as a dim line", (name, line) => {
+    const html = render("terminal", createElement(ActivityStep, { message: step(name, undefined, true, 0) }));
+    expect(html).toContain(line);
+    expect(html).toContain("term-notice");
+    expect(html).not.toContain("term-step");
+    expect(html).not.toContain("font-semibold");
+  });
+
+  it("renders a retry and a failed stuck notice as dim lines", () => {
+    const retry = render("terminal", createElement(ActivityStep, { message: step("retrying \u2014 attempt 2/5 in 3s \u2014 reset", undefined, true, 0) }));
+    expect(retry).toContain("retrying \u2014 attempt 2/5 in 3s \u2014 reset");
+    expect(retry).toContain('data-term-notice="ok"');
+    expect(retry).not.toContain("term-step");
+    const stuck = step("Same call repeated 5× \u2014 Bash: npm test \u2014 it may be stuck", undefined, false, 0);
+    const failed = render("terminal", createElement(ActivityStep, { message: stuck }));
+    expect(failed).toContain('data-term-notice="failed"');
+    expect(failed).not.toContain("font-semibold");
+  });
+
+  it("puts the approval on the step title in other skins", () => {
+    const notice: LinkedApproval = {
+      message: { ...step("auto-approved Bash: npm test", undefined, true, 0), id: "notice" },
+      label: "auto",
+      tool: "Bash",
+      summary: "npm test",
+    };
+    const html = render("tui", createElement(ActivityStep, { message: step("Bash", "npm test", true, 800), notices: [notice] }));
+    expect(html).toContain('title="Auto-approved"');
+    expect(html).not.toContain("term-notice");
+    expect(html).not.toContain("auto-approved Bash");
+  });
+
+  it("says the approval line in Korean", () => {
+    document.documentElement.dataset.skin = "terminal";
+    applyLocale("ko");
+    const html = renderToStaticMarkup(createElement(ActivityStep, { message: step("auto-approved Bash: npm test", undefined, true, 0) }));
+    expect(html).toContain("자동 승인");
+    expect(html).not.toContain("Auto-approved");
   });
 });
 

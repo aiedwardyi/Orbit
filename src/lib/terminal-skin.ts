@@ -39,7 +39,11 @@ const VERBS = new Map([
 ]);
 
 export function termVerb(name: string): string {
-  return VERBS.get(name) ?? name;
+  const known = VERBS.get(name);
+  if (known) return known;
+  const mcp = /^mcp__([^_]+)__(.+)$/.exec(name);
+  if (mcp) return `${mcp[1]} - ${mcp[2]} (MCP)`;
+  return name;
 }
 
 export type TermStepState = "running" | "done" | "failed";
@@ -53,6 +57,12 @@ export const TERM_STEP_WORD = {
   done: "term.step.done",
   failed: "term.step.failed",
 } as const satisfies Record<TermStepState, MessageKey>;
+
+export const APPROVAL_WORD = {
+  auto: "term.notice.auto",
+  always: "term.notice.always",
+  review: "term.notice.review",
+} as const satisfies Record<"auto" | "always" | "review", MessageKey>;
 
 export function termDuration(ms: number): string {
   return ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`;
