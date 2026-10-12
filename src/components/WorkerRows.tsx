@@ -302,11 +302,11 @@ export function WorkerChip({ name, runs, livePanes = null, onOpenTerminalPane }:
         aria-label={t("workers.stripAria", counts)}
         className="relative flex shrink-0 items-center whitespace-nowrap"
       >
-        <span data-worker-chip-desktop className="hidden items-center -space-x-1.5 md:flex @max-4xl/chathead:!hidden">
-          {face.map((shown, index) => (
-            <Mark key={shown.run.id} {...shown} className={index === 0 ? "z-30" : index === 1 ? "z-20" : "z-10"} />
+        <span data-worker-chip-desktop className="hidden items-center gap-1 md:flex @max-4xl/chathead:!hidden">
+          {face.map((shown) => (
+            <Mark key={shown.run.id} {...shown} />
           ))}
-          {more > 0 && <span aria-hidden className="relative z-10 ml-2 text-[12px] text-ink-secondary">+{more}</span>}
+          {more > 0 && <span aria-hidden className="ml-2 text-[12px] text-ink-secondary">+{more}</span>}
         </span>
         <span data-worker-chip-phone className="relative flex items-center gap-0.5 md:hidden @max-4xl/chathead:!flex">
           <Mark {...first} />
