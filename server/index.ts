@@ -326,6 +326,7 @@ import {
   planProfileImport,
   profileImportDue,
   syncedDeleteChoice,
+  syncedInFolder,
   readSyncAvatarAsset,
   readSyncOperations,
   syncAvatarMatches,
@@ -2148,10 +2149,13 @@ const googleSync = createGoogleSync({
     ensureProfileSyncWorkspace(mirror);
     profileSyncSettings.folder = mirror;
     profileSyncSettings.syncChats = true;
+    profileSyncSettings.syncedHashes = syncedInFolder(profileSyncSettings.syncedHashes, mirror);
     profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
     syncAllThreads();
+    threadSyncV2?.republish();
     return profileSyncSettings.workspaceId;
   },
+  republishing: () => threadSyncV2?.republishing() ?? false,
 });
 
 /** Bots a joining PC held back stay local until someone talks to them. */

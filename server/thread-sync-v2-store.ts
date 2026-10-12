@@ -60,6 +60,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
   let queue = Promise.resolve();
   const migrationProgress = new Map<string, MigrationProgress>();
   let bytesPublished = 0;
+  let republishing = 0;
   withMessageTransaction((db) => db.exec(`
     CREATE TABLE IF NOT EXISTS sync_v2_store (
       threadId TEXT PRIMARY KEY, botId TEXT NOT NULL, botSyncId TEXT NOT NULL,
@@ -463,6 +464,23 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     flush: (threadId: string) => serial(() => flush(threadId)),
     pull: (threadId: string) => serial(() => pull(threadId)),
     poll: () => serial(poll),
+    /** Sends every sealed segment and fresh picture again; files the folder already holds are kept. */
+    republish(): void {
+      const folder = host.folder();
+      if (!host.enabled() || !folder) return;
+      const tasks = withMessageTransaction((db) => {
+        db.prepare("UPDATE sync_v2_threads SET cut = 0").run();
+        return z.array(z.object({ threadId: z.string() })).parse(db.prepare("SELECT threadId FROM sync_v2_store WHERE eligible = 1").all());
+      });
+      for (const { threadId } of tasks) {
+        publishThreadPictures({ folder, dataDir: host.dataDir, messages: host.store.messagesFor(threadId) });
+        republishing++;
+        void serial(() => flush(threadId)).then((result) => {
+          if (result === "running") schedule(threadId);
+        }, () => { retry.add(threadId); }).finally(() => { republishing--; });
+      }
+    },
+    republishing: () => republishing > 0,
     messageWriter(threadId: string, messageId: string): string | null {
       const task = stored(threadId);
       return task ? engine.variants(task, "row", messageId)[0]?.version.origin ?? null : null;

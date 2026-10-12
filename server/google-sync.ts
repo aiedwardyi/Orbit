@@ -17,8 +17,11 @@ import { PROFILE_SYNC_WORKSPACE_FILE, readSyncOperations } from "./profile-sync.
 export const GOOGLE_BINDING_FILE = "google-binding.json";
 export const GOOGLE_MIRROR_DIR = "google-drive";
 export const GOOGLE_TABLE_FILE = "google-drive-table.json";
+// Written once the engines republished into the mirror; a ready PC without it (1.0.170) republishes on resume.
+export const GOOGLE_REPUBLISHED_FILE = "google-drive-republished.json";
 const ISSUER = "https://accounts.google.com";
 const PASS_MS = 30_000;
+const REPUBLISH_MS = 1_000;
 const OPERATION_FILE = /^changes\/\d+-(.+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
 
 export type GoogleSyncState = "unavailable" | "signed-out" | "ready" | "joining" | "syncing" | "up-to-date" | "offline" | "needs-sign-in" | "blocked" | "other-account" | "folder" | "error";
@@ -63,8 +66,10 @@ type Options = {
   prepare: () => void;
   /** Local bots nobody has talked to yet. */
   unusedBots: () => string[];
-  /** Points the engines at the mirror folder with chats on; returns the workspace id. */
+  /** Points the engines at the mirror folder with chats on and republishes what it lacks; returns the workspace id. */
   activate: (mirrorPath: string) => string;
+  /** The engines are still writing what activate republished. */
+  republishing?: () => boolean;
   ownIds?: () => DriveOwnIds;
   fetch?: typeof fetch;
   now?: () => number;
@@ -108,6 +113,7 @@ export function createGoogleSync(options: Options) {
   const log = options.log ?? ((line: string) => console.warn(line));
   const passMs = options.passMs ?? PASS_MS;
   const statePath = join(dataDir, GOOGLE_TABLE_FILE);
+  const republishedPath = join(dataDir, GOOGLE_REPUBLISHED_FILE);
   const client: DriveClient = createDriveClient({ getAccessToken: () => account.getAccessToken(), fetch: options.fetch });
   const ownIds = options.ownIds ?? (() => readDriveOwnIds(dataDir));
   let binding = readGoogleBinding(dataDir);
@@ -217,6 +223,12 @@ export function createGoogleSync(options: Options) {
     timer.unref?.();
   }
 
+  function activate(mirror: string): string {
+    const workspaceId = options.activate(mirror);
+    writeFileAtomic(republishedPath, `${JSON.stringify({ version: 1 })}\n`);
+    return workspaceId;
+  }
+
   function finishJoin(bound: GoogleBinding): void {
     const ops = readSyncOperations(bound.mirrorPath).operations;
     const heldBots = ops.some((op) => op.entity === "bot") ? options.unusedBots() : [];
@@ -224,7 +236,7 @@ export function createGoogleSync(options: Options) {
     const holding = { ...bound, heldBots };
     writeGoogleBinding(dataDir, holding);
     binding = { kind: "ok", binding: holding };
-    const workspaceId = options.activate(bound.mirrorPath);
+    const workspaceId = activate(bound.mirrorPath);
     const ready: GoogleBinding = { ...holding, phase: "ready", rootId: readTable()?.binding.rootId ?? null, workspaceId };
     writeGoogleBinding(dataDir, ready);
     binding = { kind: "ok", binding: ready };
@@ -258,10 +270,11 @@ export function createGoogleSync(options: Options) {
       total = 0;
       return 0;
     }
-    catching = moved > 0 || summary.failed.length > 0 || retry.success;
+    const republishing = options.republishing?.() ?? false;
+    catching = moved > 0 || summary.failed.length > 0 || retry.success || republishing;
     if (!catching) total = 0;
     if (retry.success) return retry.data.retryAfterMs;
-    return moved > 0 ? 0 : passMs;
+    return moved > 0 ? 0 : republishing ? REPUBLISH_MS : passMs;
   }
 
   function kick(): Promise<void> {
@@ -322,10 +335,10 @@ export function createGoogleSync(options: Options) {
     /** Settles once no pass is running or due right away. */
     idle: async () => { while (running || soon) await (running ?? new Promise((done) => setTimeout(done, 1))); },
     held: (botId: string) => binding.kind === "ok" && binding.binding.heldBots.includes(botId),
-    /** A bound, ready PC whose engines lost the mirror folder points them back at it. */
+    /** A bound, ready PC whose engines lost the mirror folder, or never republished into it, points them back at it. */
     resume(): void {
       const bound = binding.kind === "ok" ? binding.binding : null;
-      if (bound?.phase === "ready" && !lost() && !options.folder()) options.activate(bound.mirrorPath);
+      if (bound?.phase === "ready" && !lost() && !folderMode() && (!options.folder() || !existsSync(republishedPath))) activate(bound.mirrorPath);
       catching = runnable() !== null;
       void kick();
     },
