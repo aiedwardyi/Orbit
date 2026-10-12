@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type WheelEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 import { ArrowLeft, ChevronDown, FolderOpen, RotateCcw, TerminalSquare, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -7,6 +7,8 @@ import type { Bot } from "@/state/store";
 import { api, useStore } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import { readTerminalMatch, terminalTheme, TERMINAL_APPEARANCE_EVENT } from "@/lib/terminal-appearance";
+import { createTerminalLineTracker } from "@/lib/terminal-input";
+import { latestPaneRun, workerRuns } from "@/lib/worker-runs";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { Presence } from "@/lib/use-presence";
@@ -50,7 +52,7 @@ export function TerminalWorkspace({
   paneHotkey,
   paneFocus,
 }: {
-  bot: Pick<Bot, "id" | "name" | "busy" | "cwd">;
+  bot: Pick<Bot, "id" | "name" | "busy" | "cwd"> & Partial<Pick<Bot, "messages">>;
   onClose: () => void;
   focusBlocked: boolean;
   visible: boolean;
@@ -73,12 +75,16 @@ export function TerminalWorkspace({
   const replacingRef = useRef(false);
   const forwardInputRef = useRef<(data: string) => void>(() => {});
   const composingRef = useRef(false);
+  const lineInputsRef = useRef(new Map<string, ReturnType<typeof createTerminalLineTracker>>());
+  const workers = useMemo(() => workerRuns(bot.messages ?? []), [bot.messages]);
+  const workersRef = useRef(workers);
   useLayoutEffect(() => {
     blockedRef.current = focusBlocked || !visible;
     visibleRef.current = visible;
     projectRef.current = bot.cwd ?? null;
     botIdRef.current = bot.id;
-  }, [focusBlocked, visible, bot.cwd, bot.id]);
+    workersRef.current = workers;
+  }, [focusBlocked, visible, bot.cwd, bot.id, workers]);
   const [generation, setGeneration] = useState(0);
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [launchProject, setLaunchProject] = useState<string | null>(null);
@@ -255,17 +261,31 @@ export function TerminalWorkspace({
     });
     // Forward keystrokes and emulator replies only after historical replay finishes.
     // onBinary carries non-UTF8 mouse reports (wheel in X10/RXVT mode); without it the wheel is dropped.
-    const forwardInput = (data: string) => {
+    const forwardInput = (data: string, track = true) => {
       if (!id || !replayComplete || terminal.options.disableStdin || exits.has(id)) return;
       const sessionId = id;
-      const send = () => Promise.resolve(bridge.write(sessionId, data)).catch(report);
+      let submitted = false;
+      if (track && panesRef.current.some((pane) => pane.id === sessionId)) {
+        let input = lineInputsRef.current.get(sessionId);
+        if (!input) {
+          input = createTerminalLineTracker();
+          lineInputsRef.current.set(sessionId, input);
+        }
+        submitted = input(data);
+      }
+      const afterMessageId = submitted ? latestPaneRun(workersRef.current, sessionId)?.messageIds.at(-1) : undefined;
+      const send = () => Promise.resolve(bridge.write(sessionId, data)).then(() => {
+        if (submitted) void Promise.resolve(api(`/api/bots/${encodeURIComponent(bot.id)}/terminal/resume`, {
+          method: "POST", body: JSON.stringify({ sessionId, afterMessageId }),
+        })).catch(() => {});
+      }).catch(report);
       // Submit keys skip the microtask queue so they cannot stall behind DA/mouse replies.
       if (/[\r\n]/.test(data)) void send();
       else void Promise.resolve().then(send);
     };
     forwardInputRef.current = forwardInput;
-    const input = terminal.onData(forwardInput);
-    const inputBinary = terminal.onBinary(forwardInput);
+    const input = terminal.onData((data) => forwardInput(data));
+    const inputBinary = terminal.onBinary((data) => forwardInput(data, false));
     // Windows Terminal copy/paste. xterm maps Ctrl+C/V to raw control bytes
     // (^C/^V) and leaves Shift+Insert dead, so claim them here. False claims.
     const copySelection = (text: string) => {

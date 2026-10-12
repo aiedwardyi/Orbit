@@ -237,6 +237,7 @@ import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts"
 import { botClosedPanes, paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
 import { launchNoteFor } from "./launch-note.ts";
+import { terminalResumeResponse } from "./terminal-resume.ts";
 import { MailboxAutoDedup, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
@@ -9049,6 +9050,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!bot) return json(res, 404, { error: "no such bot" });
       const sent = await terminalSendResponse(terminalBridgeAccess, bot.id, await readBody(req));
       return json(res, sent.status, sent.body);
+    }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/terminal\/resume$/);
+    if (m && method === "POST") {
+      const resumed = await terminalResumeResponse({ store, access: terminalBridgeAccess, credentials, cookie: req.headers.cookie }, m[1], await readBody(req));
+      return json(res, resumed.status, resumed.body);
     }
     // ── bot memory: MEMORY.md + memory/ topic files ─────────────────────
     // The files already belong to the user (plain markdown in the bot's
