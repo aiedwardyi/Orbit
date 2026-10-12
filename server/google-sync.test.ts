@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { writeDeviceRecord } from "./device-sync.ts";
 import { decodeDrivePath } from "./drive-mirror.ts";
@@ -222,6 +222,40 @@ describe("Google sync journeys", () => {
     expect(drivePaths(driveA())).toContain("pictures/late.png");
   });
 
+  it("holds syncing when republish ends after the scan and uploads the late file within one second", async () => {
+    const home = makePC("home", { bots: [bot("Counsel")] });
+    await startOn(home);
+    // Without a change token the pass lists Drive, scans the mirror, then reads the changes made meanwhile.
+    const { changeToken: _token, ...table } = JSON.parse(readFileSync(join(home.dataDir, GOOGLE_TABLE_FILE), "utf8"));
+    writeFileSync(join(home.dataDir, GOOGLE_TABLE_FILE), JSON.stringify(table));
+    const fetchDrive = driveA().fetch;
+    const timers = vi.spyOn(globalThis, "setTimeout");
+    let scans = 0;
+    driveA().fetch = async (input, init) => {
+      const request = new Request(input, init);
+      const response = await fetchDrive(input, init);
+      if (new URL(request.url).pathname === "/drive/v3/changes" && ++scans === 1) {
+        write(home.folder!, "pictures/after-scan.png", "late bytes");
+        home.republishing = false;
+      }
+      return response;
+    };
+    try {
+      home.republishing = true;
+      await home.sync.kick();
+      expect(home.republishing).toBe(false);
+      expect(drivePaths(driveA())).not.toContain("pictures/after-scan.png");
+      expect(home.sync.status().state).toBe("syncing");
+      expect(timers.mock.calls.some(([, ms]) => ms === 1_000)).toBe(true);
+      await vi.waitFor(() => expect(drivePaths(driveA())).toContain("pictures/after-scan.png"), { timeout: 2_000 });
+      await home.sync.idle();
+      expect(home.sync.status().state).toBe("up-to-date");
+    } finally {
+      driveA().fetch = fetchDrive;
+      timers.mockRestore();
+    }
+  });
+
   it("publishes an unused bot on the first PC of an account", async () => {
     const home = makePC("home", { bots: [bot("Starter", { talked: false })] });
     await startOn(home);
@@ -341,13 +375,13 @@ describe("Google sync binding", () => {
     expect(home.logs).toContain("[google-sync] google-binding.json is unreadable; Google sync is paused");
   });
 
-  it("refuses Start in folder mode and never touches that folder", async () => {
+  it("offers only Move in folder mode and never touches that folder", async () => {
     const legacy = join(root, "Drive folder");
     write(legacy, "workspace.json", "{\"legacy\":true}");
     const home = makePC("home", { bots: [bot("Counsel")] });
     home.folder = legacy;
     home.account.setSession(A);
-    expect(await home.sync.read()).toMatchObject({ state: "folder", join: null });
+    expect(await home.sync.read()).toMatchObject({ state: "ready", move: true, join: { first: true, pcs: 0 } });
     expect((await home.sync.start()).status).toBe(409);
     await settle(home);
     expect(files(legacy)).toEqual(["workspace.json"]);
@@ -398,7 +432,7 @@ describe("Google sync routes", () => {
 
   it("is wired behind the API auth gate with the relay and bearer flags", () => {
     const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
-    const route = source.indexOf("googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk }, googleSync)");
+    const route = source.indexOf("googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk }, googleSync, () => readBody(req))");
     expect(route).toBeGreaterThan(source.indexOf("return json(res, 401, { error: \"unauthorized\" });"));
     expect(source.includes("const bots = profileSyncBots();")).toBe(true);
     expect(source.indexOf("googleSync.resume();")).toBeGreaterThan(source.lastIndexOf("\nsyncAllThreads();"));

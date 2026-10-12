@@ -10,7 +10,7 @@ const metadataSchema = z.object({
 interface RecordFile { file: DriveFile; bytes: Buffer; parents: string[] }
 interface FilePage { files: DriveFile[]; nextPageToken?: string }
 interface ChangeRecord { at: number; fileId: string; removed: boolean; file?: DriveFile; parents: string[] }
-const json = (body: DriveFile | FilePage | { startPageToken: string } | { changes: Array<{ fileId: string; removed: boolean; file?: DriveFile & { parents: string[] } }>; nextPageToken?: string; newStartPageToken?: string }, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const json = (body: DriveFile | (DriveFile & { parents: string[] }) | FilePage | { startPageToken: string } | { changes: Array<{ fileId: string; removed: boolean; file?: DriveFile & { parents: string[] } }>; nextPageToken?: string; newStartPageToken?: string }, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const unquote = (value: string) => value.replace(/\\(.)/g, "$1");
 
 export class FakeDrive {
@@ -129,7 +129,7 @@ export class FakeDrive {
       if (this.missGets > 0) { this.missGets -= 1; return new Response(null, { status: 404 }); }
       const record = this.records.get(id);
       if (!record) return new Response(null, { status: 404 });
-      return json(record.file);
+      return json(url.searchParams.get("fields")?.includes("parents") ? { ...record.file, parents: record.parents } : record.file);
     }
     if (request.method === "GET" && url.searchParams.get("alt") === "media") {
       const record = this.records.get(id);
