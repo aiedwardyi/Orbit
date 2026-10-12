@@ -223,11 +223,11 @@ export function MessageMenu({
       <button
         key={emoji}
         type="button"
-        role="menuitem"
+        role="menuitemcheckbox"
         data-menu-reaction={emoji}
         onClick={() => toggle(emoji)}
         aria-label={pressed ? t("chat.removeReaction", { emoji }) : t("chat.reactEmoji", { emoji })}
-        aria-pressed={pressed}
+        aria-checked={pressed}
         className={cn(EMOJI_CLASS, pressed && "bg-accent/15 ring-1 ring-accent/40")}
       >
         {emoji}

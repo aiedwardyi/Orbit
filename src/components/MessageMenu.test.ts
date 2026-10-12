@@ -248,7 +248,8 @@ describe("message menu in 1:1 chats", () => {
     const host = await mountChat(bot([botMsg("b1", "hello", { reactions: [{ emoji: "👍", by: "user" }] })]));
     await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
 
-    expect(menuReactions()[0]!.getAttribute("aria-pressed")).toBe("true");
+    expect(menuReactions()[0]!.getAttribute("role")).toBe("menuitemcheckbox");
+    expect(menuReactions()[0]!.getAttribute("aria-checked")).toBe("true");
     await act(async () => { menuReactions()[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     expect(storeMessage("thread-helper", "b1")?.reactions).toBeUndefined();
   });
