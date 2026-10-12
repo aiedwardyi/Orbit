@@ -2,7 +2,7 @@
 // Per-bot settings (persona, model, computer) stay in SettingsPanel — this
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChartScatter, ChevronDown, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Settings, Smartphone, Terminal, User, Users, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { builtInBrowserEnabled, detailedRepliesEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
@@ -511,7 +511,11 @@ export function SettingsModal({
   const moreServicesShown = showSettingsMoreServices(moreServicesOpen);
   const [teamOwner, setTeamOwner] = useState(false);
   const [teamStats, setTeamStats] = useState<TeamView | null>(null);
-  const sectionShown = (entry: (typeof SECTIONS)[number]) => (entry.id !== "team" || teamOwner) && sectionNavVisible(entry, q, phoneAvailable);
+  const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const sectionShown = useCallback(
+    (entry: (typeof SECTIONS)[number]) => (entry.id !== "team" || teamOwner) && sectionNavVisible(entry, q, phoneAvailable),
+    [phoneAvailable, q, teamOwner],
+  );
   const visibleSections = SECTIONS.filter(sectionShown);
 
   useEffect(() => {
@@ -539,7 +543,7 @@ export function SettingsModal({
     return () => {
       gone = true;
     };
-  }, [closing]);
+  }, [accountEmail, closing]);
 
   useEffect(() => {
     if (closing) return;
@@ -547,7 +551,7 @@ export function SettingsModal({
     if (visible.some((entry) => entry.id === section)) return;
     const first = visible[0];
     if (first) dispatch({ type: "toggleAppSettings", open: true, section: first.id });
-  }, [closing, dispatch, phoneAvailable, q, section, teamOwner]);
+  }, [closing, dispatch, section, sectionShown]);
 
   useEffect(() => {
     if (closing) return;
@@ -689,7 +693,7 @@ export function SettingsModal({
                 <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")}>
                   <ProfileFields />
                 </Card>
-                <SyncPanel />
+                <SyncPanel onAccountEmail={setAccountEmail} />
                 <div className="flex flex-col gap-4 rounded-xl bg-card p-4 empty:hidden">
                   <PhoneAccessSettings />
                   <PhoneLinkSettings />

@@ -72,16 +72,22 @@ describe("Team settings", () => {
   let host: HTMLDivElement;
   let root: ReturnType<typeof createRoot>;
   let signedIn = true;
+  let syncEmail: string | null = null;
   let teamStatus = 200;
   let teamBody = ownerStats;
 
   beforeEach(() => {
     signedIn = true;
+    syncEmail = null;
     teamStatus = 200;
     teamBody = ownerStats;
     vi.stubGlobal("fetch", vi.fn(async (path: string) => {
       if (path === "/api/google-account") return Response.json(signedIn ? { state: "signed-in", email: "owner@example.com" } : { state: "signed-out" });
-      if (path === "/api/google-sync") return Response.json({ state: "signed-out" });
+      if (path === "/api/google-sync") {
+        return Response.json(syncEmail
+          ? { state: "ready", email: syncEmail, boundEmail: null, join: null, progress: null, lastSyncAt: null }
+          : { state: "signed-out", email: null, boundEmail: null, join: null, progress: null, lastSyncAt: null });
+      }
       if (path === "/api/phone-relay/status") return Response.json({ configured: false, available: false });
       if (path === "/api/remote-link") return Response.json({ url: null });
       if (path === "/api/key-uses") return Response.json({ uses: {} });
@@ -162,5 +168,39 @@ describe("Team settings", () => {
     await vi.waitFor(() => expect(vi.mocked(fetch).mock.calls.some((call) => call[0] === "/api/google-account")).toBe(true));
     expect(labels()).not.toContain("Team");
     expect(vi.mocked(fetch).mock.calls.some((call) => call[0] === "/api/team")).toBe(false);
+  });
+
+  it("shows Team when the owner signs in and hides it on sign-out", async () => {
+    signedIn = false;
+    const account = {
+      signIn: vi.fn(async () => {
+        signedIn = true;
+        syncEmail = "owner@example.com";
+        return { ok: true as const, email: "owner@example.com" };
+      }),
+      cancel: vi.fn(async () => undefined),
+      signOut: vi.fn(async () => {
+        signedIn = false;
+        syncEmail = null;
+        return { ok: true as const };
+      }),
+    };
+    vi.stubGlobal("ogb", { platform: "win32", googleAccount: account });
+    await render();
+    const signIn = () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Sign in with Google");
+    await vi.waitFor(() => expect(signIn()).toBeTruthy());
+    expect(labels()).not.toContain("Team");
+    await act(async () => signIn()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await vi.waitFor(() => expect(labels()).toContain("Team"));
+    const team = () => [...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "Team");
+    await act(async () => team()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await vi.waitFor(() => expect(host.textContent).toContain("Ada"));
+    const accountNav = [...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "Account");
+    await act(async () => accountNav!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const signOut = () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Sign out");
+    await vi.waitFor(() => expect(signOut()).toBeTruthy());
+    await act(async () => signOut()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await vi.waitFor(() => expect(labels()).not.toContain("Team"));
+    expect(host.textContent).not.toContain("Ada");
   });
 });

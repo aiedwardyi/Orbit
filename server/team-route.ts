@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 
 import { RELAY_BASE_RE } from "../shared/relay-protocol.ts";
-import { ACCOUNT_TOKEN_MAX_AGE_MS, idTokenClaims } from "./phone-relay/account.ts";
+import { ACCOUNT_TIMEOUT_MS, ACCOUNT_TOKEN_MAX_AGE_MS, idTokenClaims } from "./phone-relay/account.ts";
 import { relayHostFor } from "./phone-relay/mode.ts";
 
 export interface TeamTokenSource {
@@ -57,7 +57,10 @@ export async function teamRoute(
   if (!token) return denied;
   const tz = -new Date(now()).getTimezoneOffset();
   try {
-    const response = await fetchImpl(`${origin}/v1/team?tz=${tz}`, { headers: { authorization: `Bearer ${token}` } });
+    const response = await fetchImpl(`${origin}/v1/team?tz=${tz}`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(ACCOUNT_TIMEOUT_MS),
+    });
     if (!response.ok) return denied;
     return { status: 200, body: await response.json() };
   } catch {

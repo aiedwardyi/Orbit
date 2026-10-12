@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 
+import { ACCOUNT_TIMEOUT_MS } from "./phone-relay/account.ts";
 import { teamIdToken, teamRelayOrigin, teamRoute, type TeamTokenSource } from "./team-route.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -72,6 +73,7 @@ describe("team route", () => {
     expect(reply).toEqual({ status: 200, body: payload });
     expect(fetchImpl).toHaveBeenCalledWith(`https://relay.wink.example/v1/team?tz=${-new Date(now).getTimezoneOffset()}`, {
       headers: { authorization: "Bearer token" },
+      signal: expect.any(AbortSignal),
     });
   });
 
@@ -99,6 +101,34 @@ describe("team route", () => {
     expect(await teamRoute(null, "wink.example", hash, "owner@example.com", source("token"), fetchImpl)).toEqual({ status: 403, body: { owner: false } });
     fetchImpl.mockResolvedValueOnce(Response.json({ error: "no" }, { status: 401 }));
     expect(await teamRoute(null, "wink.example", hash, "owner@example.com", source("token"), fetchImpl)).toEqual({ status: 403, body: { owner: false } });
+  });
+
+  it("denies when the relay stalls past the account deadline", async () => {
+    const hash = createHash("sha256").update("owner@example.com").digest("hex");
+    const now = Date.parse("2026-10-12T00:00:00Z");
+    let deadline = -1;
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      deadline = ms;
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException("timeout", "TimeoutError")), 20);
+      return controller.signal;
+    });
+    const fetchImpl = vi.fn((_input: string | URL | Request, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return;
+      if (signal.aborted) reject(signal.reason);
+      else signal.addEventListener("abort", () => reject(signal.reason));
+    }));
+    try {
+      const reply = await Promise.race([
+        teamRoute(null, "wink.example", hash, "owner@example.com", source(jwt(now - 60_000)), fetchImpl, () => now),
+        new Promise((resolve) => setTimeout(() => resolve("hung"), 200)),
+      ]);
+      expect(deadline).toBe(ACCOUNT_TIMEOUT_MS);
+      expect(reply).toEqual({ status: 403, body: { owner: false } });
+    } finally {
+      timeout.mockRestore();
+    }
   });
 
   it("is called from the server entry, not inlined there", () => {

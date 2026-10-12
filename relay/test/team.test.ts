@@ -287,6 +287,27 @@ describe("team session log", () => {
     await next.close();
   });
 
+  it("keeps a cleared wink name cleared when the journal is reloaded without compaction", async () => {
+    const dir = await tempDir();
+    const c = clock();
+    const ada = "aaaaaaaaaaaaaaaa";
+    const hash = googleSubHash("ada-sub");
+    const team = await TeamLog.open(dir, c.now);
+    team.setName(ada, "Field");
+    team.pcUp(ada);
+    c.advance(MIN);
+    team.pcDown(ada);
+    team.setAccount(ada, hash, "Ada");
+    team.setAccount(ada, hash, "");
+    await team.close();
+    const journal = await readFile(join(dir, "team-sessions"), "utf8");
+    expect(journal).toContain(`who ${ada} ${Buffer.from("Ada", "utf8").toString("base64url")}`);
+    const loaded = await TeamLog.open(dir, c.now);
+    const person = loaded.stats(0).people.find((entry) => entry.pcs.some((pc) => pc.label === ada));
+    expect(person?.name).toBe("Field");
+    await loaded.close();
+  });
+
   it("keeps a wink name on this relay and still parses on the 1.0.172 schema", () => {
     const msg = { type: "auth" as const, label: "l", pk: "p", ticket: "t", sig: "s", name: "Desk", person: "Ada" };
     expect(authMessageSchema.parse(msg)).toMatchObject({ person: "Ada", name: "Desk" });

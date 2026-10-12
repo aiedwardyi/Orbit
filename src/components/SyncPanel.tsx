@@ -54,7 +54,7 @@ function statusLabel(status: SyncStatus["status"], t: ReturnType<typeof useI18n>
 // api() drops the status, so a build without the Google route shows up as the server's "no route" error
 const missingRoute = (cause: unknown) => cause instanceof Error && /^(no route|404\b)/.test(cause.message);
 
-export function SyncPanel() {
+export function SyncPanel({ onAccountEmail }: { onAccountEmail?: (email: string | null) => void }) {
   const { t } = useI18n();
   const [google, setGoogle] = useState<GoogleSync | null>(null);
   const [folder, setFolder] = useState<SyncStatus | null>(null);
@@ -87,6 +87,7 @@ export function SyncPanel() {
       next = { state: "unavailable", email: null, boundEmail: null, join: null, progress: null, lastSyncAt: null };
     }
     setGoogle(next);
+    onAccountEmail?.(next.email ?? null);
     setLoadError("");
     if (next.state === "unavailable" || next.state === "folder" || showFolderNow.current) await loadFolder();
   };
