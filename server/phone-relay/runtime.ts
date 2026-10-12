@@ -3,7 +3,7 @@
 // against an in-process fake relay, a fake CA and a fake clock.
 
 import { googleSubHash } from "../../shared/google-id-token.ts";
-import { FrameError, PHONE_RELAY_OFF, PC_NAME_MAX, encodeFrame, hostFor, type PhoneRelayStatus } from "../../shared/relay-protocol.ts";
+import { FrameError, PERSON_NAME_MAX, PHONE_RELAY_OFF, PC_NAME_MAX, encodeFrame, hostFor, type PhoneRelayStatus } from "../../shared/relay-protocol.ts";
 import { ACCOUNT_TOKEN_MAX_AGE_MS, idTokenClaims, registerAccount } from "./account.ts";
 import { CertManager, type CertManagerOptions } from "./acme.ts";
 import { RelayClient, defaultConnector, type RelayConnector } from "./client.ts";
@@ -210,8 +210,12 @@ class RelayRuntime {
   }
 
   /** What the next auth says about the account directory. */
-  private authAccount(): { account: string; name: string } | null | undefined {
-    if (this.account) return { account: this.account, name: (this.options.account?.name() ?? "").slice(0, PC_NAME_MAX) };
+  private authAccount(): { account: string; name: string; person?: string } | null | undefined {
+    const person = (this.options.account?.person?.() ?? "").trim().slice(0, PERSON_NAME_MAX);
+    if (this.account) {
+      const entry = { account: this.account, name: (this.options.account?.name() ?? "").slice(0, PC_NAME_MAX) };
+      return person ? { ...entry, person } : entry;
+    }
     if (!this.dropAccount) return undefined;
     this.dropAccount = false;
     return null;

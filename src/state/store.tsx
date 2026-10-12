@@ -581,6 +581,7 @@ export type AppSettingsSection =
   | "companion"
   | "computer"
   | "usage"
+  | "team"
   | "models-index"
   | "sync";
 

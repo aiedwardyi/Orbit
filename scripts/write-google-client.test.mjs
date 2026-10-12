@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +18,7 @@ function bake(env) {
   const dir = mkdtempSync(join(tmpdir(), "google-client-"));
   dirs.push(dir);
   const target = join(dir, "google-client.json");
-  const { WINK_GOOGLE_CLIENT_ID, WINK_GOOGLE_CLIENT_SECRET, WINK_GOOGLE_WEB_CLIENT_ID: _webClientId, ...rest } = process.env;
+  const { WINK_GOOGLE_CLIENT_ID, WINK_GOOGLE_CLIENT_SECRET, WINK_GOOGLE_WEB_CLIENT_ID: _webClientId, WINK_TEAM_RELAY: _teamRelay, WINK_TEAM_OWNER: _teamOwner, ...rest } = process.env;
   execFileSync(process.execPath, [SCRIPT, target], { env: { ...rest, ...env } });
   return target;
 }
@@ -48,5 +49,25 @@ describe("google sign-in client", () => {
   it("takes the web client id from the release variable", () => {
     const release = readFileSync(join(ROOT, ".github", "workflows", "release.yml"), "utf8");
     expect(release).toContain("WINK_GOOGLE_WEB_CLIENT_ID: ${{ vars.WINK_GOOGLE_WEB_CLIENT_ID }}");
+    expect(release).toContain("WINK_TEAM_RELAY: ${{ vars.WINK_TEAM_RELAY }}");
+    expect(release).toContain("WINK_TEAM_OWNER: ${{ secrets.WINK_TEAM_OWNER }}");
+  });
+
+  it("bakes the team owner as a hash, never the email", () => {
+    const both = { WINK_GOOGLE_CLIENT_ID: "id", WINK_GOOGLE_CLIENT_SECRET: "secret" };
+    const email = "Owner@Example.com";
+    const hash = createHash("sha256").update(email.toLowerCase()).digest("hex");
+    const baked = JSON.parse(readFileSync(bake({ ...both, WINK_TEAM_OWNER: ` ${email} ` }), "utf8"));
+    expect(baked.teamOwner).toBe(hash);
+    expect(JSON.stringify(baked)).not.toContain(email);
+    expect(JSON.stringify(baked)).not.toContain(email.toLowerCase());
+    expect(existsSync(bake({ WINK_TEAM_OWNER: email }))).toBe(false);
+  });
+
+  it("bakes the team relay only beside a Google client", () => {
+    const both = { WINK_GOOGLE_CLIENT_ID: "id", WINK_GOOGLE_CLIENT_SECRET: "secret" };
+    expect(JSON.parse(readFileSync(bake({ ...both, WINK_TEAM_RELAY: " wink.example " }), "utf8"))).toEqual({ id: "id", secret: "secret", teamRelay: "wink.example" });
+    expect(JSON.parse(readFileSync(bake(both), "utf8"))).toEqual({ id: "id", secret: "secret" });
+    expect(existsSync(bake({ WINK_TEAM_RELAY: "wink.example" }))).toBe(false);
   });
 });

@@ -106,6 +106,8 @@ export interface PhoneGoogleAccount {
   freshIdToken(): Promise<string | null>;
   /** The PC name phones see in the directory. */
   name(): string;
+  /** Wink profile name sent with the relay auth. */
+  person?(): string;
   keys?: GoogleKeySource;
 }
 
@@ -264,7 +266,13 @@ export class PhoneAccess {
       };
       const google = this.options.google;
       if (this.google && google) {
-        relayOptions.account = { sub: () => google.sub(), idToken: () => google.idToken(), freshIdToken: () => google.freshIdToken(), name: () => google.name() };
+        relayOptions.account = {
+          sub: () => google.sub(),
+          idToken: () => google.idToken(),
+          freshIdToken: () => google.freshIdToken(),
+          name: () => google.name(),
+          person: () => google.person?.() ?? "",
+        };
       }
       const relay: PhoneRelay = (this.options.start ?? this.client.start)(relayOptions);
       this.relay = relay;

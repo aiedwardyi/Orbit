@@ -91,8 +91,20 @@ describe("relay account directory", () => {
     const stored = readAccount(rr.dataDir);
     expect(stored.kind).toBe("ok");
     expect(rr.relay.auths.at(-1)).toMatchObject({ account: stored.kind === "ok" ? stored.value : "", name: "Desk PC" });
+    expect(rr.relay.auths.at(-1)).not.toHaveProperty("person");
     expect(handle.accountReady?.()).toBe(true);
     expect(readFileSync(join(rr.dataDir, "phone-relay", "account.json"), "utf8")).not.toContain(body.idToken);
+  });
+
+  it("sends the wink name sliced to 64 characters", async () => {
+    r = await rig();
+    const rr = r;
+    const named = google(SUB, idToken(SUB, Date.now()));
+    named.person = () => `Ada ${"n".repeat(80)}`;
+    start(rr, named);
+    await rr.relay.until(() => rr.relay.auths.some((auth) => auth.person));
+    expect(rr.relay.auths.at(-1)?.person).toBe(`Ada ${"n".repeat(60)}`);
+    expect(rr.relay.auths.at(-1)?.name).toBe("Desk PC");
   });
 
   it("sends the stored wka1 in the first auth after a restart, without a new ID token", async () => {

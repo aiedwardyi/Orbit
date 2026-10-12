@@ -83,7 +83,7 @@ export interface RelayClientOptions {
   /** The relay sent a refreshed ticket. Return false to keep the current one. */
   onTicket(ticket: string): boolean;
   /** The account directory entry for the next auth: a wka1 with a name, null to drop it, undefined for none. */
-  account?(): { account: string; name: string } | null | undefined;
+  account?(): { account: string; name: string; person?: string } | null | undefined;
   /** The relay sent a refreshed wka1. */
   onAccount?(account: string): void;
   /** Something in snapshot() changed. */

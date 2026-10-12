@@ -33,6 +33,8 @@ export interface RelayAccountSource {
   freshIdToken(): Promise<string | null>;
   /** The PC name phones see in the directory. */
   name(): string;
+  /** The teammate's Wink profile name. Empty falls back to the PC name. */
+  person?(): string;
 }
 
 export interface PhoneRelayOptions {

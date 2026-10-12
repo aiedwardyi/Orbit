@@ -3,6 +3,8 @@ import { request } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { googleSubHash } from "../../shared/google-id-token.ts";
+import { authMessageSchema } from "../../shared/relay-protocol.ts";
 import { loadConfig } from "../src/config.ts";
 import { TEAM_KEEP_MS, TeamLog, type TeamStats } from "../src/team.ts";
 import { event, makePc, openControl, openData, startRelay, type Harness } from "./fixtures.ts";
@@ -208,6 +210,113 @@ describe("team session log", () => {
     expect(utc.pcs[0]?.hours.at(-2)).toBe(0);
     await team.close();
   });
+
+  it("groups pcs by account, unions hours, and sums phone time", async () => {
+    const c = clock();
+    const team = await TeamLog.open(await tempDir(), c.now);
+    const ada = "aaaaaaaaaaaaaaaa";
+    const desk = "bbbbbbbbbbbbbbbb";
+    const solo = "cccccccccccccccc";
+    const hash = googleSubHash("ada-sub");
+    team.setName(ada, "Field");
+    team.setName(desk, "Studio");
+    team.setName(solo, "Spare");
+    team.setAccount(ada, hash, "Ada");
+    team.setAccount(desk, hash, "Ada");
+    team.pcUp(ada);
+    team.pcUp(desk);
+    team.pcUp(solo);
+    c.advance(HOUR);
+    team.pcDown(ada);
+    team.pcDown(desk);
+    const phone = team.phoneStart(ada);
+    c.advance(5 * MIN);
+    team.phoneEnd(phone);
+    const other = team.phoneStart(desk);
+    c.advance(5 * MIN);
+    team.phoneEnd(other);
+    team.pcDown(solo);
+
+    const stats = team.stats(0);
+    expect(stats.pcs.map((pc) => pc.hours.at(-1))).toEqual([1, 1.17, 1]);
+    const adaPerson = stats.people.find((person) => person.pcs.length === 2);
+    const spare = stats.people.find((person) => person.pcs.length === 1);
+    expect(adaPerson).toMatchObject({
+      name: "Ada",
+      online: false,
+      pcs: [
+        { label: ada, name: "Field", online: false },
+        { label: desk, name: "Studio", online: false },
+      ],
+    });
+    expect(adaPerson?.hours.at(-1)).toBe(1);
+    expect(adaPerson?.phone.at(-1)).toEqual({ count: 2, minutes: 10 });
+    expect(adaPerson?.id).not.toBe(hash);
+    expect(JSON.stringify(stats)).not.toContain(hash);
+    expect(spare).toMatchObject({ name: "Spare", pcs: [{ label: solo, name: "Spare", online: false }] });
+    expect(spare?.id).not.toBe(adaPerson?.id);
+    await team.close();
+  });
+
+  it("round-trips old journals and appends account lines only on change", async () => {
+    const dir = await tempDir();
+    const c = clock();
+    const ada = "aaaaaaaaaaaaaaaa";
+    const hash = googleSubHash("ada-sub");
+    const name = Buffer.from("Home", "utf8").toString("base64url");
+    await writeFile(join(dir, "team-sessions"), `name ${ada} ${name}\npc ${ada} ${T0} ${T0 + HOUR}\n`);
+    const loaded = await TeamLog.open(dir, c.now);
+    const first = loaded.stats(0);
+    expect(first.pcs).toMatchObject([{ label: ada, name: "Home", online: false }]);
+    expect(first.people).toMatchObject([{ name: "Home", pcs: [{ label: ada, name: "Home", online: false }] }]);
+    loaded.setAccount(ada, hash, "Ada");
+    loaded.setAccount(ada, hash, "Ada");
+    loaded.setAccount(ada, hash, "");
+    await loaded.close();
+
+    const lines = (await readFile(join(dir, "team-sessions"), "utf8")).trim().split("\n");
+    expect(lines.filter((line) => line.startsWith("acct "))).toEqual([`acct ${ada} ${hash}`]);
+    expect(lines.filter((line) => line.startsWith("who "))).toHaveLength(2);
+    const again = await TeamLog.open(dir, c.now);
+    expect(again.stats(0).people[0]).toMatchObject({ name: "Home" });
+    expect(JSON.stringify(again.stats(0))).not.toContain(hash);
+    again.setAccount(ada, hash, "Bea");
+    await again.close();
+    const next = await TeamLog.open(dir, c.now);
+    expect(next.stats(0).people[0]?.name).toBe("Bea");
+    await next.close();
+  });
+
+  it("keeps a cleared wink name cleared when the journal is reloaded without compaction", async () => {
+    const dir = await tempDir();
+    const c = clock();
+    const ada = "aaaaaaaaaaaaaaaa";
+    const hash = googleSubHash("ada-sub");
+    const team = await TeamLog.open(dir, c.now);
+    team.setName(ada, "Field");
+    team.pcUp(ada);
+    c.advance(MIN);
+    team.pcDown(ada);
+    team.setAccount(ada, hash, "Ada");
+    team.setAccount(ada, hash, "");
+    await team.close();
+    const journal = await readFile(join(dir, "team-sessions"), "utf8");
+    expect(journal).toContain(`who ${ada} ${Buffer.from("Ada", "utf8").toString("base64url")}`);
+    const loaded = await TeamLog.open(dir, c.now);
+    const person = loaded.stats(0).people.find((entry) => entry.pcs.some((pc) => pc.label === ada));
+    expect(person?.name).toBe("Field");
+    await loaded.close();
+  });
+
+  it("keeps a wink name on this relay and still parses on the 1.0.172 schema", () => {
+    const msg = { type: "auth" as const, label: "l", pk: "p", ticket: "t", sig: "s", name: "Desk", person: "Ada" };
+    expect(authMessageSchema.parse(msg)).toMatchObject({ person: "Ada", name: "Desk" });
+    expect(authMessageSchema.safeParse({ ...msg, person: "x".repeat(64) }).success).toBe(true);
+    expect(authMessageSchema.safeParse({ ...msg, person: "x".repeat(65) }).success).toBe(false);
+    const relay172 = authMessageSchema.omit({ person: true });
+    expect(relay172.parse(msg)).not.toHaveProperty("person");
+    expect(relay172.parse(msg)).toMatchObject({ name: "Desk" });
+  });
 });
 
 describe("GET /v1/team", () => {
@@ -228,9 +337,12 @@ describe("GET /v1/team", () => {
     const denied = [
       claims({ email: "someone@example.com" }),
       claims({ email_verified: false }),
-      claims({ aud: DESKTOP }),
+      claims({ aud: DESKTOP, email: "someone@example.com" }),
+      claims({ aud: DESKTOP, email_verified: false }),
+      claims({ aud: "other-client.apps.googleusercontent.com" }),
     ];
     for (const c of denied) expect((await get(h, "/v1/team", bearer(issuer.sign(c)))).status).toBe(403);
+    expect((await get(h, "/v1/team", bearer(issuer.sign(claims({ aud: DESKTOP }))))).status).toBe(200);
     expect(JSON.parse((await get(h, "/v1/team", bearer(issuer.sign(claims({ email: "someone@example.com" }))))).body)).toEqual({
       error: "not-owner",
     });

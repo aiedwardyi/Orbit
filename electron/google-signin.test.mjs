@@ -323,6 +323,16 @@ describe("google sign-in", () => {
     expect(googleClient(env, () => null)).toEqual({ id: "env-id", secret: "env-secret", webId: "env-web" });
     expect(googleClient({}, () => ({ id: "baked-id", secret: "baked-secret", webId: "baked-web" }))).toEqual({ id: "baked-id", secret: "baked-secret", webId: "baked-web" });
     expect(googleServerEnv({ id: "i", secret: "s", webId: "w" })).toEqual({ WINK_GOOGLE_CLIENT_ID: "i", WINK_GOOGLE_CLIENT_SECRET: "s", WINK_GOOGLE_WEB_CLIENT_ID: "w" });
+    expect(googleClient({ ...env, WINK_TEAM_RELAY: " wink.example " }, () => null)).toEqual({ id: "env-id", secret: "env-secret", webId: "env-web", teamRelay: "wink.example" });
+    expect(googleClient({}, () => ({ id: "baked-id", secret: "baked-secret", teamRelay: "wink.example" }))).toEqual({ id: "baked-id", secret: "baked-secret", teamRelay: "wink.example" });
+    expect(googleServerEnv({ id: "i", secret: "s", teamRelay: "wink.example" })).toEqual({ WINK_GOOGLE_CLIENT_ID: "i", WINK_GOOGLE_CLIENT_SECRET: "s", WINK_TEAM_RELAY: "wink.example" });
+    const owner = "Owner@Example.com";
+    const ownerHash = createHash("sha256").update(owner.toLowerCase()).digest("hex");
+    const withOwner = googleClient({ ...env, WINK_TEAM_OWNER: ` ${owner} ` }, () => null);
+    expect(withOwner.teamOwner).toBe(ownerHash);
+    expect(JSON.stringify(withOwner)).not.toContain(owner.toLowerCase());
+    expect(googleClient({}, () => ({ id: "baked-id", secret: "baked-secret", teamOwner: ownerHash })).teamOwner).toBe(ownerHash);
+    expect(googleServerEnv({ id: "i", secret: "s", teamOwner: ownerHash })).toEqual({ WINK_GOOGLE_CLIENT_ID: "i", WINK_GOOGLE_CLIENT_SECRET: "s", WINK_TEAM_OWNER: ownerHash });
   });
 
   it("hands the server the client and never the stored session", () => {

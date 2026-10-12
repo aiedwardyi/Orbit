@@ -15,6 +15,8 @@ export const GOOGLE_CLIENT_ID_ENV = "WINK_GOOGLE_CLIENT_ID";
 export const GOOGLE_CLIENT_SECRET_ENV = "WINK_GOOGLE_CLIENT_SECRET";
 export const GOOGLE_ACCOUNT_ENV = "OMB_GOOGLE_ACCOUNT_TOKEN";
 export const GOOGLE_WEB_CLIENT_ID_ENV = "WINK_GOOGLE_WEB_CLIENT_ID";
+export const TEAM_RELAY_ENV = "WINK_TEAM_RELAY";
+export const TEAM_OWNER_ENV = "WINK_TEAM_OWNER";
 const idTokenSchema = z.string().min(1).max(8192);
 /** The ID token a fresh desktop sign-in pushes beside the session. */
 const pushedIdTokenSchema = z.object({ idToken: idTokenSchema });
@@ -61,10 +63,12 @@ export async function googleAccountRoute(method: "PUT" | "DELETE", hasParentPort
 }
 
 /** Reads the clients and boot session, then deletes them so engine CLIs never inherit them. */
-export function takeGoogleEnv(env: NodeJS.ProcessEnv): { client: GoogleClient | null; webClientId: string | null; session: GoogleSession | null } {
+export function takeGoogleEnv(env: NodeJS.ProcessEnv): { client: GoogleClient | null; webClientId: string | null; teamRelay: string | null; teamOwner: string | null; session: GoogleSession | null } {
   const id = env[GOOGLE_CLIENT_ID_ENV]?.trim();
   const secret = env[GOOGLE_CLIENT_SECRET_ENV]?.trim();
   const webClientId = env[GOOGLE_WEB_CLIENT_ID_ENV]?.trim() || null;
+  const teamRelay = env[TEAM_RELAY_ENV]?.trim() || null;
+  const teamOwner = env[TEAM_OWNER_ENV]?.trim() || null;
   let session: GoogleSession | null = null;
   try {
     session = parseGoogleSession(JSON.parse(env[GOOGLE_ACCOUNT_ENV] ?? "null"));
@@ -75,7 +79,9 @@ export function takeGoogleEnv(env: NodeJS.ProcessEnv): { client: GoogleClient | 
   delete env[GOOGLE_CLIENT_SECRET_ENV];
   delete env[GOOGLE_ACCOUNT_ENV];
   delete env[GOOGLE_WEB_CLIENT_ID_ENV];
-  return { client: id && secret ? { id, secret } : null, webClientId, session };
+  delete env[TEAM_RELAY_ENV];
+  delete env[TEAM_OWNER_ENV];
+  return { client: id && secret ? { id, secret } : null, webClientId, teamRelay, teamOwner, session };
 }
 
 type Options = { fetch?: typeof fetch; now?: () => number; log?: (line: string) => void; awaitSession?: boolean };

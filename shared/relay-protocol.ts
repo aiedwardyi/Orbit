@@ -28,6 +28,8 @@ const count = z.int().min(0);
 export const helloMessageSchema = z.object({ type: z.literal("hello"), v: count, nonce: z.string() });
 /** Display name a PC may attach to its account directory entry. */
 export const PC_NAME_MAX = 200;
+/** Wink profile name a PC may attach. Older relays strip this field. */
+export const PERSON_NAME_MAX = 64;
 
 /** PC to relay: `sig` covers authPayload(nonce, label). `account` is a wka1, or null to drop it. */
 export const authMessageSchema = z.object({
@@ -38,6 +40,7 @@ export const authMessageSchema = z.object({
   sig: z.string(),
   account: z.string().min(1).max(4096).nullable().optional(),
   name: z.string().max(PC_NAME_MAX).optional(),
+  person: z.string().max(PERSON_NAME_MAX).optional(),
 });
 /** Relay to PC: session accepted. `ticket` and `account` are refreshes past half life. */
 export const readyMessageSchema = z.object({

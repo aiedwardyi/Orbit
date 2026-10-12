@@ -39,7 +39,7 @@ export interface ChannelContext {
   now: () => number;
 }
 
-type AccountSet = { subHash: string; name: string; refreshed?: string };
+type AccountSet = { subHash: string; name: string; person: string; refreshed?: string };
 type Check =
   | { ok: true; label: string; ticket?: string; account?: AccountSet | null; ignored?: { reason: string; hash: string } }
   | { ok: false; reason: string; notice?: NoticeCode };
@@ -98,7 +98,7 @@ export function checkAuth(ctx: ChannelContext, msg: AuthMessage, nonce: string):
     ok: true,
     label: claims.label,
     ticket: refreshed,
-    account: { subHash: account.value.subHash, name: msg.name ?? "", refreshed: refreshedAccount },
+    account: { subHash: account.value.subHash, name: msg.name ?? "", person: msg.person ?? "", refreshed: refreshedAccount },
   };
 }
 
@@ -183,7 +183,7 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
         return true;
       }
       session = hub.register(result.label, link);
-      if (result.account) hub.setAccount(session, result.account.subHash, result.account.name);
+      if (result.account) hub.setAccount(session, result.account.subHash, result.account.name, result.account.person);
       const ready: ReadyMessage = { type: "ready", session: session.id, poolToken: session.poolToken, pool: { ...POOL } };
       if (result.ticket) ready.ticket = result.ticket;
       if (result.account?.refreshed) ready.account = result.account.refreshed;
