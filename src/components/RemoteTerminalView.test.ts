@@ -8,7 +8,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "@/state/store";
 
 const store = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("@/state/store", () => store);
+vi.mock("@/state/store", async () => {
+  const actual = await vi.importActual<typeof import("@/state/store")>("@/state/store");
+  return { ...actual, api: store.api };
+});
 
 import { I18nProvider } from "@/lib/i18n";
 import { RemoteTerminalView, remotePaneHotkey, snapshotText } from "./RemoteTerminalView";
@@ -932,6 +935,40 @@ describe("RemoteTerminalView", () => {
         bot: { id: "bot-1", name: "Ada", messages: updated }, visible: true, onClose,
       }))));
       await act(async () => { finish({ sessionId, generation: 1, panes }); });
+      expect(store.api.mock.calls.filter(([path]) => path.endsWith("/resume"))).toEqual([["/api/bots/bot-1/terminal/resume", {
+        method: "POST", body: JSON.stringify({ sessionId, afterMessageId: "settled" }),
+      }]]);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("binds the phone notification to the active branch when a fork holds a later note", async () => {
+    const sessionId = "0f3c9a1e-full";
+    const panes = [{ sessionId: "main", label: "Main", main: true }, { sessionId, label: "Worker", main: false }];
+    const messages: Message[] = [
+      { id: "launch", at: 1, role: "bot", kind: "launch", parentId: null, text: `Launched WORKER\nLabel: WORKER\nSession: ${sessionId}` },
+      { id: "settled", at: 2, role: "bot", kind: "note", parentId: "launch", text: "[pane 0f3c9a1e] [WORKER] from Ada (bot-1): DONE WORKER branch=x sha=y dirty=no" },
+      { id: "inactive-later", at: 3, role: "bot", kind: "note", parentId: "launch", text: "[pane 0f3c9a1e] [WORKER] from Ada (bot-1): DONE WORKER branch=x sha=z dirty=no" },
+    ];
+    store.api.mockImplementation(async (path: string) => {
+      if (path.endsWith("/resume")) return { resumed: true };
+      const worker = path.includes(`sessionId=${sessionId}`) || path.endsWith("/send");
+      return { screenText: "$", sessionId: worker ? sessionId : "main", generation: 1, panes };
+    });
+    const onClose = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(createElement(I18nProvider, null, createElement(RemoteTerminalView, {
+          bot: { id: "bot-1", name: "Ada", messages, activeLeafId: "settled" }, visible: true, onClose,
+        }))),
+      );
+      await act(async () => click([...host.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === "Worker")!));
+      await act(async () => typeLine(composer(host)!, "follow up"));
+      await act(async () => click(button(host, "Send")));
       expect(store.api.mock.calls.filter(([path]) => path.endsWith("/resume"))).toEqual([["/api/bots/bot-1/terminal/resume", {
         method: "POST", body: JSON.stringify({ sessionId, afterMessageId: "settled" }),
       }]]);

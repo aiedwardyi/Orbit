@@ -4,7 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import type { Bot } from "@/state/store";
-import { api, useStore } from "@/state/store";
+import { api, useStore, visibleMessages } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import { readTerminalMatch, terminalTheme, TERMINAL_APPEARANCE_EVENT } from "@/lib/terminal-appearance";
 import { createTerminalLineTracker } from "@/lib/terminal-input";
@@ -52,7 +52,7 @@ export function TerminalWorkspace({
   paneHotkey,
   paneFocus,
 }: {
-  bot: Pick<Bot, "id" | "name" | "busy" | "cwd"> & Partial<Pick<Bot, "messages">>;
+  bot: Pick<Bot, "id" | "name" | "busy" | "cwd"> & Partial<Pick<Bot, "messages" | "activeLeafId" | "hasMore">>;
   onClose: () => void;
   focusBlocked: boolean;
   visible: boolean;
@@ -76,7 +76,10 @@ export function TerminalWorkspace({
   const forwardInputRef = useRef<(data: string) => void>(() => {});
   const composingRef = useRef(false);
   const lineInputsRef = useRef(new Map<string, ReturnType<typeof createTerminalLineTracker>>());
-  const workers = useMemo(() => workerRuns(bot.messages ?? []), [bot.messages]);
+  const workers = useMemo(
+    () => workerRuns(visibleMessages({ messages: bot.messages ?? [], activeLeafId: bot.activeLeafId, hasMore: bot.hasMore })),
+    [bot.messages, bot.activeLeafId, bot.hasMore],
+  );
   const workersRef = useRef(workers);
   useLayoutEffect(() => {
     blockedRef.current = focusBlocked || !visible;

@@ -1580,15 +1580,43 @@ it("notifies a typed worker follow-up after writing without waiting for the netw
 });
 
 it.each([
-  ["\r"], ["\x1b[A", "\r"], ["\x1b", "\r"], ["\t", "\r"],
-  ["\x03", "\x15", "\r"], ["\x1b[?1;2c", "\r"],
+  ["\r"], ["\x03", "\x15", "\r"],
+  ["\x1b", "\r"], ["\x1b[?1;2c", "\r"],
   ["\x1b[M !!", "\r"], ["\x1b[<0;12;24M", "\r"],
+  ["\x1b[99;5u\r"],
 ])("does not notify key-only worker input %j", async (...chunks) => {
   const f = paneFixture();
   await f.render();
   await f.select(1);
   await act(async () => { for (const chunk of chunks) terminal.__emitData(chunk); });
   expect(api).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["\x1b[A", "\r"], ["\t", "\r"],
+  ["x\x1b[D\x7f", "\r"],
+])("notifies edited worker input %j", async (...chunks) => {
+  const f = paneFixture();
+  await f.render();
+  await f.select(1);
+  await act(async () => { for (const chunk of chunks) terminal.__emitData(chunk); });
+  expect(api).toHaveBeenCalledExactlyOnceWith("/api/bots/bot-1/terminal/resume", {
+    method: "POST", body: JSON.stringify({ sessionId: "pane-one" }),
+  });
+});
+
+it("notifies Delete after an erased worker line", async () => {
+  const f = paneFixture();
+  await f.render();
+  await f.select(1);
+  await act(async () => {
+    terminal.__emitData("ab");
+    terminal.__emitData("\x7f\x7f");
+    terminal.__emitData("\x1b[3~\r");
+  });
+  expect(api).toHaveBeenCalledExactlyOnceWith("/api/bots/bot-1/terminal/resume", {
+    method: "POST", body: JSON.stringify({ sessionId: "pane-one" }),
+  });
 });
 
 it("does not notify typed input in the main terminal or a failed write", async () => {
@@ -1636,6 +1664,24 @@ it("binds the desktop notification to the worker row before the write settles", 
   const updated = { ...bot, messages: [...messages, { ...messages[1], id: "reported-again", at: 3 }] };
   await f.render({ ...f.props, bot: updated });
   await act(async () => { finish(); });
+  expect(api).toHaveBeenCalledExactlyOnceWith("/api/bots/bot-1/terminal/resume", {
+    method: "POST", body: JSON.stringify({ sessionId, afterMessageId: "settled" }),
+  });
+});
+
+it("binds the desktop notification to the active branch when a fork holds a later note", async () => {
+  const f = paneFixture();
+  const sessionId = "0f3c9a1e-full";
+  f.snapshot.panes[0].sessionId = sessionId;
+  const messages: Message[] = [
+    { id: "launch", at: 1, role: "bot", kind: "launch", parentId: null, text: `Launched WORKER\nLabel: WORKER\nSession: ${sessionId}` },
+    { id: "settled", at: 2, role: "bot", kind: "note", parentId: "launch", text: "[pane 0f3c9a1e] [WORKER] from Desk (bot-1): DONE WORKER branch=x sha=y dirty=no" },
+    { id: "inactive-later", at: 3, role: "bot", kind: "note", parentId: "launch", text: "[pane 0f3c9a1e] [WORKER] from Desk (bot-1): DONE WORKER branch=x sha=z dirty=no" },
+  ];
+  const bot = { ...f.props.bot, messages, activeLeafId: "settled" };
+  await f.render({ ...f.props, bot });
+  await f.select(1);
+  await act(async () => { terminal.__emitData("follow up\r"); });
   expect(api).toHaveBeenCalledExactlyOnceWith("/api/bots/bot-1/terminal/resume", {
     method: "POST", body: JSON.stringify({ sessionId, afterMessageId: "settled" }),
   });

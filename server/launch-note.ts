@@ -43,7 +43,7 @@ export async function launchNoteFor(
 }
 
 export function submittedResumeText(text: string, submittedAt: number): string {
-  return `${text}\nSubmitted: ${Math.trunc(submittedAt)}`;
+  return `${text}\nSubmitted: ${submittedAt}`;
 }
 
 type LaunchCommit = {

@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { Check, Copy, CornerDownLeft, RotateCcw, TerminalSquare, X } from "lucide-react";
 import type { Bot } from "@/state/store";
-import { api } from "@/state/store";
+import { api, visibleMessages } from "@/state/store";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { ansiColor } from "@/lib/ansi-palette";
 import { composerEnterIntent } from "@/lib/composer-enter";
@@ -98,14 +98,17 @@ export function RemoteTerminalView({
   paneHotkey,
   paneFocus,
 }: {
-  bot: Pick<Bot, "id" | "name"> & Partial<Pick<Bot, "messages">>;
+  bot: Pick<Bot, "id" | "name"> & Partial<Pick<Bot, "messages" | "activeLeafId" | "hasMore">>;
   onClose: () => void;
   visible: boolean;
   paneHotkey?: { n: number } | null;
   paneFocus?: { sessionId: string } | null;
 }) {
   const { t } = useI18n();
-  const workers = useMemo(() => workerRuns(bot.messages ?? []), [bot.messages]);
+  const workers = useMemo(
+    () => workerRuns(visibleMessages({ messages: bot.messages ?? [], activeLeafId: bot.activeLeafId, hasMore: bot.hasMore })),
+    [bot.messages, bot.activeLeafId, bot.hasMore],
+  );
   const sidebarOnRight = useSidebarSide() === "right";
   const [snapshot, setSnapshot] = useState<RemoteTerminalSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);

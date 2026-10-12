@@ -168,6 +168,7 @@ describe("terminal resume route", () => {
   });
 
   it("wires the module after the same API gate as terminal send", () => {
+    // No route seam, so source order proves resume inherits the send gate.
     const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
     const gate = source.indexOf("!apiRequestAuthorized(credentials.bearerOk");
     const send = source.indexOf("const sent = await terminalSendResponse(");
