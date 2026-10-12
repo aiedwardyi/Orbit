@@ -306,6 +306,39 @@ describe("terminal proxy", () => {
     expect(notes(main)).toHaveLength(0);
   });
 
+  it("posts the resumed note right after the final write, before the settle reads", async () => {
+    const harness = { ...CONFIG, harness: "http://127.0.0.1:2", commsToken: "comms" };
+    const snap = { sessionId: "p1", generation: 2, screenText: "ok", panes: [{ sessionId: "p1", generation: 2, label: "worker", main: false }] };
+    const fetchImpl = scripted(snap);
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const result = callTool("terminal_send", fetchImpl, harness, { text: "echo ok\n", sessionId: "p1", generation: 2 });
+      await vi.runAllTimersAsync();
+      await result;
+    } finally {
+      vi.useRealTimers();
+    }
+    const urls = fetchImpl.mock.calls.map(([url, init]) => (String(url).includes("/launch-note") ? "note" : (init?.method ?? "GET")));
+    expect(urls[urls.lastIndexOf("POST") + 1]).toBe("note");
+    expect(urls.filter((entry) => entry === "note")).toHaveLength(1);
+  });
+
+  it("posts no resumed note when the write is refused", async () => {
+    const harness = { ...CONFIG, harness: "http://127.0.0.1:2", commsToken: "comms" };
+    const snap = { sessionId: "p1", generation: 3, screenText: "ok", panes: [{ sessionId: "p1", generation: 3, label: "worker", main: false }] };
+    const fetchImpl: FetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) =>
+      init?.method === "POST" ? new Response(JSON.stringify({ error: "stale generation" }), { status: 409 }) : new Response(JSON.stringify(snap), { status: 200 }));
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const result = callTool("terminal_send", fetchImpl, harness, { text: "echo ok\n", sessionId: "p1", generation: 2 });
+      await vi.runAllTimersAsync();
+      expect((await result).isError).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(fetchImpl.mock.calls.filter(([url]) => String(url).includes("/launch-note"))).toHaveLength(0);
+  });
+
   it.each([
     ["LF submits", "echo ok\n", ["echo ok", "\r"]],
     ["CRLF does not double-submit", "echo ok\r\n", ["echo ok", "\r"]],

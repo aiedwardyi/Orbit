@@ -5,7 +5,7 @@ import { ChevronRight, SquareTerminal, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
-import { isPhone } from "@/lib/phone-swipe";
+import { isPhone, PHONE_QUERY } from "@/lib/phone-swipe";
 import type { Message } from "@/state/store";
 import { listedRuns, listedSessionId, workerAnchors, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
 import { ProviderMark } from "./ProviderIcons";
@@ -115,9 +115,10 @@ export function WorkerRow({ run, state, live, onOpenTerminalPane, open: expanded
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-const ENTRY_CLASS = "flex w-full items-center gap-2.5 border-b border-hairline/40 px-3 py-2.5 text-left text-[13px] last:border-b-0";
+const ENTRY_CLASS = "flex w-full items-center gap-2.5 border-b border-hairline/40 py-2.5 text-left text-[13px] last:border-b-0";
 
-function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose }: { runs: ShownRun[]; livePanes: Set<string> | null; onOpenTerminalPane?: (sessionId: string) => void; onClose: () => void }) {
+function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose, inset }: { runs: ShownRun[]; livePanes: Set<string> | null; onOpenTerminalPane?: (sessionId: string) => void; onClose: () => void; inset?: boolean }) {
+  const entry = cn(ENTRY_CLASS, inset && "px-3");
   return (
     <ul className="min-h-0 overflow-y-auto">
       {runs.map((shown) => {
@@ -125,7 +126,7 @@ function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose }: { runs:
         if (!onOpenTerminalPane || !sessionId) {
           return (
             <li key={shown.run.id}>
-              <div className={ENTRY_CLASS}>
+              <div className={entry}>
                 <WorkerLine {...shown} />
               </div>
             </li>
@@ -139,7 +140,7 @@ function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose }: { runs:
                 onOpenTerminalPane(sessionId);
                 onClose();
               }}
-              className={cn(ENTRY_CLASS, "hover:bg-raised/40")}
+              className={cn(entry, "hover:bg-raised/40")}
             >
               <WorkerLine {...shown} />
             </button>
@@ -242,7 +243,16 @@ export function WorkerChip({ name, runs, livePanes = null, onOpenTerminalPane }:
   const buttonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const listed = listedRuns(runs, livePanes);
-  const phone = isPhone();
+  const [phone, setPhone] = useState(isPhone);
+  useEffect(() => {
+    const media = window.matchMedia?.(PHONE_QUERY);
+    const flip = () => {
+      setPhone(isPhone());
+      setOpen(false);
+    };
+    media?.addEventListener?.("change", flip);
+    return () => media?.removeEventListener?.("change", flip);
+  }, []);
   useEffect(() => {
     if (listed.length === 0) setOpen(false);
   }, [listed.length]);
@@ -314,7 +324,7 @@ export function WorkerChip({ name, runs, livePanes = null, onOpenTerminalPane }:
         >
           <h2 id={titleId} className="px-3 py-2 text-[15px] font-semibold text-ink">{t("workers.title", { name })}</h2>
           <div className="max-h-[320px] overflow-y-auto">
-            <WorkerEntries runs={listed} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} onClose={close} />
+            <WorkerEntries inset runs={listed} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} onClose={close} />
           </div>
         </div>
       )}

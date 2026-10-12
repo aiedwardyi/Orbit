@@ -76,6 +76,10 @@ describe("WorkerChip", () => {
     vi.restoreAllMocks();
   });
 
+  const stubMedia = (media: { matches: boolean; addEventListener?: (type: string, listener: () => void) => void }) => {
+    Object.defineProperty(window, "matchMedia", { value: () => media, configurable: true, writable: true });
+  };
+
   const shown = (nick: string, state: ShownRun["state"], sessionId: string, at: number): ShownRun => {
     const base = run(`${nick} | Opus 5.5 | high`);
     return { run: { ...base, id: sessionId, nick, sessionId, at }, state };
@@ -238,6 +242,52 @@ describe("WorkerChip", () => {
     } finally {
       outside.remove();
       await unmount();
+    }
+  });
+
+  it("closes the open desktop list when the phone breakpoint flips", async () => {
+    let flip: (() => void) | undefined;
+    stubMedia({ matches: false, addEventListener: (_type, listener) => { flip = listener; } });
+    const { host, chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
+    try {
+      await act(async () => chip()!.click());
+      expect(host.querySelector("[data-worker-list]")).not.toBeNull();
+      await act(async () => flip!());
+      expect(host.querySelector("[data-worker-list]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("mounts when matchMedia has no addEventListener", async () => {
+    stubMedia({ matches: false });
+    const { host, chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
+    try {
+      await act(async () => chip()!.click());
+      expect(host.querySelector("[data-worker-list]")).not.toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("insets entries on the desktop dropdown but not in the phone sheet", async () => {
+    const runs = [shown("WORK", "working", "work-1", 1)];
+    stubMedia({ matches: false });
+    const desktop = await mount(runs, { onOpenTerminalPane: () => {} });
+    try {
+      await act(async () => desktop.chip()!.click());
+      expect(desktop.host.querySelector("[data-worker-list] li > button")?.className).toContain("px-3");
+    } finally {
+      await desktop.unmount();
+    }
+    stubMedia({ matches: true });
+    const phone = await mount(runs, { onOpenTerminalPane: () => {} });
+    try {
+      await act(async () => phone.chip()!.click());
+      const entry = document.body.querySelector("[data-worker-list] li > button")!;
+      expect(entry.className).not.toMatch(/(^|\s)px-/);
+    } finally {
+      await phone.unmount();
     }
   });
 
