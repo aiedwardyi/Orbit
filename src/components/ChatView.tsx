@@ -74,7 +74,7 @@ import { DeviceTag } from "./DeviceSwitcher";
 import { RenameTitle } from "./RenameTitle";
 import { TaskPicker } from "./TaskPicker";
 import { ReactionBar, ReactionChips } from "./Reactions";
-import { MessageMenu, SelectionMenu, contextClickKind, isTouchPrimary, type MessageMenuRequest } from "./MessageMenu";
+import { MessageMenu, SelectionMenu, contextClickKind, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
@@ -535,6 +535,7 @@ const Bubble = memo(function Bubble({
       } : undefined}
       onKeyDown={menuTarget ? (e) => {
         if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+        if (e.target instanceof Element && keepsNativeMenu(e.target)) return;
         e.preventDefault();
         const rect = e.currentTarget.getBoundingClientRect();
         onMessageMenu({
@@ -1463,6 +1464,12 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     bot.messages,
   );
   const [menu, setMenu] = useState<MessageMenuRequest | null>(null);
+  // Stays mounted across threads, so drop a menu that still names the previous one.
+  const [menuThread, setMenuThread] = useState(bot.threadId);
+  if (menuThread !== bot.threadId) {
+    setMenuThread(bot.threadId);
+    setMenu(null);
+  }
   useEffect(() => {
     const onFind = (event: KeyboardEvent) => {
       if (focusComposerBlocked) return;

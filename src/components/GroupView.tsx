@@ -47,7 +47,7 @@ import { shownState, workerRuns } from "@/lib/worker-runs";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
 import { ReactionBar, ReactionChips } from "./Reactions";
-import { MessageMenu, SelectionMenu, contextClickKind, isTouchPrimary, type MessageMenuRequest } from "./MessageMenu";
+import { MessageMenu, SelectionMenu, contextClickKind, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
 import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
 import { groupActivityRuns } from "@/lib/activity-runs";
@@ -407,6 +407,10 @@ const Transcript = memo(function Transcript({
         slots.add(key);
         const docked = dock && dock.slot === slot && m.id === dockTargetId ? dock : null;
         const attachedImages = user && m.text ? splitAttachedImages(m.text) : null;
+        const menuTarget =
+          m.kind === "text" && m.text && !m.placeholder
+            ? { threadId: group.threadId, message: m, copyText: attachedImages?.display ?? m.text ?? "", user }
+            : null;
         const detectedOptions =
           !user && !streaming && m.kind === "text" ? detectChatOptions(m.text ?? "") : null;
         const answeredChoice = detectedOptions ? laterUserAnswer(transcript, m.id) : null;
@@ -479,19 +483,19 @@ const Transcript = memo(function Transcript({
               data-orbit-message={user ? "user" : "bot"}
               className={cn("group flex w-full flex-col outline-none", user ? "items-end" : "items-start")}
               tabIndex={-1}
-              onContextMenu={m.placeholder ? undefined : (e) => {
+              onContextMenu={menuTarget ? (e) => {
                 if (isTouchPrimary() || !(e.target instanceof Element)) return;
                 const kind = contextClickKind(e.target, e.clientX, e.clientY);
                 if (kind === "native") return;
                 e.preventDefault();
                 e.stopPropagation();
-                const target = { threadId: group.threadId, message: m, copyText: attachedImages?.display ?? m.text ?? "", user };
                 onMessageMenu(kind === "selection"
                   ? { kind, x: e.clientX, y: e.clientY, opener: e.currentTarget, text: window.getSelection()?.toString() ?? "" }
-                  : { kind, x: e.clientX, y: e.clientY, opener: e.currentTarget, target });
-              }}
-              onKeyDown={m.placeholder ? undefined : (e) => {
+                  : { kind, x: e.clientX, y: e.clientY, opener: e.currentTarget, target: menuTarget });
+              } : undefined}
+              onKeyDown={menuTarget ? (e) => {
                 if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+                if (e.target instanceof Element && keepsNativeMenu(e.target)) return;
                 e.preventDefault();
                 const rect = e.currentTarget.getBoundingClientRect();
                 onMessageMenu({
@@ -499,9 +503,9 @@ const Transcript = memo(function Transcript({
                   x: rect.left + rect.width / 2,
                   y: rect.top + rect.height / 2,
                   opener: e.currentTarget,
-                  target: { threadId: group.threadId, message: m, copyText: attachedImages?.display ?? m.text ?? "", user },
+                  target: menuTarget,
                 });
-              }}
+              } : undefined}
             >
               <div
                 data-orbit-message-body
@@ -1153,6 +1157,12 @@ export function GroupView({ group }: { group: Group }) {
     group.messages,
   );
   const [menu, setMenu] = useState<MessageMenuRequest | null>(null);
+  // Same instance can show another thread without a click outside the menu.
+  const [menuThread, setMenuThread] = useState(group.threadId);
+  if (menuThread !== group.threadId) {
+    setMenuThread(group.threadId);
+    setMenu(null);
+  }
   const membersTriggerRef = useRef<HTMLButtonElement>(null);
   const closeMembers = useCallback(() => setMembersOpen(false), []);
   useEffect(() => {

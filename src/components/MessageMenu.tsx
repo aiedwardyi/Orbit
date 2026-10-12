@@ -26,7 +26,7 @@ export function isTouchPrimary(win: Window = window): boolean {
 }
 
 /** Links and editable fields keep today's native menu. */
-function keepsNativeMenu(target: Element): boolean {
+export function keepsNativeMenu(target: Element): boolean {
   return target.closest("a[href], input, textarea, select, [contenteditable=\"true\"]") !== null;
 }
 
@@ -140,6 +140,14 @@ function useMenuDismiss(ref: React.RefObject<HTMLDivElement | null>, opener: HTM
   }, [ref, opener, onClose]);
 }
 
+/** Close, then put focus back on the opener unless the action already moved it. */
+function closeMenu(opener: HTMLElement, menu: HTMLElement | null, onClose: () => void): void {
+  const active = document.activeElement;
+  const moved = active instanceof HTMLElement && active !== document.body && !menu?.contains(active);
+  onClose();
+  if (!moved) opener.focus({ preventScroll: true });
+}
+
 /** Arrow keys walk the menu's buttons; Enter clicks the focused one. */
 function menuKeyDown(ref: React.RefObject<HTMLDivElement | null>, e: React.KeyboardEvent): void {
   const buttons = ref.current ? Array.from(ref.current.querySelectorAll("button")) : [];
@@ -207,7 +215,7 @@ export function MessageMenu({
 
   const toggle = (emoji: string) => {
     dispatch({ type: "toggleReaction", threadId, messageId: message.id, emoji, message });
-    onClose();
+    closeMenu(opener, ref.current, onClose);
   };
   const emojiButton = (emoji: string) => {
     const pressed = mine.has(emoji);
@@ -215,6 +223,7 @@ export function MessageMenu({
       <button
         key={emoji}
         type="button"
+        role="menuitem"
         data-menu-reaction={emoji}
         onClick={() => toggle(emoji)}
         aria-label={pressed ? t("chat.removeReaction", { emoji }) : t("chat.reactEmoji", { emoji })}
@@ -229,6 +238,7 @@ export function MessageMenu({
   return createPortal(
     <div
       ref={ref}
+      role="menu"
       data-message-menu
       style={{ top: box.top, left: box.left }}
       onKeyDown={(e) => menuKeyDown(ref, e)}
@@ -241,6 +251,7 @@ export function MessageMenu({
               {EXTENDED_REACTIONS.map(emojiButton)}
               <button
                 type="button"
+                role="menuitem"
                 data-menu-collapse
                 onClick={() => setExpanded(false)}
                 aria-label={t("chat.closeReactions")}
@@ -255,6 +266,7 @@ export function MessageMenu({
               {QUICK_REACTIONS.map(emojiButton)}
               <button
                 type="button"
+                role="menuitem"
                 data-menu-expand
                 onClick={() => setExpanded(true)}
                 aria-label={t("chat.moreReactions")}
@@ -270,10 +282,11 @@ export function MessageMenu({
       )}
       <button
         type="button"
+        role="menuitem"
         data-menu-reply
         onClick={() => {
           onReply(message);
-          onClose();
+          closeMenu(opener, ref.current, onClose);
         }}
         className={ROW_CLASS}
       >
@@ -282,10 +295,11 @@ export function MessageMenu({
       </button>
       <button
         type="button"
+        role="menuitem"
         data-menu-copy
         onClick={() => {
           void navigator.clipboard?.writeText(copyText);
-          onClose();
+          closeMenu(opener, ref.current, onClose);
         }}
         className={ROW_CLASS}
       >
@@ -322,6 +336,7 @@ export function SelectionMenu({
   return createPortal(
     <div
       ref={ref}
+      role="menu"
       data-selection-menu
       style={{ top: box.top, left: box.left }}
       onKeyDown={(e) => menuKeyDown(ref, e)}
@@ -329,10 +344,11 @@ export function SelectionMenu({
     >
       <button
         type="button"
+        role="menuitem"
         data-menu-copy
         onClick={() => {
           void navigator.clipboard?.writeText(text);
-          onClose();
+          closeMenu(opener, ref.current, onClose);
         }}
         className={ROW_CLASS}
       >

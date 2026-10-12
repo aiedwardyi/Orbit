@@ -50,10 +50,12 @@ function Probe() {
 }
 
 let unmount: (() => Promise<void>) | null = null;
+let renderChat: ((next: Bot) => Promise<void>) | null = null;
 
 afterEach(async () => {
   await unmount?.();
   unmount = null;
+  renderChat = null;
   FakeEventSource.last = null;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -76,9 +78,15 @@ async function mountChat(current: Bot) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(createElement(I18nProvider, null,
-    createElement(StoreProvider, null, createElement(ChatView, { bot: current }), createElement(Probe)),
-  )));
+  const draw = (next: Bot) => {
+    root.render(createElement(I18nProvider, null,
+      createElement(StoreProvider, null, createElement(ChatView, { bot: next }), createElement(Probe)),
+    ));
+  };
+  renderChat = async (next: Bot) => {
+    await act(async () => { draw(next); });
+  };
+  await act(async () => { draw(current); });
   await act(async () => {
     FakeEventSource.last?.onmessage?.({ data: JSON.stringify({ kind: "hello", resumed: false, cursor: "qa:1" }), lastEventId: "qa:1" });
   });
@@ -363,6 +371,52 @@ describe("message menu in 1:1 chats", () => {
     row.focus();
     await keyOn(row, { key: "ContextMenu" });
     expect(messageMenu()?.querySelector("[data-menu-copy]")).not.toBeNull();
+  });
+
+  it("leaves a focused link to the native menu", async () => {
+    const host = await mountChat(bot([botMsg("b1", "read the [docs](https://example.com/guide) first")]));
+    const link = host.querySelector<HTMLElement>('[data-mid="b1"] a[href="https://example.com/guide"]')!;
+    link.focus();
+    for (const init of [{ key: "F10", shiftKey: true }, { key: "ContextMenu" }] as const) {
+      let prevented = false;
+      await act(async () => {
+        const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+        link.dispatchEvent(event);
+        prevented = event.defaultPrevented;
+      });
+      expect(messageMenu(), init.key).toBeNull();
+      expect(prevented, init.key).toBe(false);
+    }
+  });
+
+  it("closes the menu when the thread changes", async () => {
+    const host = await mountChat(bot([botMsg("b1", "hello")]));
+    await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
+    expect(messageMenu()).not.toBeNull();
+    const next = { ...bot([botMsg("b2", "other")]), id: "other", threadId: "thread-other" };
+    await renderChat!(next);
+    expect(messageMenu()).toBeNull();
+  });
+
+  it("returns focus to the row after Copy and to the composer after Reply", async () => {
+    stubClipboard();
+    const host = await mountChat(bot([userMsg("u1", "mine")]));
+    const row = host.querySelector<HTMLElement>('[data-mid="u1"] [data-orbit-message]')!;
+    const open = () => rightClick(host.querySelector('[data-mid="u1"] [data-orbit-message-content]')!);
+
+    await open();
+    const copy = document.querySelector<HTMLElement>("[data-menu-copy]")!;
+    copy.focus();
+    await act(async () => { copy.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })); });
+    expect(messageMenu()).toBeNull();
+    expect(document.activeElement).toBe(row);
+
+    await open();
+    const reply = document.querySelector<HTMLElement>("[data-menu-reply]")!;
+    reply.focus();
+    await act(async () => { reply.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })); });
+    expect(messageMenu()).toBeNull();
+    expect(document.activeElement).toBe(host.querySelector("[data-orbit-composer]"));
   });
 
   it("moves with arrow keys and activates with Enter", async () => {
