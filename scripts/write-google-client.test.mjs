@@ -50,7 +50,7 @@ describe("google sign-in client", () => {
     const release = readFileSync(join(ROOT, ".github", "workflows", "release.yml"), "utf8");
     expect(release).toContain("WINK_GOOGLE_WEB_CLIENT_ID: ${{ vars.WINK_GOOGLE_WEB_CLIENT_ID }}");
     expect(release).toContain("WINK_TEAM_RELAY: ${{ vars.WINK_TEAM_RELAY }}");
-    expect(release).toContain("WINK_TEAM_OWNER: ${{ vars.WINK_TEAM_OWNER }}");
+    expect(release).toContain("WINK_TEAM_OWNER: ${{ secrets.WINK_TEAM_OWNER }}");
   });
 
   it("bakes the team owner as a hash, never the email", () => {
