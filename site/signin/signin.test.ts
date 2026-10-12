@@ -159,6 +159,11 @@ describe("phone sign-in page", () => {
     expect(shipped).not.toContain("https://relay.wink.edwardyi.dev");
   });
 
+  it("sends its origin to Google's button frame", () => {
+    expect(HTML).toContain('<meta name="referrer" content="strict-origin" />');
+    expect(HTML).not.toContain("no-referrer");
+  });
+
   it("links to the privacy policy", () => {
     expect(HTML).toContain("Reach Wink on your PC from this phone.");
     expect(HTML).toContain('<a class="privacy" href="/privacy">Privacy</a>');
