@@ -149,13 +149,14 @@ export class Hub {
   }
 
   /** Publishes this session in the account directory. Replaces any earlier account for the label. */
-  setAccount(session: Session, subHash: string, name: string): void {
+  setAccount(session: Session, subHash: string, name: string, person = ""): void {
     if (session.account) this.unindex(session);
     session.account = { subHash, name };
     const bucket = this.bySub.get(subHash) ?? new Map<string, string>();
     bucket.set(session.label, name);
     this.bySub.set(subHash, bucket);
     this.opts.team?.setName(session.label, name);
+    this.opts.team?.setAccount(session.label, subHash, person);
   }
 
   /** A control frame arrived on the label's current session. */

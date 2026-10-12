@@ -3,6 +3,7 @@
 // days. Closed spans go to an append-only journal; open ones are checkpointed
 // with their last-seen time, so a crash closes them there on the next boot.
 
+import { createHash } from "node:crypto";
 import { mkdir, open, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { z } from "zod";
@@ -21,6 +22,8 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_SPANS = 500_000;
 const SPAN_RE = /^(pc|phone) ([a-z2-7]{16}) (\d{1,15}) (\d{1,15})$/;
 const NAME_RE = /^name ([a-z2-7]{16}) ([A-Za-z0-9_-]{0,400})$/;
+const ACCT_RE = /^acct ([a-z2-7]{16}) ([A-Za-z0-9_-]{43})$/;
+const WHO_RE = /^who ([a-z2-7]{16}) ([A-Za-z0-9_-]{0,400})$/;
 
 type Kind = "pc" | "phone";
 
@@ -52,11 +55,30 @@ export interface TeamPc {
   phone: { count: number; minutes: number }[];
 }
 
+export interface TeamPersonPc {
+  label: string;
+  name: string;
+  online: boolean;
+}
+
+export interface TeamPerson {
+  /** Opaque id. Never the account hash. */
+  id: string;
+  name: string;
+  online: boolean;
+  lastSeen: number | null;
+  pcs: TeamPersonPc[];
+  /** Hours online per day, union of this person's PCs, oldest first. */
+  hours: number[];
+  phone: { count: number; minutes: number }[];
+}
+
 export interface TeamStats {
   now: number;
   /** Local dates (YYYY-MM-DD) of the TEAM_DAYS columns, oldest first. */
   days: string[];
   pcs: TeamPc[];
+  people: TeamPerson[];
 }
 
 async function readText(path: string): Promise<string> {
@@ -121,6 +143,8 @@ const overlap = (span: { start: number; end: number }, from: number, to: number)
 export class TeamLog {
   private spans: Span[] = [];
   private readonly names = new Map<string, string>();
+  private readonly accounts = new Map<string, string>();
+  private readonly whos = new Map<string, string>();
   private readonly openPc = new Map<string, { start: number; seen: number }>();
   private readonly openPhones = new Map<number, { label: string; start: number }>();
   private nextPhone = 0;
@@ -151,7 +175,17 @@ export class TeamLog {
         continue;
       }
       const name = NAME_RE.exec(line);
-      if (name) team.names.set(name[1], Buffer.from(name[2], "base64url").toString("utf8"));
+      if (name) {
+        team.names.set(name[1], Buffer.from(name[2], "base64url").toString("utf8"));
+        continue;
+      }
+      const acct = ACCT_RE.exec(line);
+      if (acct) {
+        team.accounts.set(acct[1], acct[2]);
+        continue;
+      }
+      const who = WHO_RE.exec(line);
+      if (who) team.noteWho(who[1], Buffer.from(who[2], "base64url").toString("utf8"));
     }
     const cp = parseCheckpoint(await readText(team.checkpointFile));
     for (const [label, start, seen] of cp?.pc ?? []) team.add({ kind: "pc", label, start, end: seen });
@@ -185,6 +219,19 @@ export class TeamLog {
     if (!name || this.names.get(label) === name) return;
     this.names.set(label, name);
     this.append(`name ${label} ${Buffer.from(name, "utf8").toString("base64url")}\n`);
+  }
+
+  /** Records the account hash and Wink name. Appends only when either changed. */
+  setAccount(label: string, subHash: string, person: string): void {
+    if (!LABEL_RE.test(label) || !ACCT_RE.test(`acct ${label} ${subHash}`)) return;
+    if (this.accounts.get(label) !== subHash) {
+      this.accounts.set(label, subHash);
+      this.append(`acct ${label} ${subHash}\n`);
+    }
+    if (this.whos.get(label) === person) return;
+    if (!this.whos.has(label) && person === "") return;
+    this.noteWho(label, person);
+    this.append(`who ${label} ${Buffer.from(person, "utf8").toString("base64url")}\n`);
   }
 
   phoneStart(label: string): number {
@@ -252,7 +299,8 @@ export class TeamLog {
       });
     }
     pcs.sort((a, b) => a.name.localeCompare(b.name) || (a.label < b.label ? -1 : 1));
-    return { now, days: starts.map((from) => new Date(from + shift).toISOString().slice(0, 10)), pcs };
+    const days = starts.map((from) => new Date(from + shift).toISOString().slice(0, 10));
+    return { now, days, pcs, people: this.people(byLabel, pcs, starts, now) };
   }
 
   private record(span: Span): void {
@@ -275,11 +323,12 @@ export class TeamLog {
     this.spans = this.spans.filter((span) => span.end >= cutoff);
     const used = new Set([...this.spans.map((s) => s.label), ...this.openPc.keys()]);
     let dropped = before !== this.spans.length;
-    for (const label of this.names.keys()) {
-      if (!used.has(label)) {
-        this.names.delete(label);
-        dropped = true;
-      }
+    for (const label of new Set([...this.names.keys(), ...this.accounts.keys(), ...this.whos.keys()])) {
+      if (used.has(label)) continue;
+      this.names.delete(label);
+      this.accounts.delete(label);
+      this.whos.delete(label);
+      dropped = true;
     }
     return dropped;
   }
@@ -298,6 +347,10 @@ export class TeamLog {
     let text = "";
     for (const [label, name] of this.names) text += `name ${label} ${Buffer.from(name, "utf8").toString("base64url")}
 `;
+    for (const [label, subHash] of this.accounts) text += `acct ${label} ${subHash}
+`;
+    for (const [label, person] of this.whos) text += `who ${label} ${Buffer.from(person, "utf8").toString("base64url")}
+`;
     for (const span of this.spans) text += `${span.kind} ${span.label} ${span.start} ${span.end}
 `;
     return this.queue(() => writeAtomic(this.journal, text));
@@ -312,6 +365,75 @@ export class TeamLog {
         await handle.close();
       }
     });
+  }
+
+  /** Latest write stays last in the map, so a compact reload keeps that order. */
+  private noteWho(label: string, person: string): void {
+    this.whos.delete(label);
+    this.whos.set(label, person);
+  }
+
+  private people(
+    byLabel: Map<string, { pc: { start: number; end: number }[]; phone: { start: number; end: number }[] }>,
+    pcs: TeamPc[],
+    starts: number[],
+    now: number,
+  ): TeamPerson[] {
+    const pcByLabel = new Map(pcs.map((pc) => [pc.label, pc]));
+    const groups = new Map<string, string[]>();
+    for (const label of byLabel.keys()) {
+      const key = this.accounts.get(label) ?? `pc:${label}`;
+      const list = groups.get(key);
+      if (list) list.push(label);
+      else groups.set(key, [label]);
+    }
+    const people: TeamPerson[] = [];
+    for (const [key, labels] of groups) {
+      const members = labels.flatMap((label) => {
+        const pc = pcByLabel.get(label);
+        return pc ? [pc] : [];
+      });
+      const merged = merge(labels.flatMap((label) => byLabel.get(label)?.pc ?? []), 0);
+      let wink = "";
+      let seq = -1;
+      for (const label of labels) {
+        const written = (this.whos.get(label) ?? "").trim();
+        const at = this.whoAt(label);
+        if (written && at >= seq) {
+          seq = at;
+          wink = written;
+        }
+      }
+      const named = members.slice().sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0) || a.name.localeCompare(b.name));
+      const online = members.some((pc) => pc.online);
+      people.push({
+        id: createHash("sha256").update(`wink-team-person/1\0${key}`, "utf8").digest("base64url"),
+        name: wink || named[0]?.name || labels[0] || key,
+        online,
+        lastSeen: online ? now : named.reduce<number | null>((max, pc) => (pc.lastSeen == null ? max : max == null ? pc.lastSeen : Math.max(max, pc.lastSeen)), null),
+        pcs: members
+          .map((pc) => ({ label: pc.label, name: pc.name, online: pc.online }))
+          .sort((a, b) => a.name.localeCompare(b.name) || (a.label < b.label ? -1 : 1)),
+        hours: starts.map((from) => Math.round(merged.reduce((sum, span) => sum + overlap(span, from, from + DAY_MS), 0) / 36_000) / 100),
+        phone: starts.map((_, index) => ({
+          count: members.reduce((sum, pc) => sum + (pc.phone[index]?.count ?? 0), 0),
+          minutes: members.reduce((sum, pc) => sum + (pc.phone[index]?.minutes ?? 0), 0),
+        })),
+      });
+    }
+    people.sort((a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1));
+    return people;
+  }
+
+  /** Position in who-write order. Map iteration order is that order. */
+  private whoAt(label: string): number {
+    if (!this.whos.has(label)) return -1;
+    let at = 0;
+    for (const key of this.whos.keys()) {
+      if (key === label) return at;
+      at += 1;
+    }
+    return -1;
   }
 
   private queue(task: () => Promise<void>): Promise<void> {
