@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Message } from "@/state/store";
-import { byUrgency, parseWorkerLabel, shownState, workerProvider, workerRuns } from "./worker-runs";
+import { byUrgency, listedRuns, listedSessionId, parseWorkerLabel, shownState, workerAnchors, workerProvider, workerRuns } from "./worker-runs";
 
 const BOT = "61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b";
 const PANE = "5d09c0d0-2844-43b0-982e-88305df70570";
@@ -10,6 +10,10 @@ const OTHER = "0f3c9a1e-1111-4222-8333-944455556666";
 const launch = (id: string, at: number, label: string, session = PANE): Message => ({
   id, at, role: "bot", kind: "launch",
   text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${session}`,
+});
+const resume = (id: string, at: number, label: string, session = PANE): Message => ({
+  id, at, role: "bot", kind: "launch",
+  text: `Resumed ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${session}`,
 });
 const note = (id: string, at: number, text: string, label: string | null = "REL-CHAIN-166 | script", session = PANE): Message => ({
   id, at, role: "bot", kind: "note",
@@ -126,6 +130,105 @@ describe("workerRuns", () => {
     ]);
   });
 
+  it("a follow-up after done or failed is working until the next report", () => {
+    const resume = (id: string, at: number): Message => ({
+      id, at, role: "bot", kind: "launch",
+      text: `Resumed A | Opus 5.5 | high\nLabel: A | Opus 5.5 | high\nWorking folder: C:\\repo\nSession: ${PANE}`,
+    });
+    const done = note("n1", 2, report("DONE", "A"), "A | Opus 5.5 | high");
+    const again = note("n2", 4, report("DONE", "A", "still done"), "A | Opus 5.5 | high");
+    const working = workerRuns([launch("l1", 1, "A | Opus 5.5 | high"), done, resume("r1", 3)]);
+    expect(working).toHaveLength(1);
+    expect(working[0]).toMatchObject({ state: "working", messageIds: ["l1", "n1", "r1"] });
+    expect(working[0]!.notes.map((n) => n.id)).toEqual(["n1"]);
+    const settled = workerRuns([launch("l1", 1, "A | Opus 5.5 | high"), done, resume("r1", 3), again]);
+    expect(settled).toHaveLength(1);
+    expect(settled[0]).toMatchObject({ state: "done", messageIds: ["l1", "n1", "r1", "n2"] });
+    const failed = workerRuns([
+      launch("l1", 1, "A | Opus 5.5 | high"),
+      note("n1", 2, report("FAIL", "A"), "A | Opus 5.5 | high"),
+      resume("r1", 3),
+    ]);
+    expect(failed[0]!.state).toBe("working");
+  });
+
+  it("starts a run from a resume whose launch is not loaded, without a second row or a moved anchor", () => {
+    const resume = (id: string, at: number, session = PANE): Message => ({
+      id, at, role: "bot", kind: "launch",
+      text: `Resumed A | Opus 5.5 | high\nLabel: A | Opus 5.5 | high\nWorking folder: C:\\repo\nSession: ${session}`,
+    });
+    const alone = workerRuns([resume("r1", 5)])[0]!;
+    expect(alone).toMatchObject({ nick: "A", model: "Opus 5.5", state: "working", sessionId: PANE, messageIds: ["r1"] });
+
+    const done = note("n1", 2, report("DONE", "A"), "A | Opus 5.5 | high");
+    const followed = resume("r1", 3);
+    const loaded = workerRuns([launch("l1", 1, "A | Opus 5.5 | high"), done, followed])[0]!;
+    const withLaunch = workerAnchors([{ run: loaded }], [launch("l1", 1, "A | Opus 5.5 | high"), done, followed]);
+    expect(withLaunch.get("l1")?.run.id).toBe(loaded.id);
+    expect(withLaunch.get("r1")).toBeNull();
+
+    const paged = workerRuns([done, followed])[0]!;
+    expect(workerRuns([done, followed])).toHaveLength(1);
+    const withoutLaunch = workerAnchors([{ run: paged }], [done, followed]);
+    expect(withoutLaunch.get("n1")?.run.id).toBe(paged.id);
+    expect(withoutLaunch.get("r1")).toBeNull();
+    expect(paged.messageIds).toEqual(["n1", "r1"]);
+  });
+
+  it("settles a resumed run when its pane reports under another nickname", () => {
+    const label = "GP-1 | Opus 5.5 | high";
+    const messages = [
+      launch("l1", 1, label),
+      note("n1", 2, report("DONE", "GP-1"), label),
+      resume("r1", 3, label),
+      note("n2", 4, report("DONE", "GP-1B"), label),
+    ];
+    const runs = workerRuns(messages);
+    expect(runs.map((r) => [r.nick, r.state, r.messageIds])).toEqual([
+      ["GP-1", "done", ["l1", "n1", "r1"]],
+      ["GP-1B", "done", ["n2"]],
+    ]);
+    const anchors = workerAnchors(runs.map((run) => ({ run })), messages);
+    expect(anchors.get("l1")?.run.id).toBe(runs[0]!.id);
+    expect(anchors.get("r1")).toBeNull();
+  });
+
+  it("omits a resume-only run after its pane reports under another nickname", () => {
+    const label = "GP-1 | Opus 5.5 | high";
+    const runs = workerRuns([
+      resume("r1", 1, label),
+      note("n1", 2, report("DONE", "GP-1B"), label),
+    ]);
+    expect(runs.map((r) => [r.nick, r.state, r.messageIds])).toEqual([
+      ["GP-1B", "done", ["n1"]],
+    ]);
+  });
+
+  it("only settles a resumed run on a report from its own pane", () => {
+    const label = "GP-1 | Opus 5.5 | high";
+    const messages = [
+      launch("l1", 1, label),
+      note("n1", 2, report("DONE", "GP-1"), label),
+      resume("r1", 3, label),
+      note("n2", 4, report("DONE", "GP-1B"), label, OTHER),
+    ];
+    expect(workerRuns(messages).map((r) => [r.nick, r.state])).toEqual([
+      ["GP-1", "working"], ["GP-1B", "done"],
+    ]);
+    const settled = workerRuns([...messages, note("n3", 5, report("DONE", "GP-1C"), label)]);
+    expect(settled[0]).toMatchObject({ nick: "GP-1", state: "done", messageIds: ["l1", "n1", "r1"] });
+  });
+
+  it("stays done when a plain launch repeats after the report", () => {
+    const runs = workerRuns([
+      launch("l1", 1, "A | Opus 5.5 | high"),
+      note("n1", 2, report("DONE", "A"), "A | Opus 5.5 | high"),
+      launch("l2", 3, "A | Opus 5.5 | high"),
+    ]);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ state: "done", messageIds: ["l1", "l2", "n1"] });
+  });
+
   it("ignores notes without a pane and other messages", () => {
     expect(workerRuns([
       { id: "t", at: 1, role: "bot", kind: "text", text: "hi" },
@@ -193,5 +296,93 @@ describe("byUrgency", () => {
     ]);
     const sorted = runs.map((run) => ({ run, state: shownState(run, null) })).sort(byUrgency);
     expect(sorted.map((r) => r.run.nick)).toEqual(["D", "C", "A", "E", "B"]);
+  });
+});
+
+describe("listedRuns", () => {
+  const runs = () => workerRuns([
+    launch("a", 1, "WORK | Opus 5.5 | high", "aaaaaaaa-1"),
+    launch("b", 2, "WAIT | Opus 5.5 | high", "bbbbbbbb-1"),
+    note("bn", 3, STALLED, "WAIT | Opus 5.5 | high", "bbbbbbbb-1"),
+    launch("c", 4, "COPY | Opus 5.5 | high", "cccccccc-1"),
+    note("cn", 5, report("DONE", "COPY"), "COPY | Opus 5.5 | high", "cccccccc-1"),
+    launch("d", 6, "SHIP | Opus 5.5 | high", "dddddddd-1"),
+    note("dn", 7, report("FAIL", "SHIP"), "SHIP | Opus 5.5 | high", "dddddddd-1"),
+  ]).map((run) => ({ run, state: shownState(run, null) }));
+
+  it("keeps every live pane, including a done one, and drops a closed working pane", () => {
+    const listed = listedRuns(runs(), new Set(["bbbbbbbb-1", "cccccccc-1", "dddddddd-1"]));
+    expect(listed.map((shown) => shown.run.nick)).toEqual(["WAIT", "SHIP", "COPY"]);
+  });
+
+  it("falls back to working and waiting when liveness is unknown", () => {
+    const listed = listedRuns(runs(), null);
+    expect(listed.map((shown) => shown.run.nick)).toEqual(["WAIT", "WORK"]);
+  });
+
+  it("lists a renamed pane once under its newest report nickname", () => {
+    const runs = workerRuns([
+      launch("l1", 1, "GO-GOOGLE | GPT-6.1 Sol | high"),
+      note("n1", 2, report("BLOCKED", "CHAIN-GP2"), "GO-GOOGLE | GPT-6.1 Sol | high"),
+    ]).map((run) => ({ run, state: run.state }));
+    expect(listedRuns(runs, new Set([PANE])).map((shown) => shown.run.nick)).toEqual(["CHAIN-GP2"]);
+    expect(listedRuns(runs, null).map((shown) => shown.run.nick)).toEqual(["CHAIN-GP2", "GO-GOOGLE"]);
+  });
+
+  it.each(["launch", "resume", "note"])("keeps the run with the newest %s event when a pane is reused", (kind) => {
+    const label = "A | Opus 5.5 | high";
+    const latest = kind === "launch" ? launch("a2", 5, label) : kind === "resume" ? resume("a2", 5, label) : note("a2", 5, report("DONE", "A"), label);
+    const runs = workerRuns([
+      launch("a1", 1, label),
+      note("an", 2, report("DONE", "A"), label),
+      launch("b1", 3, "B | Opus 5.5 | high"),
+      note("bn", 4, report("BLOCKED", "B"), "B | Opus 5.5 | high"),
+      latest,
+      launch("side", 6, "SIDE | Opus 5.5 | high", OTHER),
+    ]).map((run) => ({ run, state: run.state }));
+    const listed = listedRuns(runs, new Set([PANE, OTHER]));
+    expect(listed).toHaveLength(2);
+    expect(listed.find((shown) => shown.run.sessionId === PANE)?.run.nick).toBe("A");
+    expect(listed.find((shown) => shown.run.sessionId === OTHER)).toBe(runs.find((shown) => shown.run.sessionId === OTHER));
+    expect(listed.find((shown) => shown.run.nick === "A")?.run.at).toBe(1);
+  });
+
+  it("uses event time when notes from a reused pane arrive out of order", () => {
+    const runs = workerRuns([
+      launch("a1", 1, "A | script"),
+      launch("b1", 2, "B | script"),
+      note("an", 4, report("DONE", "A"), "A | script"),
+      note("bn", 3, report("BLOCKED", "B"), "B | script"),
+    ]).map((run) => ({ run, state: run.state }));
+    expect(listedRuns(runs, new Set([PANE])).map((shown) => shown.run.nick)).toEqual(["A"]);
+  });
+
+  it("uses transcript order for equal-time events from a reused pane", () => {
+    const runs = workerRuns([
+      launch("a1", 1, "A | script"),
+      launch("b1", 2, "B | script"),
+      note("bn", 3, report("BLOCKED", "B"), "B | script"),
+      note("an", 3, report("DONE", "A"), "A | script"),
+    ]).map((run) => ({ run, state: run.state }));
+    expect(listedRuns(runs, new Set([PANE])).map((shown) => shown.run.nick)).toEqual(["A"]);
+  });
+
+  it("only confirms a launch session after pane liveness loads", () => {
+    const run = workerRuns([launch("l1", 1, "A | Opus 5.5 | high")])[0]!;
+    expect(listedSessionId(run, null)).toBeNull();
+    expect(listedRuns([{ run, state: run.state }], null)).toHaveLength(1);
+    expect(listedSessionId(run, new Set([PANE]))).toBe(PANE);
+    expect(listedSessionId(run, new Set([OTHER]))).toBeNull();
+  });
+
+  it("lists a note-only run when one live pane starts with its pane id", () => {
+    const run = workerRuns([note("n1", 5, report("BLOCKED", "OLD-JOB"), "OLD-JOB | Opus 5.5 | high", "5d09c0d0-not-loaded")])[0]!;
+    expect(run.sessionId).toBeNull();
+    const live = new Set(["5d09c0d0-not-loaded"]);
+    expect(listedRuns([{ run, state: run.state }], live).map((shown) => shown.run.nick)).toEqual(["OLD-JOB"]);
+    expect(listedSessionId(run, live)).toBe("5d09c0d0-not-loaded");
+    const both = new Set(["5d09c0d0-a", "5d09c0d0-b"]);
+    expect(listedRuns([{ run, state: run.state }], both)).toEqual([]);
+    expect(listedSessionId(run, both)).toBeNull();
   });
 });

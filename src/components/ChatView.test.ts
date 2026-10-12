@@ -240,6 +240,32 @@ describe("ChatView worker rows", () => {
     }
   });
 
+  it("shows a resumed worker working again on the original row", async () => {
+    stubDom();
+    const pane = "bc9c674b-2844-43b0-982e-88305df70570";
+    const resume: Message = {
+      id: "r1", at: 4, role: "bot", kind: "launch",
+      text: `Resumed A | Opus 5.5 | high\nLabel: A | Opus 5.5 | high\nWorking folder: C:\\repo\nSession: ${pane}`,
+    };
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [
+      userMsg("ua", "go"),
+      launch(pane, "A | Opus 5.5 | high"),
+      note("n1", pane, "DONE A branch=x sha=y dirty=no\nAll green.", 3, "A | Opus 5.5 | high"),
+      resume,
+    ] } as Bot;
+    const { host, unmount } = await mountChat(current);
+    try {
+      expect(rows(host)).toHaveLength(1);
+      expect(rows(host)[0]!.textContent).toBe("AOpus 5.5●Working");
+      expect(host.querySelector("[data-worker-run]")!.closest("[data-mid]")?.getAttribute("data-mid")).toBe(pane);
+      await act(async () => { rows(host)[0]!.click(); });
+      expect(host.querySelector("[data-orbit-worker]")?.textContent).toContain("All green.");
+    } finally {
+      await unmount();
+    }
+  });
+
   it("takes the newest report as the state and keeps it over a closed pane", async () => {
     stubDom();
     vi.stubGlobal("ogb", { platform: "win32", terminal: { readBot: vi.fn(async () => ({ panes: [] })) } });
@@ -358,16 +384,19 @@ describe("ChatView worker rows", () => {
     try {
       expect(states(host)).toEqual(["working", "waiting", "done", "failed"]);
       const strip = host.querySelector<HTMLButtonElement>("[data-worker-strip]")!;
-      expect(strip.getAttribute("aria-label")).toBe("1 working, 1 waiting. Show workers");
-      expect(strip.textContent).toBe("");
-      expect(Array.from(strip.querySelectorAll("[data-worker-state]")).map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "working"]);
-      expect(strip.querySelectorAll("svg")).toHaveLength(2);
+      expect(strip.closest("[class*='@container/chathead']")).not.toBeNull();
+      expect(host.querySelector("[data-orbit-composer]")?.closest("[class*='z-[2]']")?.querySelector("[data-worker-strip]") ?? null).toBeNull();
+      expect(strip.getAttribute("aria-label")).toBe("1 working, 1 waiting, 0 failed, 0 done. Show workers");
+      const desktop = strip.querySelector("[data-worker-chip-desktop]")!;
+      expect(desktop.textContent).toBe("");
+      expect(Array.from(desktop.querySelectorAll("[data-worker-state]")).map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "working"]);
+      expect(desktop.querySelectorAll("svg")).toHaveLength(2);
       await act(async () => { strip.click(); });
       const list = document.body.querySelector("[data-worker-list]")!;
       expect(list.getAttribute("role")).toBe("dialog");
       expect(list.querySelector("h2")?.textContent).toBe("A's workers");
       expect(Array.from(list.querySelectorAll("li")).map((li) => li.textContent)).toEqual([
-        "GUIDEOpus 5.5‖Waiting", "SHIPGrok 4.7!Failed", "BUILDGPT-6 Astra●Working", "COPYGemini 3.8✓Done",
+        "GUIDEOpus 5.5‖Waiting", "BUILDGPT-6 Astra●Working",
       ]);
       await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
       expect(document.body.querySelector("[data-worker-list]")).toBeNull();
@@ -376,16 +405,56 @@ describe("ChatView worker rows", () => {
     }
   });
 
-  it("caps the strip at five marks and counts the rest", async () => {
+  it("caps the header chip at three marks and counts the rest", async () => {
     stubDom();
     // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
     const current = { ...botA, messages: [userMsg("ua", "go"), ...Array.from({ length: 7 }, (_, i) => launch(`${i}0000000-1`, `W${i} | Opus 5.5 | high`, i + 1))] } as Bot;
     const { host, unmount } = await mountChat(current);
     try {
       const strip = host.querySelector("[data-worker-strip]")!;
-      expect(strip.querySelectorAll("[data-worker-state]")).toHaveLength(5);
-      expect(strip.textContent).toBe("+2");
-      expect(strip.getAttribute("aria-label")).toBe("7 working, 0 waiting. Show workers");
+      const desktop = strip.querySelector("[data-worker-chip-desktop]")!;
+      expect(desktop.querySelectorAll("[data-worker-state]")).toHaveLength(3);
+      expect(desktop.textContent).toBe("+4");
+      const phone = strip.querySelector("[data-worker-chip-phone]")!;
+      expect(phone.querySelectorAll("[data-worker-state]")).toHaveLength(1);
+      expect(phone.textContent).toBe("7");
+      expect(strip.getAttribute("aria-label")).toBe("7 working, 0 waiting, 0 failed, 0 done. Show workers");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("lists a done run whose pane is live and opens it, not a working run whose pane closed", async () => {
+    stubDom();
+    const closedWork = "aaaaaaaa-1";
+    const liveDone = "cccccccc-1";
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/terminal")) {
+        return new Response(JSON.stringify({ panes: [{ sessionId: liveDone, main: false }] }), { status: 200 });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const current = { ...botA, messages: [
+      launch(closedWork, "WORK | Opus 5.5 | high", 1),
+      launch(liveDone, "COPY | Opus 5.5 | high", 2),
+      note("n1", liveDone, "DONE COPY branch=x sha=y dirty=no", 3),
+    ] } as Bot;
+    const onOpen = vi.fn();
+    const { host, unmount } = await mountChat(current, onOpen);
+    try {
+      await vi.waitFor(() => expect(host.querySelector("[data-worker-chip-desktop] [data-worker-state]")?.getAttribute("data-worker-state")).toBe("done"));
+      const chip = host.querySelector<HTMLButtonElement>("[data-worker-strip]")!;
+      expect(chip.closest("[class*='@container/chathead']")).not.toBeNull();
+      expect(host.querySelector("[data-orbit-composer]")?.closest("[class*='z-[2]']")?.querySelector("[data-worker-strip]") ?? null).toBeNull();
+      expect([...chip.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")].map((el) => el.getAttribute("data-worker-state"))).toEqual(["done"]);
+      await act(async () => chip.click());
+      const entry = document.body.querySelector<HTMLButtonElement>("[data-worker-list] li button")!;
+      expect(entry.textContent).toContain("COPY");
+      expect(entry.textContent).not.toContain("WORK");
+      await act(async () => entry.click());
+      expect(onOpen).toHaveBeenCalledWith(liveDone);
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
     } finally {
       await unmount();
     }
@@ -431,7 +500,7 @@ describe("ChatView worker rows", () => {
       try {
         await settle();
         expect(states(host)).toEqual(["working", "ended", "working"]);
-        expect(host.querySelector("[data-worker-strip]")?.querySelectorAll("[data-worker-state]")).toHaveLength(2);
+        expect(host.querySelector("[data-worker-chip-desktop]")?.querySelectorAll("[data-worker-state]")).toHaveLength(2);
         expect(calls).toEqual([`GET ${terminalPath}`]);
       } finally {
         await unmount();
@@ -679,7 +748,17 @@ describe("ChatView worker rows", () => {
       await act(async () => root.render(createElement(StoreProvider, null, createElement(GroupView, { group }))));
       expect(rows(host).map((b) => b.textContent)).toEqual(["CHECKOpus 5.5✓Done", "REVIEWGPT-6.1 Sol●Working"]);
       expect(host.textContent).not.toContain("Green.");
-      expect(host.querySelector("[data-worker-strip]")?.getAttribute("aria-label")).toBe("1 working, 0 waiting. Show workers");
+      const chip = host.querySelector("[data-worker-strip]");
+      const find = host.querySelector('button[aria-label="Find in conversation"]')!;
+      if (!chip) throw new Error("chip missing");
+      expect(chip.closest("[class*='@container/chathead']")).not.toBeNull();
+      expect(chip.compareDocumentPosition(find) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+      expect(chip?.getAttribute("aria-label")).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers");
+      await act(async () => chip?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      const list = document.querySelector("[data-worker-list]");
+      expect(list).not.toBeNull();
+      expect(list?.querySelectorAll("li")).toHaveLength(1);
+      expect(list?.querySelector("button")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();

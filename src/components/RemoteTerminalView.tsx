@@ -94,11 +94,13 @@ export function RemoteTerminalView({
   onClose,
   visible,
   paneHotkey,
+  paneFocus,
 }: {
   bot: Pick<Bot, "id" | "name">;
   onClose: () => void;
   visible: boolean;
   paneHotkey?: { n: number } | null;
+  paneFocus?: { sessionId: string } | null;
 }) {
   const { t } = useI18n();
   const sidebarOnRight = useSidebarSide() === "right";
@@ -177,6 +179,16 @@ export function RemoteTerminalView({
     const next = remotePaneHotkey(panesRef.current, paneHotkey.n);
     if (next !== undefined) setSelectedPane(next);
   }, [paneHotkey]);
+
+  // A stale roster must not consume the tap. Apply it once that pane is listed.
+  const focusedRef = useRef<typeof paneFocus>(null);
+  useEffect(() => {
+    if (!paneFocus || focusedRef.current === paneFocus) return;
+    const match = panes.find((pane) => pane.sessionId === paneFocus.sessionId);
+    if (!match) return;
+    focusedRef.current = paneFocus;
+    setSelectedPane(match.main ? null : match.sessionId);
+  }, [paneFocus, panes]);
 
   useEffect(() => {
     if (!visible) return;

@@ -67,7 +67,7 @@ import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
-import { WorkerRow, WorkerStrip, useWorkerRows, type ShownRun } from "./WorkerRows";
+import { WorkerRow, WorkerChip, useWorkerRows, type ShownRun } from "./WorkerRows";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { ModelPicker } from "./ModelPicker";
 import { DeviceTag } from "./DeviceSwitcher";
@@ -1912,6 +1912,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary max-md:hidden" />}
         </div>
         <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 max-md:min-w-0 max-md:shrink max-md:flex-nowrap">
+          <WorkerChip name={bot.name} runs={workers} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} />
           {onOpenTerminal && (
             <button
               type="button"
@@ -2187,7 +2188,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             onOpenUsage={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
           />
         )}
-        <WorkerStrip name={bot.name} runs={workers} />
         <Composer
           key={bot.threadId}
           bot={bot}
