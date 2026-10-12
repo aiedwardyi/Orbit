@@ -11,6 +11,10 @@ const launch = (id: string, at: number, label: string, session = PANE): Message 
   id, at, role: "bot", kind: "launch",
   text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${session}`,
 });
+const resume = (id: string, at: number, label: string, session = PANE): Message => ({
+  id, at, role: "bot", kind: "launch",
+  text: `Resumed ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: ${session}`,
+});
 const note = (id: string, at: number, text: string, label: string | null = "REL-CHAIN-166 | script", session = PANE): Message => ({
   id, at, role: "bot", kind: "note",
   text: `[pane ${session.slice(0, 8)}]${label ? ` [${label}]` : ""} from Wink (${BOT}): ${text}`,
@@ -169,6 +173,50 @@ describe("workerRuns", () => {
     expect(withoutLaunch.get("n1")?.run.id).toBe(paged.id);
     expect(withoutLaunch.get("r1")).toBeNull();
     expect(paged.messageIds).toEqual(["n1", "r1"]);
+  });
+
+  it("settles a resumed run when its pane reports under another nickname", () => {
+    const label = "GP-1 | Opus 5.5 | high";
+    const messages = [
+      launch("l1", 1, label),
+      note("n1", 2, report("DONE", "GP-1"), label),
+      resume("r1", 3, label),
+      note("n2", 4, report("DONE", "GP-1B"), label),
+    ];
+    const runs = workerRuns(messages);
+    expect(runs.map((r) => [r.nick, r.state, r.messageIds])).toEqual([
+      ["GP-1", "done", ["l1", "n1", "r1"]],
+      ["GP-1B", "done", ["n2"]],
+    ]);
+    const anchors = workerAnchors(runs.map((run) => ({ run })), messages);
+    expect(anchors.get("l1")?.run.id).toBe(runs[0]!.id);
+    expect(anchors.get("r1")).toBeNull();
+  });
+
+  it("omits a resume-only run after its pane reports under another nickname", () => {
+    const label = "GP-1 | Opus 5.5 | high";
+    const runs = workerRuns([
+      resume("r1", 1, label),
+      note("n1", 2, report("DONE", "GP-1B"), label),
+    ]);
+    expect(runs.map((r) => [r.nick, r.state, r.messageIds])).toEqual([
+      ["GP-1B", "done", ["n1"]],
+    ]);
+  });
+
+  it("only settles a resumed run on a report from its own pane", () => {
+    const label = "GP-1 | Opus 5.5 | high";
+    const messages = [
+      launch("l1", 1, label),
+      note("n1", 2, report("DONE", "GP-1"), label),
+      resume("r1", 3, label),
+      note("n2", 4, report("DONE", "GP-1B"), label, OTHER),
+    ];
+    expect(workerRuns(messages).map((r) => [r.nick, r.state])).toEqual([
+      ["GP-1", "working"], ["GP-1B", "done"],
+    ]);
+    const settled = workerRuns([...messages, note("n3", 5, report("DONE", "GP-1C"), label)]);
+    expect(settled[0]).toMatchObject({ nick: "GP-1", state: "done", messageIds: ["l1", "n1", "r1"] });
   });
 
   it("stays done when a plain launch repeats after the report", () => {

@@ -100,7 +100,8 @@ export function workerRuns(messages: readonly Message[], older: readonly Message
   const runs = new Map<string, WorkerRun>();
   // newest run per pane, for notes that carry no nickname of their own
   const paneRun = new Map<string, WorkerRun>();
-  const events = new Map<WorkerRun, Array<{ at: number; index: number; state: WorkerState; launch?: boolean }>>();
+  const paneNotes = new Map<string, { at: number; index: number }>();
+  const events = new Map<WorkerRun, Array<{ at: number; index: number; state: WorkerState; launch?: boolean; resume?: boolean }>>();
   const launches = new Map<WorkerRun, number>();
   const add = (key: string, seed: Omit<WorkerRun, "id" | "state" | "messageIds" | "notes">): WorkerRun => {
     let run = runs.get(key);
@@ -130,7 +131,7 @@ export function workerRuns(messages: readonly Message[], older: readonly Message
       // A follow-up is not a leading launch, so the row stays where it is.
       if (resumed) {
         run.messageIds.push(message.id);
-        events.get(run)!.push({ at: message.at, index, state: "working" });
+        events.get(run)!.push({ at: message.at, index, state: "working", resume: true });
         return;
       }
       // a launch after its notes in the transcript still leads, so the row sits at the launch
@@ -151,10 +152,19 @@ export function workerRuns(messages: readonly Message[], older: readonly Message
     run.messageIds.push(message.id);
     run.notes.push({ id: message.id, at: message.at, note });
     events.get(run)!.push({ at: message.at, index, state: noteState(note) });
+    const pane = `${botId ?? ""}:${note.pane8}`;
+    const newest = paneNotes.get(pane);
+    if (!newest || message.at > newest.at || (message.at === newest.at && index > newest.index)) paneNotes.set(pane, { at: message.at, index });
   });
   for (const [run, list] of events) {
+    const noted = run.pane8 ? paneNotes.get(`${run.botId ?? ""}:${run.pane8}`) : undefined;
+    const pending = list.filter((event) => !event.resume || !noted || event.at > noted.at || (event.at === noted.at && event.index >= noted.index));
+    if (!pending.length) {
+      runs.delete(run.id);
+      continue;
+    }
     // A fast pane's final report can land before its launch note.
-    const updates = list.some((event) => event.state === "done" || event.state === "failed") ? list.filter((event) => !event.launch) : list;
+    const updates = pending.some((event) => event.state === "done" || event.state === "failed") ? pending.filter((event) => !event.launch) : pending;
     run.state = updates.reduce((newest, event) => (event.at > newest.at || (event.at === newest.at && event.index > newest.index) ? event : newest)).state;
     run.notes.sort((a, b) => a.at - b.at);
   }
