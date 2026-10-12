@@ -100,6 +100,13 @@ describe("Account settings", () => {
     ]);
   });
 
+  it("renders Sync as one card, not a card inside a card", async () => {
+    const pane = await render();
+    const sync = pane.children[1];
+    expect(sync.querySelector(".bg-card")).toBeNull();
+    expect(sync.children[1]?.textContent).toBe("Your bots, memory and chats on all your PCs.");
+  });
+
   it("labels Account in Korean", async () => {
     localStorage.setItem("omb-locale", "ko");
     await render();

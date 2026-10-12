@@ -143,11 +143,11 @@ describe("SyncPanel Google states", () => {
     expect(host.textContent).not.toMatch(/null|undefined/);
   });
 
-  it("shows nothing but the subtitle until the first read lands", async () => {
+  it("shows nothing but the title and subtitle until the first read lands", async () => {
     ogbStub();
     routes.set(GOOGLE, () => new Promise<GoogleBody>(() => {}));
     const host = await mount();
-    expect(host.textContent).toBe("Your bots, memory and chats on all your PCs.");
+    expect(host.textContent).toBe("SyncYour bots, memory and chats on all your PCs.");
     expect(buttons(host)).toEqual([]);
   });
 
@@ -159,7 +159,7 @@ describe("SyncPanel Google states", () => {
     expect(host.querySelector("p")).toBeNull();
     expect(host.innerHTML).not.toMatch(/refresh/i);
     expect(host.textContent).not.toMatch(/Shared bot setup|Sync chats|only syncs chats/);
-    expect(host.textContent).toBe("Your bots, memory and chats on all your PCs.Up to date · edward@example.comSign out");
+    expect(host.textContent).toBe("SyncYour bots, memory and chats on all your PCs.Up to date · edward@example.comSign out");
   });
 
   it("reads Korean", async () => {

@@ -235,7 +235,7 @@ export function SyncPanel() {
   const desktop = Boolean(window.ogb);
 
   return (
-    <Card subtitle={t("settings.sync.subtitle")}>
+    <Card title={t("settings.section.sync")} subtitle={t("settings.sync.subtitle")}>
       {shown || (ready && desktop && (main || quiets.length > 0)) ? (
         <div className="flex flex-col gap-3">
           {shown ? <div role="status" className="text-[13px] text-ink">{shown}</div> : null}
