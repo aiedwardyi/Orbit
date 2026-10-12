@@ -202,6 +202,7 @@ export function handleControl(ctx: ChannelContext, socket: TLSSocket): void {
     }
     if (msg.type === "ping") send(socket, { type: "pong" });
     else if (msg.type !== "pong") return false;
+    hub.seen(session);
     return true;
   };
 

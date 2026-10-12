@@ -41,6 +41,8 @@ export const configSchema = z.strictObject({
     })
     .refine((google) => google.desktopClientId !== google.webClientId)
     .optional(),
+  /** Needs `google`. Absent: no session recording and /v1/team answers 404. */
+  teamOwnerEmail: z.email().max(320).optional(),
   limits: limitsSchema,
 });
 

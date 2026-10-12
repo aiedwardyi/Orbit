@@ -1,6 +1,7 @@
 // relay.<base> HTTP API over the outer TLS, ALPN http/1.1 (design sections 4 and 7):
 // GET /v1/healthz, GET /v1/status/<label>, POST /v1/enroll,
-// and, when config.google is set, POST /v1/account and GET /v1/pcs.
+// and, when config.google is set, POST /v1/account and GET /v1/pcs,
+// plus GET /v1/team when teamOwnerEmail is set too.
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { LABEL_RE, hostFor } from "../../shared/relay-protocol.ts";
@@ -10,6 +11,7 @@ import type { Hub } from "./hub.ts";
 import { RateLimiter, type RelayLimits } from "./limits.ts";
 import type { Logger } from "./log.ts";
 import { peerPrefix, rateKey } from "./net-util.ts";
+import type { TeamLog } from "./team.ts";
 
 export interface ApiOptions {
   base: string;
@@ -19,6 +21,9 @@ export interface ApiOptions {
   /** Set together. Without them, /v1/account and /v1/pcs are 404. */
   accounts?: Accounts;
   signinOrigin?: string;
+  /** Set together, and only with `accounts`. Without them, /v1/team is 404. */
+  team?: TeamLog;
+  teamOwnerEmail?: string;
   limits: RelayLimits;
   log: Logger;
   now: () => number;
@@ -27,6 +32,8 @@ export interface ApiOptions {
 const ACCOUNT_MAX_BODY = 16 * 1024;
 
 const STATUS_RE = /^\/v1\/status\/([^/?#]{1,64})$/;
+/** tz: the viewer's UTC offset in minutes, east positive. */
+const TEAM_RE = /^\/v1\/team(?:\?tz=(-?[0-9]{1,4}))?$/;
 
 type ReplyBody = Record<string, string | number | boolean | null>;
 
@@ -90,7 +97,8 @@ export function createApiServer(opts: ApiOptions): Server {
   const accountLimit = RateLimiter.perHour(limits.accountPerIpPerHour, opts.now);
   const pcsLimit = RateLimiter.perMinute(limits.pcsPerIpPerMin, opts.now);
   const statusLimit = RateLimiter.perMinute(limits.statusPerIpPerMin, opts.now);
-  const { accounts, signinOrigin } = opts;
+  const teamLimit = RateLimiter.perMinute(limits.pcsPerIpPerMin, opts.now);
+  const { accounts, signinOrigin, team, teamOwnerEmail } = opts;
 
   function directoryCors(origin: string | undefined) {
     const headers: Record<string, string> = {};
@@ -219,6 +227,28 @@ export function createApiServer(opts: ApiOptions): Server {
         return reply(res, who.status, { error: who.error }, cors);
       }
       return sendJson(res, 200, JSON.stringify(hub.pcsFor(who.subHash)), cors);
+    }
+
+    const teamUrl = TEAM_RE.exec(url);
+    if (accounts && signinOrigin && team && teamOwnerEmail && teamUrl) {
+      const cors = directoryCors(headerOne(req.headers.origin));
+      const peer = peerPrefix(req.socket.remoteAddress);
+      if (req.method !== "GET" && req.method !== "OPTIONS") return reply(res, 405, { error: "method" }, cors);
+      if (req.method === "OPTIONS") return replyEmpty(res, 204, cors);
+      if (!teamLimit.take(ip)) {
+        log.log("team-rejected", { peer, reason: "rate-limited" });
+        return reply(res, 429, { error: "rate-limited" }, cors);
+      }
+      const tz = Number(teamUrl[1] ?? 0);
+      if (Math.abs(tz) > 14 * 60) return reply(res, 400, { error: "bad-request" }, cors);
+      const token = bearer(headerOne(req.headers.authorization));
+      if (!token) return reply(res, 401, { error: "bad-token" }, cors);
+      const who = await accounts.owner(token, teamOwnerEmail);
+      if (!who.ok) {
+        log.log("team-rejected", { peer, reason: who.error });
+        return reply(res, who.status, { error: who.error }, cors);
+      }
+      return sendJson(res, 200, JSON.stringify(team.stats(tz)), cors);
     }
 
     reply(res, 404, { error: "not-found" });

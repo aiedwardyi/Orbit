@@ -27,6 +27,7 @@ import {
   planPause,
   planProvision,
   planUpdate,
+  validate,
   type DeployOptions,
   type DnsRecord,
   type ProjectState,
@@ -482,6 +483,23 @@ describe("google deploy flags", () => {
     const plan = source("../deploy/plan.ts");
     expect(pattern(plan, "CLIENT_ID_RE")).toBe(pattern(config, "CLIENT_ID_RE"));
     expect(pattern(plan, "ORIGIN_RE")).toBe(pattern(config, "ORIGIN_RE"));
+  });
+
+  it("keeps --team-owner-email through update, only with the Google flags", async () => {
+    const team = ["--team-owner-email", "Owner@Example.com"];
+    const parsed = parseOptions(argv("update", [...flags, ...team]));
+    expect(parsed.opts.teamOwnerEmail).toBe("owner@example.com");
+    expect(() => validate(parsed.opts)).not.toThrow();
+    expect(() => validate(parseOptions(argv("update", team)).opts)).toThrow(/needs the Google flags/);
+    expect(() => validate(parseOptions(argv("update", [...flags, "--team-owner-email", "nope"])).opts)).toThrow(/invalid --team-owner-email/);
+    const dir = await mkdtemp(join(tmpdir(), "wink-relay-cfg-"));
+    try {
+      await realLocal("/r", dir).writeConfig(parsed.opts);
+      const written = JSON.parse(await readFile(join(dir, "wink-relay.config.json"), "utf8"));
+      expect(written).toMatchObject({ google: parsed.opts.google, teamOwnerEmail: "owner@example.com" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 
