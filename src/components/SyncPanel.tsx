@@ -33,6 +33,8 @@ type GoogleSync = {
   join: { first: boolean; pcs: number } | null;
   progress: { done: number; total: number } | null;
   lastSyncAt: number | null;
+  move?: true;
+  problem?: string;
 };
 
 type Action = { label: string; run: () => void };
@@ -135,7 +137,12 @@ export function SyncPanel() {
       await refresh();
     });
 
-  const start = () => run(async () => setGoogle(await api("/api/google-sync/start", { method: "POST" })));
+  const start = () =>
+    run(async () => {
+      const init: RequestInit = { method: "POST" };
+      if (google?.move) init.body = JSON.stringify({ move: true });
+      setGoogle(await api("/api/google-sync/start", init));
+    });
 
   const chooseFolder = async () => {
     const picked = await window.ogb?.pickFolder?.(folder?.folder ?? undefined);
@@ -159,17 +166,25 @@ export function SyncPanel() {
 
   let line: string | null = null;
   let main: Action | undefined;
-  let quiet: Action | undefined;
+  const quiets: Action[] = [];
   let ready = false;
 
-  if (folderView) {
+  if (signingIn && google) {
+    ready = true;
+    line = t("settings.sync.waitingGoogle");
+    quiets.push({ label: t("settings.sync.cancel"), run: () => void cancelSignIn() });
+  } else if (folderView) {
     ready = folder !== null;
     if (folder) {
       const label = statusLabel(folder.status, t);
       line = folder.configured ? `${label} · ${folderName(folder.folder)}` : label;
       main = { label: t(folder.configured ? "settings.sync.changeFolder" : "settings.sync.chooseFolder"), run: () => void chooseFolder() };
-      if (folder.configured) quiet = { label: t("settings.sync.disconnect"), run: () => void disconnect() };
-      else if (showFolder) quiet = { label: t("settings.sync.back"), run: () => setShowFolder(false) };
+      if (folder.configured) {
+        if (state === "folder" && window.ogb?.googleAccount) {
+          quiets.push({ label: t("settings.sync.moveToGoogle"), run: () => void signIn() });
+        }
+        quiets.push({ label: t("settings.sync.disconnect"), run: () => void disconnect() });
+      } else if (showFolder) quiets.push({ label: t("settings.sync.back"), run: () => setShowFolder(false) });
     }
   } else if (google) {
     ready = true;
@@ -177,43 +192,42 @@ export function SyncPanel() {
     const signInAction = { label: t("settings.sync.signIn"), run: () => void signIn() };
     const signOutAction = { label: t("settings.sync.signOut"), run: () => void signOut() };
     const folderAction = { label: t("settings.sync.useFolder"), run: revealFolder };
-    if (signingIn) {
-      line = t("settings.sync.waitingGoogle");
-      quiet = { label: t("settings.sync.cancel"), run: () => void cancelSignIn() };
-    } else if (google.state === "signed-out") {
+    const refused = Boolean(google.move && google.problem);
+    if (google.state === "signed-out") {
       if (!window.ogb) line = t("settings.sync.disconnected");
       main = signInAction;
-      quiet = folderAction;
+      quiets.push(folderAction);
     } else if (google.state === "ready") {
-      if (!google.join) line = email;
+      if (refused) line = t("settings.sync.otherWorkspace");
+      else if (!google.join) line = email;
       else if (google.join.first) line = t("settings.sync.firstPc", { email });
       else line = t("settings.sync.joining", { email, pcs: google.join.pcs });
-      main = { label: t("settings.sync.start"), run: () => void start() };
-      quiet = signOutAction;
+      if (!refused) main = { label: t("settings.sync.start"), run: () => void start() };
+      quiets.push(signOutAction);
     } else if (google.state === "joining" || google.state === "syncing") {
       line = google.progress
         ? t("settings.sync.syncing", { done: google.progress.done, total: google.progress.total })
         : t("settings.sync.syncingNoProgress");
-      quiet = signOutAction;
+      quiets.push(signOutAction);
     } else if (google.state === "up-to-date") {
       line = t("settings.sync.upToDateAs", { email });
-      quiet = signOutAction;
+      quiets.push(signOutAction);
     } else if (google.state === "offline") {
       line = t("settings.sync.offline");
-      quiet = signOutAction;
+      quiets.push(signOutAction);
     } else if (google.state === "needs-sign-in") {
       line = t("settings.sync.needsSignIn");
       main = signInAction;
-      quiet = signOutAction;
+      quiets.push(signOutAction);
     } else if (google.state === "blocked") {
       line = t("settings.sync.blocked");
-      quiet = folderAction;
+      quiets.push(folderAction);
     } else if (google.state === "other-account") {
       line = t("settings.sync.otherAccount", { boundEmail: google.boundEmail ?? "" });
-      quiet = signOutAction;
+      quiets.push(signOutAction);
     } else {
       line = t("settings.sync.error");
-      quiet = signOutAction;
+      quiets.push(signOutAction);
     }
   }
 
@@ -222,21 +236,21 @@ export function SyncPanel() {
 
   return (
     <Card subtitle={t("settings.sync.subtitle")}>
-      {shown || (ready && desktop && (main || quiet)) ? (
+      {shown || (ready && desktop && (main || quiets.length > 0)) ? (
         <div className="flex flex-col gap-3">
           {shown ? <div role="status" className="text-[13px] text-ink">{shown}</div> : null}
-          {ready && desktop && (main || quiet) ? (
+          {ready && desktop && (main || quiets.length > 0) ? (
             <div className="flex flex-wrap items-center gap-2">
               {main ? (
                 <button type="button" onClick={main.run} disabled={busy} className="rounded-lg bg-control px-3 py-2 text-[12px] font-medium text-ink hover:bg-raised disabled:opacity-40">
                   {main.label}
                 </button>
               ) : null}
-              {quiet ? (
-                <button type="button" onClick={quiet.run} disabled={busy} className="rounded-lg px-3 py-2 text-[12px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-40">
-                  {quiet.label}
+              {quiets.map((action) => (
+                <button key={action.label} type="button" onClick={action.run} disabled={busy} className="rounded-lg px-3 py-2 text-[12px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-40">
+                  {action.label}
                 </button>
-              ) : null}
+              ))}
             </div>
           ) : null}
         </div>
