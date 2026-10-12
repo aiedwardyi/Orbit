@@ -2142,7 +2142,7 @@ const googleSync = createGoogleSync({
     ensureSyncV2Identity(profileSyncSettings.deviceId);
   },
   unusedBots: () => store.bots.filter((bot) => !botTalkedTo(bot.id)).map((bot) => bot.id),
-  activate: (mirror) => {
+  activate: (mirror, move) => {
     if (profileSyncSettings.folder !== mirror) {
       profileSyncSettings.reviewedResolutions = {};
       profileSyncSettings.seenCheckpoint = "";
@@ -2153,7 +2153,7 @@ const googleSync = createGoogleSync({
     profileSyncSettings.syncedHashes = syncedInFolder(profileSyncSettings.syncedHashes, mirror);
     profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
     syncAllThreads();
-    threadSyncV2?.republish();
+    if (!move) threadSyncV2?.republish();
     return profileSyncSettings.workspaceId;
   },
   republishing: () => threadSyncV2?.republishing() ?? false,
@@ -9965,7 +9965,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && path === "/api/google-account") {
       return json(res, 200, googleAccount.status());
     }
-    const googleSyncReply = await googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk }, googleSync);
+    const googleSyncReply = await googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk }, googleSync, () => readBody(req));
     if (googleSyncReply) return json(res, googleSyncReply.status, googleSyncReply.body);
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);

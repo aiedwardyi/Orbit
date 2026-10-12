@@ -3,13 +3,13 @@
 // the mirror folder. The mirror folder and its table are never deleted or
 // recreated here; a missing or unreadable binding stops transfer for good.
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
 import { createDriveClient, DriveClientError, type DriveClient } from "./drive-client.ts";
-import { createDriveMirror, decodeDrivePath, DriveMirrorError, type DriveMirrorSummary } from "./drive-mirror.ts";
+import { createDriveMirror, decodeDrivePath, DriveMirrorError, drivePathRule, type DriveMirrorSummary } from "./drive-mirror.ts";
 import { readDriveOwnIds, type DriveOwnIds } from "./drive-own-ids.ts";
 import { GoogleAccountError, type GoogleAccountStatus } from "./google-account.ts";
 import { PROFILE_SYNC_WORKSPACE_FILE, readSyncOperations } from "./profile-sync.ts";
@@ -19,6 +19,9 @@ export const GOOGLE_MIRROR_DIR = "google-drive";
 export const GOOGLE_TABLE_FILE = "google-drive-table.json";
 // Written once the engines republished into the mirror; a ready PC without it (1.0.170) republishes on resume.
 export const GOOGLE_REPUBLISHED_FILE = "google-drive-republished.json";
+// The folder a Move copied from; never a binding or profile-sync.json field, which 1.0.170 reads strictly.
+export const GOOGLE_MOVE_FILE = "google-move.json";
+const OTHER_WORKSPACE = "This Google account syncs other Wink data.";
 const ISSUER = "https://accounts.google.com";
 const PASS_MS = 30_000;
 const REPUBLISH_MS = 1_000;
@@ -32,6 +35,8 @@ export interface GoogleSyncStatus {
   join: { first: boolean; pcs: number } | null;
   progress: { done: number; total: number } | null;
   lastSyncAt: number | null;
+  move?: true;
+  problem?: string;
 }
 
 const bindingSchema = z.object({
@@ -66,8 +71,8 @@ type Options = {
   prepare: () => void;
   /** Local bots nobody has talked to yet. */
   unusedBots: () => string[];
-  /** Points the engines at the mirror folder with chats on and republishes what it lacks; returns the workspace id. */
-  activate: (mirrorPath: string) => string;
+  /** Points the engines at the mirror folder with chats on and republishes what it lacks, unless a Move copied it all; returns the workspace id. */
+  activate: (mirrorPath: string, move: boolean) => string;
   /** The engines are still writing what activate republished. */
   republishing?: () => boolean;
   ownIds?: () => DriveOwnIds;
@@ -79,6 +84,10 @@ type Options = {
 
 const tableSchema = z.object({ binding: z.object({ rootId: z.string().min(1).nullable() }), files: z.record(z.string(), z.object({})) });
 const retrySchema = z.object({ retryAfterMs: z.number().int().positive() });
+const moveSchema = z.object({ from: z.string().min(1), at: z.number() }).strict();
+const workspaceSchema = z.object({ workspaceId: z.string() });
+const startSchema = z.object({ move: z.boolean().optional() });
+type StartBody = z.infer<typeof startSchema>;
 const samePath = (a: string, b: string) => process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 
 export function readGoogleBinding(dataDir: string): BindingRead {
@@ -105,6 +114,14 @@ function mirrorFiles(dir: string, prefix = ""): string[] {
   });
 }
 
+function workspaceId(bytes: Buffer): string | null {
+  try {
+    return workspaceSchema.parse(JSON.parse(bytes.toString("utf8"))).workspaceId;
+  } catch {
+    return null;
+  }
+}
+
 const blocksJoin = (path: string) => path === PROFILE_SYNC_WORKSPACE_FILE || path.startsWith("changes/") || path.startsWith("devices/");
 
 export function createGoogleSync(options: Options) {
@@ -114,10 +131,11 @@ export function createGoogleSync(options: Options) {
   const passMs = options.passMs ?? PASS_MS;
   const statePath = join(dataDir, GOOGLE_TABLE_FILE);
   const republishedPath = join(dataDir, GOOGLE_REPUBLISHED_FILE);
+  const movePath = join(dataDir, GOOGLE_MOVE_FILE);
   const client: DriveClient = createDriveClient({ getAccessToken: () => account.getAccessToken(), fetch: options.fetch });
   const ownIds = options.ownIds ?? (() => readDriveOwnIds(dataDir));
   let binding = readGoogleBinding(dataDir);
-  let joinInfo: { sub: string; value: GoogleSyncStatus["join"] } | null = null;
+  let joinInfo: { sub: string; value: GoogleSyncStatus["join"]; problem?: string } | null = null;
   let lastSyncAt: number | null = null;
   let catching = false;
   let total = 0;
@@ -135,9 +153,20 @@ export function createGoogleSync(options: Options) {
       return resolve(path);
     }
   };
+  function readMove(): z.infer<typeof moveSchema> | null {
+    try {
+      return moveSchema.parse(JSON.parse(readFileSync(movePath, "utf8")));
+    } catch {
+      return null;
+    }
+  }
+  // A Move joins while the engines still write the folder it copies from.
+  const moving = () => binding.kind === "ok" && binding.binding.phase === "joining" ? readMove() : null;
   const folderMode = () => {
     const folder = options.folder();
-    return !!folder && !samePath(folder, mirrorPath());
+    if (!folder || samePath(folder, mirrorPath())) return false;
+    const move = moving();
+    return !move || !samePath(folder, move.from);
   };
   // A bound PC whose table is gone, or a table with no binding, must not be read as a fresh start.
   const lost = () => binding.kind === "corrupt"
@@ -164,31 +193,58 @@ export function createGoogleSync(options: Options) {
     const bound = binding.kind === "ok" ? binding.binding : null;
     const base: GoogleSyncStatus = { state: "error", email: owner?.email ?? null, boundEmail: bound?.emailHint ?? null, join: null, progress: null, lastSyncAt };
     if (accountStatus.state === "unavailable") return { ...base, state: "unavailable" };
-    if (folderMode()) return { ...base, state: "folder" };
+    if (folderMode()) {
+      if (bound || lost() || accountStatus.state !== "signed-in" || !owner) return { ...base, state: "folder" };
+      const preview = joinInfo?.sub === owner.sub ? joinInfo : null;
+      const ready: GoogleSyncStatus = { ...base, state: "ready", join: preview?.value ?? null, move: true };
+      if (preview?.problem) ready.problem = preview.problem;
+      return ready;
+    }
     if (lost()) return base;
     if (!owner) return { ...base, state: "signed-out" };
     if (bound && bound.owner.sub !== owner.sub) return { ...base, state: "other-account" };
     if (accountStatus.state === "needs-sign-in" || accountStatus.state === "blocked") return { ...base, state: accountStatus.state };
     if (!bound) return { ...base, state: "ready", join: joinInfo?.sub === owner.sub ? joinInfo.value : null };
     if (problem === "error") return base;
-    if (bound.phase === "joining") return { ...base, state: "joining", progress: progress() };
+    if (bound.phase === "joining") {
+      const joining: GoogleSyncStatus = { ...base, state: "joining", progress: progress() };
+      if (moving()) joining.move = true;
+      return joining;
+    }
     if (problem === "offline" || accountStatus.state === "offline") return { ...base, state: "offline" };
     if (catching || lastSyncAt === null) return { ...base, state: "syncing", progress: catching ? progress() : null };
     return { ...base, state: "up-to-date" };
   }
 
-  async function preview(sub: string): Promise<void> {
+  /** False when Drive could not be read or, for a Move, holds another workspace. */
+  async function preview(sub: string): Promise<boolean> {
     try {
       const [root] = await client.listRoots();
       if (!root) {
         joinInfo = { sub, value: { first: true, pcs: 0 } };
-        return;
+        return true;
       }
-      const paths = (await client.listChildren(root.id)).filter((file) => !file.trashed).map((file) => decodeDrivePath(file.name));
+      const files = (await client.listChildren(root.id)).filter((file) => !file.trashed);
+      const paths = files.map((file) => decodeDrivePath(file.name));
+      const folder = options.folder();
+      if (folderMode() && folder) {
+        let ours: string | null = null;
+        try {
+          ours = workspaceId(readFileSync(join(folder, PROFILE_SYNC_WORKSPACE_FILE)));
+        } catch {}
+        for (const file of files.filter((file) => decodeDrivePath(file.name) === PROFILE_SYNC_WORKSPACE_FILE)) {
+          if (!ours || workspaceId(await client.downloadFile(file.id, file.size)) !== ours) {
+            joinInfo = { sub, value: null, problem: OTHER_WORKSPACE };
+            return false;
+          }
+        }
+      }
       const devices = new Set(paths.flatMap((path) => OPERATION_FILE.exec(path ?? "")?.[1] ?? []));
       joinInfo = { sub, value: { first: !paths.includes(PROFILE_SYNC_WORKSPACE_FILE), pcs: devices.size } };
+      return true;
     } catch (error) {
       if (!(error instanceof GoogleAccountError)) log(`[google-sync] join preview failed: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
     }
   }
 
@@ -223,10 +279,39 @@ export function createGoogleSync(options: Options) {
     timer.unref?.();
   }
 
-  function activate(mirror: string): string {
-    const workspaceId = options.activate(mirror);
+  function activate(mirror: string, move = false): string {
+    const workspaceId = options.activate(mirror, move);
     writeFileAtomic(republishedPath, `${JSON.stringify({ version: 1 })}\n`);
     return workspaceId;
+  }
+
+  /** Copies folder files the mirror lacks, plus this PC's own files when own is set; never writes the folder. */
+  function copyFolder(from: string, mirror: string, own: boolean): void {
+    const ids = ownIds();
+    const walk = (dir: string, prefix: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          walk(join(dir, entry.name), path);
+          continue;
+        }
+        const rule = drivePathRule(path, ids);
+        if (!entry.isFile() || rule === "ignore" || rule === "unknown") continue;
+        const target = join(mirror, ...path.split("/"));
+        if (existsSync(target) && !(own && rule === "own")) continue;
+        const temp = `${target}.${randomUUID()}.tmp`;
+        mkdirSync(dirname(target), { recursive: true });
+        try {
+          copyFileSync(join(dir, entry.name), temp);
+          renameSync(temp, target);
+        } catch (error) {
+          rmSync(temp, { force: true });
+          // The engines may replace or remove a file between the listing and the copy.
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+        }
+      }
+    };
+    walk(from, "");
   }
 
   function finishJoin(bound: GoogleBinding): void {
@@ -236,7 +321,10 @@ export function createGoogleSync(options: Options) {
     const holding = { ...bound, heldBots };
     writeGoogleBinding(dataDir, holding);
     binding = { kind: "ok", binding: holding };
-    const workspaceId = activate(bound.mirrorPath);
+    const move = readMove();
+    // Same tick as activate: what the folder gained during the join, and this PC's newest own files.
+    if (move) copyFolder(move.from, bound.mirrorPath, true);
+    const workspaceId = activate(bound.mirrorPath, !!move);
     const ready: GoogleBinding = { ...holding, phase: "ready", rootId: readTable()?.binding.rootId ?? null, workspaceId };
     writeGoogleBinding(dataDir, ready);
     binding = { kind: "ok", binding: ready };
@@ -245,6 +333,8 @@ export function createGoogleSync(options: Options) {
   async function pass(bound: GoogleBinding): Promise<number> {
     const owner = { issuer: ISSUER, sub: bound.owner.sub } as const;
     let summary: DriveMirrorSummary;
+    // A republish that ends mid-pass may have written files after the scan.
+    const busy = options.republishing?.() ?? false;
     try {
       options.prepare();
       if (catching && !total) {
@@ -270,7 +360,7 @@ export function createGoogleSync(options: Options) {
       total = 0;
       return 0;
     }
-    const republishing = options.republishing?.() ?? false;
+    const republishing = busy || (options.republishing?.() ?? false);
     catching = moved > 0 || summary.failed.length > 0 || retry.success || republishing;
     if (!catching) total = 0;
     if (retry.success) return retry.data.retryAfterMs;
@@ -301,11 +391,19 @@ export function createGoogleSync(options: Options) {
     return running;
   }
 
-  async function start(): Promise<{ status: number; body: GoogleSyncStatus }> {
+  async function start({ move = false }: { move?: boolean } = {}): Promise<{ status: number; body: GoogleSyncStatus }> {
     const current = await read();
     const owner = account.owner();
-    if (current.state !== "ready" || !owner || binding.kind !== "none") return { status: 409, body: status() };
+    const from = options.folder();
+    if (current.state !== "ready" || !owner || binding.kind !== "none" || move !== folderMode()) return { status: 409, body: status() };
     const dir = join(dataDir, GOOGLE_MIRROR_DIR);
+    if (move && from) {
+      options.prepare();
+      if (!await preview(owner.sub)) return { status: 409, body: status() };
+      mkdirSync(dir, { recursive: true });
+      copyFolder(from, realpathSync(dir), false);
+      writeFileAtomic(movePath, `${JSON.stringify({ from, at: now() })}\n`);
+    } else rmSync(movePath, { force: true });
     mkdirSync(dir, { recursive: true });
     const joining: GoogleBinding = {
       version: 1, spaceId: randomUUID(), owner: { issuer: ISSUER, sub: owner.sub }, emailHint: owner.email, transport: "google-drive",
@@ -353,10 +451,15 @@ export function createGoogleSync(options: Options) {
 export type GoogleSync = ReturnType<typeof createGoogleSync>;
 
 /** Desktop renderer only: never the phone relay or a remote cookie. */
-export async function googleSyncRoute(method: string, path: string, caller: { relay: boolean; bearerOk: boolean }, sync: Pick<GoogleSync, "read" | "start">) {
+export async function googleSyncRoute(
+  method: string, path: string, caller: { relay: boolean; bearerOk: boolean }, sync: Pick<GoogleSync, "read" | "start">, body: () => Promise<StartBody> = async () => ({}),
+) {
   if (path !== "/api/google-sync" && path !== "/api/google-sync/start") return null;
   if (caller.relay || !caller.bearerOk) return { status: 404, body: { error: "not found" } };
   if (method === "GET" && path === "/api/google-sync") return { status: 200, body: await sync.read() };
-  if (method === "POST" && path === "/api/google-sync/start") return sync.start();
+  if (method === "POST" && path === "/api/google-sync/start") {
+    const parsed = startSchema.safeParse(await body());
+    return parsed.success ? sync.start(parsed.data) : { status: 400, body: { error: "invalid body" } };
+  }
   return { status: 405, body: { error: "method not allowed" } };
 }
