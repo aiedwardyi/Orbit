@@ -1,10 +1,12 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { Check, Copy, CornerDownLeft, RotateCcw, TerminalSquare, X } from "lucide-react";
 import type { Bot } from "@/state/store";
-import { api } from "@/state/store";
+import { api, visibleMessages } from "@/state/store";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { ansiColor } from "@/lib/ansi-palette";
 import { composerEnterIntent } from "@/lib/composer-enter";
+import { createTerminalLineTracker } from "@/lib/terminal-input";
+import { latestPaneRun, workerRuns } from "@/lib/worker-runs";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 
@@ -96,13 +98,17 @@ export function RemoteTerminalView({
   paneHotkey,
   paneFocus,
 }: {
-  bot: Pick<Bot, "id" | "name">;
+  bot: Pick<Bot, "id" | "name"> & Partial<Pick<Bot, "messages" | "activeLeafId" | "hasMore">>;
   onClose: () => void;
   visible: boolean;
   paneHotkey?: { n: number } | null;
   paneFocus?: { sessionId: string } | null;
 }) {
   const { t } = useI18n();
+  const workers = useMemo(
+    () => workerRuns(visibleMessages({ messages: bot.messages ?? [], activeLeafId: bot.activeLeafId, hasMore: bot.hasMore })),
+    [bot.messages, bot.activeLeafId, bot.hasMore],
+  );
   const sidebarOnRight = useSidebarSide() === "right";
   const [snapshot, setSnapshot] = useState<RemoteTerminalSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -250,6 +256,9 @@ export function RemoteTerminalView({
   const post = async (input: ReturnType<typeof terminalSendInput> | { key: TerminalKey }) => {
     if (sending || !canType || !shown?.sessionId || shown.generation === undefined) return;
     const line = draft;
+    const sessionId = shown.sessionId;
+    const submitted = !("key" in input) && panes.some((pane) => pane.sessionId === sessionId && !pane.main) && createTerminalLineTracker()(`${input.text}${input.paste ? "\n" : ""}`);
+    const afterMessageId = submitted ? latestPaneRun(workers, sessionId)?.messageIds.at(-1) : undefined;
     focusInput(inputRef.current);
     setSending(true);
     setSendError(null);
@@ -258,6 +267,9 @@ export function RemoteTerminalView({
         method: "POST",
         body: JSON.stringify({ sessionId: shown.sessionId, generation: shown.generation, ...input }),
       });
+      if (submitted) void api(`/api/bots/${encodeURIComponent(bot.id)}/terminal/resume`, {
+        method: "POST", body: JSON.stringify({ sessionId, afterMessageId }),
+      }).catch(() => {});
       appliedRequestRef.current = ++requestRef.current;
       pinnedRef.current = true;
       setSnapshot(next);

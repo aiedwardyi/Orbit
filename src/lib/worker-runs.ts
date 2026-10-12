@@ -1,5 +1,7 @@
-import type { Message } from "@/state/store";
-import { parsePaneNote, type PaneNote } from "../../shared/pane-note";
+import type { Message } from "../../server/store.ts";
+import { parsePaneNote, type PaneNote } from "../../shared/pane-note.ts";
+
+type WorkerMessage = Pick<Message, "id" | "at" | "role" | "kind" | "text" | "from">;
 
 export type WorkerState = "working" | "waiting" | "failed" | "done";
 /** `ended` only comes from client pane liveness, never from the transcript. */
@@ -76,6 +78,19 @@ export function listedRuns<T extends { run: WorkerRun; state: WorkerShownState }
   return [...panes.values()].sort(byUrgency);
 }
 
+export function latestPaneRun(runs: readonly WorkerRun[], sessionId: string): WorkerRun | undefined {
+  return listedRuns(runs.map((run) => ({ run, state: run.state })), new Set([sessionId]))[0]?.run;
+}
+
+/** True when the pane's run is still the one captured before a snapshot await. */
+export function samePaneRun(before: WorkerRun | undefined, after: WorkerRun | undefined): boolean {
+  if (!before || !after) return before === after;
+  return before.id === after.id
+    && before.messageIds.at(-1) === after.messageIds.at(-1)
+    && before.latest.at === after.latest.at
+    && before.latest.index === after.latest.index;
+}
+
 export function shownState(run: WorkerRun, livePanes: Set<string> | null): WorkerShownState {
   if (!livePanes || run.state === "done" || run.state === "failed") return run.state;
   const live = run.sessionId ? livePanes.has(run.sessionId) : run.pane8 ? [...livePanes].some((id) => id.startsWith(run.pane8!)) : true;
@@ -83,7 +98,7 @@ export function shownState(run: WorkerRun, livePanes: Set<string> | null): Worke
 }
 
 /** Each run renders once at its retained mounted anchor; null folds its other messages. */
-export function workerAnchors<T extends { run: WorkerRun }>(workers: readonly T[], mounted: readonly Message[], anchors?: ReadonlyMap<string, string>): Map<string, T | null> {
+export function workerAnchors<T extends { run: WorkerRun }>(workers: readonly T[], mounted: readonly WorkerMessage[], anchors?: ReadonlyMap<string, string>): Map<string, T | null> {
   const ids = new Set(mounted.map((m) => m.id));
   const at = new Map<string, T | null>();
   for (const shown of workers) {
@@ -102,7 +117,7 @@ function noteState(note: PaneNote): WorkerState {
 }
 
 /** One run per worker pane job, keyed by pane and nickname. */
-export function workerRuns(messages: readonly Message[], older: readonly Message[] = []): WorkerRun[] {
+export function workerRuns(messages: readonly WorkerMessage[], older: readonly WorkerMessage[] = []): WorkerRun[] {
   const transcript = older.length ? [...new Map([...older, ...messages].map((message) => [message.id, message])).values()].sort((a, b) => a.at - b.at) : messages;
   const runs = new Map<string, WorkerRun>();
   // newest run per pane, for notes that carry no nickname of their own
@@ -139,7 +154,10 @@ export function workerRuns(messages: readonly Message[], older: readonly Message
       // A follow-up is not a leading launch, so the row stays where it is.
       if (resumed) {
         run.messageIds.push(message.id);
-        events.get(run)!.push({ at: message.at, index, state: "working", resume: true });
+        const submitted = field("Submitted");
+        const parsed = submitted && /^\d{1,16}$/.test(submitted) ? Number(submitted) : Number.NaN;
+        // The row can land after the report; order it by when the line was submitted.
+        events.get(run)!.push({ at: Number.isSafeInteger(parsed) ? parsed : message.at, index, state: "working", resume: true });
         return;
       }
       // a launch after its notes in the transcript still leads, so the row sits at the launch
