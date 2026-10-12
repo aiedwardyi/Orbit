@@ -24,12 +24,14 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
 
 import { applyCredentialAllowlist } from "../config.ts";
 import { computerProxyEnv } from "../container-computer.ts";
 import { augmentedPath } from "../env-path.ts";
 import { describeSpawnFailure, killCliTree, spawnCli } from "../procs.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
+import { captureToolDetail } from "../tool-detail.ts";
 
 import type {
   DriverCreateInput,
@@ -55,6 +57,8 @@ import { appendNative, finishNative } from "./native.ts";
 const DRIVER_KIND = "piAgent";
 const PI_ARGS = ["--mode", "rpc", "--no-session"];
 const NODE_ENV_FLAG = { ELECTRON_RUN_AS_NODE: "1" };
+const toolResultSchema = z.object({ content: z.array(z.object({ type: z.string(), text: z.string().optional() })) });
+const toolInputSchema = z.object({ path: z.string().optional().catch(undefined) });
 
 /** Harness effort → pi thinking level (`set_thinking_level`). The sets match
  * one-for-one except for the name of the lowest rung: the harness calls it
@@ -368,6 +372,8 @@ interface PiEvent {
   // tool_execution_*
   toolCallId?: string;
   toolName?: string;
+  args?: unknown;
+  result?: unknown;
   isError?: boolean;
   // turn_end / message_end
   message?: { stopReason?: string; errorMessage?: string; usage?: { input?: number; output?: number } };
@@ -522,6 +528,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
       })();
       let buf = "";
       let assistantText = "";
+      const toolCalls = new Map<string, { name: string; args: unknown }>();
       // resolve one-shot RPC responses (new_session / switch_session / set_model)
       const responseWaiters = new Map<string, { resolve: (data: unknown) => void; reject: (err: Error) => void; timer: NodeJS.Timeout }>();
       const rejectWaiters = (err: Error) => {
@@ -633,6 +640,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           case "tool_execution_start": {
             promptAccepted = true;
             flushAssistantText();
+            if (evt.toolCallId) toolCalls.set(evt.toolCallId, { name: evt.toolName ?? "tool", args: evt.args });
             emit({
               ...base(threadId, turnId),
               type: "item.started",
@@ -643,13 +651,26 @@ export const PiDriver: ProviderDriver<PiConfig> = {
             return;
           }
           case "tool_execution_end": {
-            emit({
+            const call = evt.toolCallId ? toolCalls.get(evt.toolCallId) : undefined;
+            if (evt.toolCallId) toolCalls.delete(evt.toolCallId);
+            const result = toolResultSchema.safeParse(evt.result);
+            const args = toolInputSchema.safeParse(call?.args);
+            const detail = captureToolDetail({
+              name: evt.toolName ?? call?.name ?? "tool",
+              rawInput: call?.args,
+              paths: args.success && args.data.path ? [args.data.path] : [],
+              output: result.success ? result.data.content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n") : undefined,
+              isError: evt.isError,
+            });
+            const event: Extract<RuntimeEvent, { type: "item.completed"; itemType: "tool" }> = {
               ...base(threadId, turnId),
               type: "item.completed",
               itemType: "tool",
               itemId: evt.toolCallId,
               ok: !evt.isError,
-            });
+            };
+            if (detail) event.detail = detail;
+            emit(event);
             return;
           }
           case "extension_ui_request": {

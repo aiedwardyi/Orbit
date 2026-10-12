@@ -2,6 +2,9 @@
 // A bot or room row whose chat waits on the person glows in the theme
 // accent and says so in its accessible name; a collapsed section that hides
 // such a row glows instead.
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +13,8 @@ import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_COLLAPSED_SECTIONS_KEY } from "@/lib/sid
 import { StoreProvider } from "@/state/store";
 
 import { Sidebar } from "./Sidebar";
+
+const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
 
 class FakeEventSource {
   static current: FakeEventSource | null = null;
@@ -128,6 +133,14 @@ describe("Sidebar needs-you glow", () => {
     } finally {
       await unmount();
     }
+  });
+
+  it("fades the whole ring and glow fully out and back in", () => {
+    const rule = css.match(/\.needs-you-glow \{(.*?)\}/s)?.[1] ?? "";
+    expect(rule).not.toContain("box-shadow");
+    expect(css).toContain("@keyframes needs-you-pulse");
+    const pulse = css.slice(css.indexOf("@keyframes needs-you-pulse"));
+    expect(pulse).toMatch(/opacity:\s*0\b/);
   });
 
   it("names the icon-only row and glows the expand control in a collapsed sidebar", async () => {

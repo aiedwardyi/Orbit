@@ -84,6 +84,7 @@ const featureConfigSchema = z.object({
   skillRecorder: z.boolean().optional(),
   /** Show each tool run in the transcript. Off unless explicitly enabled. */
   showToolCalls: z.boolean().optional(),
+  toolDetailCapture: z.boolean().optional(),
   detailedReplies: z.boolean().optional(),
   /** The built-in per-bot browser (Browser tab). Removed: ignored. */
   browser: z.boolean().optional(),
@@ -183,7 +184,7 @@ export interface AppConfig {
    * separate container, durable workspace, viewer and lease. */
   localVm?: { mode?: "shared" | "per-bot"; maxInstances?: number };
   /** Opt-in product experiments. Every flag defaults to disabled. */
-  features?: { skillRecorder?: boolean; showToolCalls?: boolean; detailedReplies?: boolean; browser?: boolean };
+  features?: { skillRecorder?: boolean; showToolCalls?: boolean; toolDetailCapture?: boolean; detailedReplies?: boolean; browser?: boolean };
   /** Named browser sessions any bot can be pointed at. */
   browserProfiles?: BrowserProfile[];
   instances?: InstanceConfigMap;

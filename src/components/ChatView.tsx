@@ -81,14 +81,14 @@ import { usageLimitReset } from "@/lib/usage";
 import { useFindCurrentId, useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
-import { activityVisibleInChat, groupActivityRuns } from "@/lib/activity-runs";
+import { activityVisibleInChat, groupActivityRuns, itemMatchesFind, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
 import { chatTranscriptRows, messageVisible } from "@/lib/chat-transcript";
 import { isShownMessage } from "@/lib/shown-message";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
 import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from "@/lib/focus-composer";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { MemorySaveChip } from "./MemorySaveChip";
-import { ActivityRun, ActivityStep } from "./ActivityRun";
+import { ActivityRun, ActivityStep, approvalHover } from "./ActivityRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
 import { BOTTOM_FOLLOW_THRESHOLD, captureTranscriptScroll, newestBelowView, restoreTranscriptScroll, shouldResumeBottomFollow, spaceAfterNewestRow, transcriptUnderfilled, type TranscriptScroll } from "@/lib/bottom-follow";
@@ -769,7 +769,7 @@ const Bubble = memo(function Bubble({
 
 /** A tool run: spinner while live, check/cross once settled. A failed step
  * stays neutral; only turn-level `error:` rows go red. */
-function ActivityChip({ message }: { message: Message }) {
+function ActivityChip({ message, notices }: { message: Message; notices?: LinkedApproval[] }) {
   const { dispatch, state } = useStore();
   const { t } = useI18n();
   const terminal = useSkin() === "terminal";
@@ -794,12 +794,12 @@ function ActivityChip({ message }: { message: Message }) {
       </div>
     );
   }
-  if (terminal) return <ActivityStep message={message} />;
+  if (terminal) return <ActivityStep message={message} notices={notices} />;
   const failed = tool.ok === false;
   return (
     <div className="flex justify-start">
       <div
-        title={failed ? t("chat.stepDidNotComplete") : undefined}
+        title={failed ? t("chat.stepDidNotComplete") : approvalHover(notices, t)}
         className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary"
       >
         {tool.ok === undefined ? (
@@ -1053,8 +1053,8 @@ const MessagesList = memo(function MessagesList({
       {items.map((item, i) => {
         const { visible, newDay } = rows[i];
         const found = item.kind === "run"
-          ? item.messages.some((step) => step.id === findCurrent)
-          : item.message.kind === "activity" && item.message.id === findCurrent;
+          ? itemMatchesFind(item, findCurrent)
+          : item.message.kind === "activity" && itemMatchesFind(item, findCurrent);
         if (!visible && !found) return null;
         if (item.kind === "run") {
           const first = item.messages[0];
@@ -1063,10 +1063,10 @@ const MessagesList = memo(function MessagesList({
               {newDay && <DaySeparator at={first.at} />}
               <ActivityRun messages={item.messages} forceOpen={found || item.messages.some((step) => step.id === focusedId)}>
                 {item.messages
-                  .filter((step) => showActivities || step.tool?.ok === false || step.id === findCurrent)
+                  .filter((step) => shownRunStep(step, { terminal, showActivities, findId: findCurrent, notices: item.notices?.get(step.id) }))
                   .map((step) => (
-                  <div key={step.id} className="contents" data-mid={step.id}>
-                    <ActivityStep message={step} />
+                  <div key={step.id} className="contents" data-mid={step.id} data-find-for={item.notices?.get(step.id)?.map((notice) => notice.message.id).join(" ") || undefined}>
+                    <ActivityStep message={step} notices={item.notices?.get(step.id)} />
                   </div>
                 ))}
               </ActivityRun>
@@ -1126,7 +1126,7 @@ const MessagesList = memo(function MessagesList({
                 );
               }
               if (!activityVisibleInChat(m, showActivities) && !found) return null;
-              return <ActivityChip message={m} />;
+              return <ActivityChip message={m} notices={item.notices} />;
             }
             case "screen":
               if (m.image) return <ShownImage name={m.image} caption={m.text} />;
@@ -1166,7 +1166,7 @@ const MessagesList = memo(function MessagesList({
         const replyComm = peerReplies.get(m.id);
         const key = m.role === "bot" && m.kind === "text" ? replySlot(bot.threadId, m, transcript) : m.sendId ?? m.id;
         return (
-          <div key={key} className="contents" data-mid={m.id}>
+          <div key={key} className="contents" data-mid={m.id} data-find-for={item.notices?.map((notice) => notice.message.id).join(" ") || undefined}>
             {newDay && <DaySeparator at={m.at} />}
             {replyComm && <ActivityChip message={{ ...m, kind: "activity", comm: replyComm, tool: { name: t("chat.replyToBot", { name: replyComm.withName }) } }} />}
             {row}

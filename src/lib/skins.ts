@@ -210,6 +210,13 @@ export function applySkin(id: SkinId): void {
     /* no bridge */
   }
   window.dispatchEvent?.(new Event(SKIN_CHANGE_EVENT));
+  if (id === "terminal") {
+    void fetch("/api/config", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ features: { toolDetailCapture: true } }),
+    }).catch(() => undefined);
+  }
 }
 
 function subscribeSkin(onChange: () => void) {

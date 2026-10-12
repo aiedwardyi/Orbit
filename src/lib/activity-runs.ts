@@ -6,10 +6,24 @@
 // text between two stretches breaks the run, so the bot's words always
 // separate one run from the next.
 import type { Message } from "@/state/store";
+import { termVerb } from "@/lib/terminal-skin";
+
+export type ApprovalLabel = "auto" | "always" | "review";
+
+export type ServerNotice =
+  | { kind: "approval"; label: ApprovalLabel; tool: string; summary: string }
+  | { kind: "line" };
+
+export interface LinkedApproval {
+  message: Message;
+  label: ApprovalLabel;
+  tool: string;
+  summary: string;
+}
 
 export type TranscriptItem =
-  | { kind: "message"; message: Message }
-  | { kind: "run"; id: string; messages: Message[] };
+  | { kind: "message"; message: Message; notices?: LinkedApproval[] }
+  | { kind: "run"; id: string; messages: Message[]; notices?: Map<string, LinkedApproval[]> };
 
 /** Default-off hides named tool pills, success or fail: the bot usually
  * retries past a miss. Bot⇄bot chips, `error:` turn failures, and
@@ -24,6 +38,108 @@ export function activityVisibleInChat(message: Message, showToolCalls: boolean):
         tool.name.startsWith("error:") ||
         tool.name === "memory.save"),
   );
+}
+
+const ALWAYS_APPROVAL = /^auto-approved (.+?) \(always allowed\): ([\s\S]*)$/;
+const AUTO_APPROVAL = /^auto-approved ([^:]+): ([\s\S]*)$/;
+const REVIEW_APPROVAL = /^review approved ([^:]+): ([\s\S]*)$/;
+
+function toolFromAllowKey(key: string): string {
+  const rest = key.startsWith("local-computer:") ? key.slice("local-computer:".length) : key;
+  const cut = rest.indexOf(":");
+  return cut === -1 ? rest : rest.slice(0, cut);
+}
+
+/** Server chips that are not tool calls. `error:` stays a turn failure. */
+export function classifyServerNotice(name: string): ServerNotice | null {
+  if (name.startsWith("error:")) return null;
+  const always = ALWAYS_APPROVAL.exec(name);
+  if (always) return { kind: "approval", label: "always", tool: toolFromAllowKey(always[1]), summary: always[2] };
+  const auto = AUTO_APPROVAL.exec(name);
+  if (auto) return { kind: "approval", label: "auto", tool: auto[1], summary: auto[2] };
+  const review = REVIEW_APPROVAL.exec(name);
+  if (review) return { kind: "approval", label: "review", tool: review[1], summary: review[2] };
+  if (
+    /^@.+ is waiting on your approval$/.test(name) ||
+    /^retrying \u2014 attempt \d+\/\d+ in \d+s \u2014 /.test(name) ||
+    /^Same call repeated \d+× \u2014 /.test(name) ||
+    name.endsWith(" is still stopping \u2014 this message was not dispatched")
+  ) return { kind: "line" };
+  return null;
+}
+
+export function isApprovalNotice(message: Message): boolean {
+  return classifyServerNotice(message.tool?.name ?? "")?.kind === "approval";
+}
+
+function isWorkStep(message: Message): boolean {
+  const tool = message.tool;
+  if (message.kind !== "activity" || !tool || message.comm) return false;
+  if (classifyServerNotice(tool.name) || tool.name.startsWith("error:") || tool.name === "memory.save") return false;
+  return true;
+}
+
+function sameBot(a: Message, b: Message): boolean {
+  return (a.from?.botId ?? "") === (b.from?.botId ?? "");
+}
+
+function sameTool(step: Message, tool: string): boolean {
+  const name = step.tool?.name ?? "";
+  const verb = step.tool?.verb ?? "";
+  const names = new Set<string>();
+  if (name) { names.add(name); names.add(termVerb(name)); }
+  if (verb) { names.add(verb); names.add(termVerb(verb)); }
+  return names.has(tool) || names.has(termVerb(tool));
+}
+
+function linkApprovals(messages: Message[]) {
+  const byStep = new Map<string, LinkedApproval[]>();
+  const consumed = new Set<string>();
+  let pending: Message[] = [];
+  for (const message of messages) {
+    // an approval belongs to a step from its own turn, never an older one
+    if (message.role === "user") pending = [];
+    const notice = message.kind === "activity" ? classifyServerNotice(message.tool?.name ?? "") : null;
+    if (notice?.kind === "approval") {
+      let index = -1;
+      let score = 0;
+      for (let i = 0; i < pending.length; i++) {
+        const step = pending[i];
+        if (!sameBot(step, message) || !sameTool(step, notice.tool)) continue;
+        const have = step.tool?.summary ?? "";
+        // exact summary, then a truncated prefix, then any same-tool step; ties go to the earliest
+        const rank = have === notice.summary ? 3 : notice.summary && have && (have.startsWith(notice.summary) || notice.summary.startsWith(have)) ? 2 : 1;
+        if (rank > score) {
+          score = rank;
+          index = i;
+        }
+      }
+      if (index >= 0) {
+        const step = pending.splice(index, 1)[0];
+        const list = byStep.get(step.id) ?? [];
+        list.push({ message, label: notice.label, tool: notice.tool, summary: notice.summary });
+        byStep.set(step.id, list);
+        consumed.add(message.id);
+      }
+      continue;
+    }
+    if (isWorkStep(message)) pending.push(message);
+  }
+  return { byStep, consumed };
+}
+
+function messageItem(message: Message, notices: LinkedApproval[] | undefined): TranscriptItem {
+  if (!notices?.length) return { kind: "message", message };
+  return { kind: "message", message, notices };
+}
+
+function noticesFor(steps: Message[], byStep: Map<string, LinkedApproval[]>): Map<string, LinkedApproval[]> | undefined {
+  const map = new Map<string, LinkedApproval[]>();
+  for (const step of steps) {
+    const list = byStep.get(step.id);
+    if (list?.length) map.set(step.id, list);
+  }
+  return map.size ? map : undefined;
 }
 
 /** A named tool, running or settled. A running step joins the run so it
@@ -47,16 +163,21 @@ const SEARCH_TOOLS = new Set(["Read", "Grep", "Glob"]);
 /** `terminal` folds only Read/Grep/Glob stretches, even a single read, the
  * way Claude Code does; every other step stays unfolded. */
 export function groupActivityRuns(messages: Message[], terminal = false): TranscriptItem[] {
+  const linked = linkApprovals(messages);
   const items: TranscriptItem[] = [];
   let run: Message[] = [];
   const flush = () => {
+    const notices = noticesFor(run, linked.byStep);
     // one step on its own is cheaper to read than a fold that hides it
-    if (run.length > (terminal ? 0 : 1)) items.push({ kind: "run", id: `run:${run[0].id}`, messages: run });
-    else for (const message of run) items.push({ kind: "message", message });
+    if (run.length > (terminal ? 0 : 1)) {
+      const id = `run:${run[0].id}`;
+      items.push(notices ? { kind: "run", id, messages: run, notices } : { kind: "run", id, messages: run });
+    } else for (const message of run) items.push(messageItem(message, linked.byStep.get(message.id)));
     run = [];
   };
   for (const message of messages) {
-    if (foldable(message) && (!terminal || SEARCH_TOOLS.has(message.tool?.name ?? ""))) {
+    if (linked.consumed.has(message.id)) continue;
+    if (foldable(message) && (!terminal || SEARCH_TOOLS.has(termVerb(message.tool?.verb ?? message.tool?.name ?? "")))) {
       const first = run[0];
       if (
         first &&
@@ -70,7 +191,7 @@ export function groupActivityRuns(messages: Message[], terminal = false): Transc
       continue;
     }
     flush();
-    items.push({ kind: "message", message });
+    items.push(messageItem(message, linked.byStep.get(message.id)));
   }
   flush();
   return items;
@@ -81,20 +202,43 @@ const EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 /** The one line a folded run has to earn its place with: how much work it
  * was and how many files it touched. Status is the icon beside it. */
 export function describeRun(messages: Message[]): string {
+  const steps = messages.filter((message) => !isApprovalNotice(message));
   const edited = new Set<string>();
-  for (const message of messages) {
+  for (const message of steps) {
     const tool = message.tool;
     // the summary leads with the path; "+N -M" trails it
     if (tool && EDIT_TOOLS.has(tool.name) && tool.summary) edited.add(tool.summary.replace(/ \+\d+( -\d+)?$/, ""));
   }
   const files = edited.size ? ` · ${edited.size} ${edited.size === 1 ? "file" : "files"} edited` : "";
-  return `${messages.length} steps${files}`;
+  return `${steps.length} steps${files}`;
+}
+
+/** Default skins drop approval rows from an opened run. A find hit still shows. */
+export function shownRunStep(
+  step: Message,
+  options: { terminal: boolean; showActivities: boolean; findId: string | null; notices?: LinkedApproval[] },
+): boolean {
+  const found = step.id === options.findId || (options.notices?.some((notice) => notice.message.id === options.findId) ?? false);
+  if (!options.terminal && isApprovalNotice(step) && step.id !== options.findId) return false;
+  return options.showActivities || step.tool?.ok === false || found;
+}
+
+export function itemMatchesFind(item: TranscriptItem, findId: string | null): boolean {
+  if (!findId) return false;
+  if (item.kind === "run") {
+    if (item.messages.some((message) => message.id === findId)) return true;
+    for (const list of item.notices?.values() ?? []) {
+      if (list.some((notice) => notice.message.id === findId)) return true;
+    }
+    return false;
+  }
+  return item.message.id === findId || (item.notices?.some((notice) => notice.message.id === findId) ?? false);
 }
 
 /** Claude Code's one line for a stretch of reads and searches. */
 export function describeSearch(messages: Message[]): string {
   if (!messages.length) return "Searched";
-  const patterns = messages.filter((message) => message.tool?.name !== "Read").length;
+  const patterns = messages.filter((message) => termVerb(message.tool?.verb ?? message.tool?.name ?? "") !== "Read").length;
   const files = messages.length - patterns;
   return [
     patterns && `Searched for ${patterns} ${patterns === 1 ? "pattern" : "patterns"}`,

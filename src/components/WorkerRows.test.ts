@@ -42,10 +42,17 @@ describe("WorkerRow", () => {
     expect(markup).toMatch(/^<div data-worker-run="[^"]*" class="flex w-full flex-col">/);
   });
 
-  it("gives a script a neutral terminal glyph, not a brand", () => {
+  it("gives a script a quiet scroll glyph, not a brand or terminal glyph", () => {
     const markup = renderToStaticMarkup(createElement(WorkerRow, { run: run("POST-166 | script"), state: "working", live: null }));
-    expect(markup).toContain("lucide-square-terminal");
+    expect(markup).toContain("lucide-scroll-text");
+    expect(markup).not.toContain("lucide-square-terminal");
     expect(markup).not.toContain("#D97757");
+  });
+
+  it.each(["NOVA | Nova 2 | high", "DEV"])("gives an unknown model '%s' a neutral bot glyph, not the script scroll", (label) => {
+    const markup = renderToStaticMarkup(createElement(WorkerRow, { run: run(label), state: "working", live: null }));
+    expect(markup).toContain("lucide-bot");
+    expect(markup).not.toContain("lucide-scroll-text");
   });
 
   it.each([
@@ -156,6 +163,30 @@ describe("WorkerChip", () => {
     }
   });
 
+  it("lays wide marks in a row with a gap and no z-index", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const runs = [1, 2, 3, 4].map((at) => shown(`W${at}`, at === 1 ? "waiting" : "working", `session-${at}`, at));
+    const { host, unmount } = await mount(runs);
+    try {
+      const desktop = host.querySelector("[data-worker-chip-desktop]")!;
+      const phone = host.querySelector("[data-worker-chip-phone]")!;
+      const klass = desktop.getAttribute("class") ?? "";
+      expect({
+        gap: /(?:^|\s)gap-1(?:\s|$)/.test(klass),
+        overlap: klass.includes("-space-x-"),
+        stacked: [...desktop.querySelectorAll("[class*='z-']")].map((el) => el.getAttribute("class")),
+        phone: phone.getAttribute("class"),
+      }).toEqual({
+        gap: true,
+        overlap: false,
+        stacked: [],
+        phone: "relative flex items-center gap-0.5 md:hidden @max-4xl/chathead:!flex",
+      });
+    } finally {
+      await unmount();
+    }
+  });
+
   it("lists only live panes, urgent first, and opens that pane", async () => {
     vi.stubGlobal("matchMedia", () => ({ matches: false }));
     const waiting = shown("WAIT", "waiting", "wait-1", 2);
@@ -205,6 +236,32 @@ describe("WorkerChip", () => {
       expect([...host.querySelectorAll("[data-worker-list] li")].map((li) => li.textContent)).toEqual([
         "WAITOpus 5.5‖Waiting", "WORKOpus 5.5●Working",
       ]);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("faces a waiting script first with a scroll glyph while AI workers keep brand marks", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const { host, chip, unmount } = await mount([
+      { run: run("A | Grok 4.7 | high"), state: "working" },
+      { run: run("REL-CHAIN-166 | script"), state: "waiting" },
+    ], { livePanes: null });
+    try {
+      const desktop = [...host.querySelectorAll("[data-worker-chip-desktop] svg")];
+      expect(desktop).toHaveLength(2);
+      expect(desktop[0]!.classList.contains("lucide-scroll-text")).toBe(true);
+      expect(desktop.some((svg) => svg.classList.contains("lucide-square-terminal"))).toBe(false);
+      const phone = host.querySelector("[data-worker-chip-phone] svg")!;
+      expect(phone.classList.contains("lucide-scroll-text")).toBe(true);
+      await act(async () => chip()!.click());
+      const list = host.querySelector("[data-worker-list]")!;
+      expect([...list.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
+        "REL-CHAIN-166script‖Waiting", "AGrok 4.7●Working",
+      ]);
+      const marks = [...list.querySelectorAll("svg")];
+      expect(marks.map((svg) => svg.classList.contains("lucide-scroll-text"))).toEqual([true, false]);
+      expect(marks[1]!.getAttribute("class") ?? "").not.toContain("lucide");
     } finally {
       await unmount();
     }

@@ -30,6 +30,7 @@ import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli 
 import { inputDigest } from "../repeat-detector.ts";
 import { REPLY_MARKER } from "../turn-context.ts";
 import { startTurnTimer } from "../turn-timing.ts";
+import { captureToolDetail } from "../tool-detail.ts";
 
 import type {
   DriverCreateInput,
@@ -509,7 +510,7 @@ const NARRATION_NOTICE_MAX = 600;
 
 function narrationNotice(summary: string): string {
   const quoted = summary.slice(0, NARRATION_NOTICE_MAX);
-  return `[Wink note, not from the user] Your last message between tool calls was long, so the user never saw it; the engine kept only this summary: "${quoted}". If it held anything they need (links, numbers, commands, steps), send just that again now in one short line, or put it in your final reply. Otherwise ignore this note and don't mention it.`;
+  return `[Wink note, not from the user] Your last message between tool calls was long, so the user never saw it; the engine kept only this summary: "${quoted}". If it answered the user, send that answer again now in one short line. If it held anything else they need (links, numbers, commands, steps), send just that now in one short line, or put it in your final reply. Otherwise ignore this note and don't mention it.`;
 }
 
 type TurnUsage = { input: number; output: number; cachedInput?: number };
@@ -594,6 +595,28 @@ export function claudeToolSummary(name: string, input: unknown, cwd: string, res
   if (!out) return undefined;
   const text = redactSecretsInText(out.replace(/\s+/g, " ").trim());
   return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX - 1)}…` : text;
+}
+
+function claudeToolDetail(name: string, input: unknown, output: string, isError: boolean) {
+  const o = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const command = typeof o.command === "string" ? o.command : undefined;
+  const path = typeof o.file_path === "string" ? o.file_path : typeof o.notebook_path === "string" ? o.notebook_path : undefined;
+  const header = command ?? path ?? JSON.stringify(input ?? name);
+  const changes = !isError ? name === "Edit" ? [o] : name === "MultiEdit" && Array.isArray(o.edits) ? o.edits : [] : [];
+  const edits = changes.flatMap((edit) => {
+    if (!edit || typeof edit !== "object" || typeof edit.old_string !== "string" || typeof edit.new_string !== "string") return [];
+    return [{ oldText: edit.old_string, newText: edit.new_string }];
+  });
+  return captureToolDetail({
+    name,
+    input: header,
+    paths: path ? [path] : [],
+    command,
+    output,
+    edits,
+    grouped: ["Read", "Grep", "Glob"].includes(name),
+    isError,
+  });
 }
 
 const NATIVE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -1399,6 +1422,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 const call = toolCalls.get(b.tool_use_id);
                 toolCalls.delete(b.tool_use_id);
                 const summary = call?.name === "Bash" ? claudeToolSummary(call.name, call.input, cwd, firstText(b.content).slice(0, 40)) : undefined;
+                const detail = call
+                  ? claudeToolDetail(call.name, call.input, firstText(b.content), Boolean(b.is_error))
+                  : undefined;
                 emit({
                   ...base(threadId, currentTurnId()),
                   type: "item.completed",
@@ -1407,6 +1433,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                   ok: !b.is_error,
                   ...(summary && summary !== call?.summary ? { summary } : {}),
                   ...(call ? { durationMs: Date.now() - call.at } : {}),
+                  ...(detail ? { detail } : {}),
                 });
               }
             }

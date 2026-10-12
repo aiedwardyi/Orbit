@@ -1247,6 +1247,35 @@ describe("skin persistence", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(["desktop", "phone"])("tool detail opts in through config on %s and stays on after switching skins", async (surface) => {
+    const fetch = vi.fn(async () => Response.json({}));
+    const apply = vi.fn(async () => true);
+    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal("window", surface === "desktop" ? { ogb: { applySkin: apply } } : {});
+    applySkin("ledger");
+    expect(fetch).not.toHaveBeenCalled();
+    applySkin("terminal");
+    await Promise.resolve();
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/config", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ features: { toolDetailCapture: true } }),
+    });
+    applySkin("ledger");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(readSkin()).toBe("ledger");
+  });
+
+  it("tool detail retries the opt-in when Terminal is restored after a failed request", async () => {
+    const fetch = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(Response.json({}));
+    vi.stubGlobal("fetch", fetch);
+    applySkin("terminal");
+    await Promise.resolve();
+    applySkin(readSkin());
+    await Promise.resolve();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("stamps data-skin and remembers the choice under omb-skin", () => {
     applySkin("ledger");
     expect(dataset.skin).toBe("ledger");

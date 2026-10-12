@@ -50,15 +50,16 @@ import { ReactionBar, ReactionChips } from "./Reactions";
 import { MessageMenu, SelectionMenu, contextClickKind, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
 import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
-import { groupActivityRuns } from "@/lib/activity-runs";
+import { groupActivityRuns, itemMatchesFind, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
 import { messageVisible, roomTranscriptRows } from "@/lib/room-transcript";
 import { isShownMessage } from "@/lib/shown-message";
 import { roomRetry } from "@/lib/room-retry";
 import { nextBulletin } from "@/lib/room-bulletin";
-import { ActivityRun, ActivityStep } from "./ActivityRun";
+import { ActivityRun, ActivityStep, approvalHover } from "./ActivityRun";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useSearchFindSeed } from "@/lib/chat-find";
+import { useFindCurrentId } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { shortPath } from "@/lib/short-path";
@@ -98,9 +99,11 @@ function dayLabel(at: number): string {
  * the 1:1 pill minus its status glyph — a room reads as a conversation. */
 export function RoomToolChip({
   message,
+  notices,
   onRetry,
 }: {
   message: Message;
+  notices?: LinkedApproval[];
   onRetry?: (callbacks?: { onError?: () => void }) => void;
 }) {
   const { dispatch, state } = useStore();
@@ -183,7 +186,7 @@ export function RoomToolChip({
       </div>
     );
   }
-  if (terminal && !tool.name.startsWith("error:")) return <ActivityStep message={message} />;
+  if (terminal && !tool.name.startsWith("error:")) return <ActivityStep message={message} notices={notices} />;
   const member = message.from?.botId ? state.bots.find((bot) => bot.id === message.from?.botId) : undefined;
   const instance = member?.modelSelection?.instanceId
     ? state.instances.find((i) => i.instanceId === member.modelSelection.instanceId)
@@ -197,6 +200,7 @@ export function RoomToolChip({
     <div className="flex justify-start">
       <div className="flex min-w-0 max-w-full flex-col items-start">
         <div
+          title={approvalHover(notices, t)}
           className={cn(
             "flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
             // Only turn-level `error:` rows go red; a plain failed step the
@@ -341,6 +345,7 @@ const Transcript = memo(function Transcript({
   );
   const focus = state.focusMessage;
   const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
+  const findCurrent = useFindCurrentId();
   const lastBotTextId = [...transcript].reverse().find((entry) => entry.role === "bot" && entry.kind === "text" && isShownMessage(entry))?.id;
   const target = roomRetry(group.messages, members, group, group.threadId, group.busyBotId, { allowSetup: true });
   const onRetryFor = (messageId: string) =>
@@ -370,7 +375,10 @@ const Transcript = memo(function Transcript({
     <>
       {items.map((item, i) => {
         const { visible, newDay, cluster } = rows[i];
-        if (!visible) return null;
+        const found = item.kind === "run"
+          ? itemMatchesFind(item, findCurrent)
+          : item.message.kind === "activity" && itemMatchesFind(item, findCurrent);
+        if (!visible && !found) return null;
         if (item.kind === "run") {
           const first = item.messages[0];
           return (
@@ -383,13 +391,14 @@ const Transcript = memo(function Transcript({
               {first.from && cluster && (
                 <ClusterLabel bot={memberOf(first.from.botId)} name={first.from.name} color={first.from.color} />
               )}
-              <ActivityRun messages={item.messages} forceOpen={item.messages.some((step) => step.id === focusedId)}>
+              <ActivityRun messages={item.messages} forceOpen={found || item.messages.some((step) => step.id === focusedId)}>
                 {item.messages
-                  .filter((step) => showActivities || step.tool?.ok === false)
+                  .filter((step) => shownRunStep(step, { terminal, showActivities, findId: findCurrent, notices: item.notices?.get(step.id) }))
                   .map((step) => (
-                  <div key={step.id} className="contents" data-mid={step.id}>
+                  <div key={step.id} className="contents" data-mid={step.id} data-find-for={item.notices?.get(step.id)?.map((notice) => notice.message.id).join(" ") || undefined}>
                     <RoomToolChip
                       message={step}
+                      notices={item.notices?.get(step.id)}
                       onRetry={onRetryFor(step.id)}
                     />
                   </div>
@@ -465,6 +474,7 @@ const Transcript = memo(function Transcript({
           ) : m.kind === "activity" && m.tool ? (
             <RoomToolChip
               message={m}
+              notices={item.notices}
               onRetry={onRetryFor(m.id)}
             />
           ) : m.kind === "screen" && m.image ? (
@@ -596,7 +606,7 @@ const Transcript = memo(function Transcript({
           ) : null;
         if (!row) return null;
         return (
-          <div key={key} className="contents" data-mid={m.id}>
+          <div key={key} className="contents" data-mid={m.id} data-find-for={item.notices?.map((notice) => notice.message.id).join(" ") || undefined}>
             {newDay && (
               <div className="py-3 text-center text-[13px] text-ink-secondary">
                 {dayLabel(m.at)} {formatTime(m.at, localeTag(locale))}

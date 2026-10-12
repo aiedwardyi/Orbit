@@ -200,7 +200,7 @@ function isRuntimeEvent(value: unknown): value is RuntimeEvent {
           (isRecord(value.usage) && typeof value.usage.input === "number" && typeof value.usage.output === "number"))
       );
     case "item.started":
-      return (value.itemType === "tool" || value.itemType === "reasoning") && stringOrMissing(value.title) && stringOrMissing(value.summary);
+      return (value.itemType === "tool" || value.itemType === "reasoning") && stringOrMissing(value.title) && stringOrMissing(value.summary) && stringOrMissing(value.verb);
     case "item.updated":
       return (value.itemType === "tool" || value.itemType === "reasoning") && numberOrNullOrMissing(value.tokens);
     case "item.completed":

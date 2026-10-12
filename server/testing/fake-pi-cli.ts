@@ -213,7 +213,10 @@ function handle(cmd: any) {
       }
       // acknowledge acceptance; the completion comes via events
       send({ type: "response", command: "prompt", success: true });
-      if (mode === "tooluse") streamToolTurn();
+      if (process.env.FAKE_PI_TOOL_FIXTURE) {
+        for (const event of JSON.parse(readFileSync(process.env.FAKE_PI_TOOL_FIXTURE, "utf8"))) send(event);
+        send({ type: "turn_end", message: { stopReason: "end_turn" } });
+      } else if (mode === "tooluse") streamToolTurn();
       else if (mode === "permission") streamPermissionTurn();
       else if (mode === "interleave") streamInterleaveTurn();
       else if (mode === "turn-error") streamErrorTurn();

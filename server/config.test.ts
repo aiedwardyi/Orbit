@@ -30,6 +30,20 @@ import {
 } from "./config.ts";
 
 describe("configuration boundaries", () => {
+  it("tool detail accepts the per-PC opt-in and keeps it across other feature updates", () => {
+    const patch = parseConfigPatch({ features: { toolDetailCapture: true } });
+    expect(patch).toEqual({ features: { toolDetailCapture: true } });
+    expect(parseStoredConfig(patch).features?.toolDetailCapture).toBe(true);
+    saveConfig(patch);
+    saveConfig(parseConfigPatch({ features: { showToolCalls: false } }));
+    expect(loadConfig().features?.toolDetailCapture).toBe(true);
+    expect(JSON.parse(readFileSync(join(DATA_DIR, "config.json"), "utf8")).features).toMatchObject({ toolDetailCapture: true, showToolCalls: false });
+  });
+
+  it("tool detail rejects a malformed capture flag", () => {
+    expect(() => parseConfigPatch({ features: { toolDetailCapture: "yes" } })).toThrow("features.toolDetailCapture");
+  });
+
   it("keeps supported stored settings and drops unrelated top-level data", () => {
     expect(
       parseStoredConfig({

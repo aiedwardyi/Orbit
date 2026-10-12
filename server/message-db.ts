@@ -16,6 +16,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { DATA_DIR } from "./config.ts";
 import type { Message } from "./store.ts";
+import { redactToolMessage } from "./tool-detail.ts";
 
 const DB_FILE = () => join(DATA_DIR, "messages.db");
 
@@ -69,7 +70,8 @@ function db(): DatabaseSync {
 
 export { db as messageDatabase };
 
-const rowToMessage = (row: { json: string }): Message => JSON.parse(row.json) as Message;
+// SAFETY: Stored rows use the Message envelope; preview fields are scrubbed on every read.
+const rowToMessage = (row: { json: string }): Message => redactToolMessage(JSON.parse(row.json) as Message);
 
 export interface ThreadRows {
   messages: Message[];
@@ -107,6 +109,7 @@ function importLegacy(threadId: string, legacyFile: string): ThreadRows {
   const insert = db().prepare(
     "INSERT OR REPLACE INTO messages (thread_id, id, at, role, kind, text, json) VALUES (?, ?, ?, ?, ?, ?, ?)",
   );
+  messages = messages.map(redactToolMessage);
   db().exec("BEGIN");
   try {
     for (const message of messages) {
@@ -130,6 +133,7 @@ function importLegacy(threadId: string, legacyFile: string): ThreadRows {
 }
 
 export function insertMessage(threadId: string, message: Message): void {
+  message = redactToolMessage(message);
   db()
     .prepare("INSERT OR REPLACE INTO messages (thread_id, id, at, role, kind, text, json) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(threadId, message.id, message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message));
@@ -144,6 +148,7 @@ export function appendMessage(threadId: string, message: Message): void {
 }
 
 export function updateMessage(threadId: string, message: Message): void {
+  message = redactToolMessage(message);
   db()
     .prepare("UPDATE messages SET at = ?, role = ?, kind = ?, text = ?, json = ? WHERE thread_id = ? AND id = ?")
     .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id);
@@ -217,7 +222,8 @@ export function applySyncedRows(
       "text = excluded.text, json = excluded.json WHERE messages.json != excluded.json",
   );
   let touched = 0;
-  for (const message of messages) {
+  for (const source of messages) {
+    const message = redactToolMessage(source);
     touched += Number(upsert.run(
       threadId, message.id, message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message),
     ).changes);

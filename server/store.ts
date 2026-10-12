@@ -12,11 +12,13 @@ import { DATA_DIR } from "./config.ts";
 import { defaultComputerForNewBot } from "./local-routing.ts";
 import * as mdb from "./message-db.ts";
 import type { SyncChange, SyncMutation } from "./thread-sync-v2.ts";
+import type { ToolDetail } from "../shared/tool-detail.ts";
 import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
 import { applyPendingModel } from "./pending-model.ts";
 import { redactSecretsInText } from "./redact.ts";
+import { redactToolMessage } from "./tool-detail.ts";
 import type { NativePrompt, ResumeSeed } from "./turn-context.ts";
 import {
   deleteTaskResumePacket,
@@ -134,10 +136,13 @@ export interface Message {
    * something — the UI offers setup instead of a retry that cannot work. */
   tool?: {
     name: string;
+    /** Claude Code tool name, when the engine said the kind. */
+    verb?: string;
     ok?: boolean;
     spoken?: string;
     summary?: string;
     durationMs?: number;
+    detail?: ToolDetail;
     setup?: boolean;
     signIn?: boolean;
     usageLimit?: { resetsAt: number | null };
@@ -315,6 +320,7 @@ export interface TaskUsage {
  * is replayed into every rebuild, and a leaked key would otherwise be
  * permanent. */
 export function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number }>(message: T): T {
+  message = redactToolMessage(message);
   // A peer message lands in the recipient's transcript as role "user", so the
   // presence of `from`, not the role, decides who authored it. Test presence
   // rather than a truthy botId: this predicate must never fail open.

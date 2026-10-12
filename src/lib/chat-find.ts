@@ -109,6 +109,12 @@ export function clearChatFindHighlight(): void {
   highlightHost().CSS?.highlights?.delete(CURRENT_HIGHLIGHT);
 }
 
+/** The landed row, or the step an approval notice was folded onto. */
+export function findRowSelector(messageId: string): string {
+  const id = CSS.escape(messageId);
+  return `[data-mid="${id}"], [data-find-for~="${id}"]`;
+}
+
 /** Paints every match soft and the current one strong; returns the current range. */
 export function paintChatFindHighlight(root: ParentNode, query: string): Range | null {
   clearChatFindHighlight();
@@ -134,7 +140,7 @@ export function paintChatFindHighlight(root: ParentNode, query: string): Range |
     node = walker.nextNode();
   }
   const wrapper = current && sameQuery(current.query, query)
-    ? root.querySelector(`[data-mid="${CSS.escape(current.messageId)}"]`)
+    ? root.querySelector(findRowSelector(current.messageId))
     : null;
   const strong = wrapper ? currentRange(wrapper, query, ranges) : null;
   const soft = ranges.filter((range) => range !== strong);
@@ -147,7 +153,7 @@ export function paintChatFindHighlight(root: ParentNode, query: string): Range |
 export function revealFindMatch(root: ParentNode, messageId: string): Range | null {
   if (current?.messageId !== messageId) return null;
   const range = paintChatFindHighlight(root, current.query);
-  const wrapper = range && root.querySelector(`[data-mid="${CSS.escape(messageId)}"]`);
+  const wrapper = range && root.querySelector(findRowSelector(messageId));
   if (!range || !wrapper) return range;
   for (let element = range.startContainer.parentElement; element && element !== wrapper; element = element.parentElement) {
     const style = getComputedStyle(element);

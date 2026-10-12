@@ -59,7 +59,7 @@ import {
 } from "./boot-page.mjs";
 import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
 import { WINDOWS_CAPTION_HEIGHT, applyWindowsTitleBarOverlay, windowChromeOptions } from "./window-chrome.mjs";
-import { applyZoomShortcut } from "./window-zoom.mjs";
+import { restoreWindowZoom, routeZoomShortcut, setImageZoomOwned } from "./window-zoom.mjs";
 import { contextMenuTemplate } from "./context-menu.mjs";
 import { openLocalFile } from "./open-file.mjs";
 import {
@@ -1298,7 +1298,7 @@ async function openDeviceWindow(rawHost, rawName) {
       return { action: "deny" };
     });
     win.webContents.on("before-input-event", (event, input) => {
-      if (applyZoomShortcut(win.webContents, input)) event.preventDefault();
+      routeWindowZoomKeys(event, input, win.webContents);
     });
     win.webContents.on("will-navigate", (event, target) => {
       const linkedFile = deviceLinkedFileName(target, url.origin);
@@ -1502,6 +1502,42 @@ ipcMain.on("screen:preview-intent", (event) => {
   event.returnValue = displayMediaGuard.begin(event.senderFrame);
 });
 
+const imageZoomGuards = new WeakSet();
+
+function routeWindowZoomKeys(event, input, contents) {
+  const routed = routeZoomShortcut(contents, input);
+  if (!routed) return;
+  event.preventDefault();
+  if (routed.target === "image") contents.send("image-zoom:shortcut", routed.action);
+}
+
+function claimImageZoom(contents, owned) {
+  if (!contents || contents.isDestroyed()) return;
+  let level = 0;
+  if (owned) {
+    try {
+      level = contents.getZoomLevel();
+    } catch {
+      level = 0;
+    }
+  }
+  setImageZoomOwned(contents.id, owned, level);
+  if (!owned || imageZoomGuards.has(contents)) return;
+  imageZoomGuards.add(contents);
+  contents.on("zoom-changed", () => {
+    if (!contents.isDestroyed()) restoreWindowZoom(contents);
+  });
+  contents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) setImageZoomOwned(contents.id, false);
+  });
+  contents.on("render-process-gone", () => setImageZoomOwned(contents.id, false));
+  contents.once("destroyed", () => setImageZoomOwned(contents.id, false));
+}
+
+ipcMain.on("image-zoom:own", (event, owned) => {
+  claimImageZoom(event.sender, owned === true);
+});
+
 ipcMain.on("desktop:unread-count", (event, value) => {
   const sender = BrowserWindow.fromWebContents(event.sender);
   if (!sender || sender !== mainWindow || sender.isDestroyed()) return;
@@ -1625,7 +1661,7 @@ function createWindow() {
   });
 
   win.webContents.on("before-input-event", (event, input) => {
-    if (applyZoomShortcut(win.webContents, input)) event.preventDefault();
+    routeWindowZoomKeys(event, input, win.webContents);
   });
 
   // Native context menu for text inputs: without this, right-click does

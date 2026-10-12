@@ -50,6 +50,79 @@ describe("Store", () => {
     rmSync(DATA_DIR, { recursive: true, force: true });
   });
 
+  it("tool detail survives completion folding and a database restart without a planted key", async () => {
+    const { completedTool } = await import("./tool-activity.ts");
+    const { buildToolDetail } = await import("../shared/tool-detail.ts");
+    const { redactSecretsInText } = await import("./redact.ts");
+    const { closeMessageDb } = await import("./message-db.ts");
+    const key = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789";
+    const detail = buildToolDetail({ input: `echo ${key}`, output: `used ${key}\ncomplete` }, redactSecretsInText);
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const row = store.appendMessage(bot.threadId, { role: "bot", kind: "activity", tool: { name: "Bash", spoken: "running a command", summary: "echo" } });
+    const tool = completedTool(row.tool, { type: "item.completed", itemType: "tool", eventId: "e1", provider: "claudeAgent", threadId: bot.threadId, createdAt: new Date(0).toISOString(), ok: true, durationMs: 12, detail });
+    store.patchMessage(bot.threadId, row.id, { tool });
+    closeMessageDb();
+    const reloaded = new Store(selection).messagesFor(bot.threadId).find((message) => message.id === row.id);
+    expect(reloaded?.tool).toEqual({ name: "Bash", ok: true, spoken: "running a command", summary: "echo", durationMs: 12, detail });
+    expect(JSON.stringify(reloaded)).not.toContain(key);
+    expect(reloaded?.tool?.detail?.output?.[0]).toContain("redacted");
+  });
+
+  it("keeps a tool verb through completion folding", async () => {
+    const { completedTool } = await import("./tool-activity.ts");
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const row = store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "activity",
+      tool: { name: "git status", verb: "Bash", spoken: "running a command" },
+    });
+    const tool = completedTool(row.tool, {
+      type: "item.completed",
+      itemType: "tool",
+      eventId: "e1",
+      provider: "codex",
+      threadId: bot.threadId,
+      createdAt: new Date(0).toISOString(),
+      ok: true,
+    });
+    expect(tool).toEqual({ name: "git status", verb: "Bash", ok: true, spoken: "running a command" });
+  });
+
+  it.each(["append", "patch"])("tool detail safety scrubs %s before storage and SSE emission", async (action) => {
+    const { messageDatabase } = await import("./message-db.ts");
+    const secret = "BoundaryCanary987654321";
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const emitted: string[] = [];
+    store.onChange((change) => emitted.push(JSON.stringify(change)));
+    const tool = { name: "Bash", detail: { input: "npm run diagnose", output: [`postgres://admin:${secret}@db.example/test`, `Cookie: session=${secret}`], more: 7 } };
+    const row = store.appendMessage(bot.threadId, { role: "bot", kind: "activity", tool: action === "append" ? tool : { name: "Bash" } });
+    if (action === "patch") store.patchMessage(bot.threadId, row.id, { tool });
+    expect(JSON.stringify(store.messagesFor(bot.threadId))).not.toContain(secret);
+    expect(JSON.stringify(emitted)).not.toContain(secret);
+    expect(JSON.stringify(messageDatabase().prepare("SELECT json FROM messages WHERE id = ?").get(row.id))).not.toContain(secret);
+    expect(store.messagesFor(bot.threadId).find((message) => message.id === row.id)?.tool?.detail?.more).toBe(7);
+  });
+
+  it.each(["bot", "user"] as const)("tool detail safety scrubs the %s HTTP projection without changing reply text", async (role) => {
+    const { redactBotAuthored } = await import("./store.ts");
+    const text = "postgres://admin:ReplyCanary987654321@db.example/test Cookie: session=ReplyCanary987654321 KEY=ReplyCanary987654321";
+    const message = { role, kind: "text" as const, text, tool: { name: "Bash", detail: { output: [text] } } };
+    const projected = redactBotAuthored(message);
+    expect(projected.text).toBe(text);
+    expect(JSON.stringify(projected.tool)).not.toContain("ReplyCanary987654321");
+    expect(message.tool.detail.output).toEqual([text]);
+  });
+
+  it("tool detail safety sends SSE message rows through the HTTP projection", () => {
+    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    expect(source).toContain('kind: "message", threadId: change.threadId, message: clientMessage(change.message)');
+    expect(source).toContain('kind: "message.patch", threadId: change.threadId, message: clientMessage(change.message)');
+    expect(source).toContain("return flagShownImage(redactBotAuthored(message));");
+  });
+
   it("createBot seeds an onboarding card without a fake chat bubble", () => {
     const store = new Store(selection);
     const bot = store.createBot();
