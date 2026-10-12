@@ -49,7 +49,7 @@ export function parseWorkerLabel(label: string | null | undefined) {
 const URGENCY = { waiting: 0, failed: 1, working: 2, done: 3, ended: 4 } satisfies Record<WorkerShownState, number>;
 
 export function byUrgency<T extends { run: WorkerRun; state: WorkerShownState }>(a: T, b: T): number {
-  return URGENCY[a.state] - URGENCY[b.state] || a.run.at - b.run.at;
+  return URGENCY[a.state] - URGENCY[b.state] || Number(a.run.provider === "script") - Number(b.run.provider === "script") || a.run.at - b.run.at;
 }
 
 /** Pane this run opens. A note-only run matches when one live id starts with its pane8. */

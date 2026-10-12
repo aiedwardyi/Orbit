@@ -42,9 +42,10 @@ describe("WorkerRow", () => {
     expect(markup).toMatch(/^<div data-worker-run="[^"]*" class="flex w-full flex-col">/);
   });
 
-  it("gives a script a neutral terminal glyph, not a brand", () => {
+  it("gives a script a quiet scroll glyph, not a brand or terminal glyph", () => {
     const markup = renderToStaticMarkup(createElement(WorkerRow, { run: run("POST-166 | script"), state: "working", live: null }));
-    expect(markup).toContain("lucide-square-terminal");
+    expect(markup).toContain("lucide-scroll-text");
+    expect(markup).not.toContain("lucide-square-terminal");
     expect(markup).not.toContain("#D97757");
   });
 
@@ -205,6 +206,32 @@ describe("WorkerChip", () => {
       expect([...host.querySelectorAll("[data-worker-list] li")].map((li) => li.textContent)).toEqual([
         "WAITOpus 5.5‖Waiting", "WORKOpus 5.5●Working",
       ]);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("faces a waiting script first with a scroll glyph while AI workers keep brand marks", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const { host, chip, unmount } = await mount([
+      { run: run("A | Grok 4.7 | high"), state: "working" },
+      { run: run("REL-CHAIN-166 | script"), state: "waiting" },
+    ], { livePanes: null });
+    try {
+      const desktop = [...host.querySelectorAll("[data-worker-chip-desktop] svg")];
+      expect(desktop).toHaveLength(2);
+      expect(desktop[0]!.classList.contains("lucide-scroll-text")).toBe(true);
+      expect(desktop.some((svg) => svg.classList.contains("lucide-square-terminal"))).toBe(false);
+      const phone = host.querySelector("[data-worker-chip-phone] svg")!;
+      expect(phone.classList.contains("lucide-scroll-text")).toBe(true);
+      await act(async () => chip()!.click());
+      const list = host.querySelector("[data-worker-list]")!;
+      expect([...list.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
+        "REL-CHAIN-166script‖Waiting", "AGrok 4.7●Working",
+      ]);
+      const marks = [...list.querySelectorAll("svg")];
+      expect(marks).toHaveLength(2);
+      expect(marks.filter((svg) => svg.classList.contains("lucide-scroll-text"))).toHaveLength(1);
     } finally {
       await unmount();
     }

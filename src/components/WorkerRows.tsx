@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, SquareTerminal, X } from "lucide-react";
+import { ChevronRight, ScrollText, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
@@ -42,7 +42,7 @@ function WorkerMark({ provider }: { provider: string | null }) {
   // brand marks stay untinted; only the script glyph takes the ink color
   return (
     <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-hairline/40 bg-raised">
-      {provider && provider !== "script" ? <ProviderMark driverKind={provider} size={14} /> : <SquareTerminal size={14} className="text-ink-secondary" aria-hidden />}
+      {provider && provider !== "script" ? <ProviderMark driverKind={provider} size={14} /> : <ScrollText size={14} className="text-ink-secondary" aria-hidden />}
     </span>
   );
 }
