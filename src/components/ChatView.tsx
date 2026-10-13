@@ -81,7 +81,7 @@ import { usageLimitReset } from "@/lib/usage";
 import { useFindCurrentId, useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
-import { activityVisibleInChat, groupActivityRuns, itemMatchesFind, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
+import { activityVisibleInChat, groupActivityRuns, itemMatchesFind, localizeServerLine, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
 import { chatTranscriptRows, messageVisible } from "@/lib/chat-transcript";
 import { isShownMessage } from "@/lib/shown-message";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
@@ -279,7 +279,7 @@ function ErrorRow({
                 <span className="mt-1 block text-[12px] opacity-70">{message}</span>
               </>
             ) : (
-              message
+              localizeServerLine(message, t)
             )}
           </span>
         </div>
@@ -649,8 +649,8 @@ const Bubble = memo(function Bubble({
                 {visibleText}
               </div>
               {message.steered && (
-                <div className="mt-1 text-[11px] text-ink-secondary/70" title="Sent while the bot was working — it saw this before its next step, inside the same turn.">
-                  sent mid-turn
+                <div className="mt-1 text-[11px] text-ink-secondary/70" title={t("chat.sentMidTurnHint")}>
+                  {t("chat.sentMidTurn")}
                 </div>
               )}
               {collapsible && (
@@ -820,7 +820,7 @@ function ActivityChip({ message, notices }: { message: Message; notices?: Linked
           <Check size={13} className="shrink-0 text-success" />
         )}
         <span className="min-w-0 max-w-[480px] truncate font-mono">
-          {tool.name}
+          {localizeServerLine(tool.name, t)}
           {tool.summary && ` ${tool.summary}`}
         </span>
       </div>

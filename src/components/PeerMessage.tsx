@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/lib/cn";
+import { localizeServerLine } from "@/lib/activity-runs";
 import { useI18n, type Translate } from "@/lib/i18n";
 import type { Message } from "@/state/store";
 
@@ -13,7 +14,7 @@ export function commLabel(message: Message, t: Translate): string {
   if (comm?.peer === "message") return t("chat.messageToBot", { name: comm.withName });
   if (comm?.peer === "reply") return t("chat.replyFromBot", { name: comm.withName });
   if (comm?.peer === "from") return t("chat.messageFromBot", { name: comm.withName });
-  return message.tool?.name ?? "";
+  return localizeServerLine(message.tool?.name ?? "", t);
 }
 
 /** The sent message or reply under its comm chip. */
