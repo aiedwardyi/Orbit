@@ -49,9 +49,10 @@ export interface DriveMirrorSummary {
   failed: string[];
   duplicates: Array<{ path: string; selectedId: string; ids: string[] }>;
   retryAfterMs: number | null;
+  driveFull: boolean;
 }
 
-type Options = { owner: DriveOwner; mirrorPath: string; statePath: string; ownIds: DriveOwnIds; client: DriveClient; now?: () => number };
+type Options = { owner: DriveOwner; mirrorPath: string; statePath: string; ownIds: DriveOwnIds; client: DriveClient; now?: () => number; uploads?: boolean };
 const passes = new Set<string>();
 const samePath = (a: string, b: string) => process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 const md5 = (bytes: Uint8Array) => createHash("md5").update(bytes).digest("hex");
@@ -297,7 +298,12 @@ export function createDriveMirror(options: Options) {
       table!.syncedAt = now();
       writeFileAtomic(statePath, `${JSON.stringify(table, null, 2)}\n`, { mode: 0o600 });
     }
-    const summary: DriveMirrorSummary = { uploaded: [], downloaded: [], skipped: [], conflicts: [], failed: [], duplicates: [], retryAfterMs: null };
+    const summary: DriveMirrorSummary = { uploaded: [], downloaded: [], skipped: [], conflicts: [], failed: [], duplicates: [], retryAfterMs: null, driveFull: false };
+    let uploads = options.uploads ?? true;
+    function held(): boolean {
+      if (!uploads) summary.driveFull = true;
+      return !uploads;
+    }
     function rateWait(error: DriveClientError): number {
       if (error.retryAfterMs !== null) return Math.min(error.retryAfterMs, RETRY_MAX_MS);
       const wait = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** rateStrikes);
@@ -314,6 +320,10 @@ export function createDriveMirror(options: Options) {
         check();
         if (error instanceof DriveClientError && error.rateLimited) {
           summary.retryAfterMs = rateWait(error);
+          return null;
+        }
+        if (error instanceof DriveClientError && error.driveFull) {
+          summary.driveFull = true;
           return null;
         }
         throw error;
@@ -508,6 +518,7 @@ export function createDriveMirror(options: Options) {
       const bytes = localBytes(path);
       if (!file) {
         if (!bytes) { summary.skipped.push(path); return; }
+        if (held()) return;
         const created = await client.createFile(rootId, encodeDrivePath(path), { ph: drivePathHash(path) }, bytes);
         check();
         if (!hasContent(created) || !matches(created, bytes) || created.name !== encodeDrivePath(path) || created.appProperties?.ph !== drivePathHash(path) || created.trashed) throw new DriveMirrorError("invalid-remote");
@@ -520,6 +531,7 @@ export function createDriveMirror(options: Options) {
         if (!summary.conflicts.includes(path)) summary.conflicts.push(path);
       } else if (rule === "own") {
         if (!bytes) { summary.skipped.push(path); return; }
+        if (held()) return;
         const updated = await client.updateMedia(file.id, bytes);
         check();
         if (!hasContent(updated) || updated.id !== file.id || !matches(updated, bytes) || updated.trashed) throw new DriveMirrorError("invalid-remote");
@@ -549,6 +561,11 @@ export function createDriveMirror(options: Options) {
         if (error instanceof DriveClientError && error.rateLimited) {
           summary.retryAfterMs = rateWait(error);
           stopped = true;
+          return;
+        }
+        if (error instanceof DriveClientError && error.driveFull) {
+          summary.driveFull = true;
+          uploads = false;
           return;
         }
         if (!(error instanceof DriveClientError) || (error.status >= 200 && error.status < 300)) throw error;
@@ -583,6 +600,8 @@ export function createDriveMirror(options: Options) {
         }
         return;
       }
+      // A held upload keeps the old cursor, so its changes come back next pass.
+      if (summary.driveFull) return;
       if (table!.changeToken === token) return;
       table!.changeToken = token;
       save();

@@ -21,7 +21,7 @@ interface LocalBot { id: string; syncId: string; name: string; talked: boolean; 
 interface PC {
   name: string; dataDir: string; deviceId: string; writerId: string; account: GoogleAccount; sync: GoogleSync; ledger: MemorySyncLedger;
   bots: LocalBot[]; pictures: Record<string, string>; folder: string | null; workspaceId: string; sequence: number;
-  activations: Array<string | null>; logs: string[]; hang: boolean; republishing: boolean;
+  activations: Array<string | null>; logs: string[]; hang: boolean; republishing: boolean; skew: number;
 }
 
 type Booting = Omit<PC, "sync"> & { sync?: GoogleSync };
@@ -115,6 +115,7 @@ function boot(pc: Booting): GoogleSync {
       return owner ? drives.get(owner.sub)!.fetch(input, init) : Promise.reject(new Error("signed out"));
     },
     log: (line) => void pc.logs.push(line),
+    now: () => Date.now() + pc.skew,
   });
 }
 
@@ -123,7 +124,7 @@ function makePC(name: string, options: { bots?: LocalBot[]; pictures?: Record<st
   mkdirSync(dataDir, { recursive: true });
   const base: Booting = {
     name, dataDir, deviceId: `device-${name}`, writerId: `writer-${name}`, ledger: { bots: {} }, bots: options.bots ?? [], pictures: options.pictures ?? {},
-    folder: null, workspaceId: randomUUID(), sequence: 1, activations: [], logs: [], hang: false, republishing: false,
+    folder: null, workspaceId: randomUUID(), sequence: 1, activations: [], logs: [], hang: false, republishing: false, skew: 0,
     account: new GoogleAccount(CLIENT, null, { fetch: tokenFetch, log: () => {} }),
   };
   const pc: PC = Object.assign(base, { sync: boot(base) });
@@ -206,6 +207,42 @@ describe("Google sync journeys", () => {
     await settle(work);
     await settle(home);
     expect(readSyncOperations(home.folder!).operations.filter((op) => op.entity === "bot").map((op) => String(op.changes?.name)).sort()).toEqual(["Counsel", "Paralegal", "Starter"]);
+  });
+
+  it("says Google Drive is full, keeps downloading, backs off uploads, then catches up", async () => {
+    const home = makePC("home", { bots: [bot("Counsel")] });
+    await startOn(home);
+    const work = makePC("work");
+    await startOn(work);
+    work.pictures["from-work.png"] = "work picture";
+    publish(work);
+    await settle(work);
+
+    driveA().full = true;
+    const attempts = () => driveA().calls.filter((call) => call.url.pathname.startsWith("/upload/")).length;
+    home.pictures["late.png"] = "late picture";
+    publish(home);
+    await settle(home);
+    expect(home.sync.status()).toMatchObject({ state: "drive-full", progress: null });
+    expect(readFileSync(join(home.folder!, "pictures", "from-work.png"), "utf8")).toBe("work picture");
+    expect(drivePaths(driveA())).not.toContain("pictures/late.png");
+
+    const tried = attempts();
+    await settle(home);
+    expect(attempts()).toBe(tried);
+    home.skew = 5 * 60_000;
+    await settle(home);
+    expect(attempts()).toBe(tried + 1);
+    home.skew = 14 * 60_000;
+    await settle(home);
+    expect(attempts()).toBe(tried + 1);
+    expect(home.sync.status().state).toBe("drive-full");
+
+    driveA().full = false;
+    home.skew = 15 * 60_000;
+    await settle(home);
+    expect(home.sync.status().state).toBe("up-to-date");
+    expect(drivePaths(driveA())).toContain("pictures/late.png");
   });
 
   it("stays syncing until the engines finish republishing into the mirror", async () => {

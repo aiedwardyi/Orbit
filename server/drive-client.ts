@@ -47,12 +47,14 @@ export class DriveClientError extends Error {
   readonly status: number;
   readonly rateLimited: boolean;
   readonly retryAfterMs: number | null;
-  constructor(status: number, rateLimited = false, retryAfterMs: number | null = null) {
+  readonly driveFull: boolean;
+  constructor(status: number, rateLimited = false, retryAfterMs: number | null = null, driveFull = false) {
     super(`Drive request failed (HTTP ${status})`);
     this.name = "DriveClientError";
     this.status = status;
     this.rateLimited = rateLimited;
     this.retryAfterMs = rateLimited ? retryAfterMs : null;
+    this.driveFull = driveFull;
   }
 }
 
@@ -79,12 +81,13 @@ function retryAfterMs(header: string | null): number | null {
   return Number.isNaN(when) ? null : Math.max(0, when - Date.now());
 }
 
-async function usageLimit(response: Response): Promise<boolean> {
+async function usageLimit(response: Response): Promise<"full" | "rate" | null> {
   try {
-    const body = usageSchema.parse(JSON.parse(await response.text()));
-    return body.error?.errors?.some((item) => item.domain === "usageLimits" || /rateLimit|dailyLimitExceeded/i.test(item.reason ?? "")) ?? false;
+    const errors = usageSchema.parse(JSON.parse(await response.text())).error?.errors ?? [];
+    if (errors.some((item) => item.reason === "storageQuotaExceeded")) return "full";
+    return errors.some((item) => item.domain === "usageLimits" || /rateLimit|dailyLimitExceeded/i.test(item.reason ?? "")) ? "rate" : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -100,9 +103,9 @@ export function createDriveClient(options: Options): DriveClient {
       const response = await fetch(url, { ...init, headers, signal: AbortSignal.timeout(timeout) });
       if (!response.ok) {
         const wait = retryAfterMs(response.headers.get("retry-after"));
-        const rateLimited = response.status === 429 || (response.status === 403 && await usageLimit(response));
+        const limit = response.status === 403 ? await usageLimit(response) : null;
         if (response.status !== 403) await response.body?.cancel().catch(() => undefined);
-        throw new DriveClientError(response.status, rateLimited, wait);
+        throw new DriveClientError(response.status, response.status === 429 || limit === "rate", wait, limit === "full");
       }
       return response;
     } catch (error) {
