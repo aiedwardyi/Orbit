@@ -53,6 +53,7 @@ export function syncContentHash(value: unknown): string {
 /* oxlint-enable anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns, anti-slop/no-runtime-typeof */
 
 const IDENTITY_TABLE = "CREATE TABLE IF NOT EXISTS sync_v2_identity (id INTEGER PRIMARY KEY CHECK (id = 1), device TEXT NOT NULL, writer TEXT NOT NULL)";
+let ancestryMarks = 0;
 
 /** The Drive mirror needs this writer id before any engine sees a folder. */
 export function ensureSyncV2Identity(deviceId: string): void {
@@ -100,8 +101,11 @@ export function createSyncEngine(input: SyncOptions) {
     `);
     db.prepare("INSERT OR IGNORE INTO sync_v2_identity VALUES (1, ?, ?)").run(options.deviceId, randomUUID());
   });
+  database.exec("CREATE TEMP TABLE IF NOT EXISTS sync_v2_ancestry (thread TEXT PRIMARY KEY, mark INTEGER NOT NULL)");
   const statements = new Map<string, StatementSync>();
   const checkedHeads = new Map<string, number>();
+  type Ancestry = { mark: number; seen: SyncSeen; parents: Map<string, string[] | null>; depths: Map<string, number> };
+  const ancestries = new Map<string, Ancestry>();
   const sql = (text: string): StatementSync => {
     let statement = statements.get(text);
     if (!statement) {
@@ -130,6 +134,12 @@ export function createSyncEngine(input: SyncOptions) {
   const sealSchema = jsonSchema.extend({ first_seq: integer, last_seq: integer });
   const localHeadSchema = z.object({ cut: integer, generation: integer, head: z.string().nullable() });
   const peerHeadSchema = z.object({ generation: integer, cut: integer, last_seq: integer, hash: z.string() });
+  const parentSchema = z.object({ parent: z.union([z.string(), z.number()]).nullable() });
+  const plainParents = z.array(z.string().regex(/^[^\uFFFD]*$/));
+  const parentIds = (rows: Array<z.infer<typeof parentSchema>>) => {
+    const ids = plainParents.safeParse([...new Set(rows.map((row) => row.parent).filter((id) => id !== null))]);
+    return ids.success ? ids.data.sort() : null;
+  };
   const identity = get(z.object({ device: idSchema, writer: idSchema }), "SELECT device, writer FROM sync_v2_identity WHERE id = 1");
   if (identity.device !== options.deviceId) throw new Error("This local sync database belongs to another device");
   const writerId = identity.writer;
@@ -172,9 +182,10 @@ export function createSyncEngine(input: SyncOptions) {
     const candidates = chosen.length ? chosen : native;
     const leaves = new Map<string | null, { depth: number; at: number }>();
     if (new Set(candidates.map((item) => item.version.value)).size > 1) {
+      const known = ancestry(scope.threadId, true)!;
       for (const item of candidates) {
         const leaf = z.string().nullable().parse(item.version.value);
-        const depth = get(countSchema, `WITH RECURSIVE ancestry(id) AS (
+        const depth = (leaf === null ? 0 : depthOf(known, leaf)) ?? get(countSchema, `WITH RECURSIVE ancestry(id) AS (
           SELECT ?
           UNION SELECT json_extract(f.json, '$.value.parentId') FROM ancestry a CROSS JOIN sync_v2_frontier f ON f.row_id = CAST(a.id AS TEXT)
             WHERE f.thread = ? AND f.kind = 'row'
@@ -189,6 +200,68 @@ export function createSyncEngine(input: SyncOptions) {
     const first = native.find((item) => item.writerId === pick.writerId && item.version.seq === pick.version.seq)
       ?? native.find((item) => item.version.value === pick.version.value) ?? pick;
     return [first, ...heads.filter((item) => item !== first)];
+  }
+
+  function ancestry(thread: string, needed: boolean): Ancestry | undefined {
+    const now = seen(thread);
+    const mark = get(z.object({ mark: integer }).optional(), "SELECT mark FROM temp.sync_v2_ancestry WHERE thread = ?", thread)?.mark;
+    let entry = ancestries.get(thread);
+    ancestries.delete(thread);
+    // The mark rolls back with a failed transaction, so a cache that saw rolled-back rows is dropped.
+    if (entry && (entry.mark !== mark || Object.entries(entry.seen).some(([writer, seq]) => (now[writer] ?? 0) < seq))) entry = undefined;
+    const behind = entry ? Object.entries(now).some(([writer, seq]) => seq !== (entry!.seen[writer] ?? 0)) : false;
+    if (!entry && !needed && Object.values(now).reduce((sum, seq) => sum + seq, 0) > 1024) return undefined;
+    if (!entry) {
+      const parents = new Map<string, string[] | null>();
+      const rows = all(parentSchema.extend({ row_id: z.string() }),
+        "SELECT row_id, json_extract(json, '$.value.parentId') AS parent FROM sync_v2_frontier WHERE thread = ? AND kind = 'row' ORDER BY row_id", thread);
+      for (let start = 0; start < rows.length;) {
+        let end = start + 1;
+        while (end < rows.length && rows[end].row_id === rows[start].row_id) end++;
+        parents.set(rows[start].row_id, parentIds(rows.slice(start, end)));
+        start = end;
+      }
+      entry = { mark: 0, seen: now, parents, depths: new Map() };
+    } else if (behind) {
+      for (const [writer, seq] of Object.entries(now)) {
+        if (seq === (entry.seen[writer] ?? 0)) continue;
+        const touched = all(z.object({ id: z.string() }), `SELECT DISTINCT f.row_id AS id FROM sync_v2_packets p CROSS JOIN sync_v2_frontier f
+          ON f.thread = p.thread AND f.kind = 'row' AND f.row_id = json_extract(p.json, '$.rowId') AND f.writer = p.writer AND f.seq = p.seq
+          WHERE p.thread = ? AND p.writer = ? AND p.seq > ? AND p.seq <= ?`, thread, writer, entry.seen[writer] ?? 0, seq);
+        for (const { id } of touched) {
+          const up = parentIds(all(parentSchema, "SELECT json_extract(json, '$.value.parentId') AS parent FROM sync_v2_frontier WHERE thread = ? AND kind = 'row' AND row_id = ?", thread, id));
+          if (isDeepStrictEqual(up, entry.parents.get(id) ?? [])) continue;
+          entry.parents.set(id, up);
+          if (entry.depths.has(id)) entry.depths.clear();
+        }
+      }
+    }
+    if (entry.mark !== mark || behind) {
+      entry.seen = now;
+      entry.mark = ++ancestryMarks;
+      sql("INSERT INTO temp.sync_v2_ancestry VALUES (?, ?) ON CONFLICT(thread) DO UPDATE SET mark = excluded.mark").run(thread, entry.mark);
+    }
+    ancestries.set(thread, entry);
+    if (ancestries.size > 8) ancestries.delete(ancestries.keys().next().value!);
+    return entry;
+  }
+
+  function depthOf(entry: Ancestry, leaf: string): number | undefined {
+    const walked = new Set<string>();
+    let base = 0;
+    for (let id: string | undefined = leaf; id !== undefined;) {
+      const known = entry.depths.get(id);
+      if (known !== undefined) {
+        base = known;
+        break;
+      }
+      const up = entry.parents.get(id);
+      if (up === null || (up && up.length > 1) || walked.has(id)) return undefined;
+      walked.add(id);
+      id = up?.[0];
+    }
+    [...walked].reverse().forEach((id, index) => entry.depths.set(id, base + index + 1));
+    return base + walked.size;
   }
 
   function automatic(scope: SyncScope, item: SyncVariant): boolean {
@@ -343,6 +416,7 @@ export function createSyncEngine(input: SyncOptions) {
   }
 
   function reconcilePendingHead(scope: SyncScope): void {
+    ancestry(scope.threadId, false);
     const cursor = () => get(countSchema, "SELECT COALESCE(MAX(cursor), 0) AS n FROM sync_v2_changes WHERE thread = ?", scope.threadId).n;
     if (checkedHeads.get(scope.threadId) === cursor()) return;
     reconcileLegacyHead(scope);
