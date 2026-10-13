@@ -157,14 +157,10 @@ export function recordTaskCompletion(
   const next = stamped(packet, keepRecovery ?? "turn-end", input);
   if (input.ok && !input.interrupted) {
     next.settledInstructionId = next.instructionId;
-    // Blank only the instruction's own line (or a record from before the field
-    // existed); a next action the bot set during the turn outlives it.
-    if (!next.instructionAction || next.nextAction === next.instructionAction) next.nextAction = "";
-    // One the bot set for an earlier instruction did not survive this one's redirect.
-    if (next.nextActionInstructionId && next.nextActionInstructionId !== next.instructionId) {
-      next.nextAction = "";
-      delete next.nextActionInstructionId;
-    }
+    // Blank only the instruction's own line (or an unstamped record from before the
+    // field existed); a next action the bot set stays until the bot changes it.
+    const anchorless = !next.instructionAction && !next.nextActionInstructionId;
+    if (anchorless || next.nextAction === next.instructionAction) next.nextAction = "";
   }
   if (input.messageId && !next.evidence.some((item) => item.ref === input.messageId)) {
     next.evidence.push({ kind: "message", ref: input.messageId, note: "Settled reply" });

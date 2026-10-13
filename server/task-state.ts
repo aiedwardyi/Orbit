@@ -66,7 +66,7 @@ const taskResumePacketSchema = z.object({
   settledInstructionId: idSchema.optional(),
   /** next action the newest instruction implied; a nextAction that differs was set on purpose */
   instructionAction: z.string().max(LIMITS.nextAction).optional(),
-  /** instruction a bot-set nextAction belongs to; a later settled instruction drops it */
+  /** instruction a bot-set nextAction belongs to; the action stays until the bot changes it */
   nextActionInstructionId: idSchema.optional(),
   /** goal the newest instruction seeded; absent once the bot claimed the goal */
   instructionGoal: z.string().max(LIMITS.goal).optional(),
