@@ -47,7 +47,7 @@ import { shownState, workerRuns } from "@/lib/worker-runs";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
 import { ReactionBar, ReactionChips } from "./Reactions";
-import { MessageMenu, SelectionMenu, contextClickKind, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
+import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
 import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
 import { groupActivityRuns, itemMatchesFind, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
@@ -494,6 +494,7 @@ const Transcript = memo(function Transcript({
               data-orbit-message={user ? "user" : "bot"}
               className={cn("group flex w-full flex-col outline-none", user ? "items-end" : "items-start")}
               tabIndex={-1}
+              {...holdToOpen(menuTarget && ((x, y, opener) => onMessageMenu({ kind: "message", x, y, opener, target: menuTarget })))}
               onContextMenu={menuTarget ? (e) => {
                 if (isTouchPrimary() || !(e.target instanceof Element)) return;
                 const kind = contextClickKind(e.target, e.clientX, e.clientY);
@@ -1174,6 +1175,7 @@ export function GroupView({ group }: { group: Group }) {
     setMenuThread(group.threadId);
     setMenu(null);
   }
+  useEffect(() => endSelectMode, [group.threadId]);
   const membersTriggerRef = useRef<HTMLButtonElement>(null);
   const closeMembers = useCallback(() => setMembersOpen(false), []);
   useEffect(() => {

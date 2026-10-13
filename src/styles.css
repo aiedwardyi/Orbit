@@ -3698,6 +3698,23 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   flex-shrink: 1 !important;
 }
 
+/* A hold opens the message menu on phones, so the phone's own selection and callout wait for Select text. */
+@media (pointer: coarse) {
+  [data-hold-menu] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  [data-hold-menu] :is(a[href], img),
+  [data-hold-menu][data-select-mode] {
+    -webkit-touch-callout: default;
+  }
+  [data-hold-menu][data-select-mode] [data-orbit-message-content] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
 /* Styling a scrollbar turns off a phone's thin overlay one, so touch screens keep their own. */
 @media not all and (pointer: coarse) {
   ::-webkit-scrollbar {

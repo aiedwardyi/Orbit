@@ -501,3 +501,211 @@ describe("message menu in rooms", () => {
     expect(storeMessage("thread-g", "b1")?.reactions).toEqual([{ emoji: "😂", by: "user" }]);
   });
 });
+
+describe("message menu on touch", () => {
+  const members = [member("m1", "Ada"), member("m2", "Bo")];
+  const content = (host: Element, id: string) => host.querySelector(`[data-mid="${id}"] [data-orbit-message-content]`)!;
+  const row = (host: Element, id: string) => host.querySelector<HTMLElement>(`[data-mid="${id}"] [data-orbit-message]`)!;
+  const labels = (selector: string) => Array.from(messageMenu()!.querySelectorAll(selector)).map((b) => b.textContent);
+
+  function stubTouchScreen() {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  }
+
+  async function touch(type: string, el: Element, points: Array<[number, number]> = []) {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "touches", { value: points.map(([clientX, clientY]) => ({ clientX, clientY })) });
+    await act(async () => { el.dispatchEvent(event); });
+    return event;
+  }
+  const wait = (ms: number) => act(async () => { vi.advanceTimersByTime(ms); });
+  async function hold(el: Element, x = 100, y = 120) {
+    await touch("touchstart", el, [[x, y]]);
+    await wait(500);
+    return touch("touchend", el);
+  }
+  const tapOutside = () => touch("touchstart", document.body, [[5, 5]]);
+
+  afterEach(async () => {
+    await tapOutside();
+    vi.useRealTimers();
+  });
+
+  it("opens the bot menu at the finger after a hold in a chat", async () => {
+    const host = await mountChat(bot([userMsg("u1", "hi"), botMsg("b1", "hello there")]));
+    stubTouchScreen();
+    await touch("touchstart", content(host, "b1"), [[100, 120]]);
+    await wait(499);
+    expect(messageMenu()).toBeNull();
+    await wait(1);
+
+    const menu = document.querySelector<HTMLElement>("[data-message-menu]")!;
+    expect(menu).not.toBeNull();
+    expect(menuReactions().map((b) => b.textContent)).toEqual([...QUICK_REACTIONS]);
+    expect(menu.querySelector("[data-menu-expand]")).not.toBeNull();
+    expect(labels("[role=menuitem]:not([data-menu-expand])")).toEqual(["Reply", "Copy", "Select text"]);
+    expect(menu.lastElementChild?.hasAttribute("data-menu-select")).toBe(true);
+    expect(menu.style.top).toBe("120px");
+    expect(menu.style.left).toBe("100px");
+    for (const button of menu.querySelectorAll("button")) expect(button.className).toMatch(/\b(size-10|min-h-10)\b/);
+  });
+
+  it("opens his menu with Reply, Copy and Select text", async () => {
+    const host = await mountChat(bot([userMsg("u1", "my words")]));
+    stubTouchScreen();
+    await hold(content(host, "u1"));
+    expect(labels("button")).toEqual(["Reply", "Copy", "Select text"]);
+  });
+
+  it("opens after a hold in a room", async () => {
+    const roomBot: Message = { ...botMsg("b1", "room hello"), from: { botId: "m1", name: "Ada", color: "blue" } };
+    const host = await mountRoom(members, room([userMsg("u1", "hi all"), roomBot]));
+    stubTouchScreen();
+    await hold(content(host, "b1"));
+    expect(menuReactions()).toHaveLength(6);
+    expect(messageMenu()?.querySelector("[data-menu-select]")?.textContent).toBe("Select text");
+    await tapOutside();
+    await hold(content(host, "u1"));
+    expect(labels("button")).toEqual(["Reply", "Copy", "Select text"]);
+  });
+
+  it("opens nothing on a quick tap, a moving finger, a scroll or a second finger", async () => {
+    const host = await mountChat(bot([botMsg("b1", "hello there")]));
+    stubTouchScreen();
+    const target = content(host, "b1");
+
+    await touch("touchstart", target, [[100, 120]]);
+    await wait(150);
+    expect((await touch("touchend", target)).defaultPrevented).toBe(false);
+    await wait(600);
+    expect(messageMenu()).toBeNull();
+
+    await touch("touchstart", target, [[100, 120]]);
+    await touch("touchmove", target, [[100, 131]]);
+    await wait(600);
+    expect(messageMenu()).toBeNull();
+
+    await touch("touchstart", target, [[100, 120]]);
+    await act(async () => { host.querySelector("[data-orbit-transcript]")!.dispatchEvent(new Event("scroll")); });
+    await wait(600);
+    expect(messageMenu()).toBeNull();
+
+    await touch("touchstart", target, [[100, 120]]);
+    await touch("touchcancel", target);
+    await wait(600);
+    expect(messageMenu()).toBeNull();
+
+    await touch("touchstart", target, [[100, 120]]);
+    await touch("touchstart", target, [[100, 120], [200, 220]]);
+    await wait(600);
+    expect(messageMenu()).toBeNull();
+
+    await touch("touchstart", target, [[100, 120]]);
+    await touch("touchmove", target, [[106, 126]]);
+    await wait(500);
+    expect(messageMenu()).not.toBeNull();
+  });
+
+  it("swallows the lift after a hold so it presses nothing", async () => {
+    const host = await mountChat(bot([botMsg("b1", "hello there")]));
+    stubTouchScreen();
+    const lift = await hold(content(host, "b1"));
+    expect(lift.defaultPrevented).toBe(true);
+    expect(storeMessage("thread-helper", "b1")?.reactions).toBeUndefined();
+    expect(messageMenu()).not.toBeNull();
+  });
+
+  it("hands one message to native selection with Select text until an outside tap", async () => {
+    const host = await mountChat(bot([botMsg("b1", "first reply"), botMsg("b2", "second reply")]));
+    stubTouchScreen();
+    await hold(content(host, "b1"));
+    await act(async () => { document.querySelector("[data-menu-select]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+
+    expect(messageMenu()).toBeNull();
+    expect(row(host, "b1").hasAttribute("data-select-mode")).toBe(true);
+    expect(row(host, "b2").hasAttribute("data-select-mode")).toBe(false);
+    expect(window.getSelection()?.toString()).toBe("first reply");
+
+    await hold(content(host, "b1"));
+    expect(messageMenu()).toBeNull();
+    const native = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    await act(async () => { content(host, "b1").dispatchEvent(native); });
+    expect(native.defaultPrevented).toBe(false);
+
+    await touch("touchstart", host.querySelector("[data-orbit-composer]")!, [[10, 10]]);
+    expect(row(host, "b1").hasAttribute("data-select-mode")).toBe(false);
+    await hold(content(host, "b1"));
+    expect(messageMenu()).not.toBeNull();
+  });
+
+  it("ends select mode when another message's menu opens", async () => {
+    const host = await mountChat(bot([botMsg("b1", "first reply"), botMsg("b2", "second reply")]));
+    stubTouchScreen();
+    await hold(content(host, "b1"));
+    await act(async () => { document.querySelector("[data-menu-select]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await hold(content(host, "b2"));
+    expect(messageMenu()).not.toBeNull();
+    expect(row(host, "b1").hasAttribute("data-select-mode")).toBe(false);
+  });
+
+  it("keeps the phone's own hold on links and images", async () => {
+    const host = await mountChat(bot([botMsg("b1", "read the [docs](https://example.com/guide) and ![shot](https://example.com/shot.png)")]));
+    stubTouchScreen();
+    for (const selector of ['a[href="https://example.com/guide"]', 'img[src="https://example.com/shot.png"]']) {
+      const el = host.querySelector(`[data-mid="b1"] ${selector}`)!;
+      expect(el, selector).not.toBeNull();
+      await touch("touchstart", el, [[100, 120]]);
+      const native = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      await act(async () => { el.dispatchEvent(native); });
+      await wait(500);
+      expect((await touch("touchend", el)).defaultPrevented, selector).toBe(false);
+      expect(native.defaultPrevented, selector).toBe(false);
+      expect(messageMenu(), selector).toBeNull();
+    }
+    await hold(content(host, "b1"));
+    expect(messageMenu()).not.toBeNull();
+  });
+
+  it("holds a Back entry and Back closes only the menu", async () => {
+    const opened: boolean[] = [];
+    const onMenu = (event: CustomEvent<boolean>) => opened.push(event.detail);
+    window.addEventListener("orbit:message-menu", onMenu);
+    try {
+      const host = await mountChat(bot([botMsg("b1", "hello there")]));
+      stubTouchScreen();
+      await hold(content(host, "b1"));
+      expect(opened).toEqual([true]);
+      await act(async () => { window.dispatchEvent(new Event("orbit:close-message-menu")); });
+      expect(messageMenu()).toBeNull();
+      expect(opened).toEqual([true, false]);
+      expect(host.querySelector('[data-mid="b1"]')).not.toBeNull();
+    } finally {
+      window.removeEventListener("orbit:message-menu", onMenu);
+    }
+  });
+
+  it("labels the touch menu in Korean", async () => {
+    expect(en["chat.selectText"]).toBe("Select text");
+    expect(ko["chat.selectText"]).toBe("텍스트 선택");
+    localStorage.setItem("omb-locale", "ko");
+    const host = await mountChat(bot([userMsg("u1", "mine"), botMsg("b1", "hello")]));
+    stubTouchScreen();
+    await hold(content(host, "b1"));
+    expect(labels("[role=menuitem]:not([data-menu-expand])")).toEqual(["답장", "복사", "텍스트 선택"]);
+    await tapOutside();
+    await hold(content(host, "u1"));
+    expect(labels("button")).toEqual(["답장", "복사", "텍스트 선택"]);
+  });
+
+  it("keeps the desktop menu on a touchscreen laptop with a mouse", async () => {
+    const host = await mountChat(bot([botMsg("b1", "hello there")]));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await hold(content(host, "b1"));
+    expect(messageMenu()).toBeNull();
+    await rightClick(content(host, "b1"));
+    expect(messageMenu()?.querySelector("[data-menu-select]")).toBeNull();
+    expect(messageMenu()?.className).toContain("w-[248px]");
+    expect(menuReactions()[0]!.className).toContain("size-8");
+  });
+});
