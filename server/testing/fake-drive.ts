@@ -21,6 +21,7 @@ export class FakeDrive {
   readonly responses: Array<Response | Error> = [];
   pageSize = 2;
   missGets = 0;
+  full = false;
   readonly hiddenFromSearch = new Set<string>();
   onCreate?: (file: DriveFile) => void | Promise<void>;
   onDownload?: (file: DriveFile) => void | Promise<void>;
@@ -88,6 +89,9 @@ export class FakeDrive {
     if (response) return response;
     if (url.origin !== "https://www.googleapis.com") throw new Error("Unexpected fake Drive origin");
     const id = decodeURIComponent(url.pathname.split("/").at(-1)!);
+    if (this.full && url.pathname.startsWith("/upload/")) {
+      return Response.json({ error: { code: 403, message: "The user's Drive storage quota has been exceeded.", errors: [{ domain: "global", reason: "storageQuotaExceeded" }] } }, { status: 403 });
+    }
     if (request.method === "GET" && url.pathname === "/drive/v3/changes/startPageToken") return json({ startPageToken: String(this.cursor) });
     if (request.method === "GET" && url.pathname === "/drive/v3/changes") {
       const token = url.searchParams.get("pageToken") ?? "";

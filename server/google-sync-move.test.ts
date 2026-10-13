@@ -23,7 +23,7 @@ const BOTS: BotSpec[] = [
 ];
 
 interface PC {
-  dataDir: string; account: GoogleAccount; sync: GoogleSync; activations: number; republishes: number; blockJoin: boolean;
+  dataDir: string; account: GoogleAccount; sync: GoogleSync; activations: number; republishes: number; blockJoin: boolean; skew: number;
   call(method: string, args?: TestArgs): Promise<TestResult>;
   report(): Promise<ReportBot[]>;
   close(): Promise<void>;
@@ -89,6 +89,7 @@ function boot(pc: Booting): GoogleSync {
       return drive.fetch(input, init);
     },
     log: () => {},
+    now: () => Date.now() + pc.skew,
     passMs: 3_600_000,
   });
 }
@@ -108,7 +109,7 @@ function makePC(name: string): PC {
   });
   worker.on("error", (error: Error) => { for (const request of pending.values()) request.reject(error); });
   const base: Booting = {
-    dataDir, activations: 0, republishes: 0, blockJoin: false,
+    dataDir, activations: 0, republishes: 0, blockJoin: false, skew: 0,
     account: new GoogleAccount(CLIENT, null, { fetch: tokenFetch, log: () => {} }),
     call: (method, args = {}) => new Promise<TestResult>((resolve, reject) => {
       const id = ++sequence;
@@ -395,6 +396,23 @@ describe("Move from folder sync to Google", () => {
     expect(home.republishes).toBe(0);
     expect(Object.keys(JSON.parse(readFileSync(join(home.dataDir, "google-move.json"), "utf8"))).sort()).toEqual(["at", "from"]);
     expect(readGoogleBinding(home.dataDir)).toMatchObject({ kind: "ok", binding: { phase: "ready", workspaceId: settings.workspaceId } });
+  });
+
+  it("holds a Move while Google Drive is full and finishes once Drive has space", async () => {
+    const home = makePC("home");
+    await seed(home);
+    drive.full = true;
+    await start(home, true);
+    expect(home.sync.status()).toMatchObject({ state: "drive-full", move: true, progress: null });
+    expect(readGoogleBinding(home.dataDir)).toMatchObject({ kind: "ok", binding: { phase: "joining" } });
+    expect(home.activations).toBe(0);
+    drive.full = false;
+    home.skew = 5 * 60_000;
+    await home.sync.kick();
+    await home.sync.idle();
+    expect(readGoogleBinding(home.dataDir)).toMatchObject({ kind: "ok", binding: { phase: "ready" } });
+    expect(home.activations).toBe(1);
+    expect(home.sync.status().state).not.toBe("drive-full");
   });
 
   it("accepts Move only through the authenticated desktop Start body and leaves plain Start guarded", async () => {

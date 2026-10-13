@@ -25,9 +25,11 @@ const OTHER_WORKSPACE = "This Google account syncs other Wink data.";
 const ISSUER = "https://accounts.google.com";
 const PASS_MS = 30_000;
 const REPUBLISH_MS = 1_000;
+const FULL_MS = 5 * 60_000;
+const FULL_MAX_MS = 30 * 60_000;
 const OPERATION_FILE = /^changes\/\d+-(.+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
 
-export type GoogleSyncState = "unavailable" | "signed-out" | "ready" | "joining" | "syncing" | "up-to-date" | "offline" | "needs-sign-in" | "blocked" | "other-account" | "folder" | "error";
+export type GoogleSyncState = "unavailable" | "signed-out" | "ready" | "joining" | "syncing" | "up-to-date" | "offline" | "drive-full" | "needs-sign-in" | "blocked" | "other-account" | "folder" | "error";
 export interface GoogleSyncStatus {
   state: GoogleSyncState;
   email: string | null;
@@ -140,6 +142,9 @@ export function createGoogleSync(options: Options) {
   let catching = false;
   let total = 0;
   let problem: "offline" | "error" | null = null;
+  // Uploads wait for Drive space until uploadAt; downloads keep the normal pace.
+  let fullStrikes = 0;
+  let uploadAt = 0;
   let running: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let soon = false;
@@ -207,11 +212,12 @@ export function createGoogleSync(options: Options) {
     if (!bound) return { ...base, state: "ready", join: joinInfo?.sub === owner.sub ? joinInfo.value : null };
     if (problem === "error") return base;
     if (bound.phase === "joining") {
-      const joining: GoogleSyncStatus = { ...base, state: "joining", progress: progress() };
+      const joining: GoogleSyncStatus = fullStrikes ? { ...base, state: "drive-full" } : { ...base, state: "joining", progress: progress() };
       if (moving()) joining.move = true;
       return joining;
     }
     if (problem === "offline" || accountStatus.state === "offline") return { ...base, state: "offline" };
+    if (fullStrikes) return { ...base, state: "drive-full" };
     if (catching || lastSyncAt === null) return { ...base, state: "syncing", progress: catching ? progress() : null };
     return { ...base, state: "up-to-date" };
   }
@@ -335,6 +341,7 @@ export function createGoogleSync(options: Options) {
     let summary: DriveMirrorSummary;
     // A republish that ends mid-pass may have written files after the scan.
     const busy = options.republishing?.() ?? false;
+    const uploads = now() >= uploadAt;
     try {
       options.prepare();
       if (catching && !total) {
@@ -342,7 +349,7 @@ export function createGoogleSync(options: Options) {
         const remote = root ? (await client.listChildren(root.id)).flatMap((file) => decodeDrivePath(file.name) ?? []) : [];
         total = new Set([...remote, ...mirrorFiles(bound.mirrorPath)]).size;
       }
-      summary = await createDriveMirror({ owner, mirrorPath: bound.mirrorPath, statePath, ownIds: ownIds(), client, now }).syncOnce();
+      summary = await createDriveMirror({ owner, mirrorPath: bound.mirrorPath, statePath, ownIds: ownIds(), client, now, uploads }).syncOnce();
     } catch (error) {
       const offline = error instanceof GoogleAccountError || (error instanceof DriveClientError && (error.status === 0 || error.status >= 500 || error.status === 429));
       problem = offline ? "offline" : "error";
@@ -351,10 +358,17 @@ export function createGoogleSync(options: Options) {
     }
     problem = null;
     lastSyncAt = now();
+    if (!summary.driveFull) {
+      fullStrikes = 0;
+      uploadAt = 0;
+    } else if (uploads) {
+      uploadAt = now() + Math.min(FULL_MAX_MS, FULL_MS * 2 ** fullStrikes);
+      fullStrikes = Math.min(fullStrikes + 1, 3);
+    }
     const moved = summary.uploaded.length + summary.downloaded.length;
     // A rate-limited pass stops early, so moving nothing does not mean the mirror caught up.
     const retry = retrySchema.safeParse(summary);
-    if (bound.phase === "joining" && moved === 0 && !retry.success && !summary.failed.some(blocksJoin)) {
+    if (bound.phase === "joining" && moved === 0 && !retry.success && !summary.driveFull && !summary.failed.some(blocksJoin)) {
       finishJoin(bound);
       catching = true;
       total = 0;

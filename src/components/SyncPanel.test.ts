@@ -128,6 +128,8 @@ describe("SyncPanel Google states", () => {
     ["syncing without progress", google("syncing"), "Syncing…", ["Sign out"]],
     ["up-to-date", google("up-to-date"), "Up to date · edward@example.com", ["Sign out"]],
     ["offline", google("offline"), "Offline. Changes sync when you're back online.", ["Sign out"]],
+    ["drive-full", google("drive-full"), "Google Drive is full. Free up space in Google Drive. Wink catches up on its own.", ["Sign out"]],
+    ["drive-full during a Move", google("drive-full", { move: true }), "Google Drive is full. Free up space in Google Drive. Wink catches up on its own.", ["Sign out"]],
     ["needs-sign-in", google("needs-sign-in"), "Sign in again to keep syncing.", ["Sign in with Google", "Sign out"]],
     ["blocked", google("blocked"), "Your organization's Google admin blocked Wink.", ["Use a Drive folder instead"]],
     ["other-account", google("other-account", { boundEmail: "work@example.com" }), "This PC syncs with work@example.com.", ["Sign out"]],
@@ -169,6 +171,14 @@ describe("SyncPanel Google states", () => {
     const host = await mount();
     expect(line(host)).toBe("최신 상태 · edward@example.com");
     expect(buttons(host)).toEqual(["로그아웃"]);
+  });
+
+  it("says Google Drive is full in Korean", async () => {
+    localStorage.setItem("omb-locale", "ko");
+    ogbStub();
+    routes.set(GOOGLE, () => google("drive-full"));
+    const host = await mount();
+    expect(line(host)).toBe("Google Drive가 가득 찼어요. Google Drive 공간을 비우면 Wink가 알아서 이어서 동기화해요.");
   });
 
   it("polls every 5 seconds while open and stops on unmount", async () => {
@@ -528,6 +538,13 @@ describe("SyncPanel on a phone", () => {
     routes.set(GOOGLE, () => google("up-to-date"));
     const host = await mount();
     expect(line(host)).toBe("Up to date · edward@example.com");
+    expect(buttons(host)).toEqual([]);
+  });
+
+  it("says Google Drive is full, with no buttons", async () => {
+    routes.set(GOOGLE, () => google("drive-full"));
+    const host = await mount();
+    expect(line(host)).toBe("Google Drive is full. Free up space in Google Drive. Wink catches up on its own.");
     expect(buttons(host)).toEqual([]);
   });
 

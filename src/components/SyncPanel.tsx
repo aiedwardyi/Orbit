@@ -23,6 +23,7 @@ type GoogleSync = {
     | "syncing"
     | "up-to-date"
     | "offline"
+    | "drive-full"
     | "needs-sign-in"
     | "blocked"
     | "other-account"
@@ -215,6 +216,9 @@ export function SyncPanel({ onAccountEmail }: { onAccountEmail?: (email: string 
       quiets.push(signOutAction);
     } else if (google.state === "offline") {
       line = t("settings.sync.offline");
+      quiets.push(signOutAction);
+    } else if (google.state === "drive-full") {
+      line = t("settings.sync.driveFull");
       quiets.push(signOutAction);
     } else if (google.state === "needs-sign-in") {
       line = t("settings.sync.needsSignIn");

@@ -788,6 +788,35 @@ describe("Drive mirror", () => {
     expect(read(pcs[1], "assets/a.png")).toBe("asset");
   });
 
+  it("holds uploads on a full Drive, keeps downloading, and uploads once Drive has space", async () => {
+    drive.root();
+    write(pcs[0], "assets/a.png", "asset");
+    write(pcs[0], "devices/device-home.json", "own");
+    const peer = seed("devices/device-laptop.json", "peer");
+    drive.full = true;
+    const attempts = () => drive.calls.filter((call) => call.url.pathname.startsWith("/upload/")).length;
+    const full = await pcs[0].mirror.syncOnce();
+    expect(full).toMatchObject({ driveFull: true, uploaded: [], failed: [], retryAfterMs: null, downloaded: ["devices/device-laptop.json"] });
+    expect(attempts()).toBe(1);
+    drive.edit(peer.id, Buffer.from("peer 2"));
+    const held = await mirrorFor(pcs[0], { uploads: false }).syncOnce();
+    expect(held).toMatchObject({ driveFull: true, uploaded: [], downloaded: ["devices/device-laptop.json"] });
+    expect(read(pcs[0], "devices/device-laptop.json")).toBe("peer 2");
+    expect(attempts()).toBe(1);
+    drive.full = false;
+    const caught = await pcs[0].mirror.syncOnce();
+    expect(caught.driveFull).toBe(false);
+    expect(caught.uploaded.sort()).toEqual(["assets/a.png", "devices/device-home.json"]);
+    expect((await mirrorFor(pcs[0], { uploads: false }).syncOnce()).driveFull).toBe(false);
+  });
+
+  it("keeps a rate limit apart from a full Drive", async () => {
+    drive.root();
+    write(pcs[0], "assets/a.png", "asset");
+    drive.responses.push(new Response(null, { status: 429 }));
+    expect(await pcs[0].mirror.syncOnce()).toMatchObject({ retryAfterMs: 1_000, driveFull: false });
+  });
+
   it("reports the extra root and keeps both", async () => {
     await pcs[0].mirror.syncOnce();
     const oldest = drive.root();

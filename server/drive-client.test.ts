@@ -181,6 +181,16 @@ describe("Drive client", () => {
     expect(cancel).toHaveBeenCalled();
   });
 
+  it("reads storageQuotaExceeded as a full Drive in any domain, never a rate limit", async () => {
+    const drive = new FakeDrive();
+    const reply = (domain: string, reason: string) => Response.json({ error: { errors: [{ domain, reason }] } }, { status: 403, headers: { "retry-after": "2" } });
+    drive.responses.push(reply("global", "storageQuotaExceeded"), reply("usageLimits", "storageQuotaExceeded"), reply("usageLimits", "userRateLimitExceeded"));
+    const client = clientFor(drive);
+    await expect(client.updateMedia("file-1", Buffer.from("x"))).rejects.toMatchObject({ status: 403, driveFull: true, rateLimited: false, retryAfterMs: null });
+    await expect(client.createFile("root", "a", {}, Buffer.from("x"))).rejects.toMatchObject({ status: 403, driveFull: true, rateLimited: false, retryAfterMs: null });
+    await expect(client.updateMedia("file-1", Buffer.from("x"))).rejects.toMatchObject({ status: 403, driveFull: false, rateLimited: true, retryAfterMs: 2_000 });
+  });
+
   it("stops a change page that repeats its page token", async () => {
     const drive = new FakeDrive();
     const page = JSON.stringify({ changes: [], nextPageToken: "start" });
