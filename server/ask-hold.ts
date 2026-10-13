@@ -15,11 +15,13 @@ type Held = { botId: string; threadId: string; post: () => void; timer: ReturnTy
 
 export class AskHold {
   private held: Held[] = [];
+  private running: (botId: string, threadId: string) => boolean;
+  private capMs: number;
 
-  constructor(
-    private running: (botId: string, threadId: string) => boolean,
-    private capMs = ASK_HOLD_CAP_MS,
-  ) {}
+  constructor(running: (botId: string, threadId: string) => boolean, capMs = ASK_HOLD_CAP_MS) {
+    this.running = running;
+    this.capMs = capMs;
+  }
 
   /** Runs `post` now unless the asker's turn in that thread is running. */
   whenSettled(botId: string, threadId: string, post: () => void): void {
@@ -34,9 +36,10 @@ export class AskHold {
     this.release((h) => h.botId === botId && !this.running(h.botId, h.threadId));
   }
 
-  /** The thread's turn ended, whatever the bot's state says. */
-  threadSettled(threadId: string): void {
-    this.release((h) => h.threadId === threadId);
+  /** The thread's turn ended, whatever the bot's state says. A room may have
+   * another member mid-turn, so there only members no longer running release. */
+  threadSettled(threadId: string, room = false): void {
+    this.release((h) => h.threadId === threadId && (!room || !this.running(h.botId, h.threadId)));
   }
 
   flush(): void {
@@ -58,7 +61,7 @@ export class AskHold {
  * the bot's busy state. session.exited and a superseded turn.completed may
  * not, so they release by thread. */
 export function watchAskHold(
-  store: Pick<Store, "bot" | "onChange">,
+  store: Pick<Store, "bot" | "onChange" | "groupByThread">,
   bus: Pick<EventBus, "subscribe">,
   capMs = ASK_HOLD_CAP_MS,
 ): AskHold {
@@ -67,7 +70,9 @@ export function watchAskHold(
     if (change.type === "bot" || change.type === "bot.deleted") hold.settled(change.botId);
   });
   bus.subscribe((event) => {
-    if (event.type === "turn.completed" || event.type === "session.exited") hold.threadSettled(event.threadId);
+    if (event.type === "turn.completed" || event.type === "session.exited") {
+      hold.threadSettled(event.threadId, Boolean(store.groupByThread(event.threadId)));
+    }
   });
   return hold;
 }

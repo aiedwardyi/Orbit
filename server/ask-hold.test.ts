@@ -156,6 +156,21 @@ describe("ask-user hold", () => {
     expect(h.store.messagesFor(room.threadId).at(-1)?.from).toEqual({ botId: h.bot.id, name: "Ada", color: h.bot.color });
   });
 
+  it("keeps a room member's card held when another member's turn completes", () => {
+    const h = harness();
+    const other = h.store.createBot({ name: "Bo" });
+    const room = h.store.createGroup("Room", [h.bot.id, other.id]);
+    h.log.length = 0;
+    h.store.setActivity(h.bot.id, "working", room.threadId);
+    h.store.setActivity(other.id, "working", room.threadId);
+    h.ask({ fromThreadId: room.threadId, question: "Which?" });
+    h.store.setActivity(other.id, "idle");
+    h.publish("turn.completed", room.threadId);
+    expect(h.log).toEqual([]);
+    h.store.setActivity(h.bot.id, "idle");
+    expect(h.log).toEqual(["card:Which?", "alert:Which?"]);
+  });
+
   it("keeps the alert target read when the bot asked", () => {
     const h = harness();
     h.store.setActivity(h.bot.id, "working", h.bot.threadId);
