@@ -38,6 +38,13 @@ describe("parsePaneNote", () => {
     expect(noteText({ ...note, alert: { kind: "stalled", minutes: 1 } }, t)).toBe("No screen change for 1 minute. It may be stuck.");
   });
 
+  it("turns a LIMIT watcher note into an alert with the reset time as shown", () => {
+    const note = parsePaneNote(stored("LIMIT: Claude hit its usage limit (resets 3pm (Asia/Seoul)). Its work so far stays in C:\\Users\\me\\repo. Send \"continue\" after the reset, or move the job to another engine."));
+    expect(note).toMatchObject({ status: null, alert: { kind: "limit", engine: "Claude", reset: "3pm (Asia/Seoul)" }, body: "" });
+    expect(noteText(note, t)).toBe("Claude hit its usage limit (resets 3pm (Asia/Seoul)).");
+    expect(noteText(note, (key, vars) => translate("ko", key, vars))).toBe("Claude 사용 한도에 도달했습니다 (초기화: 3pm (Asia/Seoul)).");
+  });
+
   it("turns a WAITING hook note into an alert", () => {
     const note = parsePaneNote(stored("WAITING: this worker is stuck on an on-screen prompt (permission check or question). terminal_read its pane, then answer with key presses or tell the user."));
     expect(note.alert).toEqual({ kind: "waiting" });

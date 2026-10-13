@@ -1462,7 +1462,7 @@ test("FINISHED pending when the pane exits is still delivered", async (t) => {
 test("a worker pane that goes quiet without a report sends one stall note with its last lines", async () => {
   const f = stallFixture();
   const pane = await f.host.openForBot("bot-1", { label: "TAP-AUDIT | Astra | high", command: "codex --model gpt-6-astra 'Read card.md and do it.'" });
-  f.children[0].data("■ You've hit your usage limit. Try again at 10:14 PM.\r\n\r\n  Approaching rate limits\r\n  1. Switch to gpt-6-luna\r\n  2. Keep current model\r\n");
+  f.children[0].data("■ Conversation interrupted. Tell the model what to do differently.\r\n\r\n  Approaching rate limits\r\n  1. Switch to gpt-6-luna\r\n  2. Keep current model\r\n");
   await f.settle();
   await f.advance(119_000);
   assert.equal(f.notes.length, 0);
@@ -1471,9 +1471,76 @@ test("a worker pane that goes quiet without a report sends one stall note with i
   assert.deepEqual(f.notes[0].scope, { pane: pane.sessionId, bot: "bot-1", teacher: "bot-1" });
   assert.deepEqual(f.notes[0].mail, { url: "http://127.0.0.1:9", token: "secret" });
   assert.match(f.notes[0].text, /^STALLED: no screen change for 2 min and no report\./);
-  assert.match(f.notes[0].text, /Try again at 10:14 PM\.\n {2}Approaching rate limits\n {2}1\. Switch to gpt-6-luna\n {2}2\. Keep current model$/);
+  assert.match(f.notes[0].text, /differently\.\n {2}Approaching rate limits\n {2}1\. Switch to gpt-6-luna\n {2}2\. Keep current model$/);
   await f.advance(600_000);
   assert.equal(f.notes.length, 1);
+});
+
+const CLAUDE_LIMIT = "  ⎿  You've hit your session limit · resets 3am (Asia/Seoul)\r\n\r\n  What do you want to do?\r\n  ❯ 1. Stop and wait for limit to reset\r\n    2. Upgrade your plan\r\n";
+const CODEX_LIMIT = "■ You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/\r\ncodex/settings/usage to purchase more credits or try again at 10:14 PM.\r\n\r\n\r\n  Approaching rate limits\r\n  Switch to gpt-6-luna for lower credit usage?\r\n\r\n\r\n› 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.\r\n  2. Keep current model\r\n";
+const limitNote = (engine, reset) => new RegExp(`^LIMIT: ${engine} hit its usage limit \\(resets ${reset}\\)\\. Its work so far stays in .+\\. Send "continue" after the reset, or move the job to another engine\\.$`);
+
+test("a Claude usage limit sends one LIMIT note with the reset time as shown", async () => {
+  const f = stallFixture();
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "claude --model claude-opus-5-5 'go'" });
+  f.children[0].data(CLAUDE_LIMIT);
+  await f.settle();
+  await f.advance(121_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, limitNote("Claude", "3am \\(Asia/Seoul\\)"));
+  assert.ok(f.notes[0].text.includes(os.tmpdir()));
+  assert.equal(f.notes[0].scope.pane, pane.sessionId);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("a Codex usage limit that wraps sends one LIMIT note with the reset time as shown", async () => {
+  const f = stallFixture();
+  await f.host.openForBot("bot-1", { label: "W", command: "codex --model gpt-6-astra 'go'" });
+  f.children[0].data(CODEX_LIMIT);
+  await f.settle();
+  await f.advance(121_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, limitNote("Codex", "10:14 PM"));
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("a limit screen that only redraws a clock, wraps differently or gets keys sends no second note", async () => {
+  const f = stallFixture();
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "codex --model gpt-6-astra 'go'" });
+  f.children[0].data(`${CODEX_LIMIT}\r\n  gpt-6-astra high · 12:01 PM\r\n`);
+  await f.settle();
+  await f.advance(121_000);
+  assert.equal(f.notes.length, 1);
+  f.children[0].data(`\x1b[2J\x1b[H${CODEX_LIMIT}\r\n  gpt-6-astra high · 12:03 PM\r\n`);
+  await f.settle();
+  await f.advance(130_000);
+  f.host.resize(f.event, pane.sessionId, 50, 24);
+  await f.advance(5_000);
+  f.children[0].data("\x1b[2J\x1b[H■ You’ve hit your usage limit. Upgrade to Pro\r\n(https://chatgpt.com/explore/pro), visit\r\nhttps://chatgpt.com/codex/settings/usage to\r\npurchase more credits or try again at 10:14 PM.\r\n\r\n\r\n  Approaching rate limits\r\n  Switch to gpt-6-luna for lower credit usage?\r\n\r\n\r\n› 1. Switch to gpt-6-luna\r\n  Fast and affordable model for easier tasks.\r\n  2. Keep current model\r\n\r\n  gpt-6-astra high · 12:05 PM\r\n");
+  await f.settle();
+  await f.advance(130_000);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "\r" });
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("a limit pane that resumes after continue and stalls again sends a new note", async () => {
+  const f = stallFixture();
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "claude --model claude-opus-5-5 'go'" });
+  f.children[0].data(CLAUDE_LIMIT);
+  await f.settle();
+  await f.advance(121_000);
+  assert.equal(f.notes.length, 1);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "continue\r" });
+  f.children[0].data("\x1b[2J\x1b[H● Editing src/app.ts\r\n● API Error: 529 overloaded\r\n");
+  await f.settle();
+  await f.advance(121_000);
+  assert.equal(f.notes.length, 2);
+  assert.match(f.notes[1].text, /^STALLED: .*API Error: 529 overloaded$/s);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 2);
 });
 
 test("a worker whose screen keeps changing sends no stall note", async () => {

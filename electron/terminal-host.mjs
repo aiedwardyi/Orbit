@@ -34,6 +34,9 @@ const WORKER_CLI_RE = /(?:^|[;&|\r\n])\s*&?\s*["']?(?:[^\s"';&|]*[\\/])?(?:claud
 const AGENT_BUSY_RE = /(?:esc to interrupt|^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$))/mu;
 // Claude Code's status line counts live jobs in a "·" segment; its "done ... still running" line is history and never clears.
 const AGENT_JOBS_RE = /^(?!.*still running)(?=.*·)(?:.*·)?\s*(?:\d+ [^,·]+, )*\d+ (?:shells?|monitors?|local agents?)(?:, \d+ [^,·]+)*\s*(?:·|$)/u;
+// Wrapping, borders, spinner glyphs and clocks change on a redraw without the worker moving; a busy agent's ticking timer still counts.
+const STALL_CHURN_RE = /[\u2500-\u257f\u2800-\u28ff✻✢✳✶✽·*●]|\b\d+[hms]\b|\d{1,2}:\d{2}(?::\d{2})?/gu;
+const stallSignature = (screenText) => AGENT_BUSY_RE.test(screenText) ? screenText : screenText.replace(STALL_CHURN_RE, "").replace(/\s+/g, "");
 const agentJobsRunning = (screenText) => screenText.split("\n").filter((line) => line.trim()).slice(-JOBS_FOOTER_LINES).some((line) => AGENT_JOBS_RE.test(line));
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -136,9 +139,25 @@ function normalizeTerminalText(text) {
   return text.replace(/\r\n/g, "\r").replace(/\n/g, "\r");
 }
 
+// Claude: "You've hit your session limit · resets 3pm (Asia/Seoul)". Codex: "You've hit your usage limit. ... or try again at 5:49 AM." (wraps, so it reads the flattened tail).
+const CLAUDE_LIMIT_RE = /hit your [^·\n]*limit\s*·\s*resets (\S.*)$/i;
+const CODEX_LIMIT_RE = /hit your usage limit\..*?try again at (.+?)\.(?: |$)/i;
+
+function usageLimit(lines) {
+  for (const line of lines) {
+    const reset = CLAUDE_LIMIT_RE.exec(line)?.[1];
+    if (reset) return { engine: "Claude", reset: reset.trim() };
+  }
+  const reset = CODEX_LIMIT_RE.exec(lines.join(" ").replace(/\s+/g, " "))?.[1];
+  return reset ? { engine: "Codex", reset } : null;
+}
+
 // A turn that dies on a usage limit or a menu runs no engine hook, so the screen is the only signal.
-function stallNoteText(screenText, stallMs) {
-  const tail = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES).join("\n");
+function stallNoteText(screenText, stallMs, cwd) {
+  const lines = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES);
+  const limit = usageLimit(lines);
+  if (limit) return `LIMIT: ${limit.engine} hit its usage limit (resets ${limit.reset}). Its work so far stays in ${cwd}. Send "continue" after the reset, or move the job to another engine.`;
+  const tail = lines.join("\n");
   return `STALLED: no screen change for ${Math.max(1, Math.round(stallMs / 60_000))} min and no report. It may be stuck on a usage limit, a menu or an error. terminal_read its pane, then act or tell the user. Last lines:\n${tail}`;
 }
 
@@ -365,9 +384,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (!session.worker || session.retired || session.exitCode !== null) continue;
       if (session.stallDirty) {
         session.stallDirty = false;
-        const text = session.screen.text();
-        if (text !== session.stallText) {
-          session.stallText = text;
+        const signature = stallSignature(session.screen.text());
+        if (signature !== session.stallText) {
+          session.stallText = signature;
           session.stallChangedAt = at;
           session.stallFired = false;
           session.stallTries = 0;
@@ -382,7 +401,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
       const stall = session.stallChangedAt;
       session.stallTries += 1;
-      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(session.screen.text(), stallMs))).catch(() => {
+      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(session.screen.text(), stallMs, session.cwd))).catch(() => {
         // a post that did land raises noteAt, which stops the retry above
         if (session.stallChangedAt !== stall || session.stallTries >= STALL_TRIES) return;
         session.stallFired = false;
@@ -614,8 +633,6 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       session.activityCooldownUntil = 0;
       session.stallArmedAt = now();
       session.stallChangedAt = session.stallArmedAt;
-      session.stallFired = false;
-      session.stallTries = 0;
       if (session.botPane && WORKER_CLI_RE.test(text)) watchStalls(session);
       if (session.botPane) paneRuns?.started({ id: session.id, botId: session.botId, teacher: session.teacher, label: session.label, cwd: session.cwd, spawnedAt: session.spawnedAt });
     }
