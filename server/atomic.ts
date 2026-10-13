@@ -19,7 +19,16 @@ export function writeFileAtomic(path: string, data: string, options: { mode?: nu
     fsyncSync(fd);
     closeSync(fd);
     fd = null;
-    renameSync(tmp, path);
+    // A brief Windows lock fails the rename, so retry it a few times.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        renameSync(tmp, path);
+        break;
+      } catch (e) {
+        if (!(e instanceof Error && "code" in e && (e.code === "EPERM" || e.code === "EBUSY")) || attempt === 5) throw e;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * (attempt + 1));
+      }
+    }
   } catch (e) {
     if (fd !== null) {
       try {
