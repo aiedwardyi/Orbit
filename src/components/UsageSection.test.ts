@@ -254,7 +254,7 @@ describe("UsageSection friends plan card", () => {
     expect(host.querySelector('[aria-label="5h: 22% used"] .text-accent')).not.toBeNull();
   });
 
-  it("points an expired Muse window at Check now instead of the next message", () => {
+  it("points an expired Muse window at refresh like the other engines", () => {
     const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
     if (!muse?.rateLimits) throw new Error("muse fixture missing rateLimits");
     const original = muse.rateLimits;
@@ -268,8 +268,8 @@ describe("UsageSection friends plan card", () => {
         ],
       };
       const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(html).toContain("Reset since this reading. Use Check now to update.");
-      expect(html.match(/Updates on the next message/g) ?? []).toHaveLength(1);
+      expect(html).not.toContain("Check now");
+      expect(html.match(/Reset since the last check\. Updates on the next message\./g) ?? []).toHaveLength(2);
       expect(html).toContain(">Last seen 4d ago<");
     } finally {
       muse.rateLimits = original;
@@ -277,7 +277,7 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
-  it("refreshes Claude, Codex, and Grok from refresh-all but never spends a Muse check", async () => {
+  it("refreshes Claude, Codex, and Grok from refresh-all and checks Muse", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -293,11 +293,59 @@ describe("UsageSection friends plan card", () => {
       });
       expect(mockApi).not.toHaveBeenCalledWith("/api/usage/refresh/antigravity", { method: "POST" });
       expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/claude", { method: "POST" });
-      expect(mockApi.mock.calls.map(([path]) => path).filter((path) => path.endsWith("/muse"))).toEqual([]);
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/codex", { method: "POST" });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/grok", { method: "POST" });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/check/muse", { method: "POST" });
+      expect(mockApi).not.toHaveBeenCalledWith("/api/usage/refresh/muse", { method: "POST" });
+      expect(mockApi).toHaveBeenCalledTimes(4);
     } finally {
       await act(async () => root.unmount());
       host.remove();
       mockApi.mockClear();
+      persistPreference("en");
+    }
+  });
+
+  it("shows the Refresh button when Muse is the only engine listed", async () => {
+    const previous = mockState.instances;
+    const muse = previous.find((instance) => instance.instanceId === "muse");
+    if (!muse) throw new Error("muse fixture missing");
+    mockState.instances = [muse];
+    mockApi.mockClear();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
+      expect(refreshAll).toBeDefined();
+      await act(async () => {
+        refreshAll?.click();
+      });
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/check/muse", { method: "POST" });
+      expect(mockApi).toHaveBeenCalledTimes(1);
+    } finally {
+      mockState.instances = previous;
+      await act(async () => root.unmount());
+      host.remove();
+      mockApi.mockReset();
+      mockApi.mockImplementation(async (_path: string) => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+      persistPreference("en");
+    }
+  });
+
+  it("shows no Check now button in English or Korean", () => {
+    try {
+      persistPreference("en");
+      const english = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(english).not.toContain("Check now");
+      expect(english).not.toContain("Checking");
+      persistPreference("ko");
+      const korean = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(korean).not.toContain("지금 확인");
+      expect(korean).not.toContain("확인 중");
+    } finally {
       persistPreference("en");
     }
   });
@@ -334,7 +382,7 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
-  it("checks Muse once per tap, busy with a spinner until the turn returns", async () => {
+  it("checks Muse once per refresh, busy with a spinner until the run returns", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -343,24 +391,24 @@ describe("UsageSection friends plan card", () => {
     mockApi.mockImplementation((path: string) => path === "/api/usage/check/muse"
       ? new Promise((resolve) => { finish = resolve; })
       : Promise.resolve({ status: "fresh" }));
+    const museChecks = () => mockApi.mock.calls.filter(([path]) => path === "/api/usage/check/muse");
     try {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      const checkNow = () => [...host.querySelectorAll("button")].find((button) => /Check now|Checking/.test(button.textContent ?? ""));
-      expect(checkNow()?.textContent).toBe("Check now (1 Muse message)");
+      const refreshAll = () => [...host.querySelectorAll("button")].find((button) => (button.getAttribute("aria-label") ?? "").startsWith("Refresh"));
+      expect(refreshAll()?.getAttribute("aria-label")).toBe("Refresh all");
       await act(async () => {
-        checkNow()?.click();
-        checkNow()?.click();
+        refreshAll()?.click();
+        refreshAll()?.click();
       });
-      expect(mockApi).toHaveBeenCalledTimes(1);
-      expect(mockApi).toHaveBeenCalledWith("/api/usage/check/muse", { method: "POST" });
-      expect(checkNow()?.disabled).toBe(true);
-      expect(checkNow()?.getAttribute("aria-busy")).toBe("true");
-      expect(checkNow()?.textContent).toBe("Checking…");
-      expect(checkNow()?.querySelector(".animate-spin")).not.toBeNull();
+      expect(museChecks()).toHaveLength(1);
+      expect(refreshAll()?.getAttribute("aria-label")).toBe("Refreshing…");
+      expect(refreshAll()?.disabled).toBe(true);
+      expect(refreshAll()?.getAttribute("aria-busy")).toBe("true");
+      expect(refreshAll()?.querySelector(".animate-spin")).not.toBeNull();
       await act(async () => finish({ report: { windows: [{ id: "five_hour", usedPercent: 20 }], observedAt: new Date().toISOString() }, status: "fresh" }));
-      expect(checkNow()?.disabled).toBe(false);
-      expect(checkNow()?.textContent).toBe("Check now (1 Muse message)");
+      expect(refreshAll()?.getAttribute("aria-label")).toBe("Refresh all");
+      expect(refreshAll()?.disabled).toBe(false);
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -375,15 +423,18 @@ describe("UsageSection friends plan card", () => {
     document.body.append(host);
     const root = createRoot(host);
     mockApi.mockReset();
-    mockApi.mockImplementation(async () => ({ status: "no_observation" }));
+    mockApi.mockImplementation(async (path: string) => path === "/api/usage/check/muse"
+      ? { status: "no_observation" }
+      : { report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
     try {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       await act(async () => {
-        [...host.querySelectorAll("button")].find((button) => button.textContent === "Check now (1 Muse message)")?.click();
+        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")?.click();
       });
       expect(host.textContent).toContain("Muse did not report limits. Showing the last good values.");
       expect(host.querySelector('[aria-label="5h: 78% remaining"]')).not.toBeNull();
+      expect(host.textContent).not.toContain("Updated just now");
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -399,23 +450,25 @@ describe("UsageSection friends plan card", () => {
     let root = createRoot(host);
     let resetsAt: number | null = Date.now() + 117 * 60_000;
     mockApi.mockReset();
-    mockApi.mockImplementation(async () => ({ status: "limit_reached", resetsAt }));
-    const tapCheck = () => act(async () => {
-      [...host.querySelectorAll("button")].find((button) => button.textContent === "Check now (1 Muse message)")?.click();
+    mockApi.mockImplementation(async (path: string) => path === "/api/usage/check/muse"
+      ? { status: "limit_reached", resetsAt }
+      : { status: "fresh" });
+    const tapRefresh = () => act(async () => {
+      [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-keyshortcuts") === "Alt+R")?.click();
     });
     const museMeters = () => ["5h: 78% remaining", "7d: 39% remaining"].map((label) => host.querySelector(`[aria-label="${label}"]`));
     try {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       for (const meter of museMeters()) expect(meter?.querySelector(".text-accent")).not.toBeNull();
-      await tapCheck();
+      await tapRefresh();
       expect(host.textContent).toMatch(/Muse limit reached\. Resets in 1h5[678]m\./);
       for (const meter of museMeters()) {
         expect(meter?.querySelector(".text-accent, .text-warning, .text-danger")).toBeNull();
         expect(meter?.querySelector(".text-ink-secondary")).not.toBeNull();
       }
       resetsAt = null;
-      await tapCheck();
+      await tapRefresh();
       expect(host.textContent).toContain("Muse limit reached.");
       expect(host.textContent).not.toContain("Resets in 1h");
       for (const meter of museMeters()) expect(meter?.querySelector(".text-accent")).toBeNull();
@@ -423,13 +476,10 @@ describe("UsageSection friends plan card", () => {
       await act(async () => root.unmount());
       root = createRoot(host);
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      const tapKoCheck = () => act(async () => {
-        [...host.querySelectorAll("button")].find((button) => button.textContent === "지금 확인 (Muse 메시지 1개)")?.click();
-      });
-      await tapKoCheck();
+      await tapRefresh();
       expect(host.textContent).toContain("Muse 한도에 도달했습니다.");
       resetsAt = Date.now() + 117 * 60_000;
-      await tapKoCheck();
+      await tapRefresh();
       expect(host.textContent).toMatch(/Muse 한도에 도달했습니다\. 1시간 5[678]분 후 초기화됩니다\./);
     } finally {
       await act(async () => root.unmount());
@@ -470,7 +520,8 @@ describe("UsageSection friends plan card", () => {
       const first = send();
       await act(async () => window.dispatchEvent(first));
       expect(first.defaultPrevented).toBe(true);
-      expect(mockApi).toHaveBeenCalledTimes(3);
+      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/check/muse", { method: "POST" });
 
       for (const event of [
         send({ repeat: true }),
@@ -482,13 +533,13 @@ describe("UsageSection friends plan card", () => {
         await act(async () => window.dispatchEvent(event));
         expect(event.defaultPrevented).toBe(false);
       }
-      expect(mockApi).toHaveBeenCalledTimes(3);
+      expect(mockApi).toHaveBeenCalledTimes(4);
 
       composer.focus();
       const whileTyping = send();
       await act(async () => window.dispatchEvent(whileTyping));
       expect(whileTyping.defaultPrevented).toBe(false);
-      expect(mockApi).toHaveBeenCalledTimes(3);
+      expect(mockApi).toHaveBeenCalledTimes(4);
 
       const picker = document.createElement("div");
       picker.setAttribute("data-model-picker-content", "");
@@ -517,14 +568,14 @@ describe("UsageSection friends plan card", () => {
       const besideClosedTerminal = send();
       await act(async () => window.dispatchEvent(besideClosedTerminal));
       expect(besideClosedTerminal.defaultPrevented).toBe(true);
-      expect(mockApi).toHaveBeenCalledTimes(6);
+      expect(mockApi).toHaveBeenCalledTimes(8);
       closedTerminal.remove();
 
       await act(async () => root.unmount());
       const afterClose = send();
       await act(async () => window.dispatchEvent(afterClose));
       expect(afterClose.defaultPrevented).toBe(false);
-      expect(mockApi).toHaveBeenCalledTimes(6);
+      expect(mockApi).toHaveBeenCalledTimes(8);
     } finally {
       host.remove();
       composer.remove();
@@ -545,7 +596,8 @@ describe("UsageSection friends plan card", () => {
       const event = new KeyboardEvent("keydown", { key: "r", altKey: true, bubbles: true, cancelable: true });
       await act(async () => window.dispatchEvent(event));
       expect(event.defaultPrevented).toBe(true);
-      expect(mockApi).toHaveBeenCalledTimes(3);
+      expect(mockApi).toHaveBeenCalledTimes(4);
+      expect(mockApi).toHaveBeenCalledWith("/api/usage/check/muse", { method: "POST" });
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -806,7 +858,7 @@ describe("UsageSection friends plan card", () => {
         refreshAll?.click();
       });
       // one control refreshes every subscription engine together
-      expect(mockApi).toHaveBeenCalledTimes(3);
+      expect(mockApi).toHaveBeenCalledTimes(4);
       const busy = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refreshing…");
       expect(busy).toBeDefined();
       expect(busy?.hasAttribute("disabled")).toBe(true);
@@ -814,7 +866,7 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         busy?.click();
       });
-      expect(mockApi).toHaveBeenCalledTimes(3);
+      expect(mockApi).toHaveBeenCalledTimes(4);
       await act(async () => {
         deferred.get("claude")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("codex")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
@@ -847,13 +899,13 @@ describe("UsageSection friends plan card", () => {
       const event = new KeyboardEvent("keydown", { code: "KeyR", altKey: true, bubbles: true, cancelable: true });
       await act(async () => window.dispatchEvent(event));
       expect(event.defaultPrevented).toBe(true);
-      expect(mockApi).toHaveBeenCalledTimes(3);
+      expect(mockApi).toHaveBeenCalledTimes(4);
       expect(host.querySelector('button[aria-label="Refreshing…"]')).not.toBeNull();
 
       const second = new KeyboardEvent("keydown", { code: "KeyR", altKey: true, bubbles: true, cancelable: true });
       await act(async () => window.dispatchEvent(second));
       expect(second.defaultPrevented).toBe(true);
-      expect(mockApi).toHaveBeenCalledTimes(3);
+      expect(mockApi).toHaveBeenCalledTimes(4);
 
       await act(async () => {
         for (const name of ["claude", "codex", "grok", "muse"]) {
