@@ -1470,10 +1470,19 @@
     left: 0;
   }
 
-  /* Claude Code clips output at the right edge instead of wrapping */
+  /* anywhere, not break-word: a path with no spaces must not widen the column */
+  .term-step-head {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+
   .term-step-out > div {
     overflow: hidden;
-    white-space: pre;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .term-step[data-term-step="failed"] .term-step-out > div {

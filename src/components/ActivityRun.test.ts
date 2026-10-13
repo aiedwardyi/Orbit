@@ -35,6 +35,12 @@ describe("ActivityStep in the Terminal skin", () => {
     expect(html).toContain("Update src/a.ts +2 -1, done, 1.2 seconds");
   });
 
+  it("lets a long header wrap instead of truncating it", () => {
+    const html = render("terminal", createElement(ActivityStep, { message: step("Read", "src/components/a-very-long-file-name.ts", true, 300) }));
+    expect(html).toContain('<div aria-hidden="true" class="term-step-head">');
+    expect(html).not.toMatch(/term-step-head[^"]*truncate/);
+  });
+
   it("falls back to the bare name and Failed", () => {
     const html = render("terminal", createElement(ActivityStep, { message: step("browser_click", undefined, false, 400) }));
     expect(html).toContain(">browser_click</span></div>");
