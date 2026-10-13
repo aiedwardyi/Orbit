@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  hasUnfinishedTaskWork,
   isCompletedTaskRecord,
   isTaskRecoveryVisible,
   roomRecoveryBusy,
@@ -111,5 +112,21 @@ describe("task recovery banner eligibility", () => {
     expect(isCompletedTaskRecord(packet("stop"))).toBe(false);
     expect(isCompletedTaskRecord(packet("crash"))).toBe(false);
     expect(shouldDismissCompletedReopen({ ...finished, v: 2 })).toBe(false);
+  });
+
+  it("treats a carried-over next action as finished, same as the server", () => {
+    const carried = {
+      flushReason: "shutdown",
+      instructionId: "message-2",
+      settledInstructionId: "message-2",
+      nextActionInstructionId: "message-1",
+      nextAction: "Verify the pending worker reports",
+      goal: "Prepare a weekly competitor brief",
+      blockers: [],
+      completed: [],
+      plan: [{ status: "active" }],
+    };
+    expect(isCompletedTaskRecord(carried)).toBe(true);
+    expect(hasUnfinishedTaskWork(carried)).toBe(false);
   });
 });

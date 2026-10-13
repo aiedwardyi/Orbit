@@ -16,6 +16,8 @@ export interface TaskCompletionShape {
   nextAction?: string;
   /** newest user instruction on this record */
   instructionId?: string;
+  /** instruction a bot-set next action belongs to */
+  nextActionInstructionId?: string;
   /** instruction the newest completion was recorded against */
   settledInstructionId?: string;
   completed?: readonly unknown[];
@@ -38,6 +40,11 @@ export function isCompletedTaskRecord(packet: TaskCompletionShape | null | undef
   if (packet.flushReason === "crash" || packet.flushReason === "stop") return false;
   if ((packet.blockers?.length ?? 0) > 0) return false;
   if (!settlesCurrentInstruction(packet)) return false;
+  // Carried over from an earlier instruction: kept, but not unfinished once this one settled.
+  if (
+    packet.nextActionInstructionId
+    && packet.nextActionInstructionId !== packet.instructionId
+  ) return true;
   if (isPlanFinished(packet)) return true;
   const next = packet.nextAction?.trim() ?? "";
   if (!next) return true;

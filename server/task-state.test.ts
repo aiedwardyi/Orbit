@@ -15,11 +15,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { isCompletedTaskRecord } from "../shared/task-resume.ts";
 import {
+  assignTaskNextAction,
   deleteTaskResumePacket,
   readTaskResumePacket,
   TASK_STATE_MAX_BYTES,
   taskArtifactError,
+  taskStateUpdateEnvelopeSchema,
   taskStateUpdateError,
   writeTaskResumePacket,
   type TaskResumePacket,
@@ -183,6 +186,44 @@ describe("task resume packets", () => {
     writeTaskResumePacket(packet(), { dir });
 
     expect(statSync(path).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe("task state update", () => {
+  it("clears a next action when the update sends an empty string", () => {
+    const empty = taskStateUpdateEnvelopeSchema.safeParse({
+      fromBotId: "bot-1",
+      fromThreadId: "thread-1",
+      next_action: "",
+    });
+    expect(empty.success).toBe(true);
+    if (!empty.success) return;
+    const settled = packet({
+      instructionId: "message-2",
+      settledInstructionId: "message-2",
+      nextAction: "Run the full export",
+      nextActionInstructionId: "message-1",
+      flushReason: "turn-end",
+    });
+    assignTaskNextAction(settled, empty.data.next_action ?? "");
+    expect(settled.nextAction).toBe("");
+    expect(settled.nextActionInstructionId).toBeUndefined();
+    expect(isCompletedTaskRecord(settled)).toBe(true);
+
+    const spaces = taskStateUpdateEnvelopeSchema.safeParse({
+      fromBotId: "bot-1",
+      fromThreadId: "thread-1",
+      next_action: "   ",
+    });
+    expect(spaces.success).toBe(false);
+
+    const padded = taskStateUpdateEnvelopeSchema.safeParse({
+      fromBotId: "bot-1",
+      fromThreadId: "thread-1",
+      next_action: "  Verify citations  ",
+    });
+    expect(padded.success).toBe(true);
+    if (padded.success) expect(padded.data.next_action).toBe("Verify citations");
   });
 });
 

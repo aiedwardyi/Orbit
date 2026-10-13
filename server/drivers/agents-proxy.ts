@@ -231,7 +231,7 @@ const TOOLS = [
           pattern: "\\S",
           description: "One concise milestone that is actually complete, at most 300 characters. Omit when nothing new finished.",
         },
-          next_action: { type: "string", minLength: 1, maxLength: 300, pattern: "\\S", description: "The exact next useful action, at most 300 characters." },
+          next_action: { type: "string", maxLength: 300, pattern: "^$|\\S", description: "The exact next useful action, at most 300 characters. Empty string clears it." },
           pause_automatic_wakes: { type: "boolean", description: "Set true only when the user asks you to stop or pause. Holds worker-report wake-ups until their next message; does not stop workers or end your current turn." },
         blockers: {
           type: "array",
@@ -533,12 +533,13 @@ function hasBlankTaskText(args: TaskStateToolArgs): boolean {
   const values = [
     args.goal,
     args.completed_note,
-    args.next_action,
     ...(args.plan ?? []).map((item) => item.step),
     ...(args.blockers ?? []).map((item) => item.note),
     ...(args.artifacts ?? []).flatMap((item) => [item.ref, item.label]),
   ];
-  return values.some((value) => value !== undefined && !value.trim());
+  if (values.some((value) => value !== undefined && !value.trim())) return true;
+  // An empty next_action clears it. Whitespace-only does not.
+  return args.next_action !== undefined && args.next_action !== "" && !/\S/.test(args.next_action);
 }
 type RoutineAction = "update" | "pause" | "resume" | "run_now" | "delete";
 

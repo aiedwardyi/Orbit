@@ -17,6 +17,7 @@ import {
   seedTaskResumePacket,
   stampTaskResumePacket,
 } from "./task-state-fold.ts";
+import { isRecoveringPacket } from "./task-recovery-flush.ts";
 import type { TaskResumePacket } from "./task-state.ts";
 
 const seed = () => seedTaskResumePacket({
@@ -424,7 +425,7 @@ describe("task state folding", () => {
     expect(updated.instructionAction).toBe(seed().instructionAction);
   });
 
-  it("drops a bot next action from an earlier instruction when a redirect settles", () => {
+  it("keeps a bot next action from an earlier instruction when a redirect settles", () => {
     const set = botSets(seed(), "Run the full export");
     const redirected = recordTaskInstruction(set, {
       text: "Skip the export, just send the draft",
@@ -434,11 +435,67 @@ describe("task state folding", () => {
     const settled = recordTaskCompletion(redirected, { ok: true, reply: "Sent the draft.", now: 300 });
 
     expect(redirected.nextAction).toBe("Run the full export");
-    expect(settled.nextAction).toBe("");
-    expect(foldCompletedNextAction(structuredClone(settled)).nextAction).toBe("");
+    expect(settled.nextAction).toBe("Run the full export");
     expect(isCompletedTaskRecord(settled)).toBe(true);
     expect(recordTaskInstruction(settled, { text: "Now archive it", messageId: "message-3", now: 400 }).nextAction)
-      .toBe("Now archive it");
+      .toBe("Run the full export");
+  });
+
+  it("keeps a bot next action when a document follows a settled side question", () => {
+    const set = botSets(seed(), "Verify the pending worker reports");
+    const asked = recordTaskInstruction(set, {
+      text: "Can I show you another bot's memory?",
+      messageId: "message-2",
+      now: 200,
+    });
+    const settled = recordTaskCompletion(asked, { ok: true, reply: "Yes, send it.", now: 300 });
+    const pasted = recordTaskInstruction(settled, {
+      text: `여러 법률 사건과 사업 업무를\n${"Document body\n".repeat(600)}`,
+      messageId: "message-3",
+      now: 400,
+    });
+
+    expect(pasted.nextAction).toBe("Verify the pending worker reports");
+  });
+
+  it("treats a carried-over bot next action as finished after a side question settles", () => {
+    const set = botSets(seed(), "Verify the pending worker reports");
+    const asked = recordTaskInstruction(set, {
+      text: "Can I show you another bot's memory?",
+      messageId: "message-2",
+      now: 200,
+    });
+    const settled = recordTaskCompletion(asked, { ok: true, reply: "Yes, send it.", now: 300 });
+    const closed = stampTaskResumePacket(settled, "shutdown", { now: 400 });
+
+    expect(settled.nextAction).toBe("Verify the pending worker reports");
+    expect(isCompletedTaskRecord(settled)).toBe(true);
+    expect(hasUnfinishedTaskWork(settled)).toBe(false);
+    expect(isCompletedTaskRecord(closed)).toBe(true);
+    expect(hasUnfinishedTaskWork(closed)).toBe(false);
+    expect(isRecoveringPacket(closed)).toBe(false);
+  });
+
+  it("keeps an action set during the current instruction unfinished after that turn settles", () => {
+    const settled = recordTaskCompletion(botSets(seed(), "Add a pricing comparison"), {
+      ok: true,
+      reply: "Drafted the brief; pricing is next.",
+      now: 300,
+    });
+
+    expect(settled.nextAction).toBe("Add a pricing comparison");
+    expect(settled.nextActionInstructionId).toBe(settled.instructionId);
+    expect(isCompletedTaskRecord(settled)).toBe(false);
+    expect(hasUnfinishedTaskWork(settled)).toBe(true);
+  });
+
+  it("blanks only an unstamped next action on a record without an anchor", () => {
+    const legacy = { ...seed(), nextAction: "Run legacy smoke tests" };
+    delete legacy.instructionAction;
+    const settle = (packet: TaskResumePacket) => recordTaskCompletion(packet, { ok: true, reply: "Done.", now: 300 });
+
+    expect(settle(legacy).nextAction).toBe("");
+    expect(settle(botSets(legacy, "Sign the installers")).nextAction).toBe("Sign the installers");
   });
 
   it("keeps a bot next action re-set during the redirect", () => {

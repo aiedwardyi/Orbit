@@ -494,6 +494,29 @@ describe("agents-proxy MCP surface", () => {
     expect(lastTaskStateBody).toBeNull();
   });
 
+  it("accepts an empty next_action in the tool schema and forwards it", async () => {
+    const list = await rpc("tools/list");
+    const update = list.result.tools.find((tool: { name: string }) => tool.name === "update_task_state");
+    expect(update.inputSchema.properties.next_action.minLength).toBeUndefined();
+    expect(update.inputSchema.properties.next_action.pattern).toBe("^$|\\S");
+    expect(update.inputSchema.properties.next_action.description).toContain("Empty string clears it.");
+
+    lastTaskStateBody = null;
+    const cleared = await callTool("update_task_state", { next_action: "" });
+    expect(cleared.result.isError).not.toBe(true);
+    expect(lastTaskStateBody).toEqual({
+      fromBotId: "bot-asker",
+      fromThreadId: "thread-asker-routine",
+      next_action: "",
+    });
+
+    lastTaskStateBody = null;
+    const spaces = await callTool("update_task_state", { next_action: "   " });
+    expect(spaces.result.isError).toBe(true);
+    expect(spaces.result.content[0].text).toContain("cannot be blank");
+    expect(lastTaskStateBody).toBeNull();
+  });
+
   it("rejects unknown and misshapen task fields with the allowed list", async () => {
     lastTaskStateBody = null;
     const unknown = await callTool("update_task_state", { goal: "Ship", notes: "x", done: true });
