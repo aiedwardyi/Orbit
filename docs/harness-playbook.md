@@ -125,6 +125,8 @@ scratch copy.
 
 For text with quotes or pipes, use `--file`.
 
+FINISHED means a spawned pane's command ended without a report; read its last lines with terminal_read and act.
+
 Every card also tells the worker: if a choice the card does not cover would
 change the result, stop and report BLOCKED with the question instead of guessing.
 

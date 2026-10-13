@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { installOrbitMsg, terminalPaneEnv } from "../electron/terminal-mailbox.mjs";
 import {
-  loadMailboxSecret, mailboxGrant, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, MailboxAutoDedup, MAILBOX_AUTO_DEDUP_MS, MAILBOX_NOTE_MAX_CHARS, MAILBOX_SECRET_FILE, MAILBOX_STALE_GRANT, readMailboxBody,
+  loadMailboxSecret, mailboxGrant, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, MAILBOX_NOTE_MAX_CHARS, MAILBOX_SECRET_FILE, MAILBOX_STALE_GRANT, readMailboxBody,
 } from "./mailbox.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
@@ -20,6 +20,8 @@ const PANE = "0f3c9a1e-7b2d-4c55-9e10-3a4b5c6d7e8f";
 let child: ChildProcess;
 let base: string;
 let home: string;
+let terminalStub: ReturnType<typeof createServer>;
+const deferredNotes: string[] = [];
 const SCOPE = { pane: PANE, bot: "worker", teacher: "teacher" };
 const GRANT = mailboxGrant(MAILBOX_KEY, PANE, "worker", "teacher");
 // Without PSModulePath, Windows PowerShell rescans every module on the first cmdlet (~19s per spawn on CI).
@@ -119,10 +121,29 @@ beforeAll(async () => {
     if (child.exitCode !== null || Date.now() > deadline) throw new Error(`server did not start: ${stderr}`);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+  terminalStub = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      if (req.method === "GET") return res.end('{"panes":[]}');
+      const note = JSON.parse(body);
+      if (note.kind === "auto") deferredNotes.push(note.text);
+      res.end(JSON.stringify({ raised: note.kind === "auto" }));
+    });
+  });
+  await new Promise<void>((resolve) => terminalStub.listen(0, "127.0.0.1", resolve));
+  const terminalAddress = terminalStub.address();
+  if (!terminalAddress || typeof terminalAddress === "string") throw new Error("no terminal test port");
+  const registered = await fetch(`${base}/api/internal/terminal-bridge`, {
+    method: "PUT", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ url: `http://127.0.0.1:${terminalAddress.port}`, token: "bridge-secret" }),
+  });
+  expect(registered.status).toBe(200);
 }, 30_000);
 
 afterAll(async () => {
   await waitForExit(child, { signal: "SIGTERM" });
+  await new Promise<void>((resolve) => terminalStub.close(() => resolve()));
   await removeTempDir(home);
 });
 
@@ -150,40 +171,7 @@ describe("mailbox note text", () => {
   });
 });
 
-describe("mailbox auto dedup", () => {
-  const pane = { pane: PANE, bot: "worker" };
-
-  it("drops one auto post after a report and lets the next through", () => {
-    const dedup = new MailboxAutoDedup();
-    expect(dedup.shouldDrop(pane, "report", 0)).toBe(false);
-    expect(dedup.shouldDrop(pane, "auto", 1000)).toBe(true);
-    expect(dedup.shouldDrop(pane, "auto", 2000)).toBe(false);
-  });
-
-  it("keeps an auto post with no prior report and every plain note", () => {
-    const dedup = new MailboxAutoDedup();
-    expect(dedup.shouldDrop(pane, "auto", 0)).toBe(false);
-    dedup.shouldDrop(pane, "report", 0);
-    expect(dedup.shouldDrop(pane, undefined, 1000)).toBe(false);
-    expect(dedup.shouldDrop(pane, "auto", 2000)).toBe(true);
-  });
-
-  it("expires the report after 15 minutes", () => {
-    const dedup = new MailboxAutoDedup();
-    dedup.shouldDrop(pane, "report", 0);
-    expect(dedup.shouldDrop(pane, "auto", MAILBOX_AUTO_DEDUP_MS + 1)).toBe(false);
-    dedup.shouldDrop(pane, "report", 0);
-    expect(dedup.shouldDrop(pane, "auto", MAILBOX_AUTO_DEDUP_MS)).toBe(true);
-  });
-
-  it("scopes suppression to the same pane and bot", () => {
-    const dedup = new MailboxAutoDedup();
-    dedup.shouldDrop(pane, "report", 0);
-    expect(dedup.shouldDrop({ ...pane, bot: "solo" }, "auto", 1000)).toBe(false);
-    expect(dedup.shouldDrop({ ...pane, pane: "other-pane" }, "auto", 1000)).toBe(false);
-    expect(dedup.shouldDrop(pane, "auto", 1000)).toBe(true);
-  });
-
+describe("mailbox post schema", () => {
   it("accepts old panes that send only text", () => {
     expect(mailboxPostSchema.safeParse({ text: "hi" }).success).toBe(true);
     expect(mailboxPostSchema.safeParse({ text: "hi", kind: "bogus" }).success).toBe(false);
@@ -229,16 +217,16 @@ describe("POST /api/mailbox", () => {
     expect(await transcript("worker-thread")).toEqual([]);
   });
 
-  it("drops the auto note that follows a report, once", async () => {
+  it("defers auto notes to the pane watcher and keeps reports immediate", async () => {
     const scope = { pane: PANE, bot: "solo", teacher: "solo" };
     const grant = mailboxGrant(MAILBOX_KEY, PANE, "solo", "solo");
     const send = async (text: string, kind?: string) => (await post({ text, kind }, scope, grant)).json();
     expect(await send("DONE X", "report")).toMatchObject({ ok: true, id: expect.any(String) });
-    expect(await send("long write-up", "auto")).toEqual({ ok: true, dropped: true });
-    expect(await send("asked a question", "auto")).toMatchObject({ ok: true, id: expect.any(String) });
+    expect(await send("long write-up", "auto")).toEqual({ ok: true, deferred: true });
+    expect(await send("asked a question", "auto")).toEqual({ ok: true, deferred: true });
+    expect(deferredNotes.slice(-2)).toEqual(["long write-up", "asked a question"]);
     expect((await transcript("solo-thread")).map((m) => m.text)).toEqual([
       "[pane 0f3c9a1e] from solo (solo): DONE X",
-      "[pane 0f3c9a1e] from solo (solo): asked a question",
     ]);
   });
 
@@ -422,12 +410,11 @@ describe("POST /api/mailbox", () => {
       JSON.stringify({ type: "agent-turn-complete", "last-assistant-message": "codex \"done\" & more" })]);
     expect(codex.stderr).toBe("");
     expect(codex.status).toBe(0);
-    expect((await transcript("teacher-thread")).slice(-4).map((message) => message.text)).toEqual([
+    expect((await transcript("teacher-thread")).slice(-2).map((message) => message.text)).toEqual([
       "[pane 0f3c9a1e] from worker (worker): from the pane",
       "[pane 0f3c9a1e] from worker (worker): piped",
-      "[pane 0f3c9a1e] from worker (worker): hook report 완료",
-      "[pane 0f3c9a1e] from worker (worker): codex \"done\" & more",
     ]);
+    expect(deferredNotes.slice(-2)).toEqual(["hook report 완료", "codex \"done\" & more"]);
     const outside = await orbitMsgFile(PANE_BASE, bin, ["hi"]);
     expect(outside.status).toBe(1);
     expect(outside.stderr).toContain("not inside a Wink terminal pane");
@@ -457,8 +444,9 @@ describe("POST /api/mailbox", () => {
       expect(run.stdout).not.toContain("PWNED");
       expect(run.stderr).toBe("");
     }
-    const posted = (await transcript("teacher-thread")).slice(-launches.length).map((message) => message.text);
-    expect(posted).toEqual([...texts, ...texts, ...texts].map((text) => `[pane 0f3c9a1e] from worker (worker): ${text}`));
+    const posted = (await transcript("teacher-thread")).slice(-texts.length).map((message) => message.text);
+    expect(posted).toEqual(texts.map((text) => `[pane 0f3c9a1e] from worker (worker): ${text}`));
+    expect(deferredNotes.slice(-2 * texts.length)).toEqual([...texts, ...texts]);
     expect(posted.join("\n")).not.toContain(paneEnv.ORBIT_MSG_AUTH);
   }, 60_000);
 });

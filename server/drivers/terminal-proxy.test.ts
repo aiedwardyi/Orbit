@@ -204,7 +204,7 @@ describe("terminal proxy", () => {
       ],
     }), { status: 200 }));
     const result = await callTool("terminal_read", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { sessionId: "p1" });
-    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal?sessionId=p1");
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal?sessionId=p1&observe=1");
     expect(result.content[0].text).toContain("Label: worker");
     expect(result.content[0].text).toContain("- main: sessionId m1 (generation 3), main");
     expect(result.content[0].text).toContain("- worker: sessionId p1 (generation 1)");
@@ -214,7 +214,7 @@ describe("terminal proxy", () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
       new Response(JSON.stringify({ sessionId: "p1", generation: 1, screenText: "ready>", waited: "hit" }), { status: 200 }));
     const result = await callTool("terminal_read", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { sessionId: "p1", waitFor: "ready>", timeoutMs: 20_000 });
-    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal?sessionId=p1&waitFor=ready%3E&timeoutMs=20000");
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal?sessionId=p1&waitFor=ready%3E&timeoutMs=20000&observe=1");
     expect(result.content[0].text).toContain("Waited for text: found");
   });
 
@@ -251,7 +251,15 @@ describe("terminal proxy", () => {
   it("does not send waitFor or timeoutMs when waitFor is omitted", async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ screenText: "ok" }), { status: 200 }));
     await callTool("terminal_read", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, {});
-    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal");
+    expect(fetchImpl.mock.calls[0][0]).toBe("http://127.0.0.1:1/v1/bots/bot-1/terminal?observe=1");
+  });
+
+  it("marks explicit terminal_read as observed while background snapshots stay unmarked", async () => {
+    const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ screenText: "ok" })));
+    await callTool("terminal_read", fetchImpl, CONFIG, { sessionId: "worker" });
+    expect(new URL(String(fetchImpl.mock.calls[0][0])).searchParams.get("observe")).toBe("1");
+    await readTerminalSnapshot(fetchImpl, CONFIG, "worker");
+    expect(new URL(String(fetchImpl.mock.calls[1][0])).searchParams.has("observe")).toBe(false);
   });
 
   it("maps terminal_send args to a POST on the bot's send route", async () => {

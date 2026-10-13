@@ -14,6 +14,7 @@ const SHUTDOWN_TIMEOUT_MS = 500;
 export const TERMINAL_ACTIVITY_COALESCE_MS = 750;
 export const TERMINAL_ACTIVITY_ACK_COOLDOWN_MS = 3_000;
 export const TERMINAL_STALL_MS = 120_000;
+export const TERMINAL_TURN_END_MS = 90_000;
 const STALL_CHECK_MS = 10_000;
 // Stop hooks and Codex notify land seconds after the screen settles.
 const STALL_NOTE_SLACK_MS = 30_000;
@@ -25,6 +26,7 @@ const STALL_TRIES = 5;
 const RESIZE_REPAINT_MS = 2_000;
 // Script panes go quiet when they finish; only an agent CLI waits on its teacher.
 const WORKER_CLI_RE = /(?:^|[;&|\r\n])\s*&?\s*["']?(?:[^\s"';&|]*[\\/])?(?:claude|codex|muse|grok|gemini|agy)(?:\.(?:exe|cmd|ps1))?["']?(?=\s|$)/i;
+const AGENT_BUSY_RE = /(?:esc to interrupt|^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$))/mu;
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 const BOT_PANE_LIMIT = 8;
@@ -63,8 +65,9 @@ function isPrintable(char) {
   return code >= 0x20 && code !== 0x7f;
 }
 
-export function createTerminalOutputParser() {
+export function createTerminalOutputParser(onOsc = () => {}) {
   let state = "normal";
+  let osc = "";
   return {
     consume(data) {
       let text = "";
@@ -73,14 +76,14 @@ export function createTerminalOutputParser() {
         if (state === "normal") {
           if (char === "\x1b") state = "escape";
           else if (char === "\x9b") state = "csi";
-          else if (char === "\x9d") state = "osc";
+          else if (char === "\x9d") { state = "osc"; osc = ""; }
           else if (char === "\x07") bell = true;
           else if (isPrintable(char) || char === "\r" || char === "\n" || char === "\t") text += char;
           continue;
         }
         if (state === "escape") {
           if (char === "[") state = "csi";
-          else if (char === "]") state = "osc";
+          else if (char === "]") { state = "osc"; osc = ""; }
           else if (stringControl.has(char)) state = "string";
           else state = "normal";
           continue;
@@ -91,11 +94,13 @@ export function createTerminalOutputParser() {
           continue;
         }
         if (state === "osc") {
-          if (char === "\x07") state = "normal";
+          if (char === "\x07") { onOsc(osc); state = "normal"; }
           else if (char === "\x1b") state = "osc-escape";
+          else if (osc.length < 128) osc += char;
           continue;
         }
         if (state === "osc-escape") {
+          if (char === "\\" || char === "\x07") onOsc(osc);
           state = char === "\\" ? "normal" : char === "\x07" ? "normal" : "osc";
           continue;
         }
@@ -127,6 +132,27 @@ function normalizeTerminalText(text) {
 function stallNoteText(screenText, stallMs) {
   const tail = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES).join("\n");
   return `STALLED: no screen change for ${Math.max(1, Math.round(stallMs / 60_000))} min and no report. It may be stuck on a usage limit, a menu or an error. terminal_read its pane, then act or tell the user. Last lines:\n${tail}`;
+}
+
+function finishedNoteText(screenText) {
+  const tail = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES).join("\n");
+  return `FINISHED: command ended without a report. terminal_read its pane, then act or tell the user. Last lines:\n${tail}`;
+}
+
+// This -EncodedCommand lands in history, so the first prompt only records the id; Write-Error keeps a failed $? for the user's prompt.
+export function workerShellArgs(id) {
+  const script = `$global:OrbitPrompt = $function:prompt
+$global:OrbitHistoryId = -1
+function global:prompt {
+  $ok = $?
+  $last = Get-History -Count 1
+  $last = if ($last) { $last.Id } else { 0 }
+  if ($global:OrbitHistoryId -ne -1 -and $last -ne $global:OrbitHistoryId) { [Console]::Write("$([char]27)]133;D;${id}$([char]7)") }
+  $global:OrbitHistoryId = $last
+  if (-not $ok) { Write-Error '' -ErrorAction Ignore }
+  & $global:OrbitPrompt
+}`;
+  return ["-NoLogo", "-NoExit", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")];
 }
 
 // X10/RXVT (ESC [ M + 3 bytes), SGR (ESC [ < ... M/m), focus (ESC [ I/O).
@@ -285,6 +311,22 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const checkStalls = () => {
     const at = now();
     for (const session of sessions.values()) {
+      if (session.retired || session.exitCode !== null) continue;
+      for (const finished of session.finished.splice(0)) {
+        if (!session.mail) continue;
+        const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
+        void Promise.resolve().then(() => notePane(session.mail, scope, finishedNoteText(finished.text))).catch(() => {});
+      }
+      const auto = session.autoNote;
+      if (auto && at - auto.at >= TERMINAL_TURN_END_MS) {
+        session.autoNote = null;
+        if (!AGENT_BUSY_RE.test(session.screen.text()) && session.mail) {
+          session.autoDelivered = true;
+          session.noteAt = at;
+          const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
+          void Promise.resolve().then(() => notePane(session.mail, scope, auto.text)).catch(() => {});
+        }
+      }
       if (!session.worker || session.retired || session.exitCode !== null) continue;
       if (session.stallDirty) {
         session.stallDirty = false;
@@ -313,11 +355,14 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       });
     }
   };
-  const watchStalls = (session) => {
-    session.worker = true;
+  const watchNotes = () => {
     if (stallTimer || disposed) return;
     stallTimer = setInterval(checkStalls, stallCheckMs);
     stallTimer.unref?.();
+  };
+  const watchStalls = (session) => {
+    session.worker = true;
+    watchNotes();
   };
   const resolveFolder = async (input, event) => {
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Optional session-only override from an explicit folder pick.
@@ -427,6 +472,18 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       try {
         session.screen.consume(data);
       } catch {}
+      for (const finished of session.finished) if (finished.text === null) finished.text = session.screen.text();
+      if (now() - session.resizedAt >= RESIZE_REPAINT_MS) {
+        const busy = AGENT_BUSY_RE.test(session.screen.text());
+        if (busy) {
+          session.autoNote = null;
+          if (!session.agentBusy) {
+            session.autoDelivered = false;
+            session.autoReported = false;
+          }
+        }
+        session.agentBusy = busy;
+      }
       if (session.worker && now() - session.resizedAt >= RESIZE_REPAINT_MS) session.stallDirty = true;
       const echo = consumeInputEcho(parsed.text, session.pendingInputEcho);
       session.pendingInputEcho = echo.pending;
@@ -450,20 +507,30 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     if (botPane) Object.assign(paneEnv, BOT_PANE_ENV);
     let pty;
     try {
-      pty = await loadPty().spawn(shell, platform === "win32" ? ["-NoLogo"] : [], {
+      pty = await loadPty().spawn(shell, platform === "win32" ? (botPane ? workerShellArgs(id) : ["-NoLogo"]) : [], {
         name: "xterm-256color", cols: input.cols, rows: input.rows, cwd, env: paneEnv, useConptyDll: platform === "win32",
       });
     } catch (cause) {
       throw errorValue(cause);
     }
     const session = {
-      id, key, botId: input.botId, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
+      id, key, botId: input.botId, botPane, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), pendingInputEcho: "", truncated: false,
       workerReady: false, mail, teacher: folder.teacher ?? input.botId, worker: false, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
+      reported: false, finished: [], autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false,
     };
+    session.outputParser = createTerminalOutputParser((osc) => {
+      if (!session.botPane || osc !== `133;D;${session.id}`) return;
+      session.worker = false;
+      session.autoNote = null;
+      session.autoDelivered = true;
+      if (!session.reported) session.finished.push({ text: null });
+      session.reported = false;
+    });
+    if (botPane) watchNotes();
     session.generation = (generations.get(key) ?? 0) + 1;
     generations.set(key, session.generation);
     sessions.set(session.id, session);
@@ -501,6 +568,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     const submit = isSubmitInput(text);
     // only a command the user typed arms their alert
     if (submit) {
+      session.autoNote = null;
+      session.autoDelivered = false;
+      session.autoReported = false;
       session.attentionReported = false;
       session.activityCooldownUntil = 0;
       session.stallArmedAt = now();
@@ -661,6 +731,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
       // A shell can emit a bell more than once; arm the next command after Enter.
       if (submit) {
+        session.autoNote = null;
+        session.autoDelivered = false;
+        session.autoReported = false;
         session.attentionReported = false;
         session.activityCooldownUntil = 0;
       }
@@ -733,6 +806,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         if (!session) return { botId, state: "no-terminal", screenText: "", recentText: "", seq: 0, capturedAt: now(), exitCode: null, exited: false, truncated: false, panes: [], closedPanes };
         const maxScreenChars = Number.isInteger(options.maxScreenChars) ? Math.max(1, Math.min(options.maxScreenChars, 64 * 1024)) : 64 * 1024;
         const maxScrollbackChars = Number.isInteger(options.maxScrollbackChars) ? Math.max(0, Math.min(options.maxScrollbackChars, 16 * 1024)) : 16 * 1024;
+        if (options.observe) session.finished = [];
         return {
           botId,
           sessionId: session.id,
@@ -803,12 +877,22 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge writes synchronously or asynchronously.
       return result && typeof result.then === "function" ? result.then(() => snapshot(session)) : snapshot(session);
     },
-    attendBot(botId, sessionId, kind) {
+    attendBot(botId, sessionId, kind, text) {
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Bot ids cross the local proxy boundary.
       if (typeof botId !== "string" || !BOT_ID_RE.test(botId)) throw new Error("Invalid bot");
       const session = botSessions(botId).find((candidate) => candidate.id === sessionId);
-      if (session && kind === "report") session.reportAt = now();
-      else if (session) session.noteAt = now();
+      if (session && kind === "report") {
+        session.reportAt = now();
+        session.reported = true;
+        session.finished = [];
+        session.autoNote = null;
+        session.autoReported = true;
+      } else if (session) session.noteAt = now();
+      if (session && session.exitCode === null && kind === "auto" && typeof text === "string") {
+        if (!session.autoReported && !session.autoDelivered) session.autoNote = { at: now(), text };
+        watchNotes();
+        return true;
+      }
       if (!session || session.exitCode !== null || session.attentionReported) return false;
       clearActivityTimer(session);
       return reportAttention(session, "activity");

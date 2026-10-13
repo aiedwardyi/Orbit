@@ -1,6 +1,6 @@
 // A stored pane note, split into what a person reads and what only the bot needs.
 export type PaneNoteStatus = "done" | "failed" | "blocked";
-export type PaneNoteAlert = { kind: "stalled"; minutes: number } | { kind: "waiting" };
+export type PaneNoteAlert = { kind: "stalled"; minutes: number } | { kind: "waiting" } | { kind: "finished" };
 export type PaneNote = {
   pane8: string | null;
   label: string | null;
@@ -20,6 +20,7 @@ const STATUS = { DONE: "done", FAIL: "failed", BLOCKED: "blocked" } as const;
 // electron/terminal-host.mjs stallNoteText and electron/terminal-mailbox.mjs WAITING_NOTE
 const STALLED = /^STALLED: no screen change for (\d+) min and no report\./;
 const WAITING = /^WAITING: this worker is stuck on an on-screen prompt/;
+const FINISHED = /^FINISHED: command ended without a report\./;
 const TRUNCATED = /\n\[truncated\]$/;
 
 /** Works on a stored note or on the raw text a pane posted. */
@@ -32,6 +33,7 @@ export function parsePaneNote(text: string): PaneNote {
   const stalled = STALLED.exec(rest);
   if (stalled) return { ...note, alert: { kind: "stalled", minutes: Number(stalled[1]) } };
   if (WAITING.test(rest)) return { ...note, alert: { kind: "waiting" } };
+  if (FINISHED.test(rest)) return { ...note, alert: { kind: "finished" } };
   const report = REPORT.exec(rest);
   if (report) {
     // SAFETY: REPORT captures only DONE, FAIL or BLOCKED.

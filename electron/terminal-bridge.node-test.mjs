@@ -56,6 +56,31 @@ const sendRequest = (connection, init = {}) => fetch(`${connection.url}/v1/bots/
   ...init,
 });
 
+test("forwards turn-end text and explicit read observation to the host", async (t) => {
+  const calls = [];
+  const bridge = createTerminalBridge({ host: {
+    readBot: (...args) => { calls.push(args); return {}; },
+    sendBot() {},
+    attendBot: (...args) => { calls.push(args); return true; },
+  } });
+  t.after(() => bridge.close());
+  const connection = await bridge.start();
+  const headers = { authorization: `Bearer ${terminalReadGrant(connection.token, "bot-1")}`, "content-type": "application/json" };
+  const note = await fetch(`${connection.url}/v1/bots/bot-1/terminal/attention`, { method: "POST", headers, body: JSON.stringify({ sessionId: "worker", kind: "auto", text: "done" }) });
+  assert.deepEqual(await note.json(), { raised: true });
+  await fetch(`${connection.url}/v1/bots/bot-1/terminal?sessionId=worker&observe=1`, { headers });
+  assert.deepEqual(calls, [["bot-1", "worker", "auto", "done"], ["bot-1", { sessionId: "worker", observe: true }]]);
+});
+
+test("the snapshot terminal_send returns counts as a read", async (t) => {
+  const calls = [];
+  const bridge = createTerminalBridge({ host: { readBot: (...args) => { calls.push(args); return {}; }, sendBot() {} } });
+  t.after(() => bridge.close());
+  const connection = await bridge.start();
+  await sendRequest(connection, { body: JSON.stringify({ sessionId: "worker", generation: 1, text: "ls\r" }) });
+  assert.deepEqual(calls, [["bot-1", { sessionId: "worker", observe: true }]]);
+});
+
 test("sends text to the bot's own terminal and returns the read-shaped snapshot", async () => {
   const { bridge, calls } = sendFixture();
   const connection = await bridge.start();

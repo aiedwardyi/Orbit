@@ -44,6 +44,12 @@ describe("parsePaneNote", () => {
     expect(noteText(note, t)).toBe("Waiting on a prompt in its terminal.");
   });
 
+  it("turns a FINISHED watcher note into an alert", () => {
+    const note = parsePaneNote(stored("FINISHED: command ended without a report. terminal_read its pane, then act or tell the user. Last lines:\nTests passed"));
+    expect(note).toMatchObject({ status: null, alert: { kind: "finished" }, body: "" });
+    expect(noteText(note, t)).toBe("Command ended without a report.");
+  });
+
   it("falls back to the free text minus the prefix", () => {
     expect(parsePaneNote(stored("halfway, tests running"))).toMatchObject({ status: null, alert: null, nick: null, body: "halfway, tests running" });
     expect(parsePaneNote(stored("WAITING: on CI")).body).toBe("WAITING: on CI");
