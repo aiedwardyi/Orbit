@@ -602,7 +602,7 @@ const Bubble = memo(function Bubble({
         <div
           data-orbit-message-content
           className={cn(
-            "w-fit max-w-full rounded-2xl text-[15px] leading-relaxed",
+            "w-fit max-w-full rounded-2xl text-[15px] leading-relaxed break-words",
             user && webhookView
               ? "overflow-hidden border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
               : user
