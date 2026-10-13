@@ -105,7 +105,7 @@ import {
   NATIVE_DIR,
 } from "./config.ts";
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
-import { createMuseCheck, createUsageRefresh, usageRefreshResponse } from "./usage-refresh.ts";
+import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
 import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
 import { createSummaryRepair, logSummaryCall } from "./summary-repair.ts";
@@ -9925,7 +9925,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         environment: config.environment,
       };
       const result = m[1] === "check"
-        ? await checkMuseUsage(usageOptions, previous)
+        ? await checkMuseUsage({
+            ...usageOptions,
+            museModel: museCheckModel(store.bots.filter((bot) => bot.modelSelection.instanceId === instanceId).map((bot) => bot.modelSelection.model)),
+          }, previous)
         : await refreshUsage(instance.driverKind, usageOptions, previous);
       if (result.report) {
         const current = rateLimitsByInstance.get(instanceId);

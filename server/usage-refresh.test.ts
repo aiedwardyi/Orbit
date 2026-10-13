@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createMuseCheck, createUsageRefresh, isCsrfRejection, readAntigravityQuota, readAntigravityUsageCommand, readGrokBillingRpc, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
+import { createMuseCheck, createUsageRefresh, isCsrfRejection, museCheckModel, readAntigravityQuota, readAntigravityUsageCommand, readGrokBillingRpc, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
 import { antigravityRateLimitWindows } from "./drivers/rate-limits.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
@@ -403,12 +403,34 @@ describe("usage refresh route result", () => {
       expect(spawn.cwd).toContain("omb-muse-check-");
       expect(spawn.cwd).not.toBe(homedir());
       expect(JSON.parse(readFileSync(`${dump}.config.json`, "utf8"))).toEqual([
-        { method: "session/start", modelId: "muse-spark-1.3-contributor", approvalMode: "denyUnmatched", workspaceRoot: spawn.cwd },
+        { method: "session/start", modelId: "muse-spark-1.3", approvalMode: "denyUnmatched", workspaceRoot: spawn.cwd },
       ]);
       const turn = JSON.parse(readFileSync(`${dump}.turn-params.json`, "utf8"));
       expect(turn.reasoningEffort).toBe("minimal");
       expect(turn.input).toEqual([{ type: "text", text: "Reply with: ok" }]);
       await vi.waitFor(() => expect(existsSync(spawn.cwd)).toBe(false));
+    } finally {
+      await removeTempDir(scratch);
+    }
+  });
+
+  it.each([
+    ["all contributor", ["muse-spark-1.3-contributor", "muse-spark-1.2-contributor"], "muse-spark-1.3-contributor"],
+    ["mixed", ["muse-spark-1.3-contributor", "muse-spark-1.3"], "muse-spark-1.3"],
+    ["no Muse bots", [], "muse-spark-1.3"],
+    ["standard only", ["muse-spark-1.3", "muse-spark-1.2"], "muse-spark-1.3"],
+  ] as const)("checks Muse in the bots' mode: %s", async (_name, botModels, expected) => {
+    expect(museCheckModel(botModels)).toBe(expected);
+    const scratch = mkdtempSync(join(tmpdir(), "omb-muse-check-mode-"));
+    const dump = join(scratch, "dump.json");
+    try {
+      const check = createMuseCheck({
+        muse: (_cli, env, read) => readMuseUsage(FAKE_MSP_CLI, { ...env, FAKE_MSP_USAGE: JSON.stringify(fixtures.museAgent), FAKE_MSP_DUMP: dump }, { ...read, platform: "linux", check: true }),
+      });
+      const result = await check({ instanceId: "muse", museModel: museCheckModel(botModels) });
+      expect(result.status).toBe("fresh");
+      const [start] = JSON.parse(readFileSync(`${dump}.config.json`, "utf8"));
+      expect(start).toMatchObject({ method: "session/start", modelId: expected });
     } finally {
       await removeTempDir(scratch);
     }
