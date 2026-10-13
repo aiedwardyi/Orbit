@@ -10,6 +10,55 @@ describe("harness playbook", () => {
     expect(harnessPlaybookPrompt(false)).toBe("");
   });
 
+  it("hands big jobs to workers and keeps quick asks", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("Hand big jobs to workers");
+    expect(prompt).toContain("Do quick asks");
+    expect(prompt).toContain("small edits yourself");
+    expect(prompt).toContain("big jobs too when no worker can start");
+    expect(prompt).toContain("needs tools only you have, like connected apps or the browser");
+  });
+
+  it("gives an editing job in a plain folder one worker in place", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("An editing job in a plain folder gets no worktree: one worker edits it in place");
+  });
+
+  it("edits a checkout with uncommitted changes in place and checks its files", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("The same goes for a checkout with uncommitted changes");
+    expect(prompt).toContain("An in-place worker has no branch: instead of steps 1 and 2, read the files it");
+    expect(prompt).toContain("Skip steps 6 and 9, and never stash, reset or check out over the");
+  });
+
+  it("verifies a scratch-copy review by its findings and deletes the copy", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("A read-only review in a scratch copy has no branch either: instead of the");
+  });
+
+  it("lands only the worker's own commit from a clean worktree", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("the worker's own new commit is on");
+    expect(prompt).toContain('`git -C "<worktree>" status --short` prints nothing');
+  });
+
+  it("checks for changes before writing the card and keeps cards out of the repo", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("Check before you write the card, and keep cards outside the repo");
+  });
+
+  it("lands a verified result uncommitted unless the user asked for a branch", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("Land the result unless the user asked for a branch, push or PR");
+    expect(prompt).toContain('git -C "<repo>" merge --squash <branch>');
+    expect(prompt).toContain("Landing a verified result in step 9 is part of the job");
+  });
+
+  it("quotes worktree paths", () => {
+    expect(loadHarnessPlaybook(undefined, join("D:", "my wt"))).toContain(`worktree add "${join("D:", "my wt", "<name>")}"`);
+  });
+
+  it("says worker reports from a group room reach the bot's own chat", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("worker reports reach your own chat, not the room");
+  });
+
   it("sends long follow-ups as a file, one line", () => {
     expect(harnessPlaybookPrompt(true)).toContain("Follow-ups use the card rule: write long instructions to a file");
   });
