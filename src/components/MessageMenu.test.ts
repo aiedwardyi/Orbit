@@ -607,6 +607,24 @@ describe("message menu on touch", () => {
     expect(messageMenu()).not.toBeNull();
   });
 
+  it("drops its scroll watch once the menu opens and still swallows the lift", async () => {
+    const host = await mountChat(bot([botMsg("b1", "hello there")]));
+    stubTouchScreen();
+    const add = vi.spyOn(document, "addEventListener");
+    const remove = vi.spyOn(document, "removeEventListener");
+    const target = content(host, "b1");
+    await touch("touchstart", target, [[100, 120]]);
+    const watch = add.mock.calls.find(([type, , capture]) => type === "scroll" && capture === true)?.[1];
+    expect(watch).toBeDefined();
+    remove.mockClear();
+    await wait(500);
+    expect(messageMenu()).not.toBeNull();
+    expect(remove.mock.calls.some(([type, fn]) => type === "scroll" && fn === watch)).toBe(true);
+    expect((await touch("touchend", target)).defaultPrevented).toBe(true);
+    add.mockRestore();
+    remove.mockRestore();
+  });
+
   it("swallows the lift after a hold so it presses nothing", async () => {
     const host = await mountChat(bot([botMsg("b1", "hello there")]));
     stubTouchScreen();

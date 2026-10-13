@@ -104,6 +104,8 @@ export function holdToOpen(open: ((x: number, y: number, opener: HTMLElement) =>
         y,
         timer: setTimeout(() => {
           if (press) press.timer = null;
+          // scrolling can no longer cancel; press stays for the lift guard
+          document.removeEventListener("scroll", pressScrolled, true);
           endSelectMode();
           open(x, y, opener);
         }, HOLD_MS),
