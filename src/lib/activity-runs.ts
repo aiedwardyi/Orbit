@@ -5,6 +5,7 @@
 // SAID. Consecutive finished steps fold into a single row that names them;
 // text between two stretches breaks the run, so the bot's words always
 // separate one run from the next.
+import type { MessageKey, Translate } from "@/lib/i18n";
 import type { Message } from "@/state/store";
 import { termVerb } from "@/lib/terminal-skin";
 
@@ -66,6 +67,96 @@ export function classifyServerNotice(name: string): ServerNotice | null {
     name.endsWith(" is still stopping \u2014 this message was not dispatched")
   ) return { kind: "line" };
   return null;
+}
+
+interface ServerLine {
+  re: RegExp;
+  pick: (m: RegExpExecArray) => [MessageKey, Record<string, string | number>];
+  /** fixed English the server must keep writing, in `file`; the drift guard scans for it */
+  file: "comms-visibility.ts" | "delegations.ts" | "index.ts";
+  needles: string[];
+}
+
+/** Bot handoff lines the server stores in English. Free text (`why`, `reason`) goes last so t() never rescans it. */
+export const SERVER_LINES: ServerLine[] = [
+  { re: /^Message to @(.+)$/, pick: (m) => ["chat.messageToBot", { name: m[1] }], file: "comms-visibility.ts", needles: ["Message to @"] },
+  { re: /^Message from @(.+)$/, pick: (m) => ["chat.messageFromBot", { name: m[1] }], file: "comms-visibility.ts", needles: ["Message from @"] },
+  { re: /^Reply from @(.+)$/, pick: (m) => ["chat.replyFromBot", { name: m[1] }], file: "comms-visibility.ts", needles: ["Reply from @"] },
+  {
+    re: /^Queued for @(.+?), sends when this reply ends(?:: ([\s\S]*))?$/,
+    pick: (m) => (m[2] === undefined ? ["chat.delegation.queued", { name: m[1] }] : ["chat.delegation.queuedReason", { name: m[1], reason: m[2] }]),
+    file: "delegations.ts",
+    needles: ["Queued for @", ", sends when this reply ends"],
+  },
+  { re: /^delegation failed \u2014 ([\s\S]*)$/, pick: (m) => ["chat.delegation.failed", { why: m[1] }], file: "delegations.ts", needles: ["error: delegation failed \u2014 "] },
+  {
+    re: /^delegation to @(.+?) could not start \u2014 ([\s\S]*)$/,
+    pick: (m) => ["chat.delegation.couldNotStartError", { name: m[1], why: m[2] }],
+    file: "index.ts",
+    needles: ["error: delegation to @", " could not start \u2014 "],
+  },
+  {
+    re: /^delegation to (.+) failed \u2014 no such bot$/,
+    pick: (m) => ["chat.delegation.noSuchBot", { id: m[1] }],
+    file: "delegations.ts",
+    needles: ["error: delegation to ", " failed \u2014 no such bot"],
+  },
+  {
+    re: /^Delegation to @(.+) dropped - the turn did not finish$/,
+    pick: (m) => ["chat.delegation.dropped", { name: m[1] }],
+    file: "delegations.ts",
+    needles: ["Delegation to @", " dropped - the turn did not finish"],
+  },
+  {
+    re: /^(\d+) queued delegation(s?) dropped \u2014 the turn did not finish$/,
+    pick: (m) => [m[2] ? "chat.delegation.droppedMany" : "chat.delegation.droppedOne", { count: m[1] }],
+    file: "delegations.ts",
+    needles: [" queued delegation", " dropped \u2014 the turn did not finish"],
+  },
+  {
+    re: /^Delegation to @(.+?) waiting \u2014 they're busy \(retry (\d+)\/(\d+) when they finish\)$/,
+    pick: (m) => ["chat.delegation.waiting", { name: m[1], attempt: m[2], max: m[3] }],
+    file: "delegations.ts",
+    needles: [" waiting \u2014 they're busy (retry ", " when they finish)"],
+  },
+  {
+    re: /^Delegation to @(.+?) canceled \u2014 still busy after (\d+) retries$/,
+    pick: (m) => ["chat.delegation.canceled", { name: m[1], count: m[2] }],
+    file: "delegations.ts",
+    needles: [" canceled \u2014 still busy after ", " retries"],
+  },
+  { re: /^Delegation to @(.+) denied by user$/, pick: (m) => ["chat.delegation.denied", { name: m[1] }], file: "delegations.ts", needles: [" denied by user"] },
+  { re: /^Delivered to @(.+)$/, pick: (m) => ["chat.delegation.delivered", { name: m[1] }], file: "delegations.ts", needles: ["Delivered to @"] },
+  { re: /^@(.+) replied$/, pick: (m) => ["chat.delegation.replied", { name: m[1] }], file: "delegations.ts", needles: ["@${target.name} replied"] },
+  {
+    re: /^(.+?) answered (.+) in its own chat instead$/,
+    pick: (m) => ["chat.delegation.answeredElsewhere", { name: m[1], who: m[2] }],
+    file: "delegations.ts",
+    needles: [" answered ", " in its own chat instead"],
+  },
+  { re: /^Delegated turn did not finish$/, pick: () => ["chat.delegation.turnDidNotFinish", {}], file: "delegations.ts", needles: ["Delegated turn did not finish"] },
+  { re: /^Delegated turn completed$/, pick: () => ["chat.delegation.turnCompleted", {}], file: "delegations.ts", needles: ["Delegated turn completed"] },
+  { re: /^Delegated turn stalled and was stopped$/, pick: () => ["chat.delegation.turnStalled", {}], file: "index.ts", needles: ["Delegated turn stalled and was stopped"] },
+  {
+    re: /^Delegated turn could not start \u2014 ([\s\S]*)$/,
+    pick: (m) => ["chat.delegation.turnCouldNotStart", { why: m[1] }],
+    file: "index.ts",
+    needles: ["Delegated turn could not start \u2014 "],
+  },
+];
+
+/** A server handoff line in the app's language; anything unrecognised comes back as written. Display only. */
+export function localizeServerLine(name: string, t: Translate): string {
+  const prefix = name.startsWith("error: ") ? "error: " : "";
+  const body = name.slice(prefix.length);
+  for (const line of SERVER_LINES) {
+    const m = line.re.exec(body);
+    if (m) {
+      const [key, vars] = line.pick(m);
+      return prefix + t(key, vars);
+    }
+  }
+  return name;
 }
 
 export function isApprovalNotice(message: Message): boolean {

@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { Bot, ChevronRight, Check, FileText, Globe, Loader2, Pencil, Search, SquareTerminal, Wrench, X } from "lucide-react";
 import type { Message } from "@/state/store";
-import { classifyServerNotice, describeRun, describeSearch, type LinkedApproval } from "@/lib/activity-runs";
+import { classifyServerNotice, describeRun, describeSearch, localizeServerLine, type LinkedApproval } from "@/lib/activity-runs";
 import { useI18n, type Translate } from "@/lib/i18n";
 import { useSkin } from "@/lib/skins";
 import { APPROVAL_WORD, TERM_STEP_WORD, termBlock, termHeaderArgs, termResultLine, termStepAria, termStepState, termUpdatedLine, termVerb } from "@/lib/terminal-skin";
@@ -60,11 +60,12 @@ export function ActivityStep({ message, notices }: { message: Message; notices?:
   }
   const Icon = stepIcon(tool.name);
   const elapsed = running ? Math.max(0, now - new Date(message.at).getTime()) : tool.durationMs;
-  if (terminal) return <TermStep name={tool.name} rawVerb={tool.verb} summary={tool.summary} ok={tool.ok} elapsed={elapsed} detail={tool.detail} notices={notices} />;
+  const shown = localizeServerLine(tool.name, t);
+  if (terminal) return <TermStep name={shown} rawVerb={tool.verb} summary={tool.summary} ok={tool.ok} elapsed={elapsed} detail={tool.detail} notices={notices} />;
   return (
     <div title={approvalHover(notices, t)} className="flex max-w-[min(42rem,100%)] items-center gap-2 px-3 py-0.5 text-[13px] text-ink-secondary">
       <Icon size={13} className="shrink-0" />
-      <span className="shrink-0 text-ink">{tool.name}</span>
+      <span className="shrink-0 text-ink">{shown}</span>
       {tool.summary && <span className="min-w-0 truncate font-mono text-[12px]">{tool.summary}</span>}
       <StepStatus ok={tool.ok} />
       <span className="ml-auto shrink-0 pl-3 text-[12px] tabular-nums">{elapsed === undefined ? "" : formatDuration(elapsed)}</span>

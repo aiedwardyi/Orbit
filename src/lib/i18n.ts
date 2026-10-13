@@ -125,7 +125,7 @@ export function translate(locale: LocaleId, key: MessageKey, vars?: Record<strin
   let phrase: string = table[key] ?? catalogs.en[key];
   if (!vars) return phrase;
   for (const [name, value] of Object.entries(vars)) {
-    phrase = phrase.replaceAll(`{${name}}`, String(value));
+    phrase = phrase.replaceAll(`{${name}}`, () => String(value));
   }
   return phrase;
 }

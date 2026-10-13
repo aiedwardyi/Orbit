@@ -79,11 +79,39 @@ describe("RoomToolChip", () => {
     expect(chips[0].getAttribute("title")).toBe("Atlas 대화 열기");
   });
 
+  it("shows handoff status lines in Korean in a room and as written in English", async () => {
+    const line = (id: string, name: string): Message => ({ id, at: 1, role: "bot", kind: "activity", tool: { name, ok: false } });
+    const rows = [
+      line("denied", "Delegation to @Atlas denied by user"),
+      line("failed", "error: delegation failed \u2014 Atlas is offline"),
+      line("waiting", "Delegation to @Atlas waiting \u2014 they're busy (retry 1/3 when they finish)"),
+      line("other", "error: the CLI exited"),
+    ];
+    const labels = () => Array.from(host.querySelectorAll("span.truncate")).map((span) => span.textContent);
+    await renderRows(rows);
+    expect(labels()).toEqual([
+      "Delegation to @Atlas denied by user",
+      "error: delegation failed \u2014 Atlas is offline",
+      "Delegation to @Atlas waiting \u2014 they're busy (retry 1/3 when they finish)",
+      "error: the CLI exited",
+    ]);
+    await act(async () => { root.unmount(); });
+    host.remove();
+    localStorage.setItem("omb-locale", "ko");
+    await renderRows(rows);
+    expect(labels()).toEqual([
+      "@Atlas에게 한 위임을 사용자가 거부했습니다",
+      "error: 위임 실패 - Atlas is offline",
+      "@Atlas에게 한 위임 대기 중 - 상대가 작업 중입니다 (끝나면 1/3번째 재시도)",
+      "error: the CLI exited",
+    ]);
+  });
+
   it("translates Message from and the failed-turn fold labels into Korean in a room", async () => {
     localStorage.setItem("omb-locale", "ko");
     const received: Message = { id: "received", at: 1, role: "bot", kind: "activity", tool: { name: "Message from @Atlas" }, comm: { ...comm, peer: "from" } };
     const chips = await renderRows([received, { ...received, id: "old", comm }]);
-    expect(chips.map((chip) => chip.querySelector("span.truncate")?.textContent)).toEqual(["@Atlas에게서 온 메시지", "Message from @Atlas"]);
+    expect(chips.map((chip) => chip.querySelector("span.truncate")?.textContent)).toEqual(["@Atlas에게서 온 메시지", "@Atlas에게서 온 메시지"]);
     await act(async () => { root.unmount(); });
     host.remove();
 

@@ -51,7 +51,7 @@ import { ReactionBar, ReactionChips } from "./Reactions";
 import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
 import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
-import { groupActivityRuns, itemMatchesFind, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
+import { groupActivityRuns, itemMatchesFind, localizeServerLine, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
 import { messageVisible, roomTranscriptRows } from "@/lib/room-transcript";
 import { isShownMessage } from "@/lib/shown-message";
 import { roomRetry } from "@/lib/room-retry";
@@ -222,7 +222,7 @@ export function RoomToolChip({
               ? "min-w-0 max-w-full break-words whitespace-pre-wrap font-mono"
               : "min-w-0 max-w-[480px] truncate font-mono"}
           >
-            {tool.name}
+            {localizeServerLine(tool.name, t)}
           </span>
         </div>
         {setupAction === "cli" && instance ? (

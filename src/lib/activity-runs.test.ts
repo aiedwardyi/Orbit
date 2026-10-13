@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { activityRunVisible, activityVisibleInChat, classifyServerNotice, describeRun, describeSearch, groupActivityRuns, shownRunStep } from "./activity-runs";
+import { activityRunVisible, activityVisibleInChat, classifyServerNotice, describeRun, describeSearch, groupActivityRuns, localizeServerLine, SERVER_LINES, shownRunStep } from "./activity-runs";
+import { translate, type Translate } from "@/lib/i18n";
 import type { Message } from "@/state/store";
 
 let seq = 0;
@@ -361,5 +365,85 @@ describe("describeSearch", () => {
     expect(describeSearch([tool("Grep"), tool("Read"), tool("Read")])).toBe("Searched for 1 pattern, read 2 files");
     expect(describeSearch([tool("Glob"), tool("Grep")])).toBe("Searched for 2 patterns");
     expect(describeSearch([tool("Read")])).toBe("Read 1 file");
+  });
+});
+
+describe("localizeServerLine", () => {
+  const en: Translate = (key, vars) => translate("en", key, vars);
+  const ko: Translate = (key, vars) => translate("ko", key, vars);
+  const samples: [string, string][] = [
+    ["Message to @Atlas", "@Atlas에게 보낸 메시지"],
+    ["Message from @Atlas", "@Atlas에게서 온 메시지"],
+    ["Reply from @Atlas", "@Atlas의 답장"],
+    ["Queued for @Atlas, sends when this reply ends", "@Atlas에게 대기 중, 이 응답이 끝나면 전송됩니다"],
+    ["Queued for @Atlas, sends when this reply ends: check the build", "@Atlas에게 대기 중, 이 응답이 끝나면 전송됩니다: check the build"],
+    ["error: delegation failed \u2014 Atlas is offline", "error: 위임 실패 - Atlas is offline"],
+    ["error: delegation to @Atlas could not start \u2014 spawn failed", "error: @Atlas에게 한 위임을 시작하지 못했습니다 - spawn failed"],
+    ["error: delegation to b7 failed \u2014 no such bot", "error: b7에게 한 위임 실패 - 해당 봇이 없습니다"],
+    ["Delegation to @Atlas dropped - the turn did not finish", "@Atlas에게 한 위임 취소됨 - 턴이 끝나지 않았습니다"],
+    ["1 queued delegation dropped \u2014 the turn did not finish", "대기 중이던 위임 1건 취소됨 - 턴이 끝나지 않았습니다"],
+    ["3 queued delegations dropped \u2014 the turn did not finish", "대기 중이던 위임 3건 취소됨 - 턴이 끝나지 않았습니다"],
+    ["Delegation to @Atlas waiting \u2014 they're busy (retry 2/5 when they finish)", "@Atlas에게 한 위임 대기 중 - 상대가 작업 중입니다 (끝나면 2/5번째 재시도)"],
+    ["Delegation to @Atlas canceled \u2014 still busy after 5 retries", "@Atlas에게 한 위임 취소됨 - 5회 재시도 후에도 계속 작업 중"],
+    ["Delegation to @Atlas denied by user", "@Atlas에게 한 위임을 사용자가 거부했습니다"],
+    ["Delivered to @Atlas", "@Atlas에게 전달됨"],
+    ["@Atlas replied", "@Atlas 답장 도착"],
+    ["Atlas answered Edward in its own chat instead", "Atlas - 대신 자기 채팅에서 Edward에게 답변함"],
+    ["Delegated turn did not finish", "위임한 턴이 끝나지 않았습니다"],
+    ["Delegated turn completed", "위임한 턴이 완료되었습니다"],
+    ["Delegated turn stalled and was stopped", "위임한 턴이 멈춰서 중단되었습니다"],
+    ["Delegated turn could not start \u2014 spawn failed", "위임한 턴을 시작하지 못했습니다 - spawn failed"],
+  ];
+
+  it.each(samples)("maps %s into Korean", (line, korean) => {
+    expect(localizeServerLine(line, ko)).toBe(korean);
+  });
+
+  it.each(samples)("leaves %s as written in English", (line) => {
+    expect(localizeServerLine(line, en)).toBe(line);
+  });
+
+  it("maps a line without its error prefix, as the error row shows it", () => {
+    expect(localizeServerLine("delegation failed \u2014 Atlas is offline", ko)).toBe("위임 실패 - Atlas is offline");
+  });
+
+  it("passes free text through untouched, even when it looks like a placeholder or a replacement pattern", () => {
+    const why = "bad $& $$ {name} {why} \u2014 “quoted”\n2nd line";
+    expect(localizeServerLine(`error: delegation failed \u2014 ${why}`, en)).toBe(`error: delegation failed \u2014 ${why}`);
+    expect(localizeServerLine(`error: delegation failed \u2014 ${why}`, ko)).toBe(`error: 위임 실패 - ${why}`);
+    expect(localizeServerLine(`Queued for @Atlas, sends when this reply ends: ${why}`, ko)).toBe(`@Atlas에게 대기 중, 이 응답이 끝나면 전송됩니다: ${why}`);
+  });
+
+  it("keeps the bot name whole when it holds punctuation", () => {
+    expect(localizeServerLine("Delivered to @R2-D2 (v2)", ko)).toBe("@R2-D2 (v2)에게 전달됨");
+  });
+
+  it("passes unknown lines through", () => {
+    for (const line of ["Bash", "memory.save", "error: the CLI exited", "Message to Atlas", "Delivered to Atlas", "auto-approved Bash: npm test"]) {
+      expect(localizeServerLine(line, ko)).toBe(line);
+    }
+  });
+
+  it("does not change how a line is classified or grouped", () => {
+    const line = "Delegation to @Atlas denied by user";
+    expect(classifyServerNotice(line)).toBeNull();
+    expect(groupActivityRuns([tool(line, false), tool(line, false)])[0].kind).toBe("run");
+  });
+});
+
+describe("server handoff lines", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const source = (file: string) => readFileSync(join(here, "../../server", file), "utf8");
+
+  it("still writes the English each pattern reads", () => {
+    for (const line of SERVER_LINES) {
+      const text = source(line.file);
+      for (const needle of line.needles) expect(text.includes(needle), `${line.file}: ${needle}`).toBe(true);
+    }
+  });
+
+  it("fails when the server rewords a line", () => {
+    const reworded = source("delegations.ts").replaceAll("Delivered to @", "Handed to @");
+    expect(SERVER_LINES.filter((line) => line.file === "delegations.ts" && line.needles.some((needle) => !reworded.includes(needle))).map((line) => line.re.source)).toEqual(["^Delivered to @(.+)$"]);
   });
 });
