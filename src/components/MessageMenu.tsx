@@ -1,19 +1,29 @@
 // Right-click menu on chat messages: react, reply or copy on a bot reply,
 // reply or copy on his own, and Copy on selected text. Links, inputs and the
 // composer keep the native menu. Same dismiss contract as the sidebar menus.
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+// On phones a hold opens it, and Select text hands one message back to the
+// phone's own selection.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Copy, MessageSquareReply, SmilePlus, X } from "lucide-react";
+import { Copy, MessageSquareReply, SmilePlus, TextCursor, X } from "lucide-react";
 import { EXTENDED_REACTIONS } from "../../shared/reactions";
 import { useStore, type Message } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+
+declare global {
+  interface WindowEventMap {
+    "orbit:message-menu": CustomEvent<boolean>;
+  }
+}
 
 /** Quick row on the bot menu, in Grok's order. */
 export const QUICK_REACTIONS = ["👍", "👎", "❤️", "😂", "🎉", "🔥"] as const;
 
 /** Gutter the menu keeps off every window edge. */
 const EDGE = 8;
+const HOLD_MS = 500;
+const HOLD_SLOP = 10;
 
 export function copyShortcutHint(): string {
   const mac = /Mac/i.test(globalThis.navigator?.platform ?? "");
@@ -28,6 +38,96 @@ export function isTouchPrimary(win: Window = window): boolean {
 /** Links and editable fields keep today's native menu. */
 export function keepsNativeMenu(target: Element): boolean {
   return target.closest("a[href], input, textarea, select, [contenteditable=\"true\"]") !== null;
+}
+
+function holdsNative(target: Element): boolean {
+  return keepsNativeMenu(target) || target.closest("img, [data-select-mode]") !== null;
+}
+
+let selecting: (() => void) | null = null;
+
+export function endSelectMode(): void {
+  selecting?.();
+}
+
+/** Selects the row's text and lets the phone's own selection work there until a touch lands elsewhere. */
+export function startSelectMode(row: HTMLElement): void {
+  endSelectMode();
+  row.setAttribute("data-select-mode", "");
+  window.getSelection()?.selectAllChildren(row.querySelector("[data-orbit-message-content]") ?? row);
+  const onDown = (e: Event) => {
+    if (!(e.target instanceof Node && row.contains(e.target))) end();
+  };
+  const end = () => {
+    row.removeAttribute("data-select-mode");
+    const sel = window.getSelection();
+    if (sel?.anchorNode && row.contains(sel.anchorNode)) sel.removeAllRanges();
+    document.removeEventListener("touchstart", onDown, true);
+    document.removeEventListener("mousedown", onDown, true);
+    selecting = null;
+  };
+  document.addEventListener("touchstart", onDown, true);
+  document.addEventListener("mousedown", onDown, true);
+  selecting = end;
+}
+
+interface Press {
+  x: number;
+  y: number;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+let press: Press | null = null;
+
+function cancelPress(): void {
+  if (press?.timer) clearTimeout(press.timer);
+  press = null;
+  document.removeEventListener("scroll", pressScrolled, true);
+}
+
+function pressScrolled(): void {
+  if (press?.timer) cancelPress();
+}
+
+/** Row props that open the menu after a still, one-finger hold on touch-first devices. */
+export function holdToOpen(open: ((x: number, y: number, opener: HTMLElement) => void) | null) {
+  if (!open) return {};
+  return {
+    "data-hold-menu": "",
+    onTouchStart: (e: React.TouchEvent<HTMLElement>) => {
+      cancelPress();
+      const touch = e.touches[0];
+      if (!touch || e.touches.length > 1 || !isTouchPrimary() || !(e.target instanceof Element) || holdsNative(e.target)) return;
+      const { clientX: x, clientY: y } = touch;
+      const opener = e.currentTarget;
+      press = {
+        x,
+        y,
+        timer: setTimeout(() => {
+          if (press) press.timer = null;
+          // scrolling can no longer cancel; press stays for the lift guard
+          document.removeEventListener("scroll", pressScrolled, true);
+          endSelectMode();
+          open(x, y, opener);
+        }, HOLD_MS),
+      };
+      // the transcript can scroll under a still finger, like following a streaming reply
+      document.addEventListener("scroll", pressScrolled, true);
+    },
+    onTouchMove: (e: React.TouchEvent<HTMLElement>) => {
+      const touch = e.touches[0];
+      if (!press?.timer) return;
+      if (!touch || e.touches.length > 1 || Math.hypot(touch.clientX - press.x, touch.clientY - press.y) > HOLD_SLOP) cancelPress();
+    },
+    onTouchEnd: (e: React.TouchEvent<HTMLElement>) => {
+      // the menu opened under the finger, so the lift must not press it
+      if (press && !press.timer && e.cancelable) e.preventDefault();
+      cancelPress();
+    },
+    onTouchCancel: cancelPress,
+    onContextMenuCapture: (e: React.MouseEvent<HTMLElement>) => {
+      if (press && e.target instanceof Element && !holdsNative(e.target)) e.preventDefault();
+    },
+  };
 }
 
 /** The slice of Selection a right-click consults. */
@@ -113,7 +213,7 @@ function useMenuPlacement(
 
 function useMenuDismiss(ref: React.RefObject<HTMLDivElement | null>, opener: HTMLElement, onClose: () => void): void {
   useLayoutEffect(() => {
-    const onDown = (e: MouseEvent) => {
+    const onDown = (e: Event) => {
       if (e.target instanceof Element && ref.current?.contains(e.target)) return;
       onClose();
     };
@@ -128,11 +228,13 @@ function useMenuDismiss(ref: React.RefObject<HTMLDivElement | null>, opener: HTM
     const transcript = opener.closest("[data-orbit-transcript]");
     const onScroll = () => onClose();
     window.addEventListener("mousedown", onDown);
+    window.addEventListener("touchstart", onDown);
     window.addEventListener("keydown", onKey);
     window.addEventListener("blur", onBlur);
     transcript?.addEventListener("scroll", onScroll);
     return () => {
       window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("touchstart", onDown);
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("blur", onBlur);
       transcript?.removeEventListener("scroll", onScroll);
@@ -197,9 +299,23 @@ export function MessageMenu({
   const { dispatch } = useStore();
   const { threadId, message, copyText, user } = target;
   const [expanded, setExpanded] = useState(false);
+  const [touch] = useState(isTouchPrimary);
   const ref = useRef<HTMLDivElement>(null);
   const box = useMenuPlacement(ref, x, y, expanded);
   useMenuDismiss(ref, opener, onClose);
+  // App holds a Back entry while it is open, the same way as the model picker
+  useEffect(() => {
+    if (!touch) return;
+    window.dispatchEvent(new CustomEvent("orbit:message-menu", { detail: true }));
+    return () => {
+      window.dispatchEvent(new CustomEvent("orbit:message-menu", { detail: false }));
+    };
+  }, [touch]);
+  useEffect(() => {
+    if (!touch) return;
+    window.addEventListener("orbit:close-message-menu", onClose);
+    return () => window.removeEventListener("orbit:close-message-menu", onClose);
+  }, [touch, onClose]);
   const mine = useMemo(
     () => new Set(
       (message.reactions ?? []).filter((reaction) => reaction.by === "user").map((reaction) => reaction.emoji),
@@ -228,7 +344,7 @@ export function MessageMenu({
         onClick={() => toggle(emoji)}
         aria-label={pressed ? t("chat.removeReaction", { emoji }) : t("chat.reactEmoji", { emoji })}
         aria-checked={pressed}
-        className={cn(EMOJI_CLASS, pressed && "bg-accent/15 ring-1 ring-accent/40")}
+        className={cn(EMOJI_CLASS, touch && "size-10", pressed && "bg-accent/15 ring-1 ring-accent/40")}
       >
         {emoji}
       </button>
@@ -242,7 +358,7 @@ export function MessageMenu({
       data-message-menu
       style={{ top: box.top, left: box.left }}
       onKeyDown={(e) => menuKeyDown(ref, e)}
-      className={cn(MENU_CLASS, "w-[248px]")}
+      className={cn(MENU_CLASS, touch ? "w-[304px]" : "w-[248px]")}
     >
       {!user && (
         <>
@@ -256,7 +372,7 @@ export function MessageMenu({
                 onClick={() => setExpanded(false)}
                 aria-label={t("chat.closeReactions")}
                 title={t("chat.closeReactions")}
-                className="flex size-8 items-center justify-center rounded-full text-ink-secondary hover:bg-control hover:text-ink"
+                className={cn("flex size-8 items-center justify-center rounded-full text-ink-secondary hover:bg-control hover:text-ink", touch && "size-10")}
               >
                 <X size={15} />
               </button>
@@ -271,7 +387,7 @@ export function MessageMenu({
                 onClick={() => setExpanded(true)}
                 aria-label={t("chat.moreReactions")}
                 title={t("chat.moreReactions")}
-                className="flex size-8 items-center justify-center rounded-full text-ink-secondary hover:bg-control hover:text-ink"
+                className={cn("flex size-8 items-center justify-center rounded-full text-ink-secondary hover:bg-control hover:text-ink", touch && "size-10")}
               >
                 <SmilePlus size={16} />
               </button>
@@ -288,7 +404,7 @@ export function MessageMenu({
           onReply(message);
           closeMenu(opener, ref.current, onClose);
         }}
-        className={ROW_CLASS}
+        className={cn(ROW_CLASS, touch && "min-h-10")}
       >
         <MessageSquareReply size={16} className="text-ink-secondary" />
         {t("chat.reply")}
@@ -301,11 +417,26 @@ export function MessageMenu({
           void navigator.clipboard?.writeText(copyText);
           closeMenu(opener, ref.current, onClose);
         }}
-        className={ROW_CLASS}
+        className={cn(ROW_CLASS, touch && "min-h-10")}
       >
         <Copy size={16} className="text-ink-secondary" />
         {t("chat.copy")}
       </button>
+      {touch && (
+        <button
+          type="button"
+          role="menuitem"
+          data-menu-select
+          onClick={() => {
+            closeMenu(opener, ref.current, onClose);
+            startSelectMode(opener);
+          }}
+          className={cn(ROW_CLASS, "min-h-10")}
+        >
+          <TextCursor size={16} className="text-ink-secondary" />
+          {t("chat.selectText")}
+        </button>
+      )}
     </div>,
     document.body,
   );

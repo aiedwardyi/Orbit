@@ -74,7 +74,7 @@ import { DeviceTag } from "./DeviceSwitcher";
 import { RenameTitle } from "./RenameTitle";
 import { TaskPicker } from "./TaskPicker";
 import { ReactionBar, ReactionChips } from "./Reactions";
-import { MessageMenu, SelectionMenu, contextClickKind, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
+import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
@@ -524,6 +524,7 @@ const Bubble = memo(function Bubble({
       data-orbit-message={user ? "user" : "bot"}
       className={cn("group flex w-full flex-col outline-none", user ? "animate-msg-in items-end" : "items-start")}
       tabIndex={-1}
+      {...holdToOpen(menuTarget && ((x, y, opener) => onMessageMenu({ kind: "message", x, y, opener, target: menuTarget })))}
       onContextMenu={menuTarget ? (e) => {
         if (isTouchPrimary() || !(e.target instanceof Element)) return;
         const kind = contextClickKind(e.target, e.clientX, e.clientY);
@@ -1507,6 +1508,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     setMenuThread(bot.threadId);
     setMenu(null);
   }
+  useEffect(() => endSelectMode, [bot.threadId]);
   useEffect(() => {
     const onFind = (event: KeyboardEvent) => {
       if (focusComposerBlocked) return;

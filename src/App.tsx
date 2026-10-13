@@ -101,6 +101,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const [themeToast, setThemeToast] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [messageMenuOpen, setMessageMenuOpen] = useState(false);
   const [sidebarOverlay, setSidebarOverlay] = useState<string | null>(null);
   const modelPickerIds = useRef(new Set<string>());
   const [terminalViews, setTerminalViews] = useState<Record<string, boolean>>({});
@@ -513,13 +514,16 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       else modelPickerIds.current.delete(id);
       setModelPickerOpen(modelPickerIds.current.size > 0);
     };
+    const onMessageMenu = (event: CustomEvent<boolean>) => setMessageMenuOpen(event.detail);
     const onLeave = (event: CustomEvent<string>) => navigation.leave(() => window.location.replace(event.detail));
     window.addEventListener("popstate", onPop);
     window.addEventListener("orbit:model-picker", onPicker);
+    window.addEventListener("orbit:message-menu", onMessageMenu);
     window.addEventListener("orbit:leave", onLeave);
     return () => {
       window.removeEventListener("popstate", onPop);
       window.removeEventListener("orbit:model-picker", onPicker);
+      window.removeEventListener("orbit:message-menu", onMessageMenu);
       window.removeEventListener("orbit:leave", onLeave);
       backNavigation.current = null;
     };
@@ -554,6 +558,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     add(state.createBotOpen, "create-bot", () => dispatch({ type: "closeCreateBot" }));
     add(paletteOpen, "palette", () => window.dispatchEvent(new Event("orbit:close-palette")));
     add(modelPickerOpen, "model-picker", () => window.dispatchEvent(new Event("orbit:close-model-picker")));
+    add(messageMenuOpen, "message-menu", () => window.dispatchEvent(new Event("orbit:close-message-menu")));
     backNavigation.current.sync(layers);
   });
 
