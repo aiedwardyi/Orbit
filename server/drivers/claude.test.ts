@@ -407,6 +407,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.OMB_CLAUDE_REVIEW_TIMEOUT_MS;
     delete process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS;
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.CLAUDE_CODE_SILENT_TURN_REMINDER;
     delete process.env.XAI_API_KEY;
     delete process.env.COMPOSIO_API_KEY;
     delete process.env.BOX_TOKEN;
@@ -798,6 +799,29 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.env.XAI_API_KEY).toBeUndefined();
     expect(seen.env.BOX_TOKEN).toBeUndefined();
     expect(seen.env.OMB_TTS_KEY).toBeUndefined();
+  });
+
+  it("turns the CLI silent-turn reminder off by default", async () => {
+    await create();
+    const dump = join(scratch, "reminder-default.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-reminder-default", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(JSON.parse(readFileSync(dump, "utf8")).env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
+  });
+
+  it("keeps an explicit silent-turn reminder value from the environment", async () => {
+    await create();
+    const dump = join(scratch, "reminder-explicit.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    process.env.CLAUDE_CODE_SILENT_TURN_REMINDER = "1";
+
+    await instance.adapter.sendTurn({ threadId: "t-reminder-explicit", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(JSON.parse(readFileSync(dump, "utf8")).env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("1");
   });
 
   it("loads an oversized system prompt without putting it on argv", async () => {
