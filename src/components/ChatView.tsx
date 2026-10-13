@@ -1177,6 +1177,7 @@ const MessagesList = memo(function MessagesList({
         return (
           <div key={key} className="contents" data-mid={m.id} data-find-for={item.notices?.map((notice) => notice.message.id).join(" ") || undefined}>
             {newDay && <DaySeparator at={m.at} />}
+            {/* text: undefined, or the chip would draw this row's own text under its label */}
             {replyComm && <ActivityChip message={{ ...m, kind: "activity", text: undefined, comm: replyComm, tool: { name: t("chat.replyToBot", { name: replyComm.withName }) } }} />}
             {row}
           </div>
