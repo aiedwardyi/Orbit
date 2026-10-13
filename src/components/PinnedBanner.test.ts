@@ -45,7 +45,7 @@ describe("PinnedBanner", () => {
   it.each([
     [
       "**Team phone setup codes.**\nEach one works once, until Oct 26.\nTeammate 1:\n```text\nwks1:example-code\n```",
-      "Team phone setup codes. Each one works once, until Oct 26. Teammate 1:",
+      "Team phone setup codes. Each one works once, until Oct 26. Teammate 1: wks1:example-code",
     ],
     ["## Setup\nUse `phone setup` from [the guide](https://example.test/setup).", "Setup Use phone setup from the guide."],
     ['<pasted-text index="1">\n__Important__\n*read this*\n</pasted-text>', "Important read this"],
@@ -98,6 +98,26 @@ describe("PinnedBanner", () => {
       }));
     });
     expect(host.querySelector("span.truncate")?.textContent).toBe("pnpm install");
+  });
+
+  it.each([
+    ["Run this:\n```bash\npnpm install\n```", "Run this: pnpm install"],
+    ["Override this:\n```python\ndef __init__(self):\n```", "Override this: def __init__(self):"],
+    ["First:\n```bash\necho one\n```\nSecond:\n```bash\necho two\n```", "First: echo one Second: echo two"],
+  ])("keeps code after prose in a bot pin: %s", async (raw, plain) => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root.render(createElement(PinnedBanner, {
+        bot: { name: "Bot", threadId: "t1" },
+        pinnedId: "p1",
+        messages: [{ id: "p1", role: "bot", kind: "text", text: raw, at: 1 }],
+        onJump: () => {},
+        onUnpin: () => {},
+      }));
+    });
+    expect(host.querySelector("span.truncate")?.textContent).toBe(plain);
   });
 
   it.each([

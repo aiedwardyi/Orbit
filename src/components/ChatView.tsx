@@ -1178,13 +1178,29 @@ const MessagesList = memo(function MessagesList({
   );
 });
 
-// Whole opening fence line, then a closing fence. ```c++ must not leave "++".
-function fenceBody(text: string): string {
-  return text
-    .replace(/^[ \t]*`{3,}[^\n]*\n/gm, "")
-    .replace(/^[ \t]*`{3,}[ \t]*\r?$/gm, "")
-    .replace(/\s+/g, " ")
-    .trim();
+// Prose gets markdown cleanup, each fence body stays literal, all in order.
+// The whole opening fence line is skipped, so ```c++ leaves no "++".
+function botPinPreview(text: string): string {
+  const parts: string[] = [];
+  let prose: string[] = [];
+  let body: string[] | null = null;
+  const flushProse = () => {
+    const clean = summarize(prose.join("\n"), Infinity);
+    if (clean) parts.push(clean);
+    prose = [];
+  };
+  const flushBody = () => {
+    const code = body!.join("\n").replace(/\s+/g, " ").trim();
+    if (code) parts.push(code);
+    body = null;
+  };
+  for (const line of text.split("\n")) {
+    if (body === null && /^[ \t]*`{3,}/.test(line)) { flushProse(); body = []; continue; }
+    if (body !== null && /^[ \t]*`{3,}[ \t]*\r?$/.test(line)) { flushBody(); continue; }
+    (body ?? prose).push(line);
+  }
+  if (body !== null) flushBody(); else flushProse();
+  return parts.join(" ");
 }
 
 /** The one pinned message, above the transcript: sender, one line, click to
@@ -1213,10 +1229,10 @@ export function PinnedBanner({
   const sender =
     pinned.role === "user" ? t("chat.you") : (pinned.from?.name ?? bot.name);
   const display = splitAttachedImages(pinned.text ?? "").display;
-  // User text is literal. A code-only bot pin keeps the fence body; summarize would drop it.
+  // User text is literal. Bot prose is cleaned, fence bodies kept verbatim.
   const text = pinned.role === "user"
     ? display.replace(/\s+/g, " ").trim()
-    : summarize(display, Infinity) || fenceBody(display);
+    : botPinPreview(display);
   if (!text) return null;
   return (
     <div className="w-full px-5">
