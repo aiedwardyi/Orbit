@@ -1,15 +1,35 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { writeFileAtomic } from "./atomic.ts";
+const renamePlan = vi.hoisted(() => ({ calls: 0, codes: [] as string[] }));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    renameSync: (...args: Parameters<typeof actual.renameSync>) => {
+      renamePlan.calls += 1;
+      const code = renamePlan.codes.shift();
+      if (code) throw Object.assign(new Error(code), { code });
+      return actual.renameSync(...args);
+    },
+  };
+});
+
+// The test setup already loads atomic.ts (via config.ts), so reset the
+// module graph to re-import it with the mocked renameSync.
+vi.resetModules();
+const { writeFileAtomic } = await import("./atomic.ts");
 
 describe("writeFileAtomic", () => {
   let dir: string;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "omb-atomic-"));
+    renamePlan.calls = 0;
+    renamePlan.codes = [];
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
@@ -58,5 +78,52 @@ describe("writeFileAtomic", () => {
     mkdirSync(p);
     expect(() => writeFileAtomic(p, "cannot replace a directory")).toThrow();
     expect(readdirSync(dir)).toEqual(["target"]);
+  });
+
+  it.each(["EPERM", "EBUSY"] as const)("retries the rename twice on %s, then succeeds", (code) => {
+    const p = join(dir, "x.json");
+    writeFileAtomic(p, "old");
+    renamePlan.calls = 0;
+    renamePlan.codes = [code, code];
+    writeFileAtomic(p, "new");
+    expect(readFileSync(p, "utf8")).toBe("new");
+    expect(readdirSync(dir)).toEqual(["x.json"]);
+    expect(renamePlan.calls).toBe(3);
+  });
+
+  it("throws EPERM after six renames when the lock never clears", () => {
+    const p = join(dir, "x.json");
+    writeFileAtomic(p, "old");
+    renamePlan.calls = 0;
+    renamePlan.codes = Array<string>(10).fill("EPERM");
+    expect(() => writeFileAtomic(p, "new")).toThrow(expect.objectContaining({ code: "EPERM" }));
+    expect(readFileSync(p, "utf8")).toBe("old");
+    expect(readdirSync(dir)).toEqual(["x.json"]);
+    expect(renamePlan.calls).toBe(6);
+  });
+
+  it("throws at once on EXDEV", () => {
+    const p = join(dir, "x.json");
+    writeFileAtomic(p, "old");
+    renamePlan.calls = 0;
+    renamePlan.codes = ["EXDEV"];
+    expect(() => writeFileAtomic(p, "new")).toThrow(expect.objectContaining({ code: "EXDEV" }));
+    expect(renamePlan.calls).toBe(1);
+    expect(readFileSync(p, "utf8")).toBe("old");
+    expect(readdirSync(dir)).toEqual(["x.json"]);
+  });
+
+  it.skipIf(process.platform !== "win32")("throws a retry code while another handle holds the target open", () => {
+    const p = join(dir, "x.json");
+    writeFileAtomic(p, "old");
+    // Windows refuses to replace a file any other handle has open, as Defender or the Drive client do.
+    const fd = openSync(p, "r");
+    try {
+      expect(() => writeFileAtomic(p, "new")).toThrow(expect.objectContaining({ code: expect.stringMatching(/^(EPERM|EBUSY)$/) }));
+    } finally {
+      closeSync(fd);
+    }
+    expect(readFileSync(p, "utf8")).toBe("old");
+    expect(readdirSync(dir)).toEqual(["x.json"]);
   });
 });
