@@ -73,6 +73,7 @@ import { buffersForTurn } from "@/lib/turn-stage";
 import { usageLimitReset } from "@/lib/usage";
 import { useNow } from "./PlanUsageBar";
 import { splitAttachedImages } from "@/lib/composer-attachments";
+import { pinPreview } from "@/lib/pin-preview";
 import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
@@ -1639,7 +1640,7 @@ export function GroupView({ group }: { group: Group }) {
       {/* Pinned message banner — resolves against the room's full transcript */}
       {(() => {
         const pinned = pinnedMessage?.kind === "text" ? pinnedMessage : undefined;
-        const text = pinned ? splitAttachedImages(pinned.text ?? "").display.replace(/\s+/g, " ").trim() : "";
+        const text = pinned ? pinPreview(pinned.role === "user" ? "user" : "bot", pinned.text ?? "") : "";
         if (!pinned || !text) return null;
         const sender = pinned.role === "user" ? t("room.you") : (pinned.from?.name ?? t("chrome.aBot"));
         return (

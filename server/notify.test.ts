@@ -70,6 +70,12 @@ describe("summarize", () => {
     expect(summarize("keep snake_case and 2 * 3")).toBe("keep snake_case and 2 * 3");
   });
 
+  it("drops strikethrough, task boxes and image marks", () => {
+    expect(summarize("~~old~~ new")).toBe("old new");
+    expect(summarize("- [x] done\n- [ ] todo")).toBe("done todo");
+    expect(summarize("![diagram](https://x.io/a.png) shown")).toBe("diagram shown");
+  });
+
   it("clamps long text with an ellipsis", () => {
     const long = summarize("x".repeat(400));
     expect(long).toHaveLength(140);

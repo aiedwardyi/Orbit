@@ -91,6 +91,7 @@ import { MemorySaveChip } from "./MemorySaveChip";
 import { ActivityRun, ActivityStep, approvalHover } from "./ActivityRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
+import { pinPreview } from "@/lib/pin-preview";
 import { BOTTOM_FOLLOW_THRESHOLD, captureTranscriptScroll, newestBelowView, restoreTranscriptScroll, shouldResumeBottomFollow, spaceAfterNewestRow, transcriptUnderfilled, type TranscriptScroll } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
 import { placeTooltip } from "@/lib/tooltip-position";
@@ -1202,7 +1203,7 @@ export function PinnedBanner({
   if (!pinned || pinned.kind !== "text") return null;
   const sender =
     pinned.role === "user" ? t("chat.you") : (pinned.from?.name ?? bot.name);
-  const text = splitAttachedImages(pinned.text ?? "").display.replace(/\s+/g, " ").trim();
+  const text = pinPreview(pinned.role === "user" ? "user" : "bot", pinned.text ?? "");
   if (!text) return null;
   return (
     <div className="w-full px-5">

@@ -64,6 +64,14 @@ describe("composer stop", () => {
     expect(stopButton().className).toEqual(expect.stringContaining("bg-ink text-app"));
   });
 
+  it("marks Stop for skin styling without changing its size or labels", async () => {
+    await mount(bot);
+    expect(stopButton().getAttribute("data-orbit-composer-stop")).toBe("");
+    expect(stopButton().className).toContain("size-8");
+    expect(stopButton().getAttribute("title")).toBe("Stop");
+    expect(stopButton().querySelector("svg")?.classList.contains("fill-current")).toBe(true);
+  });
+
   it("shows stopping at once and sends one interrupt for repeat clicks", async () => {
     await mount(bot);
     for (let i = 0; i < 5; i++) await act(async () => stopButton().click());

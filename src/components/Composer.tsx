@@ -1055,6 +1055,7 @@ export function Composer({
             }}
             aria-label={t("composer.stopTurn")}
             aria-busy={stopping}
+            data-orbit-composer-stop=""
             className={cn(
               "flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-app hover:opacity-80",
               stopping && "animate-pulse",
