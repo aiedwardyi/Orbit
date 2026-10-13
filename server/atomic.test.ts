@@ -1,4 +1,3 @@
-import * as fs from "node:fs";
 import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -114,11 +113,11 @@ describe("writeFileAtomic", () => {
     expect(readdirSync(dir)).toEqual(["x.json"]);
   });
 
-  it.skipIf(process.platform !== "win32")("throws a retry code when the target is locked", () => {
+  it.skipIf(process.platform !== "win32")("throws a retry code while another handle holds the target open", () => {
     const p = join(dir, "x.json");
     writeFileAtomic(p, "old");
-    const exlock = (fs.constants as unknown as { UV_FS_O_EXLOCK?: number }).UV_FS_O_EXLOCK ?? 0;
-    const fd = openSync(p, fs.constants.O_RDONLY | exlock);
+    // Windows refuses to replace a file any other handle has open, as Defender or the Drive client do.
+    const fd = openSync(p, "r");
     try {
       expect(() => writeFileAtomic(p, "new")).toThrow(expect.objectContaining({ code: expect.stringMatching(/^(EPERM|EBUSY)$/) }));
     } finally {
