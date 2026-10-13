@@ -94,8 +94,16 @@ describe("open-file policy", () => {
     const view = path.join(dir, "panel.{21EC2020-3AEA-1069-A2DD-08002B30309D}");
     fs.mkdirSync(view);
     const shell = fakeShell();
-    assert.equal(await openLocalFile(view, { shell }), "reveal");
+    assert.equal(await openLocalFile(view, { shell, platform: "win32" }), "reveal");
     assert.deepEqual(shell.calls, [["reveal", await fs.promises.realpath(view)]]);
+  });
+
+  it("opens a shell-view named folder as a plain folder off Windows", async () => {
+    const view = path.join(dir, "panel.{21EC2020-3AEA-1069-A2DD-08002B30309E}");
+    fs.mkdirSync(view);
+    const shell = fakeShell();
+    assert.equal(await openLocalFile(view, { shell, platform: "linux" }), "folder");
+    assert.deepEqual(shell.calls, [["open", await fs.promises.realpath(view)]]);
   });
 
   it("rejects a missing file and a relative path", async () => {

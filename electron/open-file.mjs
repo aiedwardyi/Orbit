@@ -31,7 +31,7 @@ export async function resolveOpenTarget(rawPath, { base, fsp = fs.promises, plat
     if (!root || !isInside(root, filePath)) throw new Error("That file is outside the bot's folder");
   }
   const stat = await fsp.stat(filePath);
-  if (stat.isDirectory()) return { filePath, action: SHELL_VIEW_NAME.test(path.basename(filePath)) ? "reveal" : "folder" };
+  if (stat.isDirectory()) return { filePath, action: platform === "win32" && SHELL_VIEW_NAME.test(path.basename(filePath)) ? "reveal" : "folder" };
   if (!stat.isFile()) throw new Error("That path is not a file");
   const ext = path.extname(filePath).slice(1).toLowerCase();
   return { filePath, action: OPENABLE_EXTENSIONS.has(ext) ? "open" : "reveal" };
