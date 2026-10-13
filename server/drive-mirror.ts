@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync, type BigIntStats } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
+import { performance } from "node:perf_hooks";
+import { setImmediate as yieldLoop, setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
@@ -52,7 +53,9 @@ export interface DriveMirrorSummary {
   driveFull: boolean;
 }
 
-type Options = { owner: DriveOwner; mirrorPath: string; statePath: string; ownIds: DriveOwnIds; client: DriveClient; now?: () => number; uploads?: boolean };
+/** Local md5s by path, trusted while size and mtime hold; outlives one mirror so later passes skip rehashing. */
+export type DriveHashes = Map<string, { size: bigint; mtimeNs: bigint; md5: string }>;
+type Options = { owner: DriveOwner; mirrorPath: string; statePath: string; ownIds: DriveOwnIds; client: DriveClient; now?: () => number; uploads?: boolean; hashes?: DriveHashes };
 const passes = new Set<string>();
 const samePath = (a: string, b: string) => process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 const md5 = (bytes: Uint8Array) => createHash("md5").update(bytes).digest("hex");
@@ -118,15 +121,17 @@ function canonicalPath(path: string): string {
   }
 }
 
-function fileIdentity(path: string): string | null {
+function fileStat(path: string): BigIntStats | null {
   try {
-    const stat = lstatSync(path, { bigint: true });
-    return `${stat.dev}:${stat.ino}`;
+    return lstatSync(path, { bigint: true });
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     throw error;
   }
 }
+
+const identityOf = (stat: BigIntStats | null) => stat && `${stat.dev}:${stat.ino}`;
+const fileIdentity = (path: string) => identityOf(fileStat(path));
 
 function readTable(statePath: string): Table | null {
   try {
@@ -166,6 +171,7 @@ export function createDriveMirror(options: Options) {
   if (!stateRelative || (!isAbsolute(stateRelative) && stateRelative !== ".." && !stateRelative.startsWith(`..${sep}`))) throw new DriveMirrorError("unsafe-path");
   const client = options.client;
   const now = options.now ?? Date.now;
+  const hashes: DriveHashes = options.hashes ?? new Map();
   let rootIdentity: { dev: number; ino: number } | null = null;
   let bound: Binding | null = null;
   let inflight: Promise<DriveMirrorSummary> | null = null;
@@ -201,21 +207,33 @@ export function createDriveMirror(options: Options) {
     return true;
   }
 
-  function assertSafePath(path: string): boolean {
-    if (!parents(path, false)) return false;
-    const target = join(mirrorPath, ...path.split("/"));
-    try {
-      const stat = lstatSync(target);
-      if (!stat.isFile() || stat.isSymbolicLink()) throw new DriveMirrorError("unsafe-path");
-      return true;
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
-      throw error;
-    }
+  function localStat(path: string, known?: BigIntStats | null): BigIntStats | null {
+    if (known === undefined && !parents(path, false)) return null;
+    const stat = known === undefined ? fileStat(join(mirrorPath, ...path.split("/"))) : known;
+    if (stat && (!stat.isFile() || stat.isSymbolicLink())) throw new DriveMirrorError("unsafe-path");
+    return stat;
   }
+
+  const assertSafePath = (path: string) => localStat(path) !== null;
 
   function localBytes(path: string): Buffer | null {
     return assertSafePath(path) ? readFileSync(join(mirrorPath, ...path.split("/"))) : null;
+  }
+
+  function localHash(path: string, known?: BigIntStats | null): { md5: string; size: string } | null {
+    const stat = localStat(path, known);
+    if (!stat) {
+      hashes.delete(path);
+      return null;
+    }
+    const cached = hashes.get(path);
+    if (cached?.size === stat.size && cached.mtimeNs === stat.mtimeNs) return { md5: cached.md5, size: String(cached.size) };
+    const bytes = readFileSync(join(mirrorPath, ...path.split("/")));
+    const local = { md5: md5(bytes), size: String(bytes.byteLength) };
+    // A same-size write within this mtime tick would look unchanged, so fresh files are hashed again next pass.
+    if (bytes.byteLength === Number(stat.size) && Date.now() - Number(stat.mtimeMs) > 2_000) hashes.set(path, { size: stat.size, mtimeNs: stat.mtimeNs, md5: local.md5 });
+    else hashes.delete(path);
+    return local;
   }
 
   function ownTargetPath(path: string): string | null {
@@ -277,6 +295,8 @@ export function createDriveMirror(options: Options) {
 
   async function run(): Promise<DriveMirrorSummary> {
     checkRoot();
+    // The table as read here or last written by save(); any other rewrite changes its stat.
+    let checked = lstatSync(statePath, { bigint: true, throwIfNoEntry: false });
     let table = readTable(statePath);
     if (table && (table.binding.owner.issuer !== owner.issuer || table.binding.owner.sub !== owner.sub || !samePath(table.binding.mirrorPath, mirrorPath))) throw new DriveMirrorError("binding");
     if (bound && (!table || !sameBinding(table.binding, bound))) throw new DriveMirrorError(table ? "binding" : "missing-table");
@@ -289,14 +309,18 @@ export function createDriveMirror(options: Options) {
     bound = structuredClone(captured);
     function check(): void {
       checkRoot();
+      const stat = lstatSync(statePath, { bigint: true, throwIfNoEntry: false });
+      if (stat && checked && stat.ino === checked.ino && stat.size === checked.size && stat.mtimeNs === checked.mtimeNs) return;
       const current = readTable(statePath);
       if (!current) throw new DriveMirrorError("missing-table");
       if (!sameBinding(current.binding, captured)) throw new DriveMirrorError("binding");
+      checked = stat;
     }
     function save(): void {
       check();
       table!.syncedAt = now();
       writeFileAtomic(statePath, `${JSON.stringify(table, null, 2)}\n`, { mode: 0o600 });
+      checked = lstatSync(statePath, { bigint: true });
     }
     const summary: DriveMirrorSummary = { uploaded: [], downloaded: [], skipped: [], conflicts: [], failed: [], duplicates: [], retryAfterMs: null, driveFull: false };
     let uploads = options.uploads ?? true;
@@ -390,8 +414,13 @@ export function createDriveMirror(options: Options) {
       changed.add(path);
       remotePaths.add(path);
     }
-    function ingestChange(change: DriveChange): string | null {
-      const known = Object.entries(table!.files).find(([, entry]) => entry.driveId === change.fileId)?.[0] ?? null;
+    function tracked(): Map<string, string> {
+      const byId = new Map<string, string>();
+      for (const [path, entry] of Object.entries(table!.files)) if (!byId.has(entry.driveId)) byId.set(entry.driveId, path);
+      return byId;
+    }
+    function ingestChange(change: DriveChange, byId: Map<string, string>): string | null {
+      const known = byId.get(change.fileId) ?? null;
       const inside = change.parents.includes(rootId);
       if (change.file && !inside) {
         if (!known) return null;
@@ -415,7 +444,8 @@ export function createDriveMirror(options: Options) {
       try {
         const page = await drive(() => client.listChanges(savedToken));
         if (!page) return summary;
-        for (const change of page.changes) ingestChange(change);
+        const byId = tracked();
+        for (const change of page.changes) ingestChange(change, byId);
         cursor = page.newStartPageToken;
       } catch (error) {
         if (!(error instanceof DriveClientError) || error.rateLimited || (error.status !== 404 && error.status !== 410)) throw error;
@@ -433,32 +463,58 @@ export function createDriveMirror(options: Options) {
       for (const file of files) accept(file);
     }
     const paths = new Set([...remotePaths, ...Object.keys(table.files)]);
-    function scan(dir: string, prefix: string): void {
+    let awake = performance.now();
+    async function breathe(): Promise<void> {
+      if (performance.now() - awake < 20) return;
+      await yieldLoop();
+      awake = performance.now();
+    }
+    const folders = new Set([""]);
+    async function scan(dir: string, prefix: string): Promise<void> {
+      await breathe();
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const path = prefix ? `${prefix}/${entry.name}` : entry.name;
         if (entry.name.endsWith(".tmp")) { summary.skipped.push(path); continue; }
         if (!validPath(path) || entry.isSymbolicLink()) throw new DriveMirrorError("unsafe-path");
-        if (entry.isDirectory()) scan(join(dir, entry.name), path);
-        else if (entry.isFile()) paths.add(path);
+        if (entry.isDirectory()) {
+          folders.add(path);
+          await scan(join(dir, entry.name), path);
+        } else if (entry.isFile()) paths.add(path);
         else throw new DriveMirrorError("unsafe-path");
       }
     }
-    scan(mirrorPath, "");
+    await scan(mirrorPath, "");
 
+    // scan() refused links, so a scanned folder resolves to itself; identities still catch hard links and short names.
+    const realRoot = canonicalPath(mirrorPath);
+    const realFolders = new Map<string, string>();
+    function resolveFile(path: string): string {
+      const parts = path.split("/");
+      const name = parts.pop()!;
+      const folder = parts.join("/");
+      if (folders.has(folder)) return join(realRoot, ...parts, name);
+      const real = realFolders.get(folder) ?? canonicalPath(join(mirrorPath, ...parts));
+      realFolders.set(folder, real);
+      return join(real, name);
+    }
     const names = new Set<string>();
     const resolvedPaths = new Set<string>();
     const identities = new Set<string>();
+    const stats = new Map<string, BigIntStats>();
     for (const path of paths) {
+      await breathe();
       const name = process.platform === "win32" ? path.toLowerCase() : path;
       const target = join(mirrorPath, ...path.split("/"));
-      const resolved = canonicalPath(target);
+      const resolved = resolveFile(path);
       const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
-      const identity = fileIdentity(target);
+      const stat = fileStat(target);
+      if (stat) stats.set(path, stat);
+      const identity = identityOf(stat);
       if (names.has(name) || resolvedPaths.has(key) || (identity && identities.has(identity))) throw new DriveMirrorError("path-alias");
       const own = ownTargetPath(path);
       if (own && drivePathRule(path, ids) !== "own") {
         const ownTarget = join(mirrorPath, ...own.split("/"));
-        if (samePath(resolved, canonicalPath(ownTarget)) || (identity && identity === fileIdentity(ownTarget))) throw new DriveMirrorError("path-alias");
+        if (samePath(resolved, resolveFile(own)) || (identity && identity === fileIdentity(ownTarget))) throw new DriveMirrorError("path-alias");
       }
       names.add(name);
       resolvedPaths.add(key);
@@ -476,10 +532,11 @@ export function createDriveMirror(options: Options) {
     function needsWork(path: string): boolean {
       if (fullList || changed.has(path)) return true;
       const entry = table!.files[path];
-      const bytes = localBytes(path);
-      if (!entry) return bytes !== null || remote.has(path);
-      if (!bytes) return drivePathRule(path, ids) === "peer" || drivePathRule(path, ids) === "once";
-      return entry.md5 !== md5(bytes) || entry.size !== String(bytes.byteLength);
+      // Under a folder scan() checked, the alias check's stat stands in; a write after it shows next pass.
+      const local = localHash(path, folders.has(path.slice(0, Math.max(0, path.lastIndexOf("/")))) ? stats.get(path) ?? null : undefined);
+      if (!entry) return local !== null || remote.has(path);
+      if (!local) return drivePathRule(path, ids) === "peer" || drivePathRule(path, ids) === "once";
+      return entry.md5 !== local.md5 || entry.size !== local.size;
     }
 
     async function syncPath(path: string): Promise<void> {
@@ -489,7 +546,7 @@ export function createDriveMirror(options: Options) {
       let copies = remote.get(path) ?? [];
       if (copies.length === 0) {
         const known = table!.files[path];
-        const bytes = localBytes(path);
+        const exists = assertSafePath(path);
         if (known) {
           try {
             const placed = await client.getPlaced(known.driveId);
@@ -500,7 +557,7 @@ export function createDriveMirror(options: Options) {
             // 404 means that copy is gone. A rate limit still has to stop the pass.
             if (!(error instanceof DriveClientError) || error.status !== 404) throw error;
           }
-        } else if (bytes && !fullList) {
+        } else if (exists && !fullList) {
           const found = await client.listNamed(rootId, encodeDrivePath(path));
           check();
           for (const file of found) accept(file);
@@ -515,23 +572,27 @@ export function createDriveMirror(options: Options) {
         summary.duplicates.push({ path, selectedId: file.id, ids: copies.map((copy) => copy.id) });
         if (rule === "once" && copies.some((copy) => copy.md5Checksum !== file.md5Checksum || copy.size !== file.size) && !summary.conflicts.includes(path)) summary.conflicts.push(path);
       }
-      const bytes = localBytes(path);
+      const local = localHash(path);
       if (!file) {
-        if (!bytes) { summary.skipped.push(path); return; }
+        if (!local) { summary.skipped.push(path); return; }
         if (held()) return;
+        const bytes = localBytes(path);
+        if (!bytes) { summary.skipped.push(path); return; }
         const created = await client.createFile(rootId, encodeDrivePath(path), { ph: drivePathHash(path) }, bytes);
         check();
         if (!hasContent(created) || !matches(created, bytes) || created.name !== encodeDrivePath(path) || created.appProperties?.ph !== drivePathHash(path) || created.trashed) throw new DriveMirrorError("invalid-remote");
         summary.uploaded.push(path);
         track(path, created);
-      } else if (bytes && matches(file, bytes)) {
+      } else if (local && same(file, local)) {
         summary.skipped.push(path);
         track(path, file);
-      } else if (rule === "once" && bytes) {
+      } else if (rule === "once" && local) {
         if (!summary.conflicts.includes(path)) summary.conflicts.push(path);
       } else if (rule === "own") {
-        if (!bytes) { summary.skipped.push(path); return; }
+        if (!local) { summary.skipped.push(path); return; }
         if (held()) return;
+        const bytes = localBytes(path);
+        if (!bytes) { summary.skipped.push(path); return; }
         const updated = await client.updateMedia(file.id, bytes);
         check();
         if (!hasContent(updated) || updated.id !== file.id || !matches(updated, bytes) || updated.trashed) throw new DriveMirrorError("invalid-remote");
@@ -543,8 +604,8 @@ export function createDriveMirror(options: Options) {
         if (!matches(file, downloaded)) throw new DriveMirrorError("content-changed");
         const written = await download(path, downloaded, rule === "once", check, ownPaths);
         check();
-        const current = localBytes(path);
-        if (current && matches(file, current)) {
+        const current = localHash(path);
+        if (current && same(file, current)) {
           if (written) summary.downloaded.push(path);
           else summary.skipped.push(path);
           track(path, file);
@@ -553,6 +614,7 @@ export function createDriveMirror(options: Options) {
     }
     let stopped = false;
     async function one(path: string): Promise<void> {
+      await breathe();
       if (!needsWork(path)) { summary.skipped.push(path); return; }
       try {
         await syncPath(path);
@@ -581,8 +643,9 @@ export function createDriveMirror(options: Options) {
       const page = await drive(() => client.listChanges(cursor));
       if (!page) return summary;
       const again: string[] = [];
+      const byId = tracked();
       for (const change of page.changes) {
-        const path = ingestChange(change);
+        const path = ingestChange(change, byId);
         if (path) again.push(path);
       }
       cursor = page.newStartPageToken;
@@ -629,5 +692,9 @@ function hasContent(file: DriveFile): file is ContentFile {
 }
 
 function matches(file: ContentFile, bytes: Uint8Array): boolean {
-  return file.md5Checksum === md5(bytes) && file.size === String(bytes.byteLength);
+  return same(file, { md5: md5(bytes), size: String(bytes.byteLength) });
+}
+
+function same(file: ContentFile, local: { md5: string; size: string }): boolean {
+  return file.md5Checksum === local.md5 && file.size === local.size;
 }

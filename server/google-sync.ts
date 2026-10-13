@@ -5,11 +5,12 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { setImmediate as yieldLoop } from "node:timers/promises";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
 import { createDriveClient, DriveClientError, type DriveClient } from "./drive-client.ts";
-import { createDriveMirror, decodeDrivePath, DriveMirrorError, drivePathRule, type DriveMirrorSummary } from "./drive-mirror.ts";
+import { createDriveMirror, decodeDrivePath, DriveMirrorError, drivePathRule, type DriveHashes, type DriveMirrorSummary } from "./drive-mirror.ts";
 import { readDriveOwnIds, type DriveOwnIds } from "./drive-own-ids.ts";
 import { GoogleAccountError, type GoogleAccountStatus } from "./google-account.ts";
 import { PROFILE_SYNC_WORKSPACE_FILE, readSyncOperations } from "./profile-sync.ts";
@@ -107,13 +108,16 @@ function writeGoogleBinding(dataDir: string, binding: GoogleBinding): void {
   writeFileAtomic(join(dataDir, GOOGLE_BINDING_FILE), `${JSON.stringify(bindingSchema.parse(binding), null, 2)}\n`, { mode: 0o600 });
 }
 
-function mirrorFiles(dir: string, prefix = ""): string[] {
+async function mirrorFiles(dir: string, prefix = ""): Promise<string[]> {
   if (!existsSync(dir)) return [];
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+  await yieldLoop();
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) return mirrorFiles(join(dir, entry.name), path);
-    return entry.isFile() && !entry.name.endsWith(".tmp") ? [path] : [];
-  });
+    if (entry.isDirectory()) files.push(...await mirrorFiles(join(dir, entry.name), path));
+    else if (entry.isFile() && !entry.name.endsWith(".tmp")) files.push(path);
+  }
+  return files;
 }
 
 function workspaceId(bytes: Buffer): string | null {
@@ -136,6 +140,7 @@ export function createGoogleSync(options: Options) {
   const movePath = join(dataDir, GOOGLE_MOVE_FILE);
   const client: DriveClient = createDriveClient({ getAccessToken: () => account.getAccessToken(), fetch: options.fetch });
   const ownIds = options.ownIds ?? (() => readDriveOwnIds(dataDir));
+  const hashes: DriveHashes = new Map();
   let binding = readGoogleBinding(dataDir);
   let joinInfo: { sub: string; value: GoogleSyncStatus["join"]; problem?: string } | null = null;
   let lastSyncAt: number | null = null;
@@ -347,9 +352,9 @@ export function createGoogleSync(options: Options) {
       if (catching && !total) {
         const [root] = await client.listRoots();
         const remote = root ? (await client.listChildren(root.id)).flatMap((file) => decodeDrivePath(file.name) ?? []) : [];
-        total = new Set([...remote, ...mirrorFiles(bound.mirrorPath)]).size;
+        total = new Set([...remote, ...await mirrorFiles(bound.mirrorPath)]).size;
       }
-      summary = await createDriveMirror({ owner, mirrorPath: bound.mirrorPath, statePath, ownIds: ownIds(), client, now, uploads }).syncOnce();
+      summary = await createDriveMirror({ owner, mirrorPath: bound.mirrorPath, statePath, ownIds: ownIds(), client, now, uploads, hashes }).syncOnce();
     } catch (error) {
       const offline = error instanceof GoogleAccountError || (error instanceof DriveClientError && (error.status === 0 || error.status >= 500 || error.status === 429));
       problem = offline ? "offline" : "error";

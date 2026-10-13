@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { createDriveClient } from "./drive-client.ts";
-import { createDriveMirror, decodeDrivePath, drivePathHash, drivePathRule, encodeDrivePath, renameDriveFile, DriveMirrorError, type DriveOwner } from "./drive-mirror.ts";
+import { createDriveMirror, decodeDrivePath, drivePathHash, drivePathRule, encodeDrivePath, renameDriveFile, DriveMirrorError, type DriveHashes, type DriveOwner } from "./drive-mirror.ts";
 import { DriveIdentityError, readDriveOwnIds, type DriveOwnIds } from "./drive-own-ids.ts";
 import { FakeDrive } from "./testing/fake-drive.ts";
 
@@ -624,6 +624,86 @@ describe("Drive mirror", () => {
     const calls = drive.calls.slice(before);
     expect(calls.filter((call) => call.method === "PATCH")).toHaveLength(1);
     expect(calls.some((call) => call.url.searchParams.get("q")?.includes("in parents"))).toBe(false);
+  });
+
+  describe("local change detection", () => {
+    const path = "devices/device-home.json";
+    const peerPath = "devices/device-work.json";
+    const age = (pc: PC, file: string, seconds: number) => {
+      const at = new Date(Date.now() - seconds * 1_000);
+      utimesSync(join(pc.folder, ...file.split("/")), at, at);
+    };
+    const remoteText = (file: string) => [...drive.records.values()].find((record) => decodeDrivePath(record.file.name) === file)!.bytes.toString();
+
+    beforeEach(async () => {
+      write(pcs[0], path, "own-1");
+      age(pcs[0], path, 60);
+      await pcs[0].mirror.syncOnce();
+      await pcs[1].mirror.syncOnce();
+    });
+
+    it("uploads new content with a new size", async () => {
+      write(pcs[0], path, "own-longer");
+      age(pcs[0], path, 30);
+      expect((await pcs[0].mirror.syncOnce()).uploaded).toEqual([path]);
+      await pcs[1].mirror.syncOnce();
+      expect(read(pcs[1], path)).toBe("own-longer");
+    });
+
+    it("uploads same-size content with a new mtime", async () => {
+      write(pcs[0], path, "own-2");
+      age(pcs[0], path, 30);
+      expect((await pcs[0].mirror.syncOnce()).uploaded).toEqual([path]);
+      await pcs[1].mirror.syncOnce();
+      expect(read(pcs[1], path)).toBe("own-2");
+    });
+
+    it("downloads a deleted peer file again", async () => {
+      age(pcs[1], path, 60);
+      await pcs[1].mirror.syncOnce();
+      unlinkSync(join(pcs[1].folder, ...path.split("/")));
+      expect((await pcs[1].mirror.syncOnce()).downloaded).toEqual([path]);
+      expect(read(pcs[1], path)).toBe("own-1");
+    });
+
+    it("uploads a file restored after delete with its old size and mtime", async () => {
+      const at = statSync(join(pcs[0].folder, ...path.split("/"))).mtime;
+      unlinkSync(join(pcs[0].folder, ...path.split("/")));
+      expect((await pcs[0].mirror.syncOnce()).uploaded).toEqual([]);
+      write(pcs[0], path, "own-9");
+      utimesSync(join(pcs[0].folder, ...path.split("/")), at, at);
+      expect((await pcs[0].mirror.syncOnce()).uploaded).toEqual([path]);
+      expect(remoteText(path)).toBe("own-9");
+    });
+
+    it("trusts size and mtime for a file it already hashed until restart", async () => {
+      const hashes: DriveHashes = new Map();
+      await mirrorFor(pcs[0], { hashes }).syncOnce();
+      const at = statSync(join(pcs[0].folder, ...path.split("/"))).mtime;
+      write(pcs[0], path, "own-2");
+      utimesSync(join(pcs[0].folder, ...path.split("/")), at, at);
+      expect((await mirrorFor(pcs[0], { hashes }).syncOnce()).uploaded).toEqual([]);
+      expect(remoteText(path)).toBe("own-1");
+      expect((await mirrorFor(pcs[0]).syncOnce()).uploaded).toEqual([path]);
+      expect(remoteText(path)).toBe("own-2");
+    });
+
+    it("judges local files by the cached hash on a full listing and still finds missed remote changes", async () => {
+      seed(peerPath, "peer-1");
+      await pcs[0].mirror.syncOnce();
+      const at = statSync(join(pcs[0].folder, ...path.split("/"))).mtime;
+      write(pcs[0], path, "own-2");
+      utimesSync(join(pcs[0].folder, ...path.split("/")), at, at);
+      const peer = [...drive.records.values()].find((record) => decodeDrivePath(record.file.name) === peerPath)!;
+      drive.edit(peer.file.id, Buffer.from("peer-2"));
+      const state = JSON.parse(readFileSync(pcs[0].statePath, "utf8"));
+      state.changeToken = "missing-cursor";
+      writeFileSync(pcs[0].statePath, JSON.stringify(state));
+      const summary = await pcs[0].mirror.syncOnce();
+      expect(summary.uploaded).toEqual([]);
+      expect(summary.downloaded).toEqual([peerPath]);
+      expect(read(pcs[0], peerPath)).toBe("peer-2");
+    });
   });
 
   it("ignores changes outside the root", async () => {
