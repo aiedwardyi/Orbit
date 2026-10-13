@@ -38,11 +38,12 @@ export function useWorkerRows(workers: ShownRun[], messages: Message[]) {
   return { workerAt, open, toggle };
 }
 
-function WorkerMark({ provider }: { provider: string | null }) {
+export function WorkerMark({ provider, compact = false }: { provider: string | null; compact?: boolean }) {
   // brand marks stay untinted; only the script and unknown-model glyphs take the ink color
+  const size = compact ? 12 : 14;
   return (
-    <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-hairline/40 bg-raised">
-      {provider === "script" ? <ScrollText size={14} className="text-ink-secondary" aria-hidden /> : provider ? <ProviderMark driverKind={provider} size={14} /> : <Bot size={14} className="text-ink-secondary" aria-hidden />}
+    <span className={compact ? "flex size-3 shrink-0 items-center justify-center" : "flex size-6 shrink-0 items-center justify-center rounded-md border border-hairline/40 bg-raised"}>
+      {provider === "script" ? <ScrollText size={size} className="text-ink-secondary" aria-hidden /> : provider ? <ProviderMark driverKind={provider} size={size} /> : <Bot size={size} className="text-ink-secondary" aria-hidden />}
     </span>
   );
 }

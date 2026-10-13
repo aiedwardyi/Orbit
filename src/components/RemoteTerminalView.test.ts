@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Bot, ScrollText } from "lucide-react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Message } from "@/state/store";
 
@@ -15,6 +17,7 @@ vi.mock("@/state/store", async () => {
 
 import { I18nProvider } from "@/lib/i18n";
 import { RemoteTerminalView, remotePaneHotkey, snapshotText } from "./RemoteTerminalView";
+import { ProviderMark } from "./ProviderIcons";
 
 const app = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "App.tsx"), "utf8");
 
@@ -233,6 +236,56 @@ describe("RemoteTerminalView", () => {
     expect(tabs[0].textContent).toBe("Main");
     expect(tabs[1].textContent).toBe("build");
     await act(async () => root.unmount());
+  });
+
+  it.each([
+    ["Claude Opus", "claudeAgent"], ["Codex Sol", "codex"], ["Grok 4.7", "grokAgent"],
+    ["Muse 1.3", "museAgent"], ["script", "script"], ["Nova 2", null],
+  ])("starts a %s pane tab with the header worker mark", async (model, provider) => {
+    const sessionId = "aaaaaaaa-1111-4222-8333-944455556661";
+    const messages: Message[] = [{ id: "launch", at: 1, role: "bot", kind: "launch", text: `Launched Worker | ${model} | high\nLabel: Worker | ${model} | high\nWorking folder: C:\\work\nSession: ${sessionId}` }];
+    store.api.mockResolvedValue({ screenText: "$", panes: [{ sessionId: "main", main: true }, { sessionId, label: "Worker", main: false }] });
+    const { host, root } = await renderView(true, messages);
+    try {
+      const [main, worker] = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+      const mark = provider === "script" ? createElement(ScrollText, { size: 12, className: "text-ink-secondary", "aria-hidden": true })
+        : provider ? createElement(ProviderMark, { driverKind: provider, size: 12 })
+        : createElement(Bot, { size: 12, className: "text-ink-secondary", "aria-hidden": true });
+      expect(worker.innerHTML).toContain(renderToStaticMarkup(mark));
+      expect(worker.firstElementChild?.querySelector("svg")).not.toBeNull();
+      expect(worker.textContent).toBe("Worker");
+      expect(worker.querySelector("span.truncate")).not.toBeNull();
+      expect(worker.className).toContain("min-w-[56px]");
+      expect(host.querySelector('[role="tablist"]')?.className).toContain("overflow-x-auto");
+      expect(main.textContent).toBe("Main");
+      expect(main.querySelector("svg")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("starts a pane without a worker run with a plain bot mark", async () => {
+    store.api.mockResolvedValue({ screenText: "$", panes: [{ sessionId: "main", main: true }, { sessionId: "worker", main: false }] });
+    const { host, root } = await renderView();
+    try {
+      const worker = host.querySelectorAll('[role="tab"]')[1];
+      expect(worker.querySelector(".lucide-bot")).not.toBeNull();
+      expect(worker.querySelector(".lucide-scroll-text")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  it("takes the mark from the pane label when its launch is outside the loaded page", async () => {
+    store.api.mockResolvedValue({ screenText: "$", panes: [{ sessionId: "main", main: true }, { sessionId: "worker", label: "Worker | Codex Sol | high", main: false }] });
+    const { host, root } = await renderView();
+    try {
+      const worker = host.querySelectorAll('[role="tab"]')[1];
+      expect(worker.innerHTML).toContain(renderToStaticMarkup(createElement(ProviderMark, { driverKind: "codex", size: 12 })));
+      expect(worker.querySelector(".lucide-bot")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
   });
 
   it("does not render a tab strip with only a main pane", async () => {

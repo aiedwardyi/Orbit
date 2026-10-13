@@ -8,11 +8,12 @@ import { api, useStore, visibleMessages } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import { readTerminalMatch, terminalTheme, TERMINAL_APPEARANCE_EVENT } from "@/lib/terminal-appearance";
 import { createTerminalLineTracker } from "@/lib/terminal-input";
-import { latestPaneRun, workerRuns } from "@/lib/worker-runs";
+import { latestPaneRun, parseWorkerLabel, workerProvider, workerRuns } from "@/lib/worker-runs";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { Presence } from "@/lib/use-presence";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { WorkerMark } from "./WorkerRows";
 import "@xterm/xterm/css/xterm.css";
 
 type SessionInfo = { cwd: string; shell: string };
@@ -734,7 +735,8 @@ export function TerminalWorkspace({
         <div ref={tablistRef} role="tablist" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-hairline bg-panel px-5 pb-1 pt-1.5">
           {[{ id: null, label: t("terminal.title") }, ...panes.map((item) => ({ id: item.id, label: item.label || item.id.slice(0, 8) }))].map((tab, index) => (
             <div key={tab.id ?? "main"} className={`inline-flex shrink-0 items-center rounded-md border font-mono text-[11px] ${pane === tab.id ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"}`}>
-              <button type="button" role="tab" aria-selected={pane === tab.id} onClick={() => selectPane(tab.id)} aria-label={tab.label} title={`${tab.label} (Alt+${index + 1})`} className="whitespace-nowrap px-1.5 py-0.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text">
+              <button type="button" role="tab" aria-selected={pane === tab.id} onClick={() => selectPane(tab.id)} aria-label={tab.label} title={`${tab.label} (Alt+${index + 1})`} className="inline-flex items-center gap-1.5 whitespace-nowrap px-1.5 py-0.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text">
+                {tab.id && <WorkerMark provider={latestPaneRun(workers, tab.id)?.provider ?? workerProvider(parseWorkerLabel(tab.label).model)} compact />}
                 {tab.id ? tab.label : ">_"}
               </button>
               {tab.id && (
