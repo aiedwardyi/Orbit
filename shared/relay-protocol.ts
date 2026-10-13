@@ -324,8 +324,8 @@ export const ticketClaimsSchema = z.object({
 });
 export type TicketClaims = z.infer<typeof ticketClaimsSchema>;
 
-/** Operator-signed enrollment invite. `exp` is seconds since epoch. */
-export const inviteClaimsSchema = z.object({ exp: z.int(), nonce: z.string().min(1) });
+/** Operator-signed enrollment invite. `exp` is seconds since epoch. `test` keeps the PC off the team page. */
+export const inviteClaimsSchema = z.object({ exp: z.int(), nonce: z.string().min(1), test: z.literal(true).optional() });
 export type InviteClaims = z.infer<typeof inviteClaimsSchema>;
 
 /** Signed `<prefix>.<b64url json>.<b64url sig>`; the signature covers `<prefix>.<b64url json>`. */
@@ -402,10 +402,12 @@ export function verifyTicket(
 /** Mints an invite valid for `ttlSec` (7 days by default). */
 export function mintInvite(
   operatorPrivateKey: KeyObject,
-  options: { now?: number; ttlSec?: number; nonce?: string } = {},
+  options: { now?: number; ttlSec?: number; nonce?: string; test?: boolean } = {},
 ): string {
   const exp = nowSec(options.now) + (options.ttlSec ?? 7 * 24 * 60 * 60);
-  return signToken(INVITE_PREFIX, inviteClaimsSchema.parse({ exp, nonce: options.nonce ?? newNonce() }), operatorPrivateKey);
+  const claims: InviteClaims = { exp, nonce: options.nonce ?? newNonce() };
+  if (options.test) claims.test = true;
+  return signToken(INVITE_PREFIX, inviteClaimsSchema.parse(claims), operatorPrivateKey);
 }
 
 /** Checks signature and expiry. Single use is the relay's job (it keeps used nonces). */

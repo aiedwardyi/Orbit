@@ -24,6 +24,7 @@ const SPAN_RE = /^(pc|phone) ([a-z2-7]{16}) (\d{1,15}) (\d{1,15})$/;
 const NAME_RE = /^name ([a-z2-7]{16}) ([A-Za-z0-9_-]{0,400})$/;
 const ACCT_RE = /^acct ([a-z2-7]{16}) ([A-Za-z0-9_-]{43})$/;
 const WHO_RE = /^who ([a-z2-7]{16}) ([A-Za-z0-9_-]{0,400})$/;
+const TEST_RE = /^test ([a-z2-7]{16}) (\d{1,15})$/;
 
 type Kind = "pc" | "phone";
 
@@ -145,6 +146,8 @@ export class TeamLog {
   private readonly names = new Map<string, string>();
   private readonly accounts = new Map<string, string>();
   private readonly whos = new Map<string, string>();
+  /** Operator test PCs, by when they were marked. Kept off stats. */
+  private readonly tests = new Map<string, number>();
   private readonly openPc = new Map<string, { start: number; seen: number }>();
   private readonly openPhones = new Map<number, { label: string; start: number }>();
   private nextPhone = 0;
@@ -182,6 +185,11 @@ export class TeamLog {
       const acct = ACCT_RE.exec(line);
       if (acct) {
         team.accounts.set(acct[1], acct[2]);
+        continue;
+      }
+      const test = TEST_RE.exec(line);
+      if (test) {
+        team.tests.set(test[1], Math.max(team.tests.get(test[1]) ?? 0, Number(test[2])));
         continue;
       }
       const who = WHO_RE.exec(line);
@@ -234,6 +242,14 @@ export class TeamLog {
     this.append(`who ${label} ${Buffer.from(person, "utf8").toString("base64url")}\n`);
   }
 
+  /** Marks a PC enrolled with an operator test invite. */
+  markTest(label: string): void {
+    if (!LABEL_RE.test(label)) return;
+    const at = this.now();
+    this.tests.set(label, at);
+    this.append(`test ${label} ${at}\n`);
+  }
+
   phoneStart(label: string): number {
     const id = this.nextPhone++;
     this.openPhones.set(id, { label, start: this.now() });
@@ -278,6 +294,7 @@ export class TeamLog {
     for (const span of this.spans) bucket(span.label)[span.kind].push(span);
     for (const [label, open] of this.openPc) bucket(label).pc.push({ start: open.start, end: now });
     for (const open of this.openPhones.values()) bucket(open.label).phone.push({ start: open.start, end: now });
+    for (const label of this.tests.keys()) byLabel.delete(label);
 
     const pcs: TeamPc[] = [];
     for (const [label, entry] of byLabel) {
@@ -315,7 +332,7 @@ export class TeamLog {
     if (this.spans.length > MAX_SPANS) this.spans.splice(0, this.spans.length - MAX_SPANS);
   }
 
-  /** Drops spans that ended over 90 days ago, and names no span still uses. True when anything went. */
+  /** Drops spans that ended over 90 days ago, names no span still uses, and test marks past both. True when anything went. */
   private prune(): boolean {
     this.prunedAt = this.now();
     const cutoff = this.prunedAt - TEAM_KEEP_MS;
@@ -328,6 +345,11 @@ export class TeamLog {
       this.names.delete(label);
       this.accounts.delete(label);
       this.whos.delete(label);
+      dropped = true;
+    }
+    for (const [label, at] of this.tests) {
+      if (used.has(label) || at >= cutoff) continue;
+      this.tests.delete(label);
       dropped = true;
     }
     return dropped;
@@ -351,6 +373,7 @@ export class TeamLog {
 `;
     for (const [label, person] of this.whos) text += `who ${label} ${Buffer.from(person, "utf8").toString("base64url")}
 `;
+    for (const [label, at] of this.tests) text += `test ${label} ${at}\n`;
     for (const span of this.spans) text += `${span.kind} ${span.label} ${span.start} ${span.end}
 `;
     return this.queue(() => writeAtomic(this.journal, text));

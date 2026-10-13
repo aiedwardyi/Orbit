@@ -43,6 +43,21 @@ describe("mint-invite", () => {
     }
   });
 
+  it("with --test signs a test mark, with and without --base, and leaves default claims as they were", async () => {
+    const { path, key } = await keyFile(0o600);
+    const now = Date.now();
+    const claims = (invite: string) => JSON.parse(Buffer.from(invite.split(".")[1], "base64url").toString("utf8"));
+    const plain = await mintFromFile(path, { now });
+    expect(Object.keys(claims(plain))).toEqual(["exp", "nonce"]);
+    const bare = await mintFromFile(path, { now, test: true });
+    const opened = verifyInvite(bare, createPublicKey(key), { now });
+    expect(opened.ok && opened.value.test).toBe(true);
+    const parsed = parseSetupCode(await mintFromFile(path, { base: "wink.example.com", now, test: true }));
+    if (!parsed.ok) throw new Error(parsed.reason);
+    const inside = verifyInvite(parsed.value.invite, createPublicKey(key), { now });
+    expect(inside.ok && inside.value.test).toBe(true);
+  });
+
   it.skipIf(process.platform === "win32")("refuses a key file other users can read", async () => {
     const { path } = await keyFile(0o644);
     await expect(mintInviteFromFile(path)).rejects.toThrow(/chmod 600/);

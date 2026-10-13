@@ -11,12 +11,14 @@ import {
   MAX_FRAME_BYTES,
   PHONE_RELAY_OFF,
   base32lower,
+  buildSetupCode,
   encodeFrame,
   hostFor,
   labelForPublicKey,
   labelFromHost,
   mintInvite,
   newNonce,
+  parseSetupCode,
   isControlMessage,
   isDataMessage,
   authMessageSchema,
@@ -326,6 +328,16 @@ describe("invites", () => {
     const pc = pcIdentity();
     const ticket = signTicket({ label: pc.label, pk: pc.pk, iat: NOW_SEC, exp: NOW_SEC + YEAR }, operator.privateKey);
     expect(verifyInvite(ticket, operator.publicKey, { now: NOW }).ok).toBe(false);
+  });
+
+  it("signs a test mark only when asked, and its setup code parses as any other", () => {
+    const claims = (invite: string) => JSON.parse(Buffer.from(invite.split(".")[1], "base64url").toString("utf8"));
+    expect(claims(mintInvite(operator.privateKey, { now: NOW, nonce: "abc" }))).toStrictEqual({ exp: NOW_SEC + 7 * 86400, nonce: "abc" });
+    expect(claims(mintInvite(operator.privateKey, { now: NOW, nonce: "abc", test: false }))).toStrictEqual({ exp: NOW_SEC + 7 * 86400, nonce: "abc" });
+    const invite = mintInvite(operator.privateKey, { now: NOW, nonce: "abc", test: true });
+    expect(verifyInvite(invite, operator.publicKey, { now: NOW }))
+      .toEqual({ ok: true, value: { exp: NOW_SEC + 7 * 86400, nonce: "abc", test: true } });
+    expect(parseSetupCode(buildSetupCode("wink.example.com", invite))).toEqual({ ok: true, value: { base: "wink.example.com", invite } });
   });
 });
 

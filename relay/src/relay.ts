@@ -101,6 +101,7 @@ export async function createRelay(opts: RelayOptions): Promise<Relay> {
     operatorPublicKey,
     store,
     isRevoked: (label) => revoked.has(label),
+    onTestEnroll: (label) => team?.markTest(label),
     now,
     ticketTtlSec,
   });
