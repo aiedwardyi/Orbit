@@ -3,6 +3,8 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { googleSyncRoute, type GoogleSyncStatus } from "../../server/google-sync.ts";
+import { requestCredentials } from "../../server/phone-auth.ts";
 import { I18nProvider } from "@/lib/i18n";
 import { SyncPanel } from "./SyncPanel";
 
@@ -527,6 +529,29 @@ describe("SyncPanel move to Google", () => {
 });
 
 describe("SyncPanel on a phone", () => {
+  it.each<[GoogleSyncStatus["state"], string]>([
+    ["up-to-date", "Up to date · edward@example.com"],
+    ["syncing", "Syncing…"],
+    ["drive-full", "Google Drive is full. Free up space in Google Drive. Wink catches up on its own."],
+    ["offline", "Offline. Changes sync when you're back online."],
+    ["folder", "Up to date · Wink Sync"],
+  ])("shows %s through the authenticated relay route", async (state, expected) => {
+    const caller = { relay: true, ...requestCredentials(true, true, false, undefined) };
+    const read = vi.fn(async () => ({ ...google(state), state }));
+    const start = vi.fn(async () => { throw new Error("phone cannot start sync"); });
+    vi.stubGlobal("fetch", vi.fn(async (path: string, init?: RequestInit) => {
+      const reply = await googleSyncRoute(init?.method ?? "GET", path, caller, { read, start });
+      if (!reply) return fakeFetch(path, init);
+      calls.push(`${init?.method ?? "GET"} ${path}`);
+      return Response.json(reply.body, { status: reply.status });
+    }));
+    const host = await mount();
+    expect(line(host)).toBe(expected);
+    expect(buttons(host)).toEqual([]);
+    expect(calls).toEqual(state === "folder" ? [GOOGLE, FOLDER] : [GOOGLE]);
+    expect(start).not.toHaveBeenCalled();
+  });
+
   it("shows Not connected under the subtitle when signed out", async () => {
     routes.set(GOOGLE, () => google("signed-out", { email: null }));
     const host = await mount();

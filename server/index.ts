@@ -10042,7 +10042,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const reply = await teamRoute(phoneAccess.base(), googleEnv.teamRelay, googleEnv.teamOwner, googleAccount.owner()?.email ?? null, googleAccount);
       return json(res, reply.status, reply.body);
     }
-    const googleSyncReply = await googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk }, googleSync, () => readBody(req));
+    const googleSyncReply = await googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk, phoneSession: credentials.phoneSession, remoteCookie: apiRequestAuthorized(false, req.headers.cookie, credentials.remoteKey, path) }, googleSync, () => readBody(req));
     if (googleSyncReply) return json(res, googleSyncReply.status, googleSyncReply.body);
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);

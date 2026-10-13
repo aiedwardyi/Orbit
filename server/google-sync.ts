@@ -464,13 +464,14 @@ export function createGoogleSync(options: Options) {
 }
 export type GoogleSync = ReturnType<typeof createGoogleSync>;
 
-/** Desktop renderer only: never the phone relay or a remote cookie. */
+/** Signed-in phones may read status; starting sync requires the desktop bearer. */
 export async function googleSyncRoute(
-  method: string, path: string, caller: { relay: boolean; bearerOk: boolean }, sync: Pick<GoogleSync, "read" | "start">, body: () => Promise<StartBody> = async () => ({}),
+  method: string, path: string, caller: { relay: boolean; bearerOk: boolean; phoneSession?: boolean; remoteCookie?: boolean }, sync: Pick<GoogleSync, "read" | "start">, body: () => Promise<StartBody> = async () => ({}),
 ) {
   if (path !== "/api/google-sync" && path !== "/api/google-sync/start") return null;
-  if (caller.relay || !caller.bearerOk) return { status: 404, body: { error: "not found" } };
+  if (caller.relay ? !caller.phoneSession : !(caller.bearerOk || caller.remoteCookie)) return { status: 404, body: { error: "not found" } };
   if (method === "GET" && path === "/api/google-sync") return { status: 200, body: await sync.read() };
+  if (caller.relay || !caller.bearerOk) return { status: 404, body: { error: "not found" } };
   if (method === "POST" && path === "/api/google-sync/start") {
     const parsed = startSchema.safeParse(await body());
     return parsed.success ? sync.start(parsed.data) : { status: 400, body: { error: "invalid body" } };
