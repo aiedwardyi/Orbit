@@ -9,6 +9,7 @@ import { decodeDrivePath } from "./drive-mirror.ts";
 import { GoogleAccount, type GoogleSession } from "./google-account.ts";
 import { GOOGLE_BINDING_FILE, GOOGLE_TABLE_FILE, createGoogleSync, googleSyncRoute, readGoogleBinding, type GoogleSync } from "./google-sync.ts";
 import { ensureMemorySyncDevice, syncBotMemory, type MemorySyncLedger } from "./memory-sync.ts";
+import { requestCredentials } from "./phone-auth.ts";
 import { createSyncOperation, loadOrCreateSyncWorkspace, readSyncOperations, writeSyncOperation } from "./profile-sync.ts";
 import { FakeDrive } from "./testing/fake-drive.ts";
 
@@ -430,6 +431,34 @@ describe("Google sync binding", () => {
 });
 
 describe("Google sync routes", () => {
+  it("lets an authenticated relay phone read the desktop status without secrets", async () => {
+    const home = makePC("home");
+    await startOn(home);
+    const caller = { relay: true, ...requestCredentials(true, true, false, undefined) };
+    const reply = await googleSyncRoute("GET", "/api/google-sync", caller, home.sync);
+    const desktop = await googleSyncRoute("GET", "/api/google-sync", { relay: false, bearerOk: true }, home.sync);
+    expect(reply).toEqual(desktop);
+    expect(reply?.status).toBe(200);
+    expect(Object.keys(reply!.body).sort()).toEqual(["boundEmail", "email", "join", "lastSyncAt", "progress", "state"]);
+    expect(JSON.stringify(reply!.body)).not.toMatch(/refresh-a|access|client-secret-test|account-a/);
+  });
+
+  it("keeps every relay write hidden without reading its body or starting sync", async () => {
+    const home = makePC("home");
+    const read = vi.spyOn(home.sync, "read");
+    const start = vi.spyOn(home.sync, "start");
+    const body = vi.fn(async () => ({}));
+    const caller = { relay: true, ...requestCredentials(true, true, true, "remote-key") };
+    for (const method of ["POST", "PUT", "PATCH", "DELETE", "HEAD"]) {
+      for (const path of ["/api/google-sync", "/api/google-sync/start"]) {
+        expect(await googleSyncRoute(method, path, caller, home.sync, body)).toEqual({ status: 404, body: { error: "not found" } });
+      }
+    }
+    expect(read).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(body).not.toHaveBeenCalled();
+  });
+
   it("returns the exact status shape", async () => {
     const home = makePC("home");
     const reply = await googleSyncRoute("GET", "/api/google-sync", { relay: false, bearerOk: true }, home.sync);
@@ -450,8 +479,10 @@ describe("Google sync routes", () => {
   });
 
   it.each([
-    ["the phone relay", { relay: true, bearerOk: false }],
-    ["a remote cookie", { relay: false, bearerOk: false }],
+    ["an unauthenticated relay", { relay: true, ...requestCredentials(true, false, true, "remote-key") }],
+    ["a relay bearer without a phone session", { relay: true, bearerOk: true }],
+    ["a local phone session without a bearer", { relay: false, bearerOk: false, phoneSession: true }],
+    ["an unauthenticated caller", { relay: false, bearerOk: false }],
   ])("refuses %s", async (_name, caller) => {
     const home = makePC("home");
     home.account.setSession(A);
@@ -461,15 +492,26 @@ describe("Google sync routes", () => {
     expect(readGoogleBinding(home.dataDir)).toEqual({ kind: "none" });
   });
 
+  it("lets a remote cookie read status but not start sync", async () => {
+    const home = makePC("home");
+    home.account.setSession(A);
+    const caller = { relay: false, bearerOk: false, remoteCookie: true };
+    expect((await googleSyncRoute("GET", "/api/google-sync", caller, home.sync))?.status).toBe(200);
+    expect(await googleSyncRoute("POST", "/api/google-sync/start", caller, home.sync)).toEqual({ status: 404, body: { error: "not found" } });
+    expect(readGoogleBinding(home.dataDir)).toEqual({ kind: "none" });
+  });
+
   it("leaves other paths alone and rejects other methods", async () => {
     const home = makePC("home");
     expect(await googleSyncRoute("GET", "/api/google-account", { relay: false, bearerOk: true }, home.sync)).toBeNull();
     expect(await googleSyncRoute("PUT", "/api/google-sync", { relay: false, bearerOk: true }, home.sync)).toEqual({ status: 405, body: { error: "method not allowed" } });
   });
 
-  it("is wired behind the API auth gate with the relay and bearer flags", () => {
+  it("is wired behind the API auth gate with the relay, bearer, phone-session and cookie flags", () => {
     const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
-    const route = source.indexOf("googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk }, googleSync, () => readBody(req))");
+    const route = source.indexOf("googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk, phoneSession: credentials.phoneSession, remoteCookie: apiRequestAuthorized(false, req.headers.cookie, credentials.remoteKey, path) }, googleSync, () => readBody(req))");
+    expect(route).toBeGreaterThan(source.indexOf("const gate = await phoneAccess.gate(req, res);"));
+    expect(route).toBeGreaterThan(source.indexOf("const credentials = requestCredentials(relay, phone !== null, authorizedComms(req.headers.authorization), REMOTE_KEY);"));
     expect(route).toBeGreaterThan(source.indexOf("return json(res, 401, { error: \"unauthorized\" });"));
     expect(source.includes("const bots = profileSyncBots();")).toBe(true);
     expect(source.indexOf("googleSync.resume();")).toBeGreaterThan(source.lastIndexOf("\nsyncAllThreads();"));
