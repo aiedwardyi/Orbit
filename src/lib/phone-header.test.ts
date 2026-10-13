@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { boxShadowReach, phoneHeaderChipClearsMenu, phoneHeaderSlots, PHONE_HEADER_MENU_GAP, PHONE_HEADER_MENU_RESERVE_PX, PHONE_MENU_BUTTON_PX, PHONE_MENU_GLOW_PX } from "./phone-header";
+import { boxShadowReach, phoneHeaderChipClearsMenu, phoneHeaderSlots, transformShift, PHONE_HEADER_MENU_GAP, PHONE_HEADER_MENU_RESERVE_PX, PHONE_MENU_BUTTON_PX, PHONE_MENU_GLOW_PX } from "./phone-header";
 
 describe("phoneHeaderSlots", () => {
   const slots = phoneHeaderSlots(101, 64);
@@ -54,5 +54,14 @@ describe("phone header menu clearance", () => {
       top: menu.top - glow,
       bottom: menu.bottom + glow,
     })).toBe(false);
+  });
+});
+
+describe("transformShift", () => {
+  it("reads the translation from matrix and matrix3d values", () => {
+    expect(transformShift("none")).toEqual({ x: 0, y: 0 });
+    expect(transformShift("matrix(1, 0, 0, 1, 32, 0)")).toEqual({ x: 32, y: 0 });
+    expect(transformShift("matrix(1, 0, 0, 1, -18.5, 4)")).toEqual({ x: -18.5, y: 4 });
+    expect(transformShift("matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -32, 2, 0, 1)")).toEqual({ x: -32, y: 2 });
   });
 });

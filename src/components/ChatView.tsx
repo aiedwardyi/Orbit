@@ -44,7 +44,7 @@ import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock,
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { useSkin } from "@/lib/skins";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
-import { boxShadowReach, phoneHeaderChipClearsMenu, phoneHeaderSlots, PHONE_HEADER_MENU_RESERVE_PX, PHONE_MENU_GLOW_PX, type PhoneHeaderBox, type PhoneHeaderSlot } from "@/lib/phone-header";
+import { boxShadowReach, phoneHeaderChipClearsMenu, phoneHeaderSlots, transformShift, PHONE_HEADER_MENU_RESERVE_PX, PHONE_MENU_GLOW_PX, type PhoneHeaderBox, type PhoneHeaderSlot } from "@/lib/phone-header";
 import { isPhone } from "@/lib/phone-swipe";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
@@ -1283,6 +1283,18 @@ function phoneMenuBounds(menu: HTMLElement): PhoneHeaderBox {
   };
 }
 
+// The chat stage slides on a bot switch while the menu stays put, so the chip is compared unslid.
+function stageShift(header: HTMLElement, menu: HTMLElement) {
+  let x = 0;
+  let y = 0;
+  for (let el: HTMLElement | null = header; el && !el.contains(menu); el = el.parentElement) {
+    const shift = transformShift(getComputedStyle(el).transform);
+    x += shift.x;
+    y += shift.y;
+  }
+  return { x, y };
+}
+
 // Chromium drops min() around max-content, so the phone name floor is applied in px.
 function usePhoneHeaderNameFloor(
   clusterRef: { current: HTMLDivElement | null },
@@ -1428,7 +1440,9 @@ function usePhoneHeaderNameFloor(
         if (menu && chip) {
           const chipRect = chip.getBoundingClientRect();
           const menuRect = menu.getBoundingClientRect();
-          if (chipRect.width >= 1 && menuRect.width >= 1 && !phoneHeaderChipClearsMenu(chipRect, phoneMenuBounds(menu))) return false;
+          const shift = stageShift(header, menu);
+          const chipBox = { left: chipRect.left - shift.x, right: chipRect.right - shift.x, top: chipRect.top - shift.y, bottom: chipRect.bottom - shift.y };
+          if (chipRect.width >= 1 && menuRect.width >= 1 && !phoneHeaderChipClearsMenu(chipBox, phoneMenuBounds(menu))) return false;
         }
         return true;
       };
