@@ -504,7 +504,7 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
-  it("handles Alt+R only for visible Usage and leaves chat, terminal, and picker focus alone", async () => {
+  it("handles Alt+R only for visible Usage, even with the terminal open behind it, and leaves chat, terminal, and picker focus alone", async () => {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
@@ -550,27 +550,30 @@ describe("UsageSection friends plan card", () => {
       expect(overPicker.defaultPrevented).toBe(false);
       picker.remove();
 
+      composer.blur();
       const terminal = document.createElement("div");
       terminal.className = "orbit-terminal-overlay";
       terminal.dataset.open = "true";
       terminal.setAttribute("data-orbit-terminal", "");
-      document.body.append(terminal);
-      const overTerminal = send();
-      await act(async () => window.dispatchEvent(overTerminal));
-      expect(overTerminal.defaultPrevented).toBe(false);
-      terminal.remove();
-      composer.blur();
+      const terminalPane = document.createElement("div");
+      terminalPane.tabIndex = -1;
+      terminal.append(terminalPane);
+      const dialogButton = document.createElement("button");
+      document.body.append(terminal, dialogButton);
 
-      const closedTerminal = document.createElement("div");
-      closedTerminal.className = "orbit-terminal-overlay";
-      closedTerminal.dataset.open = "false";
-      closedTerminal.setAttribute("data-orbit-terminal", "");
-      document.body.append(closedTerminal);
-      const besideClosedTerminal = send();
-      await act(async () => window.dispatchEvent(besideClosedTerminal));
-      expect(besideClosedTerminal.defaultPrevented).toBe(true);
+      dialogButton.focus();
+      const behindSettings = send();
+      await act(async () => window.dispatchEvent(behindSettings));
+      expect(behindSettings.defaultPrevented).toBe(true);
       expect(mockApi).toHaveBeenCalledTimes(8);
-      closedTerminal.remove();
+
+      terminalPane.focus();
+      const inTerminal = send();
+      await act(async () => window.dispatchEvent(inTerminal));
+      expect(inTerminal.defaultPrevented).toBe(false);
+      expect(mockApi).toHaveBeenCalledTimes(8);
+      terminal.remove();
+      dialogButton.remove();
 
       await act(async () => root.unmount());
       const afterClose = send();
