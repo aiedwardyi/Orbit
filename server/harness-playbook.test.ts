@@ -22,6 +22,16 @@ describe("harness playbook", () => {
     expect(harnessPlaybookPrompt(true)).toContain("An editing job in a plain folder gets no worktree: one worker edits it in place");
   });
 
+  it("edits a checkout with uncommitted changes in place and checks its files", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("The same goes for a checkout with uncommitted changes");
+    expect(prompt).toContain("An in-place worker has no branch: instead of steps 1 and 2, read the files it");
+  });
+
+  it("says worker reports from a group room reach the bot's own chat", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("worker reports reach your own chat, not the room");
+  });
+
   it("sends long follow-ups as a file, one line", () => {
     expect(harnessPlaybookPrompt(true)).toContain("Follow-ups use the card rule: write long instructions to a file");
   });

@@ -6,7 +6,9 @@ descriptions carry the exact spawn commands. This is the workflow around them.
 
 Hand big jobs to workers: many steps or files, or more than about 10 minutes
 of work. You plan, write the card and check the result. Do quick asks and
-small edits yourself, and big jobs too when no worker can start.
+small edits yourself, and big jobs too when no worker can start. In a group
+room, worker reports reach your own chat, not the room: say so when you hand
+off.
 
 ## Cards
 
@@ -68,7 +70,8 @@ expensive the longer it runs.
 
 ## Worktrees
 
-Workers never touch the user's live checkout. Each card gets its own worktree:
+Workers never touch the user's live checkout, except the uncommitted-changes
+case below. Each card gets its own worktree:
 
 ```
 git -C <repo> worktree add {{WORKTREE}} -b <branch> <base>
@@ -79,6 +82,7 @@ git -C <repo> worktree add {{WORKTREE}} -b <branch> <base>
 - Remove it once the branch has landed: `git -C <repo> worktree remove <path>`.
 - A read-only review of a plain folder that is not a repo runs in a scratch copy of it, never in place: workers run unsandboxed, so a stray edit there could not be undone.
 - An editing job in a plain folder gets no worktree: one worker edits it in place, and you leave the folder alone until it reports.
+- The same goes for a checkout with uncommitted changes (`git status --short` lists files): a worktree starts from a commit and would miss them.
 
 ## Verify before push
 
@@ -100,6 +104,9 @@ When a worker reports done, check its work yourself before anything moves:
    (terminal_spawn, then terminal_close), not as a background task you kill
    later; a killed task shows up as failed.
 9. Before landing on the user's live checkout: checkout clean, app not running.
+
+An in-place worker has no branch: instead of steps 1 and 2, read the files it
+changed.
 
 ## Reports
 
