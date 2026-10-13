@@ -7,6 +7,7 @@ import { StoreProvider, useStore, type Bot, type Group, type InstanceInfo, type 
 
 import { setFindCurrent } from "@/lib/chat-find";
 
+import { DRAWER_BUTTON_RIGHT } from "@/lib/drawer-button";
 import { ChatView } from "./ChatView";
 import { GroupView } from "./GroupView";
 import type { TurnStreamState } from "@/lib/turn-stage";
@@ -1543,9 +1544,10 @@ describe("phone header name floor", () => {
     return found instanceof HTMLElement ? found : null;
   };
 
-  const installRects = (overlap: boolean) => {
+  const installRects = (overlap: boolean, menuLeft?: number) => {
     const rect = function (this: Element) {
       if (this instanceof HTMLElement && this.style.left === "-9999px") return box(0, 80, 0, 20);
+      if (menuLeft != null && this instanceof HTMLElement && this.className.includes("top-[15px]")) return box(menuLeft, 30, 15, 30);
       const header = headerOf(this);
       const label = header ? modelLabelOf(header) : null;
       const hidden = label?.style.display === "none";
@@ -1572,7 +1574,7 @@ describe("phone header name floor", () => {
     }
   };
 
-  const mount = async (overlap: boolean) => {
+  const mount = async (overlap: boolean, menu?: { left: number; glow?: boolean }) => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     vi.stubGlobal("ResizeObserver", class {
@@ -1582,7 +1584,13 @@ describe("phone header name floor", () => {
     });
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    installRects(overlap);
+    installRects(overlap, menu?.left);
+    if (menu) {
+      const button = document.createElement("button");
+      button.className = `md:hidden ${DRAWER_BUTTON_RIGHT}${menu.glow ? " needs-you-glow" : ""}`;
+      button.setAttribute("data-test-menu", "");
+      document.body.append(button);
+    }
     const bot: Bot = {
       ...botB,
       name: "Bounty-Watch",
@@ -1611,6 +1619,7 @@ describe("phone header name floor", () => {
       unmount: async () => {
         await act(async () => root.unmount());
         host.remove();
+        document.querySelector("[data-test-menu]")?.remove();
         restoreRects();
       },
     };
@@ -1680,6 +1689,25 @@ describe("phone header name floor", () => {
       expect(view.modelLabel.style.minWidth).toBe("max-content");
       expect(decoyLabel.style.minWidth).toBe("");
       expect(decoyLabel.style.display).toBe("");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("hides the model label when the chip box reaches the menu button", async () => {
+    const view = await mount(false, { left: 300 });
+    try {
+      expect(view.modelLabel).not.toBeNull();
+      expect(view.modelLabel?.style.display).toBe("none");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("hides the model label when the chip box reaches the menu glow", async () => {
+    const view = await mount(false, { left: 348, glow: true });
+    try {
+      expect(view.modelLabel?.style.display).toBe("none");
     } finally {
       await view.unmount();
     }

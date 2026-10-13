@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { Check, Laptop, Monitor, Pencil } from "lucide-react";
 
 import { leaveFor } from "@/lib/back-navigation";
@@ -56,26 +57,27 @@ function useDevices(enabled: boolean) {
 
 type Navigate = (url: string) => void;
 
-/** Phones jump in place from the chat header, leaving no Back step to this PC; the desktop app opens the PC in its own window. */
+/** Phones jump in place from the bot list, leaving no Back step to this PC; the desktop app opens the PC in its own window. */
 export function DeviceSwitcher({
   navigate = leaveFor,
-  compact = false,
+  labeled = false,
 }: {
   navigate?: Navigate;
-  compact?: boolean;
+  /** Phone drawer: current PC's icon and name. The menu is portaled so the drawer cannot clip it. */
+  labeled?: boolean;
 }) {
   const { t } = useI18n();
   const deviceWindow = window.ogb?.deviceWindow;
-  const visible = compact || Boolean(deviceWindow);
+  const visible = labeled || Boolean(deviceWindow);
   const [devices, reload] = useDevices(visible);
   const [open, setOpen] = useState(false);
-  // The chat header clips overflow, so the phone menu is pinned to the viewport.
+  // The drawer is transformed, so a phone menu pinned inside it would clip. Portal it instead.
   const [pinned, setPinned] = useState<CSSProperties>();
   const [renaming, setRenaming] = useState(false);
   const presence = usePresence(open);
 
   const here = devices.find((device) => device.current);
-  if (devices.length < 2 || !visible || (compact && !here)) return null;
+  if (devices.length < 2 || !visible || (labeled && !here)) return null;
 
   const close = () => {
     setOpen(false);
@@ -92,42 +94,18 @@ export function DeviceSwitcher({
       .catch(() => {});
   };
 
-  return (
-    <div data-device-switcher className={cn(compact && "mr-2 shrink-0")}>
-      <button
-        type="button"
-        data-device-tag={compact ? "" : undefined}
-        onClick={(event) => {
-          if (open) return close();
-          if (compact) {
-            const rect = event.currentTarget.getBoundingClientRect();
-            setPinned({ top: rect.bottom, left: rect.left });
-          }
-          setOpen(true);
-          reload();
-        }}
-        aria-expanded={open}
-        aria-label={t("chrome.devices")}
+  const menu = presence.mounted && (
+    <>
+      {!presence.closing && <div className={cn("fixed inset-0", labeled ? "z-50" : "z-30")} onMouseDown={close} />}
+      <ul
+        data-closing={presence.closing || undefined}
+        inert={presence.closing}
         className={cn(
-          "flex items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink",
-          compact ? "size-[30px]" : "size-10",
+          "animate-pop-in mt-1 w-60 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
+          labeled ? "fixed z-50" : "absolute right-0 top-full z-40",
         )}
-        title={compact ? here!.name : t("chrome.devices")}
+        style={labeled ? pinned : undefined}
       >
-        {here ? <DeviceIcon device={here} size={compact ? 18 : 20} /> : <Monitor size={20} />}
-      </button>
-      {presence.mounted && (
-        <>
-          {!presence.closing && <div className="fixed inset-0 z-30" onMouseDown={close} />}
-          <ul
-            data-closing={presence.closing || undefined}
-            inert={presence.closing}
-            className={cn(
-              "animate-pop-in z-40 mt-1 w-60 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
-              compact ? "fixed" : "absolute right-0 top-full",
-            )}
-            style={compact ? pinned : undefined}
-          >
             {devices.map((device) =>
               device.current && renaming ? (
                 <li key={device.deviceId} className="px-2.5 py-1">
@@ -191,20 +169,48 @@ export function DeviceSwitcher({
               ),
             )}
           </ul>
-        </>
-      )}
+    </>
+  );
+
+  return (
+    <div data-device-switcher className={cn(labeled && "min-w-0 max-w-full")}>
+      <button
+        type="button"
+        data-device-tag={labeled ? "" : undefined}
+        onClick={(event) => {
+          if (open) return close();
+          if (labeled) {
+            const rect = event.currentTarget.getBoundingClientRect();
+            const menuWidth = 240;
+            const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8));
+            setPinned({ top: rect.bottom, left });
+          }
+          setOpen(true);
+          reload();
+        }}
+        aria-expanded={open}
+        aria-label={t("chrome.devices")}
+        className={cn(
+          "flex items-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink",
+          labeled ? "min-w-0 max-w-full justify-start gap-1.5 py-1 pl-0.5 pr-1.5 text-[13px] leading-none" : "size-10 justify-center",
+        )}
+        title={labeled && here ? here.name : t("chrome.devices")}
+      >
+        {here ? <DeviceIcon device={here} size={labeled ? 18 : 20} /> : <Monitor size={20} />}
+        {labeled && here && <span className="truncate">{here.name}</span>}
+      </button>
+      {labeled && menu ? createPortal(menu, document.body) : menu}
     </div>
   );
 }
 
-/** Which PC this is, everywhere but the local desktop app window. On phones it opens the PC menu. */
-export function DeviceTag({ navigate }: { navigate?: Navigate }) {
+/** Which PC this is in a desktop browser. Phones keep the picker in the bot list. */
+export function DeviceTag(_props?: { navigate?: Navigate }) {
   const local = Boolean(window.ogb);
   const phone = isPhone();
   const [devices] = useDevices(!local && !phone);
   const device = devices.length > 1 ? devices.find((item) => item.current) : undefined;
-  if (!local && phone) return <DeviceSwitcher compact navigate={navigate} />;
-  if (local || !device) return null;
+  if (local || phone || !device) return null;
   return (
     <span
       data-device-tag

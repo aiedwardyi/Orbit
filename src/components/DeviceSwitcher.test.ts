@@ -28,12 +28,20 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-async function renderView(devices: DeviceItem[], navigate = vi.fn(), view: typeof DeviceSwitcher | typeof DeviceTag = DeviceSwitcher) {
+async function renderView(
+  devices: DeviceItem[],
+  navigate = vi.fn(),
+  view: typeof DeviceSwitcher | typeof DeviceTag = DeviceSwitcher,
+  labeled = false,
+) {
   store.api.mockResolvedValue({ devices });
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(createElement(I18nProvider, null, createElement(view, { navigate }))));
+  const node = view === DeviceTag
+    ? createElement(DeviceTag)
+    : createElement(DeviceSwitcher, { navigate, labeled });
+  await act(async () => root.render(createElement(I18nProvider, null, node)));
   return { host, root, navigate };
 }
 
@@ -65,26 +73,27 @@ describe("DeviceSwitcher", () => {
     expect(host.textContent).toBe("");
   });
 
-  it("marks the current PC and jumps to another from the phone tag", async () => {
+  it("marks the current PC and jumps to another from the phone drawer", async () => {
     setPhone(true);
     const { host, navigate } = await renderView(
       [device("home", { current: true }), device("laptop", { offline: true }), device("work")],
       vi.fn(),
-      DeviceTag,
+      DeviceSwitcher,
+      true,
     );
     const toggle = host.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
     expect(toggle.getAttribute("aria-label")).toBe("Your PCs");
-    expect(toggle.textContent).toBe("");
-    expect(host.querySelector("ul")).toBeNull();
+    expect(toggle.textContent).toBe("home");
+    expect(document.querySelector("ul")).toBeNull();
     await act(async () => click(toggle));
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(host.textContent).toContain("This PC");
-    expect(host.textContent).toContain("Offline");
-    await act(async () => click(host.querySelector("[data-device-id=home]")!));
+    expect(document.body.textContent).toContain("This PC");
+    expect(document.body.textContent).toContain("Offline");
+    await act(async () => click(document.querySelector("[data-device-id=home]")!));
     expect(navigate).not.toHaveBeenCalled();
-    expect(host.querySelector("ul:not([inert])")).toBeNull();
+    expect(document.querySelector("ul:not([inert])")).toBeNull();
     await act(async () => click(toggle));
-    await act(async () => click(host.querySelector("[data-device-id=laptop]")!));
+    await act(async () => click(document.querySelector("[data-device-id=laptop]")!));
     expect(navigate).toHaveBeenCalledWith("https://laptop.tail396477.ts.net/");
   });
 
@@ -93,11 +102,11 @@ describe("DeviceSwitcher", () => {
     store.api.mockResolvedValue({ devices: [device("home", { current: true }), device("work")] });
     const host = document.createElement("div");
     document.body.append(host);
-    await act(async () => createRoot(host).render(createElement(I18nProvider, null, createElement(DeviceTag))));
+    await act(async () => createRoot(host).render(createElement(I18nProvider, null, createElement(DeviceSwitcher, { labeled: true }))));
     const leave = vi.fn();
     window.addEventListener("orbit:leave", leave);
     await act(async () => click(host.querySelector("button[aria-expanded]")!));
-    await act(async () => click(host.querySelector("[data-device-id=work]")!));
+    await act(async () => click(document.querySelector("[data-device-id=work]")!));
     window.removeEventListener("orbit:leave", leave);
     expect(leave).toHaveBeenCalledOnce();
     expect(leave.mock.calls[0][0].detail).toBe("https://work.tail396477.ts.net/");
@@ -116,18 +125,18 @@ describe("DeviceSwitcher", () => {
 
   it("renames this PC inline", async () => {
     setPhone(true);
-    const { host } = await renderView([device("home", { current: true, name: "EDWARD-PC" }), device("work")], vi.fn(), DeviceTag);
+    const { host } = await renderView([device("home", { current: true, name: "EDWARD-PC" }), device("work")], vi.fn(), DeviceSwitcher, true);
     await act(async () => click(host.querySelector("button[aria-expanded]")!));
-    expect(host.querySelectorAll("button[aria-label='Rename this PC']")).toHaveLength(1);
-    await act(async () => click(host.querySelector("button[aria-label='Rename this PC']")!));
-    let input = host.querySelector("input")!;
+    expect(document.querySelectorAll("button[aria-label='Rename this PC']")).toHaveLength(1);
+    await act(async () => click(document.querySelector("button[aria-label='Rename this PC']")!));
+    let input = document.querySelector("input")!;
     expect(input.value).toBe("EDWARD-PC");
     await act(async () => key(input, "Escape"));
-    expect(host.querySelector("input")).toBeNull();
+    expect(document.querySelector("input")).toBeNull();
     expect(store.api).toHaveBeenCalledTimes(2);
 
-    await act(async () => click(host.querySelector("button[aria-label='Rename this PC']")!));
-    input = host.querySelector("input")!;
+    await act(async () => click(document.querySelector("button[aria-label='Rename this PC']")!));
+    input = document.querySelector("input")!;
     input.value = "   ";
     await act(async () => key(input, "Enter"));
     expect(store.api).toHaveBeenCalledTimes(2);
@@ -138,8 +147,8 @@ describe("DeviceSwitcher", () => {
     await act(async () => key(input, "Enter"));
     expect(store.api).toHaveBeenCalledWith("/api/devices/name", { method: "PUT", body: JSON.stringify({ name: "Home" }) });
     expect(store.api).toHaveBeenLastCalledWith("/api/devices");
-    expect(host.querySelector("input")).toBeNull();
-    expect(host.querySelector("[data-device-id=home]")!.textContent).toContain("Home");
+    expect(document.querySelector("input")).toBeNull();
+    expect(document.querySelector("[data-device-id=home]")!.textContent).toContain("Home");
   });
 
   it("shows in the desktop app and opens another PC in its own window", async () => {
@@ -169,20 +178,50 @@ describe("DeviceTag", () => {
     expect(host.querySelector("[data-device-tag] .lucide-monitor")).not.toBeNull();
   });
 
-  it("is an icon button on phones", async () => {
+  it("stays out of the phone header", async () => {
     setPhone(true);
     const { host } = await renderView(pcs, vi.fn(), DeviceTag);
+    expect(host.querySelector("[data-device-tag]")).toBeNull();
+    expect(host.querySelector("[data-device-switcher]")).toBeNull();
+    expect(host.textContent).toBe("");
+    expect(store.api).not.toHaveBeenCalled();
+  });
+
+  it("shows this PC's icon and name on the phone drawer", async () => {
+    setPhone(true);
+    const { host } = await renderView(pcs, vi.fn(), DeviceSwitcher, true);
     const tag = host.querySelector("button[data-device-tag]")!;
     expect(tag.getAttribute("title")).toBe("Home");
-    expect(tag.textContent).toBe("");
+    expect(tag.textContent).toBe("Home");
     expect(tag.querySelector(".lucide-monitor")).not.toBeNull();
     expect(store.api).toHaveBeenCalledTimes(1);
   });
 
   it("shows a laptop icon on a laptop", async () => {
     setPhone(true);
-    const { host } = await renderView([device("laptop", { current: true, laptop: true }), device("work")], vi.fn(), DeviceTag);
+    const { host } = await renderView([device("laptop", { current: true, laptop: true, name: "Laptop" }), device("work")], vi.fn(), DeviceSwitcher, true);
     expect(host.querySelector("[data-device-tag] .lucide-laptop")).not.toBeNull();
+    expect(host.querySelector("[data-device-tag]")!.textContent).toBe("Laptop");
+  });
+
+  it("hides the phone drawer picker with one PC", async () => {
+    setPhone(true);
+    const { host } = await renderView([pcs[0]], vi.fn(), DeviceSwitcher, true);
+    expect(host.textContent).toBe("");
+    expect(host.querySelector("[data-device-switcher]")).toBeNull();
+  });
+
+  it("portals the phone menu so the drawer cannot clip it", async () => {
+    setPhone(true);
+    const { host } = await renderView(pcs, vi.fn(), DeviceSwitcher, true);
+    const drawer = document.createElement("div");
+    drawer.setAttribute("data-phone-drawer", "");
+    drawer.append(host);
+    await act(async () => click(host.querySelector("button[aria-expanded]")!));
+    const menu = document.querySelector("ul");
+    expect(menu).not.toBeNull();
+    expect(drawer.contains(menu)).toBe(false);
+    expect(menu?.className).toContain("fixed");
   });
 
   it("is hidden in the local desktop app", async () => {
