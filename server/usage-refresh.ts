@@ -29,7 +29,7 @@ export type UsageRefreshStatus =
   | "auth_error"
   | "limit_reached";
 type Result = { report?: Report; error?: string; retryAt: number; status?: UsageRefreshStatus; resetsAt?: number | null };
-type Options = { instanceId: string; cli?: string; environment?: NodeJS.ProcessEnv };
+type Options = { instanceId: string; cli?: string; environment?: NodeJS.ProcessEnv; museModel?: string };
 const usableReport = (report: Report | undefined): report is Report =>
   Boolean(report && report.windows.length > 0 && Number.isFinite(Date.parse(report.observedAt)));
 const text = z.string().min(1);
@@ -414,9 +414,10 @@ class MuseUsageFailure extends Error {
   }
 }
 
-// Check now: limits only arrive inside a model reply, so the check is one
-// tiny turn on the discounted Contributor tier at minimal effort, with tools off.
-const MUSE_CHECK_MODEL = "muse-spark-1.3-contributor";
+// Check now: limits only arrive inside a model reply, so the check is one tiny
+// turn at minimal effort with tools off, in the mode the instance's bots use.
+const MUSE_CHECK_MODEL = "muse-spark-1.3";
+const MUSE_CHECK_CONTRIBUTOR_MODEL = "muse-spark-1.3-contributor";
 const MUSE_CHECK_PROMPT = "Reply with: ok";
 const MUSE_CHECK_TURN_MS = 90_000;
 const MUSE_CHECK_THROTTLE_MS = 60_000;
@@ -424,9 +425,14 @@ const museCheckStarted = z.object({ session: z.object({ sessionId: z.string() })
 const museCheckCompleted = z.object({ sessionId: z.string(), terminal: z.string().optional(), error: z.unknown().optional(), reason: z.string().optional() });
 const museErrorMessage = z.object({ message: z.string() });
 
+/** Contributor only when the instance has bots and all of them run Contributor; Standard otherwise. */
+export function museCheckModel(botModels: readonly string[]): string {
+  return botModels.length > 0 && botModels.every((model) => model.endsWith("-contributor")) ? MUSE_CHECK_CONTRIBUTOR_MODEL : MUSE_CHECK_MODEL;
+}
+
 /** Read the stable MSP usage snapshot from a normal `muse serve` host. With
  * `check`, a memory-only host in an empty temp folder runs one turn first. */
-async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv, check = false): Promise<JsonValue> {
+async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv, check = false, model = MUSE_CHECK_MODEL): Promise<JsonValue> {
   const cwd = check ? mkdtempSync(join(tmpdir(), "omb-muse-check-")) : homedir();
   const args = check ? ["serve", "--no-session-log", "--disable-shell", "--disable-write"] : ["serve"];
   const child = spawnCli(cli, args, { cwd, env: childEnv, stdio: ["pipe", "pipe", "pipe"] });
@@ -443,7 +449,7 @@ async function readMuseUsageOnce(cli: string, childEnv: NodeJS.ProcessEnv, check
     const workspaceRoot = /^\s*wsl(\.exe)?(\s|$)/i.test(cli) ? toWslPath(cwd) : cwd;
     const started = await request(
       "session/start",
-      { commandId: uuidv7(), workspaceRoot, modelId: MUSE_CHECK_MODEL, approvalMode: "denyUnmatched" },
+      { commandId: uuidv7(), workspaceRoot, modelId: model, approvalMode: "denyUnmatched" },
       30_000,
     );
     const session = museCheckStarted.safeParse(started);
@@ -526,6 +532,7 @@ type MuseUsageReadOptions = {
   platform?: NodeJS.Platform;
   resolveWsl?: typeof resolveWslMuseCli;
   check?: boolean;
+  model?: string;
 };
 
 const isMuseNoObservation = (payload: unknown): boolean => {
@@ -555,7 +562,7 @@ export async function readMuseUsage(
   let lastError: unknown;
   for (const target of targets) {
     try {
-      return await readMuseUsageOnce(target, childEnv, options.check);
+      return await readMuseUsageOnce(target, childEnv, options.check, options.model);
     } catch (error) {
       if (error instanceof Error && error.message === "signin") throw error;
       if (error instanceof MuseUsageFailure && error.spent) throw error;
@@ -566,7 +573,7 @@ export async function readMuseUsage(
     const wslCli = await resolveWsl(cli, childEnv);
     if (wslCli) {
       try {
-        return await readMuseUsageOnce(wslCli, childEnv, options.check);
+        return await readMuseUsageOnce(wslCli, childEnv, options.check, options.model);
       } catch (error) {
         if (error instanceof Error && error.message === "signin") throw error;
         if (error instanceof MuseUsageFailure && error.spent) throw error;
@@ -810,7 +817,7 @@ export function createUsageRefresh(deps: {
         } else if (driver === "antigravityAgent") {
           windows = antigravityRateLimitWindows(await (deps.antigravity ?? readAntigravityQuota)(options.cli || "agy", env), clock());
         } else if (driver === "museAgent") {
-          const payload = await (deps.muse ?? readMuseUsage)(options.cli || museDefaultCli(), env);
+          const payload = await (deps.muse ?? readMuseUsage)(options.cli || museDefaultCli(), env, { model: options.museModel });
           const report = museUsageReport(payload);
           if (!report) {
             if (isMuseNoObservation(payload)) return { report: previous, status: "no_observation", retryAt };
@@ -869,7 +876,7 @@ export function createUsageRefresh(deps: {
 /** Check now: one paid Muse turn, at most once a minute per instance. */
 export function createMuseCheck(deps: Parameters<typeof createUsageRefresh>[0] = {}) {
   const refresh = createUsageRefresh({
-    muse: (cli, env) => readMuseUsage(cli, env, { check: true }),
+    muse: (cli, env, read) => readMuseUsage(cli, env, { ...read, check: true }),
     ...deps,
     throttleMs: MUSE_CHECK_THROTTLE_MS,
   });
