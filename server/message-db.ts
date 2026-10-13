@@ -14,6 +14,8 @@ import { chmodSync, closeSync, existsSync, openSync, readFileSync, renameSync } 
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { termVerb } from "../shared/tool-verb.ts";
+
 import { DATA_DIR } from "./config.ts";
 import type { Message } from "./store.ts";
 import { redactToolMessage } from "./tool-detail.ts";
@@ -265,44 +267,7 @@ export interface SearchHit {
 }
 
 // Same header and detail block the terminal row draws. Search must not outrun it.
-const TOOL_VERBS = new Map([
-  ["Edit", "Update"],
-  ["MultiEdit", "Update"],
-  ["edit", "Update"],
-  ["fileChange", "Update"],
-  ["shell", "Bash"],
-  ["commandExecution", "Bash"],
-  ["WebFetch", "Fetch"],
-  ["WebSearch", "Web Search"],
-  ["web_search", "Web Search"],
-  ["webSearch", "Web Search"],
-  ["Agent", "Task"],
-  ["bash", "Bash"],
-  ["read", "Read"],
-  ["write", "Write"],
-  ["grep", "Grep"],
-  ["find", "Glob"],
-  ["ls", "List"],
-  ["run_command", "Bash"],
-  ["view_file", "Read"],
-  ["write_to_file", "Write"],
-  ["replace_file_content", "Update"],
-  ["multi_replace_file_content", "Update"],
-  ["grep_search", "Grep"],
-  ["find_by_name", "Glob"],
-  ["list_dir", "List"],
-  ["search_web", "Web Search"],
-  ["read_url_content", "Fetch"],
-]);
 const INPUT_HEADERS = new Set(["Bash", "Update", "Write"]);
-
-function shownVerb(name: string): string {
-  const known = TOOL_VERBS.get(name);
-  if (known) return known;
-  const mcp = /^mcp__([^_]+)__(.+)$/.exec(name);
-  if (mcp) return `${mcp[1]} - ${mcp[2]} (MCP)`;
-  return name;
-}
 
 type ToolBody = NonNullable<Message["tool"]>;
 type ToolDetail = NonNullable<ToolBody["detail"]>;
@@ -316,7 +281,7 @@ function shownDetailLines(tool: ToolBody): string[] {
   const detail = tool.detail;
   if (!detail) return [];
   const lines: string[] = [];
-  const args = shownArgs(shownVerb(tool.verb ?? tool.name), tool.summary, detail, tool.verb ? tool.name : undefined);
+  const args = shownArgs(termVerb(tool.verb ?? tool.name), tool.summary, detail, tool.verb ? tool.name : undefined);
   if (detail.input && args === detail.input) lines.push(detail.input);
   if (detail.outputHidden) return lines;
   const diff = tool.ok !== false && detail.diff?.length ? detail.diff : undefined;
@@ -375,8 +340,8 @@ export function searchMessages(query: string, limit = 40, threadId?: string): Se
   // escape LIKE wildcards so a literal % or _ in the query stays literal
   const pattern = `%${needle.replace(/([\\%_])/g, "\\$1")}%`;
   // Text matches its text. Activity matches the tool JSON, then the visible
-  // detail only: one extract stays as cheap as the old name lookup. Engine
-  // summaries are never shown, so they never match.
+  // detail only. Engine summaries are never shown, so they never match.
+  // json_extract returns the whole tool object, but the store caps its detail at 256 bytes.
   const scope = threadId ? "thread_id = ? AND " : "";
   const order = threadId ? "" : "CASE WHEN kind = 'text' THEN 0 ELSE 1 END, ";
   const statement = db().prepare(
@@ -398,6 +363,7 @@ export function searchMessages(query: string, limit = 40, threadId?: string): Se
   const hits: SearchHit[] = [];
   const batch = Math.max(1, limit);
   let offset = 0;
+  // The prefilter matches raw JSON but activityHaystack redacts, so a word only in redacted output costs extra rounds.
   while (hits.length < limit) {
     // SAFETY: This SELECT list is thread_id, id, at, role, kind, text, tool_json, from_name.
     const rows = (threadId

@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { TERM_STEP_WORD, termBlock, termElapsed, termHeaderArgs, termMeter, termResultLine, termStepAria, termUpdatedLine, termVerb } from "./terminal-skin";
+import { termVerb as sharedTermVerb } from "../../shared/tool-verb";
 import { en, ko } from "./i18n-catalog";
 import { applyLocale, t } from "./i18n";
 
 describe("termVerb", () => {
+  it("is the verb map search reads", () => {
+    expect(termVerb).toBe(sharedTermVerb);
+  });
+
   it("maps tool names to Claude Code verbs across engines", () => {
     expect(termVerb("Edit")).toBe("Update");
     expect(termVerb("MultiEdit")).toBe("Update");
