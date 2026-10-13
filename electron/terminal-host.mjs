@@ -15,6 +15,11 @@ export const TERMINAL_ACTIVITY_COALESCE_MS = 750;
 export const TERMINAL_ACTIVITY_ACK_COOLDOWN_MS = 3_000;
 export const TERMINAL_STALL_MS = 120_000;
 export const TERMINAL_TURN_END_MS = 90_000;
+// A worker idle on its own background jobs keeps its turn-end note this long at most.
+const JOBS_HOLD_MS = 30 * 60_000;
+// Long enough for an agent woken by its finished job to show busy and drop the note.
+const JOBS_QUIET_MS = 30_000;
+const JOBS_FOOTER_LINES = 4;
 const STALL_CHECK_MS = 10_000;
 // Stop hooks and Codex notify land seconds after the screen settles.
 const STALL_NOTE_SLACK_MS = 30_000;
@@ -27,6 +32,9 @@ const RESIZE_REPAINT_MS = 2_000;
 // Script panes go quiet when they finish; only an agent CLI waits on its teacher.
 const WORKER_CLI_RE = /(?:^|[;&|\r\n])\s*&?\s*["']?(?:[^\s"';&|]*[\\/])?(?:claude|codex|muse|grok|gemini|agy)(?:\.(?:exe|cmd|ps1))?["']?(?=\s|$)/i;
 const AGENT_BUSY_RE = /(?:esc to interrupt|^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$))/mu;
+// Claude Code's status line counts live jobs in a "·" segment; its "done ... still running" line is history and never clears.
+const AGENT_JOBS_RE = /^(?!.*still running)(?=.*·)(?:.*·)?\s*(?:\d+ [^,·]+, )*\d+ (?:shells?|monitors?|local agents?)(?:, \d+ [^,·]+)*\s*(?:·|$)/u;
+const agentJobsRunning = (screenText) => screenText.split("\n").filter((line) => line.trim()).slice(-JOBS_FOOTER_LINES).some((line) => AGENT_JOBS_RE.test(line));
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 const BOT_PANE_LIMIT = 8;
@@ -319,12 +327,17 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       }
       const auto = session.autoNote;
       if (auto && at - auto.at >= TERMINAL_TURN_END_MS) {
-        session.autoNote = null;
-        if (!AGENT_BUSY_RE.test(session.screen.text()) && session.mail) {
-          session.autoDelivered = true;
-          session.noteAt = at;
-          const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
-          void Promise.resolve().then(() => notePane(session.mail, scope, auto.text)).catch(() => {});
+        const text = session.screen.text();
+        const busy = AGENT_BUSY_RE.test(text);
+        if (!busy && at - auto.at < JOBS_HOLD_MS && agentJobsRunning(text)) auto.jobsAt = at;
+        else if (busy || !auto.jobsAt || at - auto.jobsAt >= JOBS_QUIET_MS || at - auto.at >= JOBS_HOLD_MS) {
+          session.autoNote = null;
+          if (!busy && session.mail) {
+            session.autoDelivered = true;
+            session.noteAt = at;
+            const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
+            void Promise.resolve().then(() => notePane(session.mail, scope, auto.text)).catch(() => {});
+          }
         }
       }
       if (!session.worker || session.retired || session.exitCode !== null) continue;
