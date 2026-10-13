@@ -211,7 +211,13 @@ import {
   type RecoveryFlushReason,
 } from "./task-recovery-flush.ts";
 import { isCompletedTaskRecord } from "../shared/task-resume.ts";
-import { taskArtifactError, taskStateUpdateError, type TaskResumePacket } from "./task-state.ts";
+import {
+  assignTaskNextAction,
+  taskArtifactError,
+  taskStateUpdateEnvelopeSchema,
+  taskStateUpdateError,
+  type TaskResumePacket,
+} from "./task-state.ts";
 import * as tts from "./tts/index.ts";
 import { narrateTool, toUtterances } from "./tts/speech-text.ts";
 import {
@@ -653,35 +659,6 @@ const routineRequestEnvelopeSchema = z.discriminatedUnion("action", [
     z.object({ ...routineRequestSourceSchema, action: z.literal(action), routineId: z.unknown() }).strict()
   ),
 ]);
-const taskStatePlanSchema = z.array(z.object({
-  step: z.string().trim().min(1).max(200),
-  status: z.enum(["pending", "active", "done", "skipped"]),
-}).strict()).max(20).refine(
-  (plan) => plan.filter((item) => item.status === "active").length <= 1,
-  "at most one plan step may be active",
-);
-const taskStateUpdateEnvelopeSchema = z.object({
-  fromBotId: z.string().min(1).max(128),
-  fromThreadId: z.string().min(1).max(128),
-  goal: z.string().trim().min(1).max(500).optional(),
-  plan: taskStatePlanSchema.optional(),
-  completed_note: z.string().trim().min(1).max(300).optional(),
-  pause_automatic_wakes: z.literal(true).optional(),
-  next_action: z.string().trim().min(1).max(300).optional(),
-  blockers: z.array(z.object({
-    kind: z.enum(["login", "input", "engine"]),
-    note: z.string().trim().min(1).max(300),
-  }).strict()).max(10).optional(),
-  artifacts: z.array(z.object({
-    ref: z.string().trim().min(1).max(500),
-    label: z.string().trim().min(1).max(200),
-  }).strict()).max(20).optional(),
-}).strict().refine(
-  (body) => body.goal !== undefined || body.plan !== undefined || body.completed_note !== undefined ||
-    body.next_action !== undefined || body.blockers !== undefined || body.artifacts !== undefined || body.pause_automatic_wakes === true,
-  "at least one task field is required",
-);
-
 function groundedTaskArtifact(cwd: string | null | undefined, ref: string): string | null {
   if (!cwd) return null;
   try {
@@ -6721,11 +6698,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (body.completed_note !== undefined && next.completed.at(-1)?.note !== body.completed_note) {
           next.completed.push({ note: body.completed_note, at: Date.now() });
         }
-        if (body.next_action !== undefined) {
-          next.nextAction = body.next_action;
-          if (next.instructionId) next.nextActionInstructionId = next.instructionId;
-          else delete next.nextActionInstructionId;
-        }
+        if (body.next_action !== undefined) assignTaskNextAction(next, body.next_action);
         foldCompletedNextAction(next);
         if (body.blockers !== undefined) {
           next.blockers = [

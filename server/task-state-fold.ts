@@ -159,6 +159,7 @@ export function recordTaskCompletion(
     next.settledInstructionId = next.instructionId;
     // Blank only the instruction's own line (or an unstamped record from before the
     // field existed); a next action the bot set stays until the bot changes it.
+    // foldCompletedNextAction can still advance the action.
     const anchorless = !next.instructionAction && !next.nextActionInstructionId;
     if (anchorless || next.nextAction === next.instructionAction) next.nextAction = "";
   }

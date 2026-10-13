@@ -221,6 +221,51 @@ export function deleteTaskResumePacket(
   return true;
 }
 
+const taskStatePlanSchema = z.array(z.object({
+  step: z.string().trim().min(1).max(200),
+  status: z.enum(["pending", "active", "done", "skipped"]),
+}).strict()).max(20).refine(
+  (plan) => plan.filter((item) => item.status === "active").length <= 1,
+  "at most one plan step may be active",
+);
+// Empty string clears. Whitespace-only is rejected before trim.
+const taskStateNextActionSchema = z.string().refine(
+  (value) => value === "" || /\S/.test(value),
+).trim().max(300);
+
+export const taskStateUpdateEnvelopeSchema = z.object({
+  fromBotId: z.string().min(1).max(128),
+  fromThreadId: z.string().min(1).max(128),
+  goal: z.string().trim().min(1).max(500).optional(),
+  plan: taskStatePlanSchema.optional(),
+  completed_note: z.string().trim().min(1).max(300).optional(),
+  pause_automatic_wakes: z.literal(true).optional(),
+  next_action: taskStateNextActionSchema.optional(),
+  blockers: z.array(z.object({
+    kind: z.enum(["login", "input", "engine"]),
+    note: z.string().trim().min(1).max(300),
+  }).strict()).max(10).optional(),
+  artifacts: z.array(z.object({
+    ref: z.string().trim().min(1).max(500),
+    label: z.string().trim().min(1).max(200),
+  }).strict()).max(20).optional(),
+}).strict().refine(
+  (body) => body.goal !== undefined || body.plan !== undefined || body.completed_note !== undefined ||
+    body.next_action !== undefined || body.blockers !== undefined || body.artifacts !== undefined || body.pause_automatic_wakes === true,
+  "at least one task field is required",
+);
+
+/** Empty next_action clears the action. A real one is stamped to this instruction. */
+export function assignTaskNextAction(packet: TaskResumePacket, nextAction: string): void {
+  packet.nextAction = nextAction;
+  if (nextAction === "") {
+    delete packet.nextActionInstructionId;
+    return;
+  }
+  if (packet.instructionId) packet.nextActionInstructionId = packet.instructionId;
+  else delete packet.nextActionInstructionId;
+}
+
 const TASK_STATE_UPDATE_FIELDS = "goal, plan, completed_note, next_action, blockers, artifacts";
 
 function valueAt(body: unknown, path: readonly PropertyKey[]): unknown {
