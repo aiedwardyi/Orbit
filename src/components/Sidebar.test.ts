@@ -2285,6 +2285,22 @@ describe("phone drawer PC picker", () => {
     }
   });
 
+  it("shows only the centered PC icon in the icon rail", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
+    const view = await renderDrawer(2);
+    try {
+      const switcher = view.host.querySelector("[data-phone-drawer] [data-device-switcher]")!;
+      const tag = switcher.querySelector("button")!;
+      expect(tag.textContent).toBe("");
+      expect(tag.className).toContain("size-10");
+      expect(tag.getAttribute("title")).toBe("Your PCs: Home");
+      expect(switcher.parentElement?.className).toContain("justify-center");
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+      await view.unmount();
+    }
+  });
+
   it("hides the drawer PC picker with one PC", async () => {
     const view = await renderDrawer(1);
     try {

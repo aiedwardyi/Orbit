@@ -2232,8 +2232,8 @@ export function Sidebar({
         {macInset ? (
           <div className={density === "icons" ? "h-5 w-full" : "w-14"} />
         ) : isPhone() && !window.ogb ? (
-          <div className={cn("min-w-0", density !== "icons" && "flex-1")}>
-            <DeviceSwitcher labeled drawerOpen={open} />
+          <div className={cn("min-w-0", density === "icons" ? "flex w-full justify-center" : "flex-1")}>
+            <DeviceSwitcher labeled iconOnly={density === "icons"} drawerOpen={open} />
           </div>
         ) : (
           <div />

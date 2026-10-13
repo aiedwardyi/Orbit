@@ -61,11 +61,14 @@ type Navigate = (url: string) => void;
 export function DeviceSwitcher({
   navigate = leaveFor,
   labeled = false,
+  iconOnly = false,
   drawerOpen,
 }: {
   navigate?: Navigate;
   /** Phone drawer: current PC's icon and name. The menu is portaled so the drawer cannot clip it. */
   labeled?: boolean;
+  /** Phone icon rail: with `labeled`, the icon alone as a 40 px button. */
+  iconOnly?: boolean;
   /** Phone drawer state: the portaled menu shuts with it. */
   drawerOpen?: boolean;
 }) {
@@ -87,6 +90,7 @@ export function DeviceSwitcher({
   }, [labeled, drawerOpen]);
 
   const here = devices.find((device) => device.current);
+  const tip = iconOnly && here ? `${t("chrome.devices")}: ${here.name}` : undefined;
   if (devices.length < 2 || !visible || (labeled && !here)) return null;
 
   const close = () => {
@@ -199,15 +203,15 @@ export function DeviceSwitcher({
           reload();
         }}
         aria-expanded={open}
-        aria-label={t("chrome.devices")}
+        aria-label={tip ?? t("chrome.devices")}
         className={cn(
           "flex items-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink",
-          labeled ? "min-w-0 max-w-full justify-start gap-1.5 py-1 pl-0.5 pr-1.5 text-[13px] leading-none" : "size-10 justify-center",
+          labeled && !iconOnly ? "min-w-0 max-w-full justify-start gap-1.5 py-1 pl-0.5 pr-1.5 text-[13px] leading-none" : "size-10 justify-center",
         )}
-        title={labeled && here ? here.name : t("chrome.devices")}
+        title={tip ?? (labeled && here ? here.name : t("chrome.devices"))}
       >
-        {here ? <DeviceIcon device={here} size={labeled ? 18 : 20} /> : <Monitor size={20} />}
-        {labeled && here && <span className="truncate">{here.name}</span>}
+        {here ? <DeviceIcon device={here} size={labeled && !iconOnly ? 18 : 20} /> : <Monitor size={20} />}
+        {labeled && !iconOnly && here && <span className="truncate">{here.name}</span>}
       </button>
       {labeled && menu ? createPortal(menu, document.body) : menu}
     </div>
