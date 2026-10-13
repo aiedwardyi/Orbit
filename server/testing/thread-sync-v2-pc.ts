@@ -10,6 +10,7 @@ import { ThreadSyncV2 } from "../thread-sync-v2.ts";
 import { createThreadSyncV2Store } from "../thread-sync-v2-store.ts";
 import { createThreadSyncV2Gate } from "../thread-sync-v2-gate.ts";
 import { createSyncEngine } from "../thread-sync-v2-engine.ts";
+import type { ContextCompactionV1 } from "../../shared/context-compaction.ts";
 
 export interface TestArgs {
   threadId?: string;
@@ -22,6 +23,7 @@ export interface TestArgs {
   rows?: Message[];
   leaf?: string | null;
   at?: number;
+  compaction?: ContextCompactionV1;
 }
 
 export interface Snapshot {
@@ -119,6 +121,7 @@ parentPort!.on("message", async ({ id, method, args = {} }: { id: number; method
     switch (method) {
       case "seed": store.adoptSyncedTask(bot.id, { threadId, title: "Chat", createdAt: 1 }, args.rows ?? [], args.leaf ?? null, true); break;
       case "append": value = store.appendMessage(threadId, { role: "user", kind: "text", text: args.text }); break;
+      case "compaction": value = store.appendCompaction(threadId, args.compaction!); break;
       case "batch":
         for (let i = 0; i < Number(args.count); i++) store.appendMessage(threadId, { role: "user", kind: "text", text: `row ${i}` });
         break;

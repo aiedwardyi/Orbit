@@ -854,6 +854,40 @@ describe("store delta sync", () => {
     expect(state.outbox).toBe(0);
   });
 
+  it("syncs a repaired compaction row and head like any message row", async () => {
+    const folder = temp();
+    const a = pc(folder, "a");
+    const b = pc(folder, "b");
+    const covered = await a.call<Message>("append", { text: "old work" });
+    const kept = await a.call<Message>("append", { text: "recent work" });
+    const row = {
+      v: 1 as const,
+      coveredThroughId: covered.id,
+      firstKeptId: kept.id,
+      contextWindow: 200_000,
+      estimatedTokensBefore: 900,
+      sourceMessageCount: 1,
+    };
+    const fallback = await a.call<Message>("compaction", {
+      compaction: { ...row, summary: "Model summary unavailable; full transcript retained by Wink.\ndigest" },
+    });
+    await a.call("flush");
+    await b.call("pull");
+    const repaired = await a.call<Message>("compaction", { compaction: { ...row, summary: "repaired summary" } });
+    await a.call("flush");
+    await b.call("pull");
+
+    const state = await b.snapshot();
+    expect(state.leaf).toBe(repaired.id);
+    expect(state.rows.find((message) => message.id === repaired.id)).toMatchObject({
+      kind: "compaction",
+      parentId: fallback.id,
+      compaction: { ...row, summary: "repaired summary" },
+    });
+    expect(state.rows.find((message) => message.id === fallback.id)?.compaction).toMatchObject({ summary: expect.stringContaining("digest") });
+    expect(state.rows.some(isConflictNotice)).toBe(false);
+  });
+
   it("recovers every row when an offline edit races an already applied deletion", async () => {
     const folder = temp();
     const a = pc(folder, "a");

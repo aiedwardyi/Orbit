@@ -107,7 +107,8 @@ import {
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createMuseCheck, createUsageRefresh, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext, withoutTurnNotes } from "./context-compaction.ts";
+import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
+import { createSummaryRepair, logSummaryCall } from "./summary-repair.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
@@ -225,6 +226,7 @@ import {
   TASK_RESUME_PROMPT,
   taskRecordBlock,
   TurnSeeds,
+  turnSeedCompactionId,
   turnSeedsSession,
   withSystemChanges,
 } from "./turn-context.ts";
@@ -2538,6 +2540,20 @@ const settledTurnIdByThread = new Map<string, string>();
 const turnSeeds = new TurnSeeds();
 // Thread → the system text its running 1:1 turn leaves its session holding.
 const systemSeeds = new TurnSeeds<{ instanceId: string; cursor: unknown; system: string }>();
+const summaryRepair = createSummaryRepair({
+  store,
+  instanceFor: async (botId, threadId) => {
+    const bot = store.bot(botId);
+    return bot ? registry.get((await resolvedBotSelection(bot, store.taskByThread(botId, threadId))).instanceId) : undefined;
+  },
+  busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
+  taskRecordText: (threadId, contextWindow) => {
+    const record = taskPacketForWrite(threadId);
+    return (record ? taskRecordBlock(record, Math.max(512, Math.floor(contextWindow * 0.15) * 3)) : "") ||
+      "No durable task record is available.";
+  },
+  userName: () => cfg.profile?.name?.trim() || "User",
+});
 // Room thread → the instruction id its running turn was dispatched against.
 const roomTurnInstruction = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
@@ -3554,6 +3570,7 @@ bus.subscribe((event: RuntimeEvent) => {
           // settled → idle; a setup failure already marked it dead, keep that
           if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
           clearSendRunning(bot.id);
+          if (!store.groupByThread(event.threadId)) summaryRepair.onSettled(bot.id, event.threadId);
         }
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
         const routineReportGroup = routineReportThread ? store.groupByThread(routineReportThread) : undefined;
@@ -4252,6 +4269,15 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     userName: cfg.profile?.name?.trim() || "User",
     referenceMessages: store.messagesFor(threadId),
     summarize: instance.generateText ? (prompt) => instance.generateText!(prompt) : undefined,
+    onSummaryCall: (record) => logSummaryCall({
+      botId: bot.id,
+      threadId,
+      phase: "compact",
+      engine: instance.driverKind,
+      model: instance.textModel ?? null,
+      run: 0,
+      deadlineMs: instance.textTimeoutMs ?? null,
+    }, record),
     beforeSummarize: taskRecordToFlush ? () => {
       const saved = persistTaskPacket(stampTaskResumePacket(taskRecordToFlush, "pre-compaction", {
         now: Date.now(),
@@ -4335,12 +4361,14 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     model,
     catalogWindow: knownCatalogContextWindow(instance.models, model),
   });
+  const supersededIds = supersededCompactionIds(activeMessages, latestCompactionId);
   const unseeded = !rewound && !fresh && resumeSessionUnseeded({
     instanceId,
     cursor: task.resumeCursors[instanceId],
     seed: task.resumeSeed,
     latestCompactionId,
     expanded: prepared.expanded,
+    supersededIds,
   });
   // What this turn's session ends up holding: the summary, or the original
   // history a grown window restored in its place.
@@ -4489,7 +4517,14 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   turnDispatchedAt.set(threadId, tickTurnClock());
   turnStartedAtMs.set(threadId, Date.now());
   const seed = turnSeeds.set(threadId, {
-    compactionId: sessionCompactionId,
+    compactionId: turnSeedCompactionId({
+      replayed: replaysTranscript,
+      instanceId,
+      cursor: resume ? task.resumeCursors[instanceId] : undefined,
+      seed: task.resumeSeed,
+      sessionCompactionId,
+      supersededIds,
+    }),
     instanceId,
     cursor: resume ? task.resumeCursors[instanceId] : undefined,
   });
@@ -5559,6 +5594,15 @@ async function runClaimedGroupMemberTurn(
     userName,
     includeSpeakers: true,
     summarize: instance.generateText ? (prompt) => instance.generateText!(prompt) : undefined,
+    onSummaryCall: (record) => logSummaryCall({
+      botId: bot.id,
+      threadId,
+      phase: "compact",
+      engine: instance.driverKind,
+      model: instance.textModel ?? null,
+      run: 0,
+      deadlineMs: instance.textTimeoutMs ?? null,
+    }, record),
     beforeSummarize: taskRecordToFlush ? () => {
       const saved = persistTaskPacket(stampTaskResumePacket(taskRecordToFlush, "pre-compaction", {
         now: Date.now(),
@@ -10487,6 +10531,7 @@ hostShutdown = () => {
   watchdog.stop();
   routines?.stop();
   webhookIngress?.server.close();
+  summaryRepair.dispose();
   void registry.disposeAll().finally(() => process.exit(0));
 };
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

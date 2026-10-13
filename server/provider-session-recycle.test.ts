@@ -1,8 +1,8 @@
 import { mkdirSync } from "node:fs";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
-import { knownCatalogContextWindow, prepareModelContext } from "./context-compaction.ts";
+import { knownCatalogContextWindow, prepareModelContext, supersededCompactionIds } from "./context-compaction.ts";
 import { STATIC_CLAUDE_MODELS } from "./drivers/claude.ts";
 import { closeMessageDb } from "./message-db.ts";
 import { Store } from "./store.ts";
@@ -15,6 +15,7 @@ import {
   nativeSessionTokenBudget,
   PRE_COMPACT_SESSION_TOOL_ROUND_LIMIT,
   PRE_COMPACT_TOOL_ROUND_LIMIT,
+  resumeSessionUnseeded,
   sessionPromptFor,
   shouldRecycleProviderSession,
 } from "./turn-context.ts";
@@ -467,5 +468,144 @@ describe("provider session recycle by native prompt size", () => {
 
     expect(recycleOnSend(store, bot.id, bot.threadId, send.id, "grok", "grok-4.6")).toBe(true);
     expect(recycleOnSend(store, bot.id, bot.threadId, send.id)).toBe(false);
+  });
+});
+
+describe("summary repair across native recycles", () => {
+  const NOTICE = "Model summary unavailable; full transcript retained by Wink.";
+  // Pokkey's overnight session-fat resets on 10-13 (FINDINGS reset ledger).
+  const POKKEY_PROMPTS = [
+    [119_050, 316_610],
+    [124_648, 254_457],
+    [126_430, 265_974],
+    [132_666, 250_399],
+    [134_660, 258_696],
+    [135_271, 261_267],
+    [137_524, 287_334],
+    [137_784, 265_374],
+    [138_926, 260_364],
+  ] as const;
+
+  beforeEach(async () => {
+    closeMessageDb();
+    await removeTempDir(DATA_DIR);
+    mkdirSync(DATA_DIR, { recursive: true });
+  });
+
+  it("Pokkey 10-13: a timed-out summary replays unchanged across nine session-fat recycles, then repair replaces it", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const store = new Store(() => ({ instanceId: "claude", model: "claude-opus-5-5" }));
+      const bot = store.createBot({}, { seedMessages: false });
+      const threadId = bot.threadId;
+      const say = (index: number, role: "user" | "bot") =>
+        store.appendMessage(threadId, { role, kind: "text", text: `${role === "user" ? "request" : "outcome"} ${index}: ${"shop detail ".repeat(8)}` });
+      const prepare = (summarize?: (prompt: string) => Promise<string>) =>
+        prepareModelContext({ messages: store.activePath(threadId), contextWindow: 200_000, taskRecordText: "Goal: ship the shop", summarize });
+      const replayed = (transcript: Array<{ role: "user" | "assistant"; text: string }>) =>
+        buildTurnContext({ text: "continue", transcript, rewound: false, fresh: false, recycled: true, recycleReason: "session-fat", replaysNatively: false }).turnText;
+
+      // 1. model summary G
+      for (let index = 0; index < 70; index++) {
+        say(index, "user");
+        say(index, "bot");
+      }
+      const first = await prepare(async () => "SUMMARY\nG: QA, patent and swipe decisions");
+      if (first.status !== "ready" || !first.compaction) throw new Error("expected a model summary");
+      const good = store.appendCompaction(threadId, first.compaction);
+
+      // 2. the 22:27 summarizer timeout saves the fallback F
+      for (let index = 70; index < 140; index++) {
+        say(index, "user");
+        say(index, "bot");
+      }
+      const failed = await prepare(async () => {
+        throw new Error("Claude review timed out");
+      });
+      if (failed.status !== "ready" || !failed.compaction) throw new Error("expected a fallback summary");
+      expect(failed.compaction.summary.startsWith(NOTICE)).toBe(true);
+      const fallback = store.appendCompaction(threadId, failed.compaction);
+      const fallbackText = failed.compaction.summary;
+
+      // 3. nine session-fat recycles each replay F verbatim
+      store.markTaskDispatched(bot.id, threadId, "claude", "claude-opus-5-5");
+      for (const [index, [firstPrompt, lastPrompt]] of POKKEY_PROMPTS.entries()) {
+        store.setResumeCursor(bot.id, "claude", `session-${index}`, threadId);
+        store.recordNativePrompt(bot.id, threadId, "claude", { first: firstPrompt, last: lastPrompt }, 1_000_000);
+        const send = say(200 + index, "user");
+        expect(recycleOnSend(store, bot.id, threadId, send.id)).toBe(true);
+        const summarize = vi.fn(async () => "SUMMARY\nnever");
+        const prepared = await prepare(summarize);
+        if (prepared.status !== "ready") throw new Error(prepared.status);
+        expect(summarize).not.toHaveBeenCalled();
+        expect(prepared.compactionId).toBe(fallback.id);
+        expect(replayed(prepared.transcript)).toContain(fallbackText);
+        store.clearResumeCursors(bot.id, threadId);
+        store.markProviderSessionBound(bot.id, threadId, send.id);
+        say(200 + index, "bot");
+      }
+      // the session the ninth recycle opened is seeded on F
+      store.setResumeCursor(bot.id, "claude", "session-9", threadId);
+      store.markResumeSeeded(bot.id, threadId, { instanceId: "claude", cursor: "session-9", compactionId: fallback.id });
+      store.recordNativePrompt(bot.id, threadId, "claude", { first: 138_926, last: 150_000 }, 1_000_000);
+
+      // 4. repair after the turn settles rebuilds from G and the original lines
+      const prompts: string[] = [];
+      const { createSummaryRepair } = await import("./summary-repair.ts");
+      const repair = createSummaryRepair({
+        store,
+        instanceFor: async () => ({
+          driverKind: "claude",
+          textModel: "claude-haiku-5-5",
+          textTimeoutMs: 90_000,
+          generateText: async (prompt: string) => {
+            prompts.push(prompt);
+            return "SUMMARY\nRepaired: QA, patents, swipe, shop meals and gifts";
+          },
+        }),
+        busy: () => false,
+        taskRecordText: () => "Goal: ship the shop",
+        userName: () => "User",
+      });
+      repair.onSettled(bot.id, threadId);
+      await repair.idle();
+      expect(prompts.length).toBeGreaterThan(0);
+      expect(prompts[0]).toContain("G: QA, patent and swipe decisions");
+      expect(prompts.join("\n")).toContain("request 70:");
+      expect(prompts.join("\n")).not.toContain(NOTICE);
+      const path = store.activePath(threadId);
+      const repaired = path.findLast((item) => item.kind === "compaction")!;
+      expect(repaired.id).not.toBe(fallback.id);
+      expect(repaired.compaction).toMatchObject({
+        coveredThroughId: failed.compaction.coveredThroughId,
+        previousCompactionId: good.id,
+      });
+
+      // 6. the session seeded on F stays resumable: no forced recycle
+      const task = store.taskByThread(bot.id, threadId)!;
+      expect(resumeSessionUnseeded({
+        instanceId: "claude",
+        cursor: task.resumeCursors.claude,
+        seed: task.resumeSeed,
+        latestCompactionId: repaired.id,
+        supersededIds: supersededCompactionIds(path, repaired.id),
+      })).toBe(false);
+      expect(recycleOnSend(store, bot.id, threadId, say(300, "user").id)).toBe(false);
+
+      // 5. the next recycle replays R, not the notice
+      say(300, "bot");
+      store.recordNativePrompt(bot.id, threadId, "claude", { first: 138_926, last: 290_000 }, 1_000_000);
+      expect(recycleOnSend(store, bot.id, threadId, say(301, "user").id)).toBe(true);
+      const next = await prepare();
+      if (next.status !== "ready") throw new Error(next.status);
+      expect(next.compactionId).toBe(repaired.id);
+      const turnText = replayed(next.transcript);
+      expect(turnText).toContain("Repaired: QA, patents, swipe, shop meals and gifts");
+      expect(turnText).not.toContain(NOTICE);
+    } finally {
+      warning.mockRestore();
+      info.mockRestore();
+    }
   });
 });

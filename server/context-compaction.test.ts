@@ -5,18 +5,23 @@ import {
   MODEL_CONTEXT_FALLBACK,
   contextWindowFor,
   estimateContextTokens,
+  isFallbackSummary,
   knownCatalogContextWindow,
   paneNotesForTurn,
   paneNotesSinceLastUserTurn,
   prepareModelContext,
+  repairModelContext,
+  repairTarget,
+  supersededCompactionIds,
   withoutTurnNotes,
+  type SummaryCallRecord,
 } from "./context-compaction.ts";
 import { probeLocalInjects } from "./drivers/local-inject.ts";
 import { PANE_WAKE_PROMPT } from "./pane-wake.ts";
 import type { Message } from "./store.ts";
 import { lastUserInstruction } from "./task-recovery-flush.ts";
 import { REPLY_MARKER, buildResumeFallback, buildTurnContext } from "./turn-context.ts";
-import type { ContextCompactionV1 } from "../shared/context-compaction.ts";
+import { readContextCompaction, type ContextCompactionV1 } from "../shared/context-compaction.ts";
 
 const message = (id: string, text: string, patch: Partial<Message> = {}): Message => ({
   id,
@@ -1609,5 +1614,259 @@ describe("question cards in replay", () => {
     if (result.status !== "ready") return;
     expect(result.compaction!.summary).toContain("\nAssistant: [Question card] Staging or production? [choices: Staging | Production]\nStaging\n");
     expect(result.estimatedTokens).toBeLessThanOrEqual(result.budgetTokens);
+  });
+});
+
+describe("summary repair", () => {
+  const NOTICE = "Model summary unavailable; full transcript retained by Wink.";
+  const row = (patch: Partial<ContextCompactionV1>): ContextCompactionV1 => ({
+    v: 1,
+    summary: "good summary G",
+    coveredThroughId: "m4",
+    firstKeptId: "m5",
+    contextWindow: 8_192,
+    estimatedTokensBefore: 900,
+    sourceMessageCount: 5,
+    ...patch,
+  });
+  const good = compactionMessage("cg", "m9", row({}));
+  const fallbackRow = row({
+    summary: `${NOTICE}\n[Previous durable summary]\ngood summary G\n[User requests in this segment]\nfallback digest`,
+    coveredThroughId: "m14",
+    firstKeptId: "m15",
+    sourceMessageCount: 15,
+    previousCompactionId: "cg",
+  });
+  const fallback = compactionMessage("cf", "m19", fallbackRow);
+  const fallbackPath = (): Message[] => [...longHistory(10), good, ...longHistory(10, 10), fallback, ...longHistory(4, 20)];
+
+  it("detects a deterministic fallback as a repair target", () => {
+    const found = repairTarget(fallbackPath());
+    expect(found?.target.messageId).toBe("cf");
+    expect(found?.fallback.messageId).toBe("cf");
+    expect(found?.good?.messageId).toBe("cg");
+    expect(isFallbackSummary(fallbackRow.summary)).toBe(true);
+  });
+
+  it("returns clean for a model-only chain without calling the summarizer", async () => {
+    const path = [
+      ...longHistory(10),
+      good,
+      ...longHistory(10, 10),
+      compactionMessage("cm", "m19", row({ summary: "model summary M", coveredThroughId: "m14", firstKeptId: "m15", previousCompactionId: "cg" })),
+      ...longHistory(4, 20),
+    ];
+    const generateText = vi.fn(async () => "SUMMARY\nnever");
+    const { createSummaryRepair } = await import("./summary-repair.ts");
+    const repair = createSummaryRepair({
+      store: { activePath: () => path, messagesFor: () => path, appendCompaction: vi.fn() },
+      instanceFor: async () => ({ driverKind: "claude", generateText }),
+      busy: () => false,
+      taskRecordText: () => "Goal: keep going",
+      userName: () => "User",
+    });
+
+    expect(repairTarget(path)).toBeNull();
+    repair.onSettled("bot", "thread");
+    await repair.idle();
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("repairs a fallback from the previous model summary and the original messages, not the fallback text", async () => {
+    const path = fallbackPath();
+    const prompts: string[] = [];
+    const result = await repairModelContext({
+      messages: path,
+      target: repairTarget(path)!,
+      taskRecordText: "Goal: repair",
+      summarize: async (prompt) => {
+        prompts.push(prompt);
+        return "SUMMARY\nrepaired summary text";
+      },
+    });
+
+    expect(result.status).toBe("ready");
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("<previous_summary>\ngood summary G\n</previous_summary>");
+    expect(prompts[0]).toContain("work item 5:");
+    expect(prompts[0]).toContain("work item 14:");
+    expect(prompts[0]).not.toContain("work item 4:");
+    expect(prompts[0]).not.toContain("work item 15:");
+    expect(prompts[0]).not.toContain(NOTICE);
+    expect(prompts[0]).not.toContain("fallback digest");
+  });
+
+  it("keeps the fallback's coverage ids and window in the repaired compaction", async () => {
+    const path = fallbackPath();
+    const result = await repairModelContext({
+      messages: path,
+      target: repairTarget(path)!,
+      taskRecordText: "Goal: repair",
+      summarize: async () => "SUMMARY\nrepaired summary text",
+    });
+
+    expect(result).toEqual({
+      status: "ready",
+      compaction: {
+        v: 1,
+        summary: "repaired summary text",
+        coveredThroughId: "m14",
+        firstKeptId: "m15",
+        contextWindow: 8_192,
+        estimatedTokensBefore: 900,
+        sourceMessageCount: 15,
+        previousCompactionId: "cg",
+      },
+    });
+  });
+
+  it("applies the repaired compaction over the fallback on the same path", async () => {
+    const path = fallbackPath();
+    const result = await repairModelContext({
+      messages: path,
+      target: repairTarget(path)!,
+      taskRecordText: "Goal: repair",
+      summarize: async () => "SUMMARY\nrepaired summary text",
+    });
+    if (result.status !== "ready") throw new Error(result.status);
+    const repaired = [...path, compactionMessage("cr", "m23", result.compaction)];
+
+    const prepared = await prepareModelContext({ messages: repaired, contextWindow: 8_192, taskRecordText: "Goal: repair" });
+    expect(prepared.status === "ready" && prepared.compactionId).toBe("cr");
+    const text = prepared.status === "ready" ? JSON.stringify(prepared.transcript) : "";
+    expect(text).toContain("repaired summary text");
+    expect(text).not.toContain(NOTICE);
+    expect(text).toContain("work item 15:");
+    expect(repairTarget(repaired)).toBeNull();
+    expect([...supersededCompactionIds(repaired, "cr")]).toEqual(["cf"]);
+  });
+
+  it("repairs a later model summary that chained from a fallback", async () => {
+    const path = [
+      ...fallbackPath(),
+      compactionMessage("cm", "m23", row({
+        summary: `chained from the fallback: ${NOTICE}`,
+        coveredThroughId: "m21",
+        firstKeptId: "m22",
+        sourceMessageCount: 22,
+        previousCompactionId: "cf",
+      })),
+    ];
+    const found = repairTarget(path);
+    expect(found?.target.messageId).toBe("cm");
+    expect(found?.fallback.messageId).toBe("cf");
+    expect(found?.good?.messageId).toBe("cg");
+
+    const prompts: string[] = [];
+    const result = await repairModelContext({
+      messages: path,
+      target: found!,
+      taskRecordText: "Goal: repair",
+      summarize: async (prompt) => {
+        prompts.push(prompt);
+        return "SUMMARY\nrepaired summary text";
+      },
+    });
+    expect(result.status === "ready" && result.compaction.coveredThroughId).toBe("m21");
+    expect(prompts.join("\n")).toContain("work item 5:");
+    expect(prompts.join("\n")).toContain("work item 21:");
+    expect(prompts.join("\n")).not.toContain("chained from the fallback");
+  });
+
+  it("skips repair when the span needs more than four batches", async () => {
+    const path = [
+      ...longHistory(45),
+      compactionMessage("cf", "m44", row({ summary: `${NOTICE}\ndigest`, coveredThroughId: "m40", firstKeptId: "m41", contextWindow: 1_024 })),
+    ];
+    const summarize = vi.fn(async () => "SUMMARY\nnever");
+
+    const result = await repairModelContext({ messages: path, target: repairTarget(path)!, taskRecordText: "Goal", summarize, maxBatches: 4 });
+    expect(result.status).toBe("too-large");
+    expect(summarize).not.toHaveBeenCalled();
+  });
+
+  it("leaves the fallback in place when a repair call times out", async () => {
+    const path = fallbackPath();
+    const result = await repairModelContext({
+      messages: path,
+      target: repairTarget(path)!,
+      taskRecordText: "Goal: repair",
+      summarize: async () => {
+        throw new Error("Claude review timed out");
+      },
+    });
+
+    expect(result).toEqual({ status: "failed", result: "timeout" });
+    expect(repairTarget(path)?.target.messageId).toBe("cf");
+    expect(path.find((item) => item.id === "cf")).toBe(fallback);
+  });
+
+  it("ignores a fallback that is only on an abandoned branch", () => {
+    const linked = (messages: Message[]): Message[] =>
+      messages.map((item, index) => ({ ...item, parentId: index ? messages[index - 1]!.id : undefined }));
+    const shared = linked([...longHistory(10), good, ...longHistory(10, 10)]);
+    const abandoned = linked([shared.at(-1)!, fallback, ...longHistory(2, 20)]).slice(1);
+    const active = linked([shared.at(-1)!, ...longHistory(2, 30)]).slice(1);
+    const all = [...shared, ...abandoned, ...active];
+    const pathTo = (leafId: string): Message[] => {
+      const byId = new Map(all.map((item) => [item.id, item]));
+      const path: Message[] = [];
+      for (let current = byId.get(leafId); current; current = current.parentId ? byId.get(current.parentId) : undefined) path.unshift(current);
+      return path;
+    };
+
+    expect(repairTarget(pathTo("m21"))?.target.messageId).toBe("cf");
+    expect(repairTarget(pathTo("m31"))).toBeNull();
+  });
+
+  it("reports one call record per summarizer attempt with batch, attempt and result", async () => {
+    const compactRecords: SummaryCallRecord[] = [];
+    const replies = ["sure, happy to help", "SUMMARY\ncompact summary"];
+    const prepared = await prepareModelContext({
+      messages: longHistory(130),
+      contextWindow: 128_000,
+      taskRecordText: "Goal: telemetry",
+      summarize: async () => replies.shift()!,
+      onSummaryCall: (record) => compactRecords.push(record),
+    });
+    expect(prepared.status === "ready" && prepared.compaction?.summary).toBe("compact summary");
+    expect(compactRecords).toMatchObject([
+      { batch: 1, batches: 1, attempt: 1, result: "invalid" },
+      { batch: 1, batches: 1, attempt: 2, result: "ok" },
+    ]);
+    expect(compactRecords[0]!.inTokens).toBeGreaterThan(0);
+    expect(compactRecords[1]!.outTokens).toBeGreaterThan(0);
+
+    const repairRecords: SummaryCallRecord[] = [];
+    const path = fallbackPath();
+    await repairModelContext({
+      messages: path,
+      target: repairTarget(path)!,
+      taskRecordText: "Goal: repair",
+      summarize: async () => {
+        throw new Error("Claude review timed out");
+      },
+      onSummaryCall: (record) => repairRecords.push(record),
+    });
+    expect(repairRecords).toEqual([
+      expect.objectContaining({ batch: 1, batches: 1, attempt: 1, outTokens: 0, outBudget: 1_433, result: "timeout" }),
+    ]);
+  });
+
+  it("an older reader accepts the repaired row as plain v1", async () => {
+    const repairedRow = row({ summary: "repaired summary text", coveredThroughId: "m14", firstKeptId: "m15", sourceMessageCount: 15, previousCompactionId: "cg" });
+    const path = [...fallbackPath(), compactionMessage("cr", "m23", repairedRow)];
+
+    expect(readContextCompaction({ value: repairedRow })).toEqual({ status: "valid", value: repairedRow });
+    const prepared = await prepareModelContext({ messages: path, contextWindow: 8_192, taskRecordText: "Goal: repair" });
+    expect(prepared.status === "ready" && prepared.compactionId).toBe("cr");
+    expect(JSON.stringify(prepared.status === "ready" && prepared.transcript)).not.toContain(NOTICE);
+    const chained = await prepareModelContext({
+      messages: [...fallbackPath(), ...longHistory(130, 24)],
+      contextWindow: 128_000,
+      taskRecordText: "Goal",
+      summarize: async () => "SUMMARY\nnormal",
+    });
+    expect(chained.status === "ready" && Object.keys(chained.compaction!).sort()).toEqual(Object.keys(repairedRow).sort());
   });
 });

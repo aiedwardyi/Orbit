@@ -27,8 +27,17 @@ export interface ChatTranscriptRow {
 export function messageVisible(message: Message, options: ChatTranscriptOptions): boolean {
   if (message.id === options.emergingId || !isShownMessage(message)) return false;
   switch (message.kind) {
-    case "compaction":
-      return readContextCompaction({ value: message.compaction }).status !== "invalid";
+    case "compaction": {
+      const parsed = readContextCompaction({ value: message.compaction });
+      if (parsed.status !== "valid") return parsed.status !== "invalid";
+      // A repaired summary re-covers an earlier row's boundary: one line per boundary.
+      const index = options.transcript.findIndex((item) => item.id === message.id);
+      return !options.transcript.slice(0, Math.max(0, index)).some((earlier) => {
+        if (earlier.kind !== "compaction") return false;
+        const read = readContextCompaction({ value: earlier.compaction });
+        return read.status === "valid" && read.value.coveredThroughId === parsed.value.coveredThroughId;
+      });
+    }
     case "secret":
       return Boolean(message.secret);
     case "connector":

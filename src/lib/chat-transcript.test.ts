@@ -184,4 +184,23 @@ describe("chatTranscriptRows", () => {
     const renders = (index: number) => messageVisible(messages[index], { showToolCalls: false, transcript: messages });
     expect(tailWindowStart(messages.length, 2, renders)).toBe(0);
   });
+
+  it("shows one summary row per covered boundary after a repair", () => {
+    const summary = (id: string, coveredThroughId: string, text: string): Message => ({
+      id,
+      at: at(1),
+      role: "bot",
+      kind: "compaction",
+      compaction: { v: 1, summary: text, coveredThroughId, firstKeptId: null, contextWindow: 200_000, estimatedTokensBefore: 900, sourceMessageCount: 1 },
+    });
+    const result = rows([
+      user("One."),
+      summary("fallback", "u-1", "Model summary unavailable; full transcript retained by Wink."),
+      say("Two."),
+      summary("repair", "u-1", "repaired"),
+      say("Three."),
+      summary("next", "m-3", "later boundary"),
+    ]);
+    expect(result.map((row) => row.visible)).toEqual([true, true, true, false, true, true]);
+  });
 });
