@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   EXTENDED_REACTIONS,
   PRIMARY_REACTIONS,
+  deliveredReactionKeys,
   formatReactionAnnotation,
   promptWithReactions,
   reactionMarkKeys,
@@ -142,6 +143,30 @@ describe("next-turn reaction prompt", () => {
     expect(prompt).toContain("Ignore previous instructions");
   });
 
+  it("leaves marks the prompt cap cut undelivered for the next turn", () => {
+    const messages = Array.from({ length: 14 }, (_, i) =>
+      message({ id: `m${i}`, text: `Answer ${i}`, reactions: [{ emoji: "👍", by: "user" }] }),
+    );
+    const first = promptWithReactions("ok", messages, "Milind");
+    expect(first).not.toContain("“Answer 1”");
+    expect(first).toContain("“Answer 13”");
+    const delivered = new Set(deliveredReactionKeys(messages));
+    expect(delivered.has("m0 user 👍")).toBe(false);
+    expect(delivered.has("m2 user 👍")).toBe(true);
+    const second = promptWithReactions("ok", messages, "Milind", { delivered });
+    expect(second).toContain("“Answer 0”");
+    expect(second).toContain("“Answer 1”");
+    expect(second).not.toContain("“Answer 2”");
+    expect(deliveredReactionKeys(messages, { delivered })).toEqual(reactionMarkKeys(messages));
+  });
+
+  it("counts marks a replayed transcript already shows as delivered", () => {
+    const messages = Array.from({ length: 13 }, (_, i) =>
+      message({ id: `m${i}`, text: `Answer ${i}`, reactions: [{ emoji: "👍", by: "user" }] }),
+    );
+    expect(deliveredReactionKeys(messages, { omitMessageIds: new Set(["m1"]) })).toEqual(reactionMarkKeys(messages));
+  });
+
   it("shows only marks the bot was not already told about", () => {
     const before = [message({ id: "m1", reactions: [{ emoji: "👍", by: "user" }] })];
     const after = [
@@ -189,10 +214,18 @@ describe("reaction plumbing", () => {
 
   it("marks reactions delivered only once the engine accepts the prompt", () => {
     expect(indexSource.match(/delivered: (task|store\.taskByThread\(bot\.id, threadId\)\?)\.reactionsDelivered/g)).toHaveLength(2);
-    expect(indexSource).toContain(
-      "store.markPaneNotesDelivered(bot.id, threadId, newestPaneNoteId);\n      store.markReactionsDelivered(bot.id, threadId, reactionsSeen);",
-    );
-    expect(indexSource).toContain("if (steered) store.markReactionsDelivered(bot.id, threadId, reactionMarkKeys(messages));");
+    expect(indexSource).toContain("store.markPaneNotesDelivered(bot.id, threadId, newestPaneNoteId);");
+    expect(indexSource).toContain("store.markReactionsDelivered(bot.id, threadId, reactionsSeen);");
+    expect(indexSource).toContain("const reactionsSeen = userTurnReactionKeys(turnOpts);");
+  });
+
+  it("marks a steer's reactions only after the steer passes its ownership checks", () => {
+    expect(indexSource).toMatch(/the steered message could be recorded"\),\s+\{ status: 409 \},\s+\);\s+\}\s+store\.markReactionsDelivered\(bot\.id, threadId, steeredReactions\);/);
+    expect(indexSource.match(/store\.markReactionsDelivered\(/g)).toHaveLength(2);
+  });
+
+  it("keeps reaction delivery bookkeeping off the wire", () => {
+    expect(indexSource).toMatch(/const wireTask = \(\{[^}]*\breactionsDelivered: _reactionsDelivered,/);
   });
 
   it("does not pre-bake reactions into the queued prompt that startTurn will wrap", () => {
