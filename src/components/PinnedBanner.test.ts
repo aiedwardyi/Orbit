@@ -38,6 +38,64 @@ describe("PinnedBanner", () => {
     expect(host.textContent).not.toContain("<pasted-text");
     expect(host.textContent).toContain("important pinned note");
   });
+
+  it.each([
+    [
+      "**Team phone setup codes.**\nEach one works once, until Oct 26.\nTeammate 1:\n```text\nwks1:example-code\n```",
+      "Team phone setup codes. Each one works once, until Oct 26. Teammate 1:",
+    ],
+    ["## Setup\nUse `phone setup` from [the guide](https://example.test/setup).", "Setup Use phone setup from the guide."],
+    ['<pasted-text index="1">\n__Important__\n*read this*\n</pasted-text>', "Important read this"],
+  ])("shows markdown as plain text: %s", async (raw, plain) => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root.render(createElement(PinnedBanner, {
+        bot: { name: "Bot", threadId: "t1" },
+        pinnedId: "p1",
+        messages: [{ id: "p1", role: "bot", kind: "text", text: raw, at: 1 }],
+        onJump: () => {},
+        onUnpin: () => {},
+      }));
+    });
+    expect(host.querySelector("span.truncate")?.textContent).toBe(plain);
+  });
+
+  it("keeps long plain previews bounded by the bar's ellipsis", async () => {
+    const plain = `Team phone setup codes. ${"Each one works once. ".repeat(20)}`.trim();
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root.render(createElement(PinnedBanner, {
+        bot: { name: "Bot", threadId: "t1" },
+        pinnedId: "p1",
+        messages: [{ id: "p1", role: "bot", kind: "text", text: `**${plain}**`, at: 1 }],
+        onJump: () => {},
+        onUnpin: () => {},
+      }));
+    });
+    const preview = host.querySelector("span.truncate");
+    expect(preview?.textContent).toBe(plain);
+    expect(preview?.classList.contains("truncate")).toBe(true);
+  });
+
+  it("keeps a code-only pin visible", async () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root.render(createElement(PinnedBanner, {
+        bot: { name: "Bot", threadId: "t1" },
+        pinnedId: "p1",
+        messages: [{ id: "p1", role: "bot", kind: "text", text: "```bash\npnpm install\n```", at: 1 }],
+        onJump: () => {},
+        onUnpin: () => {},
+      }));
+    });
+    expect(host.querySelector("span.truncate")?.textContent).toBe("pnpm install");
+  });
 });
 
 describe("PinnedBanner on a paged transcript", () => {

@@ -244,6 +244,38 @@ describe("skins", () => {
   });
 });
 
+describe("Terminal composer", () => {
+  const terminal = css.split('@scope ([data-skin="terminal"]) to ([data-skin]) {')[1]?.split("@keyframes term-blink")[0] ?? "";
+
+  it("uses a transparent Stop control with the skin's hover colors", () => {
+    const stop = terminal.match(/\[data-orbit-composer-stop\]\s*\{([^}]*)\}/)?.[1] ?? "";
+    const hover = terminal.match(/\[data-orbit-composer-stop\]:hover\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(stop).toContain("background: transparent;");
+    expect(stop).toContain("color: var(--color-ink-secondary);");
+    expect(hover).toContain("background: var(--color-control);");
+    expect(hover).toContain("color: var(--color-ink);");
+    expect(hover).toContain("opacity: 1;");
+    expect(css).toMatch(/:focus-visible\s*\{\s*outline: 2px solid var\(--color-focus\);/);
+  });
+
+  it("insets the prompt and reserves two characters before the text", () => {
+    const frame = terminal.match(/\[data-orbit-composer-frame\]\s*\{([^}]*)\}/)?.[1] ?? "";
+    const prompt = terminal.match(/\[data-orbit-composer-frame\]::after\s*\{([^}]*)\}/)?.[1] ?? "";
+    const input = terminal.match(/\[data-orbit-composer\]\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(frame).toContain("padding-left: 0.75rem;");
+    expect(prompt).toContain("left: 1rem;");
+    expect(input).toContain("padding-left: calc(0.25rem + 2ch);");
+    expect(prompt).toContain("pointer-events: none;");
+  });
+
+  it("aligns the prompt with the first textarea line", () => {
+    const prompt = terminal.match(/\[data-orbit-composer-frame\]::after\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(prompt).toContain("top: 0.5rem;");
+    expect(prompt).toContain("font-size: 15px;");
+    expect(prompt).toContain("line-height: 1.5rem;");
+  });
+});
+
 describe("Ledger", () => {
   it("is registered as a first-class skin", () => {
     expect(SKIN_IDS).toContain("ledger");

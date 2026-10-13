@@ -111,6 +111,7 @@ import { localeTag, useI18n } from "@/lib/i18n";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { activeRunForBot, routineWorkingElsewhere } from "../../shared/working-thread";
 import { parsePaneNote, type PaneNote } from "../../shared/pane-note";
+import { summarize } from "../../server/notify";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
 import { shownState, workerRuns } from "@/lib/worker-runs";
 import { ContextCompactionDivider, TaskRecoveryCard } from "./TaskRecoveryCard";
@@ -1202,7 +1203,9 @@ export function PinnedBanner({
   if (!pinned || pinned.kind !== "text") return null;
   const sender =
     pinned.role === "user" ? t("chat.you") : (pinned.from?.name ?? bot.name);
-  const text = splitAttachedImages(pinned.text ?? "").display.replace(/\s+/g, " ").trim();
+  const display = splitAttachedImages(pinned.text ?? "").display;
+  // summarize drops fenced code, so a code-only pin would lose its bar
+  const text = summarize(display, Infinity) || display.replace(/```\w*/g, " ").replace(/\s+/g, " ").trim();
   if (!text) return null;
   return (
     <div className="w-full px-5">

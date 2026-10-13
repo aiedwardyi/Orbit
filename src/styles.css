@@ -1547,16 +1547,33 @@
     border-block: 1px solid var(--color-hairline);
     outline: none;
     background: transparent;
-    padding-left: 2ch;
+    padding-left: 0.75rem;
+  }
+
+  [data-orbit-composer] {
+    padding-left: calc(0.25rem + 2ch);
   }
 
   [data-orbit-composer-frame]::after {
     content: ">";
     position: absolute;
-    top: 0.55rem;
-    left: 0;
+    top: 0.5rem;
+    left: 1rem;
     color: var(--color-ink);
     font-size: 15px;
+    line-height: 1.5rem;
+    pointer-events: none;
+  }
+
+  [data-orbit-composer-stop] {
+    background: transparent;
+    color: var(--color-ink-secondary);
+  }
+
+  [data-orbit-composer-stop]:hover {
+    background: var(--color-control);
+    color: var(--color-ink);
+    opacity: 1;
   }
 
   /* questions and approvals: one ruled box, choices as numbered lines */
