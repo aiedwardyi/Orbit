@@ -3,8 +3,9 @@
 export function summarize(text: string, max = 140): string {
   const line = text
     .replace(/```[\s\S]*?```/g, " ")
-    .replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, "")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s*(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/gm, "")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/~~(.+?)~~/g, "$1")
     .replace(/(\*\*|__)(.+?)\1/g, "$2")
     .replace(/\*([^*\s][^*]*?)\*/g, "$1")
     .replace(/`([^`]*)`/g, "$1")

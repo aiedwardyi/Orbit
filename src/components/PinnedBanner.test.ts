@@ -49,6 +49,8 @@ describe("PinnedBanner", () => {
     ],
     ["## Setup\nUse `phone setup` from [the guide](https://example.test/setup).", "Setup Use phone setup from the guide."],
     ['<pasted-text index="1">\n__Important__\n*read this*\n</pasted-text>', "Important read this"],
+    ["Run:\n~~~js\nconst a = 1;\n~~~\nthen stop", "Run: const a = 1; then stop"],
+    ["Try:\n````md\n```js\nx\n```\n````\ndone", "Try: ```js x ``` done"],
   ])("shows markdown as plain text: %s", async (raw, plain) => {
     host = document.createElement("div");
     document.body.append(host);

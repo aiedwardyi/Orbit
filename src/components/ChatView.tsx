@@ -91,6 +91,7 @@ import { MemorySaveChip } from "./MemorySaveChip";
 import { ActivityRun, ActivityStep, approvalHover } from "./ActivityRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
+import { pinPreview } from "@/lib/pin-preview";
 import { BOTTOM_FOLLOW_THRESHOLD, captureTranscriptScroll, newestBelowView, restoreTranscriptScroll, shouldResumeBottomFollow, spaceAfterNewestRow, transcriptUnderfilled, type TranscriptScroll } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
 import { placeTooltip } from "@/lib/tooltip-position";
@@ -111,7 +112,6 @@ import { localeTag, useI18n } from "@/lib/i18n";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { activeRunForBot, routineWorkingElsewhere } from "../../shared/working-thread";
 import { parsePaneNote, type PaneNote } from "../../shared/pane-note";
-import { summarize } from "../../shared/summarize";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
 import { shownState, workerRuns } from "@/lib/worker-runs";
 import { ContextCompactionDivider, TaskRecoveryCard } from "./TaskRecoveryCard";
@@ -1178,31 +1178,6 @@ const MessagesList = memo(function MessagesList({
   );
 });
 
-// Prose gets markdown cleanup, each fence body stays literal, all in order.
-// The whole opening fence line is skipped, so ```c++ leaves no "++".
-function botPinPreview(text: string): string {
-  const parts: string[] = [];
-  let prose: string[] = [];
-  let body: string[] | null = null;
-  const flushProse = () => {
-    const clean = summarize(prose.join("\n"), Infinity);
-    if (clean) parts.push(clean);
-    prose = [];
-  };
-  const flushBody = () => {
-    const code = body!.join("\n").replace(/\s+/g, " ").trim();
-    if (code) parts.push(code);
-    body = null;
-  };
-  for (const line of text.split("\n")) {
-    if (body === null && /^[ \t]*`{3,}/.test(line)) { flushProse(); body = []; continue; }
-    if (body !== null && /^[ \t]*`{3,}[ \t]*\r?$/.test(line)) { flushBody(); continue; }
-    (body ?? prose).push(line);
-  }
-  if (body !== null) flushBody(); else flushProse();
-  return parts.join(" ");
-}
-
 /** The one pinned message, above the transcript: sender, one line, click to
  * jump, X to unpin. Resolves the pin id against the full message list; a
  * pin that no longer resolves renders nothing (edited away or deleted). */
@@ -1228,11 +1203,7 @@ export function PinnedBanner({
   if (!pinned || pinned.kind !== "text") return null;
   const sender =
     pinned.role === "user" ? t("chat.you") : (pinned.from?.name ?? bot.name);
-  const display = splitAttachedImages(pinned.text ?? "").display;
-  // User text is literal. Bot prose is cleaned, fence bodies kept verbatim.
-  const text = pinned.role === "user"
-    ? display.replace(/\s+/g, " ").trim()
-    : botPinPreview(display);
+  const text = pinPreview(pinned.role === "user" ? "user" : "bot", pinned.text ?? "");
   if (!text) return null;
   return (
     <div className="w-full px-5">
