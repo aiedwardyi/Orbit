@@ -63,7 +63,7 @@ export function chiefOfStaffSystemPrompt(
   trustedOpenMausStatus = "",
   inRoom = false,
   coordinationAsked = false,
-  answeringBot = false,
+  turnLimit?: "ask" | "delegation" | "room",
 ): string {
   const chief = bots.find((bot) => bot.id === chiefId);
   const chiefSection = sectionKey(chief?.section);
@@ -87,9 +87,13 @@ export function chiefOfStaffSystemPrompt(
     : "";
 
   const delegation = !canDelegate
-    ? answeringBot
+    ? turnLimit === "ask"
       ? "This turn answers another bot's request, so you can't message bots from it. Your reply goes back as the answer."
-      : "Your current engine cannot contact teammates. Be honest about that limitation and ask the user to choose a delegation-compatible engine before promising coordinated work."
+      : turnLimit === "delegation"
+        ? "This turn is a delegated task, so you can't message bots from it. The user sees your reply in your own chat."
+        : turnLimit === "room"
+          ? ""
+          : "Your current engine cannot contact teammates. Be honest about that limitation and ask the user to choose a delegation-compatible engine before promising coordinated work."
     : hasTeam && coordinationAsked
       ? [
           "Use list_bots to confirm the live roster and IDs. Use ask_bot when a teammate is better suited to part of the request.",
@@ -117,7 +121,7 @@ export function chiefOfStaffSystemPrompt(
   // still only files the new bot under the Chief's section; create_channel
   // is the tool that opens a room the user can talk in.
   const roomDiscipline =
-    inRoom && canDelegate
+    inRoom && (canDelegate || turnLimit === "room")
       ? [
           "You are in a shared room where everyone sees your tool calls.",
           hasTeam ? "When you are asked to add a teammate, call create_bot directly." : "",

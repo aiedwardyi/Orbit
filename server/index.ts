@@ -4785,6 +4785,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // The @tag is the user's own coordination signal. Without it a 1:1
       // Chief gets the answer-directly framing: the fan-out paragraph on
       // every turn is what has it messaging its roster over a direct question.
+      // Depth-capped ask_bot has no onDispatchError. delegate_bot does.
+      const turnLimit = commsDepth < MAX_COMMS_DEPTH ? undefined : opts?.onDispatchError ? "delegation" : "ask";
       const coordinationPrompt = bot.chiefOfStaff
         ? chiefOfStaffSystemPrompt(
             bot.id,
@@ -4793,7 +4795,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
             openMausStatusSystemPrompt(),
             false,
             tagged.length > 0,
-            commsDepth >= MAX_COMMS_DEPTH,
+            turnLimit,
           )
         : integrations.agents && sectionPeers.length > 0
           ? peerAgentsSystemPrompt()
@@ -5678,7 +5680,7 @@ async function runClaimedGroupMemberTurn(
         // a room turn is a coordination context by definition; the room
         // discipline above governs how it coordinates
         true,
-        hop >= MAX_COMMS_DEPTH,
+        hop >= MAX_COMMS_DEPTH ? "room" : undefined,
       )
     : integrations.agents
       ? peerAgentsSystemPrompt(true)

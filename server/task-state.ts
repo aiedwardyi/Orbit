@@ -231,6 +231,7 @@ function valueAt(body: unknown, path: readonly PropertyKey[]): unknown {
       continue;
     }
     if (typeof key === "string" && typeof current === "object" && current !== null && !Array.isArray(current)) {
+      if (!Object.hasOwn(current, key)) return undefined;
       current = Reflect.get(current, key);
       continue;
     }

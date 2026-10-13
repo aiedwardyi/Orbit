@@ -335,7 +335,7 @@ describe("installOrbitMsg", () => {
       expect(cmd).toMatch(/\r\n/);
       expect(cmd).not.toMatch(/[^\r]\n/);
       const sh = readFileSync(path.join(bin, "orbit-msg"), "utf8");
-      expect(sh).toMatch(/^#!\/bin\/sh\n/);
+      expect(sh).toMatch(/^#!\/bin\/bash\n/);
       expect(sh).toContain("orbit-msg.ps1");
       expect(sh).not.toContain("\r");
     } finally {

@@ -259,24 +259,45 @@ describe("a turn that answers another bot", () => {
     { id: "writer", name: "Quill", title: "Writer", section: "Work" },
   ];
 
-  it("says the depth guard is why teammate tools are missing", () => {
-    const prompt = chiefOfStaffSystemPrompt("chief", bots, false, "", true, true, true);
+  it("says an ask_bot answer goes back to the asking bot", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, false, "", false, false, "ask");
     expect(prompt).toContain("This turn answers another bot's request, so you can't message bots from it.");
     expect(prompt).toContain("Your reply goes back as the answer.");
     expect(prompt).not.toContain("delegation-compatible engine");
+    expect(prompt).not.toContain("your own chat");
     expect(prompt).not.toContain("shared room");
     expect(prompt).not.toContain("Use ask_bot");
+  });
+
+  it("says a delegated task shows up in this bot's own chat", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, false, "", false, false, "delegation");
+    expect(prompt).toContain("This turn is a delegated task, so you can't message bots from it.");
+    expect(prompt).toContain("The user sees your reply in your own chat.");
+    expect(prompt).not.toContain("goes back as the answer");
+    expect(prompt).not.toContain("delegation-compatible engine");
+    expect(prompt).not.toContain("shared room");
+  });
+
+  it("keeps the room guidance when a room hop removes teammate tools", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, false, "", true, true, "room");
+    expect(prompt).toContain("You are in a shared room where everyone sees your tool calls.");
+    expect(prompt).toContain("Use ask_bot rather than delegate_bot");
+    expect(prompt).not.toContain("goes back as the answer");
+    expect(prompt).not.toContain("your own chat");
+    expect(prompt).not.toContain("delegation-compatible engine");
   });
 
   it("keeps the engine wording when the engine cannot mount the tools", () => {
     const prompt = chiefOfStaffSystemPrompt("chief", bots, false);
     expect(prompt).toContain("delegation-compatible engine");
     expect(prompt).not.toContain("answers another bot");
+    expect(prompt).not.toContain("your own chat");
   });
 
-  it("passes the depth flag from both turn sites", () => {
-    expect(index).toContain("commsDepth >= MAX_COMMS_DEPTH");
-    expect(index).toContain("hop >= MAX_COMMS_DEPTH");
+  it("passes the turn kind from both turn sites", () => {
+    expect(index).toContain('opts?.onDispatchError ? "delegation" : "ask"');
+    expect(index).toContain('hop >= MAX_COMMS_DEPTH ? "room" : undefined');
+    expect(index).not.toContain("commsDepth >= MAX_COMMS_DEPTH");
   });
 });
 

@@ -117,7 +117,7 @@ test("generated wrappers keep their line endings", async (t) => {
   const { cmd, sh } = readBin(bin);
   assert.match(cmd, /\r\n/);
   assert.doesNotMatch(cmd, /[^\r]\n/);
-  assert.match(sh, /^#!\/bin\/sh\n/);
+  assert.match(sh, /^#!\/bin\/bash\n/);
   assert.doesNotMatch(sh, /\r/);
 });
 
@@ -349,5 +349,69 @@ test("--file and a lone dash are the message, and a bad file fails loudly", { sk
     const viaCmd = await runCmdLines({ cwd: dir, env, lines: [`orbit-msg.cmd --file "${file}"`] });
     assert.equal(viaCmd.code, 0, viaCmd.err);
     assert.deepEqual(posts.map((p) => p.text), [SPECIAL]);
+  });
+});
+
+function runEncoded({ env, command, input = "" }) {
+  const encoded = Buffer.from(`$ProgressPreference = 'SilentlyContinue'; ${command}; exit $LASTEXITCODE`, "utf16le").toString("base64");
+  return new Promise((resolve) => {
+    const child = execFile(
+      "powershell",
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
+      { env, encoding: "utf8", windowsHide: true, timeout: 60_000 },
+      (error, stdout, stderr) => resolve({ status: error?.code ?? 0, stdout, stderr }),
+    );
+    child.stdin?.end(input);
+  });
+}
+
+function runCmdArgs({ cwd, env, args, input }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("cmd.exe", ["/d", "/q", "/c", "orbit-msg.cmd", ...args], {
+      cwd, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
+    });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ out, err, code }));
+    child.stdin.end(input ?? "");
+  });
+}
+
+test("piped bare powershell posts the pipeline when stdin is empty", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const { dir, bin } = await installBin();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  await withMailboxStub(async (url, posts) => {
+    const run = await runEncoded({ env: paneEnv(bin, url), command: "'piped' | orbit-msg" });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(posts[0]?.text, "piped");
+  });
+});
+
+test("a dash inside text stays, and a lone dash still reads stdin", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const { dir, bin } = await installBin();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  await withMailboxStub(async (url, posts) => {
+    const env = paneEnv(bin, url);
+    const dashed = await runCmdArgs({ cwd: dir, env, args: ["a", "-", "b"] });
+    assert.equal(dashed.code, 0, dashed.err);
+    const lone = await runCmdArgs({ cwd: dir, env, args: ["-"], input: "from-stdin" });
+    assert.equal(lone.code, 0, lone.err);
+    const report = await runCmdArgs({ cwd: dir, env, args: ["--report", "DONE", "NICK", "-"], input: "report-body" });
+    assert.equal(report.code, 0, report.err);
+    assert.equal(posts[0]?.text, "a - b");
+    assert.equal(posts[1]?.text, "from-stdin");
+    assert.equal(posts[2]?.kind, "report");
+    assert.match(posts[2]?.text ?? "", /report-body/);
+    if (!HAS_BASH) return;
+    const sh = path.join(bin, "orbit-msg");
+    const viaSh = await runShDirect({ sh, env, args: ["a", "-", "b"] });
+    assert.equal(viaSh.status, 0, viaSh.stderr);
+    const shLone = await runShDirect({ sh, env, args: ["-"], input: "sh-stdin" });
+    assert.equal(shLone.status, 0, shLone.stderr);
+    assert.equal(posts[3]?.text, "a - b");
+    assert.equal(posts[4]?.text, "sh-stdin");
   });
 });

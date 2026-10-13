@@ -82,8 +82,9 @@ function Read-OrbitFile([string]$Path) {
 }
 function Read-OrbitStdin {
   # Get-Variable, not a literal $input: that makes powershell -File swallow stdin first.
+  # -Scope Script: a function's own automatic input is empty. The pipeline is on the script.
   try { [Console]::InputEncoding = [Text.Encoding]::UTF8 } catch {}
-  $text = (Get-Variable -Name input -ValueOnly | ForEach-Object { $_ }) -join ([string][char]10)
+  $text = (Get-Variable -Name input -Scope Script -ValueOnly -ErrorAction SilentlyContinue | ForEach-Object { $_ }) -join ([string][char]10)
   if (-not $text -and [Console]::IsInputRedirected) { $text = [Console]::In.ReadToEnd() }
   return $text
 }
@@ -195,8 +196,8 @@ if ($failure) {
 // Each argument is stored with %~1 while delayed expansion is off, then
 // re-quoted and inserted with delayed expansion on. That happens after cmd
 // parses the powershell line, so a quote, pipe or redirect in the text cannot
-// split it. A lone "-" is rewritten: powershell -File treats it as its own switch.
-// The rewrite is a label. A parenthesized if expands %~1 when the block is parsed.
+// split it. powershell -File treats a bare "-" as its own switch, so a lone
+// "-" that is the whole message is rewritten. A dash inside other text is not.
 const ORBIT_MSG_CMD = String.raw`@echo off
 setlocal DisableDelayedExpansion
 rem Save the script path first: shift also moves the batch name.
@@ -205,16 +206,14 @@ set "N=0"
 :orbit_msg_next
 if "%~1"=="" goto orbit_msg_run
 set /a N+=1 >nul
-if "%~1"=="-" goto orbit_msg_dash
 set "A%N%=%~1"
-goto orbit_msg_shift
-:orbit_msg_dash
-set "A%N%=--stdin"
-:orbit_msg_shift
 shift
 goto orbit_msg_next
 :orbit_msg_run
 setlocal EnableDelayedExpansion
+rem orbit-msg - , or orbit-msg --report STATUS NICK -
+if "%N%"=="1" if "!A1!"=="-" set "A1=--stdin"
+if "%N%"=="4" if /I "!A1!"=="--report" if "!A4!"=="-" set "A4=--stdin"
 set "ORBIT_MSG_FWD="
 for /L %%I in (1,1,!N!) do if defined ORBIT_MSG_FWD (set "ORBIT_MSG_FWD=!ORBIT_MSG_FWD! "!A%%I!"") else (set "ORBIT_MSG_FWD="!A%%I!"")
 where pwsh >nul 2>nul
@@ -225,7 +224,7 @@ if errorlevel 1 (
 )
 `;
 
-const ORBIT_MSG_SH = String.raw`#!/bin/sh
+const ORBIT_MSG_SH = String.raw`#!/bin/bash
 if command -v pwsh.exe >/dev/null 2>&1; then
   ps=pwsh.exe
 else
@@ -233,15 +232,13 @@ else
 fi
 script=$(dirname "$0")/orbit-msg.ps1
 # powershell -File binds a bare "-" as its own switch and never passes it on.
-argv=()
-for arg in "$@"; do
-  if [ "$arg" = "-" ]; then
-    argv+=("--stdin")
-  else
-    argv+=("$arg")
-  fi
-done
-exec "$ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$script" ` + '"${argv[@]}"' + String.raw`
+# Rewrite only a lone "-" that is the whole message.
+if [ "$#" -eq 1 ] && [ "$1" = "-" ]; then
+  set -- --stdin
+elif [ "$#" -eq 4 ] && [ "$1" = "--report" ] && [ "$4" = "-" ]; then
+  set -- "$1" "$2" "$3" --stdin
+fi
+exec "$ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$script" "$@"
 `;
 
 const WAITING_NOTE = "WAITING: this worker is stuck on an on-screen prompt (permission check or question). terminal_read its pane, then answer with key presses or tell the user.";
