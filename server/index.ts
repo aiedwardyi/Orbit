@@ -145,7 +145,7 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
 import { getOrCreateChannel, mirrorExchange, mirrorReply, settleAskChip, type CommsBus } from "./comms-visibility.ts";
-import { searchMessages, searchSnippet } from "./message-db.ts";
+import { searchHaystack, searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, findDelegationReceipt, finishDelegatedTurn, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
@@ -7858,10 +7858,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const active = onActivePath(hit.threadId, hit.messageId);
           const message = store.messagesFor(hit.threadId).find((row) => row.id === hit.messageId);
           let haystack = hit.snippet;
-          if (message) {
-            const safe = clientMessage(message);
-            haystack = hit.kind === "activity" ? (safe.tool?.name ?? "") : (safe.text ?? "");
-          }
+          if (message) haystack = searchHaystack(clientMessage(message));
           const snippet = searchSnippet(haystack, needle);
           if (bot) {
             const task = store.taskByThread(bot.id, hit.threadId);
