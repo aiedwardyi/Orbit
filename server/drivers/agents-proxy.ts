@@ -209,16 +209,16 @@ const TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
-        goal: { type: "string", minLength: 1, maxLength: 500, pattern: "\\S", description: "The user's durable outcome. Omit when unchanged." },
+        goal: { type: "string", minLength: 1, maxLength: 500, pattern: "\\S", description: "The user's durable outcome, at most 500 characters. Omit when unchanged." },
         plan: {
           type: "array",
           maxItems: 20,
-          description: "The current concise plan. At most one step may be active.",
+          description: "The current concise plan, at most 20 steps. At most one step may be active.",
           items: {
             type: "object",
             additionalProperties: false,
             properties: {
-              step: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S" },
+              step: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S", description: "At most 200 characters." },
               status: { type: "string", enum: ["pending", "active", "done", "skipped"] },
             },
             required: ["step", "status"],
@@ -229,20 +229,20 @@ const TOOLS = [
           minLength: 1,
           maxLength: 300,
           pattern: "\\S",
-          description: "One concise milestone that is actually complete. Omit when nothing new finished.",
+          description: "One concise milestone that is actually complete, at most 300 characters. Omit when nothing new finished.",
         },
-          next_action: { type: "string", minLength: 1, maxLength: 300, pattern: "\\S", description: "The exact next useful action." },
+          next_action: { type: "string", minLength: 1, maxLength: 300, pattern: "\\S", description: "The exact next useful action, at most 300 characters." },
           pause_automatic_wakes: { type: "boolean", description: "Set true only when the user asks you to stop or pause. Holds worker-report wake-ups until their next message; does not stop workers or end your current turn." },
         blockers: {
           type: "array",
           maxItems: 10,
-          description: "Current blockers. Send an empty array when prior blockers are resolved.",
+          description: "Current blockers, at most 10. Send an empty array when prior blockers are resolved.",
           items: {
             type: "object",
             additionalProperties: false,
             properties: {
               kind: { type: "string", enum: ["login", "input", "engine"] },
-              note: { type: "string", minLength: 1, maxLength: 300, pattern: "\\S" },
+              note: { type: "string", minLength: 1, maxLength: 300, pattern: "\\S", description: "At most 300 characters." },
             },
             required: ["kind", "note"],
           },
@@ -250,13 +250,13 @@ const TOOLS = [
         artifacts: {
           type: "array",
           maxItems: 20,
-          description: "New files created inside this task's working folder.",
+          description: "New files created inside this task's working folder, at most 20.",
           items: {
             type: "object",
             additionalProperties: false,
             properties: {
-              ref: { type: "string", minLength: 1, maxLength: 500, pattern: "\\S", description: "Relative or absolute file path." },
-              label: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S" },
+              ref: { type: "string", minLength: 1, maxLength: 500, pattern: "\\S", description: "Relative or absolute file path, at most 500 characters." },
+              label: { type: "string", minLength: 1, maxLength: 200, pattern: "\\S", description: "At most 200 characters." },
             },
             required: ["ref", "label"],
           },

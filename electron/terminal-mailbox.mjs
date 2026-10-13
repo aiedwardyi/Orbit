@@ -50,7 +50,7 @@ export function terminalPaneEnv(base, { pane, bot, teacher = bot, mailbox = null
 const ORBIT_MSG_PS1 = String.raw`$ErrorActionPreference = 'Stop'
 $mode = if ($args.Count -ge 2 -and ($args[0] -eq '--hook' -or $args[0] -eq '--notify')) { $args[0] }
 if ($args.Count -ge 1 -and @('--help', '-h', '/?') -contains $args[0]) {
-  [Console]::Out.WriteLine('usage: orbit-msg "text" | orbit-msg --report <DONE|FAIL|BLOCKED> <TASK-NICK> [text]')
+  [Console]::Out.WriteLine('usage: orbit-msg "text" | orbit-msg --file <path> | orbit-msg - | orbit-msg --report <DONE|FAIL|BLOCKED> <TASK-NICK> [text]')
   exit 0
 }
 $auth = if ($env:ORBIT_MSG_AUTH) { $env:ORBIT_MSG_AUTH } else { $env:ORBIT_MSG_TOKEN }
@@ -62,19 +62,55 @@ if (-not $env:ORBIT_PANE -or -not $env:ORBIT_URL -or -not $auth) {
 $report = $null
 if ($args.Count -ge 1 -and $args[0] -eq '--report') {
   if ($args.Count -lt 3 -or @('DONE','FAIL','BLOCKED') -notcontains $args[1] -or [string]::IsNullOrWhiteSpace($args[2])) {
-    [Console]::Error.WriteLine('usage: orbit-msg --report <DONE|FAIL|BLOCKED> <TASK-NICK> [text]')
+    [Console]::Error.WriteLine('usage: orbit-msg --report <DONE|FAIL|BLOCKED> <TASK-NICK> [text|--file <path>|-]')
     exit 1
   }
   $report = @{ status = $args[1]; nick = ($args[2] -replace '\s+', '_') }
 }
 if ([Console]::IsInputRedirected) { try { [Console]::InputEncoding = [Text.Encoding]::UTF8 } catch {} }
+function Read-OrbitFile([string]$Path) {
+  if (-not $Path) {
+    [Console]::Error.WriteLine('orbit-msg: --file needs a path')
+    exit 1
+  }
+  try {
+    return [IO.File]::ReadAllText($Path, (New-Object Text.UTF8Encoding $false))
+  } catch {
+    [Console]::Error.WriteLine("orbit-msg: cannot read file $Path")
+    exit 1
+  }
+}
+function Read-OrbitStdin {
+  # Get-Variable, not a literal $input: that makes powershell -File swallow stdin first.
+  # -Scope Script: a function's own automatic input is empty. The pipeline is on the script.
+  try { [Console]::InputEncoding = [Text.Encoding]::UTF8 } catch {}
+  $text = (Get-Variable -Name input -Scope Script -ValueOnly -ErrorAction SilentlyContinue | ForEach-Object { $_ }) -join ([string][char]10)
+  if (-not $text -and [Console]::IsInputRedirected) { $text = [Console]::In.ReadToEnd() }
+  return $text
+}
+function Get-OrbitMessage {
+  # A splatted range arrives as one nested array. Flatten once or -join prints System.Object[].
+  $parts = New-Object System.Collections.Generic.List[string]
+  foreach ($a in $args) {
+    if ($null -ne $a -and $a -is [System.Array]) { foreach ($x in $a) { [void]$parts.Add([string]$x) } }
+    else { [void]$parts.Add([string]$a) }
+  }
+  if ($parts.Count -eq 0) { return (Read-OrbitStdin) }
+  if ($parts.Count -eq 1 -and ($parts[0] -eq '-' -or $parts[0] -eq '--stdin')) { return (Read-OrbitStdin) }
+  if ($parts -contains '--file') {
+    if ($parts.Count -ne 2 -or $parts[0] -ne '--file') {
+      [Console]::Error.WriteLine('orbit-msg: --file needs one path and no other message text')
+      exit 1
+    }
+    return (Read-OrbitFile $parts[1])
+  }
+  return ($parts -join ' ')
+}
 if ($report) {
   if ($args.Count -gt 3) {
-    $text = $args[3..($args.Count - 1)] -join ' '
-  } else {
-    $text = (Get-Variable -Name input -ValueOnly | ForEach-Object { $_ }) -join "` + "`" + String.raw`n"
-    if (-not $text -and [Console]::IsInputRedirected) { $text = [Console]::In.ReadToEnd() }
-  }
+    $rest = @($args[3..($args.Count - 1)])
+    $text = Get-OrbitMessage @rest
+  } else { $text = Get-OrbitMessage }
   $branch = 'none'; $sha = 'none'; $dirty = 'unknown'
   # Repo config can run fsmonitor or hooks; neither may see the pane grant.
   $paneVars = @('ORBIT_PANE', 'ORBIT_BOT', 'ORBIT_TEACHER', 'ORBIT_URL', 'ORBIT_MSG_AUTH', 'ORBIT_MSG_TOKEN')
@@ -107,11 +143,9 @@ if ($report) {
     } catch {}
   }
 } elseif ($args.Count) {
-  $text = $args -join ' '
+  $text = Get-OrbitMessage @args
 } else {
-  # Get-Variable, not a literal $input: that makes powershell -File swallow stdin first.
-  $text = (Get-Variable -Name input -ValueOnly | ForEach-Object { $_ }) -join "` + "`" + String.raw`n"
-  if (-not $text -and [Console]::IsInputRedirected) { $text = [Console]::In.ReadToEnd() }
+  $text = Read-OrbitStdin
 }
 if (-not $text.Trim()) {
   if ($mode) { exit 0 }
@@ -159,28 +193,52 @@ if ($failure) {
 }
 `;
 
-// Captured with expansion off, forwarded with it on: !VAR! inserts after cmd's
-// parse phase, so note metachars never re-split (AUDIT-1047). The ps1 parses
-// argv exactly as before, so quotes, flags and stdin are unchanged.
+// Each argument is stored with %~1 while delayed expansion is off, then
+// re-quoted and inserted with delayed expansion on. That happens after cmd
+// parses the powershell line, so a quote, pipe or redirect in the text cannot
+// split it. powershell -File treats a bare "-" as its own switch, so a lone
+// "-" that is the whole message is rewritten. A dash inside other text is not.
 const ORBIT_MSG_CMD = String.raw`@echo off
 setlocal DisableDelayedExpansion
-set "ORBIT_MSG_ARGS=%*"
+rem Save the script path first: shift also moves the batch name.
 set "ORBIT_MSG_PS1=%~dp0orbit-msg.ps1"
+set "N=0"
+:orbit_msg_next
+if "%~1"=="" goto orbit_msg_run
+set /a N+=1 >nul
+set "A%N%=%~1"
+shift
+goto orbit_msg_next
+:orbit_msg_run
 setlocal EnableDelayedExpansion
+rem orbit-msg - , or orbit-msg --report STATUS NICK -
+if "%N%"=="1" if "!A1!"=="-" set "A1=--stdin"
+if "%N%"=="4" if /I "!A1!"=="--report" if "!A4!"=="-" set "A4=--stdin"
+set "ORBIT_MSG_FWD="
+for /L %%I in (1,1,!N!) do if defined ORBIT_MSG_FWD (set "ORBIT_MSG_FWD=!ORBIT_MSG_FWD! "!A%%I!"") else (set "ORBIT_MSG_FWD="!A%%I!"")
 where pwsh >nul 2>nul
 if errorlevel 1 (
-  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!ORBIT_MSG_PS1!" !ORBIT_MSG_ARGS!
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!ORBIT_MSG_PS1!" !ORBIT_MSG_FWD!
 ) else (
-  pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!ORBIT_MSG_PS1!" !ORBIT_MSG_ARGS!
+  pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!ORBIT_MSG_PS1!" !ORBIT_MSG_FWD!
 )
 `;
 
-const ORBIT_MSG_SH = String.raw`#!/bin/sh
+const ORBIT_MSG_SH = String.raw`#!/bin/bash
 if command -v pwsh.exe >/dev/null 2>&1; then
-  exec pwsh.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(dirname "$0")/orbit-msg.ps1" "$@"
+  ps=pwsh.exe
 else
-  exec powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$(dirname "$0")/orbit-msg.ps1" "$@"
+  ps=powershell.exe
 fi
+script=$(dirname "$0")/orbit-msg.ps1
+# powershell -File binds a bare "-" as its own switch and never passes it on.
+# Rewrite only a lone "-" that is the whole message.
+if [ "$#" -eq 1 ] && [ "$1" = "-" ]; then
+  set -- --stdin
+elif [ "$#" -eq 4 ] && [ "$1" = "--report" ] && [ "$4" = "-" ]; then
+  set -- "$1" "$2" "$3" --stdin
+fi
+exec "$ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$script" "$@"
 `;
 
 const WAITING_NOTE = "WAITING: this worker is stuck on an on-screen prompt (permission check or question). terminal_read its pane, then answer with key presses or tell the user.";

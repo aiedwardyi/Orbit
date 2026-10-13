@@ -253,6 +253,55 @@ describe("the Chief role does not gate engine selection", () => {
   });
 });
 
+describe("a turn that answers another bot", () => {
+  const bots = [
+    { id: "chief", name: "Atlas", title: "Operations", section: "Work" },
+    { id: "writer", name: "Quill", title: "Writer", section: "Work" },
+  ];
+
+  it("says an ask_bot answer goes back to the asking bot", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, false, "", false, false, "ask");
+    expect(prompt).toContain("This turn answers another bot's request, so you can't message bots from it.");
+    expect(prompt).toContain("Your reply goes back as the answer.");
+    expect(prompt).not.toContain("delegation-compatible engine");
+    expect(prompt).not.toContain("your own chat");
+    expect(prompt).not.toContain("shared room");
+    expect(prompt).not.toContain("Use ask_bot");
+  });
+
+  it("says a delegated task shows up in this bot's own chat", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, false, "", false, false, "delegation");
+    expect(prompt).toContain("This turn is a delegated task, so you can't message bots from it.");
+    expect(prompt).toContain("The user sees your reply in your own chat.");
+    expect(prompt).not.toContain("goes back as the answer");
+    expect(prompt).not.toContain("delegation-compatible engine");
+    expect(prompt).not.toContain("shared room");
+  });
+
+  it("names no teammate tools on a room hop that has none", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, false, "", true, true, "room");
+    expect(prompt).toContain("You are in a shared room where everyone sees your tool calls.");
+    expect(prompt).toContain("This turn answers another bot in this room, so you can't message bots from it.");
+    expect(prompt).not.toMatch(/ask_bot|delegate_bot|create_bot|create_channel|list_bots/);
+    expect(prompt).not.toContain("goes back as the answer");
+    expect(prompt).not.toContain("your own chat");
+    expect(prompt).not.toContain("delegation-compatible engine");
+  });
+
+  it("keeps the engine wording when the engine cannot mount the tools", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, false);
+    expect(prompt).toContain("delegation-compatible engine");
+    expect(prompt).not.toContain("answers another bot");
+    expect(prompt).not.toContain("your own chat");
+  });
+
+  it("passes the turn kind from both turn sites", () => {
+    expect(index).toContain('opts?.onDispatchError ? "delegation" : "ask"');
+    expect(index).toContain('hop >= MAX_COMMS_DEPTH ? "room" : undefined');
+    expect(index).not.toContain("commsDepth >= MAX_COMMS_DEPTH");
+  });
+});
+
 describe("a Chief with a team does not fan out unasked", () => {
   const bots = [
     { id: "chief", name: "Atlas", title: "Operations", section: "Work" },

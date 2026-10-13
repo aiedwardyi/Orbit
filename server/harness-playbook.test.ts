@@ -40,6 +40,7 @@ describe("harness playbook", () => {
   it("routes reports through orbit-msg on Windows and the pane elsewhere", () => {
     const win = loadHarnessPlaybook(undefined, undefined, "win32");
     expect(win).toContain('orbit-msg --report DONE|FAIL|BLOCKED <NICKNAME> "<text>"');
+    expect(win).toContain("For text with quotes or pipes, use `--file`.");
     expect(win).not.toContain("{{REPORTS}}");
     const linux = loadHarnessPlaybook(undefined, undefined, "linux");
     expect(linux).toContain("orbit-msg is not installed on this platform");

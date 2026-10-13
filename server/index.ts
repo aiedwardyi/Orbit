@@ -4789,6 +4789,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // The @tag is the user's own coordination signal. Without it a 1:1
       // Chief gets the answer-directly framing: the fan-out paragraph on
       // every turn is what has it messaging its roster over a direct question.
+      // Depth-capped ask_bot has no onDispatchError. delegate_bot does.
+      const turnLimit = commsDepth < MAX_COMMS_DEPTH ? undefined : opts?.onDispatchError ? "delegation" : "ask";
       const coordinationPrompt = bot.chiefOfStaff
         ? chiefOfStaffSystemPrompt(
             bot.id,
@@ -4797,6 +4799,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
             openMausStatusSystemPrompt(),
             false,
             tagged.length > 0,
+            turnLimit,
           )
         : integrations.agents && sectionPeers.length > 0
           ? peerAgentsSystemPrompt()
@@ -5681,6 +5684,7 @@ async function runClaimedGroupMemberTurn(
         // a room turn is a coordination context by definition; the room
         // discipline above governs how it coordinates
         true,
+        hop >= MAX_COMMS_DEPTH ? "room" : undefined,
       )
     : integrations.agents
       ? peerAgentsSystemPrompt(true)
@@ -6631,8 +6635,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, result.status, result.body);
       }
       if (method === "POST" && path === "/api/internal/task-state") {
-        const parsed = taskStateUpdateEnvelopeSchema.safeParse(await readBody(req));
-        if (!parsed.success) return json(res, 400, { error: taskStateUpdateError(parsed.error) });
+        const raw = await readBody(req);
+        const parsed = taskStateUpdateEnvelopeSchema.safeParse(raw);
+        if (!parsed.success) return json(res, 400, { error: taskStateUpdateError(parsed.error, raw) });
         const body = parsed.data;
         const bot = store.bot(body.fromBotId);
         if (!bot) return json(res, 403, { error: "unknown sender" });

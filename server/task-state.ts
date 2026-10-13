@@ -223,11 +223,34 @@ export function deleteTaskResumePacket(
 
 const TASK_STATE_UPDATE_FIELDS = "goal, plan, completed_note, next_action, blockers, artifacts";
 
-export function taskStateUpdateError(error: z.ZodError): string {
+function valueAt(body: unknown, path: readonly PropertyKey[]): unknown {
+  let current: unknown = body;
+  for (const key of path) {
+    if (typeof key === "number" && Array.isArray(current)) {
+      current = current[key];
+      continue;
+    }
+    if (typeof key === "string" && typeof current === "object" && current !== null && !Array.isArray(current)) {
+      if (!Object.hasOwn(current, key)) return undefined;
+      current = Reflect.get(current, key);
+      continue;
+    }
+    return undefined;
+  }
+  return current;
+}
+
+export function taskStateUpdateError(error: z.ZodError, body?: unknown): string {
   const issue = error.issues[0];
   let detail = "unreadable body";
   if (issue?.code === "unrecognized_keys") detail = `unknown field ${issue.keys.join(", ")}`;
-  else if (issue) detail = issue.path.length ? `${issue.path.map(String).join(".")}: ${issue.message}` : issue.message;
+  else if (issue?.code === "too_big") {
+    const sent = valueAt(body, issue.path);
+    const count = typeof sent === "string" || Array.isArray(sent) ? sent.length : null;
+    const unit = issue.origin === "array" ? "items" : "characters";
+    const field = issue.path.length ? issue.path.map(String).join(".") : "value";
+    detail = count === null ? `${field}: limit ${String(issue.maximum)}` : `${field}: ${count} ${unit}, limit ${String(issue.maximum)}`;
+  } else if (issue) detail = issue.path.length ? `${issue.path.map(String).join(".")}: ${issue.message}` : issue.message;
   return `invalid task state update: ${detail.slice(0, 200)}; allowed: ${TASK_STATE_UPDATE_FIELDS}.`;
 }
 

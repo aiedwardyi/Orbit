@@ -212,6 +212,40 @@ describe("taskStateUpdateError", () => {
     const text = error({ ["x".repeat(1000)]: 1 });
     expect(text.length).toBeLessThan(400);
   });
+
+  it("names the field, its limit and the length sent", () => {
+    const schema = z.object({
+      goal: z.string().max(500).optional(),
+      plan: z.array(z.object({ step: z.string().max(200) }).strict()).max(20).optional(),
+    }).strict();
+    const fail = (body: unknown) => {
+      const parsed = schema.safeParse(body);
+      if (parsed.success) throw new Error("expected a parse failure");
+      return taskStateUpdateError(parsed.error, body);
+    };
+    const goal = "x".repeat(501);
+    expect(fail({ goal })).toContain("goal: 501 characters, limit 500");
+    const plan = Array.from({ length: 21 }, () => ({ step: "a" }));
+    expect(fail({ plan })).toContain("plan: 21 items, limit 20");
+    expect(fail({ plan: [{ step: "y".repeat(201) }] })).toContain("plan.0.step: 201 characters, limit 200");
+  });
+
+  it("does not count an inherited constructor or toString", () => {
+    const schema = z.object({ goal: z.string().max(5) }).strict();
+    const parsed = schema.safeParse({ goal: "123456" });
+    if (parsed.success) throw new Error("expected a parse failure");
+    const at = (key: string, body: object) => {
+      const issue = parsed.error.issues[0];
+      if (!issue) throw new Error("expected an issue");
+      return taskStateUpdateError(new z.ZodError([{ ...issue, path: [key] }]), body);
+    };
+    const inherited: object = Object.create({ constructor: "c".repeat(40), toString: "t".repeat(30) });
+    expect(at("constructor", inherited)).toContain("constructor: limit 5");
+    expect(at("constructor", inherited)).not.toContain("40");
+    expect(at("toString", inherited)).toContain("toString: limit 5");
+    expect(at("toString", inherited)).not.toContain("30");
+    expect(at("constructor", { constructor: "c".repeat(40) })).toContain("constructor: 40 characters, limit 5");
+  });
 });
 
 describe("taskArtifactError", () => {
