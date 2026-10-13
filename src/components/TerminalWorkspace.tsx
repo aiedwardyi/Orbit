@@ -169,6 +169,7 @@ export function TerminalWorkspace({
     let appearanceRequest = 0;
     let opening = false;
     let replayComplete = false;
+    let replaying = false;
     const liveQueue: OutputEvent[] = [];
     const exits = new Map<string, number>();
     setSession(null);
@@ -229,6 +230,7 @@ export function TerminalWorkspace({
       // Imported schemes and truecolor prompts bypass the readable palette.
       terminal.options.minimumContrastRatio = 4.5;
       if (host.parentElement) host.parentElement.style.backgroundColor = imported?.theme.background ?? "";
+      if (replaying) return;
       fit.fit();
       if (id) {
         const sessionId = id;
@@ -351,7 +353,7 @@ export function TerminalWorkspace({
     const resize = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        if (!alive || !host.clientWidth || !host.clientHeight) return;
+        if (!alive || replaying || !host.clientWidth || !host.clientHeight) return;
         fit.fit();
         terminal.refresh(0, Math.max(0, terminal.rows - 1));
         if (id) {
@@ -391,6 +393,7 @@ export function TerminalWorkspace({
         .sort((a, b) => a.seq - b.seq);
       liveQueue.length = 0;
       replayComplete = true;
+      replaying = false;
       for (const event of queued) receive(event);
       const code = exits.get(snapshot.id) ?? snapshot.exitCode;
       if (code !== null) exits.set(snapshot.id, code);
@@ -418,6 +421,12 @@ export function TerminalWorkspace({
           .catch(report);
       }
       if (!blockedRef.current) terminal.focus();
+    };
+    // ConPTY draws at absolute rows and never repaints on resize, so history only lines up at the PTY's size.
+    const replay = (snapshot: TerminalSnapshot, launchedProject: string | null) => {
+      replaying = true;
+      if (snapshot.cols && snapshot.rows) terminal.resize(snapshot.cols, snapshot.rows);
+      terminal.write(snapshot.output, () => finishAttach(snapshot, launchedProject));
     };
 
     const recoverPreservedSession = () => {
@@ -483,7 +492,7 @@ export function TerminalWorkspace({
                   sessionIdRef.current = resumed.id;
                   lastSeq = resumed.seq;
                   replayComplete = false;
-                  terminal.write(resumed.output, () => finishAttach(resumed, expectedProject));
+                  replay(resumed, expectedProject);
                 } else {
                   // Same session already painted — skip re-dump, but still finishAttach for live drain + resize/focus.
                   // Keep lastSeq at the pre-restart watermark so finishAttach preserves IPC-gap events.
@@ -520,7 +529,7 @@ export function TerminalWorkspace({
         sessionIdRef.current = snapshot.id;
         lastSeq = snapshot.seq;
         replayComplete = false;
-        terminal.write(snapshot.output, () => finishAttach(snapshot, expectedProject));
+        replay(snapshot, expectedProject);
       }).catch((cause) => {
         opening = false;
         setReplacing(false);
