@@ -34,6 +34,7 @@ async function renderView(
   view: typeof DeviceSwitcher | typeof DeviceTag = DeviceSwitcher,
   labeled = false,
   drawerOpen?: boolean,
+  iconOnly = false,
 ) {
   store.api.mockResolvedValue({ devices });
   const host = document.createElement("div");
@@ -41,7 +42,7 @@ async function renderView(
   const root = createRoot(host);
   const node = view === DeviceTag
     ? createElement(DeviceTag)
-    : createElement(DeviceSwitcher, { navigate, labeled, drawerOpen });
+    : createElement(DeviceSwitcher, { navigate, labeled, drawerOpen, iconOnly });
   await act(async () => root.render(createElement(I18nProvider, null, node)));
   return { host, root, navigate };
 }
@@ -223,6 +224,20 @@ describe("DeviceTag", () => {
     const { host } = await renderView([device("laptop", { current: true, laptop: true, name: "Laptop" }), device("work")], vi.fn(), DeviceSwitcher, true);
     expect(host.querySelector("[data-device-tag] .lucide-laptop")).not.toBeNull();
     expect(host.querySelector("[data-device-tag]")!.textContent).toBe("Laptop");
+  });
+
+  it("shows only a 40 px icon in the phone icon rail and names the PC in its tooltip", async () => {
+    setPhone(true);
+    const { host } = await renderView(pcs, vi.fn(), DeviceSwitcher, true, undefined, true);
+    const tag = host.querySelector("button[data-device-tag]")!;
+    expect(tag.textContent).toBe("");
+    expect(tag.className).toContain("size-10");
+    expect(tag.getAttribute("title")).toBe("Your PCs: Home");
+    expect(tag.getAttribute("aria-label")).toBe("Your PCs: Home");
+    expect(tag.querySelector(".lucide-monitor")?.getAttribute("width")).toBe("20");
+    await act(async () => click(tag));
+    expect(document.querySelector("ul")?.className).toContain("fixed");
+    expect(document.querySelector("[data-device-id=home]")!.textContent).toContain("This PC");
   });
 
   it("hides the phone drawer picker with one PC", async () => {
