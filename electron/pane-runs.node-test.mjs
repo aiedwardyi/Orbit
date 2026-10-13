@@ -135,3 +135,50 @@ test("a failed post retries, and an undelivered note survives a restart in betwe
   assert.equal(tries, 3);
   assert.deepEqual(await restart(file), []);
 });
+
+test("a running pane's repeat send writes nothing, and new work after a report still saves", async (t) => {
+  const file = runFile(t);
+  const app = launch(file);
+  const pane = await app.host.openForBot("bot-1", { label: "BUSY", command: "claude" });
+  const writes = t.mock.method(fs, "writeFileSync");
+  app.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "more\r" });
+  assert.equal(writes.mock.callCount(), 0);
+  app.host.attendBot("bot-1", pane.sessionId, "report");
+  writes.mock.resetCalls();
+  app.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "next task\r" });
+  assert.equal(writes.mock.callCount(), 1);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8"))[0].state, "running");
+});
+
+function strand(file) {
+  createPaneRuns(file).started({ id: "pane-1", botId: "bot-1", teacher: "bot-1", label: "LOST", cwd: os.tmpdir(), spawnedAt: 0 });
+}
+
+async function miss(file, notify) {
+  const warnings = [];
+  await notifyRestartedPanes({ runs: createPaneRuns(file), retryMs: 1, tries: 2, warn: (text) => warnings.push(text), ...notify });
+  return warnings;
+}
+
+test("an undelivered note keeps its records until the third launch", async (t) => {
+  const file = runFile(t);
+  strand(file);
+  assert.match((await miss(file, { mailbox: async () => null, notePane: async () => {} }))[0], /bot-1 not delivered: no mailbox/);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8"))[0].missed, 1);
+  assert.match((await miss(file, { mailbox: async () => MAIL, notePane: async () => { throw new Error("ECONNREFUSED"); } }))[0], /ECONNREFUSED/);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8"))[0].missed, 2);
+  const warnings = await miss(file, { mailbox: async () => null, notePane: async () => {} });
+  assert.match(warnings[1], /dropped 1 pane\(s\) after 3 launches/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), []);
+});
+
+test("a note delivered after a miss forgets the records", async (t) => {
+  const file = runFile(t);
+  strand(file);
+  await miss(file, { mailbox: async () => null, notePane: async () => {} });
+  const notes = await restart(file);
+  assert.equal(notes.length, 1);
+  assert.match(notes[0].text, /^- LOST \[pane /m);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), []);
+  assert.deepEqual(await restart(file), []);
+});

@@ -3,6 +3,7 @@ import path from "node:path";
 
 const RETRY_MS = 15_000;
 const TRIES = 20;
+const MISSES = 3;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -38,7 +39,10 @@ export function createPaneRuns(file) {
   save();
   return {
     started({ id, botId, teacher, label, cwd, spawnedAt }) {
-      runs.set(id, { id, botId, teacher, label: label ?? null, cwd, spawnedAt, state: "running" });
+      const run = { id, botId, teacher, label: label ?? null, cwd, spawnedAt, state: "running" };
+      const stored = runs.get(id);
+      if (stored && Object.keys(run).every((key) => stored[key] === run[key])) return;
+      runs.set(id, run);
       save();
     },
     reported: (id) => mark(id, "reported"),
@@ -63,6 +67,21 @@ export function createPaneRuns(file) {
       }
       save();
     },
+    /** Counts a launch whose note never landed; returns how many records that dropped. */
+    missed(botId) {
+      let dropped = 0;
+      for (const id of prior) {
+        const run = runs.get(id);
+        if (run?.botId !== botId) continue;
+        run.missed = (run.missed ?? 0) + 1;
+        if (run.missed < MISSES) continue;
+        runs.delete(id);
+        prior.delete(id);
+        dropped++;
+      }
+      save();
+      return dropped;
+    },
   };
 }
 
@@ -78,15 +97,18 @@ export async function notifyRestartedPanes({ runs, mailbox, notePane, retryMs = 
   const mail = await Promise.resolve().then(mailbox).catch(() => null);
   await Promise.all([...bots].map(async ([botId, panes]) => {
     const scope = { pane: panes[0].id, bot: botId, teacher: panes[0].teacher ?? botId };
+    let reason = "no mailbox";
     for (let attempt = 1; mail && attempt <= tries; attempt++) {
       try {
         await notePane(mail, scope, restartNoteText(panes));
-        break;
+        return runs.forget(botId);
       } catch (error) {
-        if (attempt === tries) warn(`restart note for ${botId} not delivered: ${error?.message ?? error}`);
-        else await sleep(retryMs);
+        reason = error?.message ?? error;
+        if (attempt < tries) await sleep(retryMs);
       }
     }
-    runs.forget(botId);
+    const dropped = runs.missed(botId);
+    warn(`restart note for ${botId} not delivered: ${reason}`);
+    if (dropped) warn(`restart note for ${botId} dropped ${dropped} pane(s) after ${MISSES} launches`);
   }));
 }
