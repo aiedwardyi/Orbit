@@ -27,14 +27,17 @@ describe("harness playbook", () => {
     const prompt = harnessPlaybookPrompt(true);
     expect(prompt).toContain("The same goes for a checkout with uncommitted changes");
     expect(prompt).toContain("An in-place worker has no branch: instead of steps 1 and 2, compare the files it");
-    expect(prompt).toContain("Skip steps 6 and 9, and never stash, reset or\ncheck out over the user's files");
+    expect(prompt).toContain("steps 6 and 9, and never stash, reset or check out over the user's files");
   });
 
   it("requires a safety copy before an in-place worker and compares against it", () => {
     const prompt = harnessPlaybookPrompt(true);
-    expect(prompt).toContain("Before an in-place worker, copy what git cannot restore to `%TEMP%");
-    expect(prompt).toContain("wink-safety");
-    expect(prompt).toContain("changed with the safety copy. Skip steps 6 and 9");
+    expect(prompt).toContain("Before an in-place worker, copy what git cannot restore into a new folder in the system temp folder");
+    expect(prompt).toContain("`wink-safety-<NICKNAME>-<time>`");
+    expect(prompt).toContain("save the `git status --short` output there");
+    expect(prompt).toContain("copy any ignored file the job may change");
+    expect(prompt).toContain("changed with the safety copy, or with `git diff` for files that were clean");
+    expect(prompt).not.toContain("%TEMP%");
   });
 
   it("verifies a scratch-copy review by its findings and deletes the copy", () => {

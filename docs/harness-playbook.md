@@ -84,7 +84,7 @@ git -C "<repo>" worktree add "{{WORKTREE}}" -b <branch> <base>
 - A read-only review of a plain folder that is not a repo runs in a scratch copy of it, never in place: workers run unsandboxed, so a stray edit there could not be undone.
 - An editing job in a plain folder gets no worktree: one worker edits it in place, and you leave the folder alone until it reports.
 - The same goes for a checkout with uncommitted changes (`git status --short` lists files): a worktree starts from a commit and would miss them. Check before you write the card, and keep cards outside the repo so they never count.
-- Before an in-place worker, copy what git cannot restore to `%TEMP%\wink-safety\<NICKNAME>` and check the copy exists: in a checkout the files `git status --short` lists, in a plain folder the folder (only the files the job may change, if it is large). Restore from it if the result is wrong; delete it once the result is verified.
+- Before an in-place worker, copy what git cannot restore into a new folder in the system temp folder (`wink-safety-<NICKNAME>-<time>`) and check the copy exists. In a checkout, save the `git status --short` output there, copy the files it lists, and copy any ignored file the job may change. In a plain folder, copy the folder (only the files the job may change, if it is large). Restore from it if the result is wrong; delete it once the result is verified.
 
 ## Verify before push
 
@@ -113,8 +113,9 @@ When a worker reports done, check its work yourself before anything moves:
    uncommitted, as if you had made them. Otherwise ask the user first.
 
 An in-place worker has no branch: instead of steps 1 and 2, compare the files it
-changed with the safety copy. Skip steps 6 and 9, and never stash, reset or
-check out over the user's files to rerun the old code.
+changed with the safety copy, or with `git diff` for files that were clean. Skip
+steps 6 and 9, and never stash, reset or check out over the user's files to
+rerun the old code.
 
 A read-only review in a scratch copy has no branch either: instead of the
 steps above, check its findings against the files it cites, then delete the
