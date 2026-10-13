@@ -47,6 +47,8 @@
 //                      "Write,Bash" — only `edit` reads it
 //   FAKE_CLAUDE_DUMP   path to write {argv, env, prompt, mcpConfig} as JSON,
 //                      so the test can assert on argv shape and env hygiene.
+//                      Turns overwrite it; text generation creates it only
+//                      when missing, preserving the last turn's dump.
 //                      mcpConfig is read back from the --mcp-config file the
 //                      way the real CLI reads it — the driver writes it to a
 //                      private temp file and deletes it when the turn settles,
@@ -113,10 +115,15 @@ if (argAfter("--output-format") === "text") {
     process.stdin.on("end", () => resolve(input));
   });
   if (process.env.FAKE_CLAUDE_DUMP) {
-    writeFileSync(
-      process.env.FAKE_CLAUDE_DUMP,
-      JSON.stringify({ pid: process.pid, argv, env: process.env, prompt, mcpConfig: null }, null, 2),
-    );
+    try {
+      writeFileSync(
+        process.env.FAKE_CLAUDE_DUMP,
+        JSON.stringify({ pid: process.pid, argv, env: process.env, prompt, mcpConfig: null }, null, 2),
+        { flag: "wx" },
+      );
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+    }
   }
   const delayMs = Number(process.env.FAKE_CLAUDE_GENERATE_DELAY_MS ?? 0);
   if (Number.isFinite(delayMs) && delayMs > 0) {
