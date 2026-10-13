@@ -208,7 +208,7 @@ function PlanUsage() {
       const refreshKey = event.code === "KeyR" || event.key.toLowerCase() === "r";
       if (event.defaultPrevented || event.repeat || event.isComposing || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !refreshKey) return;
       const active = event.target instanceof Element ? event.target : document.activeElement;
-      if (document.querySelector('[data-model-picker-content], .orbit-terminal-overlay[data-open="true"]') || active?.closest('[data-orbit-composer], .orbit-terminal-overlay, [data-terminal], [data-orbit-terminal], input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+      if (document.querySelector('[data-model-picker-content]') || active?.closest('[data-orbit-composer], .orbit-terminal-overlay, [data-terminal], [data-orbit-terminal], input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
       if (refreshable.length === 0) return;
       event.preventDefault();
       void refreshAll();
