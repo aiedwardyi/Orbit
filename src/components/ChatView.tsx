@@ -88,6 +88,7 @@ import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
 import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from "@/lib/focus-composer";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { MemorySaveChip } from "./MemorySaveChip";
+import { PeerMessageBody, commLabel } from "./PeerMessage";
 import { ActivityRun, ActivityStep, approvalHover } from "./ActivityRun";
 import { webhookMessageView } from "@/lib/webhook-message";
 import { splitAttachedImages } from "@/lib/composer-attachments";
@@ -654,12 +655,12 @@ const Bubble = memo(function Bubble({
               )}
               {collapsible && (
                 <button onClick={() => setExpanded(true)} className="mt-1 text-[12.5px] text-ink-secondary hover:text-ink">
-                  Show full message
+                  {t("chat.showFullMessage")}
                 </button>
               )}
               {expanded && (
                 <button onClick={() => setExpanded(false)} className="mt-1 text-[12.5px] text-ink-secondary hover:text-ink">
-                  Show less
+                  {t("chat.showLess")}
                 </button>
               )}
             </>
@@ -782,17 +783,24 @@ function ActivityChip({ message, notices }: { message: Message; notices?: Linked
   const comm = message.comm;
   if (comm) {
     const peer = state.bots.find((bot) => bot.id === comm.withBotId);
-    return (
+    const chip = (
       <div className="flex justify-start">
         <button
           onClick={() => dispatch({ type: "select", id: comm.groupId })}
-          title={`Open the conversation with ${comm.withName}`}
+          title={t("chat.openConversation", { name: comm.withName })}
           className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
           <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} />
-          <span className="min-w-0 max-w-[480px] truncate">{tool.name}</span>
+          <span className="min-w-0 max-w-[480px] truncate">{commLabel(message, t)}</span>
           <ChevronRight size={13} className="shrink-0" />
         </button>
+      </div>
+    );
+    if (!message.text) return chip;
+    return (
+      <div>
+        {chip}
+        <PeerMessageBody text={message.text} />
       </div>
     );
   }
@@ -1170,7 +1178,8 @@ const MessagesList = memo(function MessagesList({
         return (
           <div key={key} className="contents" data-mid={m.id} data-find-for={item.notices?.map((notice) => notice.message.id).join(" ") || undefined}>
             {newDay && <DaySeparator at={m.at} />}
-            {replyComm && <ActivityChip message={{ ...m, kind: "activity", comm: replyComm, tool: { name: t("chat.replyToBot", { name: replyComm.withName }) } }} />}
+            {/* text: undefined, or the chip would draw this row's own text under its label */}
+            {replyComm && <ActivityChip message={{ ...m, kind: "activity", text: undefined, comm: replyComm, tool: { name: t("chat.replyToBot", { name: replyComm.withName }) } }} />}
             {row}
           </div>
         );

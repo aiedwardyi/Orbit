@@ -251,6 +251,37 @@ describe("message-db", () => {
     expect(searchMessages("spoke")[0].from).toBe("Scout");
   });
 
+  it("finds a word that is only in a comm chip's body, in one thread and across threads", () => {
+    const comm = { groupId: "pair", withBotId: "helper", withName: "Helper", withColor: "pink" };
+    const lines = Array.from({ length: 9 }, (_, i) => `line ${i}`).join("\n");
+    insertMessage("t-comm", { ...msg("sent", `${lines}\nCheck the okapi build.`, { role: "bot", kind: "activity", at: 1 }), tool: { name: "Message to @Helper" }, comm: { ...comm, peer: "message" } });
+    insertMessage("t-comm", { ...msg("reply", "The quagga run is green.", { role: "bot", kind: "activity", at: 2 }), tool: { name: "Reply from @Helper" }, comm: { ...comm, peer: "reply" } });
+    insertMessage("t-plain", { ...msg("plain", "okapi quagga", { role: "bot", kind: "activity", at: 3 }), tool: { name: "Bash", ok: true } });
+
+    const hit = searchMessages("quagga", 40, "t-comm")[0];
+    expect(searchMessages("quagga", 40, "t-comm").map((row) => row.messageId)).toEqual(["reply"]);
+    expect(hit?.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength)).toBe("quagga");
+    expect(searchMessages("okapi").map((row) => row.messageId)).toEqual(["sent"]);
+    expect(searchMessages("okapi", 40, "t-comm")[0]?.snippet).toContain("Check the okapi build.");
+    expect(searchHaystack({ kind: "activity", tool: { name: "Reply from @Helper" }, comm, text: "quagga" })).toBe("Reply from @Helper\nquagga");
+    expect(searchHaystack({ kind: "activity", tool: { name: "Bash", ok: true }, text: "quagga" })).toBe("Bash");
+  });
+
+  it("never matches a secret in a comm chip's body", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.appendMessage(bot.threadId, {
+      role: "bot",
+      kind: "activity",
+      tool: { name: "Message to @Helper" },
+      comm: { groupId: "pair", withBotId: "helper", withName: "Helper", withColor: "pink", peer: "message" },
+      text: "Use password=abcdefgh!@suffix for staging.",
+    });
+
+    expect(searchMessages("staging", 40, bot.threadId)).toHaveLength(1);
+    expect(searchMessages("abcdefgh!@suffix", 40, bot.threadId)).toEqual([]);
+  });
+
   it("ranks an older text message ahead of a newer tool-call row", () => {
     insertMessage("t-rank", msg("text-hit", "재판기록의 최세훈입니다", { at: 10 }));
     insertMessage("t-rank", {

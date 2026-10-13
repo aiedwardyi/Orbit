@@ -295,20 +295,22 @@ function shownDetailLines(tool: ToolBody): string[] {
 }
 
 /** Text a find hit may quote. Activity rows include only detail the terminal row draws. */
-export function searchHaystack(message: Pick<Message, "kind" | "text" | "tool">): string {
+export function searchHaystack(message: Pick<Message, "kind" | "text" | "tool" | "comm">): string {
   if (message.kind !== "activity") return message.text ?? "";
   const tool = message.tool;
   if (!tool?.name) return "";
-  const detail = shownDetailLines(tool);
+  // a comm chip draws its message body under the label
+  const detail = message.comm && message.text ? [...shownDetailLines(tool), message.text] : shownDetailLines(tool);
   return detail.length ? `${tool.name}\n${detail.join("\n")}` : tool.name;
 }
 
-/** Visible detail text for one activity hit, from the tool object SQLite extracted. */
-function activityHaystack(toolJson: string | null): string {
+/** Visible detail text for one activity hit, from the tool object SQLite extracted. `body` is a comm chip's text. */
+function activityHaystack(toolJson: string | null, body: string | null): string {
   if (!toolJson) return "";
   // SAFETY: tool_json is the $.tool object from a stored Message envelope.
   const tool = redactToolMessage({ tool: JSON.parse(toolJson) as ToolBody }).tool;
-  return searchHaystack({ kind: "activity", tool });
+  const shown = searchHaystack({ kind: "activity", tool });
+  return shown && body ? `${shown}\n${body}` : shown;
 }
 
 /** Window around the first case-insensitive hit, with offsets after whitespace folding. */
@@ -360,11 +362,13 @@ export function searchMessages(query: string, limit = 40, threadId?: string): Se
   const ordered = db().prepare(
     "SELECT rowid AS row FROM messages " +
       `WHERE ${scope}((kind = 'text' AND text IS NOT NULL AND json_extract(json, '$.summarized') IS NOT 1 AND lower(text) LIKE ?1 ESCAPE '\\') ` +
-      "   OR (kind = 'activity' AND lower(json_extract(json, '$.tool.name', '$.tool.detail.input', '$.tool.detail.output', '$.tool.detail.diff')) LIKE ?2 ESCAPE '\\'" +
-      `${decoded})) ORDER BY ${order}at DESC`,
+      "   OR (kind = 'activity' AND ((text IS NOT NULL AND json_extract(json, '$.comm') IS NOT NULL AND lower(text) LIKE ?1 ESCAPE '\\') " +
+      "     OR (lower(json_extract(json, '$.tool.name', '$.tool.detail.input', '$.tool.detail.output', '$.tool.detail.diff')) LIKE ?2 ESCAPE '\\'" +
+      `${decoded})))) ORDER BY ${order}at DESC`,
   );
   const fetch = db().prepare(
-    "SELECT thread_id, id, at, role, kind, text, CASE WHEN kind = 'activity' THEN json_extract(json, '$.tool') END AS tool_json, json_extract(json, '$.from.name') AS from_name FROM messages WHERE rowid = ?",
+    "SELECT thread_id, id, at, role, kind, CASE WHEN kind != 'activity' OR json_extract(json, '$.comm') IS NOT NULL THEN text END AS text, " +
+      "CASE WHEN kind = 'activity' THEN json_extract(json, '$.tool') END AS tool_json, json_extract(json, '$.from.name') AS from_name FROM messages WHERE rowid = ?",
   );
   type Row = {
     thread_id: string;
@@ -381,7 +385,7 @@ export function searchMessages(query: string, limit = 40, threadId?: string): Se
   for (const { row: rowid } of rows) {
     // SAFETY: This SELECT list is thread_id, id, at, role, kind, text, tool_json, from_name.
     const row = fetch.get(rowid) as Row;
-    const haystack = row.kind === "activity" ? activityHaystack(row.tool_json) : (row.text ?? "");
+    const haystack = row.kind === "activity" ? activityHaystack(row.tool_json, row.text) : (row.text ?? "");
     if (row.kind === "activity" && !haystack.toLowerCase().includes(needle)) continue;
     const hit: SearchHit = {
       threadId: row.thread_id,

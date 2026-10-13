@@ -51,11 +51,13 @@ export function patchDelegationChip(
   itemId: string | undefined,
   tool: NonNullable<Message["tool"]>,
   comm?: CommLink,
+  text?: string,
 ): boolean {
   const chip = itemId ? delegationChips.get(itemId) : undefined;
   if (!itemId || !chip) return false;
   const patch: Partial<Message> = { tool };
   if (comm) patch.comm = comm;
+  if (text) patch.text = text;
   if (!bus.store.patchMessage(chip.threadId, chip.messageId, patch)) return false;
   if (tool.ok !== undefined) delegationChips.delete(itemId);
   return true;
@@ -89,11 +91,15 @@ export function mirrorExchange(
   const sourceActivity: Omit<Message, "id" | "at"> = {
     role: "bot",
     kind: "activity",
-    tool: { name: `Messaged @${target.name}` },
+    tool: { name: `Message to @${target.name}` },
     comm: channel
       ? { groupId: channel.id, withBotId: target.id, withName: target.name, withColor: target.color }
       : undefined,
   };
+  if (sourceActivity.comm) {
+    sourceActivity.comm.peer = "message";
+    if (channel?.threadId !== sourceThreadId) sourceActivity.text = message;
+  }
   if (sourceThreadId !== from.threadId) {
     sourceActivity.from = { botId: from.id, name: from.name, color: from.color };
   }
@@ -103,7 +109,7 @@ export function mirrorExchange(
     kind: "activity",
     tool: { name: `Message from @${from.name}` },
     comm: channel
-      ? { groupId: channel.id, withBotId: from.id, withName: from.name, withColor: from.color }
+      ? { groupId: channel.id, withBotId: from.id, withName: from.name, withColor: from.color, peer: "from" }
       : undefined,
   });
   if (channel) {
@@ -112,15 +118,29 @@ export function mirrorExchange(
   return sourceChipId;
 }
 
-export function settleAskChip(
+/** Show `target`'s reply under the sender's message in the thread it was asked
+ * from. False when nothing was posted: no reply, no channel, or the asking
+ * thread is the channel, which already gets the reply from `mirrorReply`. */
+export function postPeerReply(
   bus: CommsBus,
+  from: BotRecord,
   target: BotRecord,
-  sourceThreadId: string,
-  sourceChipId: string | undefined,
-  replied: boolean,
-): void {
-  if (!replied || !sourceChipId) return;
-  bus.store.patchMessage(sourceThreadId, sourceChipId, { tool: { name: `@${target.name} replied` } });
+  reply: string,
+  channel: GroupRecord | undefined,
+  sourceThreadId = from.threadId,
+): boolean {
+  const comm = commLink(channel, target);
+  if (!comm || !reply.trim() || channel?.threadId === sourceThreadId) return false;
+  const row: Omit<Message, "id" | "at"> = {
+    role: "bot",
+    kind: "activity",
+    tool: { name: `Reply from @${target.name}` },
+    comm: { ...comm, peer: "reply" },
+    text: reply,
+  };
+  if (sourceThreadId !== from.threadId) row.from = { botId: from.id, name: from.name, color: from.color };
+  bus.store.appendMessage(sourceThreadId, row);
+  return true;
 }
 
 /** Close a handoff's loop in the sender's thread: patch its chip in place, or

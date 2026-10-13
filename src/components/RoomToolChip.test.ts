@@ -4,8 +4,9 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Bot, InstanceInfo, Message } from "@/state/store";
+import type { Action, Bot, InstanceInfo, Message } from "@/state/store";
 
+const dispatched: Action[] = [];
 let mockState = {
   bots: [] as Bot[],
   instances: [] as InstanceInfo[],
@@ -17,10 +18,12 @@ vi.mock("@/state/store", async (importOriginal) => {
     ...actual,
     useStore: () => ({
       state: mockState,
-      dispatch: () => undefined,
+      dispatch: (action: Action) => { dispatched.push(action); },
     }),
   };
 });
+
+import { I18nProvider, applyLocale } from "@/lib/i18n";
 
 import { RoomToolChip } from "./GroupView";
 
@@ -35,6 +38,66 @@ describe("RoomToolChip", () => {
       });
     }
     host?.remove();
+    localStorage.clear();
+    applyLocale("en");
+    dispatched.length = 0;
+  });
+
+  const comm = { groupId: "pair", withBotId: "b2", withName: "Atlas", withColor: "pink" as const };
+  const sent: Message = { id: "sent", at: 1, role: "bot", kind: "activity", tool: { name: "Message to @Atlas" }, comm: { ...comm, peer: "message" }, text: "Check the release.", from: { botId: "b1", name: "Alice", color: "blue" } };
+  const reply: Message = { ...sent, id: "reply", tool: { name: "Reply from @Atlas" }, comm: { ...comm, peer: "reply" }, text: "Release is green." };
+  async function renderRows(messages: Message[]) {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root.render(createElement(I18nProvider, null, ...messages.map((message) => createElement(RoomToolChip, { key: message.id, message }))));
+    });
+    return Array.from(host.querySelectorAll<HTMLButtonElement>("button[title]"));
+  }
+
+  it("shows the sent message and the reply under chips that open the pair room, and an older chip as today", async () => {
+    const chips = await renderRows([{ id: "old", at: 1, role: "bot", kind: "activity", tool: { name: "@Atlas replied" }, comm }, sent, reply]);
+    expect(host.firstElementChild?.className).toBe("flex justify-start");
+    expect(chips.map((chip) => chip.querySelector("span.truncate")?.textContent)).toEqual(["@Atlas replied", "Message to @Atlas", "Reply from @Atlas"]);
+    expect(Array.from(host.querySelectorAll("[data-peer-body]")).map((body) => body.textContent)).toEqual(["Check the release.", "Release is green."]);
+    for (const chip of chips) {
+      await act(async () => { chip.click(); });
+    }
+    expect(dispatched).toEqual([{ type: "select", id: "pair" }, { type: "select", id: "pair" }, { type: "select", id: "pair" }]);
+  });
+
+  it("translates both labels into Korean in a room", async () => {
+    localStorage.setItem("omb-locale", "ko");
+    const chips = await renderRows([sent, reply]);
+    expect(chips.map((chip) => chip.querySelector("span.truncate")?.textContent)).toEqual(["@Atlas에게 보낸 메시지", "@Atlas의 답장"]);
+  });
+
+  it("titles the chip in Korean in a room", async () => {
+    localStorage.setItem("omb-locale", "ko");
+    const chips = await renderRows([sent]);
+    expect(chips[0].getAttribute("title")).toBe("Atlas 대화 열기");
+  });
+
+  it("translates Message from and the failed-turn fold labels into Korean in a room", async () => {
+    localStorage.setItem("omb-locale", "ko");
+    const received: Message = { id: "received", at: 1, role: "bot", kind: "activity", tool: { name: "Message from @Atlas" }, comm: { ...comm, peer: "from" } };
+    const chips = await renderRows([received, { ...received, id: "old", comm }]);
+    expect(chips.map((chip) => chip.querySelector("span.truncate")?.textContent)).toEqual(["@Atlas에게서 온 메시지", "Message from @Atlas"]);
+    await act(async () => { root.unmount(); });
+    host.remove();
+
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    const failed: Message = { id: "a9", role: "bot", kind: "activity", tool: { name: "error: a long failure", ok: false }, at: 9 };
+    await act(async () => {
+      root.render(createElement(I18nProvider, null, createElement(RoomToolChip, { message: failed, onRetry: () => {} })));
+    });
+    const toggle = () => [...host.querySelectorAll("button")].at(-1);
+    expect(toggle()?.textContent).toBe("전체 메시지 보기");
+    await act(async () => { toggle()?.click(); });
+    expect(toggle()?.textContent).toBe("접기");
   });
 
   it("A rejected resend re-enables the Retry button", async () => {

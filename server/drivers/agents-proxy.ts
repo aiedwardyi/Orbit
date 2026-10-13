@@ -650,7 +650,8 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     // the model hunting for a broken peer instead of using what it has
     if (typeof r.limit === "string") return { text: r.limit, isError: true };
     if (r.error) return { text: `Couldn't reach that bot: ${r.error}`, isError: true };
-    return { text: `${r.botName ?? "Bot"} replied:\n${r.text ?? "(no reply)"}` };
+    const shown = r.shown === true ? "\n\nThe user sees this reply in the chat, so add only your own take." : "";
+    return { text: `${r.botName ?? "Bot"} replied:\n${r.text ?? "(no reply)"}${shown}` };
   }
   if (name === "delegate_bot") {
     const toBotId = String(args.bot_id ?? "").trim();

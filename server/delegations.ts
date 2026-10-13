@@ -23,6 +23,7 @@ import {
   mirrorExchange,
   mirrorReply,
   patchDelegationChip,
+  postPeerReply,
   settleDelegationChip,
   trackDelegationChip,
   type CommsBus,
@@ -680,7 +681,8 @@ async function processOne(
     return "settled";
   }
   const channel = getOrCreateChannel(bus.store, sender, target);
-  const delivered = patchDelegationChip(bus, item.id, { name: `Delivered to @${target.name}` }, commLink(channel, target));
+  const body = channel.threadId === sourceThreadId ? undefined : item.message;
+  const delivered = patchDelegationChip(bus, item.id, { name: `Delivered to @${target.name}` }, commLink(channel, target), body);
   mirrorExchange(bus, sender, target, item.message, channel, sourceThreadId, !delivered);
   runningDelegations.set(item.id, { sourceThreadId, item });
   await runTarget(item.toBotId, delegatedPrompt(sender, item), item.depth + 1, sourceThreadId, channel, item.id, sender.id, `${item.message}${reasonLine(item)}`);
@@ -772,6 +774,8 @@ export function finishDelegatedTurn(
       ok,
     );
   }
+  const sender = turn.sourceBotId ? bus.store.bot(turn.sourceBotId) : undefined;
+  if (ok && !pointer && sender && turn.sourceThreadId) postPeerReply(bus, sender, target, reply, channel, turn.sourceThreadId);
   if (!channel) return reported;
   if (pointer) mirrorActivity(bus, target, channel, pointer, true, ownChat(target));
   else if (ok && reply.trim()) mirrorReply(bus, target, reply, channel);

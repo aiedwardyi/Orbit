@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { settleDelegationChip, type CommsBus } from "./comms-visibility.ts";
 import { DATA_DIR } from "./config.ts";
+import { prepareModelContext } from "./context-compaction.ts";
 import type { ModelSelection } from "./contracts.ts";
 import {
   drainDelegations,
@@ -238,6 +239,38 @@ describe("sender chip status", () => {
     settleDelegationChip(commsBus, target, from.threadId, store.group(channelId), queued.id, "@Helper replied", true);
     expect(rows()).toHaveLength(1);
     expect(rows()[0]).toMatchObject({ id: chipId, tool: { name: "@Helper replied", ok: true }, comm: { groupId: channelId } });
+  });
+
+  async function delivered(): Promise<DelegatedTurn> {
+    const queued = queueDelegation(commsBus, from, { toBotId: target.id, message: "do this", depth: 0 }, 1);
+    if (queued.result !== "ok") throw new Error("not queued");
+    let turn: DelegatedTurn | undefined;
+    drainDelegations(commsBus, approvalBus, from.threadId, (toBotId, _msg, _depth, sourceThreadId, channel, taskId, sourceBotId) => {
+      turn = { channelId: channel?.id, toBotId, taskId, sourceThreadId, sourceBotId };
+    });
+    await waitFor(() => turn);
+    return turn!;
+  }
+
+  it.each([
+    ["the reply lands", true, "Done, see the PR.", ["@Helper replied", "Reply from @Helper"]],
+    ["the turn fails", false, "", ["Delegated turn did not finish"]],
+    ["the reply is blank", true, " ", ["@Helper replied"]],
+  ])("shows the handoff under its chip and a reply row only when %s", async (_, ok, reply, names) => {
+    const turn = await delivered();
+    expect(rows()).toMatchObject([{ tool: { name: "Delivered to @Helper" }, text: "do this", comm: { groupId: turn.channelId } }]);
+
+    finishDelegatedTurn(commsBus, turn, ok, reply);
+
+    expect(rows().map((m) => m.tool?.name)).toEqual(names);
+    expect(rows()[0]?.text).toBe("do this");
+    if (names.length === 2) {
+      expect(rows()[1]).toMatchObject({ text: reply, comm: { groupId: turn.channelId, withBotId: target.id, peer: "reply" } });
+    }
+    const replay = JSON.stringify(await prepareModelContext({ messages: store.messagesFor(from.threadId), contextWindow: 200_000, taskRecordText: "" }));
+    expect(replay).toContain(names[0]);
+    expect(replay).not.toContain("do this");
+    expect(replay).not.toContain("see the PR");
   });
 
   it("settles the same chip as failed when the target turn fails", async () => {
@@ -1044,7 +1077,7 @@ describe("user takeover of a delegated turn", () => {
     store.messagesFor(channel.threadId).filter((m) => m.kind === "text").map((m) => m.text);
   const channelRows = (channel: GroupRecord) =>
     store.messagesFor(channel.threadId).filter((m) => m.kind === "activity").map((m) => m.tool?.name);
-  const chip = () => store.messagesFor(career.threadId).filter((m) => m.kind === "activity").at(-1)?.tool;
+  const chip = () => store.messagesFor(career.threadId).filter((m) => m.kind === "activity" && m.comm?.peer !== "reply").at(-1)?.tool;
   const paused = "Wink paused to answer Edward; it will reply after";
 
   async function takenOverOnce() {
