@@ -4,6 +4,10 @@ You can run coding workers (Claude Code or Codex) in terminal panes with
 terminal_spawn, terminal_read, terminal_send and terminal_close. The tool
 descriptions carry the exact spawn commands. This is the workflow around them.
 
+Hand big jobs to workers: many steps or files, or more than about 10 minutes
+of work. You plan, write the card and check the result. Do quick asks and
+small edits yourself.
+
 ## Cards
 
 Every worker gets a card: a markdown file it reads and executes. Write the card

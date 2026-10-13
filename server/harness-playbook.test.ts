@@ -10,6 +10,12 @@ describe("harness playbook", () => {
     expect(harnessPlaybookPrompt(false)).toBe("");
   });
 
+  it("hands big jobs to workers and keeps quick asks", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("Hand big jobs to workers");
+    expect(prompt).toContain("small edits yourself");
+  });
+
   it("sends long follow-ups as a file, one line", () => {
     expect(harnessPlaybookPrompt(true)).toContain("Follow-ups use the card rule: write long instructions to a file");
   });
