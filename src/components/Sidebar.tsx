@@ -117,6 +117,7 @@ import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { anyChatNeedsYou, chatNeedsYou } from "@/lib/open-question";
 import { DeviceSwitcher } from "./DeviceSwitcher";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
+import { isPhone } from "@/lib/phone-swipe";
 import { localeTag, t, useI18n } from "@/lib/i18n";
 import { terminalAttentionCopy } from "@/lib/notify";
 import { collapsedUnreadCount, formatCollapsedUnreadBadge, unreadConversationCount } from "@/lib/unread";
@@ -2230,7 +2231,13 @@ export function Sidebar({
       >
         {macInset ? (
           <div className={density === "icons" ? "h-5 w-full" : "w-14"} />
-        ) : <div />}
+        ) : isPhone() && !window.ogb ? (
+          <div className={cn("min-w-0", density !== "icons" && "flex-1")}>
+            <DeviceSwitcher labeled drawerOpen={open} />
+          </div>
+        ) : (
+          <div />
+        )}
         <div
           className={cn("relative flex items-center", density === "icons" ? "flex-col gap-1" : "gap-1")}
           style={windowNoDragStyle}

@@ -44,7 +44,7 @@ import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock,
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { useSkin } from "@/lib/skins";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
-import { phoneHeaderSlots, type PhoneHeaderSlot } from "@/lib/phone-header";
+import { boxShadowReach, phoneHeaderChipClearsMenu, phoneHeaderSlots, PHONE_HEADER_MENU_RESERVE_PX, PHONE_MENU_GLOW_PX, type PhoneHeaderBox, type PhoneHeaderSlot } from "@/lib/phone-header";
 import { isPhone } from "@/lib/phone-swipe";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
@@ -1252,11 +1252,32 @@ function naturalWidth(el: HTMLElement): number {
   return width;
 }
 
+function phoneMenuButton(root: ParentNode): HTMLElement | null {
+  const found = root.querySelector("[data-phone-menu]");
+  return found instanceof HTMLElement ? found : null;
+}
+
+function phoneMenuBounds(menu: HTMLElement): PhoneHeaderBox {
+  const rect = menu.getBoundingClientRect();
+  let outset = 0;
+  if (menu.classList.contains("needs-you-glow")) {
+    const reach = boxShadowReach(getComputedStyle(menu, "::after").boxShadow);
+    outset = reach > 0 ? reach : PHONE_MENU_GLOW_PX;
+  }
+  return {
+    left: rect.left - outset,
+    right: rect.right + outset,
+    top: rect.top - outset,
+    bottom: rect.bottom + outset,
+  };
+}
+
 // Chromium drops min() around max-content, so the phone name floor is applied in px.
 function usePhoneHeaderNameFloor(
   clusterRef: { current: HTMLDivElement | null },
   nameRef: { current: HTMLButtonElement | null },
   name: string,
+  menuOnRight: boolean,
 ) {
   const skin = useSkin();
   useLayoutEffect(() => {
@@ -1302,9 +1323,11 @@ function usePhoneHeaderNameFloor(
         button.style.minWidth = "";
         cluster.style.minWidth = "";
         cluster.style.flex = "";
+        header.style.paddingRight = "";
         clearChip();
         return;
       }
+      header.style.paddingRight = menuOnRight ? `${PHONE_HEADER_MENU_RESERVE_PX}px` : "";
       const slots = phoneHeaderSlots(text, 4 * rem);
       const place = (nameMin: number) => {
         const cs = getComputedStyle(cluster);
@@ -1390,6 +1413,12 @@ function usePhoneHeaderNameFloor(
           const rect = dot.getBoundingClientRect();
           if (rect.width < 5 || rect.right > limit + 0.5) return false;
         }
+        const menu = phoneMenuButton(header.ownerDocument);
+        if (menu && chip) {
+          const chipRect = chip.getBoundingClientRect();
+          const menuRect = menu.getBoundingClientRect();
+          if (chipRect.width >= 1 && menuRect.width >= 1 && !phoneHeaderChipClearsMenu(chipRect, phoneMenuBounds(menu))) return false;
+        }
         return true;
       };
       const last = slots.at(-1);
@@ -1404,27 +1433,34 @@ function usePhoneHeaderNameFloor(
       }
       paint(chosen);
     };
-    apply();
-    const mutations = new MutationObserver(apply);
+    const kick = () => {
+      apply();
+      requestAnimationFrame(() => {
+        if (alive) apply();
+      });
+    };
+    kick();
+    const mutations = new MutationObserver(kick);
     mutations.observe(header, { childList: true, subtree: true, characterData: true });
-    window.addEventListener("resize", apply);
+    window.addEventListener("resize", kick);
     void document.fonts?.ready.then(() => {
       if (!alive) return;
       text = naturalWidth(button);
       rem = px(getComputedStyle(document.documentElement).fontSize) || 16;
-      apply();
+      kick();
     });
     return () => {
       alive = false;
       mutations.disconnect();
-      window.removeEventListener("resize", apply);
+      window.removeEventListener("resize", kick);
       button.style.minWidth = "";
       button.style.width = "";
       cluster.style.minWidth = "";
       cluster.style.flex = "";
+      header.style.paddingRight = "";
       clearChip();
     };
-  }, [clusterRef, nameRef, name, skin]);
+  }, [clusterRef, nameRef, name, skin, menuOnRight]);
 }
 
 export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, onOpenTerminalPane }: { bot: Bot; focusComposerBlocked?: boolean; onOpenTerminal?: () => void; onOpenTerminalPane?: (sessionId: string) => void }) {
@@ -1438,7 +1474,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const phoneClusterRef = useRef<HTMLDivElement>(null);
   const phoneNameRef = useRef<HTMLButtonElement>(null);
-  usePhoneHeaderNameFloor(phoneClusterRef, phoneNameRef, bot.name);
+  usePhoneHeaderNameFloor(phoneClusterRef, phoneNameRef, bot.name, sidebarOnRight);
   const composerDock = useComposerDockPad(composerDockRef);
   const focusComposer = useCallback(() => {
     focusComposerOnActivation({ composer: composerInputRef.current });
