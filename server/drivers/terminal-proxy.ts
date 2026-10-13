@@ -290,7 +290,7 @@ function onePaneSend<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
 }
 
 // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Tool arguments are untyped JSON-RPC input validated here.
-export async function sendTerminalText(args: Record<string, unknown>, fetchImpl: typeof fetch = fetch, config: TerminalConfig = {}, onWritten?: (before: Snapshot) => void): Promise<Snapshot> {
+export async function sendTerminalText(args: Record<string, unknown>, fetchImpl: typeof fetch = fetch, config: TerminalConfig = {}, onWritten?: (before: Snapshot, submittedAgo: number) => void): Promise<Snapshot> {
   const { text, key, sessionId, generation } = args;
   // oxlint-disable-next-line anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion -- key is checked as an own TERMINAL_KEYS name before the lookup.
   const keyText = typeof key === "string" && Object.hasOwn(TERMINAL_KEYS, key) ? TERMINAL_KEYS[key as TerminalKey] : undefined;
@@ -306,12 +306,13 @@ export async function sendTerminalText(args: Record<string, unknown>, fetchImpl:
   // A prefix and the full id name one pane, so both queue on the full id.
   const before = await read();
   const pane = before.sessionId ?? sessionId;
-  return onePaneSend(pane, () => typeIntoPane(key, keyText, typed, read, write, () => onWritten?.(before)));
+  return onePaneSend(pane, () => typeIntoPane(key, keyText, typed, read, write, (submittedAgo) => onWritten?.(before, submittedAgo)));
 }
 
-async function typeIntoPane(key: unknown, keyText: string | undefined, typed: string | undefined, read: () => Promise<Snapshot>, write: (data: string) => Promise<Snapshot>, onWritten: () => void): Promise<Snapshot> {
+async function typeIntoPane(key: unknown, keyText: string | undefined, typed: string | undefined, read: () => Promise<Snapshot>, write: (data: string) => Promise<Snapshot>, onWritten: (submittedAgo: number) => void): Promise<Snapshot> {
   if (key === "esc" && claudeState((await read()).screenText) === "busy") throw new Error("esc would interrupt the running Claude turn; refused while the pane shows Claude: busy");
   const body = typed?.replace(/\r+$/, "");
+  let last = keyText ?? typed ?? "";
   if (typed && body && body !== typed) {
     // Text plus Enter in one write can land in Claude Code as a paste that never submits.
     const { modes } = await read();
@@ -322,11 +323,11 @@ async function typeIntoPane(key: unknown, keyText: string | undefined, typed: st
       const screen = compact((await read()).screenText ?? "");
       if (screen.includes(tail) || screen.includes(PASTED_TEXT)) break;
     }
-    await write("\r");
-  } else {
-    await write(keyText ?? typed ?? "");
+    last = "\r";
   }
-  onWritten();
+  const submittedAt = Date.now();
+  await write(last);
+  onWritten(Date.now() - submittedAt);
   await sleep(SETTLE_FIRST_MS);
   let settled = await read();
   for (let poll = 0; poll < SETTLE_POLLS; poll += 1) {
@@ -352,12 +353,12 @@ function sentToMain(snapshot: Snapshot): boolean {
 }
 
 // Best effort: a missing chat row must never fail the spawn or the send.
-async function postLaunchNote(fetchImpl: typeof fetch, config: TerminalConfig, sessionId: string, resumed = false): Promise<void> {
+async function postLaunchNote(fetchImpl: typeof fetch, config: TerminalConfig, sessionId: string, resumed = false, submittedAgo = 0): Promise<void> {
   const harness = config.harness ?? HARNESS;
   const token = config.commsToken ?? COMMS_TOKEN;
   if (!harness || !token) return;
   const fromBotId = config.botId ?? BOT_ID;
-  const payload = resumed ? { fromBotId, sessionId, resumed: true } : { fromBotId, sessionId };
+  const payload = resumed ? { fromBotId, sessionId, resumed: true, submittedAgo } : { fromBotId, sessionId };
   await fetchImpl(`${harness}/api/internal/launch-note`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -388,8 +389,8 @@ export async function callTool(
       return { content: [{ type: "text", text }] };
     }
     if (name === "terminal_send") {
-      const snapshot = await sendTerminalText(args, fetchImpl, config, (before) => {
-        if (lineSubmitted(args) && before.sessionId && !sentToMain(before)) void postLaunchNote(fetchImpl, config, before.sessionId, true);
+      const snapshot = await sendTerminalText(args, fetchImpl, config, (before, submittedAgo) => {
+        if (lineSubmitted(args) && before.sessionId && !sentToMain(before)) void postLaunchNote(fetchImpl, config, before.sessionId, true, submittedAgo);
       });
       return { content: [{ type: "text", text: terminalSnapshotText(snapshot) }] };
     }

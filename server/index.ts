@@ -246,7 +246,7 @@ import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
 import { botClosedPanes, paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
 import { closeBotPanes } from "./terminal-cleanup.ts";
-import { commitLaunchNote } from "./launch-note.ts";
+import { commitLaunchNote, submittedAgo } from "./launch-note.ts";
 import { terminalResumeResponse } from "./terminal-resume.ts";
 import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
@@ -6940,6 +6940,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           threadId: from.threadId,
           activePath: (threadId) => store.activePath(threadId),
           appendMessage: (threadId, text) => store.appendMessage(threadId, { role: "bot", kind: "launch", text }),
+          submittedAgo: submittedAgo.parse(body.submittedAgo),
         }, String(body.sessionId ?? ""), body.resumed === true);
         if ("error" in note) {
           if (note.error === "main terminal") return json(res, 400, { error: "main terminal" });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { latestPaneRun, samePaneRun, workerRuns } from "../src/lib/worker-runs.ts";
-import { launchNoteFor, submittedResumeText } from "./launch-note.ts";
+import { launchNoteFor, reportedSince, submittedAgo, submittedResumeText } from "./launch-note.ts";
 import type { requestCredentials } from "./phone-auth.ts";
 import { apiRequestAuthorized } from "./remote-access.ts";
 import type { Store } from "./store.ts";
@@ -16,7 +16,7 @@ type TerminalResumeResponse = {
   status: number;
   body: { resumed: boolean; messageId?: string } | { error: string };
 };
-const resumeRequest = z.object({ sessionId: z.string().min(1).max(128), afterMessageId: z.string().min(1).max(128).optional() });
+const resumeRequest = z.object({ sessionId: z.string().min(1).max(128), afterMessageId: z.string().min(1).max(128).optional(), submittedAgo });
 
 function latestRun(store: TerminalResumeContext["store"], threadId: string, sessionId: string) {
   return latestPaneRun(workerRuns(store.activePath(threadId)), sessionId);
@@ -40,14 +40,14 @@ export async function terminalResumeResponse(
   if (!parsed.success) return { status: 400, body: { error: "sessionId is required" } };
   const { sessionId } = parsed.data;
   const threadId = bot.threadId;
-  const submittedAt = Date.now();
+  const submittedAt = Date.now() - parsed.data.submittedAgo;
   const settled = latestRun(store, threadId, sessionId);
   const note = await launchNoteFor(context.access, botId, sessionId, true, fetchImpl);
   if ("error" in note) {
     if (note.error === "main terminal") return { status: 200, body: { resumed: false } };
     return { status: 404, body: { error: "Unknown terminal" } };
   }
-  if (!settled || settled.state === "working" || store.bot(botId)?.threadId !== threadId) {
+  if (!settled || settled.state === "working" || reportedSince(settled, submittedAt) || store.bot(botId)?.threadId !== threadId) {
     return { status: 200, body: { resumed: false } };
   }
   if (parsed.data.afterMessageId && settled.messageIds.at(-1) !== parsed.data.afterMessageId) {

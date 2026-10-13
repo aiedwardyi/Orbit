@@ -44,6 +44,11 @@ const button = (host: HTMLElement, label: string) => host.querySelector<HTMLButt
 const click = (target: Element) => target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 const composer = (host: HTMLElement) => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Type a command"]');
 const sends = () => store.api.mock.calls.filter(([path]) => String(path).endsWith("/send"));
+// submittedAgo is elapsed wall time, so only its presence is pinned.
+const resumeBody = (sessionId: string, afterMessageId?: string) => expect.toSatisfy((body: string) => {
+  const { submittedAgo, ...rest } = JSON.parse(body);
+  return Number.isInteger(submittedAgo) && JSON.stringify(rest) === JSON.stringify({ sessionId, afterMessageId });
+});
 
 function typeLine(input: HTMLTextAreaElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, value);
@@ -934,7 +939,7 @@ describe("RemoteTerminalView", () => {
       await act(async () => click(button(host, "Send")));
       const notifications = store.api.mock.calls.filter(([path]) => path.endsWith("/resume"));
       expect(notifications).toEqual([["/api/bots/bot-1/terminal/resume", {
-        method: "POST", body: JSON.stringify({ sessionId: "worker" }),
+        method: "POST", body: resumeBody("worker"),
       }]]);
       expect(sends()).toHaveLength(1);
       expect(composer(host)!.value).toBe("");
@@ -989,7 +994,7 @@ describe("RemoteTerminalView", () => {
       }))));
       await act(async () => { finish({ sessionId, generation: 1, panes }); });
       expect(store.api.mock.calls.filter(([path]) => path.endsWith("/resume"))).toEqual([["/api/bots/bot-1/terminal/resume", {
-        method: "POST", body: JSON.stringify({ sessionId, afterMessageId: "settled" }),
+        method: "POST", body: resumeBody(sessionId, "settled"),
       }]]);
     } finally {
       await act(async () => root.unmount());
@@ -1023,7 +1028,7 @@ describe("RemoteTerminalView", () => {
       await act(async () => typeLine(composer(host)!, "follow up"));
       await act(async () => click(button(host, "Send")));
       expect(store.api.mock.calls.filter(([path]) => path.endsWith("/resume"))).toEqual([["/api/bots/bot-1/terminal/resume", {
-        method: "POST", body: JSON.stringify({ sessionId, afterMessageId: "settled" }),
+        method: "POST", body: resumeBody(sessionId, "settled"),
       }]]);
     } finally {
       await act(async () => root.unmount());

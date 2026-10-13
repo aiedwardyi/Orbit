@@ -16,6 +16,12 @@ type MockLinksAddon = {
   dispose: Mock;
 };
 
+// submittedAgo is elapsed wall time, so only its presence is pinned.
+const resumeBody = (sessionId: string, afterMessageId?: string) => expect.toSatisfy((body: string) => {
+  const { submittedAgo, ...rest } = JSON.parse(body);
+  return Number.isInteger(submittedAgo) && JSON.stringify(rest) === JSON.stringify({ sessionId, afterMessageId });
+});
+
 const terminal = vi.hoisted(() => {
   let onDataCb: ((data: string) => void) | null = null;
   let onBinaryCb: ((data: string) => void) | null = null;
@@ -1645,7 +1651,7 @@ it("notifies a typed worker follow-up after writing without waiting for the netw
     expect(f.write).toHaveBeenLastCalledWith("pane-one", "\r");
   });
   expect(api).toHaveBeenCalledExactlyOnceWith("/api/bots/bot-1/terminal/resume", {
-    method: "POST", body: JSON.stringify({ sessionId: "pane-one" }),
+    method: "POST", body: resumeBody("pane-one"),
   });
   await act(async () => { terminal.__emitData("still responsive"); });
   expect(f.write).toHaveBeenLastCalledWith("pane-one", "still responsive");
@@ -1674,7 +1680,7 @@ it.each([
   await f.select(1);
   await act(async () => { for (const chunk of chunks) terminal.__emitData(chunk); });
   expect(api).toHaveBeenCalledExactlyOnceWith("/api/bots/bot-1/terminal/resume", {
-    method: "POST", body: JSON.stringify({ sessionId: "pane-one" }),
+    method: "POST", body: resumeBody("pane-one"),
   });
 });
 
@@ -1688,7 +1694,7 @@ it("notifies Delete after an erased worker line", async () => {
     terminal.__emitData("\x1b[3~\r");
   });
   expect(api).toHaveBeenCalledExactlyOnceWith("/api/bots/bot-1/terminal/resume", {
-    method: "POST", body: JSON.stringify({ sessionId: "pane-one" }),
+    method: "POST", body: resumeBody("pane-one"),
   });
 });
 
@@ -1715,7 +1721,7 @@ it("keeps a partial worker line separate across pane switches", async () => {
   await f.select(1);
   await act(async () => { terminal.__emitData("\r"); });
   expect(api).toHaveBeenCalledExactlyOnceWith("/api/bots/bot-1/terminal/resume", {
-    method: "POST", body: JSON.stringify({ sessionId: "pane-one" }),
+    method: "POST", body: resumeBody("pane-one"),
   });
 });
 
@@ -1738,7 +1744,7 @@ it("binds the desktop notification to the worker row before the write settles", 
   await f.render({ ...f.props, bot: updated });
   await act(async () => { finish(); });
   expect(api).toHaveBeenCalledExactlyOnceWith("/api/bots/bot-1/terminal/resume", {
-    method: "POST", body: JSON.stringify({ sessionId, afterMessageId: "settled" }),
+    method: "POST", body: resumeBody(sessionId, "settled"),
   });
 });
 
@@ -1756,6 +1762,6 @@ it("binds the desktop notification to the active branch when a fork holds a late
   await f.select(1);
   await act(async () => { terminal.__emitData("follow up\r"); });
   expect(api).toHaveBeenCalledExactlyOnceWith("/api/bots/bot-1/terminal/resume", {
-    method: "POST", body: JSON.stringify({ sessionId, afterMessageId: "settled" }),
+    method: "POST", body: resumeBody(sessionId, "settled"),
   });
 });

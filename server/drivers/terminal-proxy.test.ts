@@ -300,7 +300,7 @@ describe("terminal proxy", () => {
     expect((await sendTo(worker, { text: "echo ok\n", sessionId: "p1", generation: 2 })).isError).toBeUndefined();
     await vi.waitFor(() => expect(notes(worker)).toHaveLength(1));
     const [, init] = notes(worker)[0]!;
-    expect(JSON.parse(String(init?.body))).toEqual({ fromBotId: "bot-1", sessionId: "p1", resumed: true });
+    expect(JSON.parse(String(init?.body))).toEqual({ fromBotId: "bot-1", sessionId: "p1", resumed: true, submittedAgo: expect.any(Number) });
 
     const typed = scripted(snap("p1", false));
     expect((await sendTo(typed, { text: "echo ok", sessionId: "p1", generation: 2 })).isError).toBeUndefined();
