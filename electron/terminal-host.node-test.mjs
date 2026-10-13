@@ -1320,6 +1320,145 @@ test("a Codex idle screen never holds a turn-end note", async (t) => {
   assert.deepEqual(f.notes.map((note) => note.text), ["all green"]);
 });
 
+test("a turn-end note that fails to post goes out on a later check", async (t) => {
+  const f = stallFixture({ failures: 1 });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "all green");
+  await f.advance(90_000);
+  assert.equal(f.notes.length, 0);
+  await f.advance(60_000);
+  assert.deepEqual(f.notes.map((note) => note.text), ["all green"]);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("a turn-end note that never posts stops after five tries", async (t) => {
+  let tries = 0;
+  const f = stallFixture({ notePane: async (mail, scope, text) => { if (text === "all green") tries += 1; throw new Error("connect ECONNREFUSED 127.0.0.1:9"); } });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "all green");
+  await f.advance(90_000);
+  for (let check = 0; check < 10; check += 1) await f.advance(61_000);
+  assert.equal(tries, 5);
+});
+
+test("a report drops a turn-end note waiting to retry", async (t) => {
+  const f = stallFixture({ failures: 1 });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "all green");
+  await f.advance(90_000);
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 0);
+});
+
+test("a turn-end note in flight never posts twice, even on a duplicate", async (t) => {
+  const posts = [];
+  const f = stallFixture({ notePane: (mail, scope, text) => new Promise((resolve) => { posts.push({ text, resolve }); }) });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "all green");
+  await f.advance(90_000);
+  assert.equal(posts.length, 1);
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "all green");
+  await f.advance(600_000);
+  assert.equal(posts.length, 1);
+  posts[0].resolve();
+  await f.settle();
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "all green");
+  await f.advance(600_000);
+  assert.equal(posts.length, 1);
+});
+
+test("a turn-end note held on background jobs goes out as soon as the pane exits", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell"));
+  await f.settle();
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "dev server up");
+  await f.advance(90_000);
+  assert.equal(f.notes.length, 0);
+  f.children[0].exit({ exitCode: 0 });
+  await f.settle();
+  assert.deepEqual(f.notes.map((note) => note.text), ["dev server up"]);
+  await f.advance(30 * 60_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("a held turn-end note survives its exited pane being reclaimed", async (t) => {
+  const f = stallFixture({ failures: 1 });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell"));
+  await f.settle();
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "dev server up");
+  await f.advance(90_000);
+  for (let i = 1; i < 16; i += 1) {
+    await f.host.openForBot("bot-1", {});
+    f.children[i].exit({ exitCode: 0 });
+  }
+  f.children[0].exit({ exitCode: 0 });
+  await f.settle();
+  assert.equal(f.notes.length, 0);
+  await f.host.openForBot("bot-1", {});
+  assert.ok(f.events.some(([channel, value]) => channel === "terminal:closed" && value.id === pane.sessionId));
+  await f.advance(60_000);
+  assert.deepEqual(f.notes.map((note) => note.text), ["dev server up"]);
+});
+
+test("a closed pane drops a held turn-end note and one waiting to retry after its exit", async (t) => {
+  const f = stallFixture({ failures: 1 });
+  t.after(() => f.host.dispose());
+  const held = await f.host.openForBot("bot-1", { label: "HELD", command: "claude go" });
+  const exited = await f.host.openForBot("bot-1", { label: "EXITED", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell"));
+  f.children[1].data(claudeIdle("1 shell"));
+  await f.settle();
+  f.host.attendBot("bot-1", held.sessionId, "auto", "held");
+  f.host.attendBot("bot-1", exited.sessionId, "auto", "exited");
+  await f.advance(90_000);
+  f.children[1].exit({ exitCode: 0 });
+  await f.settle();
+  await f.host.closeForBot("bot-1", held.sessionId);
+  await f.host.closeForBot("bot-1", exited.sessionId);
+  f.children[0].exit({ exitCode: 1 });
+  await f.advance(30 * 60_000);
+  assert.equal(f.notes.length, 0);
+});
+
+test("FINISHED that fails to post goes out once on a later check", async (t) => {
+  const f = stallFixture({ failures: 1 });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
+  f.children[0].data("Tests passed\r\n");
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  await f.advance(60_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /Last lines:\nTests passed$/);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("FINISHED pending when the pane exits is still delivered", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
+  f.children[0].data("Tests passed\r\n");
+  f.children[0].data(finishedMark(pane));
+  f.children[0].exit({ exitCode: 0 });
+  await f.settle();
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^FINISHED: /);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+});
+
 test("a worker pane that goes quiet without a report sends one stall note with its last lines", async () => {
   const f = stallFixture();
   const pane = await f.host.openForBot("bot-1", { label: "TAP-AUDIT | Astra | high", command: "codex --model gpt-6-astra 'Read card.md and do it.'" });

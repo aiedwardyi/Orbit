@@ -233,6 +233,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   let reservedPanes = 0;
   let disposed = false;
   let stallTimer = null;
+  // Panes that exited on their own with notes still to post; reclaiming them keeps the notes, a close drops them.
+  const exitNotes = new Set();
   const rememberClosedPane = (botId, sessionId) => {
     const list = closedBotPanes.get(botId) ?? [];
     list.push(sessionId);
@@ -316,29 +318,49 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     }, activityCoalesceMs);
     session.activityTimer.unref?.();
   };
+  // An infinite retryAt holds the next try while this one is in flight.
+  const postNote = (session, note, text, settle) => {
+    note.tries += 1;
+    note.retryAt = Infinity;
+    const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
+    void Promise.resolve().then(() => notePane(session.mail, scope, text)).then(() => settle(true), () => {
+      note.retryAt = now() + STALL_RETRY_MS;
+      if (note.tries >= STALL_TRIES) settle(false);
+    });
+  };
+  const postAuto = (session, auto) => postNote(session, auto, auto.text, (delivered) => {
+    if (delivered) session.noteAt = now();
+    if (session.autoNote !== auto) return;
+    session.autoNote = null;
+    session.autoDelivered = delivered;
+  });
   const checkStalls = () => {
     const at = now();
-    for (const session of sessions.values()) {
-      if (session.retired || session.exitCode !== null) continue;
-      for (const finished of session.finished.splice(0)) {
-        if (!session.mail) continue;
-        const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
-        void Promise.resolve().then(() => notePane(session.mail, scope, finishedNoteText(finished.text))).catch(() => {});
+    for (const session of new Set([...sessions.values(), ...exitNotes])) {
+      const exited = exitNotes.has(session);
+      if ((session.retired || session.exitCode !== null) && !exited) continue;
+      if (!session.mail) session.finished = [];
+      for (const finished of session.finished) {
+        if (at < finished.retryAt) continue;
+        postNote(session, finished, finishedNoteText(finished.text), () => { session.finished = session.finished.filter((entry) => entry !== finished); });
       }
       const auto = session.autoNote;
-      if (auto && at - auto.at >= TERMINAL_TURN_END_MS) {
+      // Once tried, or once its pane is gone, the busy and job checks no longer apply.
+      if (auto && (auto.tries || exited)) {
+        if (!session.mail) session.autoNote = null;
+        else if (at >= auto.retryAt) postAuto(session, auto);
+      } else if (auto && at - auto.at >= TERMINAL_TURN_END_MS) {
         const text = session.screen.text();
         const busy = AGENT_BUSY_RE.test(text);
         if (!busy && at - auto.at < JOBS_HOLD_MS && agentJobsRunning(text)) auto.jobsAt = at;
         else if (busy || !auto.jobsAt || at - auto.jobsAt >= JOBS_QUIET_MS || at - auto.at >= JOBS_HOLD_MS) {
-          session.autoNote = null;
-          if (!busy && session.mail) {
-            session.autoDelivered = true;
-            session.noteAt = at;
-            const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
-            void Promise.resolve().then(() => notePane(session.mail, scope, auto.text)).catch(() => {});
-          }
+          if (busy || !session.mail) session.autoNote = null;
+          else postAuto(session, auto);
         }
+      }
+      if (exited) {
+        if (!session.autoNote && !session.finished.length) exitNotes.delete(session);
+        continue;
       }
       if (!session.worker || session.retired || session.exitCode !== null) continue;
       if (session.stallDirty) {
@@ -404,7 +426,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     }
     return folder.source === "project" ? cwd : undefined;
   };
-  const retire = async (session, forceKill = false) => {
+  const retire = async (session, forceKill = false, keepNotes = false) => {
+    if (!keepNotes) exitNotes.delete(session);
     if (session.retired && session.stopPromise) return session.stopPromise;
     const wasRetired = session.retired;
     session.retired = true;
@@ -433,15 +456,15 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     })();
     return session.stopPromise;
   };
-  const retireQuietly = (session, forceKill = false) => {
-    void retire(session, forceKill).catch(() => {});
+  const retireQuietly = (session, forceKill = false, keepNotes = false) => {
+    void retire(session, forceKill, keepNotes).catch(() => {});
   };
   const reclaimExited = () => {
     for (const [id, session] of sessions) {
       if (session.exitCode !== null || session.owner.isDestroyed?.()) {
         active.delete(session.key);
         sessions.delete(id);
-        retireQuietly(session, true);
+        retireQuietly(session, true, true);
       }
     }
   };
@@ -449,6 +472,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const reportExit = (session, exitCode) => {
     if (session.retired) return;
     if (session.exitCode === null) session.exitCode = exitCode;
+    if (session.autoNote || session.finished.length) exitNotes.add(session);
     clearActivityTimer(session);
     session.activityArmed = false;
     reportAttention(session, exitCode === 0 ? "exit" : "error");
@@ -468,7 +492,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       emit(session, "terminal:error", { id: session.id, message: error.message });
     }
     reportExit(session, 1);
-    retireQuietly(session, true);
+    retireQuietly(session, true, true);
   };
   const attach = (session) => {
     session.pty.onData((data) => {
@@ -540,7 +564,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       session.worker = false;
       session.autoNote = null;
       session.autoDelivered = true;
-      if (!session.reported) session.finished.push({ text: null });
+      if (!session.reported) session.finished.push({ text: null, tries: 0, retryAt: 0 });
       session.reported = false;
     });
     if (botPane) watchNotes();
@@ -902,7 +926,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         session.autoReported = true;
       } else if (session) session.noteAt = now();
       if (session && session.exitCode === null && kind === "auto" && typeof text === "string") {
-        if (!session.autoReported && !session.autoDelivered) session.autoNote = { at: now(), text };
+        if (!session.autoReported && !session.autoDelivered && !session.autoNote?.tries) session.autoNote = { at: now(), text, tries: 0, retryAt: 0 };
         watchNotes();
         return true;
       }
@@ -1012,6 +1036,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         if (session.exitCode === null) retireQuietly(session, true);
       }
       sessions.clear();
+      exitNotes.clear();
     },
   };
 }
