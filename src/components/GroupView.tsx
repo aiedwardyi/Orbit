@@ -51,7 +51,7 @@ import { ReactionBar, ReactionChips } from "./Reactions";
 import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
 import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
-import { groupActivityRuns, itemMatchesFind, localizeServerLine, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
+import { groupActivityRuns, isServerLine, itemMatchesFind, localizeServerLine, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
 import { messageVisible, roomTranscriptRows } from "@/lib/room-transcript";
 import { isShownMessage } from "@/lib/shown-message";
 import { roomRetry } from "@/lib/room-retry";
@@ -200,6 +200,7 @@ export function RoomToolChip({
   const instance = member?.modelSelection?.instanceId
     ? state.instances.find((i) => i.instanceId === member.modelSelection.instanceId)
     : undefined;
+  const status = isServerLine(tool.name);
   const setupAction =
     (tool.setup || tool.signIn) && onRetry
       ? setupErrorAction(tool.name.startsWith("error:") ? tool.name.slice(6).trim() : tool.name, instance, tool.signIn)
@@ -215,12 +216,15 @@ export function RoomToolChip({
             // Only turn-level `error:` rows go red; a plain failed step the
             // bot retried past renders like any other.
             tool.name.startsWith("error:") ? "text-danger" : "text-ink-secondary",
+            status && "rounded-2xl",
           )}
         >
           <span
             className={tool.ok === false && expanded
-              ? "min-w-0 max-w-full break-words whitespace-pre-wrap font-mono"
-              : "min-w-0 max-w-[480px] truncate font-mono"}
+              ? cn("min-w-0 max-w-full break-words whitespace-pre-wrap", !status && "font-mono")
+              : status
+                ? "min-w-0 max-w-[480px] break-words"
+                : "min-w-0 max-w-[480px] truncate font-mono"}
           >
             {localizeServerLine(tool.name, t)}
           </span>

@@ -87,7 +87,7 @@ describe("RoomToolChip", () => {
       line("waiting", "Delegation to @Atlas waiting \u2014 they're busy (retry 1/3 when they finish)"),
       line("other", "error: the CLI exited"),
     ];
-    const labels = () => Array.from(host.querySelectorAll("span.truncate")).map((span) => span.textContent);
+    const labels = () => Array.from(host.querySelectorAll(".bg-panel > span")).map((span) => span.textContent);
     await renderRows(rows);
     expect(labels()).toEqual([
       "Delegation to @Atlas denied by user",
@@ -105,6 +105,24 @@ describe("RoomToolChip", () => {
       "@Atlas에게 한 위임 대기 중 - 상대가 작업 중입니다 (끝나면 1/3번째 재시도)",
       "error: the CLI exited",
     ]);
+  });
+
+  it("shows handoff status lines whole in the UI font and keeps commands mono and truncated", async () => {
+    const line = (id: string, name: string): Message => ({ id, at: 1, role: "bot", kind: "activity", tool: { name, ok: false } });
+    await renderRows([
+      line("waiting", "Delegation to @Atlas waiting \u2014 they're busy (retry 1/3 when they finish)"),
+      line("queued", "Queued for @Atlas, sends when this reply ends"),
+      line("failed", "error: delegation failed \u2014 Atlas is offline"),
+      line("bash", "Bash: npm test"),
+    ]);
+    const spans = Array.from(host.querySelectorAll(".bg-panel > span"));
+    expect(spans.map((span) => span.className)).toEqual([
+      "min-w-0 max-w-[480px] break-words",
+      "min-w-0 max-w-[480px] break-words",
+      "min-w-0 max-w-[480px] break-words",
+      "min-w-0 max-w-[480px] truncate font-mono",
+    ]);
+    expect(spans.map((span) => span.parentElement!.classList.contains("rounded-2xl"))).toEqual([true, true, true, false]);
   });
 
   it("translates Message from and the failed-turn fold labels into Korean in a room", async () => {

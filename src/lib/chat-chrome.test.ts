@@ -186,6 +186,20 @@ describe("transcript pills on a phone", () => {
   });
 });
 
+// Handoff status lines are prose, often Hangul: monospace spaces it out and
+// truncate hides the retry count.
+describe("server status lines in a tool chip", () => {
+  const slice = (source: string, from: string, to: string) => source.slice(source.indexOf(from), source.indexOf(to));
+  it.each([
+    ["ChatView", slice(chatView, "function ActivityChip", "function ScreenFrame")],
+    ["GroupView", slice(groupView, "export function RoomToolChip", "function ClusterLabel")],
+  ])("shows them whole in the UI font in %s and leaves commands as they were", (_name, source) => {
+    expect(source).toContain("const status = isServerLine(tool.name);");
+    expect(source).toContain('status && "rounded-2xl"');
+    expect(source).toMatch(/status\s*\? "min-w-0 max-w-\[480px\] break-words"\s*: "min-w-0 max-w-\[480px\] truncate font-mono"/);
+  });
+});
+
 // The header row's right side is as wide as its children's full text, so a long
 // label pushed the roster off a phone unless every link in the chain can shrink.
 describe("room header on a phone", () => {
