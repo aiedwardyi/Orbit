@@ -1,4 +1,7 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -95,6 +98,55 @@ describe("PinnedBanner", () => {
       }));
     });
     expect(host.querySelector("span.truncate")?.textContent).toBe("pnpm install");
+  });
+
+  it.each([
+    ["Override __init__()", "Override __init__()"],
+    [">5 apples", ">5 apples"],
+  ])("keeps a user pin literal: %s", async (raw, plain) => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root.render(createElement(PinnedBanner, {
+        bot: { name: "Bot", threadId: "t1" },
+        pinnedId: "p1",
+        messages: [{ id: "p1", role: "user", kind: "text", text: raw, at: 1 }],
+        onJump: () => {},
+        onUnpin: () => {},
+      }));
+    });
+    expect(host.querySelector("span.truncate")?.textContent).toBe(plain);
+  });
+
+  it.each([
+    ["```c++\nint answer = 4;\n```", "int answer = 4;"],
+    ["```c#\nint answer = 4;\n```", "int answer = 4;"],
+    ["```objective-c\nint answer = 4;\n```", "int answer = 4;"],
+  ])("keeps a code-only bot pin fenced as %s", async (raw, plain) => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root.render(createElement(PinnedBanner, {
+        bot: { name: "Bot", threadId: "t1" },
+        pinnedId: "p1",
+        messages: [{ id: "p1", role: "bot", kind: "text", text: raw, at: 1 }],
+        onJump: () => {},
+        onUnpin: () => {},
+      }));
+    });
+    expect(host.querySelector("span.truncate")?.textContent).toBe(plain);
+  });
+});
+
+describe("ChatView server imports", () => {
+  it("does not import from server/ at runtime", () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ChatView.tsx"), "utf8");
+    const runtime = [...source.matchAll(/import\s+(type\s+)?[\s\S]*?\sfrom\s+["']([^"']+)["']/g)]
+      .filter((match) => !match[1] && match[2].includes("server/"))
+      .map((match) => match[2]);
+    expect(runtime).toEqual([]);
   });
 });
 
