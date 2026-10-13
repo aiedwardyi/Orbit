@@ -28,6 +28,7 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { AskUserRecord } from "./AskUserRecord";
 import { MemorySaveChip } from "./MemorySaveChip";
+import { PeerMessageBody, commLabel } from "./PeerMessage";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
 import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from "@/lib/focus-composer";
 import { Composer } from "./Composer";
@@ -172,18 +173,25 @@ export function RoomToolChip({
   const comm = message.comm;
   if (comm) {
     const peer = state.bots.find((bot) => bot.id === comm.withBotId);
-    return (
+    const chip = (
       <div className="flex justify-start">
         <button
           type="button"
           onClick={() => dispatch({ type: "select", id: comm.groupId })}
-          title={`Open the conversation with ${comm.withName}`}
+          title={t("chat.openConversation", { name: comm.withName })}
           className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
           <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
-          <span className="min-w-0 max-w-[480px] truncate">{tool.name}</span>
+          <span className="min-w-0 max-w-[480px] truncate">{commLabel(message, t)}</span>
           <ChevronRight size={13} className="shrink-0" />
         </button>
+      </div>
+    );
+    if (!message.text) return chip;
+    return (
+      <div>
+        {chip}
+        <PeerMessageBody text={message.text} />
       </div>
     );
   }
@@ -234,7 +242,7 @@ export function RoomToolChip({
             onClick={() => setExpanded((v) => !v)}
             className="mt-1 text-[12.5px] text-ink-secondary hover:text-ink"
           >
-            {expanded ? "Show less" : "Show full message"}
+            {t(expanded ? "chat.showLess" : "chat.showFullMessage")}
           </button>
         )}
       </div>

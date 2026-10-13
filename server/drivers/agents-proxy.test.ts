@@ -17,7 +17,8 @@ let stub: Server;
 let stubPort = 0;
 let lastAuth: string | undefined;
 let lastAskBody: any = null;
-let askResponse: unknown = { botName: "Helper", text: "hi from helper" };
+interface AskBotResponse { botName?: string; text?: string; shown?: boolean; busy?: boolean; error?: string; limit?: string }
+let askResponse: AskBotResponse = { botName: "Helper", text: "hi from helper" };
 let lastDelegateBody: any = null;
 let lastDelegationUrl: string | null = null;
 let delegationStatusResponse: unknown = { status: "done", toBotName: "Helper", result: "All done." };
@@ -579,6 +580,15 @@ describe("agents-proxy MCP surface", () => {
       message: "ping",
       depth: 0,
     });
+  });
+
+  it("tells the bot the user sees the reply only when the chat shows it", async () => {
+    const line = "The user sees this reply in the chat, so add only your own take.";
+    for (const shown of [true, false]) {
+      askResponse = { botName: "Helper", text: "hi from helper", shown };
+      const res = await callTool("ask_bot", { bot_id: "bot-helper", message: "ping" });
+      expect(res.result.content[0].text).toBe(`Helper replied:\nhi from helper${shown ? `\n\n${line}` : ""}`);
+    }
   });
 
   it("renders a busy peer as a clean answer, not an error", async () => {

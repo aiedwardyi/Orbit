@@ -178,9 +178,12 @@ export interface Message {
   origin?: string;
   /** emoji reactions; by = "user" or a member botId. */
   reactions?: Array<{ emoji: string; by: string }>;
-  /** comm chips: "Messaged @X" in the caller's chat, linking to the
-   * bot⇄bot channel where the exchange is mirrored. */
-  comm?: { groupId: string; withBotId: string; withName: string; withColor: string };
+  /** comm chips: "Message to @X" in the caller's chat, linking to the
+   * bot⇄bot channel where the exchange is mirrored. `peer` marks a chip's role:
+   * "message" and "reply" carry the sent message or the reply as `text`, except
+   * a "message" chip in the channel itself, which shows it already; "from" is the
+   * receiving side's chip and has none. */
+  comm?: { groupId: string; withBotId: string; withName: string; withColor: string; peer?: "message" | "reply" | "from" };
   /** user messages sent while the bot was mid-turn, waiting in the
    * steer-queue to auto-send on settle. Cleared when the drain consumes
    * them; a true stranded by a restart is inert because the client only

@@ -188,3 +188,113 @@ describe("ChatView peer reply labels", () => {
     expect(chips(host)[0].closest("[data-mid]")?.getAttribute("data-mid")).toBe("reply 0");
   });
 });
+
+describe("ChatView asker-side peer rows", () => {
+  const sent: Message = { id: "sent", at: 1, role: "bot", kind: "activity", tool: { name: "Message to @Atlas" }, comm: { ...comm, peer: "message" }, text: "Check the release." };
+  const reply: Message = { id: "reply", at: 2, role: "bot", kind: "activity", tool: { name: "Reply from @Atlas" }, comm: { ...comm, peer: "reply" }, text: "Release is green." };
+  const rowLabel = (host: HTMLElement, id: string) => host.querySelector(`[data-mid="${id}"] button span.truncate`)?.textContent;
+  const body = (host: HTMLElement, id: string) => host.querySelector(`[data-mid="${id}"] [data-peer-body]`);
+
+  it("shows the sent message, then the reply, then the bot's own take, and an older chip as today", async () => {
+    const old: Message = { id: "old", at: 1, role: "bot", kind: "activity", tool: { name: "@Atlas replied" }, comm };
+    const { host } = await mount(bot([old, sent, reply, text("My take")]));
+    const ids = Array.from(host.querySelectorAll("[data-mid]")).map((row) => row.getAttribute("data-mid"));
+    expect(ids).toEqual(["old", "sent", "reply", "My take"]);
+    expect(rowLabel(host, "old")).toBe("@Atlas replied");
+    expect(body(host, "old")).toBeNull();
+    expect(host.querySelector('[data-mid="old"]')?.lastElementChild?.className).toBe("flex justify-start");
+    expect(rowLabel(host, "sent")).toBe("Message to @Atlas");
+    expect(rowLabel(host, "reply")).toBe("Reply from @Atlas");
+    expect(body(host, "sent")?.textContent).toBe("Check the release.");
+    expect(body(host, "reply")?.textContent).toBe("Release is green.");
+    expect(chips(host)).toHaveLength(0);
+    for (const id of ["sent", "reply"]) {
+      selected = "";
+      await act(async () => { host.querySelector<HTMLButtonElement>(`[data-mid="${id}"] button`)?.click(); });
+      expect(selected).toBe("pair");
+    }
+  });
+
+  it("folds a long body like a long message", async () => {
+    const long = Array.from({ length: 12 }, (_, i) => `step ${i}`).join("\n");
+    const { host } = await mount(bot([sent, { ...reply, text: long }]));
+    const fold = () => body(host, "reply")?.firstElementChild?.className ?? "";
+    const toggle = () => body(host, "reply")?.querySelector("button");
+    expect(body(host, "sent")?.querySelector("button")).toBeNull();
+    expect(fold()).toContain("max-h-40");
+    expect(toggle()?.textContent).toBe("Show full message");
+    await act(async () => { toggle()?.click(); });
+    expect(fold()).not.toContain("max-h-40");
+    expect(toggle()?.textContent).toBe("Show less");
+    await act(async () => { toggle()?.click(); });
+    expect(fold()).toContain("max-h-40");
+  });
+
+  it("keeps a handoff chip's status label over its message", async () => {
+    const { host } = await mount(bot([{ ...sent, tool: { name: "Delivered to @Atlas" }, comm }]));
+    expect(rowLabel(host, "sent")).toBe("Delivered to @Atlas");
+    expect(body(host, "sent")?.textContent).toBe("Check the release.");
+  });
+
+  it("translates both labels into Korean", async () => {
+    localStorage.setItem("omb-locale", "ko");
+    const { host } = await mount(bot([sent, reply]));
+    expect(rowLabel(host, "sent")).toBe("@Atlas에게 보낸 메시지");
+    expect(rowLabel(host, "reply")).toBe("@Atlas의 답장");
+  });
+
+  it("translates the fold labels of a long peer message into Korean", async () => {
+    localStorage.setItem("omb-locale", "ko");
+    const long = Array.from({ length: 12 }, (_, i) => `step ${i}`).join("\n");
+    const { host } = await mount(bot([{ ...reply, text: long }]));
+    const toggle = () => body(host, "reply")?.querySelector("button");
+    expect(toggle()?.textContent).toBe("전체 메시지 보기");
+    await act(async () => { toggle()?.click(); });
+    expect(toggle()?.textContent).toBe("접기");
+  });
+});
+
+describe("ChatView target-side peer chips", () => {
+  const received: Message = { id: "received", at: 1, role: "bot", kind: "activity", tool: { name: "Message from @Atlas" }, comm: { ...comm, peer: "from" } };
+  const old: Message = { ...received, id: "old", comm };
+  const rowLabel = (host: HTMLElement, id: string) => host.querySelector(`[data-mid="${id}"] button span.truncate`)?.textContent;
+
+  it("shows the English label as before", async () => {
+    const { host } = await mount(bot([received, old]));
+    expect(rowLabel(host, "received")).toBe("Message from @Atlas");
+    expect(rowLabel(host, "old")).toBe("Message from @Atlas");
+  });
+
+  it("shows the bot's reply once, in its bubble, under the Reply to chip", async () => {
+    const { host } = await mount(bot([received, inbound, text("first reply")]));
+    expect(host.textContent?.split("first reply")).toHaveLength(2);
+    expect(host.querySelector('[data-mid="first reply"] [data-peer-body]')).toBeNull();
+    expect(rowLabel(host, "first reply")).toBe("Reply to @Atlas");
+  });
+
+  it.each([["en", "Open the conversation with Atlas"], ["ko", "Atlas 대화 열기"]])("titles the chip in %s", async (locale, title) => {
+    localStorage.setItem("omb-locale", locale);
+    const { host } = await mount(bot([received]));
+    expect(host.querySelector('[data-mid="received"] button')?.getAttribute("title")).toBe(title);
+  });
+
+  it("translates a marked chip into Korean and keeps the server line on an old one", async () => {
+    localStorage.setItem("omb-locale", "ko");
+    const { host } = await mount(bot([received, old]));
+    expect(rowLabel(host, "received")).toBe("@Atlas에게서 온 메시지");
+    expect(rowLabel(host, "old")).toBe("Message from @Atlas");
+  });
+});
+
+describe("ChatView long user message fold", () => {
+  const long: Message = { id: "long", at: 1, role: "user", kind: "text", text: Array.from({ length: 12 }, (_, i) => `line ${i}`).join("\n") };
+  const toggle = (host: HTMLElement) => Array.from(host.querySelectorAll("button")).find((button) => /message|Show less|메시지 보기|접기/.test(button.textContent ?? "") && button.closest('[data-mid="long"]'));
+
+  it.each([["en", "Show full message", "Show less"], ["ko", "전체 메시지 보기", "접기"]])("labels the fold in %s", async (locale, open, close) => {
+    localStorage.setItem("omb-locale", locale);
+    const { host } = await mount(bot([long]));
+    expect(toggle(host)?.textContent).toBe(open);
+    await act(async () => { toggle(host)?.click(); });
+    expect(toggle(host)?.textContent).toBe(close);
+  });
+});

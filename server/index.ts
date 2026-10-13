@@ -144,7 +144,7 @@ import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
-import { getOrCreateChannel, mirrorExchange, mirrorReply, settleAskChip, type CommsBus } from "./comms-visibility.ts";
+import { getOrCreateChannel, mirrorExchange, mirrorReply, postPeerReply, type CommsBus } from "./comms-visibility.ts";
 import { searchHaystack, searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
@@ -6874,7 +6874,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           currentTarget = freshTarget;
         }
         const channel = getOrCreateChannel(store, currentFrom, currentTarget);
-        const sourceChipId = mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
+        mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
         const prefixed = `[Message from @${currentFrom.name}, another bot in this Wink workspace. Reply to them.]\n\n${message}`;
         const reply = await askBotAndWait(toBotId, prefixed, depth, fromBotId, {
           sender: currentFrom,
@@ -6883,8 +6883,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           transcriptText: message,
         });
         mirrorReply(commsBus, currentTarget, reply.text, channel);
-        settleAskChip(commsBus, currentTarget, fromThreadId, sourceChipId, reply.replied);
-        return json(res, 200, { botName: currentTarget.name, text: reply.text });
+        const shown = reply.replied && postPeerReply(commsBus, currentFrom, currentTarget, reply.text, channel, fromThreadId);
+        return json(res, 200, { botName: currentTarget.name, text: reply.text, shown });
       }
       // The react tool: a bot leaving an emoji on the user's message, the
       // way the user already can on the bot's. Always targets the latest
