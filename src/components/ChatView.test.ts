@@ -1589,7 +1589,7 @@ describe("phone header name floor", () => {
     return found instanceof HTMLElement ? found : null;
   };
 
-  const installRects = (overlap: boolean, menuLeft?: number) => {
+  const installRects = (overlap: boolean, menuLeft?: number, slide = 0) => {
     const rect = function (this: Element) {
       if (this instanceof HTMLElement && this.style.left === "-9999px") return box(0, 80, 0, 20);
       if (menuLeft != null && this instanceof HTMLElement && this.hasAttribute("data-test-menu")) return box(menuLeft, 30, 15, 30);
@@ -1610,7 +1610,11 @@ describe("phone header name floor", () => {
       if (this instanceof SVGElement && chip?.contains(this)) return box(50, 14, 20, 14);
       return box(0, 0, 0, 0);
     };
-    for (const item of originals) item.proto.getBoundingClientRect = rect;
+    const slid = function (this: Element) {
+      const r = rect.call(this);
+      return slide && headerOf(this) ? box(r.left + slide, r.width, r.top, r.height) : r;
+    };
+    for (const item of originals) item.proto.getBoundingClientRect = slid;
   };
 
   const pinWhole = (el: HTMLElement) => {
@@ -1619,7 +1623,7 @@ describe("phone header name floor", () => {
     }
   };
 
-  const mount = async (overlap: boolean, menu?: { left: number; glow?: boolean; bare?: boolean }) => {
+  const mount = async (overlap: boolean, menu?: { left: number; glow?: boolean; bare?: boolean; slide?: number }) => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     vi.stubGlobal("ResizeObserver", class {
@@ -1629,7 +1633,7 @@ describe("phone header name floor", () => {
     });
     vi.stubGlobal("matchMedia", () => ({ matches: true }));
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    installRects(overlap, menu?.left);
+    installRects(overlap, menu?.left, menu?.slide);
     if (menu) {
       const button = document.createElement("button");
       if (menu.bare) {
@@ -1647,6 +1651,7 @@ describe("phone header name floor", () => {
       modelSelection: { instanceId: "inst", model: MODEL, effort: "max", mode: "pinned" },
     };
     const host = document.createElement("div");
+    if (menu?.slide) host.style.transform = `matrix(1, 0, 0, 1, ${menu.slide}, 0)`;
     document.body.append(host);
     const root = createRoot(host);
     await act(async () => root.render(createElement(StoreProvider, null, createElement(ChatView, { bot, onOpenTerminal: () => undefined }))));
@@ -1780,6 +1785,25 @@ describe("phone header name floor", () => {
     try {
       expect(document.querySelector("[data-test-menu]")?.hasAttribute("data-phone-menu")).toBe(false);
       expect(view.modelLabel?.style.display).not.toBe("none");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("keeps the model label while the chat stage slides toward the menu", async () => {
+    const view = await mount(false, { left: 348, slide: 32 });
+    try {
+      expect(view.modelLabel).not.toBeNull();
+      expect(view.modelLabel?.style.display).not.toBe("none");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("hides the model label while the chat stage slides away from the menu it reaches", async () => {
+    const view = await mount(false, { left: 330, slide: -32 });
+    try {
+      expect(view.modelLabel?.style.display).toBe("none");
     } finally {
       await view.unmount();
     }

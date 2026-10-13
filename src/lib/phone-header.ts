@@ -50,6 +50,15 @@ export function boxShadowReach(shadow: string): number {
   return reach;
 }
 
+/** Translation in a computed transform's matrix() or matrix3d() value. */
+export function transformShift(transform: string) {
+  const match = /^matrix(3d)?\((.+)\)$/.exec(transform.trim());
+  if (!match) return { x: 0, y: 0 };
+  const values = match[2].split(",").map(Number);
+  const [x, y] = match[1] ? [values[12], values[13]] : [values[4], values[5]];
+  return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0 };
+}
+
 function axisGap(start: number, end: number, otherStart: number, otherEnd: number): number {
   if (end <= otherStart) return otherStart - end;
   if (otherEnd <= start) return start - otherEnd;
