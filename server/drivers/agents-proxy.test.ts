@@ -467,6 +467,22 @@ describe("agents-proxy MCP surface", () => {
     const update = list.result.tools.find((tool: { name: string }) => tool.name === "update_task_state");
     expect(update.inputSchema.properties.goal).toMatchObject({ minLength: 1, pattern: "\\S" });
     expect(update.inputSchema.properties.plan.items.properties.step).toMatchObject({ minLength: 1, pattern: "\\S" });
+    const limits: Array<[Record<string, unknown>, "maxLength" | "maxItems", number]> = [
+      [update.inputSchema.properties.goal, "maxLength", 500],
+      [update.inputSchema.properties.plan, "maxItems", 20],
+      [update.inputSchema.properties.plan.items.properties.step, "maxLength", 200],
+      [update.inputSchema.properties.completed_note, "maxLength", 300],
+      [update.inputSchema.properties.next_action, "maxLength", 300],
+      [update.inputSchema.properties.blockers, "maxItems", 10],
+      [update.inputSchema.properties.blockers.items.properties.note, "maxLength", 300],
+      [update.inputSchema.properties.artifacts, "maxItems", 20],
+      [update.inputSchema.properties.artifacts.items.properties.ref, "maxLength", 500],
+      [update.inputSchema.properties.artifacts.items.properties.label, "maxLength", 200],
+    ];
+    for (const [field, key, limit] of limits) {
+      expect(field[key]).toBe(limit);
+      expect(field.description).toContain(String(limit));
+    }
 
     lastTaskStateBody = null;
     const res = await callTool("update_task_state", {

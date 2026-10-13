@@ -212,6 +212,23 @@ describe("taskStateUpdateError", () => {
     const text = error({ ["x".repeat(1000)]: 1 });
     expect(text.length).toBeLessThan(400);
   });
+
+  it("names the field, its limit and the length sent", () => {
+    const schema = z.object({
+      goal: z.string().max(500).optional(),
+      plan: z.array(z.object({ step: z.string().max(200) }).strict()).max(20).optional(),
+    }).strict();
+    const fail = (body: unknown) => {
+      const parsed = schema.safeParse(body);
+      if (parsed.success) throw new Error("expected a parse failure");
+      return taskStateUpdateError(parsed.error, body);
+    };
+    const goal = "x".repeat(501);
+    expect(fail({ goal })).toContain("goal: 501 characters, limit 500");
+    const plan = Array.from({ length: 21 }, () => ({ step: "a" }));
+    expect(fail({ plan })).toContain("plan: 21 items, limit 20");
+    expect(fail({ plan: [{ step: "y".repeat(201) }] })).toContain("plan.0.step: 201 characters, limit 200");
+  });
 });
 
 describe("taskArtifactError", () => {

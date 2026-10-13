@@ -6627,8 +6627,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, result.status, result.body);
       }
       if (method === "POST" && path === "/api/internal/task-state") {
-        const parsed = taskStateUpdateEnvelopeSchema.safeParse(await readBody(req));
-        if (!parsed.success) return json(res, 400, { error: taskStateUpdateError(parsed.error) });
+        const raw = await readBody(req);
+        const parsed = taskStateUpdateEnvelopeSchema.safeParse(raw);
+        if (!parsed.success) return json(res, 400, { error: taskStateUpdateError(parsed.error, raw) });
         const body = parsed.data;
         const bot = store.bot(body.fromBotId);
         if (!bot) return json(res, 403, { error: "unknown sender" });
