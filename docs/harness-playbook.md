@@ -74,22 +74,22 @@ Workers never touch the user's live checkout, except the uncommitted-changes
 case below. Each card gets its own worktree:
 
 ```
-git -C <repo> worktree add {{WORKTREE}} -b <branch> <base>
+git -C "<repo>" worktree add "{{WORKTREE}}" -b <branch> <base>
 ```
 
 - Create it before the spawn and pass it as the pane cwd.
 - `<name>` matches the nickname in lowercase.
-- Remove it once the branch has landed: `git -C <repo> worktree remove <path>`.
+- Remove it once the branch has landed: `git -C "<repo>" worktree remove "<path>"`.
 - A read-only review of a plain folder that is not a repo runs in a scratch copy of it, never in place: workers run unsandboxed, so a stray edit there could not be undone.
 - An editing job in a plain folder gets no worktree: one worker edits it in place, and you leave the folder alone until it reports.
-- The same goes for a checkout with uncommitted changes (`git status --short` lists files): a worktree starts from a commit and would miss them.
+- The same goes for a checkout with uncommitted changes (`git status --short` lists files): a worktree starts from a commit and would miss them. Check before you write the card, and keep cards outside the repo so they never count.
 
 ## Verify before push
 
 When a worker reports done, check its work yourself before anything moves:
 
-1. `git -C <worktree> log --oneline -3` - the commit exists on the right branch.
-2. `git -C <worktree> diff --stat --ignore-cr-at-eol <base>...HEAD` - only the
+1. `git -C "<worktree>" log --oneline -3` - the commit exists on the right branch.
+2. `git -C "<worktree>" diff --stat --ignore-cr-at-eol <base>...HEAD` - only the
    expected files changed, no whole-file line-ending diffs.
 3. Run the targeted checks only: the test files the card names and the repo's
    typecheck, with the commands the repo's own instructions give.
@@ -103,10 +103,14 @@ When a worker reports done, check its work yourself before anything moves:
 8. Test servers get a fresh data folder and their own port. Run them in a pane
    (terminal_spawn, then terminal_close), not as a background task you kill
    later; a killed task shows up as failed.
-9. Before landing on the user's live checkout: checkout clean, app not running.
+9. Land the result unless the user asked for a branch, push or PR. If the
+   checkout is still clean on `<base>` and the app is not running,
+   `git -C "<repo>" merge --squash <branch>` leaves the changes there
+   uncommitted, as if you had made them. Otherwise ask the user first.
 
 An in-place worker has no branch: instead of steps 1 and 2, read the files it
-changed.
+changed. Skip steps 6 and 9, and never stash, reset or check out over the
+user's files to rerun the old code.
 
 ## Reports
 
@@ -137,7 +141,7 @@ percentage is what is LEFT, not what is used: "90%" means 90% left. Always say
   do not push; ask the user. Never push to or commit on `main`.
 - Push only after the verify steps pass.
 - Never merge, force-push, or rewrite pushed history unless the user names
-  that action.
+  that action. Landing a verified result in step 9 is part of the job.
 
 ## Panes
 

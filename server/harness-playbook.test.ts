@@ -26,6 +26,22 @@ describe("harness playbook", () => {
     const prompt = harnessPlaybookPrompt(true);
     expect(prompt).toContain("The same goes for a checkout with uncommitted changes");
     expect(prompt).toContain("An in-place worker has no branch: instead of steps 1 and 2, read the files it");
+    expect(prompt).toContain("Skip steps 6 and 9, and never stash, reset or check out over the");
+  });
+
+  it("checks for changes before writing the card and keeps cards out of the repo", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("Check before you write the card, and keep cards outside the repo");
+  });
+
+  it("lands a verified result uncommitted unless the user asked for a branch", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("Land the result unless the user asked for a branch, push or PR");
+    expect(prompt).toContain('git -C "<repo>" merge --squash <branch>');
+    expect(prompt).toContain("Landing a verified result in step 9 is part of the job");
+  });
+
+  it("quotes worktree paths", () => {
+    expect(loadHarnessPlaybook(undefined, join("D:", "my wt"))).toContain(`worktree add "${join("D:", "my wt", "<name>")}"`);
   });
 
   it("says worker reports from a group room reach the bot's own chat", () => {
