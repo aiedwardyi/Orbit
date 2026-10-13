@@ -249,6 +249,7 @@ import { closeBotPanes } from "./terminal-cleanup.ts";
 import { commitLaunchNote, submittedAgo } from "./launch-note.ts";
 import { terminalResumeResponse } from "./terminal-resume.ts";
 import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
+import { NoteSteerer } from "./note-steer.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
   ensureWorkspace,
@@ -3801,6 +3802,25 @@ function resumePaneWakes(botId: string) {
   paneWake.noteArrived(botId, bot.threadId);
 }
 
+// Only past dispatch: until then the turn's own watermark write could undo a steered note's.
+const noteSteer = new NoteSteerer({
+  liveTurn: (botId, threadId) => {
+    const bot = store.bot(botId);
+    if (!bot?.busy || bot.threadId !== threadId || bot.activeThreadId !== threadId || turnStartClaims.has(botId)) return undefined;
+    return liveTurnIdByThread.get(threadId);
+  },
+  busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
+  steer: (botId, threadId, text) => {
+    const bot = store.bot(botId);
+    const adapter = bot ? registry.get(bot.modelSelection.instanceId)?.adapter : undefined;
+    return adapter?.capabilities.queueing && adapter.steer ? adapter.steer(threadId, text) : undefined;
+  },
+  messages: (threadId) => store.activePath(threadId),
+  deliveredId: (botId, threadId) => store.taskByThread(botId, threadId)?.paneNotesDeliveredId ?? undefined,
+  markDelivered: (botId, threadId, noteId) => store.markPaneNotesDelivered(botId, threadId, noteId),
+  wake: (botId, threadId, paneId) => paneWake.noteArrived(botId, threadId, paneId),
+});
+
 function drainQueuedSends() {
   drainSteeredMessages(store, (botId, threadId, prompt, userMessage, excludeIds, room) => {
     // a send that never runs leaves no turn.completed to rerun a taken-over handoff
@@ -6596,7 +6616,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     const credentials = requestCredentials(relay, phone !== null, authorizedComms(req.headers.authorization), REMOTE_KEY);
     // Terminal panes hold a per-pane grant, never the comms token. The note
-    // itself never starts a turn; paneWake may, once the teacher is idle.
+    // itself never starts a turn: a busy teacher has it steered into its live
+    // turn, else paneWake may start one once the teacher is idle.
     if (method === "POST" && path === "/api/mailbox") {
       const scope = mailboxScope(req.headers, MAILBOX_SECRET);
       if (!scope.ok) return json(res, 401, { error: scope.error });
@@ -6620,7 +6641,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note, origin: profileSyncSettings.deviceId });
       if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text, botNotifyIconPath(source)), { botId: teacher.id, threadId: teacher.threadId });
       if (kind !== "report") void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, kind);
-      paneWake.noteArrived(teacher.id, teacher.threadId, scope.pane);
+      void noteSteer.noteArrived(teacher.id, teacher.threadId, scope.pane);
       return json(res, 200, { ok: true, id: message.id });
     }
     if (path.startsWith("/api/") && !(method === "GET" && path === "/api/health") && !credentials.phoneSession &&
