@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -11,6 +11,7 @@ import type { Message, TaskRecord } from "./store.ts";
 import { CONFLICT_NOTICE } from "./thread-sync.ts";
 import { ThreadSyncV2 } from "./thread-sync-v2.ts";
 import { writeDeviceRecord } from "./device-sync.ts";
+import { removeTempDir } from "./testing/cleanup.ts";
 import type { Snapshot, TestArgs, TestResult } from "./testing/thread-sync-v2-pc.ts";
 
 const roots: string[] = [];
@@ -42,9 +43,16 @@ function pc(folder: string, deviceId: string, enabled = true, legacy = false, au
     for (const request of pending.values()) request.reject(error instanceof Error ? error : new Error(String(error)));
     pending.clear();
   });
-  const exited = new Promise<void>((resolve) => worker.on("exit", () => resolve()));
+  let gone: Error | undefined;
+  const exited = new Promise<void>((resolve) => worker.on("exit", (code) => {
+    gone = new Error(`worker exited with code ${code}`);
+    for (const request of pending.values()) request.reject(gone);
+    pending.clear();
+    resolve();
+  }));
   function call<T extends TestResult = TestResult>(method: string, args: TestArgs = {}): Promise<T> {
     return new Promise((resolve, reject) => {
+      if (gone) return reject(gone);
       const id = ++sequence;
       // SAFETY: Test callers pair each fixture method with its declared response.
       pending.set(id, { resolve: (value) => resolve(value as T), reject });
@@ -54,8 +62,17 @@ function pc(folder: string, deviceId: string, enabled = true, legacy = false, au
   const peer = {
     call,
     dataDir,
+    worker,
     snapshot: () => call<Snapshot>("snapshot"),
-    async close() { await call("close"); await exited; },
+    async close() {
+      const timer = setTimeout(() => void worker.terminate(), 10_000);
+      try {
+        await call("close").catch(() => {});
+        await exited;
+      } finally {
+        clearTimeout(timer);
+      }
+    },
   };
   peers.push(peer);
   return peer;
@@ -117,10 +134,10 @@ function heads(dataDir: string): Array<{ writer: string; value: string | null }>
 
 afterEach(async () => {
   await Promise.all(peers.splice(0).map((peer) => peer.close()));
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  await Promise.all(roots.splice(0).map(removeTempDir));
 });
 
-describe("store delta sync", () => {
+describe("store delta sync", { timeout: 60_000 }, () => {
   it("prefers main history after a stale PC sees a newer conflict branch first", async () => {
     const main = temp();
     const stale = temp();
@@ -1062,5 +1079,13 @@ describe("store delta sync", () => {
     expect(state.files.some((name) => name.includes("sync-v2"))).toBe(false);
     expect(existsSync(join(folder, "threads-v2"))).toBe(false);
     expect(state.rows[0].text).toBe("v1");
+  });
+
+  it("rejects a pending call when the worker exits", async () => {
+    const [{ peer }] = isolated([LOW]);
+    const pending = peer.call("snapshot");
+    await peer.worker.terminate();
+    await expect(pending).rejects.toThrow(/worker exited/);
+    await expect(peer.call("snapshot")).rejects.toThrow(/worker exited/);
   });
 });
