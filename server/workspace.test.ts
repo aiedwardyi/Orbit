@@ -226,10 +226,10 @@ describe("workspace", () => {
 
   it("gives the same starter block while MEMORY.md is seed-only", () => {
     ensureWorkspace(BOT);
-    const missing = memorySystemPrompt(BOT);
+    const starter = memorySystemPrompt(BOT);
     writeFileSync(join(workspaceDir(BOT), "MEMORY.md"), MEMORY_SEED);
-    expect(memorySystemPrompt(BOT)).toBe(missing);
-    expect(missing).toContain("nothing to read yet");
+    expect(memorySystemPrompt(BOT)).toBe(starter);
+    expect(starter).toContain("nothing to read yet");
   });
 
   it("embeds MEMORY.md once the bot has written notes", () => {
@@ -283,7 +283,9 @@ describe("workspace", () => {
   it("points the bot at a set-aside topic copy while MEMORY.md is empty", () => {
     const dir = ensureWorkspace(BOT);
     writeFileSync(join(dir, "memory", "deploy.md"), "deploy notes\n");
-    expect(memorySystemPrompt(BOT)).not.toContain("set aside");
+    const starter = memorySystemPrompt(BOT);
+    expect(starter).toContain("nothing to read yet");
+    expect(starter).not.toContain("set aside");
     writeFileSync(join(dir, "memory", "deploy.conflict-ed364e8a.md"), "other PC's deploy notes\n");
     const prompt = memorySystemPrompt(BOT);
     expect(prompt).toContain("memory/deploy.conflict-ed364e8a.md");
