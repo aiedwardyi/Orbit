@@ -86,6 +86,38 @@ interface PreparedModelContextFailure {
   previousCompactionId?: string;
 }
 
+export type SummaryCallResult = "ok" | "invalid" | "over-budget" | "timeout" | "aborted" | "error";
+
+export interface SummaryCallRecord {
+  batch: number;
+  batches: number;
+  attempt: 1 | 2;
+  inTokens: number;
+  outBudget: number;
+  outTokens: number;
+  elapsedMs: number;
+  result: SummaryCallResult;
+}
+
+type SegmentResult =
+  | { status: "ok"; summary: string }
+  | { status: "too-large"; batches: number }
+  | { status: "over-budget" }
+  | { status: "error"; error: unknown; result: SummaryCallResult; summary: string };
+
+export interface RepairTarget {
+  /** the latest applicable row, the one a repair replaces */
+  target: ApplicableCompaction;
+  fallback: ApplicableCompaction;
+  /** the model summary the repair chains from; null starts at the root */
+  good: ApplicableCompaction | null;
+}
+
+export type RepairedModelContext =
+  | { status: "ready"; compaction: ContextCompactionV1 }
+  | { status: "too-large"; batches: number }
+  | { status: "failed"; result: SummaryCallResult };
+
 export function knownCatalogContextWindow(catalog: ModelCatalog, model: string): number | null {
   const value = catalog.options.find((option) => option.id === model)?.contextWindow;
   return value !== undefined && Number.isSafeInteger(value) && value > 0 ? value : null;
@@ -395,31 +427,98 @@ function foldToolRuns(units: ReplayUnit[], includeSpeakers: boolean): ReplayUnit
   return folded;
 }
 
+function compactionAt(
+  messages: Message[],
+  pathIndex: number,
+  indexOf: (id: string) => number,
+): ApplicableCompaction | { unsupported: true; messageId: string; version: number } | null {
+  const message = messages[pathIndex]!;
+  if (message.kind !== "compaction") return null;
+  const parsed = readContextCompaction({ value: message.compaction });
+  if (parsed.status === "unsupported") {
+    return { unsupported: true, messageId: message.id, version: parsed.version };
+  }
+  if (parsed.status === "invalid") return null;
+  const coveredIndex = indexOf(parsed.value.coveredThroughId);
+  const firstKeptIndex = parsed.value.firstKeptId === null ? null : indexOf(parsed.value.firstKeptId);
+  if (
+    coveredIndex < 0 ||
+    coveredIndex >= pathIndex ||
+    (firstKeptIndex !== null && (firstKeptIndex <= coveredIndex || firstKeptIndex >= pathIndex))
+  ) {
+    return null;
+  }
+  return { messageId: message.id, pathIndex, coveredIndex, value: parsed.value };
+}
+
 function applicableCompaction(
   messages: Message[],
 ): ApplicableCompaction | { unsupported: true; messageId: string; version: number } | null {
   for (let pathIndex = messages.length - 1; pathIndex >= 0; pathIndex--) {
-    const message = messages[pathIndex]!;
-    if (message.kind !== "compaction") continue;
-    const parsed = readContextCompaction({ value: message.compaction });
-    if (parsed.status === "unsupported") {
-      return { unsupported: true, messageId: message.id, version: parsed.version };
-    }
-    if (parsed.status === "invalid") continue;
-    const coveredIndex = messages.findIndex((candidate) => candidate.id === parsed.value.coveredThroughId);
-    const firstKeptIndex = parsed.value.firstKeptId === null
-      ? null
-      : messages.findIndex((candidate) => candidate.id === parsed.value.firstKeptId);
-    if (
-      coveredIndex < 0 ||
-      coveredIndex >= pathIndex ||
-      (firstKeptIndex !== null && (firstKeptIndex <= coveredIndex || firstKeptIndex >= pathIndex))
-    ) {
-      continue;
-    }
-    return { messageId: message.id, pathIndex, coveredIndex, value: parsed.value };
+    const found = compactionAt(messages, pathIndex, (id) => messages.findIndex((candidate) => candidate.id === id));
+    if (found) return found;
   }
   return null;
+}
+
+function pathCompactions(
+  messages: Message[],
+): Array<ApplicableCompaction | { unsupported: true; messageId: string; version: number }> {
+  const at: number[] = [];
+  const wanted = new Set<string>();
+  messages.forEach((message, pathIndex) => {
+    if (message.kind !== "compaction") return;
+    at.push(pathIndex);
+    const parsed = readContextCompaction({ value: message.compaction });
+    if (parsed.status !== "valid") return;
+    wanted.add(parsed.value.coveredThroughId);
+    if (parsed.value.firstKeptId !== null) wanted.add(parsed.value.firstKeptId);
+  });
+  const indexes = new Map<string, number>();
+  messages.forEach((message, pathIndex) => {
+    if (wanted.has(message.id) && !indexes.has(message.id)) indexes.set(message.id, pathIndex);
+  });
+  return at.flatMap((pathIndex) => compactionAt(messages, pathIndex, (id) => indexes.get(id) ?? -1) ?? []);
+}
+
+function validCompactions(found: ReturnType<typeof pathCompactions>): ApplicableCompaction[] {
+  return found.filter((row): row is ApplicableCompaction => !("unsupported" in row));
+}
+
+export function isFallbackSummary(summary: string): boolean {
+  return summary.startsWith(FALLBACK_SUMMARY_NOTICE);
+}
+
+/** Earlier rows the latest one re-covers; a session seeded on one of them holds the same span. */
+export function supersededCompactionIds(messages: Message[], latestId: string | null): Set<string> {
+  const rows = validCompactions(pathCompactions(messages));
+  const latest = rows.find((row) => row.messageId === latestId);
+  if (!latest) return new Set();
+  return new Set(rows
+    .filter((row) => row.pathIndex < latest.pathIndex && row.value.coveredThroughId === latest.value.coveredThroughId)
+    .map((row) => row.messageId));
+}
+
+/** The latest summary, when it is a fallback or chained from one since the last repair. */
+export function repairTarget(messages: Message[]): RepairTarget | null {
+  const found = pathCompactions(messages);
+  // The last resolved row is the one applicableCompaction returns.
+  const target = found.at(-1);
+  if (!target || "unsupported" in target) return null;
+  const rows = validCompactions(found);
+  // A later row on the same boundary is a repair and replaces the earlier one.
+  const chain = rows.filter((row, index) =>
+    !rows.slice(index + 1).some((later) => later.value.coveredThroughId === row.value.coveredThroughId));
+  let fallbackAt = -1;
+  chain.forEach((row, index) => {
+    if (isFallbackSummary(row.value.summary)) fallbackAt = index;
+    else if (rows.some((earlier) => earlier.pathIndex < row.pathIndex && earlier.value.coveredThroughId === row.value.coveredThroughId)) {
+      fallbackAt = -1;
+    }
+  });
+  if (fallbackAt < 0) return null;
+  const good = chain.slice(0, fallbackAt).findLast((row) => !isFallbackSummary(row.value.summary)) ?? null;
+  return { target, fallback: chain[fallbackAt]!, good };
 }
 
 function boundaryLabel(at: number): string {
@@ -541,6 +640,99 @@ function summaryPrompt(input: {
   ].join("\n");
 }
 
+function callResult(text: string, signal?: AbortSignal): SummaryCallResult {
+  if (signal?.aborted) return "aborted";
+  if (/timed out/i.test(text)) return "timeout";
+  return /abort/i.test(text) ? "aborted" : "error";
+}
+
+/** Chains each batch into the summary; an oversized previous summary is re-summarized first. */
+async function summarizeSegment(input: {
+  messages: Message[];
+  previous: ApplicableCompaction | null;
+  previousSummary: string;
+  history: ReplayUnit[];
+  taskRecordText: string;
+  contextWindow: number;
+  summaryBudget: number;
+  summarize: (prompt: string) => Promise<string>;
+  maxBatches?: number;
+  signal?: AbortSignal;
+  onSummaryCall?: (record: SummaryCallRecord) => void;
+}): Promise<SegmentResult> {
+  const { contextWindow, summaryBudget } = input;
+  let summary = input.previousSummary;
+  const resummarize = Boolean(summary) && messageTokens(summaryMessage(summary, 0)) > summaryBudget;
+  const batches = [
+    ...(resummarize
+      ? summaryBatches([{
+        id: input.previous!.value.coveredThroughId,
+        pathIndex: input.previous!.coveredIndex,
+        role: "assistant",
+        text: summary,
+      }], contextWindow)
+      : []),
+    ...summaryBatches(input.history, contextWindow),
+  ];
+  if (input.maxBatches !== undefined && batches.length > input.maxBatches) {
+    return { status: "too-large", batches: batches.length };
+  }
+  if (resummarize) summary = "";
+  // A fallback digest is verbose by construction, so it sets no floor.
+  const floorFor = (current: string) =>
+    current && !isFallbackSummary(current) && messageTokens(summaryMessage(current, 0)) <= summaryBudget
+      ? Math.floor(textTokens(current) * SUMMARY_FLOOR_SHARE)
+      : 0;
+  let lastResult: SummaryCallResult = "error";
+  const summarizeValid = async (prompt: string, minTokens: number, batch: number): Promise<string> => {
+    for (const attempt of [1, 2] as const) {
+      const started = Date.now();
+      const record = (outTokens: number, result: SummaryCallResult) => {
+        lastResult = result;
+        input.onSummaryCall?.({
+          batch,
+          batches: batches.length,
+          attempt,
+          inTokens: textTokens(prompt),
+          outBudget: summaryBudget,
+          outTokens,
+          elapsedMs: Date.now() - started,
+          result,
+        });
+      };
+      let raw: string;
+      try {
+        raw = await input.summarize(prompt);
+      } catch (error) {
+        record(0, callResult(error instanceof Error ? error.message : String(error), input.signal));
+        throw error;
+      }
+      const valid = validSummary(raw, minTokens);
+      const over = valid !== null && messageTokens(summaryMessage(valid, 0)) > summaryBudget;
+      record(raw.trim() ? textTokens(raw) : 0, valid === null ? "invalid" : over ? "over-budget" : "ok");
+      if (valid !== null) return valid;
+    }
+    throw new Error("the summarizer did not return a valid summary");
+  };
+  try {
+    for (const [index, batch] of batches.entries()) {
+      const generated = await summarizeValid(summaryPrompt({
+        previousSummary: summary,
+        history: batch,
+        taskRecordText: input.taskRecordText,
+        contextWindow,
+        summaryTokens: summaryBudget,
+        coveredAt: input.messages[batch.at(-1)!.pathIndex]?.at ?? Number.NaN,
+      }), floorFor(summary), index + 1);
+      if (messageTokens(summaryMessage(generated, 0)) > summaryBudget) return { status: "over-budget" };
+      summary = generated;
+    }
+  } catch (error) {
+    return { status: "error", error, result: lastResult, summary };
+  }
+  return { status: "ok", summary };
+}
+
 function failedContext(error: string, previous: ApplicableCompaction | null = null): PreparedModelContextFailure {
   const result: PreparedModelContextFailure = { status: "failed", error };
   if (previous) result.previousCompactionId = previous.messageId;
@@ -558,6 +750,7 @@ export async function prepareModelContext(input: {
   referenceMessages?: Message[];
   includeSpeakers?: boolean;
   reserveTokens?: number;
+  onSummaryCall?: (record: SummaryCallRecord) => void;
 }): Promise<PreparedModelContext> {
   const contextWindow = Number.isSafeInteger(input.contextWindow) && input.contextWindow > 0
     ? input.contextWindow
@@ -640,58 +833,28 @@ export async function prepareModelContext(input: {
       );
     }
   } else {
-    const summarize = input.summarize;
-    const summarizeValid = async (prompt: string, minTokens: number): Promise<string> => {
-      const first = validSummary(await summarize(prompt), minTokens);
-      if (first !== null) return first;
-      const retry = validSummary(await summarize(prompt), minTokens);
-      if (retry !== null) return retry;
-      throw new Error("the summarizer did not return a valid summary");
-    };
-    // A fallback digest is verbose by construction, so it sets no floor.
-    const floorFor = (current: string) =>
-      current && !current.startsWith(FALLBACK_SUMMARY_NOTICE) && messageTokens(summaryMessage(current, 0)) <= summaryBudget
-        ? Math.floor(textTokens(current) * SUMMARY_FLOOR_SHARE)
-        : 0;
-    const promptFor = (batch: ReplayUnit[]) => summaryPrompt({
-      previousSummary: summary,
-      history: batch,
+    const segment = await summarizeSegment({
+      messages: input.messages,
+      previous,
+      previousSummary,
+      history: old,
       taskRecordText: input.taskRecordText,
       contextWindow,
-      summaryTokens: summaryBudget,
-      coveredAt: input.messages[batch.at(-1)!.pathIndex]?.at ?? Number.NaN,
+      summaryBudget,
+      summarize: input.summarize,
+      onSummaryCall: input.onSummaryCall,
     });
-    try {
-      if (summary && messageTokens(summaryMessage(summary, 0)) > summaryBudget) {
-        const previousUnit: ReplayUnit = {
-          id: previous!.value.coveredThroughId,
-          pathIndex: previous!.coveredIndex,
-          role: "assistant",
-          text: summary,
-        };
-        summary = "";
-        for (const batch of summaryBatches([previousUnit], contextWindow)) {
-          const generated = await summarizeValid(promptFor(batch), floorFor(summary));
-          if (messageTokens(summaryMessage(generated, 0)) > summaryBudget) {
-            return failedContext("Context summarization failed: the summarizer exceeded the durable summary budget", previous);
-          }
-          summary = generated;
-        }
-      }
-      for (const batch of summaryBatches(old, contextWindow)) {
-        const generated = await summarizeValid(promptFor(batch), floorFor(summary));
-        if (messageTokens(summaryMessage(generated, 0)) > summaryBudget) {
-          return failedContext("Context summarization failed: the summarizer exceeded the durable summary budget", previous);
-        }
-        summary = generated;
-      }
-    } catch (error) {
+    if (segment.status === "over-budget") {
+      return failedContext("Context summarization failed: the summarizer exceeded the durable summary budget", previous);
+    }
+    if (segment.status === "ok") summary = segment.summary;
+    else if (segment.status === "error") {
       console.warn(
-        `context compaction: summarizer failed (${redactSecretsInText(error instanceof Error ? error.message : String(error))}); using deterministic fallback`,
+        `context compaction: summarizer failed (${redactSecretsInText(segment.error instanceof Error ? segment.error.message : String(segment.error))}); using deterministic fallback`,
       );
       try {
         summary = fallbackSummary({
-          previousSummary: summary || previousSummary,
+          previousSummary: segment.summary || previousSummary,
           history: old,
           taskRecordText: input.taskRecordText,
           summaryTokens: summaryBudget,
@@ -732,4 +895,66 @@ export async function prepareModelContext(input: {
     compacted: true,
     compaction: validated.value,
   };
+}
+
+/** Rebuilds the target from the last model summary and the original messages, never the fallback text. */
+export async function repairModelContext(input: {
+  messages: Message[];
+  target: RepairTarget;
+  taskRecordText: string;
+  summarize: (prompt: string) => Promise<string>;
+  excludeIds?: ReadonlySet<string>;
+  userName?: string;
+  referenceMessages?: Message[];
+  includeSpeakers?: boolean;
+  maxBatches?: number;
+  signal?: AbortSignal;
+  onSummaryCall?: (record: SummaryCallRecord) => void;
+}): Promise<RepairedModelContext> {
+  const { target, good } = input.target;
+  const contextWindow = target.value.contextWindow;
+  const budgetTokens = contextBudget(contextWindow);
+  const summaryBudget = Math.max(
+    1,
+    Math.min(MAX_SUMMARY_TOKENS, budgetTokens, Math.floor(budgetTokens * SUMMARY_BUDGET_SHARE)),
+  );
+  const startIndex = good?.coveredIndex ?? -1;
+  const history = foldToolRuns(
+    replayUnits(
+      input.messages,
+      input.excludeIds ?? new Set(),
+      input.userName ?? "User",
+      input.referenceMessages ?? input.messages,
+      input.includeSpeakers ?? false,
+    ).filter((unit) => unit.pathIndex > startIndex && unit.pathIndex <= target.coveredIndex),
+    input.includeSpeakers ?? false,
+  );
+  const segment = await summarizeSegment({
+    messages: input.messages,
+    previous: good,
+    previousSummary: good ? redactSecretsInText(good.value.summary) : "",
+    history,
+    taskRecordText: input.taskRecordText,
+    contextWindow,
+    summaryBudget,
+    summarize: input.summarize,
+    maxBatches: input.maxBatches,
+    signal: input.signal,
+    onSummaryCall: input.onSummaryCall,
+  });
+  if (segment.status === "too-large") return segment;
+  if (segment.status === "over-budget") return { status: "failed", result: "over-budget" };
+  if (segment.status === "error") return { status: "failed", result: segment.result };
+  const compaction: ContextCompactionV1 = {
+    v: CONTEXT_COMPACTION_VERSION,
+    summary: segment.summary,
+    coveredThroughId: target.value.coveredThroughId,
+    firstKeptId: target.value.firstKeptId,
+    contextWindow,
+    estimatedTokensBefore: target.value.estimatedTokensBefore,
+    sourceMessageCount: target.value.sourceMessageCount,
+  };
+  if (good) compaction.previousCompactionId = good.messageId;
+  const validated = readContextCompaction({ value: compaction });
+  return validated.status === "valid" ? { status: "ready", compaction: validated.value } : { status: "failed", result: "error" };
 }

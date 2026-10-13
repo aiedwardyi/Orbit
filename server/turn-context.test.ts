@@ -17,6 +17,7 @@ import {
   TASK_RESUME_PROMPT,
   taskRecordBlock,
   TurnSeeds,
+  turnSeedCompactionId,
   turnSeedsSession,
   withSystemChanges,
 } from "./turn-context.ts";
@@ -635,6 +636,45 @@ describe("resumeSessionUnseeded", () => {
     // back on the small window the summary is what the session lacks
     expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: seeded(null), latestCompactionId: "c1" })).toBe(true);
   });
+
+  it("keeps a session seeded on a fallback resumable once its repair lands", () => {
+    const supersededIds = new Set(["fallback"]);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: seeded("fallback"), latestCompactionId: "repair", supersededIds })).toBe(false);
+    // a different summary, or a different session, still recycles
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: seeded("older"), latestCompactionId: "repair", supersededIds })).toBe(true);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-2", seed: seeded("fallback"), latestCompactionId: "repair", supersededIds })).toBe(true);
+    expect(resumeSessionUnseeded({ instanceId: "claude", cursor: "session-1", seed: seeded("fallback"), latestCompactionId: "repair", expanded: true, supersededIds })).toBe(true);
+  });
+
+  it("a resumed turn carries the fallback seed instead of certifying the repair", () => {
+    expect(turnSeedCompactionId({
+      replayed: false,
+      instanceId: "claude",
+      cursor: "session-1",
+      seed: seeded("fallback"),
+      sessionCompactionId: "repair",
+      supersededIds: new Set(["fallback"]),
+    })).toBe("fallback");
+    expect(turnSeedCompactionId({
+      replayed: false,
+      instanceId: "claude",
+      cursor: "session-1",
+      seed: seeded("repair"),
+      sessionCompactionId: "repair",
+      supersededIds: new Set(["fallback"]),
+    })).toBe("repair");
+  });
+
+  it("a replayed turn certifies the repaired summary", () => {
+    expect(turnSeedCompactionId({
+      replayed: true,
+      instanceId: "claude",
+      cursor: undefined,
+      seed: seeded("fallback"),
+      sessionCompactionId: "repair",
+      supersededIds: new Set(["fallback"]),
+    })).toBe("repair");
+  });
 });
 
 describe("turnSeedsSession", () => {
@@ -731,6 +771,19 @@ describe("countSessionToolRounds", () => {
       { id: "t1", kind: "activity" as const, tool: { name: "Grep", ok: true } },
     ];
     expect(countSessionToolRounds(messages, undefined, "bound")).toBe(1);
+  });
+
+  it("countSessionToolRounds does not restart at a repair row", () => {
+    const compaction = { v: 1, summary: "summary", coveredThroughId: "m1", firstKeptId: null, contextWindow: 200_000, estimatedTokensBefore: 900, sourceMessageCount: 1 };
+    const messages = [
+      { id: "old", kind: "activity" as const, tool: { name: "Read", ok: true } },
+      { id: "fallback", kind: "compaction" as const, compaction },
+      { id: "t1", kind: "activity" as const, tool: { name: "Read", ok: true } },
+      { id: "t2", kind: "activity" as const, tool: { name: "Bash", ok: true } },
+      { id: "repair", kind: "compaction" as const, compaction: { ...compaction, summary: "repaired" } },
+      { id: "t3", kind: "activity" as const, tool: { name: "Grep", ok: true } },
+    ];
+    expect(countSessionToolRounds(messages)).toBe(3);
   });
 });
 

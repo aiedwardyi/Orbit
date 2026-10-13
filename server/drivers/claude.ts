@@ -1836,7 +1836,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return () => listeners.delete(listener);
         },
       },
-      generateText: (prompt) => generateReview(prompt, undefined, SUMMARY_TIMEOUT_MS, "low"),
+      generateText: (prompt, opts) => generateReview(prompt, opts?.signal, opts?.timeoutMs ?? SUMMARY_TIMEOUT_MS, "low"),
+      textModel: "claude-haiku-5-5",
+      textTimeoutMs: SUMMARY_TIMEOUT_MS,
       reviewPermission: (prompt, signal) => generateReview(prompt, signal),
       dispose: async () => {
         for (const { stop } of active.values()) stop();

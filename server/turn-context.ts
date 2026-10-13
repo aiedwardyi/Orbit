@@ -1,4 +1,5 @@
 import { redactSecretsInText } from "./redact.ts";
+import { readContextCompaction } from "../shared/context-compaction.ts";
 
 // Building the text a driver actually receives. Three situations force an
 // inline replay of the active branch: a rewind (the visible branch
@@ -167,6 +168,12 @@ export interface SessionFatMessage {
   kind?: string;
   role?: string;
   tool?: { ok?: boolean };
+  compaction?: unknown;
+}
+
+function coveredThroughId(message: SessionFatMessage): string | undefined {
+  const read = readContextCompaction({ value: message.compaction });
+  return read.status === "valid" ? read.value.coveredThroughId : undefined;
 }
 
 function isSettledTool(message: SessionFatMessage): boolean {
@@ -201,10 +208,15 @@ export function countSessionToolRounds(
 ): number {
   let start = 0;
   for (let index = messages.length - 1; index >= 0; index--) {
-    if (messages[index]!.kind === "compaction") {
-      start = index + 1;
-      break;
+    const message = messages[index]!;
+    if (message.kind !== "compaction") continue;
+    // A repair re-covers an earlier row's span; the session it would restart never saw it.
+    const covered = coveredThroughId(message);
+    if (covered !== undefined && messages.slice(0, index).some((earlier) => earlier.kind === "compaction" && coveredThroughId(earlier) === covered)) {
+      continue;
     }
+    start = index + 1;
+    break;
   }
   if (boundMessageId) {
     const boundIndex = messages.findIndex((message) => message.id === boundMessageId);
@@ -263,11 +275,32 @@ export function resumeSessionUnseeded(input: {
   seed: ResumeSeed | undefined;
   latestCompactionId: string | null;
   expanded?: boolean;
+  /** rows the latest one repaired; a session seeded on one already holds that span */
+  supersededIds?: ReadonlySet<string>;
 }): boolean {
   if (input.cursor === undefined) return false;
   const { seed } = input;
   if (!seed || seed.instanceId !== input.instanceId || seed.cursor !== input.cursor) return true;
-  return seed.compactionId !== (input.expanded ? null : input.latestCompactionId);
+  const expected = input.expanded ? null : input.latestCompactionId;
+  if (seed.compactionId === expected) return false;
+  return !(expected !== null && seed.compactionId !== null && input.supersededIds?.has(seed.compactionId));
+}
+
+/** A resumed session still holds the summary it was seeded with, so a repair of
+ * that summary is certified only by a turn whose prompt replayed it. */
+export function turnSeedCompactionId(input: {
+  replayed: boolean;
+  instanceId: string;
+  cursor: unknown;
+  seed: ResumeSeed | undefined;
+  sessionCompactionId: string | null;
+  supersededIds: ReadonlySet<string>;
+}): string | null {
+  const { seed } = input;
+  if (input.replayed || !seed || seed.instanceId !== input.instanceId || seed.cursor !== input.cursor) {
+    return input.sessionCompactionId;
+  }
+  return seed.compactionId !== null && input.supersededIds.has(seed.compactionId) ? seed.compactionId : input.sessionCompactionId;
 }
 
 /** A turn certifies only the session it ran on: the cursor it resumed, or the

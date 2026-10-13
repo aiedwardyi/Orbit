@@ -430,7 +430,10 @@ export interface ProviderInstance {
    * would start WSL are allowed to, where a passive refresh may not. */
   snapshot(opts?: { rescan?: boolean }): Promise<ProviderSnapshot>;
   /** Cheap one-shot text call (upstream TextGeneration) — titles, summaries. */
-  generateText?(prompt: string): Promise<string>;
+  generateText?(prompt: string, opts?: { timeoutMs?: number; signal?: AbortSignal }): Promise<string>;
+  /** the model and default deadline generateText runs on, for telemetry */
+  readonly textModel?: string;
+  readonly textTimeoutMs?: number;
   /** Isolated, tool-free permission review on this same provider. Kept
    * separate from generateText so the UI never infers a security capability
    * from a generic helper that may expose prompts in argv or lack approvals. */

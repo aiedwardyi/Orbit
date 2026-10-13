@@ -2445,6 +2445,18 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await expect(instance.reviewPermission?.("review this request")).rejects.toThrow(/timed out/);
   }, 30_000);
 
+  it("generateText honors a per-call timeout and abort signal", async () => {
+    process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS = "10000";
+    await create(undefined, { FAKE_CLAUDE_GENERATE_DELAY_MS: "2000" });
+
+    await expect(instance.generateText?.("summarize", { timeoutMs: 200 })).rejects.toThrow(/timed out/);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 200);
+    await expect(instance.generateText?.("summarize", { signal: controller.signal })).rejects.toThrow(/aborted/);
+    expect(instance.textModel).toBe("claude-haiku-5-5");
+    expect(instance.textTimeoutMs).toBe(10_000);
+  }, 30_000);
+
   it("runs only the summary one-shot at low effort", async () => {
     await create();
     const summaryDump = join(scratch, "generate-text-effort.json");
