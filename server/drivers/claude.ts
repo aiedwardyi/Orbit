@@ -104,6 +104,8 @@ function claudeEnvironment(
   const env: NodeJS.ProcessEnv = { ...source, PATH: augmentedPath(), NPM_CONFIG_LOGLEVEL: "error" };
   delete env.CLAUDECODE;
   delete env.CLAUDE_CODE_ENTRYPOINT;
+  // Undocumented CLI switch: the silent-turn nudge makes bots post progress lines; Wink shows live activity instead.
+  env.CLAUDE_CODE_SILENT_TURN_REMINDER ??= "0";
   // Inject first, allowlist after: the local host reads its key out of this
   // env, and the tokens it writes are the only credentials the CLI is granted.
   // Everything else the harness holds — every other provider's key, the
