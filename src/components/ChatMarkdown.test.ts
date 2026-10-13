@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChatMarkdown, isRelativeHref, resolveRelativePath, settleStreamTail, streamBlocks } from "./ChatMarkdown";
+import { applyLocale } from "@/lib/i18n";
 import { applySkin } from "@/lib/skins";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -403,6 +404,58 @@ describe("relative file links", () => {
       await act(async () => root.unmount());
       host.remove();
     }
+  });
+
+  describe("link messages by language", () => {
+    type Bridge = { openFile?: ReturnType<typeof vi.fn> };
+    const clickLink = async (locale: "en" | "ko", ogb: Bridge | undefined, link: string) => {
+      if (ogb) Object.defineProperty(window, "ogb", { configurable: true, value: ogb });
+      applyLocale(locale);
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = createRoot(host);
+      try {
+        await act(async () => root.render(createElement(ChatMarkdown, { text: link })));
+        await act(async () => host.querySelector("button")!.click());
+        return host.querySelector("button")!.nextElementSibling?.textContent;
+      } finally {
+        await act(async () => root.unmount());
+        host.remove();
+        applyLocale("en");
+        Reflect.deleteProperty(window, "ogb");
+      }
+    };
+    const rejecting = (message: string) => ({ openFile: vi.fn().mockRejectedValue(new Error(message)) });
+
+    it("shows a rejected folder link in Korean", async () => {
+      const shown = await clickLink("ko", rejecting("That folder could not be opened"), "[shots](C:/Users/me/shots)");
+      expect(shown).toBe("폴더를 열 수 없습니다");
+    });
+
+    it("shows a rejected file link in Korean", async () => {
+      const shown = await clickLink("ko", rejecting("That file no longer exists"), "[notes.md](C:/My%20Drive/notes.md)");
+      expect(shown).toBe("파일이 더 이상 없습니다");
+    });
+
+    it("tells a Korean phone that files open in the desktop app", async () => {
+      const shown = await clickLink("ko", undefined, "[notes.md](C:/My%20Drive/notes.md)");
+      expect(shown).toBe("파일은 데스크톱 앱에서 열 수 있습니다");
+    });
+
+    it("tells an older Korean desktop app to update", async () => {
+      const shown = await clickLink("ko", {}, "[notes.md](C:/My%20Drive/notes.md)");
+      expect(shown).toBe("파일을 열려면 데스크톱 앱을 최신 버전으로 업데이트해야 합니다");
+    });
+
+    it("keeps the English text in English", async () => {
+      const shown = await clickLink("en", rejecting("That folder could not be opened"), "[shots](C:/Users/me/shots)");
+      expect(shown).toBe("That folder could not be opened");
+    });
+
+    it("shows an unknown message as it came", async () => {
+      const shown = await clickLink("ko", rejecting("EPERM: operation not permitted"), "[notes.md](C:/My%20Drive/notes.md)");
+      expect(shown).toBe("EPERM: operation not permitted");
+    });
   });
 
   it("asks an older desktop app without file opening to update", async () => {

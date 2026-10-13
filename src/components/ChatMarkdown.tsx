@@ -11,7 +11,7 @@ import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 import { z } from "zod";
 
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useSkin } from "@/lib/skins";
 
 // tiny highlight cache so revisiting a thread doesn't re-tokenize settled
@@ -362,18 +362,33 @@ function linkedFileSrc(threadId: string, filePath: string): string {
   return `/api/threads/${encodeURIComponent(threadId)}/linked-file?path=${encodeURIComponent(filePath)}`;
 }
 
+// Texts from the desktop app's file opening, shown in the active language.
+// Anything not listed shows as it came.
+const FILE_LINK_MESSAGES = new Map<string, MessageKey>([
+  ["Files open in the desktop app", "chat.fileLink.desktopOnly"],
+  ["Opening files needs a newer version of the desktop app", "chat.fileLink.needsUpdate"],
+  ["That file path is invalid", "chat.fileLink.invalidPath"],
+  ["That file no longer exists", "chat.fileLink.missing"],
+  ["That file is outside the bot's folder", "chat.fileLink.outsideFolder"],
+  ["That path is not a file", "chat.fileLink.notAFile"],
+  ["That file could not be opened", "chat.fileLink.fileFailed"],
+  ["That folder could not be opened", "chat.fileLink.folderFailed"],
+]);
+
 // A local file link renders as a button that asks the shell to open the file,
 // not an anchor. An absolute path in an href resolves against the page origin
 // (http://127.0.0.1:8799<path>, a second chat UI in the browser), and an
 // <a href="file://…"> would still reach setWindowOpenHandler on a middle or
 // modifier click. The shell decides whether to open or only reveal the file.
 function DesktopFileLink({ filePath, base, children }: { filePath: string; base?: string; children?: ReactNode }) {
+  const { t } = useI18n();
   const [reason, setReason] = useState("");
   const ref = useRef<HTMLButtonElement>(null);
   const terminal = useSkin() === "terminal";
   const text = useContext(MarkdownTextContext);
   // No bridge at all means a phone or browser, not an outdated desktop app.
   const desktop = Boolean(window.ogb);
+  const reasonKey = FILE_LINK_MESSAGES.get(reason);
   // A link alone on its line is the one the Terminal skin draws as `⎿ path`.
   useLayoutEffect(() => {
     if (!terminal) return;
@@ -408,7 +423,7 @@ function DesktopFileLink({ filePath, base, children }: { filePath: string; base?
       >
         {children}
       </button>
-      {reason && <span className={`ml-1.5 text-[12px] ${desktop ? "text-danger" : "text-ink-secondary"}`}>{reason}</span>}
+      {reason && <span className={`ml-1.5 text-[12px] ${desktop ? "text-danger" : "text-ink-secondary"}`}>{reasonKey ? t(reasonKey) : reason}</span>}
     </>
   );
 }
