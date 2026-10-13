@@ -159,6 +159,11 @@ export function localizeServerLine(name: string, t: Translate): string {
   return name;
 }
 
+export function isServerLine(name: string): boolean {
+  const body = name.startsWith("error: ") ? name.slice(7) : name;
+  return SERVER_LINES.some((line) => line.re.test(body));
+}
+
 export function isApprovalNotice(message: Message): boolean {
   return classifyServerNotice(message.tool?.name ?? "")?.kind === "approval";
 }

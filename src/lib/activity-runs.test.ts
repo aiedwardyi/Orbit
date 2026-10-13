@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { activityRunVisible, activityVisibleInChat, classifyServerNotice, describeRun, describeSearch, groupActivityRuns, localizeServerLine, SERVER_LINES, shownRunStep } from "./activity-runs";
+import { activityRunVisible, activityVisibleInChat, classifyServerNotice, describeRun, describeSearch, groupActivityRuns, isServerLine, localizeServerLine, SERVER_LINES, shownRunStep } from "./activity-runs";
 import { translate, type Translate } from "@/lib/i18n";
 import type { Message } from "@/state/store";
 
@@ -428,6 +428,23 @@ describe("localizeServerLine", () => {
     const line = "Delegation to @Atlas denied by user";
     expect(classifyServerNotice(line)).toBeNull();
     expect(groupActivityRuns([tool(line, false), tool(line, false)])[0].kind).toBe("run");
+  });
+});
+
+describe("isServerLine", () => {
+  it("knows the waiting, queued and error lines, with or without the error prefix", () => {
+    for (const line of [
+      "Delegation to @Atlas waiting \u2014 they're busy (retry 2/5 when they finish)",
+      "Queued for @Atlas, sends when this reply ends: check the build",
+      "error: delegation failed \u2014 Atlas is offline",
+      "delegation failed \u2014 Atlas is offline",
+    ]) expect(isServerLine(line), line).toBe(true);
+  });
+
+  it("leaves tool commands and unknown lines out", () => {
+    for (const line of ["Bash: npm test", "Bash", "memory.save", "error: the CLI exited", "Delivered to Atlas", "auto-approved Bash: npm test"]) {
+      expect(isServerLine(line), line).toBe(false);
+    }
   });
 });
 

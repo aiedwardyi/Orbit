@@ -81,7 +81,7 @@ import { usageLimitReset } from "@/lib/usage";
 import { useFindCurrentId, useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
-import { activityVisibleInChat, groupActivityRuns, itemMatchesFind, localizeServerLine, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
+import { activityVisibleInChat, groupActivityRuns, isServerLine, itemMatchesFind, localizeServerLine, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
 import { chatTranscriptRows, messageVisible } from "@/lib/chat-transcript";
 import { isShownMessage } from "@/lib/shown-message";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
@@ -806,11 +806,12 @@ function ActivityChip({ message, notices }: { message: Message; notices?: Linked
   }
   if (terminal) return <ActivityStep message={message} notices={notices} />;
   const failed = tool.ok === false;
+  const status = isServerLine(tool.name);
   return (
     <div className="flex justify-start">
       <div
         title={failed ? t("chat.stepDidNotComplete") : approvalHover(notices, t)}
-        className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary"
+        className={cn("flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary", status && "rounded-2xl")}
       >
         {tool.ok === undefined ? (
           <Loader2 size={13} className="shrink-0 animate-spin" />
@@ -819,7 +820,7 @@ function ActivityChip({ message, notices }: { message: Message; notices?: Linked
         ) : (
           <Check size={13} className="shrink-0 text-success" />
         )}
-        <span className="min-w-0 max-w-[480px] truncate font-mono">
+        <span className={status ? "min-w-0 max-w-[480px] break-words" : "min-w-0 max-w-[480px] truncate font-mono"}>
           {localizeServerLine(tool.name, t)}
           {tool.summary && ` ${tool.summary}`}
         </span>
