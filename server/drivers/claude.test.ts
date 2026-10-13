@@ -2436,6 +2436,34 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv[seen.argv.indexOf("--model") + 1]).toBe("claude-haiku-5-5");
   });
 
+  it("generateText preserves an existing turn dump", async () => {
+    await create();
+    const dump = join(scratch, "generate-text-turn.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-generate-dump", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const turnDump = readFileSync(dump, "utf8");
+
+    await expect(instance.generateText?.("summarize")).resolves.toBe("fake generated text");
+
+    expect(readFileSync(dump, "utf8")).toBe(turnDump);
+  });
+
+  it("generateText creates a missing dump", async () => {
+    await create();
+    const dump = join(scratch, "generate-text-missing.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    expect(existsSync(dump)).toBe(false);
+
+    await expect(instance.generateText?.("summarize")).resolves.toBe("fake generated text");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.prompt).toBe("summarize");
+    expect(seen.argv[seen.argv.indexOf("--output-format") + 1]).toBe("text");
+    expect(seen.mcpConfig).toBeNull();
+  });
+
   it("gives a summary one-shot longer than a permission review", async () => {
     process.env.OMB_CLAUDE_REVIEW_TIMEOUT_MS = "1000";
     process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS = "10000";
