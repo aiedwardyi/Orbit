@@ -47,6 +47,8 @@ export interface EnrollerOptions {
   operatorPublicKey: KeyObject;
   store: InviteStore;
   isRevoked: (label: string) => boolean;
+  /** Called with the new label when the invite carries the operator's test mark. */
+  onTestEnroll?: (label: string) => void;
   now?: () => number;
   ticketTtlSec?: number;
 }
@@ -94,6 +96,7 @@ export class Enroller {
       // No ticket without a durable consume, so even if a restart forgets this failed write, an invite yields at most one ticket.
       return fail(503, "store-unavailable");
     }
+    if (opened.value.test) this.opts.onTestEnroll?.(label);
     return { ok: true, label, ticket };
   }
 }

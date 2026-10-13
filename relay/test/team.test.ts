@@ -1,13 +1,14 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { request } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { googleSubHash } from "../../shared/google-id-token.ts";
-import { authMessageSchema } from "../../shared/relay-protocol.ts";
+import { authMessageSchema, buildSetupCode, mintInvite, parseSetupCode } from "../../shared/relay-protocol.ts";
 import { loadConfig } from "../src/config.ts";
+import { signEnrollment } from "../src/enroll.ts";
 import { TEAM_KEEP_MS, TeamLog, type TeamStats } from "../src/team.ts";
-import { event, makePc, openControl, openData, startRelay, type Harness } from "./fixtures.ts";
+import { event, makePc, openControl, openData, startRelay, type Harness, type Pc } from "./fixtures.ts";
 import { makeIssuer, type IdClaims, type TestIssuer } from "./google-issuer.ts";
 import { phoneConnect, serveInner } from "./pc-side.ts";
 
@@ -48,7 +49,7 @@ interface Reply {
   body: string;
 }
 
-function get(harness: Harness, path: string, headers: Record<string, string> = {}, method = "GET"): Promise<Reply> {
+function get(harness: Harness, path: string, headers: Record<string, string> = {}, method = "GET", body?: string): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const req = request(
       {
@@ -69,7 +70,7 @@ function get(harness: Harness, path: string, headers: Record<string, string> = {
       },
     );
     req.on("error", reject);
-    req.end();
+    req.end(body);
   });
 }
 
@@ -306,6 +307,91 @@ describe("team session log", () => {
     const person = loaded.stats(0).people.find((entry) => entry.pcs.some((pc) => pc.label === ada));
     expect(person?.name).toBe("Field");
     await loaded.close();
+  });
+
+  it("keeps a pc enrolled from a test setup code off /v1/team and leaves a normal enroll as it was", async () => {
+    const issuer = makeIssuer();
+    h = await startRelay({ google: google(issuer), teamOwnerEmail: OWNER });
+    const harness = h;
+    const code = parseSetupCode(buildSetupCode(harness.base, mintInvite(harness.operator, { test: true })));
+    if (!code.ok) throw new Error(code.reason);
+    const tester = makePc();
+    const mate = makePc();
+    const enroll = async (pc: Pc, invite: string) => {
+      const body = JSON.stringify({ invite, pk: pc.pk, sig: signEnrollment(pc.privateKey, invite, pc.pk) });
+      const reply = await get(harness, "/v1/enroll", { "content-type": "application/json" }, "POST", body);
+      expect(reply.status).toBe(200);
+      // SAFETY: a 200 from /v1/enroll is {ticket}.
+      return openControl(harness, pc, { ticket: (JSON.parse(reply.body) as { ticket: string }).ticket });
+    };
+    const controls = [await enroll(tester, code.value.invite), await enroll(mate, mintInvite(harness.operator))];
+
+    const stats = statsOf(await get(harness, "/v1/team", bearer(issuer.sign(claims()))));
+    expect(stats.pcs).toMatchObject([{ label: mate.label, online: true }]);
+    expect(stats.people.map((person) => person.pcs.map((pc) => pc.label))).toEqual([[mate.label]]);
+    await vi.waitFor(async () => {
+      const lines = (await readFile(join(harness.dataDir, "team-sessions"), "utf8")).split("\n");
+      const marks = lines.filter((line) => line.startsWith("test ")).map((line) => line.split(" "));
+      expect(marks.map((mark) => mark.slice(0, 2).join(" "))).toEqual([`test ${tester.label}`]);
+      expect(Number(marks[0]?.[2])).toBeGreaterThan(0);
+    });
+    for (const ctl of controls) ctl.socket.destroy();
+  });
+
+  it("hides test pcs through reopen, compaction and the hourly prune, then lets the mark go", async () => {
+    const dir = await tempDir();
+    const c = clock();
+    const tester = "aaaaaaaaaaaaaaaa";
+    const mate = "bbbbbbbbbbbbbbbb";
+    const journal = () => readFile(join(dir, "team-sessions"), "utf8");
+    const hidden = (stats: TeamStats) => {
+      expect(stats.pcs.map((pc) => pc.label)).toEqual([mate]);
+      expect(stats.people.map((person) => person.pcs.map((pc) => pc.label))).toEqual([[mate]]);
+    };
+    const team = await TeamLog.open(dir, c.now);
+    team.markTest(tester);
+    // The hourly prune runs before the test pc first connects.
+    c.advance(2 * HOUR);
+    await team.checkpoint();
+    team.setName(tester, "Release check");
+    team.pcUp(tester);
+    team.pcUp(mate);
+    c.advance(HOUR);
+    team.pcDown(tester);
+    team.pcDown(mate);
+    hidden(team.stats(0));
+    await team.close();
+    expect(await journal()).toContain(`test ${tester} ${T0}\n`);
+
+    const reopened = await TeamLog.open(dir, c.now);
+    hidden(reopened.stats(0));
+    expect(await journal()).toContain(`test ${tester} ${T0}\n`);
+    // 90 days after the mark, its spans still hold it.
+    c.advance(TEAM_KEEP_MS - HOUR);
+    await reopened.checkpoint();
+    hidden(reopened.stats(0));
+    await reopened.close();
+    expect(await journal()).toContain(`test ${tester} ${T0}\n`);
+
+    c.advance(TEAM_KEEP_MS);
+    const later = await TeamLog.open(dir, c.now);
+    expect(await journal()).not.toContain("test ");
+    later.pcUp(tester);
+    expect(later.stats(0).pcs.map((pc) => pc.label)).toEqual([tester]);
+    await later.close();
+  });
+
+  it("honors a test line appended to the journal by hand", async () => {
+    const dir = await tempDir();
+    const tester = "aaaaaaaaaaaaaaaa";
+    const mate = "bbbbbbbbbbbbbbbb";
+    await writeFile(join(dir, "team-sessions"), `pc ${tester} ${T0} ${T0 + HOUR}\npc ${mate} ${T0} ${T0 + HOUR}\n`);
+    await appendFile(join(dir, "team-sessions"), `test ${tester} ${T0 + 2 * HOUR}\n`);
+    const team = await TeamLog.open(dir, clock(T0 + 2 * HOUR).now);
+    expect(team.stats(0).pcs.map((pc) => pc.label)).toEqual([mate]);
+    expect(team.stats(0).people.map((person) => person.pcs.map((pc) => pc.label))).toEqual([[mate]]);
+    await team.close();
+    expect(await readFile(join(dir, "team-sessions"), "utf8")).toContain(`test ${tester} ${T0 + 2 * HOUR}\n`);
   });
 
   it("keeps a wink name on this relay and still parses on the 1.0.172 schema", () => {

@@ -38,6 +38,7 @@ Settings, which saves the base, turns phone access on and enrolls. Without
 `--base` the script prints the bare `wki1.` invite as before, for a PC whose
 base is already set. A base that is not a domain name is refused. The relay
 never sees the setup code, only the invite inside it.
+`--test`, with or without `--base`, signs a test mark into the invite: the PC it enrolls never shows on the team page.
 
 ## Enrollment signature
 
