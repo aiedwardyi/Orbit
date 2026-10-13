@@ -4,6 +4,7 @@ import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -962,6 +963,128 @@ describe("Drive mirror", () => {
     expect(summary.retryAfterMs).toBeNull();
     expect(read(pcs[0], "assets/a.png")).toBe("asset");
     expect(read(pcs[0], "devices/device-work.json")).toBe("peer");
+  });
+
+  describe("parallel uploads", () => {
+    const pictures = Array.from({ length: 20 }, (_, index) => `pictures/p${String(index).padStart(2, "0")}.png`);
+    const copies = (path: string) => [...drive.records.values()].filter(({ file }) => decodeDrivePath(file.name) === path).length;
+    let flight = { live: 0, peak: 0, events: new Array<string>() };
+
+    beforeEach(() => {
+      flight = { live: 0, peak: 0, events: [] };
+      drive.root();
+    });
+
+    function held(respond: (path: string, forward: () => Promise<Response>) => Promise<Response> = (_, forward) => forward()) {
+      return createDriveClient({ getAccessToken: async () => "test-access", fetch: async (input, init) => {
+        if (init?.method !== "POST" || !(init.body instanceof Blob)) return withParents(input, init);
+        const path = decodeDrivePath(/"name":"([^"]+)"/.exec(await init.body.text())![1])!;
+        flight.peak = Math.max(flight.peak, ++flight.live);
+        flight.events.push(`start ${path}`);
+        try {
+          return await respond(path, async () => { await delay(25); return drive.fetch(input, init); });
+        } finally {
+          flight.live--;
+          flight.events.push(`end ${path}`);
+        }
+      } });
+    }
+
+    const answer = async (status: number, reason: string) => {
+      await delay(5);
+      return Response.json({ error: { code: status, errors: [{ domain: "global", reason }] } }, { status });
+    };
+
+    it("keeps eight creates in flight and tracks every one", async () => {
+      for (const path of pictures) write(pcs[0], path, path);
+      const summary = await mirrorFor(pcs[0], { client: held() }).syncOnce();
+      expect(flight.peak).toBe(8);
+      expect(summary.uploaded.toSorted()).toEqual(pictures);
+      expect(Object.keys(table(pcs[0]).files).toSorted()).toEqual(pictures);
+      expect(drive.uploads).toHaveLength(20);
+    });
+
+    it("finishes each tier before the next starts", async () => {
+      const tiers = [["workspace.json"], Array.from({ length: 10 }, (_, index) => `assets/a${index}.png`), pictures.slice(0, 10), ["memory-v2/bot/aaaaaaaaaaaa.json"], ["threads-v2/bot/thread/writer-home/head.json"], ["devices/device-home.json"]];
+      for (const path of tiers.flat()) write(pcs[0], path, path);
+      await mirrorFor(pcs[0], { client: held() }).syncOnce();
+      for (const [index, tier] of tiers.entries()) {
+        const first = Math.min(...tier.map((path) => flight.events.indexOf(`start ${path}`)));
+        expect(first).toBeGreaterThanOrEqual(0);
+        for (const path of tiers.slice(0, index).flat()) expect(flight.events.indexOf(`end ${path}`)).toBeLessThan(first);
+      }
+      expect(flight.peak).toBe(8);
+    });
+
+    it("takes one strike for a rate-limited batch, keeps its finished uploads, and adds no copies next pass", async () => {
+      for (const path of pictures) write(pcs[0], path, path);
+      let limited = new Set(pictures.slice(0, 6));
+      const mirror = mirrorFor(pcs[0], { client: held((path, forward) => limited.has(path) ? answer(429, "rateLimitExceeded") : forward()) });
+      const stopped = await mirror.syncOnce();
+      expect(stopped.retryAfterMs).toBe(1_000);
+      expect(stopped.uploaded.toSorted()).toEqual(pictures.slice(6, 8));
+      expect(flight.events.filter((event) => event.startsWith("start "))).toHaveLength(8);
+      expect(Object.keys(table(pcs[0]).files).toSorted()).toEqual(pictures.slice(6, 8));
+      limited = new Set(pictures);
+      expect((await mirror.syncOnce()).retryAfterMs).toBe(2_000);
+      limited = new Set();
+      const next = await mirror.syncOnce();
+      expect(next.retryAfterMs).toBeNull();
+      expect(next.uploaded.toSorted()).toEqual([...pictures.slice(0, 6), ...pictures.slice(8)]);
+      expect(pictures.map(copies)).toEqual(pictures.map(() => 1));
+      expect(Object.keys(table(pcs[0]).files).toSorted()).toEqual(pictures);
+    });
+
+    it("holds the rest when Drive fills mid-batch and still downloads", async () => {
+      for (const path of pictures) write(pcs[0], path, path);
+      seed("devices/device-work.json", "peer");
+      const full = new Set(pictures.slice(0, 6));
+      const summary = await mirrorFor(pcs[0], { client: held((path, forward) => full.has(path) ? answer(403, "storageQuotaExceeded") : forward()) }).syncOnce();
+      expect(summary).toMatchObject({ driveFull: true, failed: [], retryAfterMs: null, downloaded: ["devices/device-work.json"] });
+      expect(summary.uploaded.toSorted()).toEqual(pictures.slice(6, 8));
+      expect(flight.events.filter((event) => event.startsWith("start "))).toHaveLength(8);
+      const next = await mirrorFor(pcs[0]).syncOnce();
+      expect(next.driveFull).toBe(false);
+      expect(next.uploaded.toSorted()).toEqual([...pictures.slice(0, 6), ...pictures.slice(8)]);
+      expect(pictures.map(copies)).toEqual(pictures.map(() => 1));
+    });
+
+    it("adopts creates that landed before a crash without a second copy", async () => {
+      const batch = pictures.slice(0, 8);
+      for (const path of batch) write(pcs[0], path, path);
+      const lost = new Set(batch.slice(0, 4));
+      const crashed = await mirrorFor(pcs[0], { client: held(async (path, forward) => {
+        const response = await forward();
+        if (lost.has(path)) throw new Error("simulated crash after Drive commit");
+        return response;
+      }) }).syncOnce();
+      expect(crashed.failed.toSorted()).toEqual(batch.slice(0, 4));
+      expect(Object.keys(table(pcs[0]).files).toSorted()).toEqual(batch.slice(4));
+      const next = await mirrorFor(pcs[0]).syncOnce();
+      expect(next.uploaded).toEqual([]);
+      expect(next.duplicates).toEqual([]);
+      expect(Object.keys(table(pcs[0]).files).toSorted()).toEqual(batch);
+      expect(drive.uploads).toHaveLength(8);
+    });
+
+    it("loses nothing and adds no extra copies beside a PC uploading one at a time", async () => {
+      for (const pc of pcs.slice(0, 2)) for (const path of pictures) write(pc, path, path);
+      let queue: Promise<unknown> = Promise.resolve();
+      const oneAtATime = createDriveClient({ getAccessToken: async () => "test-access", fetch: (input, init) => {
+        if (init?.method !== "POST") return withParents(input, init);
+        const response = queue.then(async () => { await delay(25); return drive.fetch(input, init); });
+        queue = response.catch(() => undefined);
+        return response;
+      } });
+      await Promise.all([mirrorFor(pcs[0], { client: held() }).syncOnce(), mirrorFor(pcs[1], { client: oneAtATime }).syncOnce()]);
+      for (const pc of pcs) await mirrorFor(pc).syncOnce();
+      for (const path of pictures) {
+        expect(copies(path)).toBeGreaterThanOrEqual(1);
+        expect(copies(path)).toBeLessThanOrEqual(2);
+        expect(read(pcs[2], path)).toBe(path);
+      }
+      for (const pc of pcs) expect(Object.keys(table(pc).files).toSorted()).toEqual(pictures);
+    });
   });
 });
 

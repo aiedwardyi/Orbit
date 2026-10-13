@@ -38,6 +38,7 @@ const tableSchema = z.object({
 }).strict();
 const RETRY_BASE_MS = 1_000;
 const RETRY_MAX_MS = 5 * 60 * 1_000;
+const TRANSFERS_AT_ONCE = 8;
 type Table = z.infer<typeof tableSchema>;
 type Binding = z.infer<typeof bindingSchema>;
 type ContentFile = DriveFile & { md5Checksum: string; size: string };
@@ -621,7 +622,8 @@ export function createDriveMirror(options: Options) {
       } catch (error) {
         check();
         if (error instanceof DriveClientError && error.rateLimited) {
-          summary.retryAfterMs = rateWait(error);
+          // Transfers in flight share one strike, or the backoff would jump by 2^8.
+          if (!stopped) summary.retryAfterMs = rateWait(error);
           stopped = true;
           return;
         }
@@ -634,11 +636,32 @@ export function createDriveMirror(options: Options) {
         summary.failed.push(path);
       }
     }
-    const ordered = (items: Iterable<string>) => [...items].sort((a, b) => priority(a) - priority(b) || a.localeCompare(b));
-    for (const path of ordered(paths)) {
-      await one(path);
-      if (stopped) return summary;
+    // One priority tier at a time; a throw still waits for the rest in flight so no save lands after the pass.
+    async function each(items: Iterable<string>): Promise<void> {
+      const tiers = new Map<number, string[]>();
+      for (const path of [...items].sort((a, b) => priority(a) - priority(b) || a.localeCompare(b))) {
+        const tier = tiers.get(priority(path));
+        if (tier) tier.push(path);
+        else tiers.set(priority(path), [path]);
+      }
+      const thrown: unknown[] = [];
+      for (const tier of tiers.values()) {
+        const worker = async () => {
+          while (tier.length > 0 && !stopped && thrown.length === 0) {
+            try {
+              await one(tier.shift()!);
+            } catch (error) {
+              thrown.push(error);
+            }
+          }
+        };
+        await Promise.all(Array.from({ length: TRANSFERS_AT_ONCE }, worker));
+        if (thrown.length > 0) throw thrown[0];
+        if (stopped) return;
+      }
     }
+    await each(paths);
+    if (stopped) return summary;
     if (fullList && summary.failed.length === 0) {
       const page = await drive(() => client.listChanges(cursor));
       if (!page) return summary;
@@ -649,10 +672,8 @@ export function createDriveMirror(options: Options) {
         if (path) again.push(path);
       }
       cursor = page.newStartPageToken;
-      for (const path of ordered(new Set(again))) {
-        await one(path);
-        if (stopped) return summary;
-      }
+      await each(new Set(again));
+      if (stopped) return summary;
     }
     function remember(token: string): void {
       if (summary.retryAfterMs !== null || !token) return;
