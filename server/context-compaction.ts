@@ -430,6 +430,7 @@ function foldToolRuns(units: ReplayUnit[], includeSpeakers: boolean): ReplayUnit
 function compactionAt(
   messages: Message[],
   pathIndex: number,
+  indexOf: (id: string) => number,
 ): ApplicableCompaction | { unsupported: true; messageId: string; version: number } | null {
   const message = messages[pathIndex]!;
   if (message.kind !== "compaction") return null;
@@ -438,10 +439,8 @@ function compactionAt(
     return { unsupported: true, messageId: message.id, version: parsed.version };
   }
   if (parsed.status === "invalid") return null;
-  const coveredIndex = messages.findIndex((candidate) => candidate.id === parsed.value.coveredThroughId);
-  const firstKeptIndex = parsed.value.firstKeptId === null
-    ? null
-    : messages.findIndex((candidate) => candidate.id === parsed.value.firstKeptId);
+  const coveredIndex = indexOf(parsed.value.coveredThroughId);
+  const firstKeptIndex = parsed.value.firstKeptId === null ? null : indexOf(parsed.value.firstKeptId);
   if (
     coveredIndex < 0 ||
     coveredIndex >= pathIndex ||
@@ -456,17 +455,34 @@ function applicableCompaction(
   messages: Message[],
 ): ApplicableCompaction | { unsupported: true; messageId: string; version: number } | null {
   for (let pathIndex = messages.length - 1; pathIndex >= 0; pathIndex--) {
-    const found = compactionAt(messages, pathIndex);
+    const found = compactionAt(messages, pathIndex, (id) => messages.findIndex((candidate) => candidate.id === id));
     if (found) return found;
   }
   return null;
 }
 
-function validCompactions(messages: Message[]): ApplicableCompaction[] {
-  return messages.flatMap((_, pathIndex) => {
-    const found = compactionAt(messages, pathIndex);
-    return found && !("unsupported" in found) ? [found] : [];
+function pathCompactions(
+  messages: Message[],
+): Array<ApplicableCompaction | { unsupported: true; messageId: string; version: number }> {
+  const at: number[] = [];
+  const wanted = new Set<string>();
+  messages.forEach((message, pathIndex) => {
+    if (message.kind !== "compaction") return;
+    at.push(pathIndex);
+    const parsed = readContextCompaction({ value: message.compaction });
+    if (parsed.status !== "valid") return;
+    wanted.add(parsed.value.coveredThroughId);
+    if (parsed.value.firstKeptId !== null) wanted.add(parsed.value.firstKeptId);
   });
+  const indexes = new Map<string, number>();
+  messages.forEach((message, pathIndex) => {
+    if (wanted.has(message.id) && !indexes.has(message.id)) indexes.set(message.id, pathIndex);
+  });
+  return at.flatMap((pathIndex) => compactionAt(messages, pathIndex, (id) => indexes.get(id) ?? -1) ?? []);
+}
+
+function validCompactions(found: ReturnType<typeof pathCompactions>): ApplicableCompaction[] {
+  return found.filter((row): row is ApplicableCompaction => !("unsupported" in row));
 }
 
 export function isFallbackSummary(summary: string): boolean {
@@ -475,7 +491,7 @@ export function isFallbackSummary(summary: string): boolean {
 
 /** Earlier rows the latest one re-covers; a session seeded on one of them holds the same span. */
 export function supersededCompactionIds(messages: Message[], latestId: string | null): Set<string> {
-  const rows = validCompactions(messages);
+  const rows = validCompactions(pathCompactions(messages));
   const latest = rows.find((row) => row.messageId === latestId);
   if (!latest) return new Set();
   return new Set(rows
@@ -485,9 +501,11 @@ export function supersededCompactionIds(messages: Message[], latestId: string | 
 
 /** The latest summary, when it is a fallback or chained from one since the last repair. */
 export function repairTarget(messages: Message[]): RepairTarget | null {
-  const target = applicableCompaction(messages);
+  const found = pathCompactions(messages);
+  // The last resolved row is the one applicableCompaction returns.
+  const target = found.at(-1);
   if (!target || "unsupported" in target) return null;
-  const rows = validCompactions(messages);
+  const rows = validCompactions(found);
   // A later row on the same boundary is a repair and replaces the earlier one.
   const chain = rows.filter((row, index) =>
     !rows.slice(index + 1).some((later) => later.value.coveredThroughId === row.value.coveredThroughId));

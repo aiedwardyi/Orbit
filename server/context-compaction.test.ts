@@ -1819,6 +1819,32 @@ describe("summary repair", () => {
     expect(repairTarget(pathTo("m31"))).toBeNull();
   });
 
+  it("reads a long path a bounded number of times however many summaries it holds", () => {
+    const items: Message[] = [];
+    for (let block = 0; block < 40; block++) {
+      const last = block * 100 + 99;
+      items.push(...longHistory(100, block * 100), compactionMessage(`c${block}`, `m${last}`, row({
+        summary: block === 0 ? `${NOTICE}\nfallback digest` : `model summary ${block}`,
+        coveredThroughId: `m${last - 1}`,
+        firstKeptId: `m${last}`,
+        sourceMessageCount: last,
+      })));
+    }
+    let reads = 0;
+    const path = new Proxy(items, {
+      get(target, key, receiver) {
+        if (typeof key === "string" && /^\d+$/.test(key)) reads++;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+
+    expect(supersededCompactionIds(path, "c39").size).toBe(0);
+    expect(reads).toBeLessThan(4 * items.length);
+    reads = 0;
+    expect(repairTarget(path)).toMatchObject({ target: { messageId: "c39" }, fallback: { messageId: "c0" }, good: null });
+    expect(reads).toBeLessThan(4 * items.length);
+  });
+
   it("reports one call record per summarizer attempt with batch, attempt and result", async () => {
     const compactRecords: SummaryCallRecord[] = [];
     const replies = ["sure, happy to help", "SUMMARY\ncompact summary"];

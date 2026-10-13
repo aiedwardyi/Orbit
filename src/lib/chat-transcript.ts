@@ -30,7 +30,7 @@ export function messageVisible(message: Message, options: ChatTranscriptOptions)
     case "compaction": {
       const parsed = readContextCompaction({ value: message.compaction });
       if (parsed.status !== "valid") return parsed.status !== "invalid";
-      // A repaired summary re-covers an earlier row's boundary: one line per boundary.
+      // The first row on a boundary stays so the line marks where the summary happened; a repair row lands later in the path.
       const index = options.transcript.findIndex((item) => item.id === message.id);
       return !options.transcript.slice(0, Math.max(0, index)).some((earlier) => {
         if (earlier.kind !== "compaction") return false;
