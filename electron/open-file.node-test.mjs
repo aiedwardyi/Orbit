@@ -84,9 +84,22 @@ describe("open-file policy", () => {
     assert.deepEqual(shell.calls, [["reveal", exe]]);
   });
 
-  it("rejects a directory, a missing file and a relative path", async () => {
+  it("opens a folder in File Explorer", async () => {
     const shell = fakeShell();
-    await assert.rejects(openLocalFile(dir, { shell }), { message: "That path is not a file" });
+    assert.equal(await openLocalFile(dir, { shell }), "folder");
+    assert.deepEqual(shell.calls, [["open", await fs.promises.realpath(dir)]]);
+  });
+
+  it("only reveals a folder named as a shell view", async () => {
+    const view = path.join(dir, "panel.{21EC2020-3AEA-1069-A2DD-08002B30309D}");
+    fs.mkdirSync(view);
+    const shell = fakeShell();
+    assert.equal(await openLocalFile(view, { shell }), "reveal");
+    assert.deepEqual(shell.calls, [["reveal", await fs.promises.realpath(view)]]);
+  });
+
+  it("rejects a missing file and a relative path", async () => {
+    const shell = fakeShell();
     await assert.rejects(openLocalFile(path.join(dir, "gone.docx"), { shell }), { message: "That file no longer exists" });
     await assert.rejects(openLocalFile("report.docx", { shell }), { message: "That file path is invalid" });
     assert.deepEqual(shell.calls, []);
@@ -112,8 +125,24 @@ describe("open-file policy", () => {
     });
   });
 
+  it("keeps a linked folder inside its bot folder", async () => {
+    const bot = path.join(dir, "bot2");
+    fs.mkdirSync(path.join(bot, "shots"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "elsewhere"));
+    const shell = fakeShell();
+    assert.equal(await openLocalFile(path.join(bot, "shots"), { shell, base: bot }), "folder");
+    await assert.rejects(openLocalFile(path.join(dir, "elsewhere"), { shell, base: bot }), {
+      message: "That file is outside the bot's folder",
+    });
+  });
+
   it("says so when the default app cannot open the file", async () => {
     const shell = { openPath: async () => "No application is associated", showItemInFolder: () => {} };
     await assert.rejects(openLocalFile(file("deck.pptx"), { shell }), { message: "That file could not be opened" });
+  });
+
+  it("says so when File Explorer cannot open the folder", async () => {
+    const shell = { openPath: async () => "Access is denied", showItemInFolder: () => {} };
+    await assert.rejects(openLocalFile(dir, { shell }), { message: "That folder could not be opened" });
   });
 });
