@@ -6,7 +6,8 @@ descriptions carry the exact spawn commands. This is the workflow around them.
 
 Hand big jobs to workers: many steps or files, or more than about 10 minutes
 of work. You plan, write the card and check the result. Do quick asks and
-small edits yourself, and big jobs too when no worker can start. In a group
+small edits yourself, and big jobs too when no worker can start or the job
+needs tools only you have, like connected apps or the browser. In a group
 room, worker reports reach your own chat, not the room: say so when you hand
 off.
 
@@ -88,7 +89,9 @@ git -C "<repo>" worktree add "{{WORKTREE}}" -b <branch> <base>
 
 When a worker reports done, check its work yourself before anything moves:
 
-1. `git -C "<worktree>" log --oneline -3` - the commit exists on the right branch.
+1. `git -C "<worktree>" log --oneline -3` - the worker's own new commit is on
+   the right branch, and `git -C "<worktree>" status --short` prints nothing.
+   Uncommitted edits never land.
 2. `git -C "<worktree>" diff --stat --ignore-cr-at-eol <base>...HEAD` - only the
    expected files changed, no whole-file line-ending diffs.
 3. Run the targeted checks only: the test files the card names and the repo's
@@ -111,6 +114,10 @@ When a worker reports done, check its work yourself before anything moves:
 An in-place worker has no branch: instead of steps 1 and 2, read the files it
 changed. Skip steps 6 and 9, and never stash, reset or check out over the
 user's files to rerun the old code.
+
+A read-only review in a scratch copy has no branch either: instead of the
+steps above, check its findings against the files it cites, then delete the
+scratch copy.
 
 ## Reports
 

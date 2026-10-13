@@ -16,6 +16,7 @@ describe("harness playbook", () => {
     expect(prompt).toContain("Do quick asks");
     expect(prompt).toContain("small edits yourself");
     expect(prompt).toContain("big jobs too when no worker can start");
+    expect(prompt).toContain("needs tools only you have, like connected apps or the browser");
   });
 
   it("gives an editing job in a plain folder one worker in place", () => {
@@ -27,6 +28,16 @@ describe("harness playbook", () => {
     expect(prompt).toContain("The same goes for a checkout with uncommitted changes");
     expect(prompt).toContain("An in-place worker has no branch: instead of steps 1 and 2, read the files it");
     expect(prompt).toContain("Skip steps 6 and 9, and never stash, reset or check out over the");
+  });
+
+  it("verifies a scratch-copy review by its findings and deletes the copy", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("A read-only review in a scratch copy has no branch either: instead of the");
+  });
+
+  it("lands only the worker's own commit from a clean worktree", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("the worker's own new commit is on");
+    expect(prompt).toContain('`git -C "<worktree>" status --short` prints nothing');
   });
 
   it("checks for changes before writing the card and keeps cards out of the repo", () => {
