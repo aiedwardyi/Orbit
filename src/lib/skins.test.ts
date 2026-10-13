@@ -276,6 +276,23 @@ describe("Terminal composer", () => {
   });
 });
 
+describe("Terminal tool rows", () => {
+  const terminal = css.split('@scope ([data-skin="terminal"]) to ([data-skin]) {')[1]?.split("@keyframes term-blink")[0] ?? "";
+  const rule = (selector: string) => terminal.match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+
+  it("wraps output rows inside the column instead of clipping them", () => {
+    const out = rule(String.raw`\.term-step-out > div`);
+    expect(out).toMatch(/white-space: pre-wrap;/);
+    expect(out).toContain("overflow-wrap: anywhere;");
+  });
+
+  it("wraps the header and clamps it at four lines", () => {
+    const head = rule(String.raw`\.term-step-head`);
+    expect(head).toContain("-webkit-line-clamp: 4;");
+    expect(head).toContain("overflow-wrap: anywhere;");
+  });
+});
+
 describe("Ledger", () => {
   it("is registered as a first-class skin", () => {
     expect(SKIN_IDS).toContain("ledger");

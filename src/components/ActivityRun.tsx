@@ -85,7 +85,7 @@ function TermStep({ name, rawVerb, summary, ok, elapsed, detail, notices }: { na
   return (
     <div data-term-step={state} className="term-step min-w-0 max-w-full">
       <span className="sr-only">{t(aria.key, { tool: summary ? `${verb} ${summary}` : verb, seconds: aria.seconds ?? 0 })}</span>
-      <div aria-hidden="true" className="term-step-head truncate">
+      <div aria-hidden="true" className="term-step-head">
         <span className="font-semibold text-ink">{verb}</span>
         {args && `(${args})`}
       </div>
