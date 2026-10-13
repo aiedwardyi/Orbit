@@ -1223,6 +1223,103 @@ for (const busy of ["✻ Working… (1s · esc to interrupt)", "• Working (1s 
   });
 }
 
+const claudeIdle = (jobs) => `\x1b[2J\x1b[H✻ Brewed for 21s · done 6:26 PM${jobs ? ` · ${jobs} still running` : ""}\r\n${"─".repeat(40)}\r\n> \r\n${"─".repeat(40)}\r\n⏵⏵ bypass permissions on${jobs ? ` · ${jobs}` : ""} · ← for agents\r\n`;
+
+for (const jobs of ["1 shell", "2 shells, 1 monitor", "3 monitors", "1 local agent", "2 local agents"]) {
+  test(`turn-end note is held while background jobs run, then delivered once: ${jobs}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "claude go" });
+    f.children[0].data(claudeIdle(jobs));
+    await f.settle();
+    f.host.attendBot("bot-1", pane.sessionId, "auto", "waiting on build");
+    await f.advance(90_000);
+    assert.equal(f.notes.length, 0);
+    await f.advance(600_000);
+    assert.equal(f.notes.length, 0);
+    f.children[0].data(claudeIdle());
+    await f.advance(29_999);
+    assert.equal(f.notes.length, 0);
+    await f.advance(1);
+    assert.deepEqual(f.notes.map((note) => note.text), ["waiting on build"]);
+    await f.advance(600_000);
+    assert.equal(f.notes.length, 1);
+  });
+}
+
+test("a held turn-end note is dropped when the agent resumes after its jobs finish", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell, 1 monitor"));
+  await f.settle();
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "waiting on build");
+  await f.advance(90_000);
+  assert.equal(f.notes.length, 0);
+  f.children[0].data(claudeIdle());
+  await f.advance(10_000);
+  f.children[0].data("✻ Working… (1s · esc to interrupt)\r\n");
+  f.children[0].data(claudeIdle());
+  await f.advance(90_000);
+  assert.equal(f.notes.length, 0);
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "build checked");
+  await f.advance(90_000);
+  assert.deepEqual(f.notes.map((note) => note.text), ["build checked"]);
+});
+
+test("a turn-end note held on background jobs goes out once after 30 minutes", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell"));
+  await f.settle();
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "dev server up");
+  await f.advance(90_000);
+  assert.equal(f.notes.length, 0);
+  await f.advance(30 * 60_000 - 90_000 - 1);
+  assert.equal(f.notes.length, 0);
+  await f.advance(1);
+  assert.deepEqual(f.notes.map((note) => note.text), ["dev server up"]);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("background job words in output above the footer do not hold a turn-end note", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "claude go" });
+  f.children[0].data("\x1b[2J\x1b[H⏵⏵ bypass permissions on · 1 shell, 1 monitor · ← for agents\r\nstarted 2 shells\r\n");
+  f.children[0].data(claudeIdle().replace("\x1b[2J\x1b[H", ""));
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "all green");
+  await f.advance(90_000);
+  assert.deepEqual(f.notes.map((note) => note.text), ["all green"]);
+});
+
+test("a report clears a turn-end note held on background jobs", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "claude go" });
+  f.children[0].data(claudeIdle("1 shell"));
+  await f.settle();
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "waiting on build");
+  await f.advance(90_000);
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  await f.advance(600_000);
+  f.children[0].data(claudeIdle());
+  await f.advance(30 * 60_000);
+  assert.equal(f.notes.length, 0);
+});
+
+test("a Codex idle screen never holds a turn-end note", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.children[0].data("\x1b[2J\x1b[H• Ran pnpm dev\r\n  └ 1 shell, 1 monitor\r\n\r\n› Explain this codebase\r\n\r\n  1 background terminal running · /ps to view\r\n  100% context left · ? for shortcuts\r\n");
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "all green");
+  await f.advance(90_000);
+  assert.deepEqual(f.notes.map((note) => note.text), ["all green"]);
+});
+
 test("a worker pane that goes quiet without a report sends one stall note with its last lines", async () => {
   const f = stallFixture();
   const pane = await f.host.openForBot("bot-1", { label: "TAP-AUDIT | Astra | high", command: "codex --model gpt-6-astra 'Read card.md and do it.'" });
