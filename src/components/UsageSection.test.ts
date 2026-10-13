@@ -254,7 +254,7 @@ describe("UsageSection friends plan card", () => {
     expect(host.querySelector('[aria-label="5h: 22% used"] .text-accent')).not.toBeNull();
   });
 
-  it("points an expired Muse window at refresh like the other engines", () => {
+  it("points an expired Muse window at Refresh instead of the next message", () => {
     const muse = mockState.instances.find((instance) => instance.instanceId === "muse");
     if (!muse?.rateLimits) throw new Error("muse fixture missing rateLimits");
     const original = muse.rateLimits;
@@ -268,8 +268,8 @@ describe("UsageSection friends plan card", () => {
         ],
       };
       const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(html).not.toContain("Check now");
-      expect(html.match(/Reset since the last check\. Updates on the next message\./g) ?? []).toHaveLength(2);
+      expect(html).toContain("Reset since this reading. Use Refresh to update.");
+      expect(html.match(/Updates on the next message/g) ?? []).toHaveLength(1);
       expect(html).toContain(">Last seen 4d ago<");
     } finally {
       muse.rateLimits = original;
@@ -463,6 +463,7 @@ describe("UsageSection friends plan card", () => {
       for (const meter of museMeters()) expect(meter?.querySelector(".text-accent")).not.toBeNull();
       await tapRefresh();
       expect(host.textContent).toMatch(/Muse limit reached\. Resets in 1h5[678]m\./);
+      expect(host.textContent).toContain("Updated just now");
       for (const meter of museMeters()) {
         expect(meter?.querySelector(".text-accent, .text-warning, .text-danger")).toBeNull();
         expect(meter?.querySelector(".text-ink-secondary")).not.toBeNull();

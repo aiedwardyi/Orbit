@@ -108,7 +108,7 @@ function EnginePlanRow({
                 {windowExpired(window.resetsAt, now) ? (
                   <span>
                     {shortLabel}{" "}
-                    <span className="text-ink-secondary">{t("usage.limits.resetPassed")}</span>
+                    <span className="text-ink-secondary">{t(muse ? "usage.limits.resetPassedCheck" : "usage.limits.resetPassed")}</span>
                   </span>
                 ) : (
                   <>
@@ -196,7 +196,7 @@ function PlanUsage() {
     try {
       const results = await Promise.all(refreshable.map((instance) =>
         refresh(instance, instance.driverKind === "museAgent" ? "check" : "refresh")));
-      setConfirmed(results.every(({ error, status }) => !error && (status === undefined || status === "fresh")));
+      setConfirmed(results.every(({ error, status }) => !error && (status === undefined || status === "fresh" || status === "limit_reached")));
     } finally {
       refreshingRef.current = false;
       setRefreshing(false);
