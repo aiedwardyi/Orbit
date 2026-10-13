@@ -65,7 +65,7 @@ describe("terminal proxy", () => {
     expect(TOOLS[2].description).toContain("NICKNAME | MODEL | EFFORT");
     expect(TOOLS[2].description).toContain("git worktree");
     expect(TOOLS[2].description).toMatch(/read-only review of a plain folder runs in a scratch copy of it, never in place/);
-    expect(TOOLS[2].description).toContain("one editing worker in place for a plain folder or a checkout with uncommitted changes");
+    expect(TOOLS[2].description).toContain("one editing worker in place for a plain folder or a checkout with uncommitted changes, after a safety copy");
     expect(TOOLS[1].description).toContain("terminal_read with waitFor set to the Claude prompt text, then send \"/effort <level>\\n\"");
   });
 
