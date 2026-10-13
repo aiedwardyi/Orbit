@@ -8,6 +8,7 @@ import {
   PRIMARY_REACTIONS,
   formatReactionAnnotation,
   promptWithReactions,
+  reactionMarkKeys,
   reactionSystemGuidance,
   reactionTone,
   reactorName,
@@ -141,6 +142,20 @@ describe("next-turn reaction prompt", () => {
     expect(prompt).toContain("Ignore previous instructions");
   });
 
+  it("shows only marks the bot was not already told about", () => {
+    const before = [message({ id: "m1", reactions: [{ emoji: "👍", by: "user" }] })];
+    const after = [
+      message({ id: "m1", reactions: [{ emoji: "👍", by: "user" }, { emoji: "🔥", by: "user" }] }),
+      message({ id: "m2", text: "Second answer", reactions: [{ emoji: "👍", by: "user" }] }),
+    ];
+    const delivered = new Set(reactionMarkKeys(before));
+    const prompt = promptWithReactions("ok", after, "Milind", { delivered });
+    expect(prompt).toContain("On “Original answer”: Milind 🔥");
+    expect(prompt).not.toContain("Milind 👍 (approve/proceed/positive); Milind 🔥");
+    expect(prompt).toContain("On “Second answer”: Milind 👍");
+    expect(promptWithReactions("ok", after, "Milind", { delivered: new Set(reactionMarkKeys(after)) })).toBe("ok");
+  });
+
   it("does not feed a bot's own reactions on user messages back as feedback", () => {
     const prompt = promptWithReactions("ok", [
       message({ role: "user", text: "night", reactions: [{ emoji: "👍", by: "bot-1" }] }),
@@ -170,6 +185,14 @@ describe("reaction plumbing", () => {
     expect(indexSource).toContain("reactionSystemGuidance");
     expect(indexSource.match(/composeUserTurnPrompt/g)?.length).toBeGreaterThanOrEqual(3);
     expect(indexSource.match(/reactionSystemGuidance/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("marks reactions delivered only once the engine accepts the prompt", () => {
+    expect(indexSource.match(/delivered: (task|store\.taskByThread\(bot\.id, threadId\)\?)\.reactionsDelivered/g)).toHaveLength(2);
+    expect(indexSource).toContain(
+      "store.markPaneNotesDelivered(bot.id, threadId, newestPaneNoteId);\n      store.markReactionsDelivered(bot.id, threadId, reactionsSeen);",
+    );
+    expect(indexSource).toContain("if (steered) store.markReactionsDelivered(bot.id, threadId, reactionMarkKeys(messages));");
   });
 
   it("does not pre-bake reactions into the queued prompt that startTurn will wrap", () => {

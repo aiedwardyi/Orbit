@@ -101,25 +101,38 @@ export function reactionToolGuidance(): string {
   return "You can also react to the user's message yourself with the react tool. React when it genuinely fits the moment (wins, approvals, thanks, jokes), roughly 1 in 4 user messages, never every message, and never just because a message contains a particular word.";
 }
 
+// bot reactions on user messages are the bot's own output, not feedback;
+// launch rows are display-only and never reach the model
+function feedbackMarks(message: ReactionMessage): ReactionMark[] {
+  if (message.kind === "launch") return [];
+  return (message.reactions ?? []).filter((reaction) => message.role !== "user" || reaction.by === "user");
+}
+
+const markKey = (message: ReactionMessage, reaction: ReactionMark) =>
+  `${message.id} ${reaction.by} ${reaction.emoji}`;
+
+/** Every feedback mark on the thread now, as passed back in `delivered`. */
+export function reactionMarkKeys(messages: readonly ReactionMessage[]): string[] {
+  return messages.flatMap((message) => feedbackMarks(message).map((reaction) => markKey(message, reaction)));
+}
+
 /**
- * Current reaction state for engines that resume without replaying history.
- * Full-replay turns should pass `omitMessageIds` for bot messages whose
- * `[reactions: …]` marker is already on the replayed transcript so those
- * marks are not prepended a second time. Resume-only turns omit nothing.
+ * Reactions the bot has not been told about yet. `delivered` holds the
+ * `reactionMarkKeys` of its last dispatched turn; absent means show all.
+ * Full-replay turns pass `omitMessageIds` for bot messages whose
+ * `[reactions: …]` marker is already on the replayed transcript.
  */
 export function promptWithReactions(
   text: string,
   messages: readonly ReactionMessage[],
   userName = "User",
-  opts?: { omitMessageIds?: ReadonlySet<string> },
+  opts?: { omitMessageIds?: ReadonlySet<string>; delivered?: ReadonlySet<string> },
 ): string {
   if (text.startsWith(REACTION_PROMPT_PREFIX)) return text;
-  // bot reactions on user messages are the bot's own output, not feedback
   const feedback = (message: ReactionMessage) =>
-    (message.reactions ?? []).filter((reaction) => message.role !== "user" || reaction.by === "user");
-  // launch rows are display-only and never reach the model
+    feedbackMarks(message).filter((reaction) => !opts?.delivered?.has(markKey(message, reaction)));
   const marked = messages.filter((message) =>
-    message.kind !== "launch" && feedback(message).length > 0 && !opts?.omitMessageIds?.has(message.id),
+    feedback(message).length > 0 && !opts?.omitMessageIds?.has(message.id),
   );
   if (!marked.length) return text;
   const recent = marked.slice(-MAX_REACTION_MESSAGES);

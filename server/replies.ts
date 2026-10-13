@@ -84,10 +84,9 @@ function reactionIdsAlreadyInTranscript(
 }
 
 /**
- * Reply quote plus current reaction state for a user turn.
- * Resume-only engines (no history this turn) get every mark via
- * `promptWithReactions`. Full-replay turns pass `replayedTranscript` so
- * bot reactions already on those lines are skipped in the preamble.
+ * Reply quote plus reactions new since `delivered` for a user turn.
+ * Full-replay turns pass `replayedTranscript` so bot reactions already on
+ * those lines are skipped in the preamble.
  */
 export function composeUserTurnPrompt(
   text: string,
@@ -96,6 +95,7 @@ export function composeUserTurnPrompt(
     messages: readonly ReactionMessage[];
     userName?: string;
     replayedTranscript?: readonly { text: string }[];
+    delivered?: readonly string[];
   },
 ): string {
   const userName = opts.userName ?? "User";
@@ -106,6 +106,6 @@ export function composeUserTurnPrompt(
     promptWithReply(text, opts.replyTo, userName),
     opts.messages,
     userName,
-    omitMessageIds ? { omitMessageIds } : undefined,
+    { omitMessageIds, delivered: opts.delivered && new Set(opts.delivered) },
   );
 }

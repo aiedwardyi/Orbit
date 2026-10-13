@@ -290,6 +290,9 @@ export interface TaskRecord {
   /** Newest pane note a dispatched turn carried; `null` once tracked with
    * none yet. Absent on tasks from before the field existed. */
   paneNotesDeliveredId?: string | null;
+  /** Reaction marks (`reactionMarkKeys`) the last dispatched turn was told
+   * about. Absent on tasks from before the field existed. */
+  reactionsDelivered?: string[];
   /** Newest pane note a skipped wake settled. Only the startup re-arm reads
    * it; the next turn still carries the note. */
   paneNotesSkippedId?: string;
@@ -1679,6 +1682,14 @@ export class Store {
     const next = noteId ?? task?.paneNotesDeliveredId ?? null;
     if (!task || task.paneNotesDeliveredId === next) return;
     task.paneNotesDeliveredId = next;
+    this.saveBots();
+  }
+
+  markReactionsDelivered(botId: string, threadId: string, keys: string[]) {
+    const task = this.taskByThread(botId, threadId);
+    const same = task?.reactionsDelivered?.length === keys.length && keys.every((key, i) => task.reactionsDelivered?.[i] === key);
+    if (!task || same) return;
+    task.reactionsDelivered = keys;
     this.saveBots();
   }
 

@@ -147,7 +147,7 @@ import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
 import { getOrCreateChannel, mirrorExchange, mirrorReply, postPeerReply, type CommsBus } from "./comms-visibility.ts";
 import { searchHaystack, searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript } from "./replies.ts";
-import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
+import { EXTENDED_REACTIONS, reactionMarkKeys, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, findDelegationReceipt, finishDelegatedTurn, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
 import { onPeerTakeover, peerAnswer, takeOverPeerTurn } from "./peer-takeover.ts";
 import {
@@ -4412,12 +4412,15 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     resumePaneWakes(bot.id);
     takeOverPeerTurn(threadId);
   }
+  const reactionMessages = store.activePath(threadId);
+  const reactionsSeen = reactionMarkKeys(reactionMessages);
   const currentPrompt = [
     composeUserTurnPrompt(text, {
       replyTo: opts?.replyTo,
-      messages: store.activePath(threadId),
+      messages: reactionMessages,
       userName: cfg.profile?.name?.trim() || "User",
       replayedTranscript: replaysTranscript ? transcript : undefined,
+      delivered: task.reactionsDelivered,
     }),
     ...folded,
   ].join("\n\n");
@@ -4958,6 +4961,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       if (started.turnId && !recycleDeferred) seed.turnId = started.turnId;
       if (started.turnId && systemSeed) systemSeed.turnId = started.turnId;
       store.markPaneNotesDelivered(bot.id, threadId, newestPaneNoteId);
+      store.markReactionsDelivered(bot.id, threadId, reactionsSeen);
       if (currentTurnEpoch(bot.id) !== epoch) return;
       if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
       // dispatched: the rewind is spent
@@ -9290,13 +9294,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const instance = registry.get(currentAtStart.modelSelection.instanceId);
             let steered = false;
             if (currentAtStart.busy && instance?.adapter.capabilities.queueing && instance.adapter.steer) {
+              const messages = store.activePath(threadId);
               steered = await instance.adapter
                 .steer(threadId, composeUserTurnPrompt(text, {
                   replyTo,
-                  messages: store.activePath(threadId),
+                  messages,
                   userName: cfg.profile?.name?.trim() || "User",
+                  delivered: store.taskByThread(bot.id, threadId)?.reactionsDelivered,
                 }))
                 .catch(() => false);
+              if (steered) store.markReactionsDelivered(bot.id, threadId, reactionMarkKeys(messages));
             }
             // steer() is awaited adapter work. The turn can settle, the task can
             // switch, or the whole bot can be deleted before its acknowledgement
