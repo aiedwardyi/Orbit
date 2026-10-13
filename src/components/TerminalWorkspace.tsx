@@ -280,9 +280,10 @@ export function TerminalWorkspace({
         submitted = input(data);
       }
       const afterMessageId = submitted ? latestPaneRun(workersRef.current, sessionId)?.messageIds.at(-1) : undefined;
+      const typedAt = Date.now();
       const send = () => Promise.resolve(bridge.write(sessionId, data)).then(() => {
         if (submitted) void Promise.resolve(api(`/api/bots/${encodeURIComponent(bot.id)}/terminal/resume`, {
-          method: "POST", body: JSON.stringify({ sessionId, afterMessageId }),
+          method: "POST", body: JSON.stringify({ sessionId, afterMessageId, submittedAgo: Date.now() - typedAt }),
         })).catch(() => {});
       }).catch(report);
       // Submit keys skip the microtask queue so they cannot stall behind DA/mouse replies.

@@ -260,6 +260,7 @@ export function RemoteTerminalView({
     const sessionId = shown.sessionId;
     const submitted = !("key" in input) && panes.some((pane) => pane.sessionId === sessionId && !pane.main) && createTerminalLineTracker()(`${input.text}${input.paste ? "\n" : ""}`);
     const afterMessageId = submitted ? latestPaneRun(workers, sessionId)?.messageIds.at(-1) : undefined;
+    const typedAt = Date.now();
     focusInput(inputRef.current);
     setSending(true);
     setSendError(null);
@@ -269,7 +270,7 @@ export function RemoteTerminalView({
         body: JSON.stringify({ sessionId: shown.sessionId, generation: shown.generation, ...input }),
       });
       if (submitted) void api(`/api/bots/${encodeURIComponent(bot.id)}/terminal/resume`, {
-        method: "POST", body: JSON.stringify({ sessionId, afterMessageId }),
+        method: "POST", body: JSON.stringify({ sessionId, afterMessageId, submittedAgo: Date.now() - typedAt }),
       }).catch(() => {});
       appliedRequestRef.current = ++requestRef.current;
       pinnedRef.current = true;

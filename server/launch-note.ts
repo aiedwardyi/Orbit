@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { latestPaneRun, samePaneRun, workerRuns } from "../src/lib/worker-runs.ts";
+import { latestPaneRun, samePaneRun, workerRuns, type WorkerRun } from "../src/lib/worker-runs.ts";
 import { redactSecretsInText } from "./redact.ts";
 import type { Store } from "./store.ts";
 import { terminalSnapshotResponse, type TerminalBridgeAccess } from "./terminal-snapshot.ts";
@@ -46,12 +46,21 @@ export function submittedResumeText(text: string, submittedAt: number): string {
   return `${text}\nSubmitted: ${submittedAt}`;
 }
 
+// Senders count ms since their Enter write began, so a phone's clock never matters.
+export const submittedAgo = z.number().int().min(0).max(60_000).catch(0);
+
+/** A report after the Enter write already answers the follow-up. */
+export function reportedSince(run: WorkerRun | undefined, submittedAt: number): boolean {
+  return run?.notes.some((note) => note.at > submittedAt) === true;
+}
+
 type LaunchCommit = {
   access: TerminalBridgeAccess | null;
   botId: string;
   threadId: string;
   activePath: Store["activePath"];
   appendMessage: (threadId: string, text: string) => { id: string };
+  submittedAgo?: number;
 };
 
 /** A resumed row is skipped when the pane's run changed during the snapshot. */
@@ -61,12 +70,12 @@ export async function commitLaunchNote(
   resumed: boolean,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ error: "Unknown terminal" | "main terminal" } | { skipped: true } | { messageId: string }> {
-  const submittedAt = Date.now();
+  const submittedAt = Date.now() - (input.submittedAgo ?? 0);
   const reads = () => latestPaneRun(workerRuns(input.activePath(input.threadId)), sessionId);
   const settled = resumed ? reads() : undefined;
   const note = await launchNoteFor(input.access, input.botId, sessionId, resumed, fetchImpl);
   if ("error" in note) return note;
-  if (resumed && !samePaneRun(settled, reads())) return { skipped: true };
+  if (resumed && (!samePaneRun(settled, reads()) || reportedSince(settled, submittedAt))) return { skipped: true };
   const message = input.appendMessage(input.threadId, resumed ? submittedResumeText(note.text, submittedAt) : note.text);
   return { messageId: message.id };
 }
