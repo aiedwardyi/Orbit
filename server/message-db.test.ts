@@ -14,6 +14,7 @@ import {
   readThread,
   replaceThread,
   scanThreadRows,
+  searchHaystack,
   searchMessages,
   setActiveLeaf,
   updateMessage,
@@ -260,6 +261,75 @@ describe("message-db", () => {
     expect(hits.map((hit) => hit.kind)).toEqual(["text", "activity"]);
     expect(searchMessages("최세훈", 1)[0]?.messageId).toBe("text-hit");
     expect(searchMessages("최세훈", 40, "t-rank").map((hit) => hit.messageId)).toEqual(["tool-hit", "text-hit"]);
+  });
+
+  it("finds a failed command result in captured output and skips hidden text", () => {
+    const threadId = "t-detail";
+    insertMessage(threadId, {
+      ...msg("port", "", { role: "bot", kind: "activity", at: 5 }),
+      tool: { name: "Bash", ok: false, detail: { input: "npm start", output: ["error EADDRINUSE: address already in use"] } },
+    });
+    insertMessage(threadId, msg("sum", "engine-summary-token-hidden", { role: "bot", kind: "text", at: 6, summarized: true }));
+    insertMessage(threadId, {
+      ...msg("secret", "", { role: "bot", kind: "activity", at: 7 }),
+      tool: { name: "Bash", ok: true, detail: { input: "echo", output: ["API_KEY=super-secret-value-should-not-leak"] } },
+    });
+
+    const hit = searchMessages("EADDRINUSE", 40, threadId)[0];
+    expect(hit?.messageId).toBe("port");
+    expect(hit?.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength)).toBe("EADDRINUSE");
+    expect(searchMessages("npm start", 40, threadId).map((row) => row.messageId)).toEqual(["port"]);
+    expect(searchHaystack({ kind: "activity", tool: { name: "Bash", ok: false, detail: { input: "npm start", output: ["error EADDRINUSE: address already in use"] } } })).toContain("EADDRINUSE");
+    expect(searchMessages("super-secret-value-should-not-leak", 40, threadId)).toEqual([]);
+    expect(searchMessages("engine-summary-token-hidden", 40, threadId)).toEqual([]);
+  });
+
+  it("searches only the detail text a terminal row shows", () => {
+    const threadId = "t-visible";
+    insertMessage(threadId, {
+      ...msg("diff", "", { role: "bot", kind: "activity", at: 1 }),
+      tool: { name: "Edit", ok: true, detail: { input: "src/visible.ts", diff: ["+visible-diff-token-bbbb"] } },
+    });
+    insertMessage(threadId, {
+      ...msg("faildiff", "", { role: "bot", kind: "activity", at: 2 }),
+      tool: { name: "Edit", ok: false, detail: { input: "src/failed.ts", diff: ["+hidden-diff-token-dddd"] } },
+    });
+    insertMessage(threadId, {
+      ...msg("read", "", { role: "bot", kind: "activity", at: 3 }),
+      tool: { name: "Read", ok: true, summary: "notes.md", detail: { input: "hidden-path-eeee", output: ["body-line-ffff"] } },
+    });
+    insertMessage(threadId, {
+      ...msg("cut", "", { role: "bot", kind: "activity", at: 4 }),
+      tool: { name: "Bash", ok: true, detail: { input: "ls", output: ["keep-one", "keep-two", "keep-three", "cutoff-token-zzzz"] } },
+    });
+    insertMessage(threadId, {
+      ...msg("hidden", "", { role: "bot", kind: "activity", at: 5 }),
+      tool: { name: "Bash", ok: true, detail: { input: "printenv", output: ["SECRET-OUTPUT-TOKEN"] } },
+    });
+    const stale = msg("stale", "", {
+      role: "bot",
+      kind: "activity",
+      at: 6,
+      tool: { name: "Bash", ok: true, detail: { output: ["Cookie: session=OldBoundaryCanary987654321"] } },
+    });
+    messageDatabase().prepare("INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+      threadId, stale.id, stale.at, stale.role, stale.kind, null, JSON.stringify(stale),
+    );
+
+    expect(searchMessages("visible-diff-token-bbbb", 40, threadId).map((hit) => hit.messageId)).toEqual(["diff"]);
+    expect(searchMessages("hidden-diff-token-dddd", 40, threadId)).toEqual([]);
+    expect(searchMessages("hidden-path-eeee", 40, threadId)).toEqual([]);
+    expect(searchMessages("body-line-ffff", 40, threadId).map((hit) => hit.messageId)).toEqual(["read"]);
+    expect(searchMessages("keep-one", 40, threadId).map((hit) => hit.messageId)).toEqual(["cut"]);
+    expect(searchMessages("cutoff-token-zzzz", 40, threadId)).toEqual([]);
+    expect(searchMessages("SECRET-OUTPUT-TOKEN", 40, threadId)).toEqual([]);
+    expect(searchMessages("OldBoundaryCanary", 40, threadId)).toEqual([]);
+    expect(searchMessages("src/visible.ts", 40, threadId).map((hit) => hit.messageId)).toEqual(["diff"]);
+    expect(searchMessages("src/failed.ts", 40, threadId).map((hit) => hit.messageId)).toEqual(["faildiff"]);
+    expect(searchHaystack({
+      kind: "activity",
+      tool: { name: "Bash", detail: { input: "printenv", outputHidden: true, output: ["SECRET-SHOULD-NOT-SHOW"] } },
+    })).not.toContain("SECRET-SHOULD-NOT-SHOW");
   });
 
   it("Store round-trips branching through the DB across a restart", () => {

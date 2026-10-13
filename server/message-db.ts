@@ -14,6 +14,8 @@ import { chmodSync, closeSync, existsSync, openSync, readFileSync, renameSync } 
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { termVerb } from "../shared/tool-verb.ts";
+
 import { DATA_DIR } from "./config.ts";
 import type { Message } from "./store.ts";
 import { redactToolMessage } from "./tool-detail.ts";
@@ -264,6 +266,51 @@ export interface SearchHit {
   from?: string;
 }
 
+// Same header and detail block the terminal row draws. Search must not outrun it.
+const INPUT_HEADERS = new Set(["Bash", "Update", "Write"]);
+
+type ToolBody = NonNullable<Message["tool"]>;
+type ToolDetail = NonNullable<ToolBody["detail"]>;
+
+function shownArgs(verb: string, summary: string | undefined, detail: ToolDetail | undefined, fallback?: string): string | undefined {
+  return (INPUT_HEADERS.has(verb) ? detail?.input ?? summary : summary ?? detail?.input) ?? fallback;
+}
+
+/** Detail text the terminal row draws: header input, then the visible output or diff lines. */
+function shownDetailLines(tool: ToolBody): string[] {
+  const detail = tool.detail;
+  if (!detail) return [];
+  const lines: string[] = [];
+  const args = shownArgs(termVerb(tool.verb ?? tool.name), tool.summary, detail, tool.verb ? tool.name : undefined);
+  if (detail.input && args === detail.input) lines.push(detail.input);
+  if (detail.outputHidden) return lines;
+  const diff = tool.ok !== false && detail.diff?.length ? detail.diff : undefined;
+  const body = diff ?? detail.output;
+  if (!body?.length) return lines;
+  if (!detail.more && diff && detail.input && !lines.includes(detail.input)) lines.push(detail.input);
+  for (const line of body) {
+    lines.push(diff && (line[0] === "+" || line[0] === "-") ? `${line[0]} ${line.slice(1)}` : line);
+  }
+  return lines;
+}
+
+/** Text a find hit may quote. Activity rows include only detail the terminal row draws. */
+export function searchHaystack(message: Pick<Message, "kind" | "text" | "tool">): string {
+  if (message.kind !== "activity") return message.text ?? "";
+  const tool = message.tool;
+  if (!tool?.name) return "";
+  const detail = shownDetailLines(tool);
+  return detail.length ? `${tool.name}\n${detail.join("\n")}` : tool.name;
+}
+
+/** Visible detail text for one activity hit, from the tool object SQLite extracted. */
+function activityHaystack(toolJson: string | null): string {
+  if (!toolJson) return "";
+  // SAFETY: tool_json is the $.tool object from a stored Message envelope.
+  const tool = redactToolMessage({ tool: JSON.parse(toolJson) as ToolBody }).tool;
+  return searchHaystack({ kind: "activity", tool });
+}
+
 /** Window around the first case-insensitive hit, with offsets after whitespace folding. */
 export function searchSnippet(haystack: string, needle: string): Pick<SearchHit, "snippet" | "matchStart" | "matchLength"> {
   const hitAt = Math.max(0, haystack.toLowerCase().indexOf(needle));
@@ -292,41 +339,56 @@ export function searchMessages(query: string, limit = 40, threadId?: string): Se
   if (!needle) return [];
   // escape LIKE wildcards so a literal % or _ in the query stays literal
   const pattern = `%${needle.replace(/([\\%_])/g, "\\$1")}%`;
-  // text messages by their text; activity chips by the tool name — "which
-  // bot ran that migration" is a tool-name question. The chip's name lives
-  // in the row's json; a JSON1 extract keeps this one query. Engine
-  // summaries are never shown, so they never match.
+  // Text matches its text. Activity matches the tool JSON, then the visible
+  // detail only. Engine summaries are never shown, so they never match.
+  // json_extract returns the whole tool object, but the store caps its detail at 256 bytes.
   const scope = threadId ? "thread_id = ? AND " : "";
+  const order = threadId ? "" : "CASE WHEN kind = 'text' THEN 0 ELSE 1 END, ";
   const statement = db().prepare(
-    "SELECT thread_id, id, at, role, kind, text, json_extract(json, '$.tool.name') AS tool_name, json_extract(json, '$.from.name') AS from_name FROM messages " +
+    "SELECT thread_id, id, at, role, kind, text, CASE WHEN kind = 'activity' THEN json_extract(json, '$.tool') END AS tool_json, json_extract(json, '$.from.name') AS from_name FROM messages " +
       `WHERE ${scope}((kind = 'text' AND text IS NOT NULL AND json_extract(json, '$.summarized') IS NOT 1 AND lower(text) LIKE ? ESCAPE '\\') ` +
-      "   OR (kind = 'activity' AND tool_name IS NOT NULL AND lower(tool_name) LIKE ? ESCAPE '\\')) " +
-      `ORDER BY ${threadId ? "" : "CASE WHEN kind = 'text' THEN 0 ELSE 1 END, "}at DESC LIMIT ?`,
+      "   OR (kind = 'activity' AND lower(ifnull(json_extract(json, '$.tool'), '')) LIKE ? ESCAPE '\\')) " +
+      `ORDER BY ${order}at DESC LIMIT ? OFFSET ?`,
   );
-  const rows = (threadId
-    ? statement.all(threadId, pattern, pattern, limit)
-    : statement.all(pattern, pattern, limit)) as Array<{
+  type Row = {
     thread_id: string;
     id: string;
     at: number;
     role: string;
     kind: string;
     text: string | null;
-    tool_name: string | null;
+    tool_json: string | null;
     from_name: string | null;
-  }>;
-  return rows.map((row) => {
-    const haystack = row.kind === "activity" ? (row.tool_name ?? "") : (row.text ?? "");
-    return {
-      threadId: row.thread_id,
-      messageId: row.id,
-      at: row.at,
-      role: row.role,
-      kind: row.kind,
-      ...searchSnippet(haystack, needle),
-      ...(row.from_name ? { from: row.from_name } : {}),
-    };
-  });
+  };
+  const hits: SearchHit[] = [];
+  const batch = Math.max(1, limit);
+  let offset = 0;
+  // The prefilter matches raw JSON but activityHaystack redacts, so a word only in redacted output costs extra rounds.
+  while (hits.length < limit) {
+    // SAFETY: This SELECT list is thread_id, id, at, role, kind, text, tool_json, from_name.
+    const rows = (threadId
+      ? statement.all(threadId, pattern, pattern, batch, offset)
+      : statement.all(pattern, pattern, batch, offset)) as Row[];
+    if (!rows.length) break;
+    for (const row of rows) {
+      const haystack = row.kind === "activity" ? activityHaystack(row.tool_json) : (row.text ?? "");
+      if (row.kind === "activity" && !haystack.toLowerCase().includes(needle)) continue;
+      const hit: SearchHit = {
+        threadId: row.thread_id,
+        messageId: row.id,
+        at: row.at,
+        role: row.role,
+        kind: row.kind,
+        ...searchSnippet(haystack, needle),
+      };
+      if (row.from_name) hit.from = row.from_name;
+      hits.push(hit);
+      if (hits.length >= limit) break;
+    }
+    if (rows.length < batch) break;
+    offset += rows.length;
+  }
+  return hits;
 }
 
 /** Test/shutdown hook — closes the handle so a wiped DATA_DIR starts clean. */
