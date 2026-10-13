@@ -6,9 +6,10 @@ import { useI18n, type MessageKey } from "@/lib/i18n";
 import { ansiColor } from "@/lib/ansi-palette";
 import { composerEnterIntent } from "@/lib/composer-enter";
 import { createTerminalLineTracker } from "@/lib/terminal-input";
-import { latestPaneRun, workerRuns } from "@/lib/worker-runs";
+import { latestPaneRun, parseWorkerLabel, workerProvider, workerRuns } from "@/lib/worker-runs";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
+import { WorkerMark } from "./WorkerRows";
 
 type RemoteTerminalPane = {
   sessionId: string;
@@ -348,11 +349,12 @@ export function RemoteTerminalView({
                 focusInput(inputRef.current);
               }}
               title={paneLabel(pane)}
-              className={`min-w-[56px] max-w-full shrink-0 truncate rounded-md border px-1.5 py-0.5 font-mono text-[11px] ${
+              className={`flex min-w-[56px] max-w-full shrink-0 items-center justify-center gap-1.5 rounded-md border px-1.5 py-0.5 font-mono text-[11px] ${
                 activePaneId === pane.sessionId ? "border-accent-text text-ink" : "border-hairline text-ink-secondary hover:text-ink"
               } ${pane.exited ? "opacity-50" : ""}`}
             >
-              {paneLabel(pane)}
+              {!pane.main && <WorkerMark provider={latestPaneRun(workers, pane.sessionId)?.provider ?? workerProvider(parseWorkerLabel(pane.label).model)} compact />}
+              <span className="truncate">{paneLabel(pane)}</span>
             </button>
           ))}
         </div>

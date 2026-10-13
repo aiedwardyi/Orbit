@@ -1,6 +1,8 @@
 import "./ProfileFields.test-dom.ts";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Bot, ScrollText } from "lucide-react";
 import { afterEach, expect, it, vi, type Mock } from "vitest";
 
 type MockTermLink = { text: string; activate: (event: MouseEvent, text: string) => void };
@@ -117,6 +119,7 @@ vi.mock("@/state/store", async () => {
   };
 });
 import { TerminalWorkspace, folderBasename, lastViewedPanes, pickInitialPane } from "./TerminalWorkspace";
+import { ProviderMark } from "./ProviderIcons";
 import { applyTerminalMatch } from "@/lib/terminal-appearance";
 import { api, type Message } from "@/state/store";
 
@@ -1371,6 +1374,41 @@ function paneFixture() {
     opened: (event: Parameters<typeof opened>[0]) => opened(event),
   };
 }
+
+it.each([
+  ["Claude Opus", "claudeAgent"], ["Codex Sol", "codex"], ["Grok 4.7", "grokAgent"],
+  ["Muse 1.3", "museAgent"], ["script", "script"], ["Nova 2", null],
+])("starts a %s pane tab with the header worker mark", async (model, provider) => {
+  const f = paneFixture();
+  const sessionId = f.snapshot.panes[0].sessionId;
+  const messages: Message[] = [{ id: "launch", at: 1, role: "bot", kind: "launch", text: `Launched Worker | ${model} | high\nLabel: Worker | ${model} | high\nWorking folder: C:\\work\nSession: ${sessionId}` }];
+  await act(async () => root.render(createElement(TerminalWorkspace, { ...f.props, bot: { ...f.props.bot, messages } })));
+  const [main, worker] = f.tabs();
+  const mark = provider === "script" ? createElement(ScrollText, { size: 12, className: "text-ink-secondary", "aria-hidden": true })
+    : provider ? createElement(ProviderMark, { driverKind: provider, size: 12 })
+    : createElement(Bot, { size: 12, className: "text-ink-secondary", "aria-hidden": true });
+  expect(worker.innerHTML).toContain(renderToStaticMarkup(mark));
+  expect(worker.firstElementChild?.querySelector("svg")).not.toBeNull();
+  expect(worker.textContent).toBe("one");
+  expect(worker.parentElement?.querySelector(".lucide-x")).not.toBeNull();
+  expect(main.textContent).toBe(">_");
+  expect(main.querySelector("svg")).toBeNull();
+});
+
+it("starts a pane without a worker run with a plain bot mark", async () => {
+  const f = paneFixture();
+  await f.render();
+  expect(f.tabs()[1].querySelector(".lucide-bot")).not.toBeNull();
+  expect(f.tabs()[1].querySelector(".lucide-scroll-text")).toBeNull();
+});
+
+it("takes the mark from the pane label when its launch is outside the loaded page", async () => {
+  const f = paneFixture();
+  f.snapshot.panes[0].label = "one | Codex Sol | high";
+  await f.render();
+  expect(f.tabs()[1].innerHTML).toContain(renderToStaticMarkup(createElement(ProviderMark, { driverKind: "codex", size: 12 })));
+  expect(f.tabs()[1].querySelector(".lucide-bot")).toBeNull();
+});
 
 it("switches clicked tabs and sends input only to the selected pane", async () => {
   const f = paneFixture();
