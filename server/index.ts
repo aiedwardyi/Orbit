@@ -2649,7 +2649,7 @@ function notify(notification: Notification | null, turnMs?: number) {
   if (!notification) return;
   // nested rather than spread — the frame's own `kind` names the frame,
   // exactly like {kind:"message", message} and {kind:"bot", bot}
-  broadcast({ kind: "notify", notification });
+  broadcast({ kind: "notify", notification, at: Date.now() });
   phonePing(notification.botId, pingForNotification(notification, turnMs), notification);
 }
 

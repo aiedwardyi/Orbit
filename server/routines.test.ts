@@ -682,6 +682,23 @@ describe("RoutineManager", () => {
     expect(h.failed).toMatchObject([{ id: h.manager.listRuns()[0]!.id, status: "missed" }]);
   });
 
+  it("keeps every missed card but toasts only once per routine per catch-up", async () => {
+    const h = harness(new Date(2026, 7, 17, 12, 0, 0).getTime());
+    h.manager.create({
+      name: "Daily check",
+      prompt: "Check it",
+      botId: "maus-toast-once",
+      schedule: { type: "daily", time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] },
+    });
+    // Friday 10:00: Tue, Wed and Thu 09:00 are missed, Fri 09:00 runs live.
+    h.setNow(new Date(2026, 7, 21, 10, 0, 0).getTime());
+    await h.manager.tick();
+
+    expect(h.manager.listRuns().filter((run) => run.status === "missed")).toHaveLength(3);
+    expect(h.changed.filter((run) => run.status === "missed")).toHaveLength(3);
+    expect(h.failed).toMatchObject([{ status: "missed" }]);
+  });
+
   it("records a missed receipt for a once routine created with a long-past time", async () => {
     const h = harness();
     const staleAt = new Date(2026, 7, 16, 6, 0, 0).getTime();

@@ -666,6 +666,10 @@ type StopHold = { until: number; busy: boolean; activity?: Bot["activity"] };
 
 const STOP_HOLD_MS = 10_000;
 
+// a notify frame older than this never toasts: it is replayed backlog,
+// not something that just happened
+const NOTIFY_TOAST_MS = 2 * 60_000;
+
 function holdStopping(
   state: AppState,
   reported: ReadonlyArray<{ id: string; busy?: boolean; activity?: Bot["activity"] }>,
@@ -3225,18 +3229,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         // the harness decided this was worth interrupting for; the toggle
         // in each bot's settings is what gates it, server-side
-        case "notify":
+        case "notify": {
+          // only things that just happened toast. A resumed stream replays
+          // buffered frames, and a replay from before frames carried a time
+          // has no age to check, so it stays quiet. This gates the toast
+          // only; everything else the frame drives is untouched.
+          const stale = frame.at === undefined
+            ? frame.replayed === true
+            : Date.now() - frame.at > NOTIFY_TOAST_MS;
           // the wrapped dispatch, not rawDispatch: `select` clears the badge
           // in local state either way, but only the wrapper PATCHes
           // unread:false back. Opening a bot from its own notification and
           // watching the badge return on the next hydration is exactly the
           // bug that makes notifications feel broken.
-          showNotification(
-            frame.notification,
-            (target) => openNotificationTarget(dispatch, target, stateRef.current),
-            visibleNotificationThread(stateRef.current),
-          );
+          if (!stale) {
+            showNotification(
+              frame.notification,
+              (target) => openNotificationTarget(dispatch, target, stateRef.current),
+              visibleNotificationThread(stateRef.current),
+            );
+          }
           break;
+        }
         case "group.deleted":
           rawDispatch({ type: "groupDeleted", groupId: frame.groupId });
           break;
