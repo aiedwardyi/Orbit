@@ -3,6 +3,8 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { IncomingHttpHeaders, IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { z } from "zod";
+import { terminalReadGrant } from "./terminal-grant.ts";
+import type { TerminalBridgeAccess } from "./terminal-snapshot.ts";
 
 export const MAILBOX_GRANT_PREFIX = "orbit-mailbox-v1";
 export const MAILBOX_SECRET_FILE = "mailbox-secret";
@@ -19,25 +21,19 @@ const mailboxScopeSchema = z.object({ pane: id, bot: id, teacher: id });
 /** `report` is orbit-msg --report; `auto` is the Stop hook or Codex notify. Absent is a plain note. */
 export const mailboxPostSchema = z.object({ text: z.string(), kind: z.enum(["report", "auto"]).optional() });
 
-export const MAILBOX_AUTO_DEDUP_MS = 15 * 60 * 1000;
-
-/** One report swallows the next auto note from the same pane, so a turn doesn't reach the teacher twice. */
-export class MailboxAutoDedup {
-  private readonly reports = new Map<string, number>();
-
-  /** True when the post should be dropped. */
-  shouldDrop(scope: { pane: string; bot: string }, kind: "report" | "auto" | undefined, now = Date.now()): boolean {
-    const key = `${scope.pane}:${scope.bot}`;
-    if (kind === "report") {
-      for (const [k, at] of this.reports) if (now - at > MAILBOX_AUTO_DEDUP_MS) this.reports.delete(k);
-      this.reports.set(key, now);
-      return false;
-    }
-    if (kind !== "auto") return false;
-    const at = this.reports.get(key);
-    if (at === undefined) return false;
-    this.reports.delete(key);
-    return now - at <= MAILBOX_AUTO_DEDUP_MS;
+export async function deferMailboxAuto(access: TerminalBridgeAccess | null, scope: { bot: string; pane: string }, text: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  if (!access) return false;
+  try {
+    const response = await fetchImpl(`${access.url}/v1/bots/${encodeURIComponent(scope.bot)}/terminal/attention`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${terminalReadGrant(access.token, scope.bot)}`, "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: scope.pane, kind: "auto", text }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return false;
+    return z.object({ raised: z.boolean() }).parse(await response.json()).raised;
+  } catch {
+    return false;
   }
 }
 

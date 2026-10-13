@@ -7,6 +7,7 @@ export const NOTE_STATUS_KEY = { done: "chat.noteDone", failed: "chat.noteFailed
 export function noteText(note: PaneNote, t: Translate): string {
   if (note.alert?.kind === "stalled") return note.alert.minutes === 1 ? t("chat.noteStalledOne") : t("chat.noteStalled", { count: note.alert.minutes });
   if (note.alert?.kind === "waiting") return t("chat.noteWaiting");
+  if (note.alert?.kind === "finished") return t("chat.noteFinished");
   return note.body;
 }
 

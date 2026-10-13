@@ -157,6 +157,7 @@ export function createTerminalBridge({ host, updater, token = randomBytes(24).to
           const timeoutParam = parsed.searchParams.get("timeoutMs");
           const options = {};
           if (sessionId) options.sessionId = sessionId;
+          if (parsed.searchParams.get("observe") === "1") options.observe = true;
           if (waitFor) options.waitFor = waitFor;
           if (waitFor && timeoutParam) options.timeoutMs = Number(timeoutParam);
           return json(res, 200, await host.readBot(botId, options));
@@ -176,13 +177,13 @@ export function createTerminalBridge({ host, updater, token = randomBytes(24).to
         }
         if (req.method === "POST" && match[2] === "attention") {
           const note = await readJson(req);
-          return json(res, 200, { raised: host.attendBot(botId, note?.sessionId, note?.kind) });
+          return json(res, 200, { raised: host.attendBot(botId, note?.sessionId, note?.kind, note?.text) });
         }
         if (req.method === "POST" && match[2]) {
           const input = await readJson(req);
           if (input && typeof input === "object" && typeof input.text === "string") input.text = normalizeTerminalText(input.text);
           await host.sendBot(botId, input);
-          return json(res, 200, host.readBot(botId, input?.sessionId ? { sessionId: input.sessionId } : undefined));
+          return json(res, 200, host.readBot(botId, input?.sessionId ? { sessionId: input.sessionId, observe: true } : undefined));
         }
         return json(res, 405, { error: "Method not allowed" });
       } catch (error) {

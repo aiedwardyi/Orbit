@@ -219,7 +219,7 @@ function readDeadlineMs(route: { waitFor?: string; timeoutMs?: number }): number
   return bounded + READ_WAIT_HTTP_MARGIN_MS;
 }
 
-async function terminalRequest<T = Snapshot>(fetchImpl: typeof fetch, config: TerminalConfig, route: { send?: SendInput; spawn?: SpawnInput; close?: { sessionId: string }; sessionId?: string; waitFor?: string; timeoutMs?: number } = {}): Promise<T> {
+async function terminalRequest<T = Snapshot>(fetchImpl: typeof fetch, config: TerminalConfig, route: { send?: SendInput; spawn?: SpawnInput; close?: { sessionId: string }; sessionId?: string; waitFor?: string; timeoutMs?: number; observe?: boolean } = {}): Promise<T> {
   const host = config.host ?? HOST;
   const token = config.token ?? TOKEN;
   const botId = config.botId ?? BOT_ID;
@@ -231,6 +231,7 @@ async function terminalRequest<T = Snapshot>(fetchImpl: typeof fetch, config: Te
   if (route.sessionId) query.set("sessionId", route.sessionId);
   if (route.waitFor) query.set("waitFor", route.waitFor);
   if (route.waitFor && route.timeoutMs !== undefined) query.set("timeoutMs", String(route.timeoutMs));
+  if (route.observe) query.set("observe", "1");
   const queryString = query.toString();
   const response = post
     ? await fetchImpl(`${url}/${post.path}`, {
@@ -253,8 +254,8 @@ async function terminalRequest<T = Snapshot>(fetchImpl: typeof fetch, config: Te
   return payload as T;
 }
 
-export function readTerminalSnapshot(fetchImpl: typeof fetch = fetch, config: TerminalConfig = {}, sessionId?: string, waitFor?: string, timeoutMs?: number): Promise<Snapshot> {
-  return terminalRequest(fetchImpl, config, { sessionId, waitFor, timeoutMs });
+export function readTerminalSnapshot(fetchImpl: typeof fetch = fetch, config: TerminalConfig = {}, sessionId?: string, waitFor?: string, timeoutMs?: number, observe = false): Promise<Snapshot> {
+  return terminalRequest(fetchImpl, config, { sessionId, waitFor, timeoutMs, observe });
 }
 
 // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Tool arguments are untyped JSON-RPC input validated here.
@@ -398,7 +399,7 @@ export async function callTool(
     const waitFor = typeof args.waitFor === "string" && args.waitFor ? args.waitFor : undefined;
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Tool arguments are untyped model input.
     const timeoutMs = typeof args.timeoutMs === "number" && Number.isFinite(args.timeoutMs) ? args.timeoutMs : undefined;
-    const snapshot = await readTerminalSnapshot(fetchImpl, config, sessionId, waitFor, timeoutMs);
+    const snapshot = await readTerminalSnapshot(fetchImpl, config, sessionId, waitFor, timeoutMs, true);
     return { content: [{ type: "text", text: terminalSnapshotText(snapshot) }] };
   } catch (error) {
     return { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], isError: true };

@@ -13,8 +13,8 @@ function fixture(options = {}) {
     resolveCwd: async () => os.tmpdir(),
     platform: "linux",
     env: { SHELL: "/bin/sh" },
-    loadPty: () => ({ spawn: (_shell, _args, options) => {
-      const child = { options, writes: [], sizes: [], killed: false, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize(...size) { this.sizes.push(size); }, kill() { this.killed = true; } };
+    loadPty: () => ({ spawn: (shell, args, options) => {
+      const child = { shell, args, options, writes: [], sizes: [], killed: false, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize(...size) { this.sizes.push(size); }, kill() { this.killed = true; } };
       children.push(child);
       return child;
     } }),
@@ -1031,7 +1031,7 @@ test("exited panes do not hold global slots and reclaiming them emits terminal:c
   await assert.rejects(f.host.open(f.event, { ...f.input, sessionId: exited[0] }), /Unknown terminal/);
 });
 
-function stallFixture({ failures = 0 } = {}) {
+function stallFixture({ failures = 0, ...options } = {}) {
   let owner;
   let clock = Date.UTC(2026, 9, 4);
   let failing = failures;
@@ -1045,12 +1045,182 @@ function stallFixture({ failures = 0 } = {}) {
     },
     stallCheckMs: 5,
     now: () => clock,
+    ...options,
   });
   owner = f.owner;
   // Lets the stall check sample the screen before the clock moves.
   const settle = () => wait(25);
   const advance = async (ms) => { clock += ms; await settle(); };
   return { ...f, notes, settle, advance };
+}
+
+const finishedMark = (pane) => `\x1b]133;D;${pane.sessionId}\x07`;
+
+test("shell integration only wraps the prompt in worker PowerShell", { skip: process.platform !== "win32" }, async (t) => {
+  const f = stallFixture({ platform: "win32" });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  const child = f.children[0];
+  assert.ok(child.args.includes("-NoExit"));
+  const script = Buffer.from(child.args[child.args.indexOf("-EncodedCommand") + 1], "base64").toString("utf16le");
+  assert.ok(script.includes(`133;D;${pane.sessionId}`));
+  assert.ok(script.includes("Get-History -Count 1"));
+  assert.ok(!script.includes("PSReadLine"));
+  await f.host.open(f.event, f.input);
+  assert.deepEqual(f.children[1].args, ["-NoLogo"]);
+});
+
+test("FINISHED fires once per command with the last screen lines", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  f.children[0].data("Tests passed\r\n");
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "command done");
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^FINISHED: command ended without a report\./);
+  assert.match(f.notes[0].text, /Last lines:\nTests passed$/);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 2);
+});
+
+test("FINISHED is suppressed by a report only for that command", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("FINISHED is cleared by a report that lands before delivery", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
+  f.children[0].data(finishedMark(pane));
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  f.children[0].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("FINISHED never fires for the main terminal", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const main = await f.host.open(f.event, f.input);
+  f.children[0].data(finishedMark({ sessionId: main.id }));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  f.children[1].data(finishedMark(pane));
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("FINISHED skips an explicit read after completion, not background reads", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  f.children[0].data(finishedMark(pane));
+  f.host.readBot("bot-1", { sessionId: pane.sessionId, observe: true });
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  f.children[0].data(finishedMark(pane));
+  f.host.readBot("bot-1", { sessionId: pane.sessionId });
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("FINISHED accepts split markers but ignores prompt text and foreign markers", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SCRIPT" });
+  f.children[0].data(`PS C:\\> \r\n\x1b]133;D;foreign\x07\x1b]133;A;${pane.sessionId}\x07`);
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 0);
+  const marker = finishedMark(pane);
+  for (const byte of marker) f.children[0].data(byte);
+  await f.advance(10_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("turn-end note waits 90 seconds and is delivered once", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.children[0].data("Done\r\n");
+  assert.equal(f.host.attendBot("bot-1", pane.sessionId, "auto", "all green"), true);
+  await f.advance(89_999);
+  assert.equal(f.notes.length, 0);
+  await f.advance(1);
+  assert.deepEqual(f.notes.map((note) => note.text), ["all green"]);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+  f.children[0].data("✻ Working… (1s · esc to interrupt)\r\n");
+  f.children[0].data("\x1b[2J\x1b[HDone again\r\n");
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "next turn done");
+  await f.advance(90_000);
+  assert.deepEqual(f.notes.map((note) => note.text), ["all green", "next turn done"]);
+});
+
+test("turn-end note is dropped on submitted input and the next idle note works", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "still running");
+  await f.advance(30_000);
+  f.host.write(f.event, pane.sessionId, "continue\r");
+  await f.advance(90_000);
+  assert.equal(f.notes.length, 0);
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "done now");
+  await f.advance(90_000);
+  assert.deepEqual(f.notes.map((note) => note.text), ["done now"]);
+});
+
+test("turn-end note is dropped on a report and the next command can notify", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "still running");
+  await f.advance(30_000);
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  await f.advance(90_000);
+  assert.equal(f.notes.length, 0);
+  f.host.sendBot("bot-1", { ...pane, text: "next\r" });
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "done now");
+  await f.advance(90_000);
+  assert.deepEqual(f.notes.map((note) => note.text), ["done now"]);
+});
+
+for (const busy of ["✻ Working… (1s · esc to interrupt)", "• Working (1s • esc to interrupt)"]) {
+  test(`turn-end note is dropped when the agent resumes: ${busy}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+    f.host.attendBot("bot-1", pane.sessionId, "auto", "still running");
+    f.children[0].data(busy + "\r\n");
+    f.children[0].data("\x1b[2J\x1b[HDone\r\n");
+    await f.advance(90_000);
+    assert.equal(f.notes.length, 0);
+    f.host.attendBot("bot-1", pane.sessionId, "auto", "done now");
+    await f.advance(90_000);
+    assert.deepEqual(f.notes.map((note) => note.text), ["done now"]);
+  });
 }
 
 test("a worker pane that goes quiet without a report sends one stall note with its last lines", async () => {
