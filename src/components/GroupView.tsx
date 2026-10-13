@@ -541,7 +541,7 @@ const Transcript = memo(function Transcript({
                 <div
                   data-orbit-message-content
                   className={cn(
-                    "w-fit max-w-full rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed",
+                    "w-fit max-w-full rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed break-words",
                     user ? "whitespace-pre-wrap bg-bubble-user text-ink" : "bg-card text-ink",
                   )}
                   title={new Date(m.at).toLocaleString(localeTag(locale))}

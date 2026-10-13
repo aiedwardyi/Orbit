@@ -1100,6 +1100,49 @@ describe("ChatView summarized notes", () => {
   });
 });
 
+describe("message bubbles", () => {
+  it.each(["chat", "room"])("let long words wrap in a %s", async (view) => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const from: Message["from"] = { botId: "a", name: "A", color: "blue" };
+    const reply: Message = { id: "b", parentId: "ua", at: 2, role: "bot", kind: "text", text: "Landed as `9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08`." };
+    const group: Group = {
+      id: "g",
+      threadId: "thread-g",
+      name: "Room",
+      memberIds: ["a"],
+      defaultResponder: { kind: "everyone" },
+      bulletin: "",
+      unread: false,
+      createdAt: 1,
+      setupCompletedAt: 1,
+      hasMore: false,
+      messages: [userMsg("ua", "where did it land?"), { ...reply, from }],
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      const page = view === "room"
+        ? createElement(GroupView, { group })
+        : createElement(ChatView, { bot: { ...botA, busy: false, messages: [userMsg("ua", "where did it land?"), reply] } });
+      await act(async () => root.render(createElement(StoreProvider, null, page)));
+      const boxes = Array.from(host.querySelectorAll("[data-orbit-message-content]"));
+      expect(boxes).toHaveLength(2);
+      for (const box of boxes) expect(box.className).toContain("break-words");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+});
+
 describe("agy sign-in error bubble", () => {
   it("shows the sign-in button with command agy", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
