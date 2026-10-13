@@ -63,6 +63,7 @@ export function chiefOfStaffSystemPrompt(
   trustedOpenMausStatus = "",
   inRoom = false,
   coordinationAsked = false,
+  answeringBot = false,
 ): string {
   const chief = bots.find((bot) => bot.id === chiefId);
   const chiefSection = sectionKey(chief?.section);
@@ -86,7 +87,9 @@ export function chiefOfStaffSystemPrompt(
     : "";
 
   const delegation = !canDelegate
-    ? "Your current engine cannot contact teammates. Be honest about that limitation and ask the user to choose a delegation-compatible engine before promising coordinated work."
+    ? answeringBot
+      ? "This turn answers another bot's request, so you can't message bots from it. Your reply goes back as the answer."
+      : "Your current engine cannot contact teammates. Be honest about that limitation and ask the user to choose a delegation-compatible engine before promising coordinated work."
     : hasTeam && coordinationAsked
       ? [
           "Use list_bots to confirm the live roster and IDs. Use ask_bot when a teammate is better suited to part of the request.",

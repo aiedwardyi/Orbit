@@ -253,6 +253,33 @@ describe("the Chief role does not gate engine selection", () => {
   });
 });
 
+describe("a turn that answers another bot", () => {
+  const bots = [
+    { id: "chief", name: "Atlas", title: "Operations", section: "Work" },
+    { id: "writer", name: "Quill", title: "Writer", section: "Work" },
+  ];
+
+  it("says the depth guard is why teammate tools are missing", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, false, "", true, true, true);
+    expect(prompt).toContain("This turn answers another bot's request, so you can't message bots from it.");
+    expect(prompt).toContain("Your reply goes back as the answer.");
+    expect(prompt).not.toContain("delegation-compatible engine");
+    expect(prompt).not.toContain("shared room");
+    expect(prompt).not.toContain("Use ask_bot");
+  });
+
+  it("keeps the engine wording when the engine cannot mount the tools", () => {
+    const prompt = chiefOfStaffSystemPrompt("chief", bots, false);
+    expect(prompt).toContain("delegation-compatible engine");
+    expect(prompt).not.toContain("answers another bot");
+  });
+
+  it("passes the depth flag from both turn sites", () => {
+    expect(index).toContain("commsDepth >= MAX_COMMS_DEPTH");
+    expect(index).toContain("hop >= MAX_COMMS_DEPTH");
+  });
+});
+
 describe("a Chief with a team does not fan out unasked", () => {
   const bots = [
     { id: "chief", name: "Atlas", title: "Operations", section: "Work" },

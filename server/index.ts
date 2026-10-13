@@ -4793,6 +4793,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
             openMausStatusSystemPrompt(),
             false,
             tagged.length > 0,
+            commsDepth >= MAX_COMMS_DEPTH,
           )
         : integrations.agents && sectionPeers.length > 0
           ? peerAgentsSystemPrompt()
@@ -5677,6 +5678,7 @@ async function runClaimedGroupMemberTurn(
         // a room turn is a coordination context by definition; the room
         // discipline above governs how it coordinates
         true,
+        hop >= MAX_COMMS_DEPTH,
       )
     : integrations.agents
       ? peerAgentsSystemPrompt(true)
