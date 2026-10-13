@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { boxShadowReach, phoneHeaderChipClearsMenu, phoneHeaderSlots, PHONE_HEADER_MENU_GAP, PHONE_MENU_GLOW_PX } from "./phone-header";
+import { boxShadowReach, phoneHeaderChipClearsMenu, phoneHeaderSlots, PHONE_HEADER_MENU_GAP, PHONE_HEADER_MENU_RESERVE_PX, PHONE_MENU_BUTTON_PX, PHONE_MENU_GLOW_PX } from "./phone-header";
 
 describe("phoneHeaderSlots", () => {
   const slots = phoneHeaderSlots(101, 64);
@@ -34,6 +34,11 @@ describe("phone header menu clearance", () => {
     expect(phoneHeaderChipClearsMenu(chip, { left: 340, right: 370, top: 15, bottom: 45 })).toBe(false);
     expect(phoneHeaderChipClearsMenu(chip, { left: 343, right: 373, top: 15, bottom: 45 })).toBe(false);
     expect(phoneHeaderChipClearsMenu(chip, { left: 344, right: 374, top: 15, bottom: 45 })).toBe(true);
+  });
+
+  it("locks the menu reserve to the shipped 66px", () => {
+    expect(PHONE_MENU_BUTTON_PX).toBe(44);
+    expect(PHONE_HEADER_MENU_RESERVE_PX).toBe(66);
   });
 
   it("counts the menu glow in the gap", () => {

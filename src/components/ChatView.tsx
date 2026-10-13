@@ -43,8 +43,8 @@ import { BotAvatar } from "./Avatar";
 import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { useSkin } from "@/lib/skins";
-import { DRAWER_BUTTON_LEFT, DRAWER_BUTTON_RIGHT, DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
-import { boxShadowReach, phoneHeaderChipClearsMenu, phoneHeaderSlots, PHONE_MENU_GLOW_PX, type PhoneHeaderBox, type PhoneHeaderSlot } from "@/lib/phone-header";
+import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
+import { boxShadowReach, phoneHeaderChipClearsMenu, phoneHeaderSlots, PHONE_HEADER_MENU_RESERVE_PX, PHONE_MENU_GLOW_PX, type PhoneHeaderBox, type PhoneHeaderSlot } from "@/lib/phone-header";
 import { isPhone } from "@/lib/phone-swipe";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
@@ -1253,13 +1253,8 @@ function naturalWidth(el: HTMLElement): number {
 }
 
 function phoneMenuButton(root: ParentNode): HTMLElement | null {
-  for (const el of root.querySelectorAll("button")) {
-    if (!(el instanceof HTMLElement)) continue;
-    const name = el.className;
-    if (!name.includes("md:hidden")) continue;
-    if (name.includes(DRAWER_BUTTON_LEFT) || name.includes(DRAWER_BUTTON_RIGHT)) return el;
-  }
-  return null;
+  const found = root.querySelector("[data-phone-menu]");
+  return found instanceof HTMLElement ? found : null;
 }
 
 function phoneMenuBounds(menu: HTMLElement): PhoneHeaderBox {
@@ -1332,8 +1327,7 @@ function usePhoneHeaderNameFloor(
         clearChip();
         return;
       }
-      // 44px meets the button. 22px more keeps 4px clear of the 17px ask glow.
-      header.style.paddingRight = menuOnRight ? "66px" : "";
+      header.style.paddingRight = menuOnRight ? `${PHONE_HEADER_MENU_RESERVE_PX}px` : "";
       const slots = phoneHeaderSlots(text, 4 * rem);
       const place = (nameMin: number) => {
         const cs = getComputedStyle(cluster);

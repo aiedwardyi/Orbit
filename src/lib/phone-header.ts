@@ -29,6 +29,12 @@ export const PHONE_HEADER_MENU_GAP = 4;
 /** needs-you-glow ::after reach (14px blur + 3px spread) when computed style is empty. */
 export const PHONE_MENU_GLOW_PX = 17;
 
+/** Menu button reach from the header edge: 30px box plus its 14px inset. */
+export const PHONE_MENU_BUTTON_PX = 44;
+
+/** Header right reserve when the menu floats over it: button reach, ask glow, and gap, plus 1px slack. Stays 66px. */
+export const PHONE_HEADER_MENU_RESERVE_PX = PHONE_MENU_BUTTON_PX + PHONE_MENU_GLOW_PX + PHONE_HEADER_MENU_GAP + 1;
+
 /** How far a computed box-shadow paints past its border box. */
 export function boxShadowReach(shadow: string): number {
   if (!shadow || shadow === "none") return 0;

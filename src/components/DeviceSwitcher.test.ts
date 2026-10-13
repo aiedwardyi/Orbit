@@ -33,6 +33,7 @@ async function renderView(
   navigate = vi.fn(),
   view: typeof DeviceSwitcher | typeof DeviceTag = DeviceSwitcher,
   labeled = false,
+  drawerOpen?: boolean,
 ) {
   store.api.mockResolvedValue({ devices });
   const host = document.createElement("div");
@@ -40,7 +41,7 @@ async function renderView(
   const root = createRoot(host);
   const node = view === DeviceTag
     ? createElement(DeviceTag)
-    : createElement(DeviceSwitcher, { navigate, labeled });
+    : createElement(DeviceSwitcher, { navigate, labeled, drawerOpen });
   await act(async () => root.render(createElement(I18nProvider, null, node)));
   return { host, root, navigate };
 }
@@ -149,6 +150,26 @@ describe("DeviceSwitcher", () => {
     expect(store.api).toHaveBeenLastCalledWith("/api/devices");
     expect(document.querySelector("input")).toBeNull();
     expect(document.querySelector("[data-device-id=home]")!.textContent).toContain("Home");
+  });
+
+  it("closes the phone menu when the drawer shuts", async () => {
+    setPhone(true);
+    const { host, root } = await renderView(
+      [device("home", { current: true }), device("work")],
+      vi.fn(),
+      DeviceSwitcher,
+      true,
+      true,
+    );
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    await act(async () => click(toggle));
+    expect(document.querySelector("ul:not([inert])")).not.toBeNull();
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(DeviceSwitcher, { labeled: true, drawerOpen: false }))));
+    expect(document.querySelector("ul:not([inert])")).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(DeviceSwitcher, { labeled: true, drawerOpen: true }))));
+    expect(document.querySelector("ul:not([inert])")).toBeNull();
+    expect(host.querySelector("button[aria-expanded]")!.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("shows in the desktop app and opens another PC in its own window", async () => {

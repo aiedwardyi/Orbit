@@ -2294,4 +2294,39 @@ describe("phone drawer PC picker", () => {
       await view.unmount();
     }
   });
+
+  it("closes the picker menu when the drawer shuts", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+      const url = String(path);
+      if (url.includes("/api/devices")) return new Response(JSON.stringify({ devices: devices(2) }));
+      if (url.includes("/api/bots")) return new Response(JSON.stringify({ bots: [], groups: [], computerControl: {} }));
+      return new Response("{}", { status: 200 });
+    }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    delete window.ogb;
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const show = (open: boolean) => root.render(createElement(StoreProvider, null, createElement(Sidebar, { open, onClose: () => {} })));
+    await act(async () => show(true));
+    await act(async () => {
+      await Promise.all(vi.mocked(fetch).mock.results.map((result) => result.value));
+    });
+    const liveMenu = () => {
+      const list = document.querySelector("[data-device-id]")?.closest("ul");
+      return list && !list.hasAttribute("inert") ? list : null;
+    };
+    try {
+      const switcher = host.querySelector("[data-phone-drawer] [data-device-switcher]")!;
+      await act(async () => switcher.querySelector("button")?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      expect(liveMenu()).not.toBeNull();
+      await act(async () => show(false));
+      expect(liveMenu()).toBeNull();
+      await act(async () => show(true));
+      expect(liveMenu()).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
 });

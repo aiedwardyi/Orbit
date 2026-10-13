@@ -620,6 +620,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         aria-expanded={drawerOpen}
         onClick={() => setDrawerOpen(true)}
         data-menu-needs-you={menuAsking || undefined}
+        data-phone-menu
         className={`absolute z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden ${sidebarOnRight ? DRAWER_BUTTON_RIGHT : DRAWER_BUTTON_LEFT}${menuAsking ? " needs-you-glow" : ""}`}
       >
         <Menu size={18} />

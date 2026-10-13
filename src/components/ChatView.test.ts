@@ -8,6 +8,8 @@ import { StoreProvider, useStore, type Bot, type Group, type InstanceInfo, type 
 import { setFindCurrent } from "@/lib/chat-find";
 
 import { DRAWER_BUTTON_RIGHT } from "@/lib/drawer-button";
+import { PHONE_HEADER_MENU_RESERVE_PX } from "@/lib/phone-header";
+import { SIDEBAR_SIDE_KEY } from "@/lib/sidebar-preferences";
 import { ChatView } from "./ChatView";
 import { GroupView } from "./GroupView";
 import type { TurnStreamState } from "@/lib/turn-stage";
@@ -1547,7 +1549,7 @@ describe("phone header name floor", () => {
   const installRects = (overlap: boolean, menuLeft?: number) => {
     const rect = function (this: Element) {
       if (this instanceof HTMLElement && this.style.left === "-9999px") return box(0, 80, 0, 20);
-      if (menuLeft != null && this instanceof HTMLElement && this.className.includes("top-[15px]")) return box(menuLeft, 30, 15, 30);
+      if (menuLeft != null && this instanceof HTMLElement && this.hasAttribute("data-test-menu")) return box(menuLeft, 30, 15, 30);
       const header = headerOf(this);
       const label = header ? modelLabelOf(header) : null;
       const hidden = label?.style.display === "none";
@@ -1574,7 +1576,7 @@ describe("phone header name floor", () => {
     }
   };
 
-  const mount = async (overlap: boolean, menu?: { left: number; glow?: boolean }) => {
+  const mount = async (overlap: boolean, menu?: { left: number; glow?: boolean; bare?: boolean }) => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     vi.stubGlobal("ResizeObserver", class {
@@ -1587,7 +1589,12 @@ describe("phone header name floor", () => {
     installRects(overlap, menu?.left);
     if (menu) {
       const button = document.createElement("button");
-      button.className = `md:hidden ${DRAWER_BUTTON_RIGHT}${menu.glow ? " needs-you-glow" : ""}`;
+      if (menu.bare) {
+        button.className = `md:hidden ${DRAWER_BUTTON_RIGHT}${menu.glow ? " needs-you-glow" : ""}`;
+      } else {
+        button.className = `phone-menu-test${menu.glow ? " needs-you-glow" : ""}`;
+        button.setAttribute("data-phone-menu", "");
+      }
       button.setAttribute("data-test-menu", "");
       document.body.append(button);
     }
@@ -1708,6 +1715,39 @@ describe("phone header name floor", () => {
     const view = await mount(false, { left: 348, glow: true });
     try {
       expect(view.modelLabel?.style.display).toBe("none");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("finds the menu button by data attribute without its drawer classes", async () => {
+    const view = await mount(false, { left: 300 });
+    try {
+      const menu = document.querySelector("[data-test-menu]");
+      expect(menu?.hasAttribute("data-phone-menu")).toBe(true);
+      expect(menu?.className).not.toContain("md:hidden");
+      expect(view.modelLabel?.style.display).toBe("none");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("ignores drawer classes without the menu data attribute", async () => {
+    const view = await mount(false, { left: 300, bare: true });
+    try {
+      expect(document.querySelector("[data-test-menu]")?.hasAttribute("data-phone-menu")).toBe(false);
+      expect(view.modelLabel?.style.display).not.toBe("none");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("pads the phone header by the menu reserve when the menu is right", async () => {
+    localStorage.setItem(SIDEBAR_SIDE_KEY, "right");
+    const view = await mount(false);
+    try {
+      expect(view.header?.style.paddingRight).toBe(`${PHONE_HEADER_MENU_RESERVE_PX}px`);
+      expect(view.header?.style.paddingRight).toBe("66px");
     } finally {
       await view.unmount();
     }

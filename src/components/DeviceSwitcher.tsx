@@ -61,10 +61,13 @@ type Navigate = (url: string) => void;
 export function DeviceSwitcher({
   navigate = leaveFor,
   labeled = false,
+  drawerOpen,
 }: {
   navigate?: Navigate;
   /** Phone drawer: current PC's icon and name. The menu is portaled so the drawer cannot clip it. */
   labeled?: boolean;
+  /** Phone drawer state: the portaled menu shuts with it. */
+  drawerOpen?: boolean;
 }) {
   const { t } = useI18n();
   const deviceWindow = window.ogb?.deviceWindow;
@@ -75,6 +78,13 @@ export function DeviceSwitcher({
   const [pinned, setPinned] = useState<CSSProperties>();
   const [renaming, setRenaming] = useState(false);
   const presence = usePresence(open);
+  // The menu lives on the body, so the drawer sliding shut would strand it over the chat.
+  useEffect(() => {
+    if (labeled && drawerOpen === false) {
+      setOpen(false);
+      setRenaming(false);
+    }
+  }, [labeled, drawerOpen]);
 
   const here = devices.find((device) => device.current);
   if (devices.length < 2 || !visible || (labeled && !here)) return null;

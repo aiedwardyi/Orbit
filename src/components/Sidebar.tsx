@@ -2233,7 +2233,7 @@ export function Sidebar({
           <div className={density === "icons" ? "h-5 w-full" : "w-14"} />
         ) : isPhone() && !window.ogb ? (
           <div className={cn("min-w-0", density !== "icons" && "flex-1")}>
-            <DeviceSwitcher labeled />
+            <DeviceSwitcher labeled drawerOpen={open} />
           </div>
         ) : (
           <div />
