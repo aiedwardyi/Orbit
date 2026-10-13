@@ -638,6 +638,7 @@ export class RoutineManager {
       const now = this.now();
       let changed = false;
       const missedRuns: RoutineRun[] = [];
+      const missedNotified = new Set<string>();
       for (const routine of this.routines) {
         if (!routine.enabled || routine.nextRunAt == null || routine.nextRunAt > now) continue;
         let scheduledFor: number | null = routine.nextRunAt;
@@ -649,7 +650,11 @@ export class RoutineManager {
             missed.finishedAt = now;
             missed.error = "This computer was offline for more than 12 hours after the scheduled time";
             this.emitRun(missed);
-            missedRuns.push({ ...missed });
+            // every missed slot keeps its card; one routine toasts once per catch-up
+            if (!missedNotified.has(routine.id)) {
+              missedNotified.add(routine.id);
+              missedRuns.push({ ...missed });
+            }
           } else {
             catchUpAt = scheduledFor;
           }
