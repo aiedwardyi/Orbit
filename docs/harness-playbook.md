@@ -6,7 +6,7 @@ descriptions carry the exact spawn commands. This is the workflow around them.
 
 Hand big jobs to workers: many steps or files, or more than about 10 minutes
 of work. You plan, write the card and check the result. Do quick asks and
-small edits yourself.
+small edits yourself, and big jobs too when no worker can start.
 
 ## Cards
 
@@ -78,6 +78,7 @@ git -C <repo> worktree add {{WORKTREE}} -b <branch> <base>
 - `<name>` matches the nickname in lowercase.
 - Remove it once the branch has landed: `git -C <repo> worktree remove <path>`.
 - A read-only review of a plain folder that is not a repo runs in a scratch copy of it, never in place: workers run unsandboxed, so a stray edit there could not be undone.
+- An editing job in a plain folder gets no worktree: one worker edits it in place, and you leave the folder alone until it reports.
 
 ## Verify before push
 

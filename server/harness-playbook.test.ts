@@ -13,7 +13,13 @@ describe("harness playbook", () => {
   it("hands big jobs to workers and keeps quick asks", () => {
     const prompt = harnessPlaybookPrompt(true);
     expect(prompt).toContain("Hand big jobs to workers");
+    expect(prompt).toContain("Do quick asks");
     expect(prompt).toContain("small edits yourself");
+    expect(prompt).toContain("big jobs too when no worker can start");
+  });
+
+  it("gives an editing job in a plain folder one worker in place", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("An editing job in a plain folder gets no worktree: one worker edits it in place");
   });
 
   it("sends long follow-ups as a file, one line", () => {
