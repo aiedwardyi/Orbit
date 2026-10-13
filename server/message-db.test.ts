@@ -2,7 +2,8 @@
 // import, deletion, and the LIKE search used by /api/search.
 import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import type { SQLOutputValue, StatementSync } from "node:sqlite";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
 import {
@@ -306,6 +307,10 @@ describe("message-db", () => {
       ...msg("hidden", "", { role: "bot", kind: "activity", at: 5 }),
       tool: { name: "Bash", ok: true, detail: { input: "printenv", output: ["SECRET-OUTPUT-TOKEN"] } },
     });
+    insertMessage(threadId, {
+      ...msg("masked", "", { role: "bot", kind: "activity", at: 7 }),
+      tool: { name: "Bash", ok: true, detail: { input: "cat notes", outputHidden: true, output: ["masked-output-token-gggg"] } },
+    });
     const stale = msg("stale", "", {
       role: "bot",
       kind: "activity",
@@ -324,12 +329,74 @@ describe("message-db", () => {
     expect(searchMessages("cutoff-token-zzzz", 40, threadId)).toEqual([]);
     expect(searchMessages("SECRET-OUTPUT-TOKEN", 40, threadId)).toEqual([]);
     expect(searchMessages("OldBoundaryCanary", 40, threadId)).toEqual([]);
+    expect(searchMessages("masked-output-token-gggg", 40, threadId)).toEqual([]);
+    expect(searchMessages("+ visible-diff-token-bbbb", 40, threadId).map((hit) => hit.messageId)).toEqual(["diff"]);
     expect(searchMessages("src/visible.ts", 40, threadId).map((hit) => hit.messageId)).toEqual(["diff"]);
     expect(searchMessages("src/failed.ts", 40, threadId).map((hit) => hit.messageId)).toEqual(["faildiff"]);
     expect(searchHaystack({
       kind: "activity",
       tool: { name: "Bash", detail: { input: "printenv", outputHidden: true, output: ["SECRET-SHOULD-NOT-SHOW"] } },
     })).not.toContain("SECRET-SHOULD-NOT-SHOW");
+  });
+
+  it("finds Windows paths and quoted text in captured output", () => {
+    const threadId = "t-escaped";
+    insertMessage(threadId, {
+      ...msg("open", "", { role: "bot", kind: "activity", at: 1 }),
+      tool: { name: "Bash", ok: false, detail: { input: "tsc", output: ['Cannot open C:\\project\\file.ts or module "alpha"', "got null [code 1]"] } },
+    });
+
+    for (const query of ["file.ts", "C:\\project\\file.ts", 'module "alpha"', '"', "null", "[code 1]"]) {
+      const hit = searchMessages(query, 40, threadId)[0];
+      expect(hit?.messageId).toBe("open");
+      expect(hit?.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength)).toBe(query);
+    }
+  });
+
+  it("a JSON key in no visible text scans tool rows once and finds nothing", () => {
+    for (let at = 1; at <= 5; at++) {
+      insertMessage("t-keys", {
+        ...msg(`run${at}`, "", { role: "bot", kind: "activity", at }),
+        tool: { name: "Bash", ok: true, summary: "npm test", detail: { input: "npm test", output: ["all green"] } },
+      });
+    }
+    // SAFETY: every prepared statement shares the StatementSync prototype.
+    const statement = Object.getPrototypeOf(messageDatabase().prepare("SELECT 1")) as StatementSync;
+    const all = statement.all;
+    const iterate = statement.iterate;
+    const get = statement.get;
+    const work = { runs: 0, rows: 0 };
+    vi.spyOn(statement, "all").mockImplementation(function (this: StatementSync, ...params) {
+      work.runs += 1;
+      const rows = all.apply(this, params);
+      work.rows += rows.length;
+      return rows;
+    });
+    vi.spyOn(statement, "get").mockImplementation(function (this: StatementSync, ...params) {
+      work.runs += 1;
+      return get.apply(this, params);
+    });
+    vi.spyOn(statement, "iterate").mockImplementation(function (this: StatementSync, ...params) {
+      work.runs += 1;
+      const rows = iterate.apply(this, params);
+      return (function* (): Generator<Record<string, SQLOutputValue>, undefined> {
+        for (const row of rows) {
+          work.rows += 1;
+          yield row;
+        }
+      })();
+    });
+
+    try {
+      for (const key of ["output", "input", "detail"]) {
+        expect(searchMessages(key, 1)).toEqual([]);
+        expect(searchMessages(key, 1, "t-keys")).toEqual([]);
+      }
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(work).toEqual({ runs: 6, rows: 0 });
+    expect(searchMessages("green", 1).map((hit) => hit.messageId)).toEqual(["run5"]);
   });
 
   it("Store round-trips branching through the DB across a restart", () => {

@@ -331,24 +331,40 @@ export function searchSnippet(haystack: string, needle: string): Pick<SearchHit,
 /** Case-insensitive substring search. Across chats, text messages rank
  * ahead of tool rows so a real line is not crowded out by newer paths that
  * repeat it; inside one chat (find bar) it stays newest first, so next and
- * previous follow the transcript. A LIKE scan, deliberately: local
+ * previous follow the transcript. One ordered LIKE scan, deliberately: local
  * transcripts are megabytes at most, a scan is milliseconds, and it needs
  * no FTS extension to exist. */
 export function searchMessages(query: string, limit = 40, threadId?: string): SearchHit[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
   // escape LIKE wildcards so a literal % or _ in the query stays literal
-  const pattern = `%${needle.replace(/([\\%_])/g, "\\$1")}%`;
-  // Text matches its text. Activity matches the tool JSON, then the visible
-  // detail only. Engine summaries are never shown, so they never match.
-  // json_extract returns the whole tool object, but the store caps its detail at 256 bytes.
-  const scope = threadId ? "thread_id = ? AND " : "";
+  const like = (text: string) => `%${text.replace(/([\\%_])/g, "\\$1")}%`;
+  const pattern = like(needle);
+  // The gate reads the shown fields as JSON without keys, so it can only match a run JSON never escapes.
+  // oxlint-disable-next-line no-control-regex -- JSON escapes control characters
+  const fragment = needle.split(/[\s"\\\x00-\x1f\x7f]+/).reduce((longest, run) => (run.length > longest.length ? run : longest), "");
+  // A fragment that can match JSON syntax also needs the decoded check, or every row reaches the visible check.
+  const decoded = !fragment || /[[\],]/.test(fragment) || "null".includes(fragment)
+    ? " AND (lower(ifnull(json_extract(json, '$.tool.name'), '')) LIKE ?1 ESCAPE '\\' " +
+      "   OR lower(ifnull(json_extract(json, '$.tool.detail.input'), '')) LIKE ?1 ESCAPE '\\' " +
+      "   OR EXISTS (SELECT 1 FROM json_each(messages.json, '$.tool.detail.output') WHERE lower(value) LIKE ?1 ESCAPE '\\') " +
+      // diff lines draw as "+ line", so match them the way they show
+      "   OR EXISTS (SELECT 1 FROM json_each(messages.json, '$.tool.detail.diff') " +
+      "     WHERE lower(CASE WHEN substr(value, 1, 1) IN ('+', '-') THEN substr(value, 1, 1) || ' ' || substr(value, 2) ELSE value END) LIKE ?1 ESCAPE '\\'))"
+    : "";
+  // Text matches its text. Activity matches the fields a row can draw, then
+  // the visible detail only. Engine summaries never match.
+  const scope = threadId ? "thread_id = ?3 AND " : "";
   const order = threadId ? "" : "CASE WHEN kind = 'text' THEN 0 ELSE 1 END, ";
-  const statement = db().prepare(
-    "SELECT thread_id, id, at, role, kind, text, CASE WHEN kind = 'activity' THEN json_extract(json, '$.tool') END AS tool_json, json_extract(json, '$.from.name') AS from_name FROM messages " +
-      `WHERE ${scope}((kind = 'text' AND text IS NOT NULL AND json_extract(json, '$.summarized') IS NOT 1 AND lower(text) LIKE ? ESCAPE '\\') ` +
-      "   OR (kind = 'activity' AND lower(ifnull(json_extract(json, '$.tool'), '')) LIKE ? ESCAPE '\\')) " +
-      `ORDER BY ${order}at DESC LIMIT ? OFFSET ?`,
+  // Sorts row ids only; the hit loop reads each row once it needs it.
+  const ordered = db().prepare(
+    "SELECT rowid AS row FROM messages " +
+      `WHERE ${scope}((kind = 'text' AND text IS NOT NULL AND json_extract(json, '$.summarized') IS NOT 1 AND lower(text) LIKE ?1 ESCAPE '\\') ` +
+      "   OR (kind = 'activity' AND lower(json_extract(json, '$.tool.name', '$.tool.detail.input', '$.tool.detail.output', '$.tool.detail.diff')) LIKE ?2 ESCAPE '\\'" +
+      `${decoded})) ORDER BY ${order}at DESC`,
+  );
+  const fetch = db().prepare(
+    "SELECT thread_id, id, at, role, kind, text, CASE WHEN kind = 'activity' THEN json_extract(json, '$.tool') END AS tool_json, json_extract(json, '$.from.name') AS from_name FROM messages WHERE rowid = ?",
   );
   type Row = {
     thread_id: string;
@@ -361,32 +377,23 @@ export function searchMessages(query: string, limit = 40, threadId?: string): Se
     from_name: string | null;
   };
   const hits: SearchHit[] = [];
-  const batch = Math.max(1, limit);
-  let offset = 0;
-  // The prefilter matches raw JSON but activityHaystack redacts, so a word only in redacted output costs extra rounds.
-  while (hits.length < limit) {
+  const rows = threadId ? ordered.iterate(pattern, like(fragment), threadId) : ordered.iterate(pattern, like(fragment));
+  for (const { row: rowid } of rows) {
     // SAFETY: This SELECT list is thread_id, id, at, role, kind, text, tool_json, from_name.
-    const rows = (threadId
-      ? statement.all(threadId, pattern, pattern, batch, offset)
-      : statement.all(pattern, pattern, batch, offset)) as Row[];
-    if (!rows.length) break;
-    for (const row of rows) {
-      const haystack = row.kind === "activity" ? activityHaystack(row.tool_json) : (row.text ?? "");
-      if (row.kind === "activity" && !haystack.toLowerCase().includes(needle)) continue;
-      const hit: SearchHit = {
-        threadId: row.thread_id,
-        messageId: row.id,
-        at: row.at,
-        role: row.role,
-        kind: row.kind,
-        ...searchSnippet(haystack, needle),
-      };
-      if (row.from_name) hit.from = row.from_name;
-      hits.push(hit);
-      if (hits.length >= limit) break;
-    }
-    if (rows.length < batch) break;
-    offset += rows.length;
+    const row = fetch.get(rowid) as Row;
+    const haystack = row.kind === "activity" ? activityHaystack(row.tool_json) : (row.text ?? "");
+    if (row.kind === "activity" && !haystack.toLowerCase().includes(needle)) continue;
+    const hit: SearchHit = {
+      threadId: row.thread_id,
+      messageId: row.id,
+      at: row.at,
+      role: row.role,
+      kind: row.kind,
+      ...searchSnippet(haystack, needle),
+    };
+    if (row.from_name) hit.from = row.from_name;
+    hits.push(hit);
+    if (hits.length >= limit) break;
   }
   return hits;
 }
