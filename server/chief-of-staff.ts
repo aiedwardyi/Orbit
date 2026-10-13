@@ -92,7 +92,7 @@ export function chiefOfStaffSystemPrompt(
       : turnLimit === "delegation"
         ? "This turn is a delegated task, so you can't message bots from it. The user sees your reply in your own chat."
         : turnLimit === "room"
-          ? ""
+          ? "This turn answers another bot in this room, so you can't message bots from it. Reply here."
           : "Your current engine cannot contact teammates. Be honest about that limitation and ask the user to choose a delegation-compatible engine before promising coordinated work."
     : hasTeam && coordinationAsked
       ? [
@@ -124,8 +124,8 @@ export function chiefOfStaffSystemPrompt(
     inRoom && (canDelegate || turnLimit === "room")
       ? [
           "You are in a shared room where everyone sees your tool calls.",
-          hasTeam ? "When you are asked to add a teammate, call create_bot directly." : "",
-          `A teammate you add joins this section, not this room. Call create_channel with yourself and the new bot when the user wants a shared room. Use ask_bot rather than delegate_bot whenever you must report back in this room, including when the delegation guidance above or a tool result says otherwise: ${ASK_NOT_DELEGATE_IN_ROOM}`,
+          canDelegate && hasTeam ? "When you are asked to add a teammate, call create_bot directly." : "",
+          canDelegate ? `A teammate you add joins this section, not this room. Call create_channel with yourself and the new bot when the user wants a shared room. Use ask_bot rather than delegate_bot whenever you must report back in this room, including when the delegation guidance above or a tool result says otherwise: ${ASK_NOT_DELEGATE_IN_ROOM}` : "",
         ]
           .filter(Boolean)
           .join(" ")

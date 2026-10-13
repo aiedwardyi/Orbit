@@ -278,10 +278,11 @@ describe("a turn that answers another bot", () => {
     expect(prompt).not.toContain("shared room");
   });
 
-  it("keeps the room guidance when a room hop removes teammate tools", () => {
+  it("names no teammate tools on a room hop that has none", () => {
     const prompt = chiefOfStaffSystemPrompt("chief", bots, false, "", true, true, "room");
     expect(prompt).toContain("You are in a shared room where everyone sees your tool calls.");
-    expect(prompt).toContain("Use ask_bot rather than delegate_bot");
+    expect(prompt).toContain("This turn answers another bot in this room, so you can't message bots from it.");
+    expect(prompt).not.toMatch(/ask_bot|delegate_bot|create_bot|create_channel|list_bots/);
     expect(prompt).not.toContain("goes back as the answer");
     expect(prompt).not.toContain("your own chat");
     expect(prompt).not.toContain("delegation-compatible engine");
