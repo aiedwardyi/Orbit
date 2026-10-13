@@ -262,6 +262,23 @@ describe.runIf(process.platform === "win32")("orbit-msg --report", () => {
     }
   }, 30_000);
 
+  it("reads a report body from --file", async () => {
+    const f = await reportFixture();
+    try {
+      const text = "a | b & c < d > e ^ f \" g % h ! i'j\nline2";
+      const file = path.join(f.dir, "body.txt");
+      writeFileSync(file, text, "utf8");
+      await withMailboxStub(async (url, posts) => {
+        const env = reportEnv(url, f.fakebin);
+        const viaFile = await runOrbitMsg(env, f.bin, ["--report", "DONE", "WIDGET", "--file", file]);
+        expect(viaFile.status).toBe(0);
+        expect(posts[0].text).toBe(`DONE WIDGET branch=feat/widget sha=abc1234 dirty=no\n${text}`);
+      });
+    } finally {
+      await removeTempDir(f.dir);
+    }
+  }, 30_000);
+
   it("rejects a bad status or missing nick", async () => {
     const f = await reportFixture();
     try {

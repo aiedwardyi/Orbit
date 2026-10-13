@@ -100,6 +100,8 @@ When a worker reports done, check its work yourself before anything moves:
 
 {{REPORTS}}
 
+For text with quotes or pipes, use `--file`.
+
 Every card also tells the worker: if a choice the card does not cover would
 change the result, stop and report BLOCKED with the question instead of guessing.
 
