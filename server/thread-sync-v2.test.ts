@@ -45,6 +45,17 @@ async function rows(client: ThreadSyncV2): Promise<Message[]> {
   return (await client.scan(scope.threadId)).messages;
 }
 
+async function chain(client: ThreadSyncV2, ids: string[], parentId: string | null = null, at = 1) {
+  for (const id of ids) {
+    await put(client, id, id, { parentId, at });
+    parentId = id;
+  }
+}
+
+async function topHead(client: ThreadSyncV2) {
+  return (await client.variants(scope, "head"))[0].version.value;
+}
+
 async function converge(...peers: ThreadSyncV2[]): Promise<void> {
   for (const peer of peers) await peer.flush(scope);
   for (const peer of peers) await peer.pull(scope);
@@ -647,5 +658,96 @@ describe("thread sync v2", () => {
     writeFileSync(join(dir, "seg-2-3.json.gz"), gzipSync(JSON.stringify(head)));
     expect((await b.pull(scope)).rejected).toBe(2);
     expect(await rows(b)).toEqual([]);
+  });
+
+  it("deepens a concurrent head when its ancestor arrives after its child", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const b = pc(folder, "b").client;
+    const c = pc(folder, "c").client;
+    await chain(a, ["p0", "p1", "p2"]);
+    await a.flush(scope);
+    await chain(b, ["c1", "c2"], "p2");
+    await b.commit(scope, [{ kind: "head", value: "c2" }]);
+    await b.flush(scope);
+    await chain(c, ["q1", "q2", "q3", "q4"]);
+    await c.commit(scope, [{ kind: "head", value: "q4" }]);
+    const dir = await writerDir(a, folder);
+    const hidden = join(temp(), "head.json");
+    renameSync(join(dir, "head.json"), hidden);
+    await c.pull(scope);
+    expect(await topHead(c)).toBe("q4");
+    renameSync(hidden, join(dir, "head.json"));
+    await c.pull(scope);
+    expect(await topHead(c)).toBe("c2");
+  });
+
+  it("counts every parent of a row edited concurrently with different parents", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const b = pc(folder, "b").client;
+    const c = pc(folder, "c").client;
+    await chain(a, ["x"]);
+    await chain(a, ["y2", "y"]);
+    await put(a, "m", "m", { parentId: "x" });
+    await converge(a, b, c);
+    await put(a, "m", "ma", { parentId: "x" });
+    await put(b, "m", "mb", { parentId: "y" });
+    await put(a, "l", "l", { parentId: "m" });
+    await a.commit(scope, [{ kind: "head", value: "l" }]);
+    await chain(c, ["k1", "k2", "k3", "k4"], null, 5);
+    await c.commit(scope, [{ kind: "head", value: "k4" }]);
+    const d = pc(folder, "d").client;
+    await converge(a, b, c, d);
+    expect(await d.variants(scope, "row", "m")).toHaveLength(2);
+    expect(await topHead(d)).toBe("l");
+  });
+
+  it("recounts a head after an edit closes a parent cycle", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const c = pc(folder, "c").client;
+    const d = pc(folder, "d").client;
+    await chain(a, ["w", "z1", "z2", "z3"]);
+    await a.commit(scope, [{ kind: "head", value: "z3" }]);
+    await chain(c, ["k1", "k2", "k3"], null, 5);
+    await c.commit(scope, [{ kind: "head", value: "k3" }]);
+    await converge(a, c, d);
+    expect(await topHead(d)).toBe("z3");
+    await put(a, "z1", "z1", { parentId: "z2" });
+    await converge(a, d);
+    expect(await topHead(d)).toBe("k3");
+  });
+
+  it("ranks a missing leaf above a null head", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const b = pc(folder, "b").client;
+    const d = pc(folder, "d").client;
+    await a.commit(scope, [{ kind: "head", value: null }]);
+    await b.commit(scope, [{ kind: "head", value: "ghost" }]);
+    await converge(a, b, d);
+    expect(await topHead(d)).toBe("ghost");
+  });
+
+  it("forgets head depths read inside a rolled back batch", async () => {
+    const folder = temp();
+    const a = pc(folder, "a").client;
+    const b = pc(folder, "b").client;
+    const c = pc(folder, "c").client;
+    await chain(b, ["lb1", "lb2", "lb3"], null, 5);
+    await b.commit(scope, [{ kind: "head", value: "lb3" }]);
+    await chain(c, ["d2", "d1"]);
+    await chain(c, ["r", "lc"]);
+    await c.commit(scope, [{ kind: "head", value: "lc" }]);
+    await converge(b, c, a);
+    expect(await topHead(a)).toBe("lb3");
+    await expect(a.commit(scope, [
+      { kind: "row", value: msg("r", "r", { parentId: "d1" }) },
+      { kind: "head", value: "lc" },
+      { kind: "row", value: msg("", "invalid") },
+    ])).rejects.toThrow();
+    await put(a, "s", "s");
+    expect(await topHead(a)).toBe("lb3");
   });
 });
