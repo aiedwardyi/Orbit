@@ -1139,7 +1139,9 @@ describe("Store", () => {
       bot: (id) => store.bot(id),
       conversation: () => ({}),
       appendMessage: (threadId, message) => store.appendMessage(threadId, message),
+      alertThread: (_bot, threadId) => threadId,
       notifyQuestion: () => {},
+      whenSettled: (_botId, _threadId, post) => post(),
     }, { fromBotId: bot.id, fromThreadId: bot.threadId, question: "Use staging or production for the release?", choices: ["Staging", "Production"] });
     const posted = result.body;
     if (!("messageId" in posted)) throw new Error("missing card");

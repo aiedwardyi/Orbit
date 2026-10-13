@@ -19,7 +19,9 @@ function harness(conversations = new Map<string, { group?: object }>([["bot-a:th
       appended.push({ threadId, message });
       return { ...message, id: `m-${appended.length}`, at: 1 };
     },
+    alertThread: (_bot, threadId) => threadId,
     notifyQuestion: (bot, threadId, question) => alerts.push({ bot, threadId, question }),
+    whenSettled: (_botId, _threadId, post) => post(),
   };
   return { deps, appended, alerts };
 }
@@ -82,6 +84,8 @@ describe("ask-user endpoint", () => {
     expect(handler).toContain("conversation: connectorThread");
     expect(handler).toContain('buildNotification("question", bot, target, question)');
     expect(handler).toContain("routineSourceThread(run)");
+    expect(handler).toContain("askHold.whenSettled(botId, threadId, post)");
+    expect(source).toContain("askHold.flush();");
     expect(handler).not.toContain("waiting-on-you");
   });
 

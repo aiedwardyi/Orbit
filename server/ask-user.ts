@@ -51,13 +51,16 @@ export interface AskUserDeps<B extends Sender> {
   /** The sender's own 1:1 task or a room it belongs to; null otherwise. */
   conversation(botId: string, threadId: string): { group?: object } | null;
   appendMessage(threadId: string, message: Omit<Message, "id" | "at">): Message;
-  /** Sends the desktop alert; the caller picks the thread it opens. */
-  notifyQuestion(bot: B, threadId: string, question: string): void;
+  /** The thread the alert opens, read when the bot asks: a routine run is over by release. */
+  alertThread(bot: B, threadId: string): string;
+  notifyQuestion(bot: B, target: string, question: string): void;
+  /** Runs `post` now, or once the asking turn has replied. */
+  whenSettled(botId: string, threadId: string, post: () => void): void;
 }
 
 export interface AskUserResult {
   status: number;
-  body: { error: string } | { messageId: string };
+  body: { error: string } | { messageId: string } | { held: true };
 }
 
 export function postAskUser<B extends Sender>(deps: AskUserDeps<B>, request: AskUserRequest): AskUserResult {
@@ -75,7 +78,14 @@ export function postAskUser<B extends Sender>(deps: AskUserDeps<B>, request: Ask
   };
   // rooms attribute the question to the member who asked, like show_image
   if (owner.group) message.from = { botId: from.id, name: from.name, color: from.color };
-  const posted = deps.appendMessage(request.fromThreadId, message);
-  deps.notifyQuestion(from, request.fromThreadId, question);
-  return { status: 201, body: { messageId: posted.id } };
+  const threadId = request.fromThreadId;
+  const target = deps.alertThread(from, threadId);
+  let posted: Message | undefined;
+  deps.whenSettled(from.id, threadId, () => {
+    // a bot deleted or removed from the room while its card waited has nobody to ask for
+    if (!deps.conversation(from.id, threadId)) return;
+    posted = deps.appendMessage(threadId, message);
+    deps.notifyQuestion(from, target, question);
+  });
+  return posted ? { status: 201, body: { messageId: posted.id } } : { status: 202, body: { held: true } };
 }

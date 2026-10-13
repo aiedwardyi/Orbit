@@ -111,6 +111,7 @@ import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNote
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
 import { buildNotification, type Notification } from "./notify.ts";
+import { watchAskHold } from "./ask-hold.ts";
 import { askUserCardPatchSchema, askUserRequestSchema, postAskUser } from "./ask-user.ts";
 import {
   createPingLimiter,
@@ -3656,6 +3657,9 @@ bus.subscribe((event: RuntimeEvent) => {
   });
 });
 
+// ask_user cards wait for the asking turn's reply.
+const askHold = watchAskHold(store, bus);
+
 // Drain queued delegations for a source thread after its turn settles.
 // Run as a separate subscriber so the drain logic stays out of the main
 // fold (which has its own switch/case noise) and its approval + startTurn
@@ -6886,12 +6890,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             bot: (id) => store.bot(id),
             conversation: connectorThread,
             appendMessage: (threadId, message) => store.appendMessage(threadId, message),
-            notifyQuestion: (bot, threadId, question) => {
+            alertThread: (bot, threadId) => {
               // A routine run's alert opens the conversation that owns the routine.
               const run = routines?.activeRunForBot(bot.id);
-              const target = (run?.threadId === threadId && routineSourceThread(run)) || threadId;
-              notify(buildNotification("question", bot, target, question));
+              return (run?.threadId === threadId && routineSourceThread(run)) || threadId;
             },
+            notifyQuestion: (bot, target, question) => notify(buildNotification("question", bot, target, question)),
+            whenSettled: (botId, threadId, post) => askHold.whenSettled(botId, threadId, post),
           },
           askUserRequestSchema.parse(body),
         );
@@ -10464,6 +10469,7 @@ setImmediate(() => {
 hostShutdown = () => {
   if (hostShutdownStarted) return;
   hostShutdownStarted = true;
+  askHold.flush();
   const routineThreadByBotId: Record<string, string> = {};
   for (const bot of store.bots) {
     const threadId = routines?.activeRunForBot(bot.id)?.threadId;
