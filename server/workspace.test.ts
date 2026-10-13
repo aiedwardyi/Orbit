@@ -1,6 +1,6 @@
 // Workspace + file memory contract: the workspace is created idempotently,
-// MEMORY.md loads under a hard budget, and an empty file stays out of the
-// first-turn prompt.
+// MEMORY.md loads under a hard budget, and an empty file gets only a starter
+// block in the first-turn prompt.
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -213,12 +213,23 @@ describe("workspace", () => {
     expect(readMemoryTopic(BOT, "..\\MEMORY.md")).toBeNull();
   });
 
-  it("does not inject empty MEMORY.md into the first-turn prompt", () => {
+  it("gives a new bot a starter block while MEMORY.md is missing", () => {
     ensureWorkspace(BOT);
-    expect(memorySystemPrompt(BOT)).toBe("");
-    expect(memorySystemPrompt(BOT)).not.toMatch(/MEMORY\.md/);
+    const prompt = memorySystemPrompt(BOT);
+    expect(prompt).toContain(JSON.stringify(join(workspaceDir(BOT), "MEMORY.md")));
+    expect(prompt).toContain(JSON.stringify(join(workspaceDir(BOT), "memory")));
+    expect(prompt).toContain("it is empty, so there is nothing to read yet");
+    expect(prompt).toContain("not in an engine's own memory feature");
+    expect(prompt).not.toContain("shown to you at the start of every session");
+    expect(prompt).not.toContain("Your memory (MEMORY.md):");
+  });
+
+  it("gives the same starter block while MEMORY.md is seed-only", () => {
+    ensureWorkspace(BOT);
+    const starter = memorySystemPrompt(BOT);
     writeFileSync(join(workspaceDir(BOT), "MEMORY.md"), MEMORY_SEED);
-    expect(memorySystemPrompt(BOT)).toBe("");
+    expect(memorySystemPrompt(BOT)).toBe(starter);
+    expect(starter).toContain("nothing to read yet");
   });
 
   it("embeds MEMORY.md once the bot has written notes", () => {
@@ -272,7 +283,9 @@ describe("workspace", () => {
   it("points the bot at a set-aside topic copy while MEMORY.md is empty", () => {
     const dir = ensureWorkspace(BOT);
     writeFileSync(join(dir, "memory", "deploy.md"), "deploy notes\n");
-    expect(memorySystemPrompt(BOT)).toBe("");
+    const starter = memorySystemPrompt(BOT);
+    expect(starter).toContain("nothing to read yet");
+    expect(starter).not.toContain("set aside");
     writeFileSync(join(dir, "memory", "deploy.conflict-ed364e8a.md"), "other PC's deploy notes\n");
     const prompt = memorySystemPrompt(BOT);
     expect(prompt).toContain("memory/deploy.conflict-ed364e8a.md");
