@@ -3804,6 +3804,8 @@ function resumePaneWakes(botId: string) {
 
 // Only past dispatch: until then the turn's own watermark write could undo a steered note's.
 const noteSteer = new NoteSteerer({
+  enabled: (botId) => store.bot(botId)?.shareTerminalWithChat !== false,
+  paused: (botId) => store.bot(botId)?.paneWakePaused === true,
   liveTurn: (botId, threadId) => {
     const bot = store.bot(botId);
     if (!bot?.busy || bot.threadId !== threadId || bot.activeThreadId !== threadId || turnStartClaims.has(botId)) return undefined;

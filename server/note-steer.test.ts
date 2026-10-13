@@ -8,15 +8,19 @@ interface HarnessState {
   live?: string;
   busy: boolean;
   canSteer: boolean;
+  enabled: boolean;
+  paused: boolean;
 }
 
-function harness(overrides: { live?: string; steer?: (text: string) => Promise<boolean> } = {}) {
+function harness(overrides: { live?: string; steer?: (text: string) => Promise<boolean>; wake?: () => void } = {}) {
   const store = new Store(() => ({ instanceId: "claude", model: "claude-sonnet-5" }));
   const bot = store.createBot();
-  const state: HarnessState = { live: "turn-1", busy: true, canSteer: true, ...overrides };
+  const state: HarnessState = { live: "turn-1", busy: true, canSteer: true, enabled: true, paused: false, ...overrides };
   const steer = vi.fn(overrides.steer ?? (async () => true));
-  const wake = vi.fn();
+  const wake = vi.fn(overrides.wake ?? (() => {}));
   const steerer = new NoteSteerer({
+    enabled: () => state.enabled,
+    paused: () => state.paused,
     liveTurn: () => state.live,
     busy: () => state.busy,
     steer: (_botId, _threadId, text) => (state.canSteer ? steer(text) : undefined),
@@ -145,6 +149,71 @@ describe("NoteSteerer", () => {
     await arrive("b");
     expect(delivered()).toBe(earlier.id);
     expect(wake).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a note to the wake when sharing is off or wakes are paused", async () => {
+    for (const setup of [
+      (state: HarnessState) => (state.enabled = false),
+      (state: HarnessState) => (state.paused = true),
+    ]) {
+      const { state, steer, wake, note, delivered, arrive } = harness();
+      setup(state);
+      note("[pane a] DONE");
+      await arrive("a");
+      expect(steer).not.toHaveBeenCalled();
+      expect(wake).toHaveBeenCalledExactlyOnceWith(expect.any(String), expect.any(String), "a");
+      expect(delivered()).toBeUndefined();
+    }
+  });
+
+  it("keeps a newer watermark a turn set while the steer was in flight", async () => {
+    let newer = "";
+    const { store, bot, state, wake, note, delivered, arrive } = harness({
+      steer: async () => {
+        newer = note("[pane b] later").id;
+        store.markPaneNotesDelivered(bot.id, bot.threadId, newer);
+        state.live = undefined;
+        state.busy = false;
+        return true;
+      },
+    });
+    note("[pane a] DONE");
+    await arrive("a");
+    expect(delivered()).toBe(newer);
+    expect(wake).not.toHaveBeenCalled();
+  });
+
+  it("still steers the next note after a run whose wake threw", async () => {
+    const results = [false, true];
+    const { steer, note, delivered, arrive } = harness({
+      steer: async () => results.shift()!,
+      wake: () => {
+        throw new Error("wake failed");
+      },
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    note("[pane a] first");
+    await arrive("a").catch(() => {});
+    const second = note("[pane b] second");
+    await arrive("b").catch(() => {});
+    expect(steer).toHaveBeenCalledTimes(2);
+    expect(delivered()).toBe(second.id);
+    warn.mockRestore();
+  });
+
+  it("wakes once when the wake itself throws", async () => {
+    const { wake, note, arrive } = harness({
+      steer: async () => false,
+      wake: () => {
+        throw new Error("wake failed");
+      },
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    note("[pane a] DONE");
+    await arrive("a").catch(() => {});
+    expect(wake).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
   });
 
   it("replays a steered note as history in a fresh provider session, not as new", async () => {

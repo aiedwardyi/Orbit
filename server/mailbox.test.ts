@@ -11,7 +11,7 @@ import { installOrbitMsg, terminalPaneEnv } from "../electron/terminal-mailbox.m
 import {
   loadMailboxSecret, mailboxGrant, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, MAILBOX_NOTE_MAX_CHARS, MAILBOX_SECRET_FILE, MAILBOX_STALE_GRANT, readMailboxBody,
 } from "./mailbox.ts";
-import { PANE_WAKE_PROMPT } from "./pane-wake.ts";
+import { PANE_WAKE_DEBOUNCE_MS, PANE_WAKE_PROMPT } from "./pane-wake.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -333,8 +333,12 @@ describe("POST /api/mailbox", () => {
     // SAFETY: the server writes bots.json as the bot records it loaded, tasks included.
     const bots = JSON.parse(readFileSync(join(home, "data", "bots.json"), "utf8")) as Array<{ id: string; tasks?: Array<{ paneNotesDeliveredId?: string }> }>;
     expect(bots.find((bot) => bot.id === "lead")?.tasks?.[0]?.paneNotesDeliveredId).toBe(id);
-    // past the wake debounce: no wake turn followed
-    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    // past the wake debounce: a wake would claim the bot again
+    const quietUntil = Date.now() + PANE_WAKE_DEBOUNCE_MS + 3_000;
+    while (Date.now() < quietUntil) {
+      expect(await busy()).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     expect(readFileSync(promptLog, "utf8")).not.toContain(PANE_WAKE_PROMPT);
   }, 40_000);
 
