@@ -22,6 +22,7 @@ let base: string;
 let home: string;
 let terminalStub: ReturnType<typeof createServer>;
 const deferredNotes: string[] = [];
+const UNWATCHED_TEXT = "the pane just exited";
 const SCOPE = { pane: PANE, bot: "worker", teacher: "teacher" };
 const GRANT = mailboxGrant(MAILBOX_KEY, PANE, "worker", "teacher");
 // Without PSModulePath, Windows PowerShell rescans every module on the first cmdlet (~19s per spawn on CI).
@@ -126,9 +127,11 @@ beforeAll(async () => {
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
       if (req.method === "GET") return res.end('{"panes":[]}');
+      if (req.method !== "POST" || !req.url?.endsWith("/terminal/attention") || !body) return res.end("{}");
       const note = JSON.parse(body);
-      if (note.kind === "auto") deferredNotes.push(note.text);
-      res.end(JSON.stringify({ raised: note.kind === "auto" }));
+      const watched = note.kind === "auto" && note.text !== UNWATCHED_TEXT;
+      if (watched) deferredNotes.push(note.text);
+      res.end(JSON.stringify({ raised: watched }));
     });
   });
   await new Promise<void>((resolve) => terminalStub.listen(0, "127.0.0.1", resolve));
@@ -228,6 +231,15 @@ describe("POST /api/mailbox", () => {
     expect((await transcript("solo-thread")).map((m) => m.text)).toEqual([
       "[pane 0f3c9a1e] from solo (solo): DONE X",
     ]);
+  });
+
+  it("stores an auto note when the watcher does not know the pane", async () => {
+    const scope = { pane: PANE, bot: "solo", teacher: "solo" };
+    const response = await post({ text: UNWATCHED_TEXT, kind: "auto" }, scope, mailboxGrant(MAILBOX_KEY, PANE, "solo", "solo"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, id: expect.any(String) });
+    expect((await transcript("solo-thread")).slice(-1)).toMatchObject([{ role: "bot", kind: "note", text: `[pane 0f3c9a1e] from solo (solo): ${UNWATCHED_TEXT}` }]);
+    expect(deferredNotes).not.toContain(UNWATCHED_TEXT);
   });
 
   it("routes a self-addressed note to the section chief", async () => {

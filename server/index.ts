@@ -6606,18 +6606,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!parsed.success) return json(res, 400, { error: "invalid mailbox message" });
       const source = store.bot(scope.bot);
       if (!source) return json(res, 404, { error: "no such bot" });
-      if (parsed.data.kind === "auto") {
-        const deferred = await deferMailboxAuto(terminalBridgeAccess, scope, parsed.data.text);
-        return deferred ? json(res, 200, { ok: true, deferred: true }) : json(res, 503, { error: "pane note watcher unavailable" });
+      let kind = parsed.data.kind;
+      if (kind === "auto") {
+        if (await deferMailboxAuto(terminalBridgeAccess, scope, parsed.data.text)) return json(res, 200, { ok: true, deferred: true });
+        // No watcher to hand it to: store it now like a plain note, a duplicate beats a lost wake.
+        kind = undefined;
       }
       const teacher = store.bot(resolveMailboxTeacher(store.bots, scope.bot)) ?? source;
       const label = await paneLabel(terminalBridgeAccess, scope.bot, scope.pane);
       const note = mailboxNoteText(scope.pane, source.name || source.id, source.id, parsed.data.text, label);
       if (!note) return json(res, 400, { error: "empty message" });
-      if (parsed.data.kind === "report") await raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, parsed.data.kind);
+      if (kind === "report") await raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, kind);
       const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note, origin: profileSyncSettings.deviceId });
       if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text, botNotifyIconPath(source)), { botId: teacher.id, threadId: teacher.threadId });
-      if (parsed.data.kind !== "report") void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, parsed.data.kind);
+      if (kind !== "report") void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, kind);
       paneWake.noteArrived(teacher.id, teacher.threadId, scope.pane);
       return json(res, 200, { ok: true, id: message.id });
     }

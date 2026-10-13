@@ -30,10 +30,18 @@ describe("mailbox turn-end delivery", () => {
   it("defers auto posts before storage and acknowledges reports before storage", () => {
     const server = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
     const route = server.slice(server.indexOf('path === "/api/mailbox"'), server.indexOf('path.startsWith("/api/")', server.indexOf('path === "/api/mailbox"')));
-    expect(route).toContain('parsed.data.kind === "auto"');
+    expect(route).toContain('kind === "auto"');
     expect(route).not.toContain("mailboxAutoDedup.shouldDrop");
     expect(route.indexOf("deferMailboxAuto(")).toBeLessThan(route.indexOf("store.appendMessage("));
     expect(route).toContain("{ ok: true, deferred: true }");
     expect(route.indexOf("await raisePaneAttention(")).toBeLessThan(route.indexOf("store.appendMessage("));
+  });
+
+  it("stores an auto note as a plain note when deferral fails", () => {
+    const server = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const route = server.slice(server.indexOf('path === "/api/mailbox"'), server.indexOf('path.startsWith("/api/")', server.indexOf('path === "/api/mailbox"')));
+    expect(route).not.toContain("pane note watcher unavailable");
+    expect(route).not.toContain("503");
+    expect(route).toMatch(/if \(await deferMailboxAuto\([^)]*\)\) return json\(res, 200, \{ ok: true, deferred: true \}\);\s*(\/\/[^\n]*\s*)?kind = undefined;/);
   });
 });

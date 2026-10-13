@@ -379,7 +379,7 @@ describe("pane attention relay", () => {
 
   it("raises attention with the note kind after the mailbox stores a pane note", () => {
     const route = server.slice(server.indexOf('path === "/api/mailbox"'), server.indexOf('path.startsWith("/api/")', server.indexOf('path === "/api/mailbox"')));
-    expect(route).toContain("raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, parsed.data.kind)");
+    expect(route).toContain("raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, kind)");
   });
 });
 
