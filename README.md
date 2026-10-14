@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  Every AI coding subscription you pay for, in one desktop app, at terminal speed.
+  Your AI coding subscriptions, in one desktop app, at terminal speed.
   <br>
   A lead bot plans the work, runs coding workers in real terminals, and remembers across sessions, models, PCs and your phone.
   <br>
@@ -29,13 +29,13 @@
 
 ## Why Wink
 
-- **Type and go.** Opens straight to your bots. Fast and light, like a terminal. No API keys, no onboarding.
+- **Type and go.** Opens straight to your bots after a short first run. Fast and light, like a terminal. No API keys.
 - **All your subscriptions, one app.** Claude Code, Codex, Gemini, Grok and Muse, on the logins you already pay for. `Alt+M` switches the model or engine mid-thread, and the thread and its task record carry over.
 - **A lead bot that runs the workers.** Ask once. It writes a task card per job, opens a labeled terminal pane per worker (`PARSER | Sonnet 5.5 | high`), and gets each DONE report back in its chat. A question never stops the work: the bot's row glows and the question waits above the composer. Or press `` Ctrl+` `` and drive the terminal yourself.
-- **Long tasks without losing the plot.** On its own, Claude Code runs until its window is nearly full, then squeezes the whole session into one summary. Wink steps in well before that. A bot moves to a fresh session with a summary, its task record and its memory. A Claude Code worker gets its task card and progress notes back. The full transcript stays on disk, and long runs use fewer tokens.
+- **Long tasks without losing the plot.** On its own, Claude Code runs until its window is nearly full, then squeezes the whole session into one summary. Wink steps in well before that. A bot moves to a fresh session with a summary, its task record and its memory. A Claude Code worker gets its task card and progress notes back. The full transcript stays on disk, and later turns send less context.
 - **Memory that grows with you.** Each bot keeps a `MEMORY.md` it writes itself and reads at the start of every session, plus topic files on demand. Sign in with Google, or point Wink at a Drive folder, and the same bots, memory and chats continue on your other PCs.
-- **Your phone and your PCs, any hour.** The same chats on your phone over your Tailscale tailnet, or QR pairing through a [relay you host](relay/README.md). Push notifications when a bot needs you, even after you've put the phone down. Every synced PC is listed under **Your PCs** in the sidebar: open one and work with its bots from wherever you are.
-- **Pro moves.** `Ctrl+1..9` jumps to a bot, `Alt+1..9` to a worker pane, `Ctrl+K` opens the command palette, `Alt+I` the model index with benchmark scores and API prices.
+- **Your phone and your PCs, any hour.** The same chats on your phone over your Tailscale tailnet, or QR pairing through a [relay you host](relay/README.md). Push notifications when a bot needs you, even after you've put the phone down. Every synced PC on your tailnet or relay is listed under **Your PCs** in the sidebar: open one and work with its bots from wherever you are.
+- **Pro moves.** `Ctrl+1..9` jumps to a bot, `Alt+1..9` to a pane in the open terminal, `Ctrl+K` opens the command palette, `Alt+I` the model index with benchmark scores and API prices.
 - **52 themes.** `Alt+Shift+T` cycles them, so the screen never gets boring. English and Korean.
 
 ## Quickstart
