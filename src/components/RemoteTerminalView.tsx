@@ -136,12 +136,17 @@ export function RemoteTerminalView({
 
   const panes = snapshot?.panes ?? [];
   const mainPane = panes.find((pane) => pane.main);
-  const tabs: RemoteTerminalPane[] = panes.length && !mainPane ? [{ sessionId: MAIN_TAB, main: true, exited: true }, ...panes] : panes;
+  const tabs: RemoteTerminalPane[] = !panes.length
+    ? panes
+    : mainPane
+      ? [mainPane, ...panes.filter((pane) => pane !== mainPane)]
+      : [{ sessionId: MAIN_TAB, main: true, exited: true }, ...panes];
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
   const fallbackPane = mainPane ? undefined : panes[0]?.sessionId;
+  // A Main tab picked before Main started follows the live Main pane.
   const picked = selectedPane === MAIN_TAB && tabs[0]?.sessionId !== MAIN_TAB ? null : selectedPane;
   const onMainTab = picked === MAIN_TAB;
   const activePaneId = picked ?? mainPane?.sessionId ?? fallbackPane;

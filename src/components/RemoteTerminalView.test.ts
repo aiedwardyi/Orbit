@@ -418,14 +418,15 @@ describe("RemoteTerminalView", () => {
     const tabsOf = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
     const openButton = (host: HTMLElement) => [...host.querySelectorAll("button")].find((item) => item.textContent?.includes("Open terminal"))!;
 
-    function mainServer(initial: Pane[] = workers) {
+    function mainServer(initial: Pane[] = workers, mainLast = false) {
       const server = { panes: initial };
       store.api.mockImplementation(async (path: string) => {
         if (path.endsWith("/start")) {
-          server.panes = [{ sessionId: "main", main: true }, ...server.panes];
+          const main = { sessionId: "main", main: true };
+          server.panes = mainLast ? [...server.panes, main] : [main, ...server.panes];
           return { screenText: "PS>", sessionId: "main", generation: 1, panes: server.panes };
         }
-        const id = new URLSearchParams(path.split("?")[1] ?? "").get("sessionId") ?? server.panes[0]?.sessionId;
+        const id = new URLSearchParams(path.split("?")[1] ?? "").get("sessionId") ?? server.panes.find((pane) => pane.main)?.sessionId ?? server.panes[0]?.sessionId;
         return { screenText: id === "main" ? "PS>" : `$ ${id}`, sessionId: id, generation: 1, panes: server.panes };
       });
       return server;
@@ -503,6 +504,60 @@ describe("RemoteTerminalView", () => {
         await act(async () => vi.advanceTimersByTime(1_000));
         expect(host.querySelector("pre")?.textContent).toBe("PS>");
         expect(tabsOf(host)[0].getAttribute("aria-selected")).toBe("true");
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("lists a live Main first when the roster has a worker before it", async () => {
+      mainServer([...workers, { sessionId: "main", main: true }]);
+      const { host, root } = await renderView();
+      try {
+        expect(tabsOf(host).map((tab) => tab.textContent)).toEqual(["Main", "one", "two"]);
+        expect(tabsOf(host)[0].getAttribute("aria-selected")).toBe("true");
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("leaves a main-first roster in order", async () => {
+      mainServer([{ sessionId: "main", main: true }, ...workers]);
+      const { host, root } = await renderView();
+      try {
+        expect(tabsOf(host).map((tab) => tab.textContent)).toEqual(["Main", "one", "two"]);
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("keeps Main first and selected when the host lists it last after a start", async () => {
+      mainServer(workers, true);
+      const { host, root } = await renderView();
+      try {
+        await act(async () => click(tabsOf(host)[0]));
+        await act(async () => click(openButton(host)));
+        expect(tabsOf(host).map((tab) => tab.textContent)).toEqual(["Main", "one", "two"]);
+        expect(tabsOf(host)[0].getAttribute("aria-selected")).toBe("true");
+        expect(host.querySelector("pre")?.textContent).toBe("PS>");
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("selects a worker-first live Main with Alt+1", async () => {
+      mainServer([...workers, { sessionId: "main", main: true }]);
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = createRoot(host);
+      const view = (paneHotkey: { n: number } | null) =>
+        createElement(I18nProvider, null, createElement(RemoteTerminalView, { bot: { id: "bot-1", name: "Ada" }, visible: true, onClose: () => {}, paneHotkey }));
+      try {
+        await act(async () => root.render(view(null)));
+        await act(async () => click(tabsOf(host).find((tab) => tab.textContent === "two")!));
+        expect(host.querySelector("pre")?.textContent).toBe("$ two");
+        await act(async () => root.render(view({ n: 1 })));
+        expect(tabsOf(host)[0].getAttribute("aria-selected")).toBe("true");
+        expect(host.querySelector("pre")?.textContent).toBe("PS>");
       } finally {
         await act(async () => root.unmount());
       }
