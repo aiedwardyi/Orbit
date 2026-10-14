@@ -17,11 +17,12 @@ let stub: Server;
 let stubPort = 0;
 let lastAuth: string | undefined;
 let lastAskBody: any = null;
-interface AskBotResponse { botName?: string; text?: string; shown?: boolean; busy?: boolean; error?: string; limit?: string }
+interface AskBotResponse { botName?: string; text?: string; shown?: boolean; busy?: boolean; error?: string; limit?: string; taskId?: string }
 let askResponse: AskBotResponse = { botName: "Helper", text: "hi from helper" };
 let lastDelegateBody: any = null;
 let lastDelegationUrl: string | null = null;
-let delegationStatusResponse: unknown = { status: "done", toBotName: "Helper", result: "All done." };
+interface DelegationStatusResponse { status: string; toBotName?: string; result?: string; sameTurn?: boolean }
+let delegationStatusResponse: DelegationStatusResponse = { status: "done", toBotName: "Helper", result: "All done." };
 let delegateResponse: unknown = { queued: true, message: "Delegation queued." };
 let lastCreateBody: any = null;
 let lastCreateChannelBody: any = null;
@@ -591,6 +592,18 @@ describe("agents-proxy MCP surface", () => {
     }
   });
 
+  it("hands back a timed-out ask's task id and says the limit in the description", async () => {
+    const text = "@Helper is still working (over 4 min). Task id: task-ask1. Collect the reply with wait_delegation; do not ask again.";
+    askResponse = { botName: "Helper", text, taskId: "task-ask1", shown: false };
+    const res = await callTool("ask_bot", { bot_id: "bot-helper", message: "ping" });
+    expect(res.result.content[0].text).toBe(text);
+    expect(res.result.isError).toBeFalsy();
+    const list = await rpc("tools/list");
+    const tool = list.result.tools.find((t: { name: string }) => t.name === "ask_bot");
+    expect(tool.description).toContain("4 minutes");
+    expect(tool.description).toContain("wait_delegation");
+  });
+
   it("renders a busy peer as a clean answer, not an error", async () => {
     askResponse = { busy: true };
     const res = await callTool("ask_bot", { bot_id: "bot-helper", message: "ping" });
@@ -755,6 +768,7 @@ describe("agents-proxy MCP surface", () => {
     const res = await callTool("delegate_bot", { bot_id: "bot-helper", message: "do the thing" });
     expect(res.result.content[0].text).toContain("Task id: task-abc123");
     expect(res.result.content[0].text).toContain("wait_delegation");
+    expect(res.result.content[0].text).toContain("in a later turn");
     delegateResponse = { queued: true, message: "Delegation queued." };
   });
 
@@ -784,6 +798,13 @@ describe("agents-proxy MCP surface", () => {
     expect(waiting.result.content[0].text).toContain("still queued");
     expect(waiting.result.content[0].text).toContain("after 45s");
     expect(lastDelegationUrl).toContain("wait_ms=45000");
+
+    delegationStatusResponse = { status: "queued", toBotName: "Helper", sameTurn: true };
+    const sameTurn = await callTool("wait_delegation", { task_id: "task-abc123" });
+    expect(sameTurn.result.content[0].text).toContain("when your turn ends");
+    expect(sameTurn.result.content[0].text).not.toContain("still queued");
+    const wait = list.result.tools.find((t: { name: string }) => t.name === "wait_delegation");
+    expect(wait.description).toContain("only sent when this turn ends");
     delegationStatusResponse = { status: "done", toBotName: "Helper", result: "All done." };
   });
 

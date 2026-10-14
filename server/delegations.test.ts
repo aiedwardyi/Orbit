@@ -20,6 +20,7 @@ import {
   MAX_BUSY_ATTEMPTS,
   pendingDelegationInfo,
   pendingDelegationSnapshot,
+  pollDelegation,
   queueDelegation,
   recordDelegationReceipt,
   resolveDelegationId,
@@ -987,6 +988,37 @@ describe("busy retries and receipts", () => {
     discardDelegations(commsBus, from.threadId);
     expect(_pendingCount(from.threadId)).toBe(0);
     expect(findDelegationReceipt(queued.id!)).toMatchObject({ status: "dropped" });
+  });
+
+  it("keeps a 5,000-char reply whole and marks a longer one as cut", () => {
+    const receipt = (id: string, result: string) =>
+      recordDelegationReceipt({ id, sourceThreadId: from.threadId, toBotId: target.id, toBotName: "Helper", status: "done", result });
+    const whole = "The filing is due Friday. ".repeat(200).slice(0, 5_000);
+    receipt("task-whole", whole);
+    expect(findDelegationReceipt("task-whole")?.result).toBe(whole);
+
+    const long = "The filing is due Friday. ".repeat(800).slice(0, 20_412);
+    receipt("task-long", long);
+    expect(findDelegationReceipt("task-long")?.result).toBe(`${long.slice(0, 16_000)}\n\n[reply cut: first 16000 of 20412 chars]`);
+  });
+
+  it("answers a wait on a handoff this turn queued at once, flagged as same turn", async () => {
+    const queued = queueDelegation(commsBus, from, { toBotId: target.id, message: "after this turn", depth: 0 }, 1);
+    const started = Date.now();
+    const polled = await pollDelegation(queued.id!, from.id, from.threadId, 10_000, () => undefined, () => "Helper");
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(polled).toEqual({ code: 200, body: { status: "queued", toBotName: "Helper", sameTurn: true } });
+  });
+
+  it("keeps waiting on a handoff an earlier turn queued", async () => {
+    store.patchBot(target.id, { busy: true });
+    const queued = queueDelegation(commsBus, from, { toBotId: target.id, message: "later", depth: 0 }, 1);
+    drainDelegations(commsBus, approvalBus, from.threadId, () => undefined);
+    await waitFor(() => pendingDelegationInfo(queued.id!)?.attempts === 1);
+    const started = Date.now();
+    const polled = await pollDelegation(queued.id!, from.id, from.threadId, 600, () => undefined, () => "Helper");
+    expect(Date.now() - started).toBeGreaterThanOrEqual(550);
+    expect(polled).toEqual({ code: 200, body: { status: "queued", toBotName: "Helper" } });
   });
 });
 
