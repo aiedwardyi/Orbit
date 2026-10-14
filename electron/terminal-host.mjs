@@ -30,7 +30,7 @@ const STALL_TRIES = 5;
 // A TUI repaints after a resize; that redraw is not the worker moving again.
 const RESIZE_REPAINT_MS = 2_000;
 // Script panes go quiet when they finish; only an agent CLI waits on its teacher.
-const WORKER_CLI_RE = /(?:^|[;&|\r\n])\s*&?\s*["']?(?:[^\s"';&|]*[\\/])?(?:claude|codex|muse|grok|gemini|agy)(?:\.(?:exe|cmd|ps1))?["']?(?=\s|$)/i;
+const WORKER_CLI_RE = /(?:^|[;&|\r\n])\s*&?\s*["']?(?:[^\s"';&|]*[\\/])?(claude|codex|muse|grok|gemini|agy)(?:\.(?:exe|cmd|ps1))?["']?(?=\s|$)/i;
 const AGENT_BUSY_RE = /(?:esc to interrupt|^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$))/mu;
 // Claude Code's status line counts live jobs in a "·" segment; its "done ... still running" line is history and never clears.
 const AGENT_JOBS_RE = /^(?!.*still running)(?=.*·)(?:.*·)?\s*(?:\d+ [^,·]+, )*\d+ (?:shells?|monitors?|local agents?)(?:, \d+ [^,·]+)*\s*(?:·|$)/u;
@@ -139,23 +139,25 @@ function normalizeTerminalText(text) {
   return text.replace(/\r\n/g, "\r").replace(/\n/g, "\r");
 }
 
-// Claude: "You've hit your session limit · resets 3pm (Asia/Seoul)". Codex: "You've hit your usage limit. ... or try again at 5:49 AM." (wraps, so it reads the flattened tail).
-const CLAUDE_LIMIT_RE = /hit your [^·\n]*limit\s*·\s*resets (\S.*)$/i;
-const CODEX_LIMIT_RE = /hit your usage limit\..*?try again at (.+?)\.(?: |$)/i;
+// Real limit screens only: Claude's line sits at the start of its gutter row, Codex's starts the "■" error block. Quoted sentences in diffs, greps and logs carry a prefix.
+const CLAUDE_LIMIT_RE = /^\s*(?:⎿\s+)?You['’]ve hit your [^·\n]*limit\s*·\s*resets (\S.*)$/i;
+const CODEX_LIMIT_RE = /^\s*■\s+You['’]ve hit your usage limit\..{0,400}?try again at (.+?)\.(?: |$)/i;
 
-function usageLimit(lines) {
-  for (const line of lines) {
-    const reset = CLAUDE_LIMIT_RE.exec(line)?.[1];
-    if (reset) return { engine: "Claude", reset: reset.trim() };
-  }
-  const reset = CODEX_LIMIT_RE.exec(lines.join(" ").replace(/\s+/g, " "))?.[1];
-  return reset ? { engine: "Codex", reset } : null;
+// Codex wraps the sentence, so it reads from the "■" line on, flattened.
+const LIMIT_READERS = {
+  claude: (lines) => lines.map((line) => CLAUDE_LIMIT_RE.exec(line)?.[1]).find(Boolean),
+  codex: (lines) => lines.map((line, i) => CODEX_LIMIT_RE.exec(lines.slice(i).join(" ").replace(/\s+/g, " "))?.[1]).find(Boolean),
+};
+
+function usageLimit(lines, engine) {
+  const reset = LIMIT_READERS[engine]?.(lines)?.trim();
+  return reset ? { engine: engine === "claude" ? "Claude" : "Codex", reset } : null;
 }
 
 // A turn that dies on a usage limit or a menu runs no engine hook, so the screen is the only signal.
-function stallNoteText(screenText, stallMs, cwd) {
+function stallNoteText(screenText, stallMs, cwd, engine) {
   const lines = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES);
-  const limit = usageLimit(lines);
+  const limit = usageLimit(lines, engine);
   if (limit) return `LIMIT: ${limit.engine} hit its usage limit (resets ${limit.reset}). Its work so far stays in ${cwd}. Send "continue" after the reset, or move the job to another engine.`;
   const tail = lines.join("\n");
   return `STALLED: no screen change for ${Math.max(1, Math.round(stallMs / 60_000))} min and no report. It may be stuck on a usage limit, a menu or an error. terminal_read its pane, then act or tell the user. Last lines:\n${tail}`;
@@ -401,7 +403,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
       const stall = session.stallChangedAt;
       session.stallTries += 1;
-      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(session.screen.text(), stallMs, session.cwd))).catch(() => {
+      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(session.screen.text(), stallMs, session.cwd, session.engine))).catch(() => {
         // a post that did land raises noteAt, which stops the retry above
         if (session.stallChangedAt !== stall || session.stallTries >= STALL_TRIES) return;
         session.stallFired = false;
@@ -575,7 +577,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), pendingInputEcho: "", truncated: false,
-      workerReady: false, mail, teacher: folder.teacher ?? input.botId, worker: false, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
+      workerReady: false, mail, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
       reported: false, finished: [], autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false,
     };
@@ -633,7 +635,11 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       session.activityCooldownUntil = 0;
       session.stallArmedAt = now();
       session.stallChangedAt = session.stallArmedAt;
-      if (session.botPane && WORKER_CLI_RE.test(text)) watchStalls(session);
+      const launched = session.botPane ? WORKER_CLI_RE.exec(text) : null;
+      if (launched) {
+        session.engine = launched[1].toLowerCase();
+        watchStalls(session);
+      }
       if (session.botPane) paneRuns?.started({ id: session.id, botId: session.botId, teacher: session.teacher, label: session.label, cwd: session.cwd, spawnedAt: session.spawnedAt });
     }
     if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);

@@ -1506,6 +1506,34 @@ test("a Codex usage limit that wraps sends one LIMIT note with the reset time as
   assert.equal(f.notes.length, 1);
 });
 
+test("a Codex usage limit with its reset on a later line sends a LIMIT note", async () => {
+  const f = stallFixture();
+  await f.host.openForBot("bot-1", { label: "W", command: "codex --model gpt-6-astra 'go'" });
+  f.children[0].data("■ You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit\r\nhttps://chatgpt.com/codex/settings/usage to purchase more credits or try again at 5:49 AM.\r\n");
+  await f.settle();
+  await f.advance(121_000);
+  assert.match(f.notes[0].text, limitNote("Codex", "5:49 AM"));
+});
+
+for (const [name, command, screen] of [
+  ["a diff line quoting the Claude sentence", "claude go", "+// Claude example: You've hit your session limit · resets 3pm (Asia/Seoul)\r\n"],
+  ["a grep hit quoting the Codex sentence", "claude go", "tests/limits.ts:12: ■ You've hit your usage limit. Upgrade your plan or try again at 5:49 AM.\r\n"],
+  ["a chat log line quoting the Claude sentence", "claude go", "User: Yesterday the CLI said You've hit your session limit · resets 3pm (Asia/Seoul)\r\n"],
+  ["the Codex limit screen on a Claude pane", "claude go", CODEX_LIMIT],
+  ["the Claude limit screen on a Codex pane", "codex go", CLAUDE_LIMIT],
+  ["the Claude limit screen on another engine's pane", "gemini go", CLAUDE_LIMIT],
+]) {
+  test(`${name} sends a STALLED note, not LIMIT`, async () => {
+    const f = stallFixture();
+    await f.host.openForBot("bot-1", { label: "W", command });
+    f.children[0].data(screen);
+    await f.settle();
+    await f.advance(121_000);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /^STALLED: /);
+  });
+}
+
 test("a limit screen that only redraws a clock, wraps differently or gets keys sends no second note", async () => {
   const f = stallFixture();
   const pane = await f.host.openForBot("bot-1", { label: "W", command: "codex --model gpt-6-astra 'go'" });
