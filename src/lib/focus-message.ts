@@ -18,6 +18,7 @@ interface SearchLandingState {
 }
 
 const FLASH_CLASSES = ["ring-2", "ring-accent/70", "rounded-2xl", "transition-shadow"];
+const TALL_TARGET_MARGIN = 16;
 
 /** Scroll a message into the transcript pane without moving the window.
  * `scrollIntoView({ block: "center" })` walks every scrollable ancestor,
@@ -29,7 +30,9 @@ export function scrollElementIntoContainer(
 ): void {
   const cRect = container.getBoundingClientRect();
   const tRect = target.getBoundingClientRect();
-  container.scrollTop += tRect.top + tRect.height / 2 - (cRect.top + cRect.height / 2);
+  container.scrollTop += tRect.height > cRect.height
+    ? tRect.top - cRect.top - TALL_TARGET_MARGIN
+    : tRect.top + tRect.height / 2 - (cRect.top + cRect.height / 2);
 }
 
 /** Pin the window back to the top-left after find closes or a search lands. */

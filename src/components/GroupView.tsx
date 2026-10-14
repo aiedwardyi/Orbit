@@ -79,7 +79,7 @@ import { pinPreview } from "@/lib/pin-preview";
 import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
-  focusWindowRange,
+  focusWindow,
   followedTailStart,
   resolveTranscriptWindow,
   shiftForPrepend,
@@ -1345,7 +1345,9 @@ export function GroupView({ group }: { group: Group }) {
     ),
   } : null, [dockSlot, dockLive, activityLabel, lastUserAt, presenceSpeaker, group.name, toolInFlight]);
 
+  // the window holding a focus target commits before useFocusMessage scrolls
   const appliedFocus = useRef<number | null>(null);
+  const [focusWindowNonce, setFocusWindowNonce] = useState<number | null>(null);
   const requestedFocus = useRef<number | null>(null);
   const { open: openJump, close: closeJump } = jump;
   useEffect(() => {
@@ -1364,15 +1366,24 @@ export function GroupView({ group }: { group: Group }) {
     }
     appliedFocus.current = focus.nonce;
     if (liveIndex >= 0) closeJump();
-    const range = focusWindowRange(list.length, targetIndex);
+    const listRenders = (index: number) => messageVisible(list[index], showToolCalls, showActivities);
+    // a jump page fetched for this target has no window yet; a jump closing for a live target leaves the plain tail
+    const switching = list !== shown;
+    const current = requestedFocus.current === focus.nonce
+      ? null
+      : switching
+        ? { start: tailWindowStart(list.length, TRANSCRIPT_WINDOW_SIZE, listRenders), end: null }
+        : { start: startIndex, end: transcriptWindow.end === null ? null : endIndex };
+    const next = focusWindow(current, list.length, targetIndex, TRANSCRIPT_WINDOW_SIZE, listRenders);
     setBottomFollow(false);
-    setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end });
-  }, [closeJump, group.hasMore, group.messages, group.threadId, openJump, setBottomFollow, shown, state.focusMessage, transcriptKey]);
+    if (switching || next !== current) setTranscriptWindow({ key: transcriptKey, ...next, expanded: next.end === null });
+    setFocusWindowNonce(focus.nonce);
+  }, [closeJump, endIndex, group.hasMore, group.messages, group.threadId, openJump, setBottomFollow, showActivities, showToolCalls, shown, startIndex, state.focusMessage, transcriptKey, transcriptWindow.end]);
   const focusPaging =
     Boolean(group.hasMore) &&
     state.focusMessage?.threadId === group.threadId &&
     !shown.some((message) => message.id === state.focusMessage?.messageId);
-  useFocusMessage(group.threadId, shown.length > 0 && !focusPaging);
+  useFocusMessage(group.threadId, shown.length > 0 && !focusPaging && focusWindowNonce === state.focusMessage?.nonce);
   useEffect(() => {
     if (!follow || jump.messages || transcriptWindow.end !== null || transcriptWindow.expanded) return;
     const start = followedTailStart(transcriptWindow.start, group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders);

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
-  focusWindowRange,
+  focusWindow,
   followedTailStart,
   resolveTranscriptWindow,
   tailWindowStart,
@@ -131,16 +131,47 @@ describe("resolveTranscriptWindow", () => {
   });
 });
 
-describe("focusWindowRange", () => {
-  it.each([10, 500, 990])("contains target %i in a bounded window", (target) => {
-    const range = focusWindowRange(1_000, target);
-    expect(target).toBeGreaterThanOrEqual(range.start);
-    expect(target).toBeLessThan(range.end);
-    expect(range.end - range.start).toBeLessThanOrEqual(TRANSCRIPT_WINDOW_SIZE);
+describe("focusWindow", () => {
+  it.each([
+    { start: 280, end: null },
+    { start: 440, end: 560 },
+  ])("keeps a window that already holds the target", (window) => {
+    expect(focusWindow(window, 1_000, 500)).toBe(window);
   });
 
-  it("uses the full short transcript", () => {
-    expect(focusWindowRange(20, 10)).toEqual({ start: 0, end: 20 });
+  it("grows the start to a target above the window and keeps the tail", () => {
+    expect(focusWindow({ start: 280, end: null }, 400, 250)).toEqual({ start: 240, end: null });
+  });
+
+  it("counts the context above a grown target in rendering rows", () => {
+    expect(focusWindow({ start: 300, end: null }, 400, 200, TRANSCRIPT_WINDOW_SIZE, (i) => i % 4 === 0)).toEqual({ start: 160, end: null });
+  });
+
+  it("grows up to two windows of rendering rows", () => {
+    expect(focusWindow({ start: 880, end: null }, 1_000, 770)).toEqual({ start: 760, end: null });
+  });
+
+  it("opens a bounded window once growing would pass two windows", () => {
+    expect(focusWindow({ start: 880, end: null }, 1_000, 769)).toEqual({ start: 709, end: 829 });
+  });
+
+  it("sizes a bounded window by rendering rows", () => {
+    const renders = (i: number) => i % 10 === 0;
+    const range = focusWindow({ start: 4_800, end: null }, 5_000, 1_000, TRANSCRIPT_WINDOW_SIZE, renders);
+    expect(range).toEqual({ start: 400, end: 1_591 });
+    expect(Array.from({ length: range.end! - range.start }, (_, i) => range.start + i).filter(renders)).toHaveLength(TRANSCRIPT_WINDOW_SIZE);
+  });
+
+  it("opens a bounded window for a target below a finite window", () => {
+    expect(focusWindow({ start: 100, end: 220 }, 1_000, 500)).toEqual({ start: 440, end: 560 });
+  });
+
+  it("opens a bounded window on a fresh jump page", () => {
+    expect(focusWindow(null, 200, 100)).toEqual({ start: 40, end: 160 });
+  });
+
+  it("turns a bounded window that reaches the newest row into a full tail", () => {
+    expect(focusWindow({ start: 0, end: 100 }, 300, 250)).toEqual({ start: 180, end: null });
   });
 });
 

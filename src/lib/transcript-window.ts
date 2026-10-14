@@ -17,11 +17,6 @@ export interface TranscriptWindow<T> {
   endIndex: number;
 }
 
-export interface TranscriptWindowRange {
-  start: number;
-  end: number;
-}
-
 /** Boundary for a fresh window: the last `size` messages, or the last `size`
  * that `renders`, so a tail of hidden tool rows cannot mount blank. */
 export function tailWindowStart(
@@ -68,18 +63,37 @@ export function shiftForPrepend<W extends { start: number; end: number | null }>
   };
 }
 
-/** A bounded window containing a search target. Keeping this finite avoids
- * mounting an entire old transcript merely to land on one result. */
-export function focusWindowRange(
+// rendering rows mounted above a target the window grows to reach
+const FOCUS_CONTEXT = 10;
+
+/** The window for landing on a message. One that already holds it is returned
+ * as is; one that starts below it grows its start while it stays within two
+ * windows of rendering rows; anything farther, or a fresh jump page with no
+ * window (null), gets a bounded window around it. */
+export function focusWindow<W extends { start: number; end: number | null }>(
+  window: W | null,
   total: number,
   targetIndex: number,
   size: number = TRANSCRIPT_WINDOW_SIZE,
-): TranscriptWindowRange {
-  const safeTotal = Math.max(0, total);
-  const safeSize = Math.max(1, size);
-  const target = Math.max(0, Math.min(targetIndex, Math.max(0, safeTotal - 1)));
-  const start = Math.max(0, Math.min(target - Math.floor(safeSize / 2), Math.max(0, safeTotal - safeSize)));
-  return { start, end: Math.min(safeTotal, start + safeSize) };
+  renders: (index: number) => boolean = () => true,
+): W | { start: number; end: number | null } {
+  const end = window?.end ?? total;
+  if (window && window.start <= targetIndex && targetIndex < end) return window;
+  const back = (from: number, count: number) => {
+    let start = from;
+    for (let counted = 0; start > 0 && counted < count; ) if (renders(--start)) counted++;
+    return start;
+  };
+  if (window && targetIndex < window.start) {
+    const start = back(targetIndex, FOCUS_CONTEXT);
+    let counted = 0;
+    for (let i = start; i < end; i++) if (renders(i)) counted++;
+    if (counted <= size * 2) return { start, end: window.end };
+  }
+  const start = back(targetIndex, Math.floor(size / 2));
+  let stop = start;
+  for (let counted = 0; stop < total && counted < size; stop++) if (renders(stop)) counted++;
+  return stop >= total ? { start: Math.min(start, tailWindowStart(total, size, renders)), end: null } : { start, end: stop };
 }
 
 /** Resolve a stored boundary against the current list. The boundary is

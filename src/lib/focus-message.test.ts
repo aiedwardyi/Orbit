@@ -26,6 +26,12 @@ describe("scrollElementIntoContainer", () => {
     expect(container.scrollTop).toBe(260);
   });
 
+  it("lands a target taller than the pane at its top", () => {
+    const container = box(80, 400, 20);
+    scrollElementIntoContainer(container, box(500, 900));
+    expect(container.scrollTop).toBe(424);
+  });
+
   it("does not move the window scroll position", () => {
     const windowLike = { scrollX: 0, scrollY: 48, scrollTo(x: number, y: number) {
       this.scrollX = x;
