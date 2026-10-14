@@ -241,13 +241,108 @@ fi
 exec "$ps" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$script" "$@"
 `;
 
+// Claude Code swaps hook stdout over 10,000 chars for a 2,000-char preview, so each part stays under 9,900.
+// "card" prints the first card; "progress" prints follow-up cards, then the card's progress file.
+const ORBIT_COMPACT_PS1 = String.raw`$ErrorActionPreference = 'Stop'
+$part = [string]$args[0]
+$max = 9900
+$nl = [string][char]10
+$utf8 = New-Object Text.UTF8Encoding $false
+function Get-Clip([string]$Text, [int]$Keep, [bool]$Tail) {
+  if ($Tail) {
+    $start = $Text.Length - $Keep
+    if ($start -gt 0 -and [char]::IsLowSurrogate($Text[$start])) { $start += 1 }
+    return $Text.Substring($start)
+  }
+  if ($Keep -gt 0 -and [char]::IsHighSurrogate($Text[$Keep - 1])) { $Keep -= 1 }
+  return $Text.Substring(0, $Keep)
+}
+function Get-Block([string]$Label, [string]$Path, [string]$Text, [int]$Keep, [bool]$Tail) {
+  $head = $Label + ': ' + $Path + $nl
+  if ($Text.Length -le $Keep) { return $head + $Text }
+  $clip = Get-Clip $Text ([Math]::Max(0, $Keep)) $Tail
+  if ($Tail) { return $head + '[cut] Read ' + $Path + ' for the start.' + $nl + $clip }
+  return $head + $clip + $nl + '[cut] Read ' + $Path + ' for the rest.'
+}
+try {
+  $hook = (New-Object IO.StreamReader([Console]::OpenStandardInput(), $utf8)).ReadToEnd() | ConvertFrom-Json
+  $cwd = [string]$hook.cwd
+  $ask = New-Object Text.RegularExpressions.Regex('^\s*Read\s+"?(.+?\.md)"?\s+and do it')
+  $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+  $cards = New-Object System.Collections.Generic.List[string]
+  $stream = New-Object IO.FileStream([string]$hook.transcript_path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]'ReadWrite, Delete')
+  $reader = New-Object IO.StreamReader($stream, $utf8, $false, 1048576)
+  try {
+    # Tool results and summaries can quote a card prompt too; only a message that starts with one counts.
+    while ($null -ne ($line = $reader.ReadLine())) {
+      if ($line.IndexOf(' and do it', [StringComparison]::Ordinal) -lt 0) { continue }
+      # Claude Code writes compact JSONL; these literals assume no space after the colon.
+      if ($line.IndexOf('"content":"Read ', [StringComparison]::Ordinal) -lt 0 -and $line.IndexOf('"prompt":"Read ', [StringComparison]::Ordinal) -lt 0 -and $line.IndexOf('"text":"Read ', [StringComparison]::Ordinal) -lt 0) { continue }
+      try {
+        $o = $line | ConvertFrom-Json
+        $text = $null
+        if ($o.type -eq 'user') {
+          $c = $o.message.content
+          $text = if ($c -is [string]) { $c } else { @($c | Where-Object { $_.type -eq 'text' } | ForEach-Object { [string]$_.text })[0] }
+        } elseif ($o.type -eq 'attachment' -and $o.attachment.type -eq 'queued_command') {
+          $text = [string]$o.attachment.prompt
+        }
+        $m = $ask.Match([string]$text)
+        if (-not $m.Success) { continue }
+        $card = $m.Groups[1].Value
+        if ($cwd) { $card = [IO.Path]::Combine($cwd, $card) }
+        if ($seen.Add($card)) { [void]$cards.Add($card) }
+      } catch {}
+    }
+  } finally { $reader.Dispose() }
+  if ($cards.Count -eq 0) { exit 0 }
+  $card = $cards[0]
+  $cardText = [IO.File]::ReadAllText($card, $utf8)
+  if ($part -eq 'card') {
+    $out = 'Context was just compacted. Your card follows word for word; its follow-ups and progress file come in a second note.' + $nl + $nl
+    $cut = '[cut] Read ' + $card + ' for the rest.'
+    $out += Get-Block 'Card' $card $cardText ($max - $out.Length - ('Card: ' + $card).Length - $cut.Length - 2) $false
+  } elseif ($part -eq 'progress') {
+    $out = 'Context was just compacted. The follow-ups and progress file for ' + $card + ' follow word for word.'
+    foreach ($follow in ($cards | Select-Object -Skip 1)) {
+      try { $text = [IO.File]::ReadAllText($follow, $utf8) } catch { continue }
+      $block = Get-Block 'Follow-up' $follow $text 1000 $false
+      if ($out.Length + $block.Length -gt 6000) { $block = 'Follow-up: ' + $follow + $nl + '[cut] Read ' + $follow + ' for the rest.' }
+      $out += $nl + $nl + $block
+    }
+    $progress = Join-Path (Split-Path $card) ([IO.Path]::GetFileNameWithoutExtension($card) + '.progress.md')
+    $text = try { [IO.File]::ReadAllText($progress, $utf8) } catch { $null }
+    if ($null -eq $text) {
+      $out += $nl + $nl + 'Progress: ' + $progress + $nl + 'No progress file yet.'
+    } else {
+      $out += $nl + $nl
+      $cut = '[cut] Read ' + $progress + ' for the start.'
+      $out += Get-Block 'Progress' $progress $text ($max - $out.Length - ('Progress: ' + $progress).Length - $cut.Length - 2) $true
+    }
+  } else { exit 0 }
+  $bytes = $utf8.GetBytes($out)
+  $stdout = [Console]::OpenStandardOutput()
+  $stdout.Write($bytes, 0, $bytes.Length)
+  $stdout.Flush()
+} catch {}
+exit 0
+`;
+
 const WAITING_NOTE = "WAITING: this worker is stuck on an on-screen prompt (permission check or question). terminal_read its pane, then answer with key presses or tell the user.";
 
 // permission_prompt also fires for AskUserQuestion; idle_prompt would repeat after every finished turn.
 // A plain note, not --hook: the report dedup can swallow an auto note.
+// Compacts at about 467k (window minus 33k), well before the 1M default.
 function claudeWorkerSettings(dir) {
   const command = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(dir, "orbit-msg.ps1").replace(/\\/g, "/")}" "${WAITING_NOTE}"`;
-  return `${JSON.stringify({ hooks: { Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command, timeout: 15 }] }] } }, null, 2)}\n`;
+  const compact = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(dir, "orbit-compact.ps1").replace(/\\/g, "/")}"`;
+  return `${JSON.stringify({
+    autoCompactWindow: 500_000,
+    hooks: {
+      Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command, timeout: 15 }] }],
+      SessionStart: [{ matcher: "compact", hooks: ["card", "progress"].map((part) => ({ type: "command", command: `${compact} ${part}`, timeout: 30 })) }],
+    },
+  }, null, 2)}\n`;
 }
 
 /** Writes orbit-msg and the Claude worker hook settings into `dir`; Windows only, returns null elsewhere. */
@@ -258,6 +353,7 @@ export async function installOrbitMsg(dir, platform = process.platform) {
     ["orbit-msg.ps1", ORBIT_MSG_PS1.replace(/\r?\n/g, "\r\n")],
     ["orbit-msg.cmd", ORBIT_MSG_CMD.replace(/\r?\n/g, "\r\n")],
     ["orbit-msg", ORBIT_MSG_SH],
+    ["orbit-compact.ps1", ORBIT_COMPACT_PS1.replace(/\r?\n/g, "\r\n")],
     ["claude-worker.json", claudeWorkerSettings(dir)],
   ];
   for (const [name, content] of files) {

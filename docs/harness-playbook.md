@@ -32,6 +32,10 @@ What to build or fix, and why. Two to five lines.
 ## Files
 - The files it should start from.
 
+## Progress
+Keep <card path minus .md>.progress.md current at each milestone:
+done, ruled out, and any edit in flight (file, what, why).
+
 ## Report
 The exact shape of its final message.
 ```
@@ -55,8 +59,10 @@ expensive the longer it runs.
 
 - Size each card so its worker finishes under about 200k tokens of context.
   Split research or probes and the build into separate cards.
-- A new task gets a FRESH worker. Use CURRENT only for a short follow-up on
-  the same task.
+- A new task gets a FRESH worker. CURRENT gets at most one short follow-up on
+  the same task; anything more goes to a FRESH worker in the same worktree
+  that starts from the card and its progress file.
+- Claude workers compact at about 500k and get their card and progress file back.
 - Default workers to high effort. Save max for a hard bug or an audit: its
   longer thinking stays in context and is re-read on every later step.
 
@@ -139,8 +145,8 @@ Follow-ups use the card rule: write long instructions to a file, then send one
 line, `Read <file path> and do it.`
 
 If a worker hits a usage limit, its edits stay in the worktree. Close the pane
-and spawn a FRESH worker on another engine in the same worktree, with the card
-plus "continue from the uncommitted changes already here".
+and spawn a FRESH worker on another engine in the same worktree, with the card,
+its progress file and "continue from the uncommitted changes already here".
 
 Usage bars count down. In Wink's chat bar and in worker status lines, a
 percentage is what is LEFT, not what is used: "90%" means 90% left. Always say

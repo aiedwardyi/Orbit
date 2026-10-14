@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -414,4 +414,117 @@ test("a dash inside text stays, and a lone dash still reads stdin", { skip: !WIN
     assert.equal(posts[3]?.text, "a - b");
     assert.equal(posts[4]?.text, "sh-stdin");
   });
+});
+
+function runCompact(bin, part, input) {
+  return new Promise((resolve) => {
+    const child = execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(bin, "orbit-compact.ps1"), part],
+      { encoding: "buffer", windowsHide: true, timeout: 60_000 },
+      (error, stdout) => resolve({ status: error?.code ?? 0, out: stdout.toString("utf8") }));
+    child.stdin.end(input);
+  });
+}
+
+async function compactFixture(t, { card = "# TASK\nDo the thing.\n", progress, lines }) {
+  const { dir, bin } = await installBin();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cards = path.join(dir, "my cards");
+  mkdirSync(cards);
+  const cardPath = path.join(cards, "TASK.md");
+  writeFileSync(cardPath, card);
+  const progressPath = path.join(cards, "TASK.progress.md");
+  if (progress !== undefined) writeFileSync(progressPath, progress);
+  const transcript = path.join(dir, "session.jsonl");
+  const rows = lines ?? [userLine(`Read ${cardPath} and do it.`)];
+  writeFileSync(transcript, `${rows.join("\n")}\n`);
+  const hook = JSON.stringify({ session_id: "s", transcript_path: transcript, cwd: dir, hook_event_name: "SessionStart", source: "compact" });
+  return { dir, bin, cards, cardPath, progressPath, transcript, hook };
+}
+
+const userLine = (content) => JSON.stringify({ type: "user", message: { role: "user", content } });
+const queuedLine = (prompt) => JSON.stringify({ type: "attachment", attachment: { type: "queued_command", prompt } });
+
+test("compact hook prints the card, then the progress file", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const f = await compactFixture(t, { progress: "## Done\n- step one\n" });
+  const card = await runCompact(f.bin, "card", f.hook);
+  assert.equal(card.status, 0);
+  assert.equal(card.out, `Context was just compacted. Your card follows word for word; its follow-ups and progress file come in a second note.\n\nCard: ${f.cardPath}\n# TASK\nDo the thing.\n`);
+  const progress = await runCompact(f.bin, "progress", f.hook);
+  assert.equal(progress.status, 0);
+  assert.equal(progress.out, `Context was just compacted. The follow-ups and progress file for ${f.cardPath} follow word for word.\n\nProgress: ${f.progressPath}\n## Done\n- step one\n`);
+});
+
+test("compact hook lists follow-ups in order and skips quoted prompts", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const f = await compactFixture(t, { progress: "p" });
+  const b = path.join(f.cards, "TASK-B.md");
+  const c = path.join(f.cards, "TASK-C.md");
+  writeFileSync(b, `${"b".repeat(1500)}\n`);
+  writeFileSync(c, "c follow-up\n");
+  writeFileSync(path.join(f.cards, "QUOTED.md"), "never");
+  writeFileSync(f.transcript, `${[
+    userLine(`Read ${f.cardPath} and do it.`),
+    userLine([{ type: "tool_result", content: `Read ${path.join(f.cards, "QUOTED.md")} and do it.` }]),
+    userLine(`This session is being continued. Read ${path.join(f.cards, "QUOTED.md")} and do it.`),
+    queuedLine(`Read ${b} and do it as part of this card.`),
+    userLine([{ type: "text", text: `Read ${c} and do it.` }]),
+    userLine(`Read ${b} and do it.`),
+  ].join("\n")}\n`);
+  const { out } = await runCompact(f.bin, "progress", f.hook);
+  assert.equal(out, [
+    `Context was just compacted. The follow-ups and progress file for ${f.cardPath} follow word for word.`,
+    "",
+    `Follow-up: ${b}\n${"b".repeat(1000)}\n[cut] Read ${b} for the rest.`,
+    "",
+    `Follow-up: ${c}\nc follow-up\n`,
+    "",
+    `Progress: ${f.progressPath}\np`,
+  ].join("\n"));
+  assert.doesNotMatch(out, /QUOTED/);
+  assert.match((await runCompact(f.bin, "card", f.hook)).out, /\nCard: .*TASK\.md\n# TASK\n/);
+});
+
+test("compact hook says when there is no progress file yet", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const f = await compactFixture(t, {});
+  const { status, out } = await runCompact(f.bin, "progress", f.hook);
+  assert.equal(status, 0);
+  assert.equal(out, `Context was just compacted. The follow-ups and progress file for ${f.cardPath} follow word for word.\n\nProgress: ${f.progressPath}\nNo progress file yet.`);
+});
+
+test("compact hook stays silent without a card or on bad input", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const f = await compactFixture(t, { progress: "p", lines: [userLine("fix the bug"), "{not json and do it \"content\":\"Read x.md and do it", queuedLine("Read notes.txt and do it.")] });
+  const missing = await compactFixture(t, { lines: [userLine(`Read ${path.join(os.tmpdir(), "orbit-no-such-card.md")} and do it.`)] });
+  for (const part of ["card", "progress"]) {
+    for (const hook of [f.hook, "{not json", JSON.stringify({ transcript_path: path.join(f.dir, "gone.jsonl"), cwd: f.dir }), "{}"]) {
+      assert.deepEqual(await runCompact(f.bin, part, hook), { status: 0, out: "" });
+    }
+  }
+  for (const part of ["card", "progress"]) assert.deepEqual(await runCompact(missing.bin, part, missing.hook), { status: 0, out: "" });
+});
+
+test("compact hook keeps Korean intact", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const f = await compactFixture(t, { card: "# 작업\n버그를 고친다.\n", progress: "## 완료\n- 첫 단계 끝\n" });
+  assert.match((await runCompact(f.bin, "card", f.hook)).out, /\n# 작업\n버그를 고친다\.\n$/);
+  assert.match((await runCompact(f.bin, "progress", f.hook)).out, /\n## 완료\n- 첫 단계 끝\n$/);
+});
+
+test("compact hook reads past huge and malformed lines and cuts each part under 9,900 chars", { skip: !WIN32, timeout: LIVE_TIMEOUT }, async (t) => {
+  const f = await compactFixture(t, { card: `${"c".repeat(12_000)}CARD-END`, progress: `PROGRESS-START${"p".repeat(12_000)}\n- last step\n` });
+  const huge = "x".repeat(600_000);
+  writeFileSync(f.transcript, `${[
+    userLine([{ type: "tool_result", content: `${huge} and do it` }]),
+    userLine([{ type: "tool_result", content: `Read ${huge}.md and do it` }]),
+    `{"type":"user","message":{"content":"Read ${huge} and do it`,
+    "",
+    userLine(`Read ${f.cardPath} and do it.`),
+    userLine([{ type: "tool_result", content: huge }]),
+  ].join("\n")}\n`);
+  const card = await runCompact(f.bin, "card", f.hook);
+  assert.ok(card.out.length <= 9900 && card.out.length > 9800, String(card.out.length));
+  assert.ok(card.out.endsWith(`c\n[cut] Read ${f.cardPath} for the rest.`));
+  assert.doesNotMatch(card.out, /CARD-END/);
+  const progress = await runCompact(f.bin, "progress", f.hook);
+  assert.ok(progress.out.length <= 9900 && progress.out.length > 9800, String(progress.out.length));
+  assert.doesNotMatch(progress.out, /PROGRESS-START/);
+  assert.ok(progress.out.includes(`Progress: ${f.progressPath}\n[cut] Read ${f.progressPath} for the start.\np`));
+  assert.ok(progress.out.endsWith("p\n- last step\n"));
 });
