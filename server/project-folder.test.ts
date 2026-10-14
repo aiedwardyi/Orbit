@@ -615,8 +615,7 @@ describe("1:1 dispatch wiring", () => {
     expect(index).toContain("projectPathsFromRecords");
     expect(index).toContain("namedByUser");
     expect(index).toContain("continuation: !namedByUser");
-    expect(index).toContain("rememberedProjectCwd: lastProjectCwd");
-    expect(index).not.toContain("lastProjectCwd: _lastProjectCwd");
+    expect(index).toContain("...botClears(bot)");
     const roomDispatch = index.slice(index.indexOf("const cwd = groupTurnCwd"));
     expect(roomDispatch).toContain("store.pinGroupCwd");
     expect(roomDispatch.slice(0, 400)).not.toContain("applyResolvedProjectFolder");

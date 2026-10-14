@@ -26,6 +26,7 @@ import {
   type TaskResumePacket,
 } from "./store";
 import { openLiveEvents, type LiveEventSourceLike, type LiveEventsPlatform } from "../lib/live-events";
+import { botClears, groupClears } from "../../server/wire-clears.ts";
 
 it("tool detail reaches the client store through message frames unchanged", async () => {
   const { buildToolDetail } = await import("../../shared/tool-detail.ts");
@@ -1357,6 +1358,68 @@ describe("bot details folder after Clear", () => {
       bot: { ...bot, cwd: null },
     });
     expect(cleared.bots[0]?.cwd).toBeNull();
+  });
+});
+
+describe("fields cleared on another client", () => {
+  const bot: Omit<Bot, "messages"> = {
+    id: "b1",
+    threadId: "t1",
+    name: "Home",
+    title: "",
+    description: "",
+    notifications: false,
+    color: "green",
+    unread: false,
+    modelSelection: { instanceId: "grok", model: "grok-4.6" },
+  };
+
+  const room: Omit<Group, "messages"> = {
+    id: "g1",
+    threadId: "gt1",
+    name: "Room",
+    memberIds: ["b1"],
+    defaultResponder: { kind: "member", botId: "b1" },
+    bulletin: "",
+    unread: false,
+    createdAt: 1,
+  };
+
+  // what the other client receives: the record after the store dropped the field, through JSON
+  const botFrame = ({ lastProjectCwd, ...shown }: Parameters<typeof botClears>[0] = {}): Bot =>
+    JSON.parse(JSON.stringify({ ...bot, ...shown, ...botClears({ ...shown, lastProjectCwd }) }));
+  const groupFrame = (shown: Parameters<typeof groupClears>[0] = {}): Group =>
+    JSON.parse(JSON.stringify({ ...room, ...shown, ...groupClears(shown) }));
+
+  const message = { id: "m1", role: "user", kind: "text", text: "keep me", at: 1 } as const;
+
+  it.each([
+    ["pinnedMessageId", "m1", { pinnedMessageId: "m1" }],
+    ["section", "Work", { section: "Work" }],
+    ["mascotStyle", "icon-05", { mascotStyle: "icon-05" }],
+    ["browserProfile", "guest", { browserProfile: "guest" }],
+    ["rememberedProjectCwd", "C:/work", { lastProjectCwd: "C:/work" }],
+  ] as const)("clears a bot's %s on a client that did not make the change", (field, value, source) => {
+    const set = reducer(initialState, { type: "botPatched", bot: { ...botFrame(source), messages: [message] } });
+    expect(set.bots[0]?.[field]).toBe(value);
+    const cleared = reducer(set, { type: "botPatched", bot: botFrame() });
+    expect(cleared.bots[0]?.[field]).toBeFalsy();
+    expect(cleared.bots[0]?.messages).toEqual([message]);
+  });
+
+  it.each([
+    ["pinnedMessageId", "m1", { pinnedMessageId: "m1" }],
+    ["section", "Work", { section: "Work" }],
+    ["cwd", "C:/work", { cwd: "C:/work" }],
+  ] as const)("clears a room's %s on a client that did not make the change", (field, value, source) => {
+    const set = reducer(initialState, {
+      type: "groupPatched",
+      group: { ...groupFrame(source), messages: [message], hasMore: true },
+    });
+    expect(set.groups[0]?.[field]).toBe(value);
+    const cleared = reducer(set, { type: "groupPatched", group: groupFrame() });
+    expect(cleared.groups[0]?.[field]).toBeFalsy();
+    expect(cleared.groups[0]).toMatchObject({ messages: [message], hasMore: true });
   });
 });
 

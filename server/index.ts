@@ -241,6 +241,7 @@ import { stallErrorActivity } from "./room-error-attribution.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
 import { modelPickPatch } from "./pending-model.ts";
+import { botClears, groupClears } from "./wire-clears.ts";
 import { ownTurnReply, turnSummaries } from "./turn-reply.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
@@ -1134,12 +1135,13 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     activeThreadId,
     projectFolderClearedAt: _projectFolderClearedAt,
     paneWakePaused: _paneWakePaused,
-    lastProjectCwd,
+    lastProjectCwd: _lastProjectCwd,
     tasks,
     ...rest
   } = bot;
   return {
     ...rest,
+    ...botClears(bot),
     // A stopped bot is not ready until its driver lets the thread go: a
     // client that reads `busy: false` sends immediately, and a send inside
     // that gap is held rather than dispatched. Clients queue on busy, so the
@@ -1156,7 +1158,6 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     avatarUrl: rest.avatarUrl ?? null,
     // null, not omitted: a cleared folder must overwrite a stale client cwd
     cwd: rest.cwd ?? null,
-    ...(lastProjectCwd ? { rememberedProjectCwd: lastProjectCwd } : {}),
     ...(tasks ? { tasks: tasks.map(wireTask) } : {}),
   };
 };
@@ -1702,6 +1703,7 @@ const wireGroupTask = (task: GroupTaskRecord) => ({
 function publicGroupState(group: GroupRecord) {
   const next = {
     ...group,
+    ...groupClears(group),
     working: groupIsWorking(group),
     taskState: store.taskPacket(group.threadId) ?? undefined,
   };

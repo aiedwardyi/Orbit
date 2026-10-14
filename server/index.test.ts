@@ -1103,7 +1103,7 @@ describe("harness HTTP API", () => {
     expect(attempted.status).toBe(400);
     expect(attempted.body.error).toMatch(/direct-message.*working folder/i);
     const state = await api("GET", "/api/bots");
-    expect(state.body.groups.find((group: { id: string }) => group.id === "test-dm")).not.toHaveProperty("cwd");
+    expect(state.body.groups.find((group: { id: string }) => group.id === "test-dm").cwd).toBeNull();
     expect((await api("DELETE", "/api/groups/test-dm")).status).toBe(200);
   });
 
@@ -1112,7 +1112,7 @@ describe("harness HTTP API", () => {
     expect(attempted.status).toBe(409);
     expect(attempted.body.error).toMatch(/fixed after its first turn/i);
     const state = await api("GET", "/api/bots");
-    expect(state.body.groups.find((group: { id: string }) => group.id === "test-pinned-room")).not.toHaveProperty("cwd");
+    expect(state.body.groups.find((group: { id: string }) => group.id === "test-pinned-room").cwd).toBeNull();
     expect((await api("DELETE", "/api/groups/test-pinned-room")).status).toBe(200);
   });
 
@@ -1241,7 +1241,7 @@ describe("harness HTTP API", () => {
     expect((await api("PATCH", `/api/bots/${bot.id}`, { pinnedMessageId: 42 })).status).toBe(400);
     const unpinned = await api("PATCH", `/api/bots/${bot.id}`, { pinnedMessageId: null });
     expect(unpinned.status).toBe(200);
-    expect(unpinned.body.bot).not.toHaveProperty("pinnedMessageId");
+    expect(unpinned.body.bot.pinnedMessageId).toBeNull();
 
     const room = (await api("POST", "/api/groups", { name: "Pins", memberIds: [bot.id] })).body.group;
     const roomPin = await api("PATCH", `/api/groups/${room.id}`, { pinnedMessageId: "msg-room_1" });
@@ -1253,7 +1253,7 @@ describe("harness HTTP API", () => {
     expect((await api("PATCH", `/api/groups/${room.id}`, { pinnedMessageId: 42 })).status).toBe(400);
     const roomCleared = await api("PATCH", `/api/groups/${room.id}`, { pinnedMessageId: "" });
     expect(roomCleared.status).toBe(200);
-    expect(roomCleared.body.group).not.toHaveProperty("pinnedMessageId");
+    expect(roomCleared.body.group.pinnedMessageId).toBeNull();
 
     // deleted conversations drop out of search rather than 404ing it
     await api("DELETE", `/api/bots/${bot.id}`);
@@ -1328,10 +1328,10 @@ describe("harness HTTP API", () => {
     expect((await api("PATCH", `/api/bots/${bot.id}`, { section: "S".repeat(61) })).status).toBe(400);
     const cleared = await api("PATCH", `/api/bots/${bot.id}`, { section: null });
     expect(cleared.status).toBe(200);
-    expect(cleared.body.bot).not.toHaveProperty("section");
+    expect(cleared.body.bot.section).toBeNull();
     const clearedEmpty = await api("PATCH", `/api/bots/${bot.id}`, { section: "   " });
     expect(clearedEmpty.status).toBe(200);
-    expect(clearedEmpty.body.bot).not.toHaveProperty("section");
+    expect(clearedEmpty.body.bot.section).toBeNull();
 
     // Channels can be born inside a Work/Personal/project context, and can
     // later move through the same context contract as bots.
@@ -1354,10 +1354,10 @@ describe("harness HTTP API", () => {
     expect((await api("PATCH", `/api/groups/${sectionRoom.id}`, { section: "S".repeat(61) })).status).toBe(400);
     const roomSectionCleared = await api("PATCH", `/api/groups/${sectionRoom.id}`, { section: null });
     expect(roomSectionCleared.status).toBe(200);
-    expect(roomSectionCleared.body.group).not.toHaveProperty("section");
+    expect(roomSectionCleared.body.group.section).toBeNull();
     const roomSectionEmpty = await api("PATCH", `/api/groups/${sectionRoom.id}`, { section: "   " });
     expect(roomSectionEmpty.status).toBe(200);
-    expect(roomSectionEmpty.body.group).not.toHaveProperty("section");
+    expect(roomSectionEmpty.body.group.section).toBeNull();
     expect((await api("DELETE", `/api/groups/${sectionRoom.id}`)).status).toBe(200);
     expect(gated.body.bot.composio).toBe(false);
     expect((await api("PATCH", `/api/bots/${bot.id}`, { composio: true })).body.bot.composio).toBe(true);
@@ -1601,7 +1601,7 @@ describe("harness HTTP API", () => {
 
     const cleared = await api("PATCH", `/api/bots/${bot.id}`, { mascotStyle: null });
     expect(cleared.status).toBe(200);
-    expect(cleared.body.bot.mascotStyle).toBeUndefined();
+    expect(cleared.body.bot.mascotStyle).toBeNull();
   });
 
   it("limits paired profile writes to validated profile fields and broadcasts the result", async () => {
