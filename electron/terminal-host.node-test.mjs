@@ -18,6 +18,7 @@ function fixture(options = {}) {
       children.push(child);
       return child;
     } }),
+    freeMemory: () => 8 * 1024 ** 3,
     ...options,
   });
   return { host, event, owner, children, events, input: { botId: "bot-1", cols: 80, rows: 24 } };
@@ -782,8 +783,8 @@ test("openForBot caps live panes per bot and rejects bad input", async () => {
   const f = fixture({ owner: () => owner });
   await assert.rejects(f.host.openForBot("bot-1", { label: "x" }), /window is not available/);
   owner = f.owner;
-  for (let i = 0; i < 8; i += 1) await f.host.openForBot("bot-1", { label: `w${i}` });
-  await assert.rejects(f.host.openForBot("bot-1", { label: "w8" }), /Too many bot terminals/);
+  for (let i = 0; i < 16; i += 1) await f.host.openForBot("bot-1", { label: `w${i}` });
+  await assert.rejects(f.host.openForBot("bot-1", { label: "w16" }), /Too many bot terminals \(limit 16\)/);
   await f.host.openForBot("bot-2", { label: "other" });
   await assert.rejects(f.host.openForBot("bot/1", { label: "x" }), /Invalid bot/);
   await assert.rejects(f.host.openForBot("bot-2", { command: "stop\x03" }), /Invalid terminal command/);
@@ -846,8 +847,8 @@ test("closeForBot retires a bot pane, frees its slot and refuses main or foreign
   owner = f.owner;
   const main = await f.host.open(f.event, f.input);
   const panes = [];
-  for (let i = 0; i < 8; i += 1) panes.push(await f.host.openForBot("bot-1", { label: `w${i}` }));
-  await assert.rejects(f.host.openForBot("bot-1", { label: "w8" }), /Too many bot terminals/);
+  for (let i = 0; i < 16; i += 1) panes.push(await f.host.openForBot("bot-1", { label: `w${i}` }));
+  await assert.rejects(f.host.openForBot("bot-1", { label: "w16" }), /Too many bot terminals/);
   const other = await f.host.openForBot("bot-2", { label: "other" });
   assert.throws(() => f.host.closeForBot("bot-1", other.sessionId), /Unknown terminal/);
   assert.throws(() => f.host.closeForBot("bot-1", main.id), /Only bot terminals/);
@@ -966,15 +967,38 @@ test("openForBot reserves pane slots before resolving the folder", async () => {
   const f = fixture({ owner: () => owner, resolveCwd: () => held });
   owner = f.owner;
   const one = Promise.allSettled(Array.from({ length: 24 }, (_, i) => f.host.openForBot("bot-1", { label: `w${i}` })));
-  const many = Promise.allSettled(["bot-2", "bot-3", "bot-4"].flatMap((botId) => Array.from({ length: 8 }, () => f.host.openForBot(botId, {}))));
+  const many = Promise.allSettled(["bot-2", "bot-3", "bot-4"].flatMap((botId) => Array.from({ length: 16 }, () => f.host.openForBot(botId, {}))));
   release();
   const perBot = await one;
-  assert.equal(perBot.filter((result) => result.status === "fulfilled").length, 8);
+  assert.equal(perBot.filter((result) => result.status === "fulfilled").length, 16);
   assert.ok(perBot.filter((result) => result.status === "rejected").every((result) => /Too many bot terminals/.test(result.reason.message)));
   const global = await many;
-  assert.equal(global.filter((result) => result.status === "fulfilled").length, 8);
+  assert.equal(global.filter((result) => result.status === "fulfilled").length, 16);
   assert.ok(global.filter((result) => result.status === "rejected").every((result) => /Too many terminal sessions/.test(result.reason.message)));
-  assert.equal(f.children.length, 16);
+  assert.equal(f.children.length, 32);
+});
+
+test("openForBot names the whole-app cap and the bot's own count", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  await f.host.open(f.event, f.input);
+  for (let i = 0; i < 16; i += 1) await f.host.openForBot("bot-2", { label: `w${i}` });
+  for (let i = 0; i < 14; i += 1) await f.host.openForBot("bot-3", { label: `w${i}` });
+  await f.host.openForBot("bot-1", { label: "mine" });
+  await assert.rejects(f.host.openForBot("bot-1", { label: "extra" }), /Too many terminal sessions \(32 open across all bots and main terminals; 2 are yours\)\. Close one of yours with terminal_close/);
+});
+
+test("openForBot refuses a pane under 2 GiB free memory, but main terminals stay ungated", async () => {
+  let owner;
+  let free = 2 * 1024 ** 3 - 1;
+  const f = fixture({ owner: () => owner, freeMemory: () => free });
+  owner = f.owner;
+  await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /Not enough free memory for another terminal \(2\.0 GB free, 2 GB needed; 0 terminals open, 0 are yours\)\. Close a finished pane with terminal_close/);
+  await f.host.open(f.event, f.input);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /1 terminals open, 1 are yours/);
+  free = 2 * 1024 ** 3;
+  await f.host.openForBot("bot-1", { label: "w" });
 });
 
 test("openForBot submits a command with exactly one Enter", async () => {
@@ -1020,7 +1044,7 @@ test("exited panes do not hold global slots and reclaiming them emits terminal:c
   const f = fixture({ owner: () => owner });
   owner = f.owner;
   const exited = [];
-  for (let i = 0; i < 16; i += 1) {
+  for (let i = 0; i < 32; i += 1) {
     exited.push((await f.host.openForBot("bot-1", {})).sessionId);
     f.children[i].exit({ exitCode: 0 });
   }
@@ -1397,7 +1421,7 @@ test("a held turn-end note survives its exited pane being reclaimed", async (t) 
   await f.settle();
   f.host.attendBot("bot-1", pane.sessionId, "auto", "dev server up");
   await f.advance(90_000);
-  for (let i = 1; i < 16; i += 1) {
+  for (let i = 1; i < 32; i += 1) {
     await f.host.openForBot("bot-1", {});
     f.children[i].exit({ exitCode: 0 });
   }
