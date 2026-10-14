@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type SetStateAction } from "react";
 import { flushSync } from "react-dom";
 import { ArrowUp, Clock, Mic, Paperclip, Square, TerminalSquare, Users, X } from "lucide-react";
 import { useStore, visibleMessages, type Bot, type Group, type Message, api } from "@/state/store";
@@ -23,6 +23,7 @@ import { ComposerAttachments, pathForFile } from "./ComposerAttachments";
 import {
   appendPastedText,
   composeMessage,
+  fileAttachment,
   imageSupportForTargets,
   imageSupportNotice,
   intakeFiles,
@@ -30,11 +31,13 @@ import {
   isLongPaste,
   pasteAttachment,
   pasteImageAttachment,
+  uploadAttachment,
   visibleComposerNotice,
   type Attachment,
   type ComposerThreadNotice,
   type PasteAttachment,
 } from "@/lib/composer-attachments";
+import { dropUpload, forgetUpload, onUploadJobs, queueUpload, retryUpload, uploadJobs } from "@/lib/big-upload";
 import { normalizeState } from "@/lib/mascot";
 import { groupComposerHint, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
@@ -74,6 +77,11 @@ function mentionQueryAt(text: string, caret: number): { start: number; query: st
 }
 
 type MentionChoice = { id: string; name: string; bot?: Bot };
+
+const MAX_UPLOADS_PER_MESSAGE = 5;
+
+const fromUpload = (attachment: Attachment) =>
+  attachment.kind === "upload" || (attachment.kind === "file" && Boolean(attachment.uploadId));
 
 interface ComposerDraftSnapshot extends ComposerSendSnapshot {
   reply: Message | null;
@@ -247,15 +255,91 @@ export function Composer({
     },
     [onRestoreReply],
   );
+  const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
   // an upload's reload hold ends right after this, so the chip must be in storage by then
   const addAttachments = useCallback(
-    (next: Attachment[]) => flushSync(() => editAttachments((prev) => [...prev, ...next])),
-    [editAttachments],
+    (next: Attachment[], uploads: { id: string; file: File }[] = []) => {
+      let room = MAX_UPLOADS_PER_MESSAGE - attachmentsRef.current.filter(fromUpload).length;
+      const kept = next.filter((a) => a.kind !== "upload" || room-- > 0);
+      if (kept.length < next.length) setAttachmentNotice(t("composer.uploadTooMany"));
+      flushSync(() => editAttachments((prev) => [...prev, ...kept]));
+      for (const upload of uploads) {
+        if (kept.some((a) => a.id === upload.id)) queueUpload(upload.id, upload.file);
+      }
+    },
+    [editAttachments, t],
   );
   const removeAttachment = useCallback(
-    (id: string) => editAttachments((prev) => prev.filter((a) => a.id !== id)),
+    (id: string) => {
+      const removed = attachmentsRef.current.find((a) => a.id === id);
+      if (removed && fromUpload(removed)) dropUpload(id, "uploadId" in removed ? removed.uploadId : undefined);
+      editAttachments((prev) => prev.filter((a) => a.id !== id));
+    },
     [editAttachments],
   );
+  // Uploads outlive this component. A finished one becomes a plain file chip;
+  // an upload chip with no job is from before a reload.
+  const jobs = useSyncExternalStore(onUploadJobs, uploadJobs, uploadJobs);
+  useEffect(() => {
+    const changed = attachments.filter((a) => {
+      const job = a.kind === "upload" ? jobs.get(a.id) : undefined;
+      return job && a.kind === "upload" && (job.phase === "done" || (job.uploadId && job.uploadId !== a.uploadId));
+    });
+    if (!changed.length) return;
+    setAttachments((prev) =>
+      prev.map((a) => {
+        const job = a.kind === "upload" ? jobs.get(a.id) : undefined;
+        if (a.kind !== "upload" || !job) return a;
+        if (job.phase === "done" && job.result) {
+          const { path, name, size, type } = job.result;
+          const file = fileAttachment(name, path, size, type);
+          file.id = a.id;
+          file.uploadId = job.uploadId;
+          return file;
+        }
+        return job.uploadId ? { ...a, uploadId: job.uploadId } : a;
+      }),
+    );
+    for (const a of changed) if (jobs.get(a.id)?.phase === "done") forgetUpload(a.id);
+  }, [attachments, jobs, setAttachments]);
+  const shownAttachments = useMemo(
+    () =>
+      attachments.map((a): Attachment => {
+        if (a.kind !== "upload") return a;
+        const job = jobs.get(a.id);
+        if (!job) return { ...a, state: "repick" };
+        const state = job.phase === "failed" ? "failed" : job.phase === "resuming" ? "resuming" : "uploading";
+        return { ...a, sent: job.sent, state };
+      }),
+    [attachments, jobs],
+  );
+  const uploadErrors = attachments
+    .flatMap((a) => {
+      const error = a.kind === "upload" ? jobs.get(a.id)?.error : undefined;
+      return error && a.kind === "upload" ? [t(error, { name: a.name })] : [];
+    })
+    .join(" ");
+  useEffect(() => {
+    if (uploadErrors) setAttachmentNotice(uploadErrors);
+  }, [uploadErrors]);
+  const repickInput = useRef<HTMLInputElement>(null);
+  const repickTarget = useRef<string | null>(null);
+  const repick = (file: File | undefined) => {
+    const target = attachmentsRef.current.find((a) => a.id === repickTarget.current);
+    repickTarget.current = null;
+    if (!file || target?.kind !== "upload") return;
+    // the server matches the same file to its unfinished session and resumes it
+    if (file.name === target.name && file.size === target.size && file.lastModified === target.lastModified) {
+      queueUpload(target.id, file);
+      return;
+    }
+    dropUpload(target.id, target.uploadId);
+    const next = uploadAttachment(file);
+    editAttachments((prev) => prev.map((a) => (a.id === target.id ? next : a)));
+    queueUpload(next.id, file);
+  };
   // A value set from code never reaches the textarea's native undo stack, so
   // Ctrl+Z right after a long paste or "Display in chat box" restores this
   // snapshot instead. `restore` touches only the chip the edit moved, so one
@@ -450,16 +534,15 @@ export function Composer({
   }, [commitQueued]);
   // a chip on its own is a message: the send control has to appear for it
   const fileInput = useRef<HTMLInputElement>(null);
-  const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
-  const pickFiles = async (picked: FileList | null) => {
-    if (!picked?.length) return;
-    const { attachments: added, notice } = await intakeFiles(Array.from(picked), {
+  const pickFiles = async (picked: readonly File[]) => {
+    if (!picked.length) return;
+    const { attachments: added, uploads, notice } = await intakeFiles(picked, {
       t,
       allowImages: engineSupportsImages,
       getPath: pathForFile,
       uploadImage: pasteImageAttachment,
     });
-    if (added.length) addAttachments(added);
+    if (added.length) addAttachments(added, uploads);
     // Keep file-specific failures beside the attachments. A successful
     // overlapping intake must not erase an earlier failure before it is read.
     if (notice) setAttachmentNotice(notice);
@@ -472,6 +555,7 @@ export function Composer({
     t,
   );
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
+  const uploading = attachments.some((attachment) => attachment.kind === "upload");
   const terminalBridge = typeof window === "undefined" ? undefined : window.ogb?.terminal;
   const canShareTerminal = Boolean(
     bot && !group && bot.shareTerminalWithChat !== false && terminalBridge?.readBot && terminalBridge?.sendBot,
@@ -514,7 +598,7 @@ export function Composer({
       busy,
       heldCount: queuedRef.current.length,
     });
-    if (action === "block") return;
+    if (action === "block" || uploading) return;
     const liveText = composerSendSourceText(inputRef.current?.value, text);
     if (attachments.some((attachment) => attachment.kind === "image")) {
       const support = imageTargetsSupport(liveText);
@@ -871,9 +955,14 @@ export function Composer({
           </div>
         )}
         <ComposerAttachments
-          items={attachments}
+          items={shownAttachments}
           onAdd={addAttachments}
           onRemove={removeAttachment}
+          onRetryUpload={retryUpload}
+          onRepickUpload={(id) => {
+            repickTarget.current = id;
+            repickInput.current?.click();
+          }}
           onDisplayInChatBox={displayPasteInChatBox}
           allowImages={engineSupportsImages}
           notice={attachmentNotice}
@@ -895,8 +984,17 @@ export function Composer({
             multiple
             className="hidden"
             onChange={(e) => {
-              void holdReload(pickFiles(e.target.files));
+              void holdReload(pickFiles(Array.from(e.target.files ?? [])));
               // same file twice in a row still fires onChange
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={repickInput}
+            type="file"
+            className="hidden"
+            onChange={(e) => {
+              repick(e.target.files?.[0]);
               e.target.value = "";
             }}
           />
@@ -928,19 +1026,8 @@ export function Composer({
             const imageFiles = Array.from(e.clipboardData.files).filter(isImageFile);
             if (imageFiles.length) {
               e.preventDefault();
-              void holdReload((async () => {
-                for (const file of imageFiles) {
-                  try {
-                    const attachment = await pasteImageAttachment(file, engineSupportsImages);
-                    if (attachment) addAttachments([attachment]);
-                  } catch (err) {
-                    dispatch({
-                      type: "error",
-                      message: err instanceof Error ? err.message : "image upload failed",
-                    });
-                  }
-                }
-              })());
+              // same intake as a pick, so an oversized image takes the big-file route
+              void holdReload(pickFiles(imageFiles));
               return;
             }
             // a wall of text becomes a chip instead of burying the input
@@ -1097,10 +1184,11 @@ export function Composer({
           )}
           <button
             onClick={send}
+            disabled={uploading}
             aria-label={t(busyChrome.sendAriaKey)}
-            title={t(busyChrome.sendTitleKey)}
+            title={uploading ? t("composer.uploadWaiting") : t(busyChrome.sendTitleKey)}
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-full text-accent-ink",
+              "flex size-8 shrink-0 items-center justify-center rounded-full text-accent-ink disabled:opacity-40",
               busyChrome.sendLooksQueued
                 ? "bg-raised text-ink-secondary hover:bg-raised-hover"
                 : "bg-accent hover:brightness-110",

@@ -2,7 +2,7 @@
 // and its local state. Drafts live in localStorage, so coming back to a task — in this
 // session or after a restart — finds what you were typing still there.
 import { useCallback, useEffect, useState, type SetStateAction } from "react";
-import { isAttachment, type Attachment } from "./composer-attachments.js";
+import { isAttachment, restoredAttachment, type Attachment } from "./composer-attachments.js";
 
 const KEY = "omb-drafts";
 const ATTACHMENTS_KEY = "omb-draft-attachments";
@@ -72,7 +72,7 @@ export function setDraft(store: Store, id: string, text: string): void {
 
 export function getDraftAttachments(store: Store, id: string): Attachment[] {
   const attachments = read(store, ATTACHMENTS_KEY)[id];
-  return Array.isArray(attachments) ? attachments.filter(isAttachment) : [];
+  return Array.isArray(attachments) ? attachments.filter(isAttachment).map(restoredAttachment) : [];
 }
 
 export function setDraftAttachments(store: Store, id: string, attachments: Attachment[]): void {

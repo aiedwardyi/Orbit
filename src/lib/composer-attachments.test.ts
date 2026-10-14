@@ -9,13 +9,18 @@ import {
   composeMessage,
   imageSupportForTargets,
   imageSupportNotice,
+  intakeFiles,
+  isAttachment,
   isImageFile,
   pasteAttachment,
   pasteImageAttachment,
   splitAttachedImages,
   visibleComposerNotice,
   type ImageAttachment,
+  type UploadAttachment,
 } from "./composer-attachments";
+import { getDraftAttachments } from "./drafts";
+import { t } from "./i18n";
 
 /** Exercises the spacing and empty-draft cases for pasted text insertion. */
 function appendPastedTextTests() {
@@ -92,11 +97,19 @@ describe("splitAttachedImages", () => {
     expect(images).toEqual([]);
   });
 
-  it("formats attached-file markup into readable text", () => {
-    const stored = 'take a look\n\n<attached-file path="C:\\Users\\mredw\\Downloads\\image_123.png" />';
-    const { display, images } = splitAttachedImages(stored);
-    expect(display).toBe("take a look\n\n[attachment: image_123.png]");
+  it("returns attached files for new and old tags and keeps them out of the text", () => {
+    const stored =
+      'take a look\n\n<attached-file path="C:\\Users\\mredw\\Downloads\\image_123.png" />\n\n' +
+      '<attached-file path="C:\\Users\\mredw\\Downloads\\Wink\\a &amp; b.mp4" name="a &amp; b.mp4" size="1717986918" type="video/mp4" />';
+    const { display, images, files } = splitAttachedImages(stored);
+    expect(display).toBe("take a look");
+    expect(display).not.toContain("<attached-file");
+    expect(display).not.toContain("[attachment:");
     expect(images).toEqual([]);
+    expect(files).toEqual([
+      { path: "C:\\Users\\mredw\\Downloads\\image_123.png", name: "image_123.png" },
+      { path: "C:\\Users\\mredw\\Downloads\\Wink\\a & b.mp4", name: "a & b.mp4", size: 1717986918 },
+    ]);
   });
 
   it("keeps a literal attached-image tag inside pasted-text", () => {
@@ -224,5 +237,87 @@ describe("image attachment notice", () => {
     expect(visibleComposerNotice(notice, "pim")).toBe(copy.unsupported);
     expect(visibleComposerNotice(notice, "nova")).toBeNull();
     expect(visibleComposerNotice(null, "pim")).toBeNull();
+  });
+});
+
+describe("composeMessage with files", () => {
+  it("emits escaped name, size and type on attached-file", () => {
+    const prompt = composeMessage("", [
+      { kind: "file", id: "f1", path: "C:\\x\\a.mp4", name: 'a"<b>.mp4', size: 5, type: "video/mp4" },
+    ]);
+    expect(prompt).toBe('<attached-file path="C:\\x\\a.mp4" name="a&quot;&lt;b&gt;.mp4" size="5" type="video/mp4" />');
+    expect(splitAttachedImages(prompt).files).toEqual([{ path: "C:\\x\\a.mp4", name: 'a"<b>.mp4', size: 5 }]);
+  });
+});
+
+describe("big file intake", () => {
+  type Fake = Pick<File, "name" | "size" | "type" | "text" | "arrayBuffer" | "lastModified">;
+  const fake = (name: string, size: number, type = ""): Fake => ({
+    name,
+    size,
+    type,
+    lastModified: 7,
+    text: async () => "",
+    arrayBuffer: async () => {
+      throw new Error("must not read");
+    },
+  });
+  const intake = (files: Fake[]) =>
+    intakeFiles(files, {
+      t,
+      allowImages: true,
+      getPath: () => "",
+      uploadImage: async () => {
+        throw new Error("must not upload as an image");
+      },
+    });
+
+  it("turns pathless big files into upload chips and refuses over 10 GB", async () => {
+    const meeting = fake("meeting.mp4", 1.6e9, "video/mp4");
+    const docx = fake("plan.docx", 30 * 1024 * 1024);
+    const huge = fake("huge.iso", 10 * 1024 ** 3 + 1);
+    const out = await intake([meeting, docx, huge]);
+    expect(out.attachments).toEqual([
+      expect.objectContaining({ kind: "upload", name: "meeting.mp4", size: 1.6e9, type: "video/mp4", lastModified: 7, state: "uploading" }),
+      expect.objectContaining({ kind: "upload", name: "plan.docx" }),
+    ]);
+    expect(out.uploads.map((upload) => upload.file)).toEqual([meeting, docx]);
+    expect(out.uploads.map((upload) => upload.id)).toEqual(out.attachments.map((a) => a.id));
+    expect(out.notice).toBe(t("composer.uploadTooBig", { name: "huge.iso" }));
+  });
+
+  it("keeps an oversized image with a path as a file chip", async () => {
+    const out = await intakeFiles([fake("big.png", 11 * 1024 * 1024, "image/png")], {
+      t,
+      allowImages: true,
+      getPath: (file) => `C:\\pics\\${file.name}`,
+      uploadImage: async () => {
+        throw new Error("must not upload");
+      },
+    });
+    expect(out.attachments).toEqual([expect.objectContaining({ kind: "file", path: "C:\\pics\\big.png", type: "image/png" })]);
+    expect(out.uploads).toEqual([]);
+  });
+});
+
+describe("upload chips in drafts", () => {
+  const chip: UploadAttachment = {
+    kind: "upload",
+    id: "u1",
+    uploadId: "0f0e0d0c-0b0a-4000-8000-000000000001",
+    name: "meeting.mp4",
+    size: 1.6e9,
+    type: "video/mp4",
+    lastModified: 7,
+    sent: 8388608,
+    state: "uploading",
+  };
+
+  it("accepts an upload chip and restores it as repick", () => {
+    expect(isAttachment(chip)).toBe(true);
+    const values: Record<string, string> = {};
+    const store = { getItem: (key: string) => values[key] ?? null, setItem: (key: string, value: string) => void (values[key] = value) };
+    store.setItem("omb-draft-attachments", JSON.stringify({ d1: [chip] }));
+    expect(getDraftAttachments(store, "d1")).toEqual([{ ...chip, state: "repick" }]);
   });
 });

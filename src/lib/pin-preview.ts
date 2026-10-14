@@ -1,4 +1,4 @@
-import { splitAttachedImages } from "@/lib/composer-attachments";
+import { attachedFilePreview } from "@/lib/composer-attachments";
 import { summarize } from "../../shared/summarize";
 
 const OPEN = /^[ \t]*(`{3,}(?=[^`]*$)|~{3,})/;
@@ -36,6 +36,6 @@ function botPinPreview(text: string): string {
 
 /** One-line pin banner text. User text stays literal, bot text is cleaned. */
 export function pinPreview(role: "user" | "bot", text: string): string {
-  const display = splitAttachedImages(text).display;
+  const display = attachedFilePreview(text);
   return role === "user" ? display.replace(/\s+/g, " ").trim() : botPinPreview(display);
 }

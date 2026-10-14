@@ -23,9 +23,8 @@ describe("reply display", () => {
     );
   });
 
-  it("converts attached-file tags to attachment labels in reply snippets", () => {
-    expect(replySnippet('<attached-file path="/tmp/notes.txt" /> check this')).toBe(
-      "[attachment: notes.txt] check this",
-    );
+  it("converts attached-file tags to file labels in reply snippets", () => {
+    expect(replySnippet('<attached-file path="/tmp/notes.txt" /> check this')).toBe("[file: notes.txt] check this");
+    expect(replySnippet('hi <attached-file path="C:\\x\\b.mp4" name="a.mp4" size="5" />')).toBe("hi [file: a.mp4]");
   });
 });
