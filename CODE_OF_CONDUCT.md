@@ -10,6 +10,7 @@ The short version:
 - Assume good faith, especially with first-time contributors, and remember maintainers are people
   with finite time.
 
-Unacceptable behavior can be reported privately to **soni.mil2001@gmail.com**. Reports are handled
-confidentially. Maintainers may edit, remove, or reject contributions and comments that violate this
+Unacceptable behavior can be reported privately to the maintainer, [@aiedwardyi](https://github.com/aiedwardyi),
+through [GitHub private reporting](https://github.com/aiedwardyi/Orbit/security/advisories/new) with "Conduct report"
+in the title. Reports are handled confidentially. Maintainers may edit, remove, or reject contributions and comments that violate this
 code, and may ban repeat offenders.
