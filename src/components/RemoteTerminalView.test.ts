@@ -262,6 +262,8 @@ describe("RemoteTerminalView", () => {
       expect(worker.querySelector("span.truncate")).not.toBeNull();
       expect(worker.className).toContain("min-w-[56px]");
       expect(host.querySelector('[role="tablist"]')?.className).toContain("overflow-x-auto");
+      expect(host.querySelector('[role="tablist"]')?.className).not.toMatch(/(^| )\[scrollbar-width:none\]/);
+      expect(host.querySelector('[role="tablist"]')?.className).toContain("pointer-coarse:[scrollbar-width:none]");
       expect(main.textContent).toBe("Main");
       expect(main.querySelector("svg")).toBeNull();
     } finally {
