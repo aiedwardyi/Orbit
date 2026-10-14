@@ -1,189 +1,71 @@
-# Contributing to OpenMausBot
+# Contributing to Wink
 
-Thanks for wanting to help — community PRs have already shipped in this repo, and more are welcome.
-This file tells you how to get a working dev setup, what the codebase expects from a change, and what
-makes a PR easy to merge. Read it once before opening anything; it's short on purpose.
-
-## Ground rules
-
-- **Small, focused PRs.** One concern per PR. A PR that ports a platform *and* adds a feature *and*
-  refactors will be asked to split. Big changes: open an issue first and agree on the approach.
-- **Match the altitude.** This codebase is deliberately small and direct — plain Node, no frameworks
-  on the server, one store, one event bus. Don't introduce a dependency where thirty lines of code
-  will do. New runtime dependencies need a reason in the PR description.
-- **Keep it green.** `pnpm typecheck && pnpm test` must pass. Server changes need tests (see below).
-- **UI changes need screenshots.** Before/after images in the PR body; video for anything animated.
-  Match the existing palette and tone in [`src/styles.css`](src/styles.css).
+Issues and pull requests are welcome. This file covers the dev setup, what a change is expected to meet, and what makes a PR easy to merge.
 
 ## Dev setup
 
-Requirements: **Node 24+**, **pnpm**, and for actually chatting with a bot, at least one agent CLI
-([`claude`](https://claude.com/claude-code) or [`codex`](https://github.com/openai/codex)) installed
-and logged in. macOS is the primary release platform and Ubuntu 24.04 x64 is the Linux desktop beta;
-the harness server itself is portable Node and the test suite runs on macOS, Linux, and Windows.
+Windows 10 / 11 x64 is the release platform. The server and the test suite are portable Node; CI runs on Windows.
 
-```sh
-git clone https://github.com/milind-soni/OpenMausBot && cd OpenMausBot
-pnpm install
+Requirements: Node.js 24+, pnpm 10.33, and at least one engine CLI signed in (see the README).
 
-pnpm dev:server    # harness server → 127.0.0.1:8799
-pnpm dev           # app → http://127.0.0.1:5199
-pnpm dev:desktop   # Electron shell (macOS/Ubuntu; keep server + Vite running)
+```powershell
+git clone https://github.com/aiedwardyi/Orbit.git
+cd Orbit
+pnpm install --frozen-lockfile
 
-pnpm typecheck     # app + server
-pnpm test          # vitest suite (server unit + driver contract + API smoke)
-pnpm test:watch    # same, in watch mode
-pnpm check:electron # syntax-check the plain JS Electron entrypoints
+pnpm dev:server       # harness server on 127.0.0.1:8799
+pnpm dev              # browser UI on http://127.0.0.1:5199
+pnpm dev:desktop      # Electron shell (keeps server and Vite running)
 
-pnpm package:mac   # DMG + ZIP; requires Swift/Xcode tools
-pnpm package:linux # Ubuntu x64 .deb + AppImage; no Swift required
+pnpm typecheck        # app + server
+pnpm build            # what CI builds
+pnpm test             # full suite, same as CI
+pnpm check:electron   # syntax-check the plain JS Electron entry points
+pnpm package:win      # installer in release/
 ```
 
-`pnpm dev:desktop` downloads and verifies the pinned Cloudflare Tunnel connector for the current
-platform and architecture before Electron starts. Later launches re-verify and reuse the staged
-binary. Packaging continues to use `pnpm build:cloudflared`, which stages every architecture the
-host's desktop package build requires. To stage only the current development target without
-launching Electron, run `node scripts/prepare-cloudflared.mjs --current`.
-
-For Ubuntu installation and real desktop checks, see [`docs/linux-desktop.md`](docs/linux-desktop.md).
-
-## Ubuntu release checklist
-
-Ubuntu release packages must come from the manual **Package Ubuntu** workflow on an exact release commit or tag,
-not from a developer workstation. The Ubuntu 24.04 runner builds and verifies both formats, launches the unpacked
-app and AppImage, routes `click` and `type_text` through the overlay-free bundled Cua runtime on Xorg, runs the
-fail-closed Wayland CUA smoke,
-and produces one release artifact containing:
-
-- the versioned `.deb` and AppImage;
-- stable `OpenMausBot-amd64.deb` and `OpenMausBot.AppImage` copies used by the latest-download links;
-- `SHA256SUMS-ubuntu-x64.txt` covering both versioned and stable names.
-
-Before publishing, confirm that `package.json` has the release version and dispatch the workflow against the same
-commit used for the other platforms. Attach all five Ubuntu files to the matching release in the separate
-[`openmausbot-releases`](https://github.com/milind-soni/openmausbot-releases) repository. Then verify the checksum
-file and install the `.deb` plus launch the AppImage in a clean Ubuntu 24.04 x86_64 GNOME environment. Never combine
-packages built from different commits under one version.
-
-## Repo map
-
-| Path | What lives there |
-|---|---|
-| `server/contracts.ts` | The driver SPI and canonical runtime event types. The whole architecture in one file — read it first. |
-| `server/drivers/` | One file per provider (Claude, Codex, Grok, cloud computer). Adding a provider = one file + one registration line in `builtIn.ts`. |
-| `server/harness/` | Registry (configs → live instances, unknown → shadow) and the fan-in event bus. |
-| `server/index.ts` | The HTTP + SSE API the app talks to. |
-| `server/testing/` | Test fakes: an in-memory driver, plus scripted fake `claude` / `codex` CLIs. |
-| `src/` | The React chat app. No transports of its own — HTTP commands out, one SSE stream in. |
-| `electron/` | Desktop shell: dictation, screen capture, local computer-use daemon. macOS-specific code lives here, gated. |
-| `dist-server/` | **Build output.** Never hand-edit, never include in PRs — it's regenerated by `pnpm build:server` at release time. |
-
-Data lives in `~/.openmausbot/` (bots, transcripts, per-thread NDJSON event logs, config with keys).
+`pnpm dev:desktop` stages the pinned Cloudflare Tunnel connector before Electron starts.
 
 ## Tests
 
-The suite is colocated (`server/**/*.test.ts`) and runs with `pnpm test`. Three layers:
+Three layers:
 
-- **Unit** — registry, bus, store. Pure in-process, use the fake driver in
-  [`server/testing/fake-driver.ts`](server/testing/fake-driver.ts).
-- **Driver contract** — [`claude.test.ts`](server/drivers/claude.test.ts) and
-  [`codex.test.ts`](server/drivers/codex.test.ts) spawn the scripted fake CLIs in `server/testing/`
-  and assert the canonical event stream, argv/env hygiene, interrupts, and the permission broker.
-  Failure modes are toggled by env var (`FAKE_CLAUDE_MODE=exit-early`, etc.) — extend those fakes
-  rather than mocking `child_process`.
-- **API smoke** — [`index.test.ts`](server/index.test.ts) boots the real server against a throwaway
-  home directory and exercises the HTTP surface.
+- **vitest**: `*.test.ts` and `*.test.mjs` under `server/`, `src/`, `shared/`, `electron/`, `companion/`, `scripts/` and `site/`. Files run one at a time; each test has a 20 s ceiling. `server/testing/setup.ts` points `HOME` at a throwaway directory, so tests never touch your real `~/.orbit`.
+- **node:test**: `electron/*.node-test.mjs`, run with `node --test <file>`. `pnpm test:terminal`, `pnpm test:updater` and the other `test:*` scripts in `package.json` group them.
+- **relay**: `relay/` has its own lockfile and suite. Run `pnpm check` and `pnpm test` from that directory.
 
-House rules for tests:
+`pnpm test` runs vitest behind `scripts/test-floor.mjs`, which fails the run when fewer tests register than expected. That catches a file that silently stops being collected.
 
-- **No sleeps.** Wait on the event that proves the behavior (see `server/testing/events.ts`'s
-  `recordEvents(...).until(...)`). A test that needs a timeout to pass is wrong.
-- **Never touch the real `~/.openmausbot`.** The setup file points `HOME` at a temp dir; keep it
-  that way.
-- Fake CLI shebang scripts must be launched through `spawnCli`/`execCli`, which resolve them through
-  Node on Windows. Only gate a test when the behavior itself is genuinely platform-specific.
+Some suites boot the real server: `server/index.test.ts` and the others that import `server/index.ts`. They are the slow part of the suite. To run only the files you touched:
 
-## Adding a provider driver
+```powershell
+pnpm exec vitest run server/foo.test.ts src/lib/bar.test.ts
+node --test electron/foo.node-test.mjs
+```
 
-The SPI in [`server/contracts.ts`](server/contracts.ts) is deliberately small. A driver PR should:
+New server behavior comes with a test. Driver changes keep the contract tests in `server/drivers/*.test.ts` green.
 
-1. Add `server/drivers/<name>.ts` implementing `ProviderDriver` and register it in
-   [`builtIn.ts`](server/drivers/builtIn.ts).
-2. `decodeConfig` **throws** on invalid config; `create` **rejects** (never throws synchronously) on
-   failure — the registry downgrades both to an unavailable shadow instead of crashing the fleet.
-   Do not remove or work around that behavior; it's what makes configs forward/backward compatible.
-3. Emit only canonical `RuntimeEvent`s carrying your own `driverKind` — the bus drops cross-driver
-   events on the floor.
-4. A missing/broken CLI must surface as `snapshot() → { state: "unavailable", reason }`, and a
-   failed spawn as a failed turn — never a hang, never a crash.
-5. Bring a contract test following the fake-CLI pattern (scripted fake process + `recordEvents`).
+## House rules
 
-## MCP tool schemas
-
-Tool `inputSchema`s travel through every engine's own MCP-to-provider conversion before a model
-sees them, and those converters are lossy: composition keywords get flattened, dropped, or pruned
-by size-compaction passes (codex only began preserving `oneOf` in mid-2026; others simplify
-harder). A model that never saw your schema's branches guesses shapes forever — that is exactly
-how chat routine proposals failed in the field hours after 0.1.38 shipped (#544).
-
-- **Never use `oneOf`, `anyOf`, `allOf`, `const`, or `format` in a tool `inputSchema`.** Advertise
-  one flat object; put per-variant rules in `description`s. `enum` on plain strings is fine.
-- **Coerce before you reject.** Models stringify nested objects, shorten enum values, and vary
-  case. If an input has one obvious meaning, accept it and normalize on the wire.
-- **Errors must teach.** When you refuse an input, the message states the supported shapes with a
-  literal example the model can copy. "Invalid discriminator value" burns a turn; an example
-  fixes the next call.
-- A schema test should assert the tool surface stays flat
-  (see `server/drivers/agents-proxy.test.ts` — it regexp-guards the serialized schema).
-
-## Platform rules
-
-- The harness (`server/`) must stay portable Node. Anything macOS-only (TCC, Swift helpers,
-  `~/Library` paths) belongs in `electron/` behind a `process.platform === "darwin"` gate.
-- Renderer code must consume the desktop capability contract rather than infer support from Electron,
-  the user agent, or the presence of a preload bridge. Screen preview, dictation, and local control are
-  independent capabilities.
-- Test Ubuntu platform claims on a real GNOME session. Xvfb proves packaging and fake-driver orchestration, not
-  Wayland portal behavior or real CUA inspection/input delivery.
-- Linux local control is enabled only on GNOME/Xorg after explicit opt-in. The owned daemon must start with
-  `--no-overlay`: the decorative full-screen Cua cursor surface is not part of the product contract and must never
-  sit between the person and their desktop. GNOME/Wayland must clear a legacy durable opt-in, report
-  `linux-wayland-seat-safety-blocked`, and never start Cua until it independently passes the real-seat matrix in
-  #345. Xvfb proves the overlay-free arguments, lifecycle, and input routing; it does not waive real-seat evidence.
-  An unrelated app must remain clickable/typeable before any approved action. Global opt-in plus per-bot
-  **This computer** remains mandatory; Linux Auto, full-auto/bypass modes, remembered grants, and cloud approvals
-  must never authorize the user's desktop.
-- Keep CUA discovery shell-free and pin accepted archive, inner-file, manifest, and driver contracts. Packaged Linux
-  builds must prefer their reviewed outside-ASAR runtime and fail closed instead of executing ambient PATH code;
-  source/dev builds may use the validated explicit/user-local paths. Never add a runtime downloader/self-updater or
-  silently install GNOME extensions. GNOME/Wayland readiness must require its exact compositor/helper/portal health
-  contract; never infer it from `WAYLAND_DISPLAY` or XWayland.
-- Native release changes must update the checked-in Cua license report/SBOM, preserve MIT/OFL/MPL notices, pass the
-  malicious-archive tests, and prove identical hashes in `linux-unpacked`, `.deb`, and AppImage artifacts. AppImage
-  must additionally prove post-copy hashing in its private `0700` execution stage; never weaken the general path
-  validator to accept a root-owned group-writable SquashFS path when its toolchain emits `0775` rather than `0755`.
-- **Never build command strings for a shell.** No `shell: true`, no spawning through `cmd.exe` with
-  quoted strings — model names, personas, and MCP config JSON travel through argv, and cmd.exe
-  metacharacter expansion is a real injection class. On Windows, resolve `.cmd` shims to their JS
-  entry and spawn `process.execPath` instead.
-- POSIX-only calls (`process.kill(-pid)`, unix sockets) need a gated Windows equivalent
-  (`taskkill /T`, named pipes) — not a silent failure.
-
-## Secrets
-
-API keys are write-only: they land in `~/.openmausbot/config.json` via `PUT /api/config` and the API
-only ever reports `configured` booleans. Keep it that way — no logging keys, no echoing them in
-responses or events, no baking them into argv where another local process could read them.
+- **Spawn with argv, never a shell string.** No `shell: true`, no `cmd.exe` string building. Model names, personas and MCP config travel through argv. On Windows, resolve `.cmd` shims to their JS entry and spawn `process.execPath`.
+- **Secrets are write-only.** Keys go in through the API and come back as `configured` booleans. Never log a key or echo it in a response, an event or argv.
+- **Platform-specific code is gated.** `server/` stays portable Node. Anything that needs Windows, macOS or Linux lives behind a `process.platform` check.
+- **Match the altitude.** Plain Node on the server, one store, one event bus. No new runtime dependency where thirty lines will do. A new dependency needs a reason in the PR.
+- **One concern per PR.** Big changes start with an issue that agrees on the approach.
+- **Commits:** `type: half-sentence`, with `feat`, `fix`, `docs`, `test`, `chore`, `refactor`, `perf` or `ci`. No body unless it says something the diff can't.
+- **Prose and comments:** terse plain English, like the README. Plain dashes, no em dashes.
 
 ## Before you open the PR
 
-- [ ] `pnpm typecheck` and `pnpm test` pass
-- [ ] `pnpm check:electron` passes for desktop-shell changes
-- [ ] Ubuntu packaging changes pass `pnpm package:linux` and `node scripts/verify-linux-package.mjs`
-- [ ] New server behavior has a test; driver changes keep the contract tests green
-- [ ] No `dist-server/` churn, no lockfile churn beyond your actual dependency change
-- [ ] macOS-only code is platform-gated; nothing breaks the packaged app
+The pull request template asks for these:
+
+- [ ] `pnpm typecheck` and `pnpm test` pass locally
+- [ ] Server behavior changes come with tests
+- [ ] No `dist-server/` edits (it's build output)
+- [ ] Platform-specific code is gated; no `shell: true` or cmd.exe string-building
+- [ ] No secrets in logs, responses, events or argv
 - [ ] UI changes include before/after screenshots
 
-By contributing you agree your contributions are licensed under the
-[Apache License, Version 2.0](LICENSE).
+## License
+
+By contributing you agree your contributions are licensed under the [Apache License, Version 2.0](LICENSE), the same as the project.

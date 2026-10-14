@@ -2,23 +2,24 @@
 
 ## Reporting a vulnerability
 
-Please **do not open a public issue** for security problems. Email **soni.mil2001@gmail.com** with
-the details (or use GitHub's private vulnerability reporting on this repo if enabled). You'll get a
-response as soon as possible, normally within a few days.
+Do not open a public issue for a security problem. Report it privately through GitHub:
 
-## Scope notes for researchers
+https://github.com/aiedwardyi/Orbit/security/advisories/new
 
-- The harness server binds **127.0.0.1 only** and has no authentication by design — it trusts the
-  local user. Anything that makes it reachable from off-machine, or lets one local *unprivileged
-  other user* drive it, is a vulnerability.
-- API keys live in `~/.openmausbot/config.json` and are write-only through the API (`configured`
-  booleans out, never values). Any path that echoes a stored secret back — API response, SSE event,
-  log line, argv visible in `ps` — is a vulnerability.
-- Agents run real CLIs (`claude`, `codex`) with the user's own privileges, and the permission broker
-  is the consent layer for risky actions. Bypasses of the broker (approving without a user decision,
-  spoofing the broker socket) are vulnerabilities.
-- Spawning must never route user-influenced strings through a shell. Report any `shell: true` /
-  `cmd.exe` string-building you find.
-- Windows and Linux installers are currently unsigned (SmartScreen / unknown publisher). That is a
-  known distribution limitation, not a vulnerability. Do not add `publisherName` to the update feed
-  without actually signing.
+Wink is maintained by one person. Reports get a best-effort response, and a fix ships in a release once it is ready.
+
+## Supported versions
+
+The latest release on [aiedwardyi/orbit-releases](https://github.com/aiedwardyi/orbit-releases/releases/latest). Older versions are not patched; the app offers each new release as an update.
+
+## Scope
+
+The README section [Trust and security](README.md#trust-and-security) is the source of truth for what Wink listens on, sends and stores, and for how approvals and workers are gated. A behavior that contradicts it is a bug, and if it exposes data or control it is a vulnerability.
+
+In short:
+
+- The server binds `127.0.0.1` behind a per-launch token and a Host/Origin check. Anything that lets another local user, or a machine outside the phone access the README describes, drive it is in scope.
+- API keys are write-only through the API. Any path that echoes a stored key is in scope.
+- Engine CLIs run with your privileges and spawn without a shell. Any user-influenced string that reaches a shell is in scope.
+- Approval modes and the permission broker are the consent layer. Approving without a user decision is in scope.
+- The installer is not code-signed yet. SmartScreen warnings are a known limitation, not a vulnerability.

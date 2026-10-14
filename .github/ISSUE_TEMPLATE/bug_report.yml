@@ -35,8 +35,8 @@ body:
   - type: input
     attributes:
       label: Version and install
-      description: App version (About / release tag) and whether you run the .dmg or from source
-      placeholder: v0.1.3 dmg · macOS 15.5
+      description: App version (About / release tag) and whether you run the installer or from source
+      placeholder: v1.0.178 installer · Windows 11
     validations:
       required: true
   - type: textarea
@@ -44,6 +44,6 @@ body:
       label: Logs
       description: >-
         Anything from the terminal running `pnpm dev:server`, or the per-thread
-        event logs in `~/.openmausbot/events/`. Redact anything that looks like
+        event logs in `~/.orbit/events/`. Redact anything that looks like
         a key or token before pasting.
       render: text
