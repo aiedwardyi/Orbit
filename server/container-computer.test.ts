@@ -287,7 +287,7 @@ describe("containerComputerStatus", () => {
 
     expect(status.managed).toBe(false);
     expect(status.ready).toBe(false);
-    expect(status.problem).toContain("not created by OpenMausBot");
+    expect(status.problem).toContain("not created by Wink");
   });
 
   it("prefers a running runtime over an earlier installed but stopped one", async () => {

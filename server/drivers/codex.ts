@@ -93,7 +93,7 @@ const STATE_RUNTIME_RETRY_MS = 300;
 
 const QUESTION_TIMEOUT_NOTE = "No answer was given — use your best judgment.";
 const DENY_TIMEOUT_NOTE =
-  "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
+  "Wink: nobody answered this permission request in time. Skip this action and finish what you can without it.";
 
 type TurnUsage = { input: number; output: number; cachedInput?: number };
 type CodexTokens = { inputTokens?: number; cachedInputTokens?: number; outputTokens?: number };
@@ -384,7 +384,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       const settle = (ok: boolean, stopReason: string | null) => {
         if (state.settled) return;
         state.settled = true;
-        for (const finish of [...asks.values()]) finish("deny", "OpenMausBot: the turn ended", "system");
+        for (const finish of [...asks.values()]) finish("deny", "Wink: the turn ended", "system");
         for (const p of rpcPending.values()) p.reject(new Error("turn settled"));
         rpcPending.clear();
         active.delete(threadId);

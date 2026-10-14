@@ -564,7 +564,7 @@ export default async function (pi: PiExtensionApi): Promise<void> {
         return { serverName, def, client, tools: await client.listTools() };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[openmausbot-pi-mcp] ${serverName}: ${message}\n`);
+        process.stderr.write(`[wink-pi-mcp] ${serverName}: ${message}\n`);
         client?.dispose();
         return { serverName };
       }
@@ -579,7 +579,7 @@ export default async function (pi: PiExtensionApi): Promise<void> {
 
     for (const tool of tools) {
       if (!tool || typeof tool.name !== "string" || !tool.name.trim()) {
-        process.stderr.write(`[openmausbot-pi-mcp] ${serverName}: skipped a tool with no valid name\n`);
+        process.stderr.write(`[wink-pi-mcp] ${serverName}: skipped a tool with no valid name\n`);
         continue;
       }
       const toolName = tool.name;
@@ -624,7 +624,7 @@ export default async function (pi: PiExtensionApi): Promise<void> {
         // One malformed tool must not dispose the client behind tools that
         // were already registered from the same server.
         const message = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[openmausbot-pi-mcp] ${serverName}:${toolName}: ${message}\n`);
+        process.stderr.write(`[wink-pi-mcp] ${serverName}:${toolName}: ${message}\n`);
       }
     }
 

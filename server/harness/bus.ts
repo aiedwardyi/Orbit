@@ -52,7 +52,7 @@ function persistCopies(event: RuntimeEvent): RuntimeEvent[] {
 }
 
 const INCOMPLETE_LOG_MESSAGE =
-  "Canonical event history is incomplete: OpenMausBot could not write one or more events to disk. Live updates will continue.";
+  "Canonical event history is incomplete: Wink could not write one or more events to disk. Live updates will continue.";
 
 export class EventBus {
   private listeners = new Set<RuntimeEventListener>();

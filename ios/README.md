@@ -1,4 +1,4 @@
-# OpenMausBot companion (iOS)
+# Wink companion (iOS)
 
 Your bots keep running on the laptop. This is the phone you watch them from,
 answer their approvals on, and send them the next thing.
@@ -191,5 +191,5 @@ and no hosted relay. Composer dictation is available.
 Task management, SQLite transcript search,
 transcript sharing, reactions, and edit/version controls use narrow companion
 routes and the computer remains the source of truth. Tailscale is supported
-through manual MagicDNS entry; it is not a dependency and OpenMausBot does not
+through manual MagicDNS entry; it is not a dependency and Wink does not
 operate a cloud copy of local data.

@@ -68,7 +68,7 @@ Then smoke-test the installer itself. Run it, and confirm:
 
 1. It installs per-user with no UAC prompt and launches.
 2. The chat window renders (not the error page). Server logs land in
-   `%APPDATA%\OpenMausBot\logs\server.log`.
+   `%APPDATA%\orbit-desktop\logs\server.log`.
 3. The model picker lists at least one provider — this exercises the `.cmd`-shim
    resolution in `server/procs.ts`, which only ever runs for real on Windows.
 4. No update popup appears on launch. Background check failures are silent by

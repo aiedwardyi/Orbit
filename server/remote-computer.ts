@@ -138,7 +138,7 @@ export function remoteComputerBootstrapCommand(botName: string): string {
     'pkill -f "^/opt/ogb/venv/bin/python -m computer_server( |$)" >/dev/null 2>&1 || true',
     `[ -f /opt/ogb/cua-${REMOTE_CUA_VERSION}-ready ] || [ -f /tmp/ogb-cua-installing ] || { touch /tmp/ogb-cua-installing; nohup bash -c ${shellQuote(installer)} > /tmp/ogb-cua-install.log 2>&1 & }`,
     ensureRemoteCuaCommand(),
-    `tmux has-session -t work 2>/dev/null || tmux new-session -d -s work 'echo; echo "  ▦ ${safeName}'"'"'s computer — OpenMausBot"; echo; exec bash -i'`,
+    `tmux has-session -t work 2>/dev/null || tmux new-session -d -s work 'echo; echo "  ▦ ${safeName}'"'"'s computer - Wink"; echo; exec bash -i'`,
     "echo bootstrapped",
   ].join("\n");
 }
