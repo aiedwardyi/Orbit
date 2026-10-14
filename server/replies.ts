@@ -1,4 +1,5 @@
 import {
+  deliveredReactionKeys,
   formatReactionAnnotation,
   promptWithReactions,
   type ReactionMessage,
@@ -83,29 +84,38 @@ function reactionIdsAlreadyInTranscript(
   return ids;
 }
 
-/**
- * Reply quote plus current reaction state for a user turn.
- * Resume-only engines (no history this turn) get every mark via
- * `promptWithReactions`. Full-replay turns pass `replayedTranscript` so
- * bot reactions already on those lines are skipped in the preamble.
- */
-export function composeUserTurnPrompt(
-  text: string,
-  opts: {
-    replyTo?: Message;
-    messages: readonly ReactionMessage[];
-    userName?: string;
-    replayedTranscript?: readonly { text: string }[];
-  },
-): string {
+type UserTurnOpts = {
+  replyTo?: Message;
+  messages: readonly ReactionMessage[];
+  userName?: string;
+  replayedTranscript?: readonly { text: string }[];
+  delivered?: readonly string[];
+};
+
+function reactionOpts(opts: UserTurnOpts) {
   const userName = opts.userName ?? "User";
   const omitMessageIds = opts.replayedTranscript
     ? reactionIdsAlreadyInTranscript(opts.messages, opts.replayedTranscript, userName)
     : undefined;
+  return { omitMessageIds, delivered: opts.delivered && new Set(opts.delivered) };
+}
+
+/**
+ * Reply quote plus reactions new since `delivered` for a user turn.
+ * Full-replay turns pass `replayedTranscript` so bot reactions already on
+ * those lines are skipped in the preamble.
+ */
+export function composeUserTurnPrompt(text: string, opts: UserTurnOpts): string {
+  const userName = opts.userName ?? "User";
   return promptWithReactions(
     promptWithReply(text, opts.replyTo, userName),
     opts.messages,
     userName,
-    omitMessageIds ? { omitMessageIds } : undefined,
+    reactionOpts(opts),
   );
+}
+
+/** The `delivered` keys to record once a `composeUserTurnPrompt` with these opts lands. */
+export function userTurnReactionKeys(opts: UserTurnOpts): string[] {
+  return deliveredReactionKeys(opts.messages, reactionOpts(opts));
 }

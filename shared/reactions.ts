@@ -101,28 +101,58 @@ export function reactionToolGuidance(): string {
   return "You can also react to the user's message yourself with the react tool. React when it genuinely fits the moment (wins, approvals, thanks, jokes), roughly 1 in 4 user messages, never every message, and never just because a message contains a particular word.";
 }
 
+// bot reactions on user messages are the bot's own output, not feedback;
+// launch rows are display-only and never reach the model
+function feedbackMarks(message: ReactionMessage): ReactionMark[] {
+  if (message.kind === "launch") return [];
+  return (message.reactions ?? []).filter((reaction) => message.role !== "user" || reaction.by === "user");
+}
+
+const markKey = (message: ReactionMessage, reaction: ReactionMark) =>
+  `${message.id} ${reaction.by} ${reaction.emoji}`;
+
+/** Every feedback mark on the thread now, as passed back in `delivered`. */
+export function reactionMarkKeys(messages: readonly ReactionMessage[]): string[] {
+  return messages.flatMap((message) => feedbackMarks(message).map((reaction) => markKey(message, reaction)));
+}
+
+type ReactionPromptOpts = { omitMessageIds?: ReadonlySet<string>; delivered?: ReadonlySet<string> };
+
+function pendingReactions(messages: readonly ReactionMessage[], opts?: ReactionPromptOpts) {
+  const feedback = (message: ReactionMessage) =>
+    feedbackMarks(message).filter((reaction) => !opts?.delivered?.has(markKey(message, reaction)));
+  const marked = messages.filter((message) =>
+    feedback(message).length > 0 && !opts?.omitMessageIds?.has(message.id),
+  );
+  return {
+    feedback,
+    recent: marked.slice(-MAX_REACTION_MESSAGES),
+    cut: marked.slice(0, Math.max(0, marked.length - MAX_REACTION_MESSAGES)),
+  };
+}
+
+/** Marks the bot knows once a prompt built with `opts` lands: all but those the cap cut. */
+export function deliveredReactionKeys(messages: readonly ReactionMessage[], opts?: ReactionPromptOpts): string[] {
+  const { feedback, cut } = pendingReactions(messages, opts);
+  const dropped = new Set(cut.flatMap((message) => feedback(message).map((reaction) => markKey(message, reaction))));
+  return reactionMarkKeys(messages).filter((key) => !dropped.has(key));
+}
+
 /**
- * Current reaction state for engines that resume without replaying history.
- * Full-replay turns should pass `omitMessageIds` for bot messages whose
- * `[reactions: …]` marker is already on the replayed transcript so those
- * marks are not prepended a second time. Resume-only turns omit nothing.
+ * Reactions the bot has not been told about yet. `delivered` holds the
+ * `reactionMarkKeys` of its last dispatched turn; absent means show all.
+ * Full-replay turns pass `omitMessageIds` for bot messages whose
+ * `[reactions: …]` marker is already on the replayed transcript.
  */
 export function promptWithReactions(
   text: string,
   messages: readonly ReactionMessage[],
   userName = "User",
-  opts?: { omitMessageIds?: ReadonlySet<string> },
+  opts?: ReactionPromptOpts,
 ): string {
   if (text.startsWith(REACTION_PROMPT_PREFIX)) return text;
-  // bot reactions on user messages are the bot's own output, not feedback
-  const feedback = (message: ReactionMessage) =>
-    (message.reactions ?? []).filter((reaction) => message.role !== "user" || reaction.by === "user");
-  // launch rows are display-only and never reach the model
-  const marked = messages.filter((message) =>
-    message.kind !== "launch" && feedback(message).length > 0 && !opts?.omitMessageIds?.has(message.id),
-  );
-  if (!marked.length) return text;
-  const recent = marked.slice(-MAX_REACTION_MESSAGES);
+  const { feedback, recent } = pendingReactions(messages, opts);
+  if (!recent.length) return text;
   const lines = recent.map((message) => {
     const excerpt = excerptForPrompt(message.text ?? "");
     const where = excerpt ? `On “${excerpt}”` : "On an earlier message";

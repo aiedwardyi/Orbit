@@ -20,6 +20,7 @@ import { readTaskResumePacket, type TaskResumePacket } from "./task-state.ts";
 import { buildResumeFallback } from "./turn-context.ts";
 import { workspaceDir } from "./workspace.ts";
 import { readContextCompaction } from "../shared/context-compaction.ts";
+import { reactionMarkKeys } from "../shared/reactions.ts";
 
 const selection = (): ModelSelection => ({ instanceId: "claude", model: "claude-sonnet-5" });
 
@@ -1128,6 +1129,50 @@ describe("Store", () => {
     expect(JSON.stringify(prepared.transcript)).not.toContain("LAUNCH_SENTINEL");
     const prompt = composeUserTurnPrompt("Continue", { messages, replayedTranscript: prepared.transcript });
     expect(prompt).not.toContain("LAUNCH_SENTINEL");
+  });
+
+  it("sends each reaction to a bot once, across a restart, while the replay keeps it inline", async () => {
+    const store = new Store(selection);
+    const bot = store.createBot({}, { seedMessages: false });
+    store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "Plan it" });
+    const reply = store.appendMessage(bot.threadId, { role: "bot", kind: "text", text: "Here is the plan" });
+    const turn = (s: Store, opts?: { replayed?: { text: string }[]; dispatched?: boolean }) => {
+      const messages = s.activePath(bot.threadId);
+      const prompt = composeUserTurnPrompt("next", {
+        messages,
+        replayedTranscript: opts?.replayed,
+        delivered: s.taskByThread(bot.id, bot.threadId)?.reactionsDelivered,
+      });
+      if (opts?.dispatched !== false) s.markReactionsDelivered(bot.id, bot.threadId, reactionMarkKeys(messages));
+      return prompt;
+    };
+
+    store.toggleReaction(bot.threadId, reply.id, "👍", "user");
+    expect(turn(store)).toContain("👍");
+    expect(turn(store)).toBe("next");
+
+    const reloaded = new Store(selection);
+    expect(turn(reloaded)).toBe("next");
+    const prepared = await prepareModelContext({ messages: reloaded.activePath(bot.threadId), contextWindow: 8_192, taskRecordText: "Plan" });
+    expect(prepared.status).toBe("ready");
+    if (prepared.status !== "ready") return;
+    expect(prepared.transcript.map((line) => line.text).join("\n")).toContain("[reactions: 👍");
+    expect(turn(reloaded, { replayed: prepared.transcript })).toBe("next");
+
+    reloaded.toggleReaction(bot.threadId, reply.id, "👍", "user");
+    reloaded.toggleReaction(bot.threadId, reply.id, "❤️", "user");
+    const changed = turn(reloaded);
+    expect(changed).toContain("❤️");
+    expect(changed).not.toContain("👍");
+    expect(turn(reloaded)).toBe("next");
+
+    reloaded.toggleReaction(bot.threadId, reply.id, "❤️", "user");
+    expect(turn(reloaded)).toBe("next");
+
+    reloaded.toggleReaction(bot.threadId, reply.id, "🔥", "user");
+    expect(turn(reloaded, { dispatched: false })).toContain("🔥");
+    expect(turn(reloaded)).toContain("🔥");
+    expect(turn(reloaded)).toBe("next");
   });
 
 
