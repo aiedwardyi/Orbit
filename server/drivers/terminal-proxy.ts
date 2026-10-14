@@ -123,7 +123,7 @@ export const TOOLS = [
   {
     name: "terminal_spawn",
     description:
-      "Open a labeled pane (a terminal-view tab) in cwd and type command plus Enter if given. Returns sessionId and generation. Max 8 live panes. The shell is PowerShell on Windows. " +
+      "Open a labeled pane (a terminal-view tab) in cwd and type command plus Enter if given. Returns sessionId and generation. Max 16 live panes per bot and 32 terminals in total (main terminals included); a new pane needs 2 GB of free memory. The shell is PowerShell on Windows. " +
       "To run a worker: cwd is a git worktree, never the live checkout, except one editing worker in place for a plain folder or a checkout with uncommitted changes, after a safety copy (a read-only review of a plain folder runs in a scratch copy of it, never in place); label is \"NICKNAME | MODEL | EFFORT\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
       `Claude: claude --model <model-id> --effort <effort> --dangerously-skip-permissions ${REPORT_TEXT.claude}'Read <card path> and do it.' Never send /effort in a pane: it changes the user's own default. If it shows a folder-trust menu, read it and pick Yes with terminal_send key presses; Enter alone may pick No. ` +
       `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox ${REPORT_TEXT.env}${REPORT_TEXT.notify}'<prompt>' (a new folder shows a trust prompt first; send Enter). ` +

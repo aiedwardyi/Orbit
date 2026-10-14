@@ -186,7 +186,7 @@ test("opens a pane only for the grant's own bot", async () => {
       sendBot: () => ({}),
       async openForBot(botId, input) {
         calls.push([botId, input]);
-        if (input.label === "full") throw new Error("Too many bot terminals (limit 8)");
+        if (input.label === "full") throw new Error("Too many bot terminals (limit 16)");
         return { sessionId: "p1", generation: 1 };
       },
     },

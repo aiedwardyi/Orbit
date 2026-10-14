@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { postPaneNote, terminalPaneEnv } from "./terminal-mailbox.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
@@ -40,8 +41,9 @@ const stallSignature = (screenText) => AGENT_BUSY_RE.test(screenText) ? screenTe
 const agentJobsRunning = (screenText) => screenText.split("\n").filter((line) => line.trim()).slice(-JOBS_FOOTER_LINES).some((line) => AGENT_JOBS_RE.test(line));
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
-const BOT_PANE_LIMIT = 8;
-const SESSION_LIMIT = 16;
+const BOT_PANE_LIMIT = 16;
+const SESSION_LIMIT = 32;
+const MIN_FREE_MEMORY = 2 * 1024 ** 3;
 const LABEL_LIMIT = 40;
 const MIN_ID_PREFIX_LEN = 8;
 const CLOSED_PANE_HISTORY_LIMIT = 32;
@@ -243,7 +245,7 @@ function paneLabel(value) {
   return value.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, LABEL_LIMIT) || undefined;
 }
 
-export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, prestartIdleMs = PRESTART_IDLE_MS, notePane = postPaneNote, now = () => Date.now(), paneRuns = null }) {
+export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, prestartIdleMs = PRESTART_IDLE_MS, notePane = postPaneNote, now = () => Date.now(), freeMemory = () => os.freemem(), paneRuns = null }) {
   const sessions = new Map();
   const active = new Map();
   const generations = new Map();
@@ -1000,7 +1002,10 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const botReserved = paneReservations.get(botId) ?? 0;
       if (botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length + botReserved >= BOT_PANE_LIMIT) throw new Error(`Too many bot terminals (limit ${BOT_PANE_LIMIT})`);
       if (active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
-      if (liveSessions() + reservedPanes >= SESSION_LIMIT) throw new Error("Too many terminal sessions");
+      const yours = () => botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length + botReserved;
+      if (liveSessions() + reservedPanes >= SESSION_LIMIT) throw new Error(`Too many terminal sessions (${SESSION_LIMIT} open across all bots and main terminals; ${yours()} are yours). Close one of yours with terminal_close, or ask the user to close others.`);
+      const free = freeMemory();
+      if (free < MIN_FREE_MEMORY) throw new Error(`Not enough free memory for another terminal (${(free / 1024 ** 3).toFixed(1)} GB free, 2 GB needed; ${liveSessions() + reservedPanes} terminals open, ${yours()} are yours). Close a finished pane with terminal_close.`);
       paneReservations.set(botId, botReserved + 1);
       reservedPanes += 1;
       let session;
