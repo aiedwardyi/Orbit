@@ -19,7 +19,7 @@ import {
   resolveRemoteHost,
 } from "./remote-access.ts";
 
-const HOST = "home.tail396477.ts.net";
+const HOST = "home.tail1234.ts.net";
 const freshDir = () => mkdtempSync(join(tmpdir(), "orbit-remote-"));
 
 describe("remote access", () => {
@@ -214,7 +214,7 @@ describe("remote access", () => {
     });
 
     it("skips detection when ORBIT_REMOTE_HOST is set or ORBIT_REMOTE_AUTO=0", async () => {
-      for (const env of [{ ORBIT_REMOTE_HOST: "other.tail396477.ts.net" }, { ORBIT_REMOTE_AUTO: "0" }]) {
+      for (const env of [{ ORBIT_REMOTE_HOST: "other.tail1234.ts.net" }, { ORBIT_REMOTE_AUTO: "0" }]) {
         const run = detect(env, { "status --json": running, "serve status --json": "{}", [SERVE]: "" });
         expect(await run.host).toBeUndefined();
         expect(run.calls).toEqual([]);

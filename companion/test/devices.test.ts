@@ -345,7 +345,7 @@ describe("a pairing that cannot be saved", () => {
 
 describe("cleanDeviceName", () => {
   it("clamps, trims, and strips control characters", () => {
-    expect(cleanDeviceName("  Milind's iPhone  ")).toBe("Milind's iPhone");
+    expect(cleanDeviceName("  Sam's iPhone  ")).toBe("Sam's iPhone");
     // an untrusted label must not carry NULs or ANSI escapes into a UI
     expect(cleanDeviceName("bad\u0000name\u001b[31m")).toBe("bad name [31m");
     expect(cleanDeviceName("x".repeat(200))).toHaveLength(60);

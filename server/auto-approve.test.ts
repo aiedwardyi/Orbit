@@ -9,7 +9,7 @@ import { redactSecretsInText } from "./redact.ts";
 
 describe("looksDestructive", () => {
   const dangerous = [
-    "rm -rf /Users/milind/project",
+    "rm -rf /Users/you/project",
     "rm -fr node_modules",
     "Remove-Item -Recurse -Force C:\\work\\project",
     "remove-item C:\\work\\project -recurse",
@@ -61,7 +61,7 @@ describe("looksDestructive", () => {
 describe("looksSensitive", () => {
   for (const text of [
     "cat .env",
-    "cat /Users/milind/project/.env.production",
+    "cat /Users/you/project/.env.production",
     "cat ~/.ssh/id_rsa",
     "cp ~/.aws/credentials /tmp",
     "cat .npmrc",
@@ -72,11 +72,11 @@ describe("looksSensitive", () => {
   // Same files, Windows spelling. A guard that fires on one separator and
   // not the other is a guard that only works on some of the team's machines.
   for (const text of [
-    "type C:\\Users\\milind\\.env",
-    "type C:\\Users\\milind\\project\\.env.production",
-    "type C:\\Users\\milind\\.aws\\credentials",
-    "type C:\\Users\\milind\\.docker\\config.json",
-    "type C:\\Users\\milind\\.ssh\\config",
+    "type C:\\Users\\you\\.env",
+    "type C:\\Users\\you\\project\\.env.production",
+    "type C:\\Users\\you\\.aws\\credentials",
+    "type C:\\Users\\you\\.docker\\config.json",
+    "type C:\\Users\\you\\.ssh\\config",
   ]) {
     it(`stops: ${text}`, () => expect(looksSensitive(text)).toBe(true));
   }
@@ -285,9 +285,9 @@ describe("unattended turns", () => {
 describe("power-off command vs branch/path/message", () => {
   const bot = { autoApprove: true };
   const branchDelete =
-    "cd /c/Users/mredw/OneDrive/Desktop/nudge && git checkout main && git pull origin main && git branch -d feat/graceful-shutdown; git fetch --prune && git branch -a && git log --oneline -3";
+    "cd /c/Users/you/Desktop/demo-app && git checkout main && git pull origin main && git branch -d feat/graceful-shutdown; git fetch --prune && git branch -a && git log --oneline -3";
   const branchPush =
-    "cd /c/Users/mredw/OneDrive/Desktop/nudge && git push -u origin feat/graceful-shutdown && git log --oneline -1";
+    "cd /c/Users/you/Desktop/demo-app && git push -u origin feat/graceful-shutdown && git log --oneline -1";
 
   it("auto-approves the graceful-shutdown branch delete chain", () => {
     expect(looksDestructive(branchDelete)).toBe(false);

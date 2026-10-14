@@ -34,12 +34,12 @@ describe("PhoneLinkSettings", () => {
   });
 
   it("shows the host and copies the full url", async () => {
-    const url = "https://laptop.tail396477.ts.net/remote?key=secretkey";
+    const url = "https://laptop.tail1234.ts.net/remote?key=secretkey";
     store.api.mockResolvedValue({ url });
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     const { host, root } = await renderView();
-    expect(host.textContent).toContain("laptop.tail396477.ts.net/••••••••");
+    expect(host.textContent).toContain("laptop.tail1234.ts.net/••••••••");
     expect(host.textContent).not.toContain("secretkey");
     await act(async () => click(host.querySelector("button")!));
     expect(writeText).toHaveBeenCalledWith(url);

@@ -294,9 +294,9 @@ describe("relative file links", () => {
   });
 
   it("opens a file:// link with an escaped space instead of the app origin", async () => {
-    const file = "C:/Users/mredw/OneDrive/Documents/KakaoTalk Downloads/POKKEY_Patent_Draft_v2_EN.docx";
+    const file = "C:/Users/you/OneDrive/Documents/Chat Downloads/Project_Draft_v2_EN.docx";
     const text =
-      "[POKKEY_Patent_Draft_v2_EN.docx](file:///C:/Users/mredw/OneDrive/Documents/KakaoTalk%20Downloads/POKKEY_Patent_Draft_v2_EN.docx)";
+      "[Project_Draft_v2_EN.docx](file:///C:/Users/you/OneDrive/Documents/Chat%20Downloads/Project_Draft_v2_EN.docx)";
     const openFile = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(window, "ogb", { configurable: true, value: { openFile } });
     const host = document.createElement("div");
@@ -317,7 +317,7 @@ describe("relative file links", () => {
   });
 
   it("opens a markdown link to a backslash Windows path", async () => {
-    const file = "C:\\Users\\mredw\\Desktop\\pokkey\\out\\clip.mp4";
+    const file = "C:\\Users\\you\\Desktop\\demo-app\\out\\clip.mp4";
     const openFile = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(window, "ogb", { configurable: true, value: { openFile } });
     const host = document.createElement("div");

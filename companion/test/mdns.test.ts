@@ -27,15 +27,15 @@ import {
 } from "../src/mdns.ts";
 
 const service: ServiceInfo = {
-  name: "Milind's computer",
+  name: "Sam's computer",
   type: "_openmausbot._tcp",
   port: 8800,
   host: "openmausbot-1a2b3c4d.local",
   addresses: ["192.168.1.42"],
-  txt: ["v=1", "name=Milind's computer"],
+  txt: ["v=1", "name=Sam's computer"],
 };
 
-const INSTANCE = "Milind's computer._openmausbot._tcp.local";
+const INSTANCE = "Sam's computer._openmausbot._tcp.local";
 const SERVICE_NAME = "_openmausbot._tcp.local";
 
 /** A query packet, built by hand so the decoder is tested against the
@@ -265,12 +265,12 @@ describe("naming", () => {
   });
 
   it("claims a host name the system responder will not fight us for", () => {
-    const name = defaultHostName("Milinds-MacBook-Pro");
+    const name = defaultHostName("Sams-MacBook-Pro");
     expect(name).toMatch(/^openmausbot-[0-9a-f]{8}\.local$/);
     // stable across restarts, distinct per machine
-    expect(defaultHostName("Milinds-MacBook-Pro")).toBe(name);
+    expect(defaultHostName("Sams-MacBook-Pro")).toBe(name);
     expect(defaultHostName("another-machine")).not.toBe(name);
-    expect(name).not.toContain("Milinds-MacBook-Pro");
+    expect(name).not.toContain("Sams-MacBook-Pro");
   });
 
   it("publishes only routable IPv4 addresses", () => {

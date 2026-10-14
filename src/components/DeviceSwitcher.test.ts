@@ -12,7 +12,7 @@ import { DeviceSwitcher, DeviceTag, type DeviceItem } from "./DeviceSwitcher";
 const device = (id: string, over: Partial<DeviceItem> = {}): DeviceItem => ({
   deviceId: id,
   name: id,
-  host: `${id}.tail396477.ts.net`,
+  host: `${id}.tail1234.ts.net`,
   current: false,
   offline: false,
   ...over,
@@ -96,7 +96,7 @@ describe("DeviceSwitcher", () => {
     expect(document.querySelector("ul:not([inert])")).toBeNull();
     await act(async () => click(toggle));
     await act(async () => click(document.querySelector("[data-device-id=laptop]")!));
-    expect(navigate).toHaveBeenCalledWith("https://laptop.tail396477.ts.net/");
+    expect(navigate).toHaveBeenCalledWith("https://laptop.tail1234.ts.net/");
   });
 
   it("hands the phone jump to Back navigation", async () => {
@@ -111,7 +111,7 @@ describe("DeviceSwitcher", () => {
     await act(async () => click(document.querySelector("[data-device-id=work]")!));
     window.removeEventListener("orbit:leave", leave);
     expect(leave).toHaveBeenCalledOnce();
-    expect(leave.mock.calls[0][0].detail).toBe("https://work.tail396477.ts.net/");
+    expect(leave.mock.calls[0][0].detail).toBe("https://work.tail1234.ts.net/");
   });
 
   it("refreshes devices when the menu opens", async () => {
@@ -184,7 +184,7 @@ describe("DeviceSwitcher", () => {
     expect(host.querySelector("ul:not([inert])")).toBeNull();
     await act(async () => click(toggle));
     await act(async () => click(host.querySelector("[data-device-id=work]")!));
-    expect(open).toHaveBeenCalledWith("work.tail396477.ts.net", "Work");
+    expect(open).toHaveBeenCalledWith("work.tail1234.ts.net", "Work");
     expect(navigate).not.toHaveBeenCalled();
     expect(host.querySelector("ul:not([inert])")).toBeNull();
   });
