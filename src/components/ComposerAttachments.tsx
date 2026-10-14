@@ -219,7 +219,10 @@ function UploadBody({ upload, onRetry, onRepick }: { upload: UploadAttachment; o
       <div className="flex h-[76px] items-center gap-2">
         <FileIcon size={16} className="shrink-0 text-ink-secondary" />
         <div className="min-w-0">
-          <div className="truncate text-[12px] text-ink">{upload.name}</div>
+          {/* an action line lifts the name under the always-on touch x */}
+          <div className={cn("truncate text-[12px] text-ink", (upload.state === "failed" || upload.state === "repick") && "pointer-coarse:pr-5")}>
+            {upload.name}
+          </div>
           <div className="truncate text-[10.5px] text-ink-secondary/70">
             {formatSize(upload.size)}
             {upload.state === "uploading" && ` · ${percent}%`}
