@@ -2,14 +2,56 @@ import { describe, expect, it } from "vitest";
 
 import {
   TRANSCRIPT_WINDOW_SIZE,
+  advanceWindow,
   expandWindowStart,
   focusWindow,
   followedTailStart,
   resolveTranscriptWindow,
   tailWindowStart,
+  shouldAdvanceWindow,
 } from "./transcript-window";
 
 const thread = (total: number): number[] => Array.from({ length: total }, (_, i) => i);
+
+describe("advanceWindow", () => {
+  it("adds one page and keeps the previous lower rows", () => {
+    expect(advanceWindow(0, 120, 500)).toEqual({ start: 0, end: 240 });
+    expect(advanceWindow(0, 240, 500)).toEqual({ start: 120, end: 360 });
+  });
+
+  it("keeps at most two windows throughout forward paging", () => {
+    let window: { start: number; end: number | null } = { start: 0, end: 120 };
+    while (window.end !== null) {
+      window = advanceWindow(window.start, window.end, 500);
+      expect((window.end ?? 500) - window.start).toBeLessThanOrEqual(240);
+    }
+    expect(window).toEqual({ start: 260, end: null });
+  });
+
+  it("counts the page and cap in rendering rows", () => {
+    const renders = (i: number) => i % 10 === 0;
+    const window = advanceWindow(0, 1191, 5000, 120, renders);
+    expect(window).toEqual({ start: 0, end: 2391 });
+    const next = advanceWindow(window.start, window.end!, 5000, 120, renders);
+    expect(thread(next.end! - next.start).filter((i) => renders(i + next.start))).toHaveLength(240);
+  });
+
+  it("keeps hidden trailing rows when it becomes a live tail", () => {
+    expect(advanceWindow(0, 240, 500, 120, (i) => i < 300)).toEqual({ start: 60, end: null });
+  });
+});
+
+describe("shouldAdvanceWindow", () => {
+  it("starts before the lower edge enters the viewport", () => {
+    expect(shouldAdvanceWindow(true, 300, 400)).toBe(true);
+    expect(shouldAdvanceWindow(true, 401, 400)).toBe(false);
+  });
+
+  it("ignores upward movement and transcripts without layout", () => {
+    expect(shouldAdvanceWindow(false, 0, 400)).toBe(false);
+    expect(shouldAdvanceWindow(true, 0, 0)).toBe(false);
+  });
+});
 
 describe("tailWindowStart", () => {
   it("shows everything when the thread is shorter than the window", () => {

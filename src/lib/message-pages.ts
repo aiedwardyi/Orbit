@@ -1,7 +1,9 @@
 // Hydrate holds only the newest page of each conversation. Older pages come
 // from the scrollback endpoint one at a time, when the reader reaches the top.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, MESSAGE_PAGE, type Action, type Message } from "@/state/store";
+import { captureTranscriptAnchor, distanceFromTranscriptEdge, restoreTranscriptAnchor, type TranscriptAnchor } from "./bottom-follow";
+import { advanceWindow, shouldAdvanceWindow } from "./transcript-window";
 
 export async function fetchOlderPage(threadId: string, before: string): Promise<{ messages: Message[]; hasMore: boolean }> {
   const page = await api(`/api/threads/${threadId}/messages?limit=${MESSAGE_PAGE}&before=${encodeURIComponent(before)}`);
@@ -75,6 +77,26 @@ function windowBranch(messages: Message[], targetId: string, active: Set<string>
   return path;
 }
 
+export function jumpWindowMessages(rows: Message[], loaded: Message[], targetId: string, leafId: string | null | undefined): Message[] {
+  if (!leafId) return rows;
+  const byId = new Map([...rows, ...loaded].map((message) => [message.id, message]));
+  const active = new Set<string>();
+  for (let cur = byId.get(leafId); cur && !active.has(cur.id); cur = cur.parentId ? byId.get(cur.parentId) : undefined) active.add(cur.id);
+  return windowBranch(rows, targetId, active);
+}
+
+export function mergeForwardPage(messages: Message[], page: Message[], cursor: string): Message[] {
+  const at = page.findIndex((message) => message.id === cursor);
+  if (at < 0) return messages;
+  const ids = new Set(messages.map((message) => message.id));
+  const newer = page.slice(at + 1).filter((message) => {
+    if (ids.has(message.id)) return false;
+    ids.add(message.id);
+    return true;
+  });
+  return newer.length ? [...messages, ...newer] : messages;
+}
+
 /** A bounded page around an old message, held apart from the live pages so a
  * jump never downloads the history in between. `key` scopes it to one view. */
 export function useJumpWindow(
@@ -93,22 +115,23 @@ export function useJumpWindow(
   const latest = useRef(0);
   // own counter, so a snapshot refetch never strands a jump still in flight
   const refetched = useRef(0);
+  const forwardInflight = useRef(new Set<string>());
+  const [forwardFailed, setForwardFailed] = useState<string | null>(null);
   // leaving the view drops the window; coming back opens at the newest message
   if (held && held.key !== key) setHeld(null);
   const current = held?.key === key ? held : null;
+  const committed = useRef({ current, key, loaded, leafId, snapshot });
+  useLayoutEffect(() => { committed.current = { current, key, loaded, leafId, snapshot }; });
   const head = loaded[0]?.id;
   const messages = useMemo(() => {
     if (!current) return null;
     const rows = patches ? current.messages.map((message) => patches[message.id] ?? message) : current.messages;
-    if (!leafId) return rows;
-    const byId = new Map([...rows, ...loaded].map((message) => [message.id, message]));
-    const active = new Set<string>();
-    for (let cur = byId.get(leafId); cur && !active.has(cur.id); cur = cur.parentId ? byId.get(cur.parentId) : undefined) active.add(cur.id);
-    return windowBranch(rows, current.targetId, active);
+    return jumpWindowMessages(rows, loaded, current.targetId, leafId);
   }, [current, patches, leafId, loaded]);
   const open = useCallback(
     (messageId: string) => {
       const generation = ++latest.current;
+      setForwardFailed(null);
       setPending(key);
       fetchAround(threadId, messageId)
         .then(({ rows, hasMore }) => {
@@ -156,8 +179,90 @@ export function useJumpWindow(
     },
     [current, key, threadId],
   );
-  const close = useCallback(() => setHeld(null), []);
-  return { messages, hasMore: Boolean(current?.hasMore), pending: pending === key, open, older, close };
+  const cursor = messages?.at(-1)?.id;
+  const forwardKey = current && cursor ? `${key}:${current.targetId}:${cursor}:${snapshot}` : null;
+  const newer = useCallback(
+    (beforeCommit: (rows: Message[]) => void) => {
+      if (!current || !cursor || !forwardKey || forwardInflight.current.has(key)) return;
+      const generation = latest.current;
+      forwardInflight.current.add(key);
+      setForwardFailed(null);
+      const valid = () => {
+        const now = committed.current;
+        return generation === latest.current && now.key === key && now.current?.targetId === current.targetId && now.current.snapshot === current.snapshot && now.snapshot === snapshot && now.loaded[0]?.id === head;
+      };
+      fetchAround(threadId, cursor)
+        .then(({ rows }) => {
+          if (!valid()) return;
+          const held = committed.current.current!;
+          const { loaded, leafId } = committed.current;
+          const next = mergeForwardPage(held.messages, rows, cursor);
+          const joins = head ? next.findIndex((message) => message.id === head) : -1;
+          const visible = jumpWindowMessages(next, loaded, held.targetId, leafId);
+          if (joins < 0 && visible.at(-1)?.id === cursor) {
+            setForwardFailed(forwardKey);
+            return;
+          }
+          const joined = joins >= 0 ? [...next.slice(0, joins), ...loaded] : next;
+          beforeCommit(jumpWindowMessages(joined, loaded, held.targetId, leafId));
+          if (joins >= 0) {
+            dispatch({ type: "olderMessages", threadId, before: head!, messages: next.slice(0, joins), hasMore: held.hasMore });
+            setHeld(null);
+          } else setHeld({ ...held, messages: next });
+        })
+        .catch(() => { if (valid()) setForwardFailed(forwardKey); })
+        .finally(() => forwardInflight.current.delete(key));
+    },
+    [current, cursor, dispatch, forwardKey, head, key, snapshot, threadId],
+  );
+  const close = useCallback(() => {
+    latest.current++;
+    setPending(null);
+    setHeld(null);
+    setForwardFailed(null);
+  }, []);
+  return { messages, hasMore: Boolean(current?.hasMore), pending: pending === key, forwardFailed: forwardFailed === forwardKey && forwardKey !== null, open, older, newer, close };
+}
+
+export function useForwardWindow<W extends { key: string; start: number; end: number | null; expanded?: boolean }>({
+  key, shown, startIndex, endIndex, jump, scrollRef, previousScrollTop, setWindow, pauseFollow, renders,
+}: {
+  key: string;
+  shown: Message[];
+  startIndex: number;
+  endIndex: number;
+  jump: Pick<ReturnType<typeof useJumpWindow>, "messages" | "forwardFailed" | "newer">;
+  scrollRef: React.RefObject<HTMLElement | null>;
+  previousScrollTop: React.RefObject<number>;
+  setWindow: React.Dispatch<React.SetStateAction<W>>;
+  pauseFollow: () => void;
+  renders: (rows: Message[], index: number) => boolean;
+}) {
+  const anchor = useRef<{ key: string; row: TranscriptAnchor | null } | null>(null);
+  const changing = useRef(false);
+  useLayoutEffect(() => {
+    changing.current = false;
+    const el = scrollRef.current;
+    if (el && anchor.current?.key === key) {
+      if (anchor.current.row) restoreTranscriptAnchor(el, anchor.current.row);
+      previousScrollTop.current = el.scrollTop;
+    }
+    anchor.current = null;
+  }, [key, shown, startIndex, endIndex, scrollRef, previousScrollTop]);
+  return (movingDown: boolean, retry = false) => {
+    const el = scrollRef.current;
+    if (!el || (!jump.messages && endIndex >= shown.length) || changing.current) return;
+    if (!retry && (jump.forwardFailed || !shouldAdvanceWindow(movingDown, distanceFromTranscriptEdge(el), el.clientHeight))) return;
+    const commit = (rows: Message[]) => {
+      changing.current = true;
+      pauseFollow();
+      anchor.current = { key, row: captureTranscriptAnchor(el) };
+      const next = advanceWindow(startIndex, endIndex, rows.length, undefined, (index) => renders(rows, index));
+      setWindow((window) => window.key === key ? { ...window, ...next, expanded: false } : window);
+    };
+    if (endIndex < shown.length) commit(shown);
+    else jump.newer(commit);
+  };
 }
 
 /** Loads the page before `oldestId`, one request at a time; a call while one loads joins it.

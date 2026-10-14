@@ -63,7 +63,7 @@ import { cn } from "@/lib/cn";
 import { useSearchFindSeed } from "@/lib/chat-find";
 import { useFindCurrentId } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
-import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
+import { screenImageUrl, useForwardWindow, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { shortPath } from "@/lib/short-path";
 import { BOTTOM_FOLLOW_THRESHOLD, captureTranscriptScroll, newestBelowView, restoreTranscriptScroll, shouldResumeBottomFollow, spaceAfterNewestRow, transcriptUnderfilled, type TranscriptScroll } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
@@ -1305,8 +1305,10 @@ export function GroupView({ group }: { group: Group }) {
     startIndex,
     endIndex,
   } = useMemo(
-    () => resolveTranscriptWindow(shown, transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
-    [shown, transcriptWindow.start, transcriptWindow.end],
+    () => resolveTranscriptWindow(shown, follow && !jump.messages && transcriptWindow.end === null && !transcriptWindow.expanded
+      ? followedTailStart(transcriptWindow.start, shown.length, TRANSCRIPT_WINDOW_SIZE, renders)
+      : transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
+    [shown, follow, jump.messages, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded],
   );
 
   const setBottomFollow = useCallback((next: boolean) => {
@@ -1480,11 +1482,12 @@ export function GroupView({ group }: { group: Group }) {
     setTranscriptWindow((w) => (w.end === null && !w.expanded ? { ...w, start: Math.min(w.start, tailStart) } : w));
   }, [jump.messages, tailStart, transcriptWindow]);
 
-  const showLater = () => {
-    setBottomFollow(false);
-    const nextEnd = Math.min(shown.length, endIndex + TRANSCRIPT_WINDOW_SIZE);
-    setTranscriptWindow((w) => ({ ...w, end: nextEnd >= shown.length ? null : nextEnd }));
-  };
+  const advanceLater = useForwardWindow({
+    key: transcriptKey, shown, startIndex, endIndex, jump, scrollRef, previousScrollTop,
+    setWindow: setTranscriptWindow, pauseFollow: () => setBottomFollow(false),
+    renders: (rows, index) => messageVisible(rows[index], showToolCalls, showActivities),
+  });
+  const showLater = () => advanceLater(true, true);
 
   const atEnd = () => {
     const el = scrollRef.current;
@@ -1706,18 +1709,25 @@ export function GroupView({ group }: { group: Group }) {
         style={{ overflowAnchor: follow ? "none" : "auto" }}
         onWheel={(e) => {
           if (e.deltaY < 0) breakFollow();
-          else if (atEnd()) setBottomFollow(true);
+          else {
+            advanceLater(e.deltaY > 0);
+            if (!jump.messages && laterCount === 0 && atEnd()) setBottomFollow(true);
+          }
         }}
         onTouchStart={(e) => (touchY.current = e.touches[0]?.clientY ?? 0)}
         onTouchMove={(e) => {
           const y = e.touches[0]?.clientY ?? 0;
           if (y > touchY.current + 4) breakFollow();
-          else if (atEnd()) setBottomFollow(true);
+          else {
+            advanceLater(y < touchY.current - 4);
+            if (!jump.messages && laterCount === 0 && atEnd()) setBottomFollow(true);
+          }
         }}
         onScroll={() => {
           const el = scrollRef.current;
           if (!el) return;
           const scrollTop = el.scrollTop;
+          advanceLater(scrollTop > previousScrollTop.current);
           const resume = shouldResumeBottomFollow({
             following: followRef.current,
             previousScrollTop: previousScrollTop.current,
@@ -1725,7 +1735,7 @@ export function GroupView({ group }: { group: Group }) {
             distanceFromBottom: el.scrollHeight - scrollTop - el.clientHeight,
           });
           previousScrollTop.current = scrollTop;
-          if (resume) setBottomFollow(true);
+          if (resume && !jump.messages && laterCount === 0) setBottomFollow(true);
           measure();
         }}
         onClick={(e) => {
@@ -1801,13 +1811,13 @@ export function GroupView({ group }: { group: Group }) {
             onMessageMenu={setMenu}
             workers={rowWorkers}
           />
-          {laterCount > 0 && (
+          {jump.forwardFailed && (
             <div className="flex justify-center">
               <button
                 onClick={showLater}
                 className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
               >
-                {t("room.showLater", { count: laterCount })}
+                {t("room.retryLater")}
               </button>
             </div>
           )}

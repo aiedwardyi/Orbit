@@ -409,7 +409,11 @@ describe("paged transcripts", () => {
     expect(calls).toContain("/api/threads/thread-a/messages?limit=200&before=m2401");
     expect(store.state.bots[0]!.messages).toHaveLength(201);
 
-    await act(async () => button(host, "Show later messages")!.click());
+    const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => 400 });
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => scroller.querySelectorAll("[data-orbit-message]").length * 10 });
+    scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
     expect(button(host, "Show later messages")).toBeUndefined();
     await act(async () => button(host, "Jump to latest")!.click());
     expect(host.textContent).toContain("row 5000;");
@@ -1214,4 +1218,104 @@ describe("open window and jump pill", () => {
     await arrive(threadOf(view), { id: "x150", at: 1, role: "user", kind: "text", text: "x row 150;" });
     expect(scroller.scrollTop).toBe(0);
   });
+});
+
+it.each([
+  ["chat", false], ["room", false], ["chat", true], ["room", true],
+] as const)("scrolls a far quote forward to the live %s tail (detached: %s)", async (view, detached) => {
+  const thread = Array.from({ length: 500 }, (_, i): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null }));
+  thread[499] = { ...thread[499]!, replyToId: "m20" };
+  const threadId = view === "chat" ? "thread-a" : "thread-g";
+  const loaded = detached ? thread.slice(-200) : thread;
+  const calls = pagedServer(threadId, thread, view === "chat" ? { bots: [bot(loaded, detached)], groups: [] } : { bots: [], groups: [room(loaded, detached)] });
+  const host = await mount(view);
+  await vi.waitFor(() => expect(host.querySelector('[data-mid="m499"]')).not.toBeNull());
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-mid="m499"] button[title="Jump to original message"]')!.click());
+  await vi.waitFor(() => expect(host.querySelector('[data-mid="m20"]')).not.toBeNull());
+  expect(host.querySelector('[data-mid="m499"]')).toBeNull();
+  const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+  Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => 400 });
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => scroller.querySelectorAll("[data-orbit-message]").length * 10 });
+  const originalBox = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    if (this === scroller) return { top: 0, bottom: 400, height: 400 } as DOMRect;
+    const wrapper = this.parentElement;
+    if (wrapper?.hasAttribute("data-mid") && wrapper.lastElementChild === this) {
+      const index = Array.from(scroller.querySelectorAll("[data-mid]")).indexOf(wrapper);
+      const top = index * 10 - scroller.scrollTop;
+      return { top, bottom: top + 10, height: 10 } as DOMRect;
+    }
+    return originalBox.call(this);
+  });
+  for (let step = 0; step < 12 && !host.querySelector('[data-mid="m499"]'); step++) {
+    scroller.scrollTop = 100;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
+    scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - 100;
+    const anchor = Array.from(scroller.querySelectorAll("[data-mid]")).find((row) => row.lastElementChild!.getBoundingClientRect().top >= 0)!;
+    const anchorId = anchor.getAttribute("data-mid");
+    const anchorTop = anchor.lastElementChild!.getBoundingClientRect().top;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
+    expect(scroller.querySelector(`[data-mid="${anchorId}"]`)!.lastElementChild!.getBoundingClientRect().top).toBe(anchorTop);
+    expect(scroller.querySelectorAll("[data-orbit-message]").length).toBeLessThanOrEqual(240);
+    expect(button(host, "Show later messages")).toBeUndefined();
+  }
+  expect(host.querySelector('[data-mid="m499"]')).not.toBeNull();
+  if (detached) {
+    expect(calls).toContain(`/api/threads/${threadId}/messages?around=m199&limit=200`);
+    expect(calls).toContain(`/api/threads/${threadId}/messages?around=m299&limit=200`);
+    const held = view === "chat" ? store.state.bots[0]!.messages : store.state.groups[0]!.messages;
+    expect(new Set(held.map((message) => message.id)).size).toBe(held.length);
+  } else expect(calls.filter((call) => call.includes("around="))).toEqual([]);
+  expect(button(host, "Jump to latest")).toBeDefined();
+  scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+  await act(async () => scroller.dispatchEvent(new Event("scroll")));
+  expect(scroller.style.overflowAnchor).toBe("none");
+  await arrive(threadId, { ...row(500), parentId: "m499" });
+  await act(async () => resizeCallbacks.forEach((callback) => callback()));
+  expect((view === "chat" ? store.state.bots[0]!.messages : store.state.groups[0]!.messages).at(-1)?.id).toBe("m500");
+  expect(host.querySelector('[data-mid="m500"]')).not.toBeNull();
+  expect(scroller.scrollTop).toBe(scroller.scrollHeight);
+  expect(scroller.querySelectorAll("[data-orbit-message]").length).toBeLessThanOrEqual(240);
+});
+
+it.each(["chat", "room"] as const)("retries a failed %s forward page only through Show later", async (view) => {
+  const thread = Array.from({ length: 500 }, (_, i): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null }));
+  thread[499] = { ...thread[499]!, replyToId: "m20" };
+  const threadId = view === "chat" ? "thread-a" : "thread-g";
+  const loaded = thread.slice(-200);
+  pagedServer(threadId, thread, view === "chat" ? { bots: [bot(loaded, true)], groups: [] } : { bots: [], groups: [room(loaded, true)] });
+  const served = fetch;
+  let failed = true;
+  let attempts = 0;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (String(url).includes("around=m199")) {
+      attempts++;
+      if (failed) return new Response("{}", { status: 500 });
+    }
+    return served(url);
+  }));
+  const host = await mount(view);
+  await vi.waitFor(() => expect(host.querySelector('[data-mid="m499"]')).not.toBeNull());
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-mid="m499"] button[title="Jump to original message"]')!.click());
+  await vi.waitFor(() => expect(host.querySelector('[data-mid="m20"]')).not.toBeNull());
+  const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+  Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => 400 });
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => scroller.querySelectorAll("[data-orbit-message]").length * 10 });
+  for (let step = 0; step < 2; step++) {
+    scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
+  }
+  await vi.waitFor(() => expect(button(host, "Show later messages")).toBeDefined());
+  await act(async () => {
+    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true }));
+    scroller.scrollTop++;
+    scroller.dispatchEvent(new Event("scroll"));
+  });
+  expect(attempts).toBe(1);
+  expect(scroller.style.overflowAnchor).toBe("auto");
+  failed = false;
+  await act(async () => button(host, "Show later messages")!.click());
+  await vi.waitFor(() => expect(host.querySelector('[data-mid="m299"]')).not.toBeNull());
+  expect(attempts).toBe(2);
+  expect(button(host, "Show later messages")).toBeUndefined();
 });
