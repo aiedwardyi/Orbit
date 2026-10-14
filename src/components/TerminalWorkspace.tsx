@@ -75,6 +75,7 @@ export function TerminalWorkspace({
   const blockedRef = useRef(focusBlocked || !visible);
   const openShellRef = useRef<((restart: boolean) => void) | null>(null);
   const resizeRef = useRef<(() => void) | null>(null);
+  const dropPendingReplayRef = useRef<(() => void) | null>(null);
   const replacingRef = useRef(false);
   const forwardInputRef = useRef<(data: string) => void>(() => {});
   const composingRef = useRef(false);
@@ -432,6 +433,17 @@ export function TerminalWorkspace({
       }
       if (!blockedRef.current) terminal.focus();
     };
+    // A replay that never reached the screen is stale: reset the attach so the
+    // next show opens fresh instead of queueing output while hidden.
+    const dropPendingReplay = () => {
+      seen?.disconnect();
+      seen = null;
+      liveQueue.length = 0;
+      replaying = false;
+      id = null;
+      sessionIdRef.current = null;
+    };
+    dropPendingReplayRef.current = () => { if (seen) dropPendingReplay(); };
     // ConPTY draws at absolute rows and never repaints on resize, so history only lines up at the PTY's size.
     const replay = (snapshot: TerminalSnapshot, launchedProject: string | null) => {
       replaying = true;
@@ -440,19 +452,24 @@ export function TerminalWorkspace({
         terminal.write(snapshot.output, () => finishAttach(snapshot, launchedProject));
         return;
       }
+      if (!visibleRef.current) {
+        // Open settled while hidden: never arm a replay the screen cannot fire.
+        dropPendingReplay();
+        return;
+      }
       // xterm pauses off-screen, and a resize there strands its viewport short of the bottom (xterm 6 never resyncs on render size).
       seen?.disconnect();
-      const observer = new IntersectionObserver((entries) => {
+      const onScreen = new IntersectionObserver((entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
-        if (seen !== observer) return;
-        observer.disconnect();
+        if (seen !== onScreen) return;
+        onScreen.disconnect();
         seen = null;
         if (!alive) return;
         if (snapshot.cols && snapshot.rows) terminal.resize(snapshot.cols, snapshot.rows);
         terminal.write(snapshot.output, () => finishAttach(snapshot, launchedProject));
       });
-      seen = observer;
-      observer.observe(host);
+      seen = onScreen;
+      onScreen.observe(host);
     };
 
     const recoverPreservedSession = () => {
@@ -576,6 +593,7 @@ export function TerminalWorkspace({
       alive = false;
       if (bridge.cancelOpen) void bridge.cancelOpen(bot.id).catch(() => {});
       openShellRef.current = null;
+      dropPendingReplayRef.current = null;
       cancelAnimationFrame(frame);
       seen?.disconnect();
       seen = null;
@@ -607,6 +625,8 @@ export function TerminalWorkspace({
       // The overlay keeps layout size while hidden, so no ResizeObserver fires on
       // return; run the resize trio (fit + refresh + PTY sync) explicitly.
       resizeRef.current?.();
+    } else {
+      dropPendingReplayRef.current?.();
     }
   }, [visible]);
 
