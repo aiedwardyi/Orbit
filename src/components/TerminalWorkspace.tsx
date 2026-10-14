@@ -170,6 +170,7 @@ export function TerminalWorkspace({
     let opening = false;
     let replayComplete = false;
     let replaying = false;
+    let seen: IntersectionObserver | null = null;
     const liveQueue: OutputEvent[] = [];
     const exits = new Map<string, number>();
     setSession(null);
@@ -426,8 +427,24 @@ export function TerminalWorkspace({
     // ConPTY draws at absolute rows and never repaints on resize, so history only lines up at the PTY's size.
     const replay = (snapshot: TerminalSnapshot, launchedProject: string | null) => {
       replaying = true;
-      if (snapshot.cols && snapshot.rows) terminal.resize(snapshot.cols, snapshot.rows);
-      terminal.write(snapshot.output, () => finishAttach(snapshot, launchedProject));
+      if (typeof IntersectionObserver === "undefined") {
+        if (snapshot.cols && snapshot.rows) terminal.resize(snapshot.cols, snapshot.rows);
+        terminal.write(snapshot.output, () => finishAttach(snapshot, launchedProject));
+        return;
+      }
+      // xterm pauses off-screen, and a resize there strands its viewport short of the bottom (xterm 6 never resyncs on render size).
+      seen?.disconnect();
+      const observer = new IntersectionObserver((entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        if (seen !== observer) return;
+        observer.disconnect();
+        seen = null;
+        if (!alive) return;
+        if (snapshot.cols && snapshot.rows) terminal.resize(snapshot.cols, snapshot.rows);
+        terminal.write(snapshot.output, () => finishAttach(snapshot, launchedProject));
+      });
+      seen = observer;
+      observer.observe(host);
     };
 
     const recoverPreservedSession = () => {
@@ -548,6 +565,8 @@ export function TerminalWorkspace({
       if (bridge.cancelOpen) void bridge.cancelOpen(bot.id).catch(() => {});
       openShellRef.current = null;
       cancelAnimationFrame(frame);
+      seen?.disconnect();
+      seen = null;
       observer.disconnect();
       appearance.disconnect();
       window.removeEventListener(TERMINAL_APPEARANCE_EVENT, updateAppearance);
