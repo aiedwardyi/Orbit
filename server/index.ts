@@ -5352,10 +5352,10 @@ let webhookIngress: WebhookIngress | null = null;
 let webhookIngressError: string | null = null;
 try {
   webhookIngress = await listenWebhookIngress(webhooks, { port: WEBHOOK_PORT });
-  console.log(`openmausbot webhook receiver on ${webhookIngress.baseUrl}`);
+  console.log(`wink webhook receiver on ${webhookIngress.baseUrl}`);
 } catch (error) {
   webhookIngressError = error instanceof Error ? error.message : String(error);
-  console.error(`openmausbot webhook receiver unavailable: ${webhookIngressError}`);
+  console.error(`wink webhook receiver unavailable: ${webhookIngressError}`);
 }
 
 const webhookIngressStatus = () => ({
@@ -10538,7 +10538,7 @@ if (early) {
 } else {
   const server = createServer(handleRequest);
   server.listen(PORT, "127.0.0.1", () => {
-    console.log(`openmausbot server on http://127.0.0.1:${PORT}`);
+    console.log(`wink server on http://127.0.0.1:${PORT}`);
   });
 }
 phoneAccess.start(handleRequest).catch((error) => {

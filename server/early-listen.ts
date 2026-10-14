@@ -161,12 +161,12 @@ export function startEarlyListen(options: { port?: number; staticDir?: string | 
     const message = error.code === "EADDRINUSE"
       ? `port ${port} is already in use`
       : error.message;
-    console.error(`openmausbot: ${message}`);
+    console.error(`wink: ${message}`);
     process.exit(1);
   });
   early.server.listen(port, "127.0.0.1", () => {
     if (port !== 0) {
-      console.log(`openmausbot server on http://127.0.0.1:${port}`);
+      console.log(`wink server on http://127.0.0.1:${port}`);
     }
   });
   return early;

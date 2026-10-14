@@ -1383,7 +1383,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await expect(answer).resolves.toMatchObject({
       id: "ask-between",
       behavior: "deny",
-      message: "OpenMausBot: the turn ended",
+      message: "Wink: the turn ended",
     });
     expect(recorder.events.filter((e) => e.type === "request.opened")).toHaveLength(opensBefore);
     await expect(
@@ -1764,7 +1764,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       await expect(question.answer).resolves.toMatchObject({
         id: "q-helper",
         behavior: "answer",
-        message: "OpenMausBot: the turn is ending — wrap up.",
+        message: "Wink: the turn is ending - wrap up.",
       });
       question.conn.end();
     } finally {
@@ -1782,7 +1782,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await expect(answer).resolves.toMatchObject({
       id: "ask-unattended",
       behavior: "deny",
-      message: "OpenMausBot: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report.",
+      message: "Wink: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report.",
     });
     expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
     conn.end();
@@ -1801,7 +1801,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(instance.adapter.hasBackgroundWork!("t-helper-stop")).toBe(false);
     const answer = nextAnswer();
     conn.write(JSON.stringify({ t: "ask", id: "ask-stopped", tool: "Bash", input: { command: "git status" } }) + "\n");
-    await expect(answer).resolves.toMatchObject({ id: "ask-stopped", behavior: "deny", message: "OpenMausBot: the turn ended" });
+    await expect(answer).resolves.toMatchObject({ id: "ask-stopped", behavior: "deny", message: "Wink: the turn ended" });
     expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
     conn.end();
   });
@@ -1813,7 +1813,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(instance.adapter.hasBackgroundWork!("t-helper-none")).toBe(false);
 
     const { conn, answer } = await askBetween("t-helper-none", { id: "ask-none", tool: "Bash", input: { command: "git status" } });
-    await expect(answer).resolves.toMatchObject({ id: "ask-none", behavior: "deny", message: "OpenMausBot: the turn ended" });
+    await expect(answer).resolves.toMatchObject({ id: "ask-none", behavior: "deny", message: "Wink: the turn ended" });
     expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
     conn.end();
   });
@@ -2208,7 +2208,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(await nextAnswer()).toMatchObject({
       id: "dup-1",
       behavior: "deny",
-      message: "OpenMausBot: duplicate ask id — skipping this request.",
+      message: "Wink: duplicate ask id - skipping this request.",
     });
     expect(recorder.events.filter((e) => e.type === "request.opened" && e.requestId === "dup-1")).toHaveLength(1);
 
@@ -2240,7 +2240,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(await conn2Answer).toMatchObject({
       id: "dup-2",
       behavior: "deny",
-      message: "OpenMausBot: duplicate ask id — skipping this request.",
+      message: "Wink: duplicate ask id - skipping this request.",
     });
     expect(recorder.events.filter((e) => e.type === "request.opened" && e.requestId === "dup-2")).toHaveLength(1);
 
@@ -2298,7 +2298,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(await nextAnswer()).toMatchObject({
       id: "dup-4",
       behavior: "deny",
-      message: "OpenMausBot: duplicate ask id — skipping this request.",
+      message: "Wink: duplicate ask id - skipping this request.",
     });
     expect(recorder.events.filter((e) => e.type === "request.opened" && e.requestId === "dup-4")).toHaveLength(1);
 
@@ -2346,7 +2346,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(await reply).toMatchObject({
       id: "ask-late",
       behavior: "deny",
-      message: "OpenMausBot: the turn ended",
+      message: "Wink: the turn ended",
     });
     expect(recorder.events.filter((e) => e.type === "request.opened")).toHaveLength(opensBefore);
     await expect(instance.adapter.respondToRequest("t-perm-late", "ask-late", { behavior: "allow" })).resolves.toBe(
@@ -2386,7 +2386,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(await reply).toMatchObject({
       id: "q-late",
       behavior: "answer",
-      message: "OpenMausBot: the turn is ending — wrap up.",
+      message: "Wink: the turn is ending - wrap up.",
     });
     expect(recorder.events.filter((e) => e.type === "request.opened")).toHaveLength(opensBefore);
     await expect(

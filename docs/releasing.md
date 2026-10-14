@@ -22,7 +22,7 @@ above it.
 
 ## One-time setup: secrets
 
-Set these in **OpenMausBot → Settings → Secrets and variables → Actions**.
+Set these in **Orbit → Settings → Secrets and variables → Actions**.
 
 ### `RELEASES_PAT`
 

@@ -38,7 +38,7 @@ const INTERRUPT_GRACE_MS = 5_000;
 const ASK_TIMEOUT_MS = 15 * 60_000;
 
 const DENY_TIMEOUT_NOTE =
-  "OpenMausBot: nobody answered this permission request in time. Skip this action and finish what you can without it.";
+  "Wink: nobody answered this permission request in time. Skip this action and finish what you can without it.";
 
 /** Resumed-session poison: provider-private history the active route cannot
  * replay, including encrypted reasoning from a switched model. A fresh

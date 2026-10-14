@@ -1,7 +1,7 @@
-# OpenMausBot MCP server
+# Wink MCP server
 
-The OpenMausBot desktop app includes a local stdio MCP server. It lets another MCP client coordinate your
-OpenMausBot team while the desktop app and its harness are running.
+The Wink desktop app includes a local stdio MCP server. It lets another MCP client coordinate your
+Wink team while the desktop app and its harness are running.
 
 ## What it can do
 
@@ -16,14 +16,14 @@ change credentials, or control computer/VM lifecycle. Those actions stay in the 
 
 ## From a source checkout
 
-Start OpenMausBot, then configure the MCP client to run:
+Start Wink, then configure the MCP client to run:
 
 ```json
 {
   "mcpServers": {
     "openmausbot": {
       "command": "pnpm",
-      "args": ["--dir", "/absolute/path/to/OpenMausBot", "mcp"]
+      "args": ["--dir", "/absolute/path/to/Orbit", "mcp"]
     }
   }
 }
@@ -57,8 +57,8 @@ On Ubuntu `.deb` installs, the executable is normally `/opt/OpenMausBot/openmaus
 
 ## Connection discovery
 
-With no configuration, the MCP process probes OpenMausBot's three desktop ports (`8799`, `18799`, and `28799`)
-and accepts only a health response that identifies itself as OpenMausBot. This handles the desktop's normal
+With no configuration, the MCP process probes Wink's three desktop ports (`8799`, `18799`, and `28799`)
+and accepts only a health response that identifies itself as Wink. This handles the desktop's normal
 fallback when another local process already owns port 8799.
 
 Set `OMB_PORT` to force one local port, or `OPENMAUSBOT_URL` to use an explicit HTTP(S) origin. Cleartext remote
