@@ -260,7 +260,9 @@ function Get-Clip([string]$Text, [int]$Keep, [bool]$Tail) {
 function Get-Block([string]$Label, [string]$Path, [string]$Text, [int]$Keep, [bool]$Tail) {
   $head = $Label + ': ' + $Path + $nl
   if ($Text.Length -le $Keep) { return $head + $Text }
-  return $head + (Get-Clip $Text ([Math]::Max(0, $Keep)) $Tail) + $nl + '[cut] Read ' + $Path + ' for the rest.'
+  $clip = Get-Clip $Text ([Math]::Max(0, $Keep)) $Tail
+  if ($Tail) { return $head + '[cut] Read ' + $Path + ' for the start.' + $nl + $clip }
+  return $head + $clip + $nl + '[cut] Read ' + $Path + ' for the rest.'
 }
 try {
   $hook = (New-Object IO.StreamReader([Console]::OpenStandardInput(), $utf8)).ReadToEnd() | ConvertFrom-Json
@@ -274,6 +276,7 @@ try {
     # Tool results and summaries can quote a card prompt too; only a message that starts with one counts.
     while ($null -ne ($line = $reader.ReadLine())) {
       if ($line.IndexOf(' and do it', [StringComparison]::Ordinal) -lt 0) { continue }
+      # Claude Code writes compact JSONL; these literals assume no space after the colon.
       if ($line.IndexOf('"content":"Read ', [StringComparison]::Ordinal) -lt 0 -and $line.IndexOf('"prompt":"Read ', [StringComparison]::Ordinal) -lt 0 -and $line.IndexOf('"text":"Read ', [StringComparison]::Ordinal) -lt 0) { continue }
       try {
         $o = $line | ConvertFrom-Json
@@ -313,7 +316,7 @@ try {
       $out += $nl + $nl + 'Progress: ' + $progress + $nl + 'No progress file yet.'
     } else {
       $out += $nl + $nl
-      $cut = '[cut] Read ' + $progress + ' for the rest.'
+      $cut = '[cut] Read ' + $progress + ' for the start.'
       $out += Get-Block 'Progress' $progress $text ($max - $out.Length - ('Progress: ' + $progress).Length - $cut.Length - 2) $true
     }
   } else { exit 0 }

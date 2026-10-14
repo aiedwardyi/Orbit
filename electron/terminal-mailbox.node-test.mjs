@@ -525,5 +525,6 @@ test("compact hook reads past huge and malformed lines and cuts each part under 
   const progress = await runCompact(f.bin, "progress", f.hook);
   assert.ok(progress.out.length <= 9900 && progress.out.length > 9800, String(progress.out.length));
   assert.doesNotMatch(progress.out, /PROGRESS-START/);
-  assert.ok(progress.out.endsWith(`p\n- last step\n\n[cut] Read ${f.progressPath} for the rest.`));
+  assert.ok(progress.out.includes(`Progress: ${f.progressPath}\n[cut] Read ${f.progressPath} for the start.\np`));
+  assert.ok(progress.out.endsWith("p\n- last step\n"));
 });
