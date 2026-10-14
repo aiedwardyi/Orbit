@@ -1,5 +1,15 @@
 import { paneNotesForTurn } from "./context-compaction.ts";
+import type { ProviderAdapter } from "./contracts.ts";
 import type { Message } from "./store.ts";
+
+/** A steer resolving once the model took the text in; undefined when the engine cannot tell. */
+export function steerUntilTaken(adapter: Pick<ProviderAdapter, "capabilities" | "steer"> | undefined, threadId: string, text: string): Promise<boolean> | undefined {
+  if (!adapter?.capabilities.queueing || !adapter.capabilities.steerConsumed || !adapter.steer) return undefined;
+  let consumed: (taken: boolean) => void = () => {};
+  const taken = new Promise<boolean>((resolve) => (consumed = resolve));
+  adapter.steer(threadId, text, consumed).then((written) => written || consumed(false), () => consumed(false));
+  return taken;
+}
 
 export interface NoteSteerDeps {
   enabled(botId: string): boolean;
@@ -7,7 +17,7 @@ export interface NoteSteerDeps {
   /** The teacher's turn on this thread, once its dispatch has moved the watermark. */
   liveTurn(botId: string, threadId: string): string | undefined;
   busy(botId: string, threadId: string): boolean;
-  /** Undefined when the engine cannot steer. */
+  /** True once the model took the text in, false when it never will. Undefined when the engine cannot steer or tell. */
   steer(botId: string, threadId: string, text: string): Promise<boolean> | undefined;
   messages(threadId: string): Message[];
   deliveredId(botId: string, threadId: string): string | undefined;
@@ -46,8 +56,9 @@ export class NoteSteerer {
     if (!notes.length) return;
     const steered = this.deps.steer(botId, threadId, notes.join("\n\n"));
     if (!steered || !(await steered.catch(() => false))) return this.wake(botId, threadId, paneId);
-    // A turn started since read these notes for its own prefix, and its dispatch moves the watermark.
-    if (this.deps.liveTurn(botId, threadId) !== turnId && this.deps.busy(botId, threadId)) return this.wake(botId, threadId, paneId);
+    // A turn claimed since read these notes for its own prefix, and its dispatch moves the watermark.
+    // A live one may be the CLI running them itself after a failed turn.
+    if (!this.deps.liveTurn(botId, threadId) && this.deps.busy(botId, threadId)) return this.wake(botId, threadId, paneId);
     if (this.deps.deliveredId(botId, threadId) !== deliveredId) return;
     this.deps.markDelivered(botId, threadId, newestId);
   }

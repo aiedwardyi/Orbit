@@ -219,9 +219,14 @@ describe("reaction plumbing", () => {
     expect(indexSource).toContain("const reactionsSeen = userTurnReactionKeys(turnOpts);");
   });
 
-  it("marks a steer's reactions only after the steer passes its ownership checks", () => {
-    expect(indexSource).toMatch(/the steered message could be recorded"\),\s+\{ status: 409 \},\s+\);\s+\}\s+store\.markReactionsDelivered\(bot\.id, threadId, steeredReactions\);/);
-    expect(indexSource.match(/store\.markReactionsDelivered\(/g)).toHaveLength(2);
+  it("marks a steer's reactions only once the model took the steer in", () => {
+    expect(indexSource).toMatch(/\.steer\(threadId, prompt, \(taken\) => \{\s+if \(taken\) store\.addReactionsDelivered\(bot\.id, threadId, reactions\);/);
+    expect(indexSource.match(/store\.markReactionsDelivered\(/g)).toHaveLength(1);
+  });
+
+  it("leaves reactions to the next turn on an engine that cannot report a steer consumed", () => {
+    expect(indexSource).toContain("const prompt = consumable ? composeUserTurnPrompt(text, turnOpts) : promptWithReply(text, replyTo, turnOpts.userName);");
+    expect(indexSource).toContain("const reactions = consumable ? userTurnReactionKeys(turnOpts) : [];");
   });
 
   it("keeps reaction delivery bookkeeping off the wire", () => {

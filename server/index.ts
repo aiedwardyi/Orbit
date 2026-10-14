@@ -249,7 +249,7 @@ import { closeBotPanes } from "./terminal-cleanup.ts";
 import { commitLaunchNote, submittedAgo } from "./launch-note.ts";
 import { terminalResumeResponse } from "./terminal-resume.ts";
 import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
-import { NoteSteerer } from "./note-steer.ts";
+import { NoteSteerer, steerUntilTaken } from "./note-steer.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
   ensureWorkspace,
@@ -3816,7 +3816,7 @@ const noteSteer = new NoteSteerer({
   steer: (botId, threadId, text) => {
     const bot = store.bot(botId);
     const adapter = bot ? registry.get(bot.modelSelection.instanceId)?.adapter : undefined;
-    return adapter?.capabilities.queueing && adapter.steer ? adapter.steer(threadId, text) : undefined;
+    return steerUntilTaken(adapter, threadId, text);
   },
   messages: (threadId) => store.activePath(threadId),
   deliveredId: (botId, threadId) => store.taskByThread(botId, threadId)?.paneNotesDeliveredId ?? undefined,
@@ -9317,7 +9317,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (currentAtStart.busy || botHasActiveTurn(bot.id, threadId)) {
             const instance = registry.get(currentAtStart.modelSelection.instanceId);
             let steered = false;
-            let steeredReactions: string[] = [];
             if (currentAtStart.busy && instance?.adapter.capabilities.queueing && instance.adapter.steer) {
               const turnOpts = {
                 replyTo,
@@ -9325,10 +9324,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 userName: cfg.profile?.name?.trim() || "User",
                 delivered: store.taskByThread(bot.id, threadId)?.reactionsDelivered,
               };
+              // Reactions count only once the model took them in; an engine
+              // that cannot tell leaves them to the next turn's prompt.
+              const consumable = instance.adapter.capabilities.steerConsumed === true;
+              const prompt = consumable ? composeUserTurnPrompt(text, turnOpts) : promptWithReply(text, replyTo, turnOpts.userName);
+              const reactions = consumable ? userTurnReactionKeys(turnOpts) : [];
               steered = await instance.adapter
-                .steer(threadId, composeUserTurnPrompt(text, turnOpts))
+                .steer(threadId, prompt, (taken) => {
+                  if (taken) store.addReactionsDelivered(bot.id, threadId, reactions);
+                })
                 .catch(() => false);
-              if (steered) steeredReactions = userTurnReactionKeys(turnOpts);
             }
             // steer() is awaited adapter work. The turn can settle, the task can
             // switch, or the whole bot can be deleted before its acknowledgement
@@ -9353,7 +9358,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                   { status: 409 },
                 );
               }
-              store.markReactionsDelivered(bot.id, threadId, steeredReactions);
               clearUnattended(current.id);
               resumePaneWakes(current.id);
               takeOverPeerTurn(threadId);
