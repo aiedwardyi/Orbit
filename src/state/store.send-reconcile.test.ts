@@ -478,3 +478,38 @@ describe("stop", () => {
     expect(busyNow()).toBe(true);
   });
 });
+
+describe("room folder lock on the event stream", () => {
+  const groupFrame = (patch: Partial<Group>) =>
+    act(async () => {
+      FakeEventSource.last!.onmessage!({
+        data: JSON.stringify({ kind: "group", group: { id: group.id, ...patch } }),
+        lastEventId: "",
+      });
+    });
+  const pinnedNow = () => store.state.groups.find((g) => g.id === group.id)!.pinnedCwd;
+
+  async function mountPinned() {
+    await mount(() => Response.json({ messages: [], hasMore: false }));
+    await groupFrame({ pinnedCwd: "C:/old" });
+    expect(pinnedNow()).toBe("C:/old");
+  }
+
+  it("clears the folder when a new task frame carries no pinnedCwd", async () => {
+    await mountPinned();
+    await groupFrame({ threadId: "t-group-2" });
+    expect(pinnedNow()).toBeUndefined();
+  });
+
+  it("keeps a null pinnedCwd", async () => {
+    await mountPinned();
+    await groupFrame({ pinnedCwd: null });
+    expect(pinnedNow()).toBeNull();
+  });
+
+  it("sets a new folder", async () => {
+    await mountPinned();
+    await groupFrame({ pinnedCwd: "C:/new" });
+    expect(pinnedNow()).toBe("C:/new");
+  });
+});
