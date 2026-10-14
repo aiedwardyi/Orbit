@@ -55,4 +55,24 @@ describe("ComposerAttachments upload chip", () => {
     await act(async () => root.unmount());
     host.remove();
   });
+
+  it("keeps the name clear of the touch x when the chip has an action line", () => {
+    const nameClass = (state: "uploading" | "failed" | "repick") => {
+      const markup = renderToStaticMarkup(
+        createElement(ComposerAttachments, {
+          items: [{ kind: "upload", id: "u1", name: "meeting.mp4", size: 10, type: "video/mp4", lastModified: 7, sent: 4, state }],
+          onAdd: () => {},
+          onRemove: () => {},
+          onDisplayInChatBox: () => {},
+          notice: null,
+          onNotice: () => {},
+        }),
+      );
+      return /<div class="([^"]*)">meeting\.mp4<\/div>/.exec(markup)?.[1] ?? "";
+    };
+    expect(nameClass("uploading")).toContain("truncate");
+    expect(nameClass("uploading")).not.toContain("pointer-coarse:pr-5");
+    expect(nameClass("failed")).toContain("pointer-coarse:pr-5");
+    expect(nameClass("repick")).toContain("pointer-coarse:pr-5");
+  });
 });
