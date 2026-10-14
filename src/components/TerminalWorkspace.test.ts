@@ -1765,3 +1765,250 @@ it("binds the desktop notification to the active branch when a fork holds a late
     method: "POST", body: resumeBody(sessionId, "settled"),
   });
 });
+
+type IOEntry = { isIntersecting: boolean };
+type IOInstance = { fire: (intersecting: boolean) => void; observe: Mock; disconnect: Mock };
+
+function stubIntersectionObserver() {
+  const instances: IOInstance[] = [];
+  vi.stubGlobal("IntersectionObserver", class {
+    observe = vi.fn();
+    disconnect = vi.fn();
+    constructor(private cb: (entries: IOEntry[]) => void) {
+      instances.push(this as unknown as IOInstance);
+    }
+    fire(intersecting: boolean) {
+      this.cb([{ isIntersecting: intersecting }]);
+    }
+  });
+  return instances;
+}
+
+it("replays only once the terminal is on screen", async () => {
+  const ios = stubIntersectionObserver();
+  const open = vi.fn(async () => ({ id: "session-seen", cwd: "C:\\work", shell: "pwsh.exe", output: "SNAP", seq: 1, exitCode: null, cols: 100, rows: 30 }));
+  const bot = mountBridge({ appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() });
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(ios).toHaveLength(1);
+  expect(terminal.resize).not.toHaveBeenCalled();
+  expect(terminal.write).not.toHaveBeenCalled();
+  await act(async () => { ios[0].fire(false); });
+  expect(terminal.write).not.toHaveBeenCalled();
+  await act(async () => { ios[0].fire(true); });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.resize).toHaveBeenCalledWith(100, 30);
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SNAP"]);
+  expect(terminal.options.disableStdin).toBe(false);
+  expect(ios[0].disconnect).toHaveBeenCalled();
+  await act(async () => { ios[0].fire(true); });
+  expect(terminal.write).toHaveBeenCalledTimes(1);
+});
+
+it("disconnects the on-screen observer on unmount without replaying", async () => {
+  const ios = stubIntersectionObserver();
+  const open = vi.fn(async () => ({ id: "session-gone", cwd: "C:\\work", shell: "pwsh.exe", output: "SNAP", seq: 1, exitCode: null, cols: 100, rows: 30 }));
+  const bot = mountBridge({ appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() });
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(ios).toHaveLength(1);
+  expect(terminal.write).not.toHaveBeenCalled();
+  await act(async () => root.unmount());
+  root = undefined as unknown as ReturnType<typeof createRoot>;
+  expect(ios[0].disconnect).toHaveBeenCalled();
+  await act(async () => { ios[0].fire(true); });
+  expect(terminal.resize).not.toHaveBeenCalled();
+  expect(terminal.write).not.toHaveBeenCalled();
+});
+
+it("replays at once without IntersectionObserver", async () => {
+  expect("IntersectionObserver" in globalThis).toBe(false);
+  const open = vi.fn(async () => ({ id: "session-plain", cwd: "C:\\work", shell: "pwsh.exe", output: "SNAP", seq: 1, exitCode: null, cols: 100, rows: 30 }));
+  const bot = mountBridge({ appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() });
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.resize).toHaveBeenCalledWith(100, 30);
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SNAP"]);
+});
+
+type LiveQueueEntry = { id: string; data: string; seq: number };
+async function liveQueues() {
+  const module = await import("./TerminalWorkspace") as unknown as { terminalLiveQueues?: LiveQueueEntry[][] };
+  expect(module.terminalLiveQueues, "terminalLiveQueues hook").toBeDefined();
+  return module.terminalLiveQueues!;
+}
+
+it("queues nothing while hidden with no attach in flight", async () => {
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  const open = vi.fn(async () => ({ id: "session-hide", cwd: "C:\\work", shell: "pwsh.exe", output: "HIDE_SNAP", seq: 1, exitCode: null }));
+  const bot = mountBridge({
+    appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  });
+  const render = (visible: boolean) => root.render(createElement(TerminalWorkspace, { bot, visible, focusBlocked: false, onClose: vi.fn() }));
+  await act(async () => render(false));
+  expect(open).not.toHaveBeenCalled();
+  await act(async () => {
+    receive({ id: "other-pane", data: "OTHER", seq: 99 });
+    receive({ id: "session-hide", data: "HIDDEN_EARLY", seq: 99 });
+  });
+  // No attach in flight, so every event is dropped instead of queued.
+  expect((await liveQueues()).flat()).toHaveLength(0);
+  await act(async () => render(true));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["HIDE_SNAP"]);
+});
+
+it("shows attaching-session output mid-replay once, in order", async () => {
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  let writeCb: (() => void) | undefined;
+  terminal.write.mockImplementation((data: string, cb?: () => void) => {
+    if (String(data) === "MID_SNAP") {
+      writeCb = cb;
+      return;
+    }
+    if (typeof cb === "function") queueMicrotask(cb);
+  });
+  const open = vi.fn(async () => ({ id: "session-mid", cwd: "C:\\work", shell: "pwsh.exe", output: "MID_SNAP", seq: 1, exitCode: null }));
+  const bot = mountBridge({
+    appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  });
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["MID_SNAP"]);
+  await act(async () => {
+    receive({ id: "session-mid", data: "live-b", seq: 3 });
+    receive({ id: "other-pane", data: "OTHER", seq: 99 });
+    receive({ id: "session-mid", data: "live-a", seq: 2 });
+    receive({ id: "session-mid", data: "live-a-dup", seq: 2 });
+  });
+  // Only the attaching session is queued; other panes' output is dropped.
+  expect((await liveQueues()).flat().map((event) => event.data).sort()).toEqual(["live-a", "live-a-dup", "live-b"]);
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["MID_SNAP"]);
+  await act(async () => { writeCb?.(); });
+  await act(async () => { await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["MID_SNAP", "live-a", "live-b"]);
+});
+
+it("keeps new-session output from the restart fallback gap", async () => {
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  let resolveFallback!: (value: TerminalSnapshot) => void;
+  const open = vi.fn(async (opts: { restart?: boolean }) => {
+    if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
+    if (open.mock.calls.length === 1) return { id: "session-old", cwd: "C:\\work", shell: "pwsh.exe", output: "OLD", seq: 1, exitCode: null as number | null };
+    return new Promise<TerminalSnapshot>((resolve) => { resolveFallback = resolve; });
+  });
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write: vi.fn(),
+    resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-gap-new", name: "Desk", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["OLD"]);
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  expect(restartBtn).toBeTruthy();
+  await act(async () => { restartBtn!.click(); });
+  const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
+  expect(confirmBtn).toBeTruthy();
+  await act(async () => { confirmBtn!.click(); });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  // New session output arrives while the fallback open is still pending.
+  await act(async () => {
+    receive({ id: "session-new", data: "NEW_GAP", seq: 2 });
+  });
+  await act(async () => {
+    resolveFallback({ id: "session-new", cwd: "C:\\work", shell: "pwsh.exe", output: "NEW", seq: 1, exitCode: null });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["OLD", "NEW", "NEW_GAP"]);
+});
+
+it("drops a pending on-screen replay on hide and replays fresh on show", async () => {
+  const ios = stubIntersectionObserver();
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  const open = vi.fn(async () => open.mock.calls.length === 1
+    ? { id: "session-drop", cwd: "C:\\work", shell: "pwsh.exe", output: "STALE", seq: 1, exitCode: null as number | null }
+    : { id: "session-drop", cwd: "C:\\work", shell: "pwsh.exe", output: "STALE\nLATEST", seq: 3, exitCode: null as number | null });
+  const bot = mountBridge({
+    appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  });
+  const render = (visible: boolean) => root.render(createElement(TerminalWorkspace, { bot, visible, focusBlocked: false, onClose: vi.fn() }));
+  await act(async () => render(true));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(ios).toHaveLength(1);
+  expect(terminal.write).not.toHaveBeenCalled();
+  await act(async () => render(false));
+  expect(ios[0].disconnect).toHaveBeenCalled();
+  await act(async () => {
+    receive({ id: "session-drop", data: "LATEST-2", seq: 2 });
+    receive({ id: "session-drop", data: "LATEST-3", seq: 3 });
+  });
+  expect((await liveQueues()).flat()).toHaveLength(0);
+  await act(async () => render(true));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(open).toHaveBeenCalledTimes(2);
+  expect(ios).toHaveLength(2);
+  await act(async () => { ios[0].fire(true); });
+  expect(terminal.write).not.toHaveBeenCalled();
+  await act(async () => { ios[1].fire(true); });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["STALE\nLATEST"]);
+  expect((await liveQueues()).flat()).toHaveLength(0);
+});
+
+it("drops a snapshot that settles while hidden and reopens on show", async () => {
+  const ios = stubIntersectionObserver();
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  let resolveOpen!: (value: TerminalSnapshot) => void;
+  const open = vi.fn(async () => {
+    if (open.mock.calls.length === 1) return new Promise<TerminalSnapshot>((resolve) => { resolveOpen = resolve; });
+    return { id: "session-late", cwd: "C:\\work", shell: "pwsh.exe", output: "FRESH", seq: 3, exitCode: null as number | null };
+  });
+  const bot = mountBridge({
+    appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  });
+  const render = (visible: boolean) => root.render(createElement(TerminalWorkspace, { bot, visible, focusBlocked: false, onClose: vi.fn() }));
+  await act(async () => render(true));
+  await act(async () => render(false));
+  expect(open).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    resolveOpen({ id: "session-late", cwd: "C:\\work", shell: "pwsh.exe", output: "STALE", seq: 1, exitCode: null });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(ios).toHaveLength(0);
+  await act(async () => {
+    receive({ id: "session-late", data: "LIVE", seq: 2 });
+  });
+  expect((await liveQueues()).flat()).toHaveLength(0);
+  await act(async () => render(true));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(open).toHaveBeenCalledTimes(2);
+  expect(ios).toHaveLength(1);
+  await act(async () => { ios[0].fire(true); });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["FRESH"]);
+});

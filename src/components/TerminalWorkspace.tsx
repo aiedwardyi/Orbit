@@ -32,6 +32,8 @@ function samePath(a: string | null | undefined, b: string | null | undefined): b
 
 // Per bot, in memory: pane id, or null for the main shell.
 export const lastViewedPanes = new Map<string, string | null>();
+// Live output queues of mounted overlays (read by tests).
+export const terminalLiveQueues: { id: string; data: string; seq: number }[][] = [];
 
 export function pickInitialPane(panes: { id: string; exited?: boolean }[], lastViewedId?: string | null): string | null {
   if (lastViewedId === null) return null;
@@ -73,6 +75,7 @@ export function TerminalWorkspace({
   const blockedRef = useRef(focusBlocked || !visible);
   const openShellRef = useRef<((restart: boolean) => void) | null>(null);
   const resizeRef = useRef<(() => void) | null>(null);
+  const dropPendingReplayRef = useRef<(() => void) | null>(null);
   const replacingRef = useRef(false);
   const forwardInputRef = useRef<(data: string) => void>(() => {});
   const composingRef = useRef(false);
@@ -170,7 +173,9 @@ export function TerminalWorkspace({
     let opening = false;
     let replayComplete = false;
     let replaying = false;
+    let seen: IntersectionObserver | null = null;
     const liveQueue: OutputEvent[] = [];
+    terminalLiveQueues.push(liveQueue);
     const exits = new Map<string, number>();
     setSession(null);
     setLaunchProject(null);
@@ -249,8 +254,13 @@ export function TerminalWorkspace({
       terminal.write(event.data);
     };
     const offData = bridge.onData((event) => {
-      if (!replayComplete) liveQueue.push(event);
-      else receive(event);
+      if (replayComplete) {
+        receive(event);
+        return;
+      }
+      // Queue only the attaching session; drop everything while no attach is in flight.
+      if (!opening && (id === null || event.id !== id)) return;
+      liveQueue.push(event);
     });
     const offExit = bridge.onExit((event) => {
       if (!replayComplete || event.id === id) exits.set(event.id, event.exitCode);
@@ -423,11 +433,43 @@ export function TerminalWorkspace({
       }
       if (!blockedRef.current) terminal.focus();
     };
+    // A replay that never reached the screen is stale: reset the attach so the
+    // next show opens fresh instead of queueing output while hidden.
+    const dropPendingReplay = () => {
+      seen?.disconnect();
+      seen = null;
+      liveQueue.length = 0;
+      replaying = false;
+      id = null;
+      sessionIdRef.current = null;
+    };
+    dropPendingReplayRef.current = () => { if (seen) dropPendingReplay(); };
     // ConPTY draws at absolute rows and never repaints on resize, so history only lines up at the PTY's size.
     const replay = (snapshot: TerminalSnapshot, launchedProject: string | null) => {
       replaying = true;
-      if (snapshot.cols && snapshot.rows) terminal.resize(snapshot.cols, snapshot.rows);
-      terminal.write(snapshot.output, () => finishAttach(snapshot, launchedProject));
+      if (typeof IntersectionObserver === "undefined") {
+        if (snapshot.cols && snapshot.rows) terminal.resize(snapshot.cols, snapshot.rows);
+        terminal.write(snapshot.output, () => finishAttach(snapshot, launchedProject));
+        return;
+      }
+      if (!visibleRef.current) {
+        // Open settled while hidden: never arm a replay the screen cannot fire.
+        dropPendingReplay();
+        return;
+      }
+      // xterm pauses off-screen, and a resize there strands its viewport short of the bottom (xterm 6 never resyncs on render size).
+      seen?.disconnect();
+      const onScreen = new IntersectionObserver((entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        if (seen !== onScreen) return;
+        onScreen.disconnect();
+        seen = null;
+        if (!alive) return;
+        if (snapshot.cols && snapshot.rows) terminal.resize(snapshot.cols, snapshot.rows);
+        terminal.write(snapshot.output, () => finishAttach(snapshot, launchedProject));
+      });
+      seen = onScreen;
+      onScreen.observe(host);
     };
 
     const recoverPreservedSession = () => {
@@ -479,7 +521,10 @@ export function TerminalWorkspace({
             // Host keeps the prior session when the new target is unavailable.
             // Defer needsFolder until fallback open settles — avoid flashing the banner mid-resume.
             try {
+              // Resume id unknown until open settles: queue everything like an open in flight.
+              opening = true;
               const resumed = await bridge.open({ botId: expectedBotId, cols: terminal.cols, rows: terminal.rows, restart: false });
+              opening = false;
               if (!alive) return;
               if (botIdRef.current !== expectedBotId) {
                 setReplacing(false);
@@ -505,6 +550,7 @@ export function TerminalWorkspace({
               setFolderReason(resumed.reason ?? result.reason ?? "choose-folder");
               recoverPreservedSession();
             } catch (cause) {
+              opening = false;
               report(cause);
               setNeedsFolder(true);
               setFolderReason(result.reason ?? "choose-folder");
@@ -547,7 +593,12 @@ export function TerminalWorkspace({
       alive = false;
       if (bridge.cancelOpen) void bridge.cancelOpen(bot.id).catch(() => {});
       openShellRef.current = null;
+      dropPendingReplayRef.current = null;
       cancelAnimationFrame(frame);
+      seen?.disconnect();
+      seen = null;
+      const queueIndex = terminalLiveQueues.indexOf(liveQueue);
+      if (queueIndex >= 0) terminalLiveQueues.splice(queueIndex, 1);
       observer.disconnect();
       appearance.disconnect();
       window.removeEventListener(TERMINAL_APPEARANCE_EVENT, updateAppearance);
@@ -574,6 +625,8 @@ export function TerminalWorkspace({
       // The overlay keeps layout size while hidden, so no ResizeObserver fires on
       // return; run the resize trio (fit + refresh + PTY sync) explicitly.
       resizeRef.current?.();
+    } else {
+      dropPendingReplayRef.current?.();
     }
   }, [visible]);
 
