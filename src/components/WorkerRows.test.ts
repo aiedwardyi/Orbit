@@ -91,12 +91,12 @@ describe("WorkerChip", () => {
     const base = run(`${nick} | Opus 5.5 | high`);
     return { run: { ...base, id: sessionId, nick, sessionId, at }, state };
   };
-  const mount = async (runs: ShownRun[], opts?: { onOpenTerminalPane?: (sessionId: string) => void; livePanes?: Set<string> | null }) => {
+  const mount = async (runs: ShownRun[], opts?: { onOpenTerminalPane?: (sessionId: string) => void; livePanes?: Set<string> | null; waitForLive?: boolean }) => {
     applyLocale("en");
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: opts?.livePanes, onOpenTerminalPane: opts?.onOpenTerminalPane })));
+    await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: opts?.livePanes, waitForLive: opts?.waitForLive, onOpenTerminalPane: opts?.onOpenTerminalPane })));
     return {
       host,
       root,
@@ -238,6 +238,38 @@ describe("WorkerChip", () => {
       ]);
     } finally {
       await unmount();
+    }
+  });
+
+  it("lists nothing while waiting for the live set, then lists as usual", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const runs = [shown("WORK", "working", "work-1", 1), shown("WAIT", "waiting", "wait-1", 2)];
+    const { host, root, chip, unmount } = await mount(runs, { livePanes: null, waitForLive: true });
+    try {
+      expect(host.querySelector("[data-worker-strip]")).toBeNull();
+      await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: new Set(["work-1"]), waitForLive: true })));
+      expect(chip()!.getAttribute("aria-label")).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("lists working runs for a room chip on the desktop with unknown liveness", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    (window as unknown as { ogb?: unknown }).ogb = { terminal: {} };
+    try {
+      const { host, unmount } = await mount([
+        shown("WORK", "working", "work-1", 1),
+        shown("WAIT", "waiting", "wait-1", 2),
+        shown("COPY", "done", "done-1", 3),
+      ], { livePanes: null });
+      try {
+        expect([...host.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")].map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "working"]);
+      } finally {
+        await unmount();
+      }
+    } finally {
+      (window as unknown as { ogb?: unknown }).ogb = undefined;
     }
   });
 

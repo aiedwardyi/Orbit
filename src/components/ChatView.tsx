@@ -883,32 +883,56 @@ function NoteMessage({ message }: { message: Message }) {
 /** One comparable string for a bot's pane labels; a blank slot still counts. */
 const paneLabelsKey = (labels: string[] | undefined) => `${labels?.length ?? 0}:${labels?.join("\n") ?? ""}`;
 
-/** Bot-spawned pane ids still open, null until the bridge or the host answers. */
-function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionKey: string): Set<string> | null {
-  const [live, setLive] = useState<Set<string> | null>(null);
+/** Last answered live set per bot, so a switch back renders it before the fresh answer lands. */
+const lastLive = new Map<string, Set<string>>();
+
+/** Drops every cached live set. Tests only. */
+export function clearLivePaneCache() {
+  lastLive.clear();
+}
+
+/** Bot-spawned pane ids still open, null until the bridge or the host first answers. Exported for tests. */
+export function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionKey: string): Set<string> | null {
+  const [live, setLive] = useState<{ botId: string; ids: Set<string> } | null>(null);
   const phoneRead = useRef<{ busy: boolean; next: (() => void) | null }>({ busy: false, next: null });
   useEffect(() => {
     const bridge = window.ogb?.terminal;
-    setLive(null);
     if (!bridge || !enabled) return;
     let alive = true;
     const closed = new Set<string>();
+    const opened = new Set<string>();
+    const save = (ids: Set<string>) => {
+      lastLive.set(botId, new Set(ids));
+      setLive({ botId, ids: new Set(ids) });
+    };
     void Promise.resolve().then(() => bridge.readBot?.(botId)).then((snapshot) => {
       if (!alive || !snapshot?.panes) return;
-      const ids = snapshot.panes.filter((p) => !p.main && !p.exited && !closed.has(p.sessionId)).map((p) => p.sessionId);
-      setLive((current) => new Set([...ids, ...(current ?? [])]));
+      const ids = new Set(snapshot.panes.filter((p) => !p.main && !p.exited && !closed.has(p.sessionId)).map((p) => p.sessionId));
+      for (const id of opened) if (!closed.has(id)) ids.add(id);
+      save(ids);
     }).catch(() => {});
     const offOpened = bridge.onOpened?.((event) => {
-      if (event.botId === botId) setLive((current) => new Set([...(current ?? []), event.id]));
+      if (event.botId !== botId) return;
+      opened.add(event.id);
+      closed.delete(event.id);
+      const next = new Set(lastLive.get(botId) ?? []);
+      next.add(event.id);
+      save(next);
     });
     const offClosed = bridge.onClosed?.((event) => {
       if (event.botId !== botId) return;
       closed.add(event.id);
-      setLive((current) => { const next = new Set(current ?? []); next.delete(event.id); return next; });
+      opened.delete(event.id);
+      const next = new Set(lastLive.get(botId) ?? []);
+      next.delete(event.id);
+      save(next);
     });
     const offExit = bridge.onExit?.((event) => {
       closed.add(event.id);
-      setLive((current) => { const next = new Set(current ?? []); next.delete(event.id); return next; });
+      opened.delete(event.id);
+      const next = new Set(lastLive.get(botId) ?? []);
+      next.delete(event.id);
+      save(next);
     });
     return () => { alive = false; offOpened?.(); offClosed?.(); offExit?.(); };
   }, [botId, enabled]);
@@ -919,6 +943,10 @@ function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionK
     let delay = 1000;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const pending = phoneRead.current;
+    const save = (ids: Set<string>) => {
+      lastLive.set(botId, new Set(ids));
+      setLive({ botId, ids: new Set(ids) });
+    };
     const read = () => {
       if (document.visibilityState === "hidden") return;
       const call = ++latest;
@@ -935,12 +963,12 @@ function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionK
           (body) => {
             if (!alive || call !== latest) return;
             if (!Array.isArray(body?.panes)) { retry(); return; }
-            setLive(new Set(body.panes.filter((p: { main?: boolean; exited?: boolean }) => !p.main && !p.exited).map((p: { sessionId: string }) => p.sessionId)));
+            save(new Set(body.panes.filter((p: { main?: boolean; exited?: boolean }) => !p.main && !p.exited).map((p: { sessionId: string }) => p.sessionId)));
             delay = 1000;
           },
           (cause) => {
             if (!alive || call !== latest) return;
-            if (/unknown terminal/i.test(cause instanceof Error ? cause.message : "")) { setLive(new Set()); delay = 1000; }
+            if (/unknown terminal/i.test(cause instanceof Error ? cause.message : "")) { save(new Set()); delay = 1000; }
             else retry();
           },
         ).finally(() => {
@@ -964,7 +992,7 @@ function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionK
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [botId, enabled, paneKey, sessionKey]);
-  return live;
+  return live?.botId === botId ? live.ids : lastLive.get(botId) ?? null;
 }
 
 // Keep the live reply in its transcript slot when the canonical message arrives.
@@ -2042,7 +2070,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary max-md:hidden" />}
         </div>
         <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 max-md:min-w-0 max-md:shrink max-md:flex-nowrap">
-          <WorkerChip name={bot.name} runs={workers} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} />
+          <WorkerChip name={bot.name} runs={workers} livePanes={livePanes} waitForLive={livePanes === null && window.ogb?.terminal != null} onOpenTerminalPane={onOpenTerminalPane} />
           {onOpenTerminal && (
             <button
               type="button"

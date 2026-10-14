@@ -10,7 +10,7 @@ import { setFindCurrent } from "@/lib/chat-find";
 import { DRAWER_BUTTON_RIGHT } from "@/lib/drawer-button";
 import { PHONE_HEADER_MENU_RESERVE_PX } from "@/lib/phone-header";
 import { SIDEBAR_SIDE_KEY } from "@/lib/sidebar-preferences";
-import { ChatView } from "./ChatView";
+import { ChatView, clearLivePaneCache } from "./ChatView";
 import { GroupView } from "./GroupView";
 import type { TurnStreamState } from "@/lib/turn-stage";
 
@@ -73,6 +73,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 afterEach(() => {
   live.current = { streaming: {}, reasoning: {}, signal: {}, gen: {}, turn: {} };
+  clearLivePaneCache();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   localStorage.clear();
