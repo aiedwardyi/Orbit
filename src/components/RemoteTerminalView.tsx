@@ -367,7 +367,7 @@ export function RemoteTerminalView({
         </button>
       </header>
       {tabs.length > 1 && (
-        <div role="tablist" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-hairline bg-panel px-3 pb-2 md:px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div role="tablist" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-hairline bg-panel px-3 pb-2 md:px-5 pointer-coarse:[scrollbar-width:none] pointer-coarse:[&::-webkit-scrollbar]:hidden">
           {tabs.map((pane) => (
             <button
               key={pane.sessionId}
