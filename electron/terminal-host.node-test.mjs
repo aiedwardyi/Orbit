@@ -986,7 +986,7 @@ test("openForBot names the whole-app cap and the bot's own count", async () => {
   for (let i = 0; i < 16; i += 1) await f.host.openForBot("bot-2", { label: `w${i}` });
   for (let i = 0; i < 14; i += 1) await f.host.openForBot("bot-3", { label: `w${i}` });
   await f.host.openForBot("bot-1", { label: "mine" });
-  await assert.rejects(f.host.openForBot("bot-1", { label: "extra" }), /Too many terminal sessions \(32 open across all bots and main terminals; 2 are yours\)\. Close one of yours with terminal_close/);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "extra" }), /Too many terminal sessions \(32 open across all bots and main terminals; 1 are yours\)\. Close one of yours with terminal_close/);
 });
 
 test("openForBot refuses a pane under 2 GiB free memory, but main terminals stay ungated", async () => {
@@ -996,7 +996,7 @@ test("openForBot refuses a pane under 2 GiB free memory, but main terminals stay
   owner = f.owner;
   await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /Not enough free memory for another terminal \(2\.0 GB free, 2 GB needed; 0 terminals open, 0 are yours\)\. Close a finished pane with terminal_close/);
   await f.host.open(f.event, f.input);
-  await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /1 terminals open, 1 are yours/);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /1 terminals open, 0 are yours/);
   free = 2 * 1024 ** 3;
   await f.host.openForBot("bot-1", { label: "w" });
 });
