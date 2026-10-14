@@ -2131,8 +2131,8 @@ const StoreContext = createContext<{
   dispatch: React.Dispatch<Action>;
   /** Commit any debounced profile edits before an operation reads the bot. */
   flushBotPatches: (botId: string) => Promise<void>;
-  /** Re-fetch engine availability — after an install, without a restart.
-   * `rescan` marks a user-driven recheck, which may start WSL. */
+  /** Re-fetch engine availability. Only `rescan`, a user-driven recheck that
+   * may start WSL, re-probes the CLIs; otherwise it is the server's last check. */
   refreshInstances: (rescan?: boolean) => Promise<void>;
 } | null>(null);
 
@@ -3412,16 +3412,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Re-probe the engines on demand. A CLI installed while the app is running
   // is invisible until something asks again — the setup screens expose this
   // as "Check again" so the user isn't told to restart when a refresh will do.
-  const refreshInstances = useCallback(async (rescan = false) => {
+  const loadInstances = useCallback(async (query: "" | "?refresh=1" | "?rescan=1") => {
     const generation = ++refreshGeneration.current;
     try {
-      const { instances } = await api(rescan ? "/api/instances?rescan=1" : "/api/instances");
+      const { instances } = await api(`/api/instances${query}`);
       if (generation !== refreshGeneration.current) return;
       rawDispatch({ type: "instances", instances, preserveRateLimits: true });
     } catch {
       /* offline or server down — the existing list stays */
     }
   }, []);
+  const refreshInstances = useCallback(
+    (rescan = false) => loadInstances(rescan ? "?rescan=1" : ""),
+    [loadInstances],
+  );
 
   // Installing a CLI or signing one in happens in a terminal, outside this
   // window — so the moment the user comes back is exactly when our engine
@@ -3440,7 +3444,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       focusProbe.current.blurredAt = 0;
       if (!blurredAt || Date.now() - blurredAt < AWAY_MS) return;
       focusProbe.current.quietUntil = Infinity;
-      void refreshInstances().finally(() => {
+      // ?refresh=1, not ?rescan=1: re-probes the CLIs without starting WSL
+      void loadInstances("?refresh=1").finally(() => {
         focusProbe.current.quietUntil = Date.now() + AWAY_MS;
       });
     };
@@ -3450,7 +3455,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
     };
-  }, [refreshInstances]);
+  }, [loadInstances]);
 
   // A chat left open on a hidden or unfocused window is not "read" until the
   // window is actually visible and focused again - that moment is the only

@@ -106,10 +106,12 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     let active = true;
     let latestRequest = 0;
-    const refresh = () => {
+    // The first check reads the server's last probe; a retry or a return from
+    // installing a CLI in a terminal asks it to probe again.
+    const refresh = (probe: boolean) => {
       const request = ++latestRequest;
       setInstancesError(null);
-      fetch("/api/instances")
+      fetch(probe ? "/api/instances?refresh=1" : "/api/instances")
         .then((response) => {
           // A phone without this PC's cookie, not a broken engine check.
           if (response.status === 401) return null;
@@ -129,11 +131,12 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           }
         });
     };
-    refresh();
-    window.addEventListener("focus", refresh);
+    refresh(refreshKey > 0);
+    const onFocus = () => refresh(true);
+    window.addEventListener("focus", onFocus);
     return () => {
       active = false;
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener("focus", onFocus);
     };
   }, [refreshKey]);
 

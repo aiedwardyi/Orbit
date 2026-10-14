@@ -29,6 +29,12 @@ export type RegistryEntry =
 
 const MODEL_REFRESH_TTL_MS = 5_000;
 
+/** The part of a describe() row that costs process launches. */
+interface Probe {
+  snapshot: ProviderSnapshot;
+  cliCandidates: string[];
+}
+
 export interface ProviderRegistryOptions {
   now?: () => number;
   modelRefreshTtlMs?: number;
@@ -60,6 +66,8 @@ export class ProviderRegistry {
   private cliByInstance = new Map<InstanceId, string>();
   private modelRefreshAt = new Map<InstanceId, number>();
   private modelRefreshInFlight = new Map<InstanceId, Promise<void>>();
+  private probed = new Map<InstanceId, Probe>();
+  private probing = new Map<InstanceId, Promise<Probe>>();
   private driversByKind: Map<string, AnyProviderDriver>;
   private readonly now: () => number;
   private readonly modelRefreshTtlMs: number;
@@ -120,6 +128,7 @@ export class ProviderRegistry {
       }
     }));
     for (const result of loaded) {
+      this.forget(result.entry.instanceId);
       if (result.rawCli) this.cliByInstance.set(result.entry.instanceId, result.rawCli);
       else this.cliByInstance.delete(result.entry.instanceId);
       this.byId.set(result.entry.instanceId, result.entry);
@@ -177,15 +186,37 @@ export class ProviderRegistry {
     this.cliByInstance.delete(instanceId);
     this.modelRefreshAt.delete(instanceId);
     this.modelRefreshInFlight.delete(instanceId);
+    this.forget(instanceId);
     return live;
   }
 
   /** instance snapshots for the model picker: id, driver, models, health */
   async describe(opts?: { rescan?: boolean }) {
-    // Multiple instances may share a driver. Scan each default binary once
-    // per response instead of repeating filesystem work for every row.
+    const candidatesFor = this.candidateScan();
+    return Promise.all(
+      this.entries().map(async (entry) => this.row(entry, await this.startProbe(entry, candidatesFor, opts))),
+    );
+  }
+
+  /** describe() rows from the last completed probe; only instances added or changed since are probed. */
+  async describeCached() {
+    const candidatesFor = this.candidateScan();
+    return Promise.all(
+      this.entries().map(async (entry) =>
+        this.row(
+          entry,
+          this.probed.get(entry.instanceId) ??
+            (await (this.probing.get(entry.instanceId) ?? this.startProbe(entry, candidatesFor))),
+        ),
+      ),
+    );
+  }
+
+  // Multiple instances may share a driver. Scan each default binary once
+  // per response instead of repeating filesystem work for every row.
+  private candidateScan() {
     const candidatesByName = new Map<string, string[]>();
-    const candidatesFor = (driver: AnyProviderDriver | undefined): string[] => {
+    return (driver: AnyProviderDriver | undefined): string[] => {
       const name = cliDefaultOf(driver);
       if (!name) return [];
       const cached = candidatesByName.get(name);
@@ -194,89 +225,127 @@ export class ProviderRegistry {
       candidatesByName.set(name, found);
       return found;
     };
-    return Promise.all(
-      this.entries().map(async (entry) => {
-        const driver = this.driversByKind.get(entry.shadow?.driverKind ?? entry.live!.driverKind);
-        if (entry.shadow) {
-          return {
-            instanceId: entry.instanceId,
-            driverKind: entry.shadow.driverKind,
-            displayName: entry.shadow.displayName ?? entry.shadow.driverKind,
-            snapshot: { state: "unavailable", reason: entry.shadow.reason } satisfies ProviderSnapshot,
-            models: { default: "", options: [] },
-            capabilities: { computerMcp: false, agentsMcp: false, localComputerMcp: false },
-            // an unknown driver has no driver record, hence no install path
-            access: driver?.metadata.access ?? "subscription",
-            install: driver?.install,
-            cli: entry.shadow.cli,
-            cliDefault: cliDefaultOf(driver),
-            // a shadow is exactly the "your CLI is broken, pick another"
-            // case where the detected-path dropdown matters most
-            cliCandidates: candidatesFor(driver),
-          };
-        }
-        const inst = entry.live;
-        let snapshot: ProviderSnapshot;
-        try {
-          const discovery = this.modelRefreshInFlight.get(inst.instanceId);
-          if (discovery) await discovery;
-          const lastRefresh = this.modelRefreshAt.get(inst.instanceId) ?? 0;
-          if (inst.refreshModels && this.now() - lastRefresh >= this.modelRefreshTtlMs) {
-            const inFlight = this.modelRefreshInFlight.get(inst.instanceId);
-            if (inFlight) await inFlight;
-            else {
-              const refresh = (async () => {
-                try {
-                  await inst.refreshModels!();
-                } finally {
-                  if (this.byId.get(inst.instanceId)?.live === inst) {
-                    this.modelRefreshAt.set(inst.instanceId, this.now());
-                  }
-                }
-              })();
-              this.modelRefreshInFlight.set(inst.instanceId, refresh);
-              try {
-                await refresh;
-              } finally {
-                if (this.modelRefreshInFlight.get(inst.instanceId) === refresh) this.modelRefreshInFlight.delete(inst.instanceId);
+  }
+
+  private startProbe(
+    entry: RegistryEntry,
+    candidatesFor: (driver: AnyProviderDriver | undefined) => string[],
+    opts?: { rescan?: boolean },
+  ): Promise<Probe> {
+    const id = entry.instanceId;
+    const pending = this.probe(entry, candidatesFor, opts);
+    this.probing.set(id, pending);
+    void pending.then((probe) => {
+      if (this.byId.get(id) === entry) this.probed.set(id, probe);
+      if (this.probing.get(id) === pending) this.probing.delete(id);
+    });
+    return pending;
+  }
+
+  private forget(instanceId: InstanceId) {
+    this.probed.delete(instanceId);
+    this.probing.delete(instanceId);
+  }
+
+  private async probe(
+    entry: RegistryEntry,
+    candidatesFor: (driver: AnyProviderDriver | undefined) => string[],
+    opts?: { rescan?: boolean },
+  ): Promise<Probe> {
+    const driver = this.driversByKind.get(entry.shadow?.driverKind ?? entry.live!.driverKind);
+    if (entry.shadow) {
+      return {
+        snapshot: { state: "unavailable", reason: entry.shadow.reason },
+        // a shadow is exactly the "your CLI is broken, pick another"
+        // case where the detected-path dropdown matters most
+        cliCandidates: candidatesFor(driver),
+      };
+    }
+    const inst = entry.live;
+    let snapshot: ProviderSnapshot;
+    try {
+      const discovery = this.modelRefreshInFlight.get(inst.instanceId);
+      if (discovery) await discovery;
+      const lastRefresh = this.modelRefreshAt.get(inst.instanceId) ?? 0;
+      if (inst.refreshModels && this.now() - lastRefresh >= this.modelRefreshTtlMs) {
+        const inFlight = this.modelRefreshInFlight.get(inst.instanceId);
+        if (inFlight) await inFlight;
+        else {
+          const refresh = (async () => {
+            try {
+              await inst.refreshModels!();
+            } finally {
+              if (this.byId.get(inst.instanceId)?.live === inst) {
+                this.modelRefreshAt.set(inst.instanceId, this.now());
               }
             }
+          })();
+          this.modelRefreshInFlight.set(inst.instanceId, refresh);
+          try {
+            await refresh;
+          } finally {
+            if (this.modelRefreshInFlight.get(inst.instanceId) === refresh) this.modelRefreshInFlight.delete(inst.instanceId);
           }
-          snapshot = await inst.snapshot(opts);
-        } catch (e) {
-          snapshot = { state: "unavailable", reason: e instanceof Error ? e.message : String(e) };
         }
-        return {
-          instanceId: inst.instanceId,
-          driverKind: inst.driverKind,
-          displayName: inst.displayName ?? inst.driverKind,
-          snapshot,
-          models: inst.models,
-          capabilities: {
-            computerMcp: inst.adapter.capabilities.computerMcp === true,
-            agentsMcp: inst.adapter.capabilities.agentsMcp === true,
-            composioMcp: inst.adapter.capabilities.composioMcp === true,
-            phoneMcp: inst.adapter.capabilities.phoneMcp === true,
-            browserMcp: inst.adapter.capabilities.browserMcp === true,
-            images: inst.adapter.capabilities.images === true,
-            effortLevels: inst.adapter.capabilities.effortLevels,
-            queueing: inst.adapter.capabilities.queueing === true,
-            localComputerMcp: inst.adapter.capabilities.localComputerMcp === true,
-            askApproval: inst.adapter.capabilities.askApproval !== false,
-            approvalReview: inst.reviewPermission !== undefined,
-            rateLimits: inst.adapter.capabilities.rateLimits === true,
-          },
-          access: driver?.metadata.access ?? "subscription",
-          install: driver?.install,
-          cli: this.cliByInstance.get(inst.instanceId),
-          cliDefault: cliDefaultOf(driver),
-          // every copy of the driver's default binary on the augmented PATH —
-          // the dropdown's "detected" entries. Snapshotted per describe() so a
-          // newly installed CLI shows up on the next refresh.
-          cliCandidates: candidatesFor(driver),
-        };
-      }),
-    );
+      }
+      snapshot = await inst.snapshot(opts);
+    } catch (e) {
+      snapshot = { state: "unavailable", reason: e instanceof Error ? e.message : String(e) };
+    }
+    return {
+      snapshot,
+      // every copy of the driver's default binary on the augmented PATH -
+      // the dropdown's "detected" entries. Snapshotted per probe so a
+      // newly installed CLI shows up on the next refresh.
+      cliCandidates: candidatesFor(driver),
+    };
+  }
+
+  private row(entry: RegistryEntry, probe: Probe) {
+    const driver = this.driversByKind.get(entry.shadow?.driverKind ?? entry.live!.driverKind);
+    if (entry.shadow) {
+      return {
+        instanceId: entry.instanceId,
+        driverKind: entry.shadow.driverKind,
+        displayName: entry.shadow.displayName ?? entry.shadow.driverKind,
+        snapshot: probe.snapshot,
+        models: { default: "", options: [] },
+        capabilities: { computerMcp: false, agentsMcp: false, localComputerMcp: false },
+        // an unknown driver has no driver record, hence no install path
+        access: driver?.metadata.access ?? "subscription",
+        install: driver?.install,
+        cli: entry.shadow.cli,
+        cliDefault: cliDefaultOf(driver),
+        cliCandidates: probe.cliCandidates,
+      };
+    }
+    const inst = entry.live;
+    return {
+      instanceId: inst.instanceId,
+      driverKind: inst.driverKind,
+      displayName: inst.displayName ?? inst.driverKind,
+      snapshot: probe.snapshot,
+      models: inst.models,
+      capabilities: {
+        computerMcp: inst.adapter.capabilities.computerMcp === true,
+        agentsMcp: inst.adapter.capabilities.agentsMcp === true,
+        composioMcp: inst.adapter.capabilities.composioMcp === true,
+        phoneMcp: inst.adapter.capabilities.phoneMcp === true,
+        browserMcp: inst.adapter.capabilities.browserMcp === true,
+        images: inst.adapter.capabilities.images === true,
+        effortLevels: inst.adapter.capabilities.effortLevels,
+        queueing: inst.adapter.capabilities.queueing === true,
+        localComputerMcp: inst.adapter.capabilities.localComputerMcp === true,
+        askApproval: inst.adapter.capabilities.askApproval !== false,
+        approvalReview: inst.reviewPermission !== undefined,
+        rateLimits: inst.adapter.capabilities.rateLimits === true,
+      },
+      access: driver?.metadata.access ?? "subscription",
+      install: driver?.install,
+      cli: this.cliByInstance.get(inst.instanceId),
+      cliDefault: cliDefaultOf(driver),
+      cliCandidates: probe.cliCandidates,
+    };
   }
 
   async disposeAll() {
@@ -285,5 +354,7 @@ export class ProviderRegistry {
     this.cliByInstance.clear();
     this.modelRefreshAt.clear();
     this.modelRefreshInFlight.clear();
+    this.probed.clear();
+    this.probing.clear();
   }
 }
