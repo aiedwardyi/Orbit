@@ -348,9 +348,38 @@ function replayUnits(
   userName: string,
   referenceMessages: Message[],
   includeSpeakers: boolean,
+  startIndex?: number,
 ): ReplayUnit[] {
-  const messagesById = new Map(referenceMessages.map((message) => [message.id, message]));
-  return messages.flatMap((message, pathIndex): ReplayUnit[] => {
+  const messagesById = new Map(startIndex === undefined ? referenceMessages.map((message) => [message.id, message]) : []);
+  if (startIndex !== undefined) {
+    const get = messagesById.get.bind(messagesById);
+    const lookedUp = new Set<string>();
+    let roster: Map<string, Message> | undefined;
+    messagesById.get = (id) => {
+      if (!lookedUp.has(id)) {
+        lookedUp.add(id);
+        const target = referenceMessages.findLast((message) => message.id === id);
+        if (target) messagesById.set(id, target);
+      }
+      return get(id);
+    };
+    messagesById.values = function* () {
+      if (!roster) {
+        const speakerIds = new Set(referenceMessages.filter((message) => message.from).map((message) => message.id));
+        roster = new Map();
+        if (speakerIds.size) {
+          for (const message of referenceMessages) {
+            if (speakerIds.has(message.id)) roster.set(message.id, message);
+          }
+        }
+      }
+      yield* roster.values();
+      return undefined;
+    };
+  }
+  const offset = startIndex ?? 0;
+  return messages.slice(offset).flatMap((message, index): ReplayUnit[] => {
+    const pathIndex = offset + index;
     if (excludeIds.has(message.id)) return [];
     if (message.kind === "text" && message.text?.trim()) {
       const body = transcriptText(message, messagesById, userName);
@@ -762,18 +791,19 @@ export async function prepareModelContext(input: {
   }
   const previous = found;
   const previousSummary = previous ? redactSecretsInText(previous.value.summary) : "";
-  const allUnits = replayUnits(
+  const tailUnits = replayUnits(
     input.messages,
     input.excludeIds ?? new Set(),
     input.userName ?? "User",
     input.referenceMessages ?? input.messages,
     input.includeSpeakers ?? false,
+    previous ? previous.coveredIndex + 1 : 0,
   );
   // A grown window keeps the summary and only allows a bigger tail; replaying
   // the covered history re-summarized a whole day at once.
   // Folded after the cut, so no line spans a summary boundary.
   const units = foldToolRuns(
-    previous ? allUnits.filter((unit) => unit.pathIndex > previous.coveredIndex) : allUnits,
+    tailUnits,
     input.includeSpeakers ?? false,
   );
   const currentTranscript = [

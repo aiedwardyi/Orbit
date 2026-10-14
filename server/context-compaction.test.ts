@@ -278,6 +278,42 @@ describe("provider-neutral context compaction", () => {
     expect(result.transcript[0]?.text).toContain(new Date(1).toISOString());
   });
 
+  it.each([10, 10_000])("does not replay %i covered messages", async (count) => {
+    let reads = 0;
+    const covered = Array.from({ length: count }, (_, index): Message => ({
+      id: `m${index}`,
+      at: index + 1,
+      role: "user",
+      kind: "text",
+      get text() {
+        reads++;
+        return "covered text";
+      },
+    }));
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: "known good summary",
+      coveredThroughId: `m${count - 1}`,
+      firstKeptId: "tail",
+      contextWindow: 8_192,
+      estimatedTokensBefore: count * 10,
+      sourceMessageCount: count,
+    };
+    const result = await prepareModelContext({
+      messages: [...covered, message("tail", "recent work"), compactionMessage("c1", "tail", previous)],
+      contextWindow: 8_192,
+      taskRecordText: "Goal: finish",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.compactionId).toBe("c1");
+    expect(result.transcript).toHaveLength(2);
+    expect(result.transcript[0]?.text).toContain(new Date(count).toISOString());
+    expect(result.transcript[1]).toEqual({ role: "user", text: "recent work" });
+    expect(reads).toBe(0);
+  });
+
   it("does not count tool lines toward the message cap", async () => {
     const tools = Array.from({ length: 150 }, (_, index): Message => message(`t${index}`, "", {
       role: "bot",
