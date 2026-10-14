@@ -47,12 +47,11 @@ does not replace remote/cloud boxes or the isolated Local VM provider. Local
 alternatives evaluated and rejected:
 
 The Ubuntu GNOME beta uses the same official CUA provider with the Phase 5
-supply-chain contract tracked in [#113](https://github.com/aiedwardyi/Orbit/issues/113): pinned archive
+supply-chain contract: pinned archive
 and inner hashes, exact archive allowlist, outside-ASAR resources, full notices/SBOM, no runtime download/update,
 and fail-closed packaged discovery. Electron still owns a private embedded daemon/socket, and the harness only
-receives the validated MCP proxy contract. Xorg is tracked in [#79](https://github.com/aiedwardyi/Orbit/issues/79);
-GNOME/Wayland additionally requires WinRects v8 plus the exact Cua health-report contract tracked in
-[#109](https://github.com/aiedwardyi/Orbit/issues/109).
+receives the validated MCP proxy contract. GNOME/Wayland additionally requires WinRects v8 plus the exact Cua
+health-report contract.
 
 | Option | Verdict |
 | --- | --- |
