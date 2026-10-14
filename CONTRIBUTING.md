@@ -19,7 +19,7 @@ pnpm dev:desktop      # Electron shell (keeps server and Vite running)
 
 pnpm typecheck        # app + server
 pnpm build            # what CI builds
-pnpm test             # full suite, same as CI
+pnpm test             # vitest + grouped node tests (CI also runs relay/)
 pnpm check:electron   # syntax-check the plain JS Electron entry points
 pnpm package:win      # installer in release/
 ```
@@ -31,7 +31,7 @@ pnpm package:win      # installer in release/
 Three layers:
 
 - **vitest**: `*.test.ts` and `*.test.mjs` under `server/`, `src/`, `shared/`, `electron/`, `companion/`, `scripts/` and `site/`. Files run one at a time; each test has a 20 s ceiling. `server/testing/setup.ts` points `HOME` at a throwaway directory, so tests never touch your real `~/.orbit`.
-- **node:test**: `electron/*.node-test.mjs`, run with `node --test <file>`. `pnpm test:terminal`, `pnpm test:updater` and the other `test:*` scripts in `package.json` group them.
+- **node:test**: `electron/*.node-test.mjs`, run with `node --test <file>`. `pnpm test:terminal`, `pnpm test:updater` and the other `test:*` scripts in `package.json` group them. A few files are in no group yet, so run the one you touched directly.
 - **relay**: `relay/` has its own lockfile and suite. Run `pnpm check` and `pnpm test` from that directory.
 
 `pnpm test` runs vitest behind `scripts/test-floor.mjs`, which fails the run when fewer tests register than expected. That catches a file that silently stops being collected.
@@ -49,7 +49,8 @@ New server behavior comes with a test. Driver changes keep the contract tests in
 
 - **Spawn with argv, never a shell string.** No `shell: true`, no `cmd.exe` string building. Model names, personas and MCP config travel through argv. On Windows, resolve `.cmd` shims to their JS entry and spawn `process.execPath`.
 - **Secrets are write-only.** Keys go in through the API and come back as `configured` booleans. Never log a key or echo it in a response, an event or argv.
-- **Platform-specific code is gated.** `server/` stays portable Node. Anything that needs Windows, macOS or Linux lives behind a `process.platform` check.
+- **Platform-specific code is gated.** `server/` stays portable Node. Native code that needs Windows, macOS or Linux lives behind a `process.platform` check. Renderer code reads the desktop capability contract (`useDesktopCapabilities`), never the OS: screen preview, dictation and local control are separate capabilities.
+- **MCP tool schemas stay flat.** Each engine converts a tool's `inputSchema` for its model and drops what it can't map. No `oneOf`, `anyOf`, `allOf`, `const` or `format`; put per-variant rules in `description`s and guard the shape with a schema test, like `server/drivers/agents-proxy.test.ts`.
 - **Match the altitude.** Plain Node on the server, one store, one event bus. No new runtime dependency where thirty lines will do. A new dependency needs a reason in the PR.
 - **One concern per PR.** Big changes start with an issue that agrees on the approach.
 - **Commits:** `type: half-sentence`, with `feat`, `fix`, `docs`, `test`, `chore`, `refactor`, `perf` or `ci`. No body unless it says something the diff can't.

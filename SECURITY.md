@@ -18,8 +18,8 @@ The README section [Trust and security](README.md#trust-and-security) is the sou
 
 In short:
 
-- The server binds `127.0.0.1` behind a per-launch token and a Host/Origin check. Anything that lets another local user, or a machine outside the phone access the README describes, drive it is in scope.
+- The server binds `127.0.0.1` behind a per-launch token and a Host/Origin check. Any way for another local user to drive it is in scope, and so is any remote way in beyond the phone access the README describes.
 - API keys are write-only through the API. Any path that echoes a stored key is in scope.
 - Engine CLIs run with your privileges and spawn without a shell. Any user-influenced string that reaches a shell is in scope.
-- Approval modes and the permission broker are the consent layer. Approving without a user decision is in scope.
+- Approval modes and the permission broker are the consent layer. Any approval the mode you set doesn't allow is in scope. Auto approving every request in a turn you started is documented behavior.
 - The installer is not code-signed yet. SmartScreen warnings are a known limitation, not a vulnerability.
