@@ -1,11 +1,11 @@
 // execCli's --version cache. The fake CLI logs each launch to a file, so the
 // counts are real process launches, not calls.
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, renameSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { execCli } from "./procs.ts";
+import { clearVersionCache, execCli } from "./procs.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
 let dir: string;
@@ -61,6 +61,49 @@ describe("execCli --version cache", () => {
     await run(["--version"], { PATH: process.env.PATH, PROBE: "b" });
     expect(launches()).toEqual(["--version", "--version"]);
   });
+
+  it("launches again when a same-size, same-mtime rewrite changes the ctime", async () => {
+    const stamp = new Date("2026-10-01T00:00:00.000Z");
+    writeCli("fake 1.0.0");
+    utimesSync(script, stamp, stamp);
+    expect(await run(["--version"])).toBe("fake 1.0.0");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    writeCli("fake 2.0.0");
+    utimesSync(script, stamp, stamp);
+    expect(await run(["--version"])).toBe("fake 2.0.0");
+    expect(launches()).toEqual(["--version", "--version"]);
+  });
+
+  it("launches again when a same-size, same-mtime replacement has a new inode", async () => {
+    const stamp = new Date("2026-10-01T00:00:00.000Z");
+    writeCli("fake 1.0.0");
+    utimesSync(script, stamp, stamp);
+    expect(await run(["--version"])).toBe("fake 1.0.0");
+    const next = join(dir, "next.cjs");
+    writeFileSync(next, readFileSync(script, "utf8").replace("1.0.0", "2.0.0"));
+    utimesSync(next, stamp, stamp);
+    renameSync(next, script);
+    expect(await run(["--version"])).toBe("fake 2.0.0");
+    expect(launches()).toEqual(["--version", "--version"]);
+  });
+
+  it("clearVersionCache makes the next check launch again", async () => {
+    await run(["--version"]);
+    await run(["--version"]);
+    expect(launches()).toEqual(["--version"]);
+    clearVersionCache();
+    await run(["--version"]);
+    expect(launches()).toEqual(["--version", "--version"]);
+  });
+
+  it("holds at most 64 versions", async () => {
+    const envFor = (n: number) => ({ PATH: process.env.PATH, PROBE: String(n) });
+    for (let n = 0; n < 65; n++) await run(["--version"], envFor(n));
+    await run(["--version"], envFor(64));
+    expect(launches()).toHaveLength(65);
+    await run(["--version"], envFor(0));
+    expect(launches()).toHaveLength(66);
+  }, 60_000);
 
   it("never caches a failed probe", async () => {
     writeFileSync(script, `require("node:fs").appendFileSync(${JSON.stringify(log)}, "--version;");\nprocess.exit(1);\n`);

@@ -832,7 +832,7 @@ function describeInstances(probe: "cached" | "refresh" | "rescan" = "cached") {
   if (probe === "cached") return registry.describeCached();
   const rescan = probe === "rescan";
   if (!describeInFlight || rescan) {
-    const pending = registry.describe({ rescan });
+    const pending = registry.describe({ rescan, refresh: probe === "refresh" });
     describeInFlight = pending;
     void pending.finally(() => {
       if (describeInFlight === pending) describeInFlight = null;

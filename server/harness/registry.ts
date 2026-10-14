@@ -5,6 +5,7 @@
 // compatible — do not remove it); dispose tears an instance down without
 // touching its siblings.
 import { findCliCandidates } from "../env-path.ts";
+import { clearVersionCache } from "../procs.ts";
 import type {
   AnyProviderDriver,
   InstanceConfigMap,
@@ -191,7 +192,8 @@ export class ProviderRegistry {
   }
 
   /** instance snapshots for the model picker: id, driver, models, health */
-  async describe(opts?: { rescan?: boolean }) {
+  async describe(opts?: { rescan?: boolean; refresh?: boolean }) {
+    if (opts?.rescan) clearVersionCache();
     const candidatesFor = this.candidateScan();
     return Promise.all(
       this.entries().map(async (entry) => this.row(entry, await this.startProbe(entry, candidatesFor, opts))),
@@ -230,14 +232,16 @@ export class ProviderRegistry {
   private startProbe(
     entry: RegistryEntry,
     candidatesFor: (driver: AnyProviderDriver | undefined) => string[],
-    opts?: { rescan?: boolean },
+    opts?: { rescan?: boolean; refresh?: boolean },
   ): Promise<Probe> {
     const id = entry.instanceId;
     const pending = this.probe(entry, candidatesFor, opts);
     this.probing.set(id, pending);
     void pending.then((probe) => {
-      if (this.byId.get(id) === entry) this.probed.set(id, probe);
-      if (this.probing.get(id) === pending) this.probing.delete(id);
+      if (this.byId.get(id) === entry && this.probing.get(id) === pending) {
+        this.probed.set(id, probe);
+        this.probing.delete(id);
+      }
     });
     return pending;
   }
@@ -250,7 +254,7 @@ export class ProviderRegistry {
   private async probe(
     entry: RegistryEntry,
     candidatesFor: (driver: AnyProviderDriver | undefined) => string[],
-    opts?: { rescan?: boolean },
+    opts?: { rescan?: boolean; refresh?: boolean },
   ): Promise<Probe> {
     const driver = this.driversByKind.get(entry.shadow?.driverKind ?? entry.live!.driverKind);
     if (entry.shadow) {

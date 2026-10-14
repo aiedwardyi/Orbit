@@ -2600,6 +2600,15 @@ describe("ClaudeDriver snapshot auth (fake CLI)", () => {
     expect(await instance.snapshot()).toMatchObject({ state: "available", authenticated: false });
   });
 
+  it("re-checks sign-in on a refresh instead of reusing a recent signed-in answer", async () => {
+    process.env.FAKE_CLAUDE_AUTH = "in";
+    await create();
+    expect(await instance.snapshot()).toMatchObject({ authenticated: true });
+    process.env.FAKE_CLAUDE_AUTH = "out";
+    expect(await instance.snapshot()).toMatchObject({ authenticated: true });
+    expect(await instance.snapshot({ refresh: true })).toMatchObject({ authenticated: false });
+  });
+
   it("keeps unavailable auth status neutral and refreshes after sign-in", async () => {
     await create();
 

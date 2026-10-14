@@ -54,8 +54,14 @@ export function spawnCli(
 }
 
 const versionByBinary = new Map<string, string>();
+const VERSION_CACHE_MAX = 64;
 
-/** Path, mtime and size of every file a spawn runs, plus its env. Null for
+/** An explicit check (Check again, saved CLI) must re-launch `--version`. */
+export function clearVersionCache(): void {
+  versionByBinary.clear();
+}
+
+/** Path, inode, size, mtime and ctime of every file a spawn runs, plus its env. Null for
  * wsl.exe: its own file says nothing about the Linux CLI behind it. */
 function binaryKey(cli: string, resolved: ResolvedSpawn, env: NodeJS.ProcessEnv | undefined): string | null {
   const command = isAbsolute(resolved.command) ? resolved.command : findCliCandidates(resolved.command)[0];
@@ -65,7 +71,7 @@ function binaryKey(cli: string, resolved: ResolvedSpawn, env: NodeJS.ProcessEnv 
     try {
       const real = realpathSync(file);
       const stat = statSync(real);
-      parts.push(`${real}:${stat.mtimeMs}:${stat.size}`);
+      parts.push(`${real}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`);
     } catch {
       if (file === command) return null;
     }
@@ -86,7 +92,10 @@ export function execCli(
   const known = versionKey ? versionByBinary.get(versionKey) : undefined;
   if (known !== undefined) return queueMicrotask(() => cb(null, known, ""));
   execFile(resolved.command, resolved.args, { ...opts, windowsHide: true, encoding: "utf8" }, (err, stdout, stderr) => {
-    if (versionKey && !err) versionByBinary.set(versionKey, stdout);
+    if (versionKey && !err) {
+      if (versionByBinary.size >= VERSION_CACHE_MAX) versionByBinary.clear();
+      versionByBinary.set(versionKey, stdout);
+    }
     cb(err, stdout, stderr);
   });
 }
