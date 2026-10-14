@@ -770,6 +770,55 @@ describe("open window and jump pill", () => {
     expect(messages).toEqual(thread);
   });
 
+  /** Older texts, then m290, then hidden tool rows with six replies, then m399 quoting `quoted`. */
+  const replyThread = (quoted: string) => {
+    const texts: Record<number, readonly ["user" | "bot", string]> = {};
+    for (let i = 0; i < 280; i += 2) texts[i] = ["user", `older ${i};`];
+    for (const i of [290, 300, 320, 340, 360, 380, 390, 399]) texts[i] = [i % 20 ? "bot" : "user", `text ${i};`];
+    const thread = toolThread(400, texts);
+    thread[399] = { ...thread[399]!, replyToId: quoted };
+    return thread;
+  };
+  const serveReplyThread = (view: "chat" | "room", thread: Message[]) =>
+    pagedServer(view === "chat" ? "thread-a" : "thread-g", thread,
+      view === "chat" ? { bots: [bot(thread, false)], groups: [] } : { bots: [], groups: [room(thread, false)] });
+  const flashed = (host: HTMLElement, id: string) => host.querySelector(`[data-mid="${id}"]`)?.lastElementChild?.classList.contains("ring-2");
+
+  it.each(["chat", "room"] as const)("keeps the newest %s rows when a reply jumps to a mounted message", async (view) => {
+    serveReplyThread(view, replyThread("m290"));
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.textContent).toContain("text 399;"));
+    expect(host.querySelector('[data-mid="m290"]')).not.toBeNull();
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-mid="m399"] button[title="Jump to original message"]')!.click());
+    await vi.waitFor(() => expect(flashed(host, "m290")).toBe(true));
+    expect(host.querySelector('[data-mid="m399"]')).not.toBeNull();
+    expect(button(host, "Show later messages")).toBeUndefined();
+  });
+
+  it.each([
+    ["chat", "m290"],
+    ["room", "m290"],
+    ["chat", "m20"],
+    ["room", "m20"],
+  ] as const)("scrolls a %s to %s only after the window holding it commits", async (view, target) => {
+    serveReplyThread(view, replyThread(target));
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.textContent).toContain("text 399;"));
+    const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+    const mounted = () => Array.from(scroller.querySelectorAll("[data-mid]"), (row) => row.getAttribute("data-mid")).join(",");
+    const atScroll: string[] = [];
+    let top = 0;
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, get: () => top, set: (value: number) => {
+      top = value;
+      atScroll.push(mounted());
+    } });
+    await act(async () => store.dispatch({ type: "focusMessage", threadId: view === "chat" ? "thread-a" : "thread-g", messageId: target }));
+    await vi.waitFor(() => expect(flashed(host, target)).toBe(true));
+    expect(atScroll.length).toBeGreaterThan(0);
+    expect(atScroll.every((rows) => rows === mounted())).toBe(true);
+    expect(host.querySelector('[data-mid="m399"]')).not.toBeNull();
+  });
+
   it("shows the active task's pinned folder in the Terminal footer", async () => {
     applySkin("terminal");
     const thread = rows(0, 2);

@@ -101,7 +101,7 @@ import { TRANSCRIPT_GAP, useComposerDockPad } from "@/lib/composer-dock";
 import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
-  focusWindowRange,
+  focusWindow,
   followedTailStart,
   resolveTranscriptWindow,
   shiftForPrepend,
@@ -1803,10 +1803,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
 
   useEffect(() => setBottomFollow(true), [transcriptKey, setBottomFollow]);
 
-  // A search result may be hundreds of rows before the mounted tail. Open a
-  // bounded window around it first; useFocusMessage then scrolls and flashes
-  // the row after React commits that window.
+  // A focus target may sit hundreds of rows before the mounted tail. Fit the
+  // window to it first; useFocusMessage scrolls and flashes only once React
+  // has committed that window, never in the layout it replaces.
   const appliedFocus = useRef<number | null>(null);
+  const [focusWindowNonce, setFocusWindowNonce] = useState<number | null>(null);
   const requestedFocus = useRef<number | null>(null);
   const { open: openJump } = jump;
   useEffect(() => {
@@ -1830,15 +1831,24 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     }
     appliedFocus.current = focus.nonce;
     if (liveIndex >= 0) closeJump();
-    const range = focusWindowRange(list.length, targetIndex);
+    const listRenders = (index: number) => messageVisible(list[index], { showToolCalls, showActivities, transcript: list });
+    // a jump page fetched for this target has no window yet; a jump closing for a live target leaves the plain tail
+    const switching = list !== shown;
+    const current = requestedFocus.current === focus.nonce
+      ? null
+      : switching
+        ? { start: tailWindowStart(list.length, TRANSCRIPT_WINDOW_SIZE, listRenders), end: null }
+        : { start: startIndex, end: transcriptWindow.end === null ? null : endIndex };
+    const next = focusWindow(current, list.length, targetIndex, TRANSCRIPT_WINDOW_SIZE, listRenders);
     setBottomFollow(false);
-    setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end });
-  }, [bot.threadId, bot.hasMore, closeJump, messages, openJump, setBottomFollow, shown, state.focusMessage, transcriptKey]);
+    if (switching || next !== current) setTranscriptWindow({ key: transcriptKey, ...next, expanded: next.end === null });
+    setFocusWindowNonce(focus.nonce);
+  }, [bot.threadId, bot.hasMore, closeJump, endIndex, messages, openJump, setBottomFollow, showActivities, showToolCalls, shown, startIndex, state.focusMessage, transcriptKey, transcriptWindow.end]);
   const focusPaging =
     Boolean(bot.hasMore) &&
     state.focusMessage?.threadId === bot.threadId &&
     !shown.some((message) => message.id === state.focusMessage?.messageId);
-  useFocusMessage(bot.threadId, shown.length > 0 && !focusPaging);
+  useFocusMessage(bot.threadId, shown.length > 0 && !focusPaging && focusWindowNonce === state.focusMessage?.nonce);
   useEffect(() => {
     if (!follow || jump.messages || transcriptWindow.end !== null || transcriptWindow.expanded) return;
     const start = followedTailStart(transcriptWindow.start, messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
