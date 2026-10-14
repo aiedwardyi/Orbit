@@ -1177,7 +1177,7 @@ describe("context compaction e2e", () => {
     await expect.poll(() => existsSync(claudeDumpPath), { timeout: 10_000 }).toBe(true);
     const cleared = await api("PATCH", `/api/bots/${CLEAR_RACE.botId}`, { cwd: null });
     expect(cleared.status).toBe(200);
-    expect(cleared.body.bot).not.toHaveProperty("rememberedProjectCwd");
+    expect(cleared.body.bot.rememberedProjectCwd).toBeNull();
     await expect(send).resolves.toMatchObject({ status: 202 });
 
     await waitFor(async () => {
@@ -1190,7 +1190,7 @@ describe("context compaction e2e", () => {
       (candidate: { id: string }) => candidate.id === CLEAR_RACE.botId,
     );
     expect(bot.cwd).toBeNull();
-    expect(bot).not.toHaveProperty("rememberedProjectCwd");
+    expect(bot.rememberedProjectCwd).toBeNull();
     expect(bot.tasks[0].cwd).not.toContain("clear-race-project");
   }, 30_000);
 
