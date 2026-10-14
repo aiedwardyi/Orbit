@@ -87,7 +87,16 @@ describe("harness playbook", () => {
     const prompt = harnessPlaybookPrompt(true);
     expect(prompt).toContain("finishes under about 200k tokens of context");
     expect(prompt).toContain("A new task gets a FRESH worker");
+    expect(prompt).toContain("CURRENT gets at most one short follow-up on");
+    expect(prompt).toContain("anything more goes to a FRESH worker in the same worktree");
     expect(prompt).toContain("Default workers to high effort");
+  });
+
+  it("keeps a progress file beside the card and hands it on", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("## Progress\nKeep <card path minus .md>.progress.md current at each milestone:");
+    expect(prompt).toContain("Claude workers compact at about 500k and get their card and progress file back.");
+    expect(prompt).toContain("its progress file and \"continue from the uncommitted changes already here\"");
   });
 
   it("fills the worktree path from the configured root", () => {

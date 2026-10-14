@@ -325,11 +325,14 @@ describe("installOrbitMsg", () => {
     }
   });
 
-  it("writes the ps1 plus cmd and sh wrappers", async () => {
+  it("writes the ps1 plus cmd and sh wrappers and the compact hook", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "orbit-install-"));
     try {
       const bin = await installOrbitMsg(path.join(dir, "orbit-bin"), "win32");
-      expect(readdirSync(bin).sort()).toEqual(["claude-worker.json", "orbit-msg", "orbit-msg.cmd", "orbit-msg.ps1"]);
+      expect(readdirSync(bin).sort()).toEqual(["claude-worker.json", "orbit-compact.ps1", "orbit-msg", "orbit-msg.cmd", "orbit-msg.ps1"]);
+      const compact = readFileSync(path.join(bin, "orbit-compact.ps1"), "utf8");
+      expect(compact).toMatch(/\r\n/);
+      expect(compact).not.toMatch(/[^\r]\n/);
       const cmd = readFileSync(path.join(bin, "orbit-msg.cmd"), "utf8");
       expect(cmd).toContain("orbit-msg.ps1");
       expect(cmd).toMatch(/\r\n/);
@@ -348,10 +351,30 @@ describe("installOrbitMsg", () => {
     try {
       const bin = await installOrbitMsg(path.join(dir, "orbit-bin"), "win32");
       const settings = JSON.parse(readFileSync(path.join(bin, "claude-worker.json"), "utf8"));
-      expect(settings).toEqual({ hooks: { Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command: expect.any(String), timeout: 15 }] }] } });
+      expect(settings.hooks.Notification).toEqual([{ matcher: "permission_prompt", hooks: [{ type: "command", command: expect.any(String), timeout: 15 }] }]);
       const { command } = settings.hooks.Notification[0].hooks[0];
       expect(command).toContain(`-File "${path.join(bin, "orbit-msg.ps1").replace(/\\/g, "/")}" "WAITING: `);
       expect(command).toMatch(/ "WAITING: [^"$`!%\\]+"$/);
+    } finally {
+      await removeTempDir(dir);
+    }
+  });
+
+  it("compacts Claude workers at a 500k window and hands back the card after", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "orbit-install-"));
+    try {
+      const bin = await installOrbitMsg(path.join(dir, "orbit-bin"), "win32");
+      const script = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(bin, "orbit-compact.ps1").replace(/\\/g, "/")}"`;
+      expect(JSON.parse(readFileSync(path.join(bin, "claude-worker.json"), "utf8"))).toEqual({
+        autoCompactWindow: 500000,
+        hooks: {
+          Notification: [expect.any(Object)],
+          SessionStart: [{ matcher: "compact", hooks: [
+            { type: "command", command: `${script} card`, timeout: 30 },
+            { type: "command", command: `${script} progress`, timeout: 30 },
+          ] }],
+        },
+      });
     } finally {
       await removeTempDir(dir);
     }
