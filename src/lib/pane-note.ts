@@ -9,6 +9,7 @@ export function noteText(note: PaneNote, t: Translate): string {
   if (note.alert?.kind === "waiting") return t("chat.noteWaiting");
   if (note.alert?.kind === "finished") return t("chat.noteFinished");
   if (note.alert?.kind === "restarted") return t("chat.noteRestarted", { panes: note.alert.panes.join(", ") });
+  if (note.alert?.kind === "limit") return t("chat.noteLimit", { engine: note.alert.engine, reset: note.alert.reset });
   return note.body;
 }
 

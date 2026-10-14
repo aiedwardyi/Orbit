@@ -21,6 +21,7 @@ const note = (id: string, at: number, text: string, label: string | null = "REL-
 });
 const report = (status: string, nick: string, body = "") => `${status} ${nick} branch=x sha=y dirty=no${body ? `\n${body}` : ""}`;
 const STALLED = "STALLED: no screen change for 2 min and no report. terminal_read its pane.";
+const LIMIT = "LIMIT: Codex hit its usage limit (resets 5:49 AM). Its work so far stays in C:\\repo. Send \"continue\" after the reset, or move the job to another engine.";
 
 describe("workerRuns", () => {
   it("folds a launch and its report into one run", () => {
@@ -87,9 +88,9 @@ describe("workerRuns", () => {
     expect(runs[0]).toMatchObject({ state: "done", provider: "codex" });
   });
 
-  it("reads a stalled, waiting or blocked newest note as waiting", () => {
+  it("reads a stalled, limit, waiting or blocked newest note as waiting", () => {
     const label = "A | Gemini 3.8 | high";
-    for (const text of [STALLED, "WAITING: this worker is stuck on an on-screen prompt (permission check).", report("BLOCKED", "A", "Which skin?")]) {
+    for (const text of [STALLED, LIMIT, "WAITING: this worker is stuck on an on-screen prompt (permission check).", report("BLOCKED", "A", "Which skin?")]) {
       expect(workerRuns([launch("l1", 1, label), note("n1", 2, text, label)])[0]!.state).toBe("waiting");
     }
   });

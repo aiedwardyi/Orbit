@@ -1,6 +1,6 @@
 // A stored pane note, split into what a person reads and what only the bot needs.
 export type PaneNoteStatus = "done" | "failed" | "blocked";
-export type PaneNoteAlert = { kind: "stalled"; minutes: number } | { kind: "waiting" } | { kind: "finished" } | { kind: "restarted"; panes: string[] };
+export type PaneNoteAlert = { kind: "stalled"; minutes: number } | { kind: "waiting" } | { kind: "finished" } | { kind: "restarted"; panes: string[] } | { kind: "limit"; engine: string; reset: string };
 export type PaneNote = {
   pane8: string | null;
   label: string | null;
@@ -24,6 +24,8 @@ const FINISHED = /^FINISHED: command ended without a report\./;
 // electron/pane-runs.mjs restartNoteText
 const RESTARTED = /^RESTARTED: Wink restarted, so these panes you spawned closed mid-run:\n/;
 const RESTARTED_PANE = /^- (?:(.+) )?\[pane ([0-9a-f]{1,8})\] in /;
+// the reset text may hold parens, e.g. "3pm (Asia/Seoul)"
+const LIMIT = /^LIMIT: (\S+) hit its usage limit \(resets (.+)\)\. Its work so far stays in /;
 const TRUNCATED = /\n\[truncated\]$/;
 
 /** Works on a stored note or on the raw text a pane posted. */
@@ -44,6 +46,8 @@ export function parsePaneNote(text: string): PaneNote {
     });
     return { ...note, alert: { kind: "restarted", panes } };
   }
+  const limit = LIMIT.exec(rest);
+  if (limit) return { ...note, alert: { kind: "limit", engine: limit[1] ?? "", reset: limit[2] ?? "" } };
   const report = REPORT.exec(rest);
   if (report) {
     // SAFETY: REPORT captures only DONE, FAIL or BLOCKED.
