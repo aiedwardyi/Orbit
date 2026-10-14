@@ -75,13 +75,27 @@ function done(body: Progress, file: UploadFile): UploadDone {
 /** Keeps the screen on while bytes move; the lock drops whenever the page hides. */
 function screenLock() {
   let lock: WakeLockSentinel | null = null;
+  let asking = false;
   let off = false;
   const take = () => {
-    if (off || !("wakeLock" in navigator) || document.visibilityState !== "visible") return;
-    navigator.wakeLock.request("screen").then((next) => {
-      if (off) void next.release().catch(() => {});
-      else lock = next;
-    }, () => {});
+    if (off || asking || (lock && !lock.released)) return;
+    if (!("wakeLock" in navigator) || document.visibilityState !== "visible") return;
+    asking = true;
+    navigator.wakeLock.request("screen").then(
+      (next) => {
+        asking = false;
+        if (off) {
+          void next.release().catch(() => {});
+          return;
+        }
+        if (lock && lock !== next) void lock.release().catch(() => {});
+        lock = next;
+        next.addEventListener("release", () => {
+          if (lock === next) lock = null;
+        });
+      },
+      () => (asking = false),
+    );
   };
   take();
   return {
@@ -113,6 +127,8 @@ async function run(file: UploadFile, options: UploadOptions): Promise<UploadDone
   let chunkBytes = UPLOAD_CHUNK_BYTES;
   let failures = 0;
   let resync = Boolean(id);
+  // a session from before a reload may be gone; only then does it start over
+  let saved = Boolean(id);
   const lock = screenLock();
   // a wake from hiding or a network change skips the back-off and the stale chunk
   let inner = new AbortController();
@@ -167,6 +183,12 @@ async function run(file: UploadFile, options: UploadOptions): Promise<UploadDone
           if (signal?.aborted) throw aborted();
         } else if (resync) {
           const response = await fetch(`/api/uploads/${encodeURIComponent(id)}`, { signal: inner.signal });
+          if (saved && (response.status === 404 || response.status === 410)) {
+            id = "";
+            saved = resync = false;
+            continue;
+          }
+          saved = false;
           if (!response.ok) await fail(response);
           const status = Progress.parse(await response.json());
           if (status.done) return done(status, file);
@@ -215,6 +237,8 @@ export type UploadJob = {
   error?: UploadErrorKey;
   result?: UploadDone;
   controller: AbortController;
+  /** Stores the finished chip in its draft before the reload hold lets go. */
+  save?: (result: UploadDone, uploadId?: string) => void;
 };
 
 // Module-level so an upload keeps going while its composer is unmounted;
@@ -248,13 +272,21 @@ function pump() {
   if (!id || !job) return;
   running = id;
   setJob(id, { phase: "uploading" });
-  startUpload(job.file, {
-    uploadId: job.uploadId,
+  let uploadId = job.uploadId;
+  const upload = startUpload(job.file, {
+    uploadId,
     signal: job.controller.signal,
-    onId: (uploadId) => setJob(id, { uploadId }),
+    onId: (next) => {
+      uploadId = next;
+      setJob(id, { uploadId });
+    },
     onProgress: (sent) => setJob(id, { sent }),
     onPhase: (phase) => setJob(id, { phase }),
-  })
+  }).then((result) => {
+    if (jobs.has(id)) job.save?.(result, uploadId);
+    return result;
+  });
+  holdReload(upload)
     .then(
       (result) => setJob(id, { phase: "done", result, sent: result.size }),
       (err) => {
@@ -268,9 +300,9 @@ function pump() {
     });
 }
 
-export function queueUpload(id: string, file: UploadFile, uploadId?: string): void {
+export function queueUpload(id: string, file: UploadFile, uploadId?: string, save?: UploadJob["save"]): void {
   const next = new Map(jobs);
-  next.set(id, { file, uploadId, sent: 0, phase: "queued", controller: new AbortController() });
+  next.set(id, { file, uploadId, sent: 0, phase: "queued", controller: new AbortController(), save });
   jobs = next;
   listeners.forEach((listener) => listener());
   pump();

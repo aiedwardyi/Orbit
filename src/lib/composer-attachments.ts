@@ -20,7 +20,7 @@ export type FileAttachment = {
   name: string;
   size: number;
   type?: string;
-  /** Set when the file was uploaded, so removing the chip deletes it on the PC. */
+  /** Set when the file was uploaded; it counts toward the per-message upload limit. */
   uploadId?: string;
 };
 

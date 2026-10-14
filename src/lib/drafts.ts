@@ -86,6 +86,14 @@ export function setDraftAttachments(store: Store, id: string, attachments: Attac
   }
 }
 
+/** Rewrites one stored chip, whether or not its task's composer is mounted. */
+export function updateDraftAttachment(id: string, chipId: string, update: (attachment: Attachment) => Attachment): void {
+  const store = getStore();
+  const attachments = getDraftAttachments(store, id);
+  if (!attachments.some((a) => a.id === chipId)) return;
+  setDraftAttachments(store, id, attachments.map((a) => (a.id === chipId ? update(a) : a)));
+}
+
 /** One room hold per busy Enter. A single draft slot cannot keep ADV-QUEUE-0..n. */
 export interface PersistedRoomHold {
   text: string;

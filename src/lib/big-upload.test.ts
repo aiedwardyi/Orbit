@@ -76,4 +76,48 @@ describe("startUpload", () => {
     expect(uploadErrorKey("too_big")).toBe("composer.uploadTooBig");
     expect(uploadErrorKey("busy")).toBe("composer.uploadBusy");
   });
+
+  it("keeps one screen lock across a reconnect and takes a new one only after the browser drops it", async () => {
+    class FakeSentinel extends EventTarget {
+      released = false;
+      release = vi.fn(async () => this.revoke());
+      revoke() {
+        this.released = true;
+        this.dispatchEvent(new Event("release"));
+      }
+    }
+    const locks: FakeSentinel[] = [];
+    Object.defineProperty(navigator, "wakeLock", {
+      configurable: true,
+      value: { request: vi.fn(async () => locks[locks.push(new FakeSentinel()) - 1]) },
+    });
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    let chunks = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/uploads") return Response.json({ id: ID, offset: 0, chunkBytes: 16 }, { status: 201 });
+      if (url === `/api/uploads/${ID}`) return Response.json({ offset: 0, size: 10, done: false });
+      if (chunks++ < 2) {
+        return new Promise<Response>((_resolve, reject) =>
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
+        );
+      }
+      return Response.json({ offset: 10, done: true, path: "C:\\Wink\\meeting.mp4" });
+    }));
+    try {
+      const run = startUpload(file());
+      await vi.waitFor(() => expect(chunks).toBe(1));
+      window.dispatchEvent(new Event("online"));
+      await vi.waitFor(() => expect(chunks).toBe(2));
+      expect(locks).toHaveLength(1);
+      locks[0]!.revoke();
+      document.dispatchEvent(new Event("visibilitychange"));
+      await run;
+      expect(locks).toHaveLength(2);
+      expect(locks[0]!.release).not.toHaveBeenCalled();
+      expect(locks[1]!.release).toHaveBeenCalledTimes(1);
+    } finally {
+      Reflect.deleteProperty(navigator, "wakeLock");
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+  });
 });

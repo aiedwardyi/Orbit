@@ -12,6 +12,7 @@ import {
   rememberFailedComposerSend,
   setRoomHolds,
   takeRestoredSendId,
+  updateDraftAttachment,
   useComposerDraft,
   useFailedComposerSends,
   type ComposerSendSnapshot,
@@ -35,9 +36,18 @@ import {
   visibleComposerNotice,
   type Attachment,
   type ComposerThreadNotice,
+  type FileAttachment,
   type PasteAttachment,
 } from "@/lib/composer-attachments";
-import { dropUpload, forgetUpload, onUploadJobs, queueUpload, retryUpload, uploadJobs } from "@/lib/big-upload";
+import {
+  dropUpload,
+  forgetUpload,
+  onUploadJobs,
+  queueUpload,
+  retryUpload,
+  uploadJobs,
+  type UploadDone,
+} from "@/lib/big-upload";
 import { normalizeState } from "@/lib/mascot";
 import { groupComposerHint, roomRespondersForComposer } from "@/lib/group-routing";
 import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "./PendingApproval";
@@ -82,6 +92,16 @@ const MAX_UPLOADS_PER_MESSAGE = 5;
 
 const fromUpload = (attachment: Attachment) =>
   attachment.kind === "upload" || (attachment.kind === "file" && Boolean(attachment.uploadId));
+
+function uploadedFile(id: string, result: UploadDone, uploadId?: string): FileAttachment {
+  const file = fileAttachment(result.name, result.path, result.size, result.type);
+  file.id = id;
+  file.uploadId = uploadId;
+  return file;
+}
+
+const saveUpload = (draftId: string, chipId: string) => (result: UploadDone, uploadId?: string) =>
+  updateDraftAttachment(draftId, chipId, (a) => (a.kind === "upload" ? uploadedFile(chipId, result, uploadId) : a));
 
 interface ComposerDraftSnapshot extends ComposerSendSnapshot {
   reply: Message | null;
@@ -266,15 +286,16 @@ export function Composer({
       if (kept.length < next.length) setAttachmentNotice(t("composer.uploadTooMany"));
       flushSync(() => editAttachments((prev) => [...prev, ...kept]));
       for (const upload of uploads) {
-        if (kept.some((a) => a.id === upload.id)) queueUpload(upload.id, upload.file);
+        if (kept.some((a) => a.id === upload.id)) queueUpload(upload.id, upload.file, undefined, saveUpload(draftId, upload.id));
       }
     },
-    [editAttachments, t],
+    [draftId, editAttachments, t],
   );
   const removeAttachment = useCallback(
     (id: string) => {
       const removed = attachmentsRef.current.find((a) => a.id === id);
-      if (removed && fromUpload(removed)) dropUpload(id, "uploadId" in removed ? removed.uploadId : undefined);
+      // a finished file may already be in a sent message, so only unfinished uploads are cancelled
+      if (removed?.kind === "upload") dropUpload(id, removed.uploadId);
       editAttachments((prev) => prev.filter((a) => a.id !== id));
     },
     [editAttachments],
@@ -283,6 +304,7 @@ export function Composer({
   // an upload chip with no job is from before a reload.
   const jobs = useSyncExternalStore(onUploadJobs, uploadJobs, uploadJobs);
   useEffect(() => {
+    for (const a of attachments) if (a.kind === "file" && jobs.get(a.id)?.phase === "done") forgetUpload(a.id);
     const changed = attachments.filter((a) => {
       const job = a.kind === "upload" ? jobs.get(a.id) : undefined;
       return job && a.kind === "upload" && (job.phase === "done" || (job.uploadId && job.uploadId !== a.uploadId));
@@ -292,13 +314,7 @@ export function Composer({
       prev.map((a) => {
         const job = a.kind === "upload" ? jobs.get(a.id) : undefined;
         if (a.kind !== "upload" || !job) return a;
-        if (job.phase === "done" && job.result) {
-          const { path, name, size, type } = job.result;
-          const file = fileAttachment(name, path, size, type);
-          file.id = a.id;
-          file.uploadId = job.uploadId;
-          return file;
-        }
+        if (job.phase === "done" && job.result) return uploadedFile(a.id, job.result, job.uploadId);
         return job.uploadId ? { ...a, uploadId: job.uploadId } : a;
       }),
     );
@@ -330,15 +346,15 @@ export function Composer({
     const target = attachmentsRef.current.find((a) => a.id === repickTarget.current);
     repickTarget.current = null;
     if (!file || target?.kind !== "upload") return;
-    // the server matches the same file to its unfinished session and resumes it
+    // the saved session answers with its finished file or its offset
     if (file.name === target.name && file.size === target.size && file.lastModified === target.lastModified) {
-      queueUpload(target.id, file);
+      queueUpload(target.id, file, target.uploadId, saveUpload(draftId, target.id));
       return;
     }
     dropUpload(target.id, target.uploadId);
     const next = uploadAttachment(file);
     editAttachments((prev) => prev.map((a) => (a.id === target.id ? next : a)));
-    queueUpload(next.id, file);
+    queueUpload(next.id, file, undefined, saveUpload(draftId, next.id));
   };
   // A value set from code never reaches the textarea's native undo stack, so
   // Ctrl+Z right after a long paste or "Display in chat box" restores this
