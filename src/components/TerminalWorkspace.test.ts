@@ -2012,3 +2012,18 @@ it("drops a snapshot that settles while hidden and reopens on show", async () =>
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["FRESH"]);
 });
+
+it("shows Alt+N titles only for tabs 1 to 9 with 16 workers", async () => {
+  const open = vi.fn(async (input: { sessionId?: string }) => ({ id: input.sessionId ?? "session-main", cwd: "C:\\work", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
+  const panes = Array.from({ length: 16 }, (_, index) => ({ sessionId: `pane-${index + 1}`, generation: 1, label: `worker-${index + 1}`, cwd: "C:\\work", main: false, exited: false }));
+  const readBot = vi.fn(async () => ({ botId: "bot-1", seq: 0, capturedAt: 0, exitCode: null, exited: false, screenText: "", recentText: "", truncated: false, panes }));
+  const bot = mountBridge({ appearance: vi.fn(async () => null), open, readBot, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() });
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); });
+
+  const tabs = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+  expect(tabs).toHaveLength(17);
+  expect(tabs[8].title.endsWith("(Alt+9)")).toBe(true);
+  expect(tabs[9].title).not.toContain("Alt+");
+  expect(tabs[16].title).not.toContain("Alt+");
+});
