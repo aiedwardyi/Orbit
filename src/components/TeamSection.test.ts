@@ -103,6 +103,15 @@ describe("team cards", () => {
     expect(cards[2]?.textContent).not.toContain("Mobile today");
   });
 
+  it("counts a visit that runs past midnight on the next day too", async () => {
+    const eve = { id: "eve", name: "Eve", online: true, lastSeen: view.now, pcs: [{ label: "ffffffffffffffff", name: "Lap", online: true }], hours: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], phone: rows([[1, 20], [0, 12]]) };
+    const card = (await renderTeam({ ...view, people: [eve] })).querySelector("article");
+    if (!card) throw new Error("no card");
+    expect(card.textContent).toContain("Mobile today · 1 visit · 12m");
+    await tapBar(card, 13);
+    expect(card.querySelector("p.whitespace-pre-line")?.textContent).toBe("Tue, Oct 13\n1h online\nMobile 1 visit · 12m");
+  });
+
   it("shows <1m for a visit under a minute", async () => {
     const card = await cardAt(3);
     expect(card.textContent).toContain("Mobile today · 1 visit · <1m");

@@ -38,6 +38,11 @@ function visitTime(minutes: number): string {
   return minutes === 0 ? "<1m" : minutesText(minutes);
 }
 
+// the relay counts a visit only on its start day, so one running past midnight has minutes but no count
+function withVisit(day: { count: number; minutes: number }) {
+  return day.count === 0 && day.minutes > 0 ? { ...day, count: 1 } : day;
+}
+
 function dayLabel(iso: string, locale: string) {
   const [year, month, day] = iso.split("-").map(Number);
   const date = new Date(Date.UTC(year || 1970, (month || 1) - 1, day || 1));
@@ -76,7 +81,8 @@ function PersonCard({ person, days, now, locale }: { person: TeamPerson; days: s
   const today = person.hours.at(-1) ?? 0;
   const status = person.online ? t("team.online") : seenText(person.lastSeen, now, t);
   const peak = person.hours.reduce((best, hours, index) => (hours > (person.hours[best] ?? 0) ? index : best), 0);
-  const phoneToday = person.phone.at(-1) ?? { count: 0, minutes: 0 };
+  const phoneDays = person.phone.map(withVisit);
+  const phoneToday = phoneDays.at(-1) ?? { count: 0, minutes: 0 };
   const when = dayLabel(days[peak] ?? "", locale).full;
   const active = person.hours.filter((hours) => hours > 0).length;
   const letter = person.name.trim().slice(0, 1) || "?";
@@ -100,7 +106,7 @@ function PersonCard({ person, days, now, locale }: { person: TeamPerson; days: s
       </div>
       <div className="flex h-12 items-end gap-[3px] bg-[linear-gradient(to_top,var(--color-hairline),var(--color-hairline)_1px,transparent_1px)]">
         {person.hours.map((hours, index) => {
-          const phone = person.phone[index] ?? { count: 0, minutes: 0 };
+          const phone = phoneDays[index] ?? { count: 0, minutes: 0 };
           const label = dayLabel(days[index] ?? "", locale);
           const mobile = phone.count === 0 ? t("team.tipMobileNone") : t(phone.count === 1 ? "team.tipMobileOne" : "team.tipMobile", { n: phone.count, time: visitTime(phone.minutes) });
           const text = t("team.tip", { when: label.full, hours: hoursText(hours), mobile });
