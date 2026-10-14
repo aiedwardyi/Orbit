@@ -3,7 +3,7 @@ import { Check, Copy, CornerDownLeft, RotateCcw, TerminalSquare, X } from "lucid
 import type { Bot } from "@/state/store";
 import { api, visibleMessages } from "@/state/store";
 import { useI18n, type MessageKey } from "@/lib/i18n";
-import { ansiColor } from "@/lib/ansi-palette";
+import { paintRun, runPaint, type RunPaint } from "@/lib/ansi-palette";
 import { composerEnterIntent } from "@/lib/composer-enter";
 import { createTerminalLineTracker } from "@/lib/terminal-input";
 import { latestPaneRun, parseWorkerLabel, workerProvider, workerRuns } from "@/lib/worker-runs";
@@ -72,13 +72,11 @@ export function snapshotText(snapshot: RemoteTerminalSnapshot): string {
   return [snapshot.recentText, snapshot.screenText].filter(Boolean).join("\n\n");
 }
 
-function runStyle(run: TerminalRun): CSSProperties {
+function runStyle(run: TerminalRun, paint: RunPaint): CSSProperties {
   const decoration = [run.u && "underline", run.s && "line-through"].filter(Boolean).join(" ");
   return {
-    color: ansiColor(run.fg),
-    backgroundColor: ansiColor(run.bg),
+    ...paintRun(run, paint),
     fontWeight: run.b ? 600 : undefined,
-    opacity: run.d ? 0.6 : undefined,
     fontStyle: run.i ? "italic" : undefined,
     textDecoration: decoration || undefined,
   };
@@ -133,6 +131,8 @@ export function RemoteTerminalView({
   const outputRef = useRef<HTMLPreElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pinnedRef = useRef(true);
+  const mainRef = useRef<HTMLElement>(null);
+  const [paint, setPaint] = useState(() => runPaint(() => ""));
 
   const panes = snapshot?.panes ?? [];
   const mainPane = panes.find((pane) => pane.main);
@@ -241,6 +241,19 @@ export function RemoteTerminalView({
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [text]);
 
+  useLayoutEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const read = () => {
+      const css = getComputedStyle(el);
+      setPaint(runPaint((name) => css.getPropertyValue(`--color-${name}`).trim()));
+    };
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-skin"] });
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     if (visible && canType) focusInput(inputRef.current);
   }, [visible, canType]);
@@ -334,7 +347,7 @@ export function RemoteTerminalView({
   const paneLabel = (pane: RemoteTerminalPane) => pane.label ?? (pane.main ? t("terminal.main") : pane.cwd ? folderName(pane.cwd) : pane.sessionId);
 
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-inset text-ink" aria-label={t("terminal.title")}>
+    <main ref={mainRef} className="flex min-h-0 min-w-0 flex-1 flex-col bg-inset text-ink" aria-label={t("terminal.title")}>
       <header className={`flex shrink-0 items-center gap-2 bg-panel px-2 py-2 md:pl-5 ${sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT} ${tabs.length > 1 ? "" : "border-b border-hairline"}`}>
         <TerminalSquare size={16} className="shrink-0 text-accent-text" />
         <div className="min-w-0 flex-1">
@@ -410,7 +423,7 @@ export function RemoteTerminalView({
                 <Fragment key={y}>
                   {y > 0 && "\n"}
                   {row.map((run, x) => (
-                    <span key={x} style={runStyle(run)}>
+                    <span key={x} style={runStyle(run, paint)}>
                       {run.t}
                     </span>
                   ))}
