@@ -31,6 +31,7 @@ import {
 import { DATA_DIR } from "./config.ts";
 import { newId } from "./contracts.ts";
 import { requestPeerApproval, type ApprovalBus } from "./peer-approval.ts";
+import { askSwitchedText } from "./peer-takeover.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { hasQueuedSends } from "./steer-queue.ts";
 import type { BotRecord, GroupRecord, Message } from "./store.ts";
@@ -111,7 +112,7 @@ const DELEGATIONS_FILE = join(DATA_DIR, "delegations.json");
 const RECEIPTS_FILE = join(DATA_DIR, "delegation-receipts.json");
 const MAX_RECEIPTS = 100;
 const RECEIPT_MAX_AGE_MS = 48 * 60 * 60 * 1000;
-const RESULT_MAX_CHARS = 4_000;
+const RESULT_MAX_CHARS = 16_000;
 const persistedFromBotId = z.string().min(1).optional().catch(undefined);
 export const MAX_BUSY_ATTEMPTS = 3;
 /** Dispatched handoffs by id, so a taken-over turn can queue the same one again. */
@@ -127,6 +128,12 @@ function saveReceipts(): void {
   }
 }
 
+// no tool reads past the cut, so the marker names no place to find the rest
+const boundedResult = (result: string) =>
+  result.length > RESULT_MAX_CHARS
+    ? `${result.slice(0, RESULT_MAX_CHARS)}\n\n[reply cut: first ${RESULT_MAX_CHARS} of ${result.length} chars]`
+    : result;
+
 /** Record one terminal outcome. Newest first; pruned by count and age so the
  * drawer can never grow without bound. */
 export function recordDelegationReceipt(receipt: Omit<DelegationReceipt, "finishedAt"> & { finishedAt?: number }): void {
@@ -139,7 +146,7 @@ export function recordDelegationReceipt(receipt: Omit<DelegationReceipt, "finish
     status: receipt.status,
     finishedAt: receipt.finishedAt ?? now,
   };
-  if (receipt.result !== undefined) bounded.result = redactSecretsInText(receipt.result).slice(0, RESULT_MAX_CHARS);
+  if (receipt.result !== undefined) bounded.result = boundedResult(redactSecretsInText(receipt.result));
   receipts = [bounded, ...receipts.filter((existing) => existing.id !== bounded.id)]
     .filter((existing) => now - existing.finishedAt <= RECEIPT_MAX_AGE_MS)
     .slice(0, MAX_RECEIPTS);
@@ -175,6 +182,50 @@ export function pendingDelegationInfo(id: string): { sourceThreadId: string; toB
     if (item) return { sourceThreadId, toBotId: item.toBotId, attempts: item.attempts };
   }
   return null;
+}
+
+/** Queued by the asking bot's running turn: it sends only when that turn ends,
+ * so a wait inside the same turn could never see it run. */
+function queuedThisTurn(id: string, fromBotId: string): boolean {
+  for (const [sourceThreadId, items] of pendingDelegations) {
+    const item = items.find((candidate) => candidate.id === id);
+    if (item) return item.attempts === 0 && item.takenOverBy === undefined && item.fromBotId === fromBotId && !drainingThreads.has(sourceThreadId);
+  }
+  return false;
+}
+
+export interface DelegationPollResult {
+  code: 200 | 403 | 404;
+  body: { error: string } | { status: string; toBotName: string; result?: string; sameTurn?: true };
+}
+
+/** check/wait_delegation's read: a bounded long-poll, so the delegating bot parks
+ * one cheap request instead of burning a model inference per status check. */
+export async function pollDelegation(
+  taskId: string,
+  fromBotId: string,
+  fromThreadId: string,
+  waitMs: number,
+  running: (taskId: string) => DelegatedTurn | undefined,
+  botName: (botId: string) => string,
+): Promise<DelegationPollResult> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const receipt = findDelegationReceipt(taskId);
+    if (receipt) {
+      if (receipt.sourceThreadId !== fromThreadId) return { code: 403, body: { error: "that task belongs to a different conversation" } };
+      return { code: 200, body: { status: receipt.status, toBotName: receipt.toBotName, result: receipt.result ?? "" } };
+    }
+    const stillQueued = pendingDelegationInfo(taskId);
+    const watched = running(taskId);
+    const owner = stillQueued?.sourceThreadId ?? watched?.sourceThreadId;
+    if (!owner) return { code: 404, body: { error: "unknown task id - delegation receipts are kept for about 48 hours" } };
+    if (owner !== fromThreadId) return { code: 403, body: { error: "that task belongs to a different conversation" } };
+    const toBotName = botName(stillQueued?.toBotId ?? watched?.toBotId ?? "");
+    if (stillQueued && queuedThisTurn(taskId, fromBotId)) return { code: 200, body: { status: "queued", toBotName, sameTurn: true } };
+    if (Date.now() >= deadline) return { code: 200, body: { status: watched ? "running" : "queued", toBotName } };
+    await new Promise((wake) => setTimeout(wake, 500));
+  }
 }
 
 /** Source threads holding a handoff that already waited on this busy bot at
@@ -703,11 +754,18 @@ export interface DelegatedTurn {
   sourceBotId?: string;
   /** The user whose message joined this turn; its text went to them. */
   takenOverBy?: string;
+  /** An ask that outlived its wait: a takeover fails it, nothing reruns. */
+  ask?: true;
 }
 
 /** The user's message joined a delegated turn: say so where the teammate waits. */
 export function takeOverDelegatedTurn(bus: CommsBus, turn: DelegatedTurn, userName: string): void {
   if (turn.takenOverBy !== undefined) return;
+  if (turn.ask) {
+    finishDelegatedTurn(bus, turn, false, "", askSwitchedText(bus.store.bot(turn.toBotId)?.name ?? turn.toBotId, userName));
+    turn.takenOverBy = userName;
+    return;
+  }
   turn.takenOverBy = userName;
   // a rerun taken over settles with the pointer at its end; the chip already says paused
   if (turn.taskId && runningDelegations.get(turn.taskId)?.item.takenOverBy !== undefined) return;
@@ -731,6 +789,8 @@ export function finishDelegatedTurn(
   reply = "",
   failureName = "Delegated turn did not finish",
 ): boolean {
+  // settled when the user took it over
+  if (turn.ask && turn.takenOverBy !== undefined) return false;
   const running = turn.taskId ? runningDelegations.get(turn.taskId) : undefined;
   if (turn.taskId) runningDelegations.delete(turn.taskId);
   const target = bus.store.bot(turn.toBotId);

@@ -3584,6 +3584,7 @@ describe("harness HTTP API", () => {
         taskId: z.string().optional(),
         status: z.string().optional(),
         result: z.string().optional(),
+        sameTurn: z.boolean().optional(),
         error: z.string().optional(),
       });
       const internal = async (method: string, path: string, body?: InternalBody) => {
@@ -3675,11 +3676,15 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/bots/${source.id}`, {
         modelSelection: { instanceId: "claudeHappy", model: "claude-sonnet-5" },
       })).status).toBe(200);
+      const delegationPath = `/api/internal/delegations/${taskId}?fromBotId=${source.id}&fromThreadId=${room.threadId}`;
+      // queued by the source's own turn, so a wait answers at once
+      expect(await internal("GET", `${delegationPath}&wait_ms=10000`)).toMatchObject({
+        status: 200,
+        body: { status: "queued", sameTurn: true },
+      });
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "settle the room handoff" })).status).toBe(202);
-      const finished = await internal(
-        "GET",
-        `/api/internal/delegations/${taskId}?fromBotId=${source.id}&fromThreadId=${room.threadId}&wait_ms=10000`,
-      );
+      await expect.poll(async () => (await internal("GET", delegationPath)).body.status, { timeout: 10_000 }).not.toBe("queued");
+      const finished = await internal("GET", `${delegationPath}&wait_ms=10000`);
       expect(finished.status).toBe(200);
       expect(finished.body.status).toBe("done");
       expect(finished.body.result).toContain("hello from fake claude");

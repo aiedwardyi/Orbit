@@ -267,7 +267,7 @@ const TOOLS = [
   {
     name: "ask_bot",
     description:
-      "Send a message to another bot in your Wink workspace and wait for its reply. Use it to delegate a subtask to a specialist bot or ask a peer a question. The other bot runs a full turn under its own model and permissions; the reply is returned to you as text. Returns promptly with a note if that bot is busy.",
+      "Send a message to another bot in your Wink workspace and wait for its reply. Use it to delegate a subtask to a specialist bot or ask a peer a question. The other bot runs a full turn under its own model and permissions; the reply is returned to you as text. Returns promptly with a note if that bot is busy. Waits up to 4 minutes; if the bot is still working then, you get a task id instead: collect the reply with wait_delegation and do not ask again.",
     inputSchema: {
       type: "object",
       properties: {
@@ -294,11 +294,11 @@ const TOOLS = [
   {
     name: "check_delegation",
     description:
-      "Check what happened to a delegation you queued with delegate_bot, without waiting: still queued, running, or finished — and the peer's reply once it is done. task_id may be a unique prefix of 8+ characters.",
+      "Check what happened to a delegation you queued with delegate_bot, or an ask_bot that returned a task id, without waiting: still queued, running, or finished - and the peer's reply once it is done. task_id may be a unique prefix of 8+ characters.",
     inputSchema: {
       type: "object",
       properties: {
-        task_id: { type: "string", description: "The task id delegate_bot returned, or a unique prefix of 8+ characters." },
+        task_id: { type: "string", description: "The task id delegate_bot or ask_bot returned, or a unique prefix of 8+ characters." },
       },
       required: ["task_id"],
     },
@@ -306,11 +306,11 @@ const TOOLS = [
   {
     name: "wait_delegation",
     description:
-      "Wait until a delegation you queued finishes and return the peer's reply — ONE call instead of repeated checks. Use it after your own remaining work is done; it returns immediately if the task already finished.",
+      "Wait until a delegation you queued, or an ask_bot that returned a task id, finishes and return the peer's reply - ONE call instead of repeated checks. It returns immediately if the task already finished. A delegation queued in this turn is only sent when this turn ends, so collect it in a later turn; an ask_bot task id can be waited on right away.",
     inputSchema: {
       type: "object",
       properties: {
-        task_id: { type: "string", description: "The task id delegate_bot returned, or a unique prefix of 8+ characters." },
+        task_id: { type: "string", description: "The task id delegate_bot or ask_bot returned, or a unique prefix of 8+ characters." },
         timeout_seconds: { type: "integer", description: "give up waiting after this many seconds; default 60, max 240" },
       },
       required: ["task_id"],
@@ -650,6 +650,7 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     // the model hunting for a broken peer instead of using what it has
     if (typeof r.limit === "string") return { text: r.limit, isError: true };
     if (r.error) return { text: `Couldn't reach that bot: ${r.error}`, isError: true };
+    if (r.taskId) return { text: String(r.text) };
     const shown = r.shown === true ? "\n\nThe user sees this reply in the chat, so add only your own take." : "";
     return { text: `${r.botName ?? "Bot"} replied:\n${r.text ?? "(no reply)"}${shown}` };
   }
@@ -673,7 +674,7 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     // bot's claim ticket for the outcome.
     const note = typeof r.message === "string" ? r.message : "Delegation queued.";
     const suffix = typeof r.taskId === "string" && r.taskId
-      ? ` Task id: ${r.taskId} — after your own work is done, read the outcome with check_delegation or block on it with wait_delegation.`
+      ? ` Task id: ${r.taskId}. It sends when this turn ends, so read the outcome in a later turn with check_delegation or wait_delegation.`
       : "";
     return { text: `${note}${suffix}` };
   }
@@ -688,6 +689,9 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     const r = await api(`/api/internal/delegations/${encodeURIComponent(taskId)}?${query.toString()}`);
     const who = typeof r.toBotName === "string" && r.toBotName ? `@${r.toBotName}` : "the peer";
     if (r.status === "done") return { text: `${who} finished task ${taskId}:\n${String(r.result || "(no reply text)")}` };
+    if (r.status === "queued" && r.sameTurn === true) {
+      return { text: `Task ${taskId} sends to ${who} when your turn ends, so it cannot finish during this turn. Finish your turn and collect it in a later one.` };
+    }
     if (r.status === "queued") {
       return { text: `Task ${taskId} is still queued — ${who} hasn't picked it up yet${waitMs ? ` after ${timeout}s` : ""}. Keep working and check again later.` };
     }

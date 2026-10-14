@@ -137,6 +137,7 @@ import {
 import { receiveColdOpen } from "./cold-open-diag.ts";
 import {
   isEffortLevel,
+  newId,
   type ModelSelection,
   type ProviderInstance,
   type RequestOutcome,
@@ -150,8 +151,9 @@ import { getOrCreateChannel, mirrorExchange, mirrorReply, postPeerReply, type Co
 import { searchHaystack, searchMessages, searchSnippet } from "./message-db.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript, userTurnReactionKeys } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
-import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, findDelegationReceipt, finishDelegatedTurn, pendingDelegationInfo, pendingDelegationSnapshot, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
-import { onPeerTakeover, peerAnswer, takeOverPeerTurn } from "./peer-takeover.ts";
+import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, finishDelegatedTurn, pendingDelegationSnapshot, pollDelegation, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
+import { onPeerTakeover, takeOverPeerTurn } from "./peer-takeover.ts";
+import { waitForPeerReply, type AskReply } from "./ask-bot.ts";
 import {
   cancelQueuedRoomParticipations,
   cancelSteeredMessage,
@@ -701,43 +703,48 @@ function peerAttribution(sender?: BotRecord, channel?: GroupRecord): Pick<StartT
   };
 }
 
-/** Run a turn on `targetBotId` and resolve with its assistant text — the
- * synchronous half of ask_bot. Subscribes to the bus, folds assistant_text
- * for that thread, resolves on turn.completed (or a 4-min ceiling). */
+/** Run a turn on `targetBotId` and resolve with its assistant text: the
+ * synchronous half of ask_bot. Past ASK_BOT_TIMEOUT_MS a still-running peer
+ * turn is watched as a delegation and the caller gets its task id. */
 function askBotAndWait(
   targetBotId: string,
   message: string,
   depth: number,
   fromBotId?: string,
   peer?: { sender: BotRecord; channel?: GroupRecord; sourceThreadId: string; transcriptText?: string },
-): Promise<{ text: string; replied: boolean }> {
+): Promise<AskReply> {
   const target = store.bot(targetBotId);
   if (!target) return Promise.resolve({ text: "(no such bot)", replied: false });
   const threadId = target.threadId;
-  return new Promise((resolve) => {
-    const answer = peerAnswer(threadId, target.name, () => cfg.profile?.name?.trim() || "User", (text, replied) => {
-      clearTimeout(timer);
-      unsub();
-      peerTurnSource.delete(threadId);
-      resolve({ text, replied });
-    });
-    const reply = ownTurnReply(staleTurnEvent);
-    const unsub = bus.subscribe((e: RuntimeEvent) => {
-      if (e.threadId !== threadId) return;
-      const step = reply.fold(e);
-      if (step === "completed") answer.end("(the bot finished without a text reply)");
-      else if (step) answer.add(step.text);
-    });
-    const timer = setTimeout(() => answer.end("(timed out waiting for the bot to reply)", false), 4 * 60_000);
-    if (peer) peerTurnSource.set(threadId, peer.sourceThreadId);
-    startTurn(targetBotId, message, {
+  if (peer) peerTurnSource.set(threadId, peer.sourceThreadId);
+  return waitForPeerReply({
+    threadId,
+    botName: target.name,
+    userName: () => cfg.profile?.name?.trim() || "User",
+    subscribe: (listener) => bus.subscribe(listener),
+    fold: ownTurnReply(staleTurnEvent).fold,
+    start: (onDispatchError) => startTurn(targetBotId, message, {
       commsDepth: depth + 1,
       unattended: isUnattended(fromBotId),
       transcriptText: peer?.transcriptText,
       ...peerAttribution(peer?.sender, peer?.channel),
-    }).catch((err) =>
-      answer.end(`(couldn't start that bot: ${err instanceof Error ? err.message : String(err)})`, false),
-    );
+      onDispatchError,
+      commsAsk: true,
+    }).then(() => undefined),
+    adopt: () => {
+      if (!peer || !store.bot(targetBotId)?.busy) return undefined;
+      const taskId = newId();
+      watchDelegatedTurn(threadId, { channelId: peer.channel?.id, toBotId: targetBotId, taskId, sourceThreadId: peer.sourceThreadId, sourceBotId: peer.sender.id, ask: true });
+      return taskId;
+    },
+    fail: (taskId, failureName) => {
+      if (delegationWatch.get(threadId)?.taskId !== taskId) return;
+      peerTurnSource.delete(threadId);
+      finalizeDelegationWatch(threadId, false, "", failureName);
+    },
+  }).then((reply) => {
+    if (!reply.taskId) peerTurnSource.delete(threadId);
+    return reply;
   });
 }
 
@@ -3649,6 +3656,16 @@ function finalizeDelegationWatch(
   return finishDelegatedTurn(commsBus, watched, ok, reply, failureName);
 }
 
+/** Watch a peer turn on `targetThreadId` until it ends: a drained handoff, or an ask that outlived its wait. */
+function watchDelegatedTurn(targetThreadId: string, watched: DelegatedTurn & { sourceThreadId: string; endTakeover?: () => void }): void {
+  delegationWatch.set(targetThreadId, watched);
+  peerTurnSource.set(targetThreadId, watched.sourceThreadId);
+  watched.endTakeover = onPeerTakeover(targetThreadId, () => {
+    peerTurnSource.delete(targetThreadId);
+    takeOverDelegatedTurn(commsBus, watched, cfg.profile?.name?.trim() || "User");
+  });
+}
+
 // A bot going in circles — the same call with the same arguments, over and
 // over in one turn — gets a chip at 5, 10 and 20 repeats. Observe and say
 // so; the human has Stop. Keyed on tool + arguments, so a bare tool name
@@ -3686,15 +3703,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, text,
     // harness (Node's default), which in the packaged app kills the server
     // child. Every delegation failure has to land as a chip instead.
     const targetThreadId = store.bot(toBotId)?.threadId;
-    if (targetThreadId) {
-      const watched: DelegatedTurn & { endTakeover?: () => void } = { channelId: channel?.id, toBotId, taskId, sourceThreadId, sourceBotId };
-      delegationWatch.set(targetThreadId, watched);
-      peerTurnSource.set(targetThreadId, sourceThreadId);
-      watched.endTakeover = onPeerTakeover(targetThreadId, () => {
-        peerTurnSource.delete(targetThreadId);
-        takeOverDelegatedTurn(commsBus, watched, cfg.profile?.name?.trim() || "User");
-      });
-    }
+    if (targetThreadId) watchDelegatedTurn(targetThreadId, { channelId: channel?.id, toBotId, taskId, sourceThreadId, sourceBotId });
     let failureReported = false;
     const reportStartFailure = (error: unknown) => {
       if (failureReported) return;
@@ -4025,6 +4034,8 @@ type StartTurnOptions = {
    * dispatch the same user action twice. */
   sendId?: string;
   onDispatchError?: (message: string) => void;
+  /** ask_bot's turn: it has onDispatchError too, but keeps the ask turn limit. */
+  commsAsk?: boolean;
 };
 
 /** True only for a turn a person actually typed - not a pane note wake, a
@@ -4844,8 +4855,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // The @tag is the user's own coordination signal. Without it a 1:1
       // Chief gets the answer-directly framing: the fan-out paragraph on
       // every turn is what has it messaging its roster over a direct question.
-      // Depth-capped ask_bot has no onDispatchError. delegate_bot does.
-      const turnLimit = commsDepth < MAX_COMMS_DEPTH ? undefined : opts?.onDispatchError ? "delegation" : "ask";
+      const turnLimit = commsDepth < MAX_COMMS_DEPTH ? undefined : opts?.onDispatchError && !opts.commsAsk ? "delegation" : "ask";
       const coordinationPrompt = bot.chiefOfStaff
         ? chiefOfStaffSystemPrompt(
             bot.id,
@@ -6928,7 +6938,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           sourceThreadId: fromThreadId,
           transcriptText: message,
         });
-        mirrorReply(commsBus, currentTarget, reply.text, channel);
+        // the peer's real reply reaches the channel and this thread when its turn ends
+        if (reply.taskId) return json(res, 200, { botName: currentTarget.name, text: reply.text, taskId: reply.taskId, shown: false });
+        // a harness note (no text, no start) is not the peer's message
+        if (reply.replied) mirrorReply(commsBus, currentTarget, reply.text, channel);
         const shown = reply.replied && postPeerReply(commsBus, currentFrom, currentTarget, reply.text, channel, fromThreadId);
         return json(res, 200, { botName: currentTarget.name, text: reply.text, shown });
       }
@@ -7112,31 +7125,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const taskId = resolved.id;
         const waitMs = Math.min(Math.max(Number(url.searchParams.get("wait_ms")) || 0, 0), 240_000);
-        const deadline = Date.now() + waitMs;
-        // Bounded long-poll: the delegating bot parks ONE cheap HTTP request
-        // here instead of burning a model inference per status check.
-        for (;;) {
-          const receipt = findDelegationReceipt(taskId);
-          if (receipt) {
-            if (receipt.sourceThreadId !== fromThreadId) {
-              return json(res, 403, { error: "that task belongs to a different conversation" });
-            }
-            return json(res, 200, { status: receipt.status, toBotName: receipt.toBotName, result: receipt.result ?? "" });
-          }
-          const stillQueued = pendingDelegationInfo(taskId);
-          const running = [...delegationWatch.values()].find((watch) => watch.taskId === taskId);
-          const owner = stillQueued?.sourceThreadId ?? running?.sourceThreadId;
-          if (!owner) return json(res, 404, { error: "unknown task id — delegation receipts are kept for about 48 hours" });
-          if (owner !== fromThreadId) return json(res, 403, { error: "that task belongs to a different conversation" });
-          if (Date.now() >= deadline) {
-            const toBotId = stillQueued?.toBotId ?? running?.toBotId ?? "";
-            return json(res, 200, {
-              status: running ? "running" : "queued",
-              toBotName: store.bot(toBotId)?.name ?? toBotId,
-            });
-          }
-          await new Promise((wake) => setTimeout(wake, 500));
-        }
+        const polled = await pollDelegation(
+          taskId,
+          from.id,
+          fromThreadId,
+          waitMs,
+          (id) => [...delegationWatch.values()].find((watch) => watch.taskId === id),
+          (botId) => store.bot(botId)?.name ?? botId,
+        );
+        return json(res, polled.code, polled.body);
       }
       if (method === "POST" && path === "/api/internal/delegate-bot") {
         const body = await readBody(req);

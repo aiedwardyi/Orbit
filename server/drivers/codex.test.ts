@@ -441,6 +441,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv.join(" ")).toContain("mcp_servers.agents.command");
     expect(seen.argv.join(" ")).toContain("/tmp/agents-proxy.js");
+    expect(seen.argv).toContain("mcp_servers.agents.tool_timeout_sec=300");
     expect(seen.argv.join(" ")).toContain("OMB_COMMS_TOKEN");
     expect(seen.argv.join(" ")).not.toContain("peer-comms-secret");
     expect(seen.env.OMB_COMMS_TOKEN).toBe("peer-comms-secret");

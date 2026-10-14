@@ -135,11 +135,15 @@ function accrueTurnUsage(
 
 type StdioMcpServer = { command: string; args: string[]; env: Record<string, string> };
 
+// Codex up to 0.140 cut MCP calls at 120 s; ask_bot and wait_delegation each run up to 240 s.
+const AGENTS_TOOL_TIMEOUT_SEC = 300;
+
 function mountMcpServer(
   appServerArgs: string[],
   env: Record<string, string | undefined>,
   name: string,
   server: StdioMcpServer,
+  toolTimeoutSec?: number,
 ): void {
   Object.assign(env, server.env);
   const prefix = `mcp_servers.${name}`;
@@ -151,6 +155,7 @@ function mountMcpServer(
     "-c", `${prefix}.env_vars=${JSON.stringify(Object.keys(server.env))}`,
     "-c", `${prefix}.default_tools_approval_mode="auto"`,
   );
+  if (toolTimeoutSec) appServerArgs.push("-c", `${prefix}.tool_timeout_sec=${toolTimeoutSec}`);
 }
 
 export const CodexDriver: ProviderDriver<CodexConfig> = {
@@ -257,7 +262,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           mountMcpServer(appServerArgs, env, "openmausbot_connectors", turn.integrations.composio);
         }
         if (turn.integrations?.agents) {
-          mountMcpServer(appServerArgs, env, "agents", turn.integrations.agents);
+          mountMcpServer(appServerArgs, env, "agents", turn.integrations.agents, AGENTS_TOOL_TIMEOUT_SEC);
         }
         if (turn.integrations?.computer) {
           const proxyEnv = computerProxyEnv(turn.integrations.computer);
