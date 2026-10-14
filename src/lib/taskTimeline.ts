@@ -21,7 +21,7 @@ export interface TimelineEvent {
 /** Turn an already-persisted transcript into a compact, honest timeline. It
  * deliberately derives only from events the harness has recorded — this UI
  * never guesses that an action or result happened. */
-export function timelineEvents(messages: TimelineMessage[]): TimelineEvent[] {
+export function timelineEvents(messages: TimelineMessage[], localize: (line: string) => string = (line) => line): TimelineEvent[] {
   const events: TimelineEvent[] = [];
   let sawUserInput = false;
   for (const message of messages) {
@@ -39,7 +39,7 @@ export function timelineEvents(messages: TimelineMessage[]): TimelineEvent[] {
       events.push({
         id: message.id,
         at: message.at,
-        label: failed ? message.tool.name.replace(/^error:\s*/i, "") : message.tool.name,
+        label: message.tool.name.startsWith("error:") ? localize(message.tool.name.replace(/^error:\s*/i, "")) : message.tool.name,
         // An activity is appended at tool start and patched with its outcome.
         // Until that patch arrives, do not imply that the action succeeded.
         state: failed ? "failed" : message.tool.ok === true ? "complete" : "running",

@@ -1272,6 +1272,23 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(done).toMatchObject({ turnId, ok: false, stopReason: "exit_before_result", cost: 0.01, usage: { input: 12, output: 5, cachedInput: 2 } });
   });
 
+  it.each([
+    ["Stop before the next request", "hang", "", false],
+    ["a failed turn whose CLI exits first", "fail-steer", "exit", false],
+    ["a failed turn the CLI follows with the steer", "fail-steer", "", true],
+    ["a failed request that carried it", "fail-steer", "carried", true],
+  ])("reports once whether the model took a steer in: %s", async (_, mode, failSteer, taken) => {
+    await create(mode, { FAKE_CLAUDE_FAIL_STEER: failSteer });
+    await instance.adapter.sendTurn({ threadId: "t-taken", text: "first" });
+    await recorder.until((e) => e.type === (mode === "hang" ? "session.started" : "content.delta"));
+    const consumed = vi.fn();
+    await expect(instance.adapter.steer!("t-taken", "note", consumed)).resolves.toBe(true);
+    if (mode === "hang") await instance.adapter.interruptTurn("t-taken");
+    await vi.waitFor(() => expect(consumed).toHaveBeenCalled());
+    await vi.waitFor(() => expect(instance.adapter.hasSession("t-taken")).toBe(false));
+    expect(consumed.mock.calls).toEqual([[taken]]);
+  });
+
   it("reuses the live process for the next compatible turn", async () => {
     await create();
     const dump = join(scratch, "dump.json");

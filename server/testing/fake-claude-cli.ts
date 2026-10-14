@@ -16,6 +16,10 @@
 //                      | late-after-stop (hangs; prints one more reply once stopped)
 //                      | late-steer (a steer that misses the final request is
 //                        answered as its own query after `result`)
+//                      | fail-steer (the turn fails with a steer still queued;
+//                        FAKE_CLAUDE_FAIL_STEER: "" answers it as its own query
+//                        after the error `result`, like the real CLI; "exit"
+//                        dies first; "carried" fails the request that took it)
 //                      | background-task | foreground-task (the first turn
 //                        starts task-1 with is_backgrounded true / false)
 //                      | background-hang (starts background task-1, then hangs)
@@ -751,6 +755,23 @@ const playTurn = (prompt: JsonValue) => {
       lateSteerAnswered = true;
       untilSteer(close);
     }
+  } else if (mode === "fail-steer") {
+    out({ type: "system", subtype: "status", status: "requesting" });
+    out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "working" } } });
+    const how = process.env.FAKE_CLAUDE_FAIL_STEER;
+    untilSteer(() => {
+      if (how === "carried") out({ type: "system", subtype: "status", status: "requesting" });
+      out({ type: "result", is_error: true, result: "API Error: 500 overloaded", total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 0 } });
+      turnRunning = false;
+      if (how === "exit") return void process.stdout.write("", () => process.exit(1));
+      if (how === "carried") return finishIfDone();
+      const late = steered;
+      turnRunning = true;
+      out({ type: "system", subtype: "init", session_id: sessionId, model });
+      out({ type: "system", subtype: "status", status: "requesting" });
+      out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${late.join(" | ")}` }] } });
+      finish();
+    });
   } else if (mode === "slow") {
     // a gap a test can steer into; the closing reply carries anything that
     // was folded in, the way the real CLI includes a mid-turn message in

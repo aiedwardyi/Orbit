@@ -377,9 +377,8 @@ describe("localizeServerLine", () => {
     ["Reply from @Atlas", "@Atlas의 답장"],
     ["Queued for @Atlas, sends when this reply ends", "@Atlas에게 대기 중, 이 응답이 끝나면 전송됩니다"],
     ["Queued for @Atlas, sends when this reply ends: check the build", "@Atlas에게 대기 중, 이 응답이 끝나면 전송됩니다: check the build"],
-    ["error: delegation failed \u2014 Atlas is offline", "error: 위임 실패 - Atlas is offline"],
-    ["error: delegation to @Atlas could not start \u2014 spawn failed", "error: @Atlas에게 한 위임을 시작하지 못했습니다 - spawn failed"],
-    ["error: delegation to b7 failed \u2014 no such bot", "error: b7에게 한 위임 실패 - 해당 봇이 없습니다"],
+    ["error: delegation failed \u2014 Atlas is offline", "오류: 위임 실패 - Atlas is offline"],
+    ["error: delegation to @Atlas could not start \u2014 spawn failed", "오류: @Atlas에게 한 위임을 시작하지 못했습니다 - spawn failed"],
     ["Delegation to @Atlas dropped - the turn did not finish", "@Atlas에게 한 위임 취소됨 - 턴이 끝나지 않았습니다"],
     ["1 queued delegation dropped \u2014 the turn did not finish", "대기 중이던 위임 1건 취소됨 - 턴이 끝나지 않았습니다"],
     ["3 queued delegations dropped \u2014 the turn did not finish", "대기 중이던 위임 3건 취소됨 - 턴이 끝나지 않았습니다"],
@@ -410,8 +409,24 @@ describe("localizeServerLine", () => {
   it("passes free text through untouched, even when it looks like a placeholder or a replacement pattern", () => {
     const why = "bad $& $$ {name} {why} \u2014 “quoted”\n2nd line";
     expect(localizeServerLine(`error: delegation failed \u2014 ${why}`, en)).toBe(`error: delegation failed \u2014 ${why}`);
-    expect(localizeServerLine(`error: delegation failed \u2014 ${why}`, ko)).toBe(`error: 위임 실패 - ${why}`);
+    expect(localizeServerLine(`error: delegation failed \u2014 ${why}`, ko)).toBe(`오류: 위임 실패 - ${why}`);
     expect(localizeServerLine(`Queued for @Atlas, sends when this reply ends: ${why}`, ko)).toBe(`@Atlas에게 대기 중, 이 응답이 끝나면 전송됩니다: ${why}`);
+  });
+
+  it("swaps the error prefix for the app language on a mapped line only", () => {
+    const line = "error: delegation failed \u2014 Atlas is offline";
+    expect(localizeServerLine(line, en).startsWith("error: ")).toBe(true);
+    expect(localizeServerLine(line, ko).startsWith("오류: ")).toBe(true);
+    expect(localizeServerLine("error: the CLI exited", ko)).toBe("error: the CLI exited");
+    expect(localizeServerLine("error: the CLI exited", en)).toBe("error: the CLI exited");
+  });
+
+  it("never shows the id of a deleted bot", () => {
+    const stored = "error: delegation to b7 failed \u2014 no such bot";
+    expect(localizeServerLine(stored, en)).toBe("error: delegation failed - that bot was deleted");
+    expect(localizeServerLine(stored, ko)).toBe("오류: 위임 실패 - 삭제된 봇입니다");
+    expect(localizeServerLine(stored.slice(7), en)).toBe("delegation failed - that bot was deleted");
+    expect(localizeServerLine(stored.slice(7), ko)).toBe("위임 실패 - 삭제된 봇입니다");
   });
 
   it("keeps the bot name whole when it holds punctuation", () => {

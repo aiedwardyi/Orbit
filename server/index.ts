@@ -249,7 +249,7 @@ import { closeBotPanes } from "./terminal-cleanup.ts";
 import { commitLaunchNote, submittedAgo } from "./launch-note.ts";
 import { terminalResumeResponse } from "./terminal-resume.ts";
 import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
-import { NoteSteerer } from "./note-steer.ts";
+import { NoteSteerer, steerUntilTaken } from "./note-steer.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import {
   ensureWorkspace,
@@ -3816,7 +3816,7 @@ const noteSteer = new NoteSteerer({
   steer: (botId, threadId, text) => {
     const bot = store.bot(botId);
     const adapter = bot ? registry.get(bot.modelSelection.instanceId)?.adapter : undefined;
-    return adapter?.capabilities.queueing && adapter.steer ? adapter.steer(threadId, text) : undefined;
+    return steerUntilTaken(adapter, threadId, text);
   },
   messages: (threadId) => store.activePath(threadId),
   deliveredId: (botId, threadId) => store.taskByThread(botId, threadId)?.paneNotesDeliveredId ?? undefined,
@@ -4019,7 +4019,7 @@ const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. For a video, audio or other file, link its absolute path in markdown, like [clip.mp4](C:\\path\\clip.mp4) or, when the path contains spaces, in angle brackets like [clip.mp4](<C:\\My Files\\clip.mp4>), so the user can open it with one click. Never end with only a file path. To create a new image, call generate_image.";
 
 const ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS =
-  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you.";
+  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. If that line answered it, your final message does not return to it: no recap, no 'On your question' part, no expanded take, unless your later work changed the answer or a Wink note says the user never saw that line, in which case the answer goes out again, exactly once. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you.";
 const REPLY_STYLE_INSTRUCTIONS =
   " Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. After tool work, close with a short standalone summary of what you did and found. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
 const ALWAYS_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS + REPLY_STYLE_INSTRUCTIONS;
@@ -9317,7 +9317,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (currentAtStart.busy || botHasActiveTurn(bot.id, threadId)) {
             const instance = registry.get(currentAtStart.modelSelection.instanceId);
             let steered = false;
-            let steeredReactions: string[] = [];
             if (currentAtStart.busy && instance?.adapter.capabilities.queueing && instance.adapter.steer) {
               const turnOpts = {
                 replyTo,
@@ -9325,10 +9324,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 userName: cfg.profile?.name?.trim() || "User",
                 delivered: store.taskByThread(bot.id, threadId)?.reactionsDelivered,
               };
+              // Reactions count only once the model took them in; an engine
+              // that cannot tell leaves them to the next turn's prompt.
+              const consumable = instance.adapter.capabilities.steerConsumed === true;
+              const prompt = consumable ? composeUserTurnPrompt(text, turnOpts) : promptWithReply(text, replyTo, turnOpts.userName);
+              const reactions = consumable ? userTurnReactionKeys(turnOpts) : [];
               steered = await instance.adapter
-                .steer(threadId, composeUserTurnPrompt(text, turnOpts))
+                .steer(threadId, prompt, (taken) => {
+                  if (taken) store.addReactionsDelivered(bot.id, threadId, reactions);
+                })
                 .catch(() => false);
-              if (steered) steeredReactions = userTurnReactionKeys(turnOpts);
             }
             // steer() is awaited adapter work. The turn can settle, the task can
             // switch, or the whole bot can be deleted before its acknowledgement
@@ -9353,7 +9358,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                   { status: 409 },
                 );
               }
-              store.markReactionsDelivered(bot.id, threadId, steeredReactions);
               clearUnattended(current.id);
               resumePaneWakes(current.id);
               takeOverPeerTurn(threadId);

@@ -1503,6 +1503,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           provider: DRIVER_KIND,
           capabilities: {
             queueing: support.grokInterjections === true,
+            // steer resolves true only once Grok interjects or runs the message
+            steerConsumed: support.grokInterjections === true,
             rateLimits: support.rateLimits === true,
             sessionModelSwitch: "unsupported",
             agentsMcp: true,
@@ -1517,7 +1519,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           },
           sendTurn,
           steer: support.grokInterjections
-            ? async (threadId, text) => active.get(threadId)?.steer(text) ?? false
+            ? async (threadId, text, consumed) => {
+              const taken = await (active.get(threadId)?.steer(text) ?? false);
+              if (taken) consumed?.(true);
+              return taken;
+            }
             : undefined,
           interruptTurn: async (threadId) => active.get(threadId)?.interrupt(),
           respondToRequest: async (threadId, requestId, decision) => {

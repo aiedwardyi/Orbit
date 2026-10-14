@@ -407,9 +407,198 @@ describe("RemoteTerminalView", () => {
     store.api.mockResolvedValue({ screenText: "$ ls", panes });
     const { host, root } = await renderView();
     const tabs = host.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+    expect(tabs[1].getAttribute("aria-selected")).toBe("true");
     expect(store.api).toHaveBeenLastCalledWith("/api/bots/bot-1/terminal?sessionId=one");
     await act(async () => root.unmount());
+  });
+
+  describe("with workers and no main", () => {
+    type Pane = { sessionId: string; main: boolean; label?: string };
+    const workers: Pane[] = [{ sessionId: "one", label: "one", main: false }, { sessionId: "two", label: "two", main: false }];
+    const tabsOf = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const openButton = (host: HTMLElement) => [...host.querySelectorAll("button")].find((item) => item.textContent?.includes("Open terminal"))!;
+
+    function mainServer(initial: Pane[] = workers, mainLast = false) {
+      const server = { panes: initial };
+      store.api.mockImplementation(async (path: string) => {
+        if (path.endsWith("/start")) {
+          const main = { sessionId: "main", main: true };
+          server.panes = mainLast ? [...server.panes, main] : [main, ...server.panes];
+          return { screenText: "PS>", sessionId: "main", generation: 1, panes: server.panes };
+        }
+        const id = new URLSearchParams(path.split("?")[1] ?? "").get("sessionId") ?? server.panes.find((pane) => pane.main)?.sessionId ?? server.panes[0]?.sessionId;
+        return { screenText: id === "main" ? "PS>" : `$ ${id}`, sessionId: id, generation: 1, panes: server.panes };
+      });
+      return server;
+    }
+
+    it("lists a dimmed Main tab first, even with one worker", async () => {
+      mainServer([workers[0]]);
+      const { host, root } = await renderView();
+      try {
+        const tabs = tabsOf(host);
+        expect(tabs.map((tab) => tab.textContent)).toEqual(["Main", "one"]);
+        expect(tabs[0].className).toContain("opacity-50");
+        expect(tabs[1].className).not.toContain("opacity-50");
+        expect(tabs[1].getAttribute("aria-selected")).toBe("true");
+        expect(host.querySelector("pre")?.textContent).toBe("$ one");
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("shows the open panel with no worker screen or composer when Main is tapped", async () => {
+      mainServer();
+      const { host, root } = await renderView();
+      try {
+        await act(async () => click(tabsOf(host)[0]));
+        expect(tabsOf(host)[0].getAttribute("aria-selected")).toBe("true");
+        expect(host.textContent).toContain("No active terminal");
+        expect(host.querySelector("pre")).toBeNull();
+        expect(composer(host)).toBeNull();
+        expect(button(host, "Copy").disabled).toBe(true);
+        expect(openButton(host)).toBeDefined();
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("starts main from the Main tab and selects it as the live first tab", async () => {
+      mainServer();
+      const { host, root } = await renderView();
+      try {
+        await act(async () => click(tabsOf(host)[0]));
+        await act(async () => click(openButton(host)));
+        expect(store.api).toHaveBeenCalledWith("/api/bots/bot-1/terminal/start", { method: "POST" });
+        const tabs = tabsOf(host);
+        expect(tabs.map((tab) => tab.textContent)).toEqual(["Main", "one", "two"]);
+        expect(tabs[0].className).not.toContain("opacity-50");
+        expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+        expect(host.querySelector("pre")?.textContent).toBe("PS>");
+        expect(composer(host)).not.toBeNull();
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("returns to a worker tab from Main", async () => {
+      mainServer();
+      const { host, root } = await renderView();
+      try {
+        await act(async () => click(tabsOf(host)[0]));
+        await act(async () => click(tabsOf(host)[2]));
+        expect(host.querySelector("pre")?.textContent).toBe("$ two");
+        expect(composer(host)).not.toBeNull();
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("keeps polling for main while the Main tab is open", async () => {
+      vi.useFakeTimers();
+      const server = mainServer();
+      const { host, root } = await renderView();
+      try {
+        await act(async () => click(tabsOf(host)[0]));
+        server.panes = [{ sessionId: "main", main: true }, ...workers];
+        await act(async () => vi.advanceTimersByTime(1_000));
+        expect(host.querySelector("pre")?.textContent).toBe("PS>");
+        expect(tabsOf(host)[0].getAttribute("aria-selected")).toBe("true");
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("lists a live Main first when the roster has a worker before it", async () => {
+      mainServer([...workers, { sessionId: "main", main: true }]);
+      const { host, root } = await renderView();
+      try {
+        expect(tabsOf(host).map((tab) => tab.textContent)).toEqual(["Main", "one", "two"]);
+        expect(tabsOf(host)[0].getAttribute("aria-selected")).toBe("true");
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("leaves a main-first roster in order", async () => {
+      mainServer([{ sessionId: "main", main: true }, ...workers]);
+      const { host, root } = await renderView();
+      try {
+        expect(tabsOf(host).map((tab) => tab.textContent)).toEqual(["Main", "one", "two"]);
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("keeps Main first and selected when the host lists it last after a start", async () => {
+      mainServer(workers, true);
+      const { host, root } = await renderView();
+      try {
+        await act(async () => click(tabsOf(host)[0]));
+        await act(async () => click(openButton(host)));
+        expect(tabsOf(host).map((tab) => tab.textContent)).toEqual(["Main", "one", "two"]);
+        expect(tabsOf(host)[0].getAttribute("aria-selected")).toBe("true");
+        expect(host.querySelector("pre")?.textContent).toBe("PS>");
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("selects a worker-first live Main with Alt+1", async () => {
+      mainServer([...workers, { sessionId: "main", main: true }]);
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = createRoot(host);
+      const view = (paneHotkey: { n: number } | null) =>
+        createElement(I18nProvider, null, createElement(RemoteTerminalView, { bot: { id: "bot-1", name: "Ada" }, visible: true, onClose: () => {}, paneHotkey }));
+      try {
+        await act(async () => root.render(view(null)));
+        await act(async () => click(tabsOf(host).find((tab) => tab.textContent === "two")!));
+        expect(host.querySelector("pre")?.textContent).toBe("$ two");
+        await act(async () => root.render(view({ n: 1 })));
+        expect(tabsOf(host)[0].getAttribute("aria-selected")).toBe("true");
+        expect(host.querySelector("pre")?.textContent).toBe("PS>");
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+
+    it("counts the Main tab first for Alt+n", async () => {
+      mainServer();
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = createRoot(host);
+      const view = (paneHotkey: { n: number } | null) =>
+        createElement(I18nProvider, null, createElement(RemoteTerminalView, { bot: { id: "bot-1", name: "Ada" }, visible: true, onClose: () => {}, paneHotkey }));
+      try {
+        await act(async () => root.render(view(null)));
+        expect(tabsOf(host)[1].getAttribute("aria-selected")).toBe("true");
+        await act(async () => root.render(view({ n: 1 })));
+        expect(tabsOf(host)[0].getAttribute("aria-selected")).toBe("true");
+        expect(host.textContent).toContain("No active terminal");
+        await act(async () => root.render(view({ n: 3 })));
+        expect(tabsOf(host)[2].getAttribute("aria-selected")).toBe("true");
+        expect(host.querySelector("pre")?.textContent).toBe("$ two");
+      } finally {
+        await act(async () => root.unmount());
+      }
+    });
+  });
+
+  it("drops the Main tab when the last worker closes while it is open", async () => {
+    vi.useFakeTimers();
+    const server = paneServer([{ sessionId: "one", main: false }, { sessionId: "two", main: false }]);
+    const { host, root } = await renderView();
+    try {
+      await act(async () => click(host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[0]));
+      server.panes = [];
+      await act(async () => vi.advanceTimersByTime(1_000));
+      expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
+      expect(host.textContent).toContain("No active terminal");
+      expect(host.querySelector('[role="alert"]')).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
   });
 
   function paneServer(initial: Array<{ sessionId: string; main: boolean }>) {
