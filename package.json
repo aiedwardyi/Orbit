@@ -25,9 +25,6 @@
     "lint": "oxlint .",
     "check:contrast": "node scripts/check-contrast.mjs",
     "dev": "node scripts/dev.mjs",
-    "docs:dev": "pnpm --filter @openmausbot/docs dev",
-    "docs:build": "pnpm --filter @openmausbot/docs build",
-    "docs:preview": "pnpm --filter @openmausbot/docs preview",
     "companion": "node --experimental-strip-types companion/src/index.ts",
     "dev:server": "node --experimental-strip-types server/index.ts",
     "mcp": "node --experimental-strip-types scripts/mcp-server.ts",
@@ -72,11 +69,7 @@
     "broker:types": "wrangler types --config cloudflare/composio-broker/wrangler.jsonc cloudflare/composio-broker/worker-configuration.d.ts",
     "broker:check": "pnpm broker:types && tsc -p cloudflare/composio-broker/tsconfig.json",
     "broker:test": "vitest run --config cloudflare/composio-broker/vitest.config.ts",
-    "broker:deploy": "wrangler deploy --config cloudflare/composio-broker/wrangler.jsonc",
-    "control-plane:types": "pnpm --filter @openmausbot/control-plane types",
-    "control-plane:check": "pnpm --filter @openmausbot/control-plane check",
-    "control-plane:test": "pnpm --filter @openmausbot/control-plane test",
-    "control-plane:dry-run": "pnpm --filter @openmausbot/control-plane dry-run"
+    "broker:deploy": "wrangler deploy --config cloudflare/composio-broker/wrangler.jsonc"
   },
   "dependencies": {
     "@peculiar/x509": "1.14.3",
