@@ -97,7 +97,7 @@ export const SERVER_LINES: ServerLine[] = [
   },
   {
     re: /^delegation to (.+) failed \u2014 no such bot$/,
-    pick: (m) => ["chat.delegation.noSuchBot", { id: m[1] }],
+    pick: () => ["chat.delegation.noSuchBot", {}],
     file: "delegations.ts",
     needles: ["error: delegation to ", " failed \u2014 no such bot"],
   },
@@ -147,13 +147,13 @@ export const SERVER_LINES: ServerLine[] = [
 
 /** A server handoff line in the app's language; anything unrecognised comes back as written. Display only. */
 export function localizeServerLine(name: string, t: Translate): string {
-  const prefix = name.startsWith("error: ") ? "error: " : "";
-  const body = name.slice(prefix.length);
+  const isError = name.startsWith("error: ");
+  const body = isError ? name.slice(7) : name;
   for (const line of SERVER_LINES) {
     const m = line.re.exec(body);
     if (m) {
       const [key, vars] = line.pick(m);
-      return prefix + t(key, vars);
+      return (isError ? t("chat.errorPrefix") : "") + t(key, vars);
     }
   }
   return name;

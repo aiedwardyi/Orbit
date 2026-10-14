@@ -101,7 +101,7 @@ describe("RoomToolChip", () => {
     await renderRows(rows);
     expect(labels()).toEqual([
       "@Atlas에게 한 위임을 사용자가 거부했습니다",
-      "error: 위임 실패 - Atlas is offline",
+      "오류: 위임 실패 - Atlas is offline",
       "@Atlas에게 한 위임 대기 중 - 상대가 작업 중입니다 (끝나면 1/3번째 재시도)",
       "error: the CLI exited",
     ]);
