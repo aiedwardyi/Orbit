@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { t } from "@/lib/i18n";
+import { t, translate } from "@/lib/i18n";
 import { parsePaneNote } from "../../shared/pane-note";
 import { notePreview, noteText } from "./pane-note";
 
@@ -48,6 +48,13 @@ describe("parsePaneNote", () => {
     const note = parsePaneNote(stored("FINISHED: command ended without a report. terminal_read its pane, then act or tell the user. Last lines:\nTests passed"));
     expect(note).toMatchObject({ status: null, alert: { kind: "finished" }, body: "" });
     expect(noteText(note, t)).toBe("Command ended without a report.");
+  });
+
+  it("turns a RESTARTED note into an alert listing its panes", () => {
+    const note = parsePaneNote(stored("RESTARTED: Wink restarted, so these panes you spawned closed mid-run:\n- PR-FIX | Opus 5.5 [pane 1a2b3c4d] in C:\\work\\a, spawned 2026-10-14T00:12:00.000Z\n- [pane 5e6f7a8b] in C:\\work\\b, spawned 2026-10-14T00:20:00.000Z\nEdits in their folders are still there. Spawn a FRESH worker to continue, or tell the user.", null));
+    expect(note).toMatchObject({ status: null, alert: { kind: "restarted", panes: ["PR-FIX", "5e6f7a8b"] }, body: "" });
+    expect(noteText(note, t)).toBe("Wink restarted and closed these worker panes mid-run: PR-FIX, 5e6f7a8b");
+    expect(noteText(note, (key, vars) => translate("ko", key, vars))).toBe("Wink가 다시 시작되어 작업 중이던 작업자 창이 닫혔습니다: PR-FIX, 5e6f7a8b");
   });
 
   it("falls back to the free text minus the prefix", () => {

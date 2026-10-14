@@ -1,6 +1,6 @@
 // A stored pane note, split into what a person reads and what only the bot needs.
 export type PaneNoteStatus = "done" | "failed" | "blocked";
-export type PaneNoteAlert = { kind: "stalled"; minutes: number } | { kind: "waiting" } | { kind: "finished" };
+export type PaneNoteAlert = { kind: "stalled"; minutes: number } | { kind: "waiting" } | { kind: "finished" } | { kind: "restarted"; panes: string[] };
 export type PaneNote = {
   pane8: string | null;
   label: string | null;
@@ -21,6 +21,9 @@ const STATUS = { DONE: "done", FAIL: "failed", BLOCKED: "blocked" } as const;
 const STALLED = /^STALLED: no screen change for (\d+) min and no report\./;
 const WAITING = /^WAITING: this worker is stuck on an on-screen prompt/;
 const FINISHED = /^FINISHED: command ended without a report\./;
+// electron/pane-runs.mjs restartNoteText
+const RESTARTED = /^RESTARTED: Wink restarted, so these panes you spawned closed mid-run:\n/;
+const RESTARTED_PANE = /^- (?:(.+) )?\[pane ([0-9a-f]{1,8})\] in /;
 const TRUNCATED = /\n\[truncated\]$/;
 
 /** Works on a stored note or on the raw text a pane posted. */
@@ -34,6 +37,13 @@ export function parsePaneNote(text: string): PaneNote {
   if (stalled) return { ...note, alert: { kind: "stalled", minutes: Number(stalled[1]) } };
   if (WAITING.test(rest)) return { ...note, alert: { kind: "waiting" } };
   if (FINISHED.test(rest)) return { ...note, alert: { kind: "finished" } };
+  if (RESTARTED.test(rest)) {
+    const panes = rest.split("\n").flatMap((line) => {
+      const pane = RESTARTED_PANE.exec(line);
+      return pane ? [pane[1]?.split(" | ")[0] || pane[2]!] : [];
+    });
+    return { ...note, alert: { kind: "restarted", panes } };
+  }
   const report = REPORT.exec(rest);
   if (report) {
     // SAFETY: REPORT captures only DONE, FAIL or BLOCKED.

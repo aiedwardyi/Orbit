@@ -71,6 +71,13 @@ describe("workerRuns", () => {
     expect(runs[1]).toMatchObject({ state: "working", sessionId: OTHER, messageIds: ["l2"] });
   });
 
+  it("gives a restart note its own Wink row instead of its first pane's", () => {
+    const restarted = `RESTARTED: Wink restarted, so these panes you spawned closed mid-run:\n- A | Opus 5.5 | high [pane ${PANE.slice(0, 8)}] in C:\\repo, spawned 2026-10-14T00:12:00.000Z\nEdits in their folders are still there. Spawn a FRESH worker to continue, or tell the user.`;
+    const runs = workerRuns([launch("l1", 1, "A | Opus 5.5 | high"), note("n1", 2, restarted, null)]);
+    expect(runs.map((run) => [run.nick, run.messageIds])).toEqual([["A", ["l1"]], ["Wink", ["n1"]]]);
+    expect(shownState(runs[1]!, new Set())).toBe("ended");
+  });
+
   it("lets DONE replace a stalled note", () => {
     const runs = workerRuns([
       launch("l1", 1, "A | GPT-6 Astra | high"),

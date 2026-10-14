@@ -172,7 +172,8 @@ export function workerRuns(messages: readonly WorkerMessage[], older: readonly W
     const note = parsePaneNote(message.text);
     if (!note.pane8) return;
     const labelled = parseWorkerLabel(note.label);
-    const nick = note.nick ?? (paneRun.get(`${botId ?? ""}:${note.pane8}`)?.nick || labelled.nick || note.pane8);
+    // A restart note lists several dead panes, so it is Wink's own row, not its first pane's.
+    const nick = note.alert?.kind === "restarted" ? "Wink" : note.nick ?? (paneRun.get(`${botId ?? ""}:${note.pane8}`)?.nick || labelled.nick || note.pane8);
     const key = `${botId ?? ""}:${note.pane8}:${nick.toLowerCase()}`;
     const run = add(key, { nick, model: labelled.model, provider: workerProvider(labelled.model), at: message.at, pane8: note.pane8, sessionId: null, folder: null, botId }, index);
     run.messageIds.push(message.id);

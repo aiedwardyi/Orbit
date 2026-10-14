@@ -20,7 +20,8 @@ import { openBlankTerminal } from "./terminal-launch.mjs";
 import { openEngineSignIn } from "./engine-signin.mjs";
 import { createGoogleAccountController, createGoogleSessionPush, googleClient, googleServerEnv, watchDevServer } from "./google-signin.mjs";
 import { createTerminalHost, trustedTerminalSender } from "./terminal-host.mjs";
-import { installOrbitMsg, readMailboxSecret } from "./terminal-mailbox.mjs";
+import { installOrbitMsg, postPaneNote, readMailboxSecret } from "./terminal-mailbox.mjs";
+import { createPaneRuns, notifyRestartedPanes } from "./pane-runs.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
@@ -286,20 +287,23 @@ app.on("second-instance", (_event, commandLine) => {
 let serverProc = null;
 let serverToken = app.isPackaged ? null : (process.env.OMB_COMMS_TOKEN ?? null);
 const appAuthorization = createAppAuthorization();
+// Grants come from the persisted key, so a server restart does not strand panes.
+async function paneMailbox() {
+  const token = await readMailboxSecret(app.getPath("userData"));
+  if (!token) return null;
+  const port = app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT);
+  const binDir = await installOrbitMsg(path.join(app.getPath("home"), ".orbit", "bin")).catch(() => null);
+  return { url: `http://127.0.0.1:${port}`, token, binDir };
+}
+const paneRuns = createPaneRuns(path.join(app.getPath("userData"), "pane-runs.json"));
 const terminalHost = createTerminalHost({
   authorize(event) {
     const origin = app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin;
     if (!trustedTerminalSender(event, mainWindow?.webContents, origin)) throw new Error("Untrusted terminal caller");
   },
   owner: () => mainWindow?.webContents ?? null,
-  async mailbox() {
-    // Grants come from the persisted key, so a server restart does not strand panes.
-    const token = await readMailboxSecret(app.getPath("userData"));
-    if (!token) return null;
-    const port = app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT);
-    const binDir = await installOrbitMsg(path.join(app.getPath("home"), ".orbit", "bin")).catch(() => null);
-    return { url: `http://127.0.0.1:${port}`, token, binDir };
-  },
+  mailbox: paneMailbox,
+  paneRuns,
   loadPty: () => ({ spawn: (shell, args, options) => spawnTerminalPty(
     require.resolve(app.isPackaged ? path.join(process.resourcesPath, "terminal", "node-pty") : "node-pty"), shell, args, options,
   ) }),
@@ -2399,6 +2403,7 @@ app.whenReady().then(async () => {
   if (!app.isPackaged) {
     watchDevServer({ getPort: () => Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT), push: () => pushGoogleSession(secureCredentials.googleAccount ?? null) });
   }
+  void notifyRestartedPanes({ runs: paneRuns, mailbox: paneMailbox, notePane: postPaneNote, warn: slog });
   // The companion the user left on comes back without anyone finding the
   // toggle again — one attempt, after the harness port is settled, with the
   // exact options the IPC handler uses. A failure surfaces in companionState
