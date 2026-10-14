@@ -4,7 +4,6 @@ import {
   closeSync,
   createWriteStream,
   existsSync,
-  linkSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -18,6 +17,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative } from "node:path";
 import { Writable } from "node:stream";
 import { finished, pipeline } from "node:stream/promises";
@@ -84,6 +84,16 @@ function resolvedPath(path: string): string {
   }
 }
 
+/**
+ * OneDrive and Google Drive for desktop folders, whatever Wink's own sync points at.
+ * Drive letters are never probed: this runs at server start, and a stat on a disconnected network drive blocks for seconds.
+ */
+export function cloudSyncRoots(env: NodeJS.ProcessEnv = process.env, home = homedir()): string[] {
+  const oneDrive = [env.OneDrive, env.OneDriveConsumer, env.OneDriveCommercial].filter((root): root is string => Boolean(root));
+  const myDrive = join(home, "My Drive");
+  return existsSync(myDrive) ? [...oneDrive, myDrive] : oneDrive;
+}
+
 /** <Downloads>\Wink, or DATA_DIR/files when that overlaps a sync folder. */
 export function uploadTargetDir(downloads: string, syncFolders: readonly string[], dataDir: string): string {
   const target = join(downloads, "Wink");
@@ -101,7 +111,7 @@ function json(res: ServerResponse, status: number, body: unknown): void {
 
 function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    let data = "";
+    const chunks: Buffer[] = [];
     let bytes = 0;
     let done = false;
     const fail = (status: number, msg: string) => {
@@ -113,11 +123,12 @@ function readJson(req: IncomingMessage): Promise<unknown> {
       if (done) return;
       bytes += c.length;
       if (bytes > 1_000_000) return fail(413, "body too large");
-      data += c;
+      chunks.push(c);
     });
     req.on("end", () => {
       if (done) return;
       try {
+        const data = Buffer.concat(chunks).toString("utf8");
         const body: unknown = data ? JSON.parse(data) : {};
         done = true;
         resolve(body);
@@ -155,21 +166,24 @@ function candidateName(name: string, n: number): string {
   return `${name.slice(0, name.length - ext.length)} (${n})${ext}`;
 }
 
-// linkSync claims a name atomically; a rename on Windows would overwrite, so it only runs after existsSync.
+// A rename on Windows overwrites, so the name is claimed with an exclusive create and the part renamed over that placeholder.
 function claimFinalPath(dir: string, part: string, name: string): string {
   for (let n = 1; ; n++) {
     const candidate = join(dir, candidateName(name, n));
     if (relative(dir, candidate) !== basename(candidate)) throw new Error("upload name escapes its folder");
     try {
-      linkSync(part, candidate);
-      unlinkSync(part);
-      return candidate;
+      closeSync(openSync(candidate, "wx"));
     } catch (error) {
       if (errorCode(error) === "EEXIST") continue;
-      if (existsSync(candidate)) continue;
-      renameSync(part, candidate);
-      return candidate;
+      throw error;
     }
+    try {
+      renameSync(part, candidate);
+    } catch (error) {
+      tryUnlink(candidate);
+      throw error;
+    }
+    return candidate;
   }
 }
 
@@ -232,7 +246,7 @@ export function createUploads(options: UploadsOptions) {
     const type = typeof body?.type === "string" && body.type ? body.type.slice(0, 200) : "application/octet-stream";
     const lastModified = typeof body?.lastModified === "number" && Number.isFinite(body.lastModified) ? body.lastModified : 0;
     const open = sessions().filter(([, record]) => !record.path);
-    const match = open.find(([, r]) => r.name === name && r.size === size && r.lastModified === lastModified);
+    const match = lastModified > 0 ? open.find(([, r]) => r.name === name && r.size === size && r.lastModified === lastModified) : undefined;
     if (!match && open.length >= MAX_OPEN_UPLOADS) return json(res, 429, { code: "busy" });
     mkdirSync(sessionsDir(), { recursive: true });
     const written = match ? sizeOf(partPath(match[0])) : 0;
@@ -339,7 +353,6 @@ export function createUploads(options: UploadsOptions) {
       else json(res, 200, { offset: sizeOf(partPath(id)), size: record.size, done: false });
       return true;
     }
-    if (record.path && now() - (record.doneAt ?? 0) < IDLE_MS && inside(options.dir(), record.path)) tryUnlink(record.path);
     remove(id);
     res.writeHead(204);
     res.end();

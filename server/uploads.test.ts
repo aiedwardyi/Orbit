@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createUploads, safeUploadName, UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES, uploadTargetDir, type UploadsOptions } from "./uploads.ts";
+import { cloudSyncRoots, createUploads, safeUploadName, UPLOAD_CHUNK_BYTES, UPLOAD_MAX_BYTES, uploadTargetDir, type UploadsOptions } from "./uploads.ts";
 
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -143,7 +143,32 @@ describe("big-file uploads", () => {
     expect((await create({ name: "a.mp4", size: 100, lastModified: 8 })).body.id).not.toBe(first.body.id);
   });
 
-  it("deletes the part, and a finished file under 24 h old", async () => {
+  it("never resumes a file without lastModified", async () => {
+    const { create } = await serve();
+    const first = await create({ name: "a.mp4", size: 100, lastModified: 0 });
+    expect((await create({ name: "a.mp4", size: 100, lastModified: 0 })).body.id).not.toBe(first.body.id);
+    expect((await create({ name: "a.mp4", size: 100, lastModified: undefined })).body.id).not.toBe(first.body.id);
+  });
+
+  it("reads a Korean name split across body chunks", async () => {
+    const { base, chunk } = await serve();
+    const body = Buffer.from(JSON.stringify({ name: "회의.mp4", size: 3, type: "video/mp4", lastModified: 7 }));
+    const split = body.indexOf(Buffer.from("회")) + 1;
+    const created = await new Promise<UploadBody>((resolve, reject) => {
+      const req = request(base, { method: "POST", headers: { "content-length": body.length } }, (res) => {
+        let text = "";
+        res.setEncoding("utf8");
+        res.on("data", (piece: string) => (text += piece));
+        res.on("end", () => resolve(JSON.parse(text) as UploadBody));
+      });
+      req.on("error", reject);
+      req.write(body.subarray(0, split));
+      setTimeout(() => req.end(body.subarray(split)), 50);
+    });
+    expect((await chunk(created.id, 0, Buffer.from("abc"))).body.path.endsWith("회의.mp4")).toBe(true);
+  });
+
+  it("deletes the part on cancel and keeps a finished file", async () => {
     const { dir, base, create, chunk } = await serve();
     const open = await create({ name: "a.mp4", size: 100 });
     await chunk(open.body.id, 0, Buffer.alloc(10));
@@ -153,7 +178,7 @@ describe("big-file uploads", () => {
     const finished = await chunk(done.body.id, 0, Buffer.from("abc"));
     expect(existsSync(finished.body.path)).toBe(true);
     expect((await fetch(`${base}/${done.body.id}`, { method: "DELETE" })).status).toBe(204);
-    expect(existsSync(finished.body.path)).toBe(false);
+    expect(readFileSync(finished.body.path, "utf8")).toBe("abc");
     expect(readdirSync(join(dir, ".uploading"))).toEqual([]);
     expect((await fetch(`${base}/${done.body.id}`)).status).toBe(404);
   });
@@ -180,6 +205,18 @@ describe("big-file uploads", () => {
     mkdirSync(downloads);
     expect(uploadTargetDir(downloads, [sync], data)).toBe(join(data, "files"));
     expect(uploadTargetDir(downloads, [join(data, "google-drive")], data)).toBe(join(downloads, "Wink"));
+  });
+
+  it("falls back to DATA_DIR/files when Downloads is inside OneDrive or Google Drive", () => {
+    const data = temp("uploads-data-");
+    const oneDrive = temp("uploads-onedrive-");
+    const home = temp("uploads-home-");
+    const inCloud = [join(oneDrive, "Downloads"), join(home, "My Drive", "Downloads")];
+    for (const folder of inCloud) mkdirSync(folder, { recursive: true });
+    const roots = cloudSyncRoots({ OneDrive: oneDrive }, home);
+    for (const downloads of inCloud) expect(uploadTargetDir(downloads, roots, data)).toBe(join(data, "files"));
+    const control = temp("uploads-downloads-");
+    expect(uploadTargetDir(control, roots, data)).toBe(join(control, "Wink"));
   });
 
   it("caps a chunk at 8 MiB and open sessions at 4", async () => {

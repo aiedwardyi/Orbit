@@ -51,7 +51,7 @@ import {
   userProjectTexts,
 } from "./project-folder.ts";
 import { attachmentExists, ATTACHMENTS_DIR, ensureAttachmentsDir, importLocalImage, readAttachment, receiveAttachment, saveImage, type SavedAttachment } from "./attachments.ts";
-import { createUploads, uploadTargetDir } from "./uploads.ts";
+import { cloudSyncRoots, createUploads, uploadTargetDir } from "./uploads.ts";
 import {
   avatarGenerationRequestSchema,
   avatarGenerationStateMatches,
@@ -2150,8 +2150,17 @@ const googleSync = createGoogleSync({
   },
   republishing: () => threadSyncV2?.republishing() ?? false,
 });
+const uploadCloudRoots = cloudSyncRoots();
+let uploadTarget: { folder: string | null; dir: string } | undefined;
 const uploads = createUploads({
-  dir: () => uploadTargetDir(DOWNLOADS_DIR, [profileSyncSettings.folder, join(DATA_DIR, GOOGLE_MIRROR_DIR)].filter((folder) => folder !== null), DATA_DIR),
+  dir: () => {
+    const folder = profileSyncSettings.folder;
+    if (uploadTarget?.folder !== folder) {
+      const roots = [...uploadCloudRoots, join(DATA_DIR, GOOGLE_MIRROR_DIR), ...(folder === null ? [] : [folder])];
+      uploadTarget = { folder, dir: uploadTargetDir(DOWNLOADS_DIR, roots, DATA_DIR) };
+    }
+    return uploadTarget.dir;
+  },
 });
 
 /** Bots a joining PC held back stay local until someone talks to them. */

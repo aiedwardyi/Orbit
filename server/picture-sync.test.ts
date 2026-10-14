@@ -365,7 +365,7 @@ describe("picture sync", () => {
     expect(ledger.includes(name)).toBe(false);
   });
 
-  it("never publishes a big file, even one named like a picture", () => {
+  it("never copies an attached-file tag, even one named like a picture", () => {
     const folder = temp("pic-bigfile-");
     const dataDir = temp("pic-bigfile-a-");
     mkdirSync(join(dataDir, "attachments"), { recursive: true });
