@@ -34,6 +34,15 @@ function minutesText(minutes: number): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
+function visitTime(minutes: number): string {
+  return minutes === 0 ? "<1m" : minutesText(minutes);
+}
+
+// the relay counts a visit only on its start day, so one running past midnight has minutes but no count
+function withVisit(day: { count: number; minutes: number }) {
+  return day.count === 0 && day.minutes > 0 ? { ...day, count: 1 } : day;
+}
+
 function dayLabel(iso: string, locale: string) {
   const [year, month, day] = iso.split("-").map(Number);
   const date = new Date(Date.UTC(year || 1970, (month || 1) - 1, day || 1));
@@ -72,7 +81,8 @@ function PersonCard({ person, days, now, locale }: { person: TeamPerson; days: s
   const today = person.hours.at(-1) ?? 0;
   const status = person.online ? t("team.online") : seenText(person.lastSeen, now, t);
   const peak = person.hours.reduce((best, hours, index) => (hours > (person.hours[best] ?? 0) ? index : best), 0);
-  const mobileWeek = person.phone.slice(-7).reduce((sum, row) => sum + row.minutes, 0);
+  const phoneDays = person.phone.map(withVisit);
+  const phoneToday = phoneDays.at(-1) ?? { count: 0, minutes: 0 };
   const when = dayLabel(days[peak] ?? "", locale).full;
   const active = person.hours.filter((hours) => hours > 0).length;
   const letter = person.name.trim().slice(0, 1) || "?";
@@ -96,9 +106,10 @@ function PersonCard({ person, days, now, locale }: { person: TeamPerson; days: s
       </div>
       <div className="flex h-12 items-end gap-[3px] bg-[linear-gradient(to_top,var(--color-hairline),var(--color-hairline)_1px,transparent_1px)]">
         {person.hours.map((hours, index) => {
-          const phone = person.phone[index] ?? { count: 0, minutes: 0 };
+          const phone = phoneDays[index] ?? { count: 0, minutes: 0 };
           const label = dayLabel(days[index] ?? "", locale);
-          const text = t("team.tip", { when: label.full, hours: hoursText(hours), mobile: t("team.tipMobile", { time: minutesText(phone.minutes) }) });
+          const mobile = phone.count === 0 ? t("team.tipMobileNone") : t(phone.count === 1 ? "team.tipMobileOne" : "team.tipMobile", { n: phone.count, time: visitTime(phone.minutes) });
+          const text = t("team.tip", { when: label.full, hours: hoursText(hours), mobile });
           const height = hours > 0 ? `${Math.max(10, Math.round(Math.min(1, hours / 12) * 100))}%` : "2px";
           return (
             <button
@@ -126,7 +137,9 @@ function PersonCard({ person, days, now, locale }: { person: TeamPerson; days: s
         <span>{dayLabel(days.at(-1) ?? "", locale).short}</span>
       </div>
       <div className="mt-2.5 flex justify-between gap-2 text-[12px] text-ink-secondary">
-        <span className="tabular-nums">{t("team.mobileWeek", { time: minutesText(mobileWeek) })}</span>
+        <span className="tabular-nums">
+          {phoneToday.count === 0 ? t("team.mobileNone") : t(phoneToday.count === 1 ? "team.mobileOne" : "team.mobileMany", { n: phoneToday.count, time: visitTime(phoneToday.minutes) })}
+        </span>
         <span>{t(active === 1 ? "team.dayActive" : "team.daysActive", { n: active })}</span>
       </div>
       <p className="mt-1 text-[12px] text-ink-secondary">

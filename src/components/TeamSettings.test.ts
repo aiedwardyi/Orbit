@@ -146,13 +146,13 @@ describe("Team settings", () => {
     expect([...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "General")!.getAttribute("aria-current")).toBeNull();
   });
 
-  it("says Mobile 0m when the week had no phone sessions", async () => {
+  it("says No mobile today when there were no phone visits", async () => {
     await render();
     await vi.waitFor(() => expect(labels()).toContain("Team"));
     const team = [...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "Team");
     await act(async () => team!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await vi.waitFor(() => expect(host.textContent).toContain("Ada"));
-    expect(host.textContent).toContain("Mobile 0m in 7 days");
+    expect(host.textContent).toContain("No mobile today");
     expect(host.textContent).not.toContain("Phone");
   });
 
