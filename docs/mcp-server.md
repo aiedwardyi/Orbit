@@ -58,7 +58,7 @@ On Ubuntu `.deb` installs, the executable is normally `/opt/OpenMausBot/openmaus
 ## Connection discovery
 
 With no configuration, the MCP process probes Wink's three desktop ports (`8799`, `18799`, and `28799`)
-and accepts only a health response that identifies itself as Wink. This handles the desktop's normal
+and accepts only a health response whose `app` field is `openmausbot`. This handles the desktop's normal
 fallback when another local process already owns port 8799.
 
 Set `OMB_PORT` to force one local port, or `OPENMAUSBOT_URL` to use an explicit HTTP(S) origin. Cleartext remote
