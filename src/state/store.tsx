@@ -3224,7 +3224,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               body: JSON.stringify({ unread: false }),
             }).catch(() => {});
           }
-          rawDispatch({ type: "groupPatched", group });
+          // every group frame is a full snapshot, so a missing pinnedCwd means not pinned
+          rawDispatch({ type: "groupPatched", group: { pinnedCwd: undefined, ...group } });
           break;
         }
         // the harness decided this was worth interrupting for; the toggle
