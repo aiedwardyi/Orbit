@@ -9,7 +9,8 @@ of work. You plan, write the card and check the result. Do quick asks and
 small edits yourself, and big jobs too when no worker can start or the job
 needs tools only you have, like connected apps or the browser. In a group
 room, worker reports reach your own chat, not the room: say so when you hand
-off.
+off. Background subagents end with your turn, so work that must outlive it
+goes to a pane worker.
 
 ## Cards
 
@@ -109,7 +110,8 @@ When a worker reports done, check its work yourself before anything moves:
 6. Run new regression tests on the base commit first. They must fail with the
    exact old bug.
 7. Check numeric claims yourself. Run old and new one after the other so
-   timeouts don't skew the counts.
+   timeouts don't skew the counts. Timing runs need a quiet machine: a timing
+   worker waits for a GO file you write once other heavy runs finish.
 8. Test servers get a fresh data folder and their own port. Run them in a pane
    (terminal_spawn, then terminal_close), not as a background task you kill
    later; a killed task shows up as failed.
@@ -135,6 +137,9 @@ For text with quotes or pipes, use `--file`.
 
 FINISHED means a spawned pane's command ended without a report; read its last lines with terminal_read and act.
 
+A report that lands while your turn runs reaches you when the turn ends, so
+read the pane before you say a worker is still running.
+
 Every card also tells the worker: if a choice the card does not cover would
 change the result, stop and report BLOCKED with the question instead of guessing.
 
@@ -147,6 +152,12 @@ line, `Read <file path> and do it.`
 If a worker hits a usage limit, its edits stay in the worktree. Close the pane
 and spawn a FRESH worker on another engine in the same worktree, with the card,
 its progress file and "continue from the uncommitted changes already here".
+
+An app update or restart closes every pane mid-run. Before you suggest one,
+tell the user which of your workers it would stop. After one, respawn each the
+same way, on the same engine. Servers and test browsers a closed pane started
+can outlive it: close only the ones you can prove it started (parent process,
+start time), since other bots run them too.
 
 Usage bars count down. In Wink's chat bar and in worker status lines, a
 percentage is what is LEFT, not what is used: "90%" means 90% left. Always say

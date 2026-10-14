@@ -58,7 +58,7 @@ describe("terminal proxy", () => {
   });
 
   it("carries the worker spawn recipe in the tool descriptions", () => {
-    expect(TOOLS[2].description).toContain(`claude --model <model-id> --dangerously-skip-permissions ${workerReportText(process.platform).claude}'Read <card path> and do it.'`);
+    expect(TOOLS[2].description).toContain(`claude --model <model-id> --effort <effort> --dangerously-skip-permissions ${workerReportText(process.platform).claude}'Read <card path> and do it.'`);
     expect(TOOLS[2].description).toContain(`--dangerously-bypass-approvals-and-sandbox ${workerReportText(process.platform).env}${workerReportText(process.platform).notify}'<prompt>'`);
     expect(TOOLS[2].description).toContain(workerReportText(process.platform).spawn);
     expect(TOOLS[0].description).toContain(workerReportText(process.platform).read);
@@ -66,7 +66,9 @@ describe("terminal proxy", () => {
     expect(TOOLS[2].description).toContain("git worktree");
     expect(TOOLS[2].description).toMatch(/read-only review of a plain folder runs in a scratch copy of it, never in place/);
     expect(TOOLS[2].description).toContain("one editing worker in place for a plain folder or a checkout with uncommitted changes, after a safety copy");
-    expect(TOOLS[1].description).toContain("terminal_read with waitFor set to the Claude prompt text, then send \"/effort <level>\\n\"");
+    expect(TOOLS[2].description).toContain("Never send /effort in a pane");
+    expect(TOOLS[1].description).not.toContain("/effort <level>");
+    expect(TOOLS[1].description).toContain("Text sent while a Claude worker is busy queues for its next step");
   });
 
   it("lists every picker model of the four worker engines with its name and --model id", () => {
