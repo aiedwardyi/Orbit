@@ -721,17 +721,24 @@ function askBotAndWait(
     userName: () => cfg.profile?.name?.trim() || "User",
     subscribe: (listener) => bus.subscribe(listener),
     fold: ownTurnReply(staleTurnEvent).fold,
-    start: () => startTurn(targetBotId, message, {
+    start: (onDispatchError) => startTurn(targetBotId, message, {
       commsDepth: depth + 1,
       unattended: isUnattended(fromBotId),
       transcriptText: peer?.transcriptText,
       ...peerAttribution(peer?.sender, peer?.channel),
+      onDispatchError,
+      commsAsk: true,
     }).then(() => undefined),
     adopt: () => {
       if (!peer || !store.bot(targetBotId)?.busy) return undefined;
       const taskId = newId();
-      watchDelegatedTurn(threadId, { channelId: peer.channel?.id, toBotId: targetBotId, taskId, sourceThreadId: peer.sourceThreadId, sourceBotId: peer.sender.id });
+      watchDelegatedTurn(threadId, { channelId: peer.channel?.id, toBotId: targetBotId, taskId, sourceThreadId: peer.sourceThreadId, sourceBotId: peer.sender.id, ask: true });
       return taskId;
+    },
+    fail: (taskId, failureName) => {
+      if (delegationWatch.get(threadId)?.taskId !== taskId) return;
+      peerTurnSource.delete(threadId);
+      finalizeDelegationWatch(threadId, false, "", failureName);
     },
   }).then((reply) => {
     if (!reply.taskId) peerTurnSource.delete(threadId);
@@ -4013,6 +4020,8 @@ type StartTurnOptions = {
    * dispatch the same user action twice. */
   sendId?: string;
   onDispatchError?: (message: string) => void;
+  /** ask_bot's turn: it has onDispatchError too, but keeps the ask turn limit. */
+  commsAsk?: boolean;
 };
 
 /** True only for a turn a person actually typed - not a pane note wake, a
@@ -4832,8 +4841,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // The @tag is the user's own coordination signal. Without it a 1:1
       // Chief gets the answer-directly framing: the fan-out paragraph on
       // every turn is what has it messaging its roster over a direct question.
-      // Depth-capped ask_bot has no onDispatchError. delegate_bot does.
-      const turnLimit = commsDepth < MAX_COMMS_DEPTH ? undefined : opts?.onDispatchError ? "delegation" : "ask";
+      const turnLimit = commsDepth < MAX_COMMS_DEPTH ? undefined : opts?.onDispatchError && !opts.commsAsk ? "delegation" : "ask";
       const coordinationPrompt = bot.chiefOfStaff
         ? chiefOfStaffSystemPrompt(
             bot.id,

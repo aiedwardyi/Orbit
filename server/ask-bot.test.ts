@@ -42,18 +42,19 @@ describe("ask_bot past its wait", () => {
   const base = () => ({ provider: "claude" as const, eventId: crypto.randomUUID(), createdAt: new Date().toISOString(), threadId: peer.threadId, turnId: "t1" });
   const text = (body: string): RuntimeEvent => ({ ...base(), type: "item.completed", itemType: "assistant_text", text: body });
   const completed = (): RuntimeEvent => ({ ...base(), type: "turn.completed", ok: true });
-  const ask = () => waitForPeerReply({
+  const ask = (start: (onDispatchError: (message: string) => void) => Promise<void> = async () => {}) => waitForPeerReply({
     threadId: peer.threadId,
     botName: peer.name,
     userName: () => "Edward",
     subscribe: (listener) => bus.subscribe(listener),
     fold: ownTurnReply(() => false).fold,
-    start: async () => {},
+    start,
     adopt: () => {
       if (!busy) return undefined;
       watched = { channelId: channel.id, toBotId: peer.id, taskId: "ask-task-1", sourceThreadId: caller.threadId, sourceBotId: caller.id };
       return watched.taskId;
     },
+    fail: (_taskId, failureName) => void finishDelegatedTurn(commsBus, watched!, false, "", failureName),
   });
   const poll = (waitMs: number) =>
     pollDelegation("ask-task-1", caller.id, caller.threadId, waitMs, (id) => (watched?.taskId === id ? watched : undefined), () => peer.name);
@@ -101,6 +102,19 @@ describe("ask_bot past its wait", () => {
     finishDelegatedTurn(commsBus, watched!, false, "", "Delegated turn did not finish");
     expect(await poll(0)).toEqual({ code: 200, body: { status: "failed", toBotName: "Pokkey", result: "Delegated turn did not finish" } });
     expect(replyRows()).toEqual([]);
+  });
+
+  it("fails an adopted ask whose dispatch fails after start resolved", async () => {
+    let dispatchError: (message: string) => void = () => {};
+    const asked = ask(async (onDispatchError) => {
+      dispatchError = onDispatchError;
+    });
+    dispatchError("still preparing");
+    expect((await asked).taskId).toBe("ask-task-1");
+    expect(await poll(0)).toEqual({ code: 200, body: { status: "running", toBotName: "Pokkey" } });
+
+    dispatchError("provider unavailable");
+    expect(await poll(0)).toEqual({ code: 200, body: { status: "failed", toBotName: "Pokkey", result: "Asked turn could not start: provider unavailable" } });
   });
 
   it("keeps the timeout note without a task id when the peer already ended", async () => {

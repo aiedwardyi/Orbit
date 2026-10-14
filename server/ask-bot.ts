@@ -30,9 +30,11 @@ export function waitForPeerReply(peer: {
   userName: () => string;
   subscribe: (listener: (event: RuntimeEvent) => void) => () => void;
   fold: (event: RuntimeEvent) => TurnReplyStep;
-  start: () => Promise<void>;
+  /** Resolves before dispatch ends; a later dispatch failure reaches `onDispatchError` with no turn.completed. */
+  start: (onDispatchError: (message: string) => void) => Promise<void>;
   /** Adopt the still-running turn; its task id, or undefined when it already ended. */
   adopt: () => string | undefined;
+  fail: (taskId: string, failureName: string) => void;
 }): Promise<AskReply> {
   return new Promise((resolve) => {
     let taskId: string | undefined;
@@ -51,7 +53,9 @@ export function waitForPeerReply(peer: {
       taskId = peer.adopt();
       answer.end("(timed out waiting for the bot to reply)", false);
     }, ASK_BOT_TIMEOUT_MS);
-    peer.start().catch((err) =>
+    peer.start((message) => {
+      if (taskId) peer.fail(taskId, `Asked turn could not start: ${message.slice(0, 120)}`);
+    }).catch((err) =>
       answer.end(`(couldn't start that bot: ${err instanceof Error ? err.message : String(err)})`, false),
     );
   });

@@ -31,6 +31,9 @@ export function takeOverPeerTurn(threadId: string): boolean {
   return true;
 }
 
+export const askSwitchedText = (botName: string, userName: string) =>
+  `${botName} switched to ${userName}'s message before answering. Ask again later.`;
+
 /** ask_bot's answer: the turn's text until it ends, or until the user takes it over. */
 export function peerAnswer(
   threadId: string,
@@ -47,7 +50,7 @@ export function peerAnswer(
     resolve(out, replied && Boolean(text.trim()));
   };
   const endTakeover = onPeerTakeover(threadId, () =>
-    finish(text || `${botName} switched to ${userName()}'s message before answering. Ask again later.`),
+    finish(text || askSwitchedText(botName, userName())),
   );
   return {
     add: (step: string) => {

@@ -7,7 +7,7 @@
 import { rmSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { settleDelegationChip, type CommsBus } from "./comms-visibility.ts";
+import { getOrCreateChannel, settleDelegationChip, type CommsBus } from "./comms-visibility.ts";
 import { DATA_DIR } from "./config.ts";
 import { prepareModelContext } from "./context-compaction.ts";
 import type { ModelSelection } from "./contracts.ts";
@@ -1190,6 +1190,21 @@ describe("user takeover of a delegated turn", () => {
     finishDelegatedTurn(commsBus, turn, false);
     expect(findDelegationReceipt(queued.id!)).toMatchObject({ status: "failed" });
     expect(pendingDelegationInfo(queued.id!)).toBeNull();
+  });
+
+  it("fails an adopted ask the user takes over, and ignores its later end", () => {
+    const channel = getOrCreateChannel(store, career, wink);
+    const turn: DelegatedTurn = { channelId: channel.id, toBotId: wink.id, taskId: "ask-1", sourceThreadId: career.threadId, sourceBotId: career.id, ask: true };
+    takeOverDelegatedTurn(commsBus, turn, "Edward");
+
+    const switched = "Wink switched to Edward's message before answering. Ask again later.";
+    expect(findDelegationReceipt("ask-1")).toMatchObject({ status: "failed", result: switched });
+    expect(channelRows(channel)).toEqual([switched]);
+    finishDelegatedTurn(commsBus, turn, true, "Edward, 1.0.157 is out.");
+    expect(findDelegationReceipt("ask-1")).toMatchObject({ status: "failed", result: switched });
+    expect(channelRows(channel)).toEqual([switched]);
+    expect(channelTexts(channel)).toEqual([]);
+    expect(pendingDelegationInfo("ask-1")).toBeNull();
   });
 
   it("lets the user's queued messages run first without spending a busy retry", async () => {

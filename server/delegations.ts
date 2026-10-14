@@ -31,6 +31,7 @@ import {
 import { DATA_DIR } from "./config.ts";
 import { newId } from "./contracts.ts";
 import { requestPeerApproval, type ApprovalBus } from "./peer-approval.ts";
+import { askSwitchedText } from "./peer-takeover.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { hasQueuedSends } from "./steer-queue.ts";
 import type { BotRecord, GroupRecord, Message } from "./store.ts";
@@ -753,11 +754,18 @@ export interface DelegatedTurn {
   sourceBotId?: string;
   /** The user whose message joined this turn; its text went to them. */
   takenOverBy?: string;
+  /** An ask that outlived its wait: a takeover fails it, nothing reruns. */
+  ask?: true;
 }
 
 /** The user's message joined a delegated turn: say so where the teammate waits. */
 export function takeOverDelegatedTurn(bus: CommsBus, turn: DelegatedTurn, userName: string): void {
   if (turn.takenOverBy !== undefined) return;
+  if (turn.ask) {
+    finishDelegatedTurn(bus, turn, false, "", askSwitchedText(bus.store.bot(turn.toBotId)?.name ?? turn.toBotId, userName));
+    turn.takenOverBy = userName;
+    return;
+  }
   turn.takenOverBy = userName;
   // a rerun taken over settles with the pointer at its end; the chip already says paused
   if (turn.taskId && runningDelegations.get(turn.taskId)?.item.takenOverBy !== undefined) return;
@@ -781,6 +789,8 @@ export function finishDelegatedTurn(
   reply = "",
   failureName = "Delegated turn did not finish",
 ): boolean {
+  // settled when the user took it over
+  if (turn.ask && turn.takenOverBy !== undefined) return false;
   const running = turn.taskId ? runningDelegations.get(turn.taskId) : undefined;
   if (turn.taskId) runningDelegations.delete(turn.taskId);
   const target = bus.store.bot(turn.toBotId);

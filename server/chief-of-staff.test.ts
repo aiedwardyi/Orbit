@@ -296,7 +296,7 @@ describe("a turn that answers another bot", () => {
   });
 
   it("passes the turn kind from both turn sites", () => {
-    expect(index).toContain('opts?.onDispatchError ? "delegation" : "ask"');
+    expect(index).toContain('opts?.onDispatchError && !opts.commsAsk ? "delegation" : "ask"');
     expect(index).toContain('hop >= MAX_COMMS_DEPTH ? "room" : undefined');
     expect(index).not.toContain("commsDepth >= MAX_COMMS_DEPTH");
   });
