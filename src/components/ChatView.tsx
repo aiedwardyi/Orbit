@@ -152,7 +152,7 @@ function DaySeparator({ at }: { at: number }) {
 function TaskTimeline({ messages, busy }: { messages: Message[]; busy: boolean }) {
   const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
-  const events = useMemo(() => timelineEvents(messages), [messages]);
+  const events = useMemo(() => timelineEvents(messages, (line) => localizeServerLine(line, t)), [messages, t]);
   if (events.length === 0) return null;
   const recent = events.slice(-8);
   return (

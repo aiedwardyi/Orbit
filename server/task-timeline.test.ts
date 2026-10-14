@@ -27,6 +27,16 @@ describe("execution timeline", () => {
     ]);
   });
 
+  it("localizes a failed row after dropping its error prefix, and only that row", () => {
+    const localize = (line: string) => `<${line}>`;
+    const events = timelineEvents([
+      { id: "a", role: "bot", kind: "activity", tool: { name: "error: blocked", ok: false }, at: 1 },
+      { id: "b", role: "bot", kind: "activity", tool: { name: "browser.search", ok: true }, at: 2 },
+      { id: "c", role: "bot", kind: "activity", tool: { name: "Delegation to @A denied by user", ok: false }, at: 3 },
+    ], localize);
+    expect(events.map((event) => event.label)).toEqual(["<blocked>", "browser.search", "Delegation to @A denied by user"]);
+  });
+
   it("does not call every later user reply a new task", () => {
     const events = timelineEvents([
       { id: "task", role: "user", kind: "text", text: "Research this", at: 1 },
