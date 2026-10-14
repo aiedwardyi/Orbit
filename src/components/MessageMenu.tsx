@@ -4,7 +4,7 @@
 // On phones a hold opens it, and Select text hands one message back to the
 // phone's own selection.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { Copy, MessageSquareReply, SmilePlus, TextCursor, X } from "lucide-react";
 import { EXTENDED_REACTIONS } from "../../shared/reactions";
 import { useStore, type Message } from "@/state/store";
@@ -50,11 +50,61 @@ export function endSelectMode(): void {
   selecting?.();
 }
 
-/** Selects the row's text and lets the phone's own selection work there until a touch lands elsewhere. */
-export function startSelectMode(row: HTMLElement): void {
+const words = new Intl.Segmenter(undefined, { granularity: "word" });
+
+interface Word {
+  node: Text;
+  start: number;
+  end: number;
+}
+
+function nearestWord(node: Text, offset: number): Word | null {
+  let best: Word | null = null;
+  let gap = Infinity;
+  for (const s of words.segment(node.data)) {
+    if (!s.isWordLike) continue;
+    const end = s.index + s.segment.length;
+    const d = offset < s.index ? s.index - offset : Math.max(0, offset - end);
+    if (d < gap) [best, gap] = [{ node, start: s.index, end }, d];
+  }
+  return best;
+}
+
+/** The word at a viewport point inside the message content, or null when none can be found there. */
+function wordAt(content: Element, x: number, y: number): Word | null {
+  const box = content.getBoundingClientRect();
+  if (x < box.left || x > box.right || y < box.top || y > box.bottom) return null;
+  const caret = document.caretRangeFromPoint?.(x, y);
+  if (!caret || !content.contains(caret.startContainer)) return null;
+  const { startContainer: node, startOffset: offset } = caret;
+  if (node instanceof Text) {
+    const word = nearestWord(node, offset);
+    if (word) return word;
+  }
+  // a caret between blocks or on wordless text: the next word after it, else the last one before
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+  let before: Word | null = null;
+  for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+    if (!(text instanceof Text)) continue;
+    const after = caret.comparePoint(text, 0) > 0;
+    const word = nearestWord(text, after ? 0 : text.length);
+    if (word && after) return word;
+    before = word ?? before;
+  }
+  return before;
+}
+
+/** Selects the held word, or the whole message, and lets the phone's own selection work there until a touch lands elsewhere. */
+export function startSelectMode(row: HTMLElement, held: { x: number; y: number }): void {
   endSelectMode();
+  // the row is unselectable until now, and caret hit-testing skips unselectable text
   row.setAttribute("data-select-mode", "");
-  window.getSelection()?.selectAllChildren(row.querySelector("[data-orbit-message-content]") ?? row);
+  const content = row.querySelector("[data-orbit-message-content]") ?? row;
+  const box = row.getBoundingClientRect();
+  const word = wordAt(content, box.left + held.x, box.top + held.y);
+  const sel = window.getSelection();
+  if (word) sel?.setBaseAndExtent(word.node, word.start, word.node, word.end);
+  else sel?.selectAllChildren(content);
   const onDown = (e: Event) => {
     if (!(e.target instanceof Node && row.contains(e.target))) end();
   };
@@ -300,6 +350,11 @@ export function MessageMenu({
   const { threadId, message, copyText, user } = target;
   const [expanded, setExpanded] = useState(false);
   const [touch] = useState(isTouchPrimary);
+  // kept against the row, since the transcript can scroll before Select text
+  const [held] = useState(() => {
+    const box = opener.getBoundingClientRect();
+    return { x: x - box.left, y: y - box.top };
+  });
   const ref = useRef<HTMLDivElement>(null);
   const box = useMenuPlacement(ref, x, y, expanded);
   useMenuDismiss(ref, opener, onClose);
@@ -428,8 +483,9 @@ export function MessageMenu({
           role="menuitem"
           data-menu-select
           onClick={() => {
-            closeMenu(opener, ref.current, onClose);
-            startSelectMode(opener);
+            // the menu can cover the held point, so it leaves before the hit test
+            flushSync(() => closeMenu(opener, ref.current, onClose));
+            startSelectMode(opener, held);
           }}
           className={cn(ROW_CLASS, "min-h-10")}
         >

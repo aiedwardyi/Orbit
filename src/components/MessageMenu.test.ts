@@ -526,6 +526,36 @@ describe("message menu on touch", () => {
     return touch("touchend", el);
   }
   const tapOutside = () => touch("touchstart", document.body, [[5, 5]]);
+  const selectText = () =>
+    act(async () => { document.querySelector("[data-menu-select]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+  const place = (el: Element, rect: { x?: number; y?: number; width?: number; height?: number }) =>
+    Object.defineProperty(el, "getBoundingClientRect", { configurable: true, value: () => DOMRect.fromRect({ width: 400, height: 400, ...rect }) });
+  function textNode(el: Element, text: string): Text {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node instanceof Text && node.data.includes(text)) return node;
+    }
+    throw new Error(`no text node with ${text}`);
+  }
+  function stubCaret(at: () => [Node, number] | null) {
+    const caret = vi.fn((_x: number, _y: number) => {
+      const point = at();
+      if (!point) return null;
+      const range = document.createRange();
+      range.setStart(...point);
+      return range;
+    });
+    Object.assign(document, { caretRangeFromPoint: caret });
+    return caret;
+  }
+  async function selectAt(host: Element, id: string, at: (content: Element) => [Node, number] | null) {
+    const el = content(host, id);
+    place(el, {});
+    const caret = stubCaret(() => at(el));
+    await hold(el);
+    await selectText();
+    return caret;
+  }
 
   afterEach(async () => {
     await tapOutside();
@@ -634,16 +664,15 @@ describe("message menu on touch", () => {
     expect(messageMenu()).not.toBeNull();
   });
 
-  it("hands one message to native selection with Select text until an outside tap", async () => {
+  it("hands the held word to native selection with Select text until an outside tap", async () => {
     const host = await mountChat(bot([botMsg("b1", "first reply"), botMsg("b2", "second reply")]));
     stubTouchScreen();
-    await hold(content(host, "b1"));
-    await act(async () => { document.querySelector("[data-menu-select]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    await selectAt(host, "b1", (el) => [textNode(el, "first"), 2]);
 
     expect(messageMenu()).toBeNull();
     expect(row(host, "b1").hasAttribute("data-select-mode")).toBe(true);
     expect(row(host, "b2").hasAttribute("data-select-mode")).toBe(false);
-    expect(window.getSelection()?.toString()).toBe("first reply");
+    expect(window.getSelection()?.toString()).toBe("first");
 
     await hold(content(host, "b1"));
     expect(messageMenu()).toBeNull();
@@ -655,6 +684,87 @@ describe("message menu on touch", () => {
     expect(row(host, "b1").hasAttribute("data-select-mode")).toBe(false);
     await hold(content(host, "b1"));
     expect(messageMenu()).not.toBeNull();
+  });
+
+  it("selects the held Korean word", async () => {
+    localStorage.setItem("omb-locale", "ko");
+    const host = await mountChat(bot([botMsg("b1", "안녕하세요 메시지를 확인했어요")]));
+    stubTouchScreen();
+    await selectAt(host, "b1", (el) => [textNode(el, "메시지를"), 8]);
+    expect(window.getSelection()?.toString()).toBe("메시지를");
+  });
+
+  it("selects the nearest word at a word end, on a space, on punctuation or in the padding", async () => {
+    const host = await mountChat(bot([botMsg("b1", "hello there, friend")]));
+    stubTouchScreen();
+    const cases: Array<[(el: Element) => [Node, number], string]> = [
+      [(el) => [textNode(el, "hello"), 11], "there"],
+      [(el) => [textNode(el, "hello"), 12], "there"],
+      [(el) => [textNode(el, "hello"), 13], "friend"],
+      [(el) => [textNode(el, "hello"), 5], "hello"],
+      [(el) => [el, 0], "hello"],
+      [(el) => [textNode(el, "hello").parentNode!, 1], "friend"],
+    ];
+    for (const [at, word] of cases) {
+      await selectAt(host, "b1", at);
+      expect(window.getSelection()?.toString()).toBe(word);
+      await tapOutside();
+    }
+  });
+
+  it("falls back to the whole message when no word is under the hold", async () => {
+    const host = await mountChat(bot([botMsg("b1", "first reply"), botMsg("b2", "second reply")]));
+    stubTouchScreen();
+    const caret = await selectAt(host, "b1", () => null);
+    expect(caret).toHaveBeenCalledWith(100, 120);
+    expect(window.getSelection()?.toString()).toBe("first reply");
+    await tapOutside();
+
+    await selectAt(host, "b1", () => [textNode(content(host, "b2"), "second"), 2]);
+    expect(window.getSelection()?.toString()).toBe("first reply");
+    await tapOutside();
+
+    const el = content(host, "b1");
+    const outside = stubCaret(() => [textNode(el, "first"), 2]);
+    place(el, { y: 200 });
+    await hold(el);
+    await selectText();
+    expect(outside).not.toHaveBeenCalled();
+    expect(window.getSelection()?.toString()).toBe("first reply");
+  });
+
+  it("finds the held word after the transcript moves", async () => {
+    const host = await mountChat(bot([botMsg("b1", "first reply")]));
+    stubTouchScreen();
+    const el = content(host, "b1");
+    place(row(host, "b1"), { y: 100 });
+    place(el, {});
+    let selectable = false;
+    let menuGone = false;
+    const caret = stubCaret(() => {
+      selectable = row(host, "b1").hasAttribute("data-select-mode");
+      menuGone = messageMenu() === null;
+      return [textNode(el, "reply"), 8];
+    });
+    await hold(el);
+    place(row(host, "b1"), { y: 40 });
+    await selectText();
+    expect(caret).toHaveBeenCalledWith(100, 60);
+    expect(selectable).toBe(true);
+    expect(menuGone).toBe(true);
+    expect(window.getSelection()?.toString()).toBe("reply");
+  });
+
+  it("selects the held word in a room", async () => {
+    const roomBot: Message = { ...botMsg("b1", "room hello"), from: { botId: "m1", name: "Ada", color: "blue" } };
+    const host = await mountRoom(members, room([userMsg("u1", "hi all"), roomBot]));
+    stubTouchScreen();
+    await selectAt(host, "b1", (el) => [textNode(el, "room"), 7]);
+    expect(row(host, "b1").hasAttribute("data-select-mode")).toBe(true);
+    expect(window.getSelection()?.toString()).toBe("hello");
+    await tapOutside();
+    await selectAt(host, "u1", (el) => [textNode(el, "hi all"), 0]);
+    expect(window.getSelection()?.toString()).toBe("hi");
   });
 
   it("ends select mode when another message's menu opens", async () => {
