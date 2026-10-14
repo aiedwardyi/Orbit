@@ -2,7 +2,7 @@
 // and its local state. Drafts live in localStorage, so coming back to a task — in this
 // session or after a restart — finds what you were typing still there.
 import { useCallback, useEffect, useState, type SetStateAction } from "react";
-import { isAttachment, type Attachment } from "./composer-attachments.js";
+import { isAttachment, restoredAttachment, type Attachment } from "./composer-attachments.js";
 
 const KEY = "omb-drafts";
 const ATTACHMENTS_KEY = "omb-draft-attachments";
@@ -72,7 +72,7 @@ export function setDraft(store: Store, id: string, text: string): void {
 
 export function getDraftAttachments(store: Store, id: string): Attachment[] {
   const attachments = read(store, ATTACHMENTS_KEY)[id];
-  return Array.isArray(attachments) ? attachments.filter(isAttachment) : [];
+  return Array.isArray(attachments) ? attachments.filter(isAttachment).map(restoredAttachment) : [];
 }
 
 export function setDraftAttachments(store: Store, id: string, attachments: Attachment[]): void {
@@ -84,6 +84,14 @@ export function setDraftAttachments(store: Store, id: string, attachments: Attac
   } catch {
     /* quota / private mode — attachments remain in component state */
   }
+}
+
+/** Rewrites one stored chip, whether or not its task's composer is mounted. */
+export function updateDraftAttachment(id: string, chipId: string, update: (attachment: Attachment) => Attachment): void {
+  const store = getStore();
+  const attachments = getDraftAttachments(store, id);
+  if (!attachments.some((a) => a.id === chipId)) return;
+  setDraftAttachments(store, id, attachments.map((a) => (a.id === chipId ? update(a) : a)));
 }
 
 /** One room hold per busy Enter. A single draft slot cannot keep ADV-QUEUE-0..n. */

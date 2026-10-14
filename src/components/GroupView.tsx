@@ -46,6 +46,7 @@ import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { WorkerRow, WorkerChip, useWorkerRows, type ShownRun } from "./WorkerRows";
 import { shownState, workerRuns } from "@/lib/worker-runs";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
+import { FileAttachmentRows } from "./FileAttachmentRow";
 import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
 import { ReactionBar, ReactionChips } from "./Reactions";
 import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
@@ -567,6 +568,7 @@ const Transcript = memo(function Transcript({
                         <AttachedImageGallery paths={attachedImages.images} />
                       )}
                       {attachedImages?.display ?? m.text}
+                      {attachedImages && <FileAttachmentRows files={attachedImages.files} className={cn(attachedImages.display && "mt-2")} />}
                     </>
                   ) : markdownText.trim() ? (
                     <MessageBoundary fallbackText={markdownText}>

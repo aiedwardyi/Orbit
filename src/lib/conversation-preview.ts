@@ -5,7 +5,7 @@
 // stay out unless Settings → Show tool calls is on (default off).
 import { isOnboardingCard, shouldHideOnboardingCard } from "@/components/OptionCard";
 import { activityVisibleInChat } from "@/lib/activity-runs";
-import { splitAttachedImages } from "@/lib/composer-attachments";
+import { attachedFilePreview } from "@/lib/composer-attachments";
 import { t, type Translate } from "@/lib/i18n";
 import { notePreview } from "@/lib/pane-note";
 import { isShownMessage } from "@/lib/shown-message";
@@ -78,7 +78,7 @@ export function conversationPreview(
     }
     if (last.kind === "note" && last.text) return notePreview(parsePaneNote(last.text), translate);
     if (last.kind === "launch" && last.text) return last.text.split("\n", 1)[0] ?? "";
-    if (last.text) return splitAttachedImages(last.text).display;
+    if (last.text) return attachedFilePreview(last.text);
   }
   return "";
 }
@@ -104,7 +104,7 @@ export function roomConversationPreview(
     if (!isShownMessage(last)) continue;
     if (last.kind === "activity" && last.tool && !activityVisibleInChat(last, showToolCalls)) continue;
     if (last.kind === "screen" && !showToolCalls) continue;
-    const text = last.kind === "activity" && last.tool ? last.tool.name : splitAttachedImages(last.text ?? "").display;
+    const text = last.kind === "activity" && last.tool ? last.tool.name : attachedFilePreview(last.text ?? "");
     if (last.role === "user") return translate("chrome.youPrefix", { text });
     return last.from ? translate("chrome.speakerPrefix", { name: last.from.name, text }) : text;
   }

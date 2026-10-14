@@ -144,8 +144,11 @@ describe("Composer wiring", () => {
 
   it("demotes a pasted image to a file without the image-support notice", () => {
     const paste = composer.slice(composer.indexOf("onPaste="), composer.indexOf("onKeyUp="));
-    expect(paste).toContain("pasteImageAttachment");
+    expect(paste).toContain("pickFiles(imageFiles)");
     expect(paste).not.toContain("showImageSupportNotice");
+    const pick = composer.slice(composer.indexOf("const pickFiles = "), composer.indexOf("const idlePlaceholder = "));
+    expect(pick).toContain("uploadImage: pasteImageAttachment");
+    expect(pick).not.toContain("showImageSupportNotice");
   });
 });
 

@@ -19,6 +19,22 @@ export type FileAttachment = {
   path: string;
   name: string;
   size: number;
+  type?: string;
+  /** Set when the file was uploaded; it counts toward the per-message upload limit. */
+  uploadId?: string;
+};
+
+/** A file still on its way to the PC. Send waits until it becomes a file chip. */
+export type UploadAttachment = {
+  kind: "upload";
+  id: string;
+  uploadId?: string;
+  name: string;
+  size: number;
+  type: string;
+  lastModified: number;
+  sent: number;
+  state: "uploading" | "resuming" | "failed" | "repick";
 };
 
 export type ImageAttachment = {
@@ -30,7 +46,7 @@ export type ImageAttachment = {
   mime: string;
 };
 
-export type Attachment = PasteAttachment | FileAttachment | ImageAttachment;
+export type Attachment = PasteAttachment | FileAttachment | ImageAttachment | UploadAttachment;
 
 export type ImageSupport = "supported" | "unsupported" | "unknown";
 
@@ -99,8 +115,22 @@ export function isAttachment(value: unknown): value is Attachment {
       attachment.mime.startsWith("image/")
     );
   }
+  if (attachment.kind === "upload") return StoredUpload.safeParse(attachment).success;
   return false;
 }
+
+/** A File cannot be read again after a reload, so a stored upload waits for a re-pick. */
+export function restoredAttachment(attachment: Attachment): Attachment {
+  return attachment.kind === "upload" ? { ...attachment, state: "repick" } : attachment;
+}
+
+const StoredUpload = z.object({
+  uploadId: z.string().optional(),
+  name: z.string(),
+  type: z.string(),
+  lastModified: z.number(),
+  sent: z.number().nonnegative(),
+});
 
 function validSize(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -123,14 +153,30 @@ function newId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `a${Math.random().toString(36).slice(2)}`;
 }
 
-export function fileAttachment(name: string, path: string, size: number): FileAttachment {
-  return { kind: "file", id: newId(), path, name, size };
+export function fileAttachment(name: string, path: string, size: number, type = ""): FileAttachment {
+  const attachment: FileAttachment = { kind: "file", id: newId(), path, name, size };
+  if (type) attachment.type = type;
+  return attachment;
+}
+
+export function uploadAttachment(file: Pick<File, "name" | "size" | "type" | "lastModified">): UploadAttachment {
+  return {
+    kind: "upload",
+    id: newId(),
+    name: file.name,
+    size: file.size,
+    type: file.type,
+    lastModified: file.lastModified,
+    sent: 0,
+    state: "uploading",
+  };
 }
 
 /** Matches the server's IMAGE_MAX_BYTES — checked client-side so an
  * oversized paste is refused before the upload starts, not mid-stream. */
 export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const DOCUMENT_MAX_BYTES = 25 * 1024 * 1024;
+export const UPLOAD_MAX_BYTES = 10 * 1024 ** 3;
 
 const DOCUMENT_EXTENSION = /\.(pdf|docx?|xlsx?|pptx?|txt|md|csv|json)$/i;
 
@@ -172,7 +218,6 @@ export async function pasteImageAttachment(
   uploader: (file: File) => Promise<{ path: string; mime: string; bytes: number }> = uploadAttachmentFile,
 ): Promise<Attachment | null> {
   if (!isImageFile(file)) return null;
-  if (file.size > IMAGE_MAX_BYTES) throw Object.assign(new Error(`${file.name} exceeds 10 MB`), { status: 413 });
   const saved = await uploader(file);
   const name = file.name || "pasted image";
   if (allowImages) {
@@ -265,7 +310,8 @@ export function pasteSummary(a: { lines: number; size: number }): string {
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 ** 3) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
 
 /** The prompt the bot receives: what was typed, then one block per
@@ -279,8 +325,9 @@ export function composeMessage(text: string, attachments: Attachment[]): string 
       parts.push(`<pasted-text index="${i + 1}">\n${a.text}\n</pasted-text>`);
     } else if (a.kind === "image") {
       parts.push(`<attached-image path="${escapeAttribute(a.path)}" />`);
-    } else {
-      parts.push(`<attached-file path="${escapeAttribute(a.path)}" />`);
+    } else if (a.kind === "file") {
+      const type = a.type ? ` type="${escapeAttribute(a.type)}"` : "";
+      parts.push(`<attached-file path="${escapeAttribute(a.path)}" name="${escapeAttribute(a.name)}" size="${a.size}"${type} />`);
     }
   });
   return parts.filter(Boolean).join("\n\n");
@@ -299,9 +346,41 @@ export function escapeAttribute(value: string): string {
     .replaceAll("\n", "&#10;");
 }
 
-/** Split a stored user message into its display text and the images it
- * attached, for transcript rendering. The tag never shows in the bubble. */
-export function splitAttachedImages(text: string): { display: string; images: string[] } {
+function unescapeAttribute(value: string): string {
+  return value
+    .replaceAll("&quot;", '"')
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&#9;", "\t")
+    .replaceAll("&#13;", "\r")
+    .replaceAll("&#10;", "\n")
+    .replaceAll("&amp;", "&");
+}
+
+export type AttachedFile = { path: string; name: string; size?: number };
+
+const ATTACHED_FILE = /<attached-file\s+path="([^"]*)"((?:\s+[a-z]+="[^"]*")*)\s*\/?>/g;
+
+function attachedFile(rawPath: string, rawAttributes: string): AttachedFile {
+  const path = unescapeAttribute(rawPath);
+  const attributes = Object.fromEntries(
+    [...rawAttributes.matchAll(/([a-z]+)="([^"]*)"/g)].map(([, key, value]) => [key, unescapeAttribute(value ?? "")]),
+  );
+  const file: AttachedFile = { path, name: attributes.name || attachmentBasename(path) };
+  const size = Number(attributes.size);
+  if (attributes.size && Number.isFinite(size) && size >= 0) file.size = size;
+  return file;
+}
+
+/** One-line previews: each attached file reads as its name, in place. */
+export function attachedFilePreview(text: string, label = (name: string) => name): string {
+  return splitAttachedImages(text.replace(ATTACHED_FILE, (_match, path: string, rest: string) => label(attachedFile(path, rest).name)))
+    .display;
+}
+
+/** Split a stored user message into its display text and the images and
+ * files it attached, for transcript rendering. Tags never show in the bubble. */
+export function splitAttachedImages(text: string): { display: string; images: string[]; files: AttachedFile[] } {
   const pasted: string[] = [];
   let display = text.replace(
     /<pasted-text(?:\s+index="\d+")?>\n?([\s\S]*?)\n?<\/pasted-text>/g,
@@ -312,25 +391,17 @@ export function splitAttachedImages(text: string): { display: string; images: st
   );
   const images: string[] = [];
   display = display.replace(/<attached-image\s+path="([^"]*)"\s*\/?>(?:\s*\n)?/g, (_match, raw: string) => {
-    const path = raw
-      .replaceAll("&quot;", '"')
-      .replaceAll("&lt;", "<")
-      .replaceAll("&gt;", ">")
-      .replaceAll("&amp;", "&");
+    const path = unescapeAttribute(raw);
     if (path) images.push(path);
     return "";
   });
-  display = display.replace(/<attached-file\s+path="([^"]*)"\s*\/?>(?:\s*\n)?/g, (_match, raw: string) => {
-    const path = raw
-      .replaceAll("&quot;", '"')
-      .replaceAll("&lt;", "<")
-      .replaceAll("&gt;", ">")
-      .replaceAll("&amp;", "&");
-    const name = attachmentBasename(path);
-    return `[attachment: ${name}]`;
+  const files: AttachedFile[] = [];
+  display = display.replace(new RegExp(`${ATTACHED_FILE.source}(?:\\s*\\n)?`, "g"), (_match, path: string, rest: string) => {
+    files.push(attachedFile(path, rest));
+    return "";
   });
   display = display.replace(/\0PASTE(\d+)\0/g, (_match, index: string) => pasted[Number(index)] ?? "");
-  return { display: display.trim(), images };
+  return { display: display.trim(), images, files };
 }
 
 /** The bare filename a saved attachment path ends in — what the serving
@@ -350,64 +421,71 @@ export function attachmentImageUrl(path: string): string | null {
   return `/api/attachments/${encodeURIComponent(name)}`;
 }
 
-/** Shared intake for the attach button and file drops on every device. */
-export async function intakeFiles<T extends DroppedFile & Pick<File, "arrayBuffer">>(
+/** Shared intake for the attach button and file drops on every device.
+ * A file with no disk path that the attachment route won't take becomes an
+ * upload chip; the caller starts its upload from `uploads`. */
+export async function intakeFiles<T extends DroppedFile & Pick<File, "arrayBuffer"> & Partial<Pick<File, "lastModified">>>(
   _files: readonly T[],
   _opts: {
     allowImages: boolean;
     getPath: (file: T) => string;
     uploadImage: (file: T, allowImages: boolean) => Promise<Attachment | null>;
-    t: (key: "composer.attachmentUnsupported" | "composer.uploadFailed", vars?: Record<string, string | number>) => string;
+    t: (key: "composer.uploadTooBig" | "composer.uploadFailed", vars?: Record<string, string | number>) => string;
   },
-): Promise<{ attachments: Attachment[]; notice: string | null }> {
+): Promise<{ attachments: Attachment[]; uploads: { id: string; file: T }[]; notice: string | null }> {
   const files = [..._files];
   const { allowImages, getPath, uploadImage, t } = _opts;
   const attachments: Attachment[] = [];
-  const rejectedNames: string[] = [];
+  const uploads: { id: string; file: T }[] = [];
+  const tooBig: string[] = [];
   const uploadErrors: string[] = [];
+  const bigUpload = (file: T) => {
+    if (file.size > UPLOAD_MAX_BYTES) {
+      tooBig.push(t("composer.uploadTooBig", { name: file.name }));
+      return;
+    }
+    const chip = uploadAttachment({ name: file.name, size: file.size, type: file.type, lastModified: file.lastModified ?? 0 });
+    attachments.push(chip);
+    uploads.push({ id: chip.id, file });
+  };
   // Finish each selected file in sequence so the chips retain the order in
   // which the user chose or dropped them.
   for (const file of files) {
+    const path = safeGetPath(file, getPath);
     if (isImageFile(file)) {
-      const path = safeGetPath(file, getPath);
-      // A pathless image (phone, web) has no other way to reach the bot, so
-      // it uploads even when the engine cannot read it inline, same as paste.
-      if (allowImages || !path) {
+      if (path && (!allowImages || file.size > IMAGE_MAX_BYTES)) {
+        attachments.push(fileAttachment(file.name, path, file.size, file.type));
+      } else if (file.size > IMAGE_MAX_BYTES) {
+        bigUpload(file);
+      } else {
+        // A pathless image (phone, web) has no other way to reach the bot, so
+        // it uploads even when the engine cannot read it inline, same as paste.
         try {
           const attachment = await uploadImage(file, allowImages);
           if (attachment) attachments.push(attachment);
         } catch (err) {
           uploadErrors.push(`${file.name}: ${err instanceof Error ? err.message : t("composer.uploadFailed")}`);
         }
-        continue;
       }
-      attachments.push(fileAttachment(file.name, path, file.size));
       continue;
     }
-    const path = safeGetPath(file, getPath);
     if (path) {
-      attachments.push(fileAttachment(file.name, path, file.size));
+      attachments.push(fileAttachment(file.name, path, file.size, file.type));
     } else if (DOCUMENT_EXTENSION.test(file.name) && file.size <= DOCUMENT_MAX_BYTES) {
       try {
         const saved = await uploadAttachmentFile(file, true);
-        attachments.push(fileAttachment(saved.name ?? attachmentBasename(file.name), saved.path, saved.bytes));
+        attachments.push(fileAttachment(saved.name ?? attachmentBasename(file.name), saved.path, saved.bytes, file.type));
       } catch {
         uploadErrors.push(`${file.name}: ${t("composer.uploadFailed")}`);
       }
     } else if (file.type === "text/plain") {
       const result = await attachmentsFromDroppedFiles([file], getPath);
       attachments.push(...result.attachments);
-      rejectedNames.push(...result.rejectedNames);
+      if (result.rejectedNames.length) bigUpload(file);
     } else {
-      rejectedNames.push(file.name);
+      bigUpload(file);
     }
   }
-  const pathless = rejectedNames.length
-    ? t("composer.attachmentUnsupported", { name: rejectedNames.join(", ") })
-    : null;
-  const failed = uploadErrors.length ? uploadErrors.join("; ") : null;
-  return {
-    attachments,
-    notice: pathless && failed ? `${pathless} (${failed})` : (pathless ?? failed),
-  };
+  const notices = [...tooBig, ...uploadErrors];
+  return { attachments, uploads, notice: notices.length ? notices.join(" ") : null };
 }

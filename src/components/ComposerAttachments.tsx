@@ -15,6 +15,7 @@ import {
   pasteSummary,
   type Attachment,
   type PasteAttachment,
+  type UploadAttachment,
 } from "@/lib/composer-attachments";
 import { usePresence } from "@/lib/use-presence";
 import { AttachmentPreviewDialog, previewImage, type PreviewImage } from "./AttachmentPreview";
@@ -33,14 +34,20 @@ export function ComposerAttachments({
   allowImages = true,
   notice,
   onNotice,
+  onCancelUpload = onRemove,
+  onRetryUpload,
+  onRepickUpload,
 }: {
   items: Attachment[];
-  onAdd: (attachments: Attachment[]) => void;
+  onAdd: (attachments: Attachment[], uploads: { id: string; file: File }[]) => void;
   onRemove: (id: string) => void;
   onDisplayInChatBox: (attachment: PasteAttachment) => void;
   allowImages?: boolean;
   notice: string | null;
   onNotice: (notice: string | null) => void;
+  onCancelUpload?: (id: string) => void;
+  onRetryUpload?: (id: string) => void;
+  onRepickUpload?: (id: string) => void;
 }) {
   const { t } = useI18n();
   const [dragging, setDragging] = useState(false);
@@ -77,14 +84,14 @@ export function ComposerAttachments({
       const files = Array.from(e.dataTransfer?.files ?? []);
       // Same intake the attach button uses: a dropped file and a picked one
       // must not appear in a different order.
-      const { attachments, notice: message } = await intakeFiles(files, {
+      const { attachments, uploads, notice: message } = await intakeFiles(files, {
         t,
         allowImages,
         getPath: pathForFile,
         uploadImage: pasteImageAttachment,
       });
       if (!active) return;
-      if (attachments.length) onAdd(attachments);
+      if (attachments.length) onAdd(attachments, uploads);
       // Only a failure changes the notice. This keeps a concurrent successful
       // intake from clearing an error before the user can read it.
       if (message) onNotice(message);
@@ -172,6 +179,16 @@ export function ComposerAttachments({
                 </button>
                 <div className="mt-1 truncate text-[10.5px] text-ink-secondary/70">{formatSize(a.size)}</div>
               </Chip>
+            ) : a.kind === "upload" ? (
+              <Chip
+                key={a.id}
+                kind="FILE"
+                title={a.name}
+                onRemove={() => onCancelUpload(a.id)}
+                removeLabel={t("composer.uploadCancel")}
+              >
+                <UploadBody upload={a} onRetry={() => onRetryUpload?.(a.id)} onRepick={() => onRepickUpload?.(a.id)} />
+              </Chip>
             ) : (
               <Chip key={a.id} kind="FILE" title={a.path} onRemove={() => onRemove(a.id)}>
                 <div className="flex h-[76px] items-center gap-2">
@@ -193,16 +210,54 @@ export function ComposerAttachments({
   );
 }
 
+function UploadBody({ upload, onRetry, onRepick }: { upload: UploadAttachment; onRetry: () => void; onRepick: () => void }) {
+  const { t } = useI18n();
+  const percent = upload.size ? Math.min(100, Math.floor((upload.sent / upload.size) * 100)) : 0;
+  const action = "mt-0.5 block break-keep text-left text-[10.5px] leading-snug text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/60";
+  return (
+    <>
+      <div className="flex h-[76px] items-center gap-2">
+        <FileIcon size={16} className="shrink-0 text-ink-secondary" />
+        <div className="min-w-0">
+          <div className="truncate text-[12px] text-ink">{upload.name}</div>
+          <div className="truncate text-[10.5px] text-ink-secondary/70">
+            {formatSize(upload.size)}
+            {upload.state === "uploading" && ` · ${percent}%`}
+            {upload.state === "resuming" && ` · ${t("composer.uploadResuming")}`}
+          </div>
+          {upload.state === "failed" && (
+            <button type="button" onClick={onRetry} className={action}>
+              {t("composer.uploadRetry")}
+            </button>
+          )}
+          {upload.state === "repick" && (
+            <button type="button" onClick={onRepick} className={action}>
+              {t("composer.uploadRepick")}
+            </button>
+          )}
+        </div>
+      </div>
+      {upload.state !== "repick" && (
+        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]">
+          <div className="absolute bottom-0 left-0 h-[2px] bg-accent" style={{ width: `${percent}%` }} />
+        </div>
+      )}
+    </>
+  );
+}
+
 function Chip({
   children,
   kind,
   title,
   onRemove,
+  removeLabel,
 }: {
   children: React.ReactNode;
   kind: "PASTED" | "FILE" | "IMAGE";
   title: string;
   onRemove: () => void;
+  removeLabel?: string;
 }) {
   const { t } = useI18n();
   const Icon = kind === "PASTED" ? ClipboardPaste : kind === "IMAGE" ? ImageIcon : FileIcon;
@@ -227,7 +282,7 @@ function Chip({
           the overflow-x-auto row would clip the -top corner. */}
       <button
         onClick={onRemove}
-        aria-label={t(kind === "PASTED" ? "composer.removePasted" : kind === "IMAGE" ? "composer.removeImage" : "composer.removeFile")}
+        aria-label={removeLabel ?? t(kind === "PASTED" ? "composer.removePasted" : kind === "IMAGE" ? "composer.removeImage" : "composer.removeFile")}
         className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-hairline/60 bg-panel text-ink-secondary opacity-0 transition-opacity hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:right-1 pointer-coarse:top-1 pointer-coarse:size-6 pointer-coarse:opacity-100"
       >
         <X size={11} />

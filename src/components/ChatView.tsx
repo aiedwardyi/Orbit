@@ -69,6 +69,7 @@ import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { WorkerRow, WorkerChip, useWorkerRows, type ShownRun } from "./WorkerRows";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
+import { FileAttachmentRows } from "./FileAttachmentRow";
 import { ModelPicker } from "./ModelPicker";
 import { DeviceTag } from "./DeviceSwitcher";
 import { RenameTitle } from "./RenameTitle";
@@ -648,6 +649,7 @@ const Bubble = memo(function Bubble({
               >
                 {visibleText}
               </div>
+              {attachedImages && <FileAttachmentRows files={attachedImages.files} className={cn(visibleText && "mt-2")} />}
               {message.steered && (
                 <div className="mt-1 text-[11px] text-ink-secondary/70" title={t("chat.sentMidTurnHint")}>
                   {t("chat.sentMidTurn")}

@@ -1,6 +1,8 @@
-import { createElement } from "react";
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ComposerAttachments } from "./ComposerAttachments";
 
@@ -23,5 +25,34 @@ describe("ComposerAttachments remove button", () => {
     expect(className).toContain("group-hover:opacity-100");
     expect(className).toContain("pointer-coarse:opacity-100");
     expect(className).toContain("pointer-coarse:size-6");
+  });
+});
+
+describe("ComposerAttachments upload chip", () => {
+  it("shows name, size and percent, and the x cancels the upload", async () => {
+    const onCancelUpload = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const size = 1717986918;
+    await act(async () =>
+      root.render(
+        createElement(ComposerAttachments, {
+          items: [{ kind: "upload", id: "u1", name: "meeting.mp4", size, type: "video/mp4", lastModified: 7, sent: Math.ceil(size * 0.37), state: "uploading" }],
+          onAdd: () => {},
+          onRemove: () => {},
+          onCancelUpload,
+          onDisplayInChatBox: () => {},
+          notice: null,
+          onNotice: () => {},
+        }),
+      ),
+    );
+    expect(host.textContent).toContain("meeting.mp4");
+    expect(host.textContent).toContain("1.6 GB · 37%");
+    host.querySelector<HTMLButtonElement>('button[aria-label="Cancel upload"]')!.click();
+    expect(onCancelUpload).toHaveBeenCalledWith("u1");
+    await act(async () => root.unmount());
+    host.remove();
   });
 });
