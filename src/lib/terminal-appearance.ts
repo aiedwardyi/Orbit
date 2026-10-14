@@ -5,13 +5,13 @@ export const TERMINAL_APPEARANCE_EVENT = "orbit-terminal-appearance";
 
 type ColorReader = (name: string) => string;
 
-function hex(value: string): [number, number, number] | null {
+export function hex(value: string): [number, number, number] | null {
   const match = value.trim().match(/^#([\da-f]{6})$/i);
   if (!match) return null;
   return [Number.parseInt(match[1].slice(0, 2), 16), Number.parseInt(match[1].slice(2, 4), 16), Number.parseInt(match[1].slice(4, 6), 16)];
 }
 
-function luminance(value: string): number | null {
+export function luminance(value: string): number | null {
   const rgb = hex(value);
   if (!rgb) return null;
   return rgb.reduce((sum, channel, index) => {
@@ -20,12 +20,16 @@ function luminance(value: string): number | null {
   }, 0);
 }
 
-function contrast(a: string, b: string): number | null {
+export function contrast(a: string, b: string): number | null {
   const first = luminance(a);
   const second = luminance(b);
   if (first === null || second === null) return null;
   const [light, dark] = first >= second ? [first, second] : [second, first];
   return (light + 0.05) / (dark + 0.05);
+}
+
+export function isLightBackground(background: string): boolean {
+  return (luminance(background) ?? 0) > 0.45;
 }
 
 function readable(value: string, background: string, fallback: string): string {
@@ -67,7 +71,7 @@ export function terminalTheme(color: ColorReader): ITheme {
     cursorAccent: background,
     selectionBackground: color("raised-hover"),
   };
-  if ((luminance(background) ?? 0) > 0.45) Object.assign(theme, terminalAnsiPalette(color));
+  if (isLightBackground(background)) Object.assign(theme, terminalAnsiPalette(color));
   return theme;
 }
 
