@@ -28,7 +28,7 @@ describe("relay host gate", () => {
   it("accepts only this PC's relay host", () => {
     expect(verdict("GET", "/").kind).toBe("app");
     expect(verdict("GET", "/", [["Host", HOST.toUpperCase()]]).kind).toBe("app");
-    for (const host of ["localhost", "127.0.0.1:8799", "home.tail396477.ts.net", `${HOST}:443`, `x.${HOST}`, "other1234567890a.wink.test"]) {
+    for (const host of ["localhost", "127.0.0.1:8799", "home.tail1234.ts.net", `${HOST}:443`, `x.${HOST}`, "other1234567890a.wink.test"]) {
       expect(verdict("GET", "/api/bots", [["host", host]])).toEqual({ kind: "deny", status: 403, error: "forbidden: relay host required" });
     }
     expect(verdict("GET", "/", [])).toMatchObject({ kind: "deny", status: 403 });

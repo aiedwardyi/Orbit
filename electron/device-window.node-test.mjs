@@ -51,7 +51,7 @@ class FakeWebContents extends EventEmitter {
   }
 }
 
-const URL_ = "https://home.tail396477.ts.net/";
+const URL_ = "https://home.tail1234.ts.net/";
 
 function watched() {
   const webContents = new FakeWebContents();
@@ -59,7 +59,7 @@ function watched() {
   const timers = { tick: null, cleared: 0 };
   const deferred = [];
   const watch = watchDeviceLoad(webContents, {
-    host: "home.tail396477.ts.net",
+    host: "home.tail1234.ts.net",
     url: URL_,
     failurePage: "data:failure",
     log: (line) => logs.push(line),
@@ -77,7 +77,7 @@ test("shows the unreachable page and logs the host once on a failed load", () =>
   const { webContents, logs, timers } = watched();
   webContents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", `${URL_}remote?key=${"a".repeat(64)}`, true);
   assert.deepEqual(webContents.loads, ["data:failure"]);
-  assert.deepEqual(logs, ["device window home.tail396477.ts.net: did-fail-load -105 ERR_NAME_NOT_RESOLVED"]);
+  assert.deepEqual(logs, ["device window home.tail1234.ts.net: did-fail-load -105 ERR_NAME_NOT_RESOLVED"]);
   timers.tick();
   webContents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", URL_, true);
   assert.equal(logs.length, 1);
@@ -106,7 +106,7 @@ test("shows the unreachable page when the PC page crashes or hangs", () => {
       deferred.shift()();
     }
     assert.deepEqual(webContents.loads, ["data:failure"]);
-    assert.deepEqual(logs, [`device window home.tail396477.ts.net: ${line}`]);
+    assert.deepEqual(logs, [`device window home.tail1234.ts.net: ${line}`]);
   }
 });
 
@@ -187,32 +187,32 @@ test("unreachable page retries only the PC's own origin", () => {
 });
 
 test("opens a PC over HTTPS on its tailnet host only", () => {
-  const tailnet = deviceTailnet("laptop.tail396477.ts.net");
-  assert.equal(deviceWindowUrl(" Home.tail396477.ts.net ", tailnet).toString(), "https://home.tail396477.ts.net/");
-  assert.equal(deviceWindowUrl("work.tail396477.ts.net", tailnet).toString(), "https://work.tail396477.ts.net/");
+  const tailnet = deviceTailnet("laptop.tail1234.ts.net");
+  assert.equal(deviceWindowUrl(" Home.tail1234.ts.net ", tailnet).toString(), "https://home.tail1234.ts.net/");
+  assert.equal(deviceWindowUrl("work.tail1234.ts.net", tailnet).toString(), "https://work.tail1234.ts.net/");
   for (const bad of ["", "localhost", "home.ts.net/evil", "user@home.ts.net", "home.ts.net:8799", "javascript:alert(1)", "example.com", "ts.net.example.com", "ts.net", 42]) {
     assert.throws(() => deviceWindowUrl(bad, tailnet), /invalid/);
   }
 });
 
 test("refuses a public Funnel host on another tailnet", () => {
-  const tailnet = deviceTailnet("laptop.tail396477.ts.net");
-  for (const bad of ["attacker.other-tailnet.ts.net", "tail396477.ts.net", "a.b.tail396477.ts.net", "home.tail396477.ts.net.evil.ts.net"]) {
+  const tailnet = deviceTailnet("laptop.tail1234.ts.net");
+  for (const bad of ["attacker.other-tailnet.ts.net", "tail1234.ts.net", "a.b.tail1234.ts.net", "home.tail1234.ts.net.evil.ts.net"]) {
     assert.throws(() => deviceWindowUrl(bad, tailnet), /invalid/);
   }
 });
 
 test("fails closed without this PC's tailnet", () => {
-  for (const local of [undefined, "", "laptop", "tail396477.ts.net", "laptop.example.com"]) {
+  for (const local of [undefined, "", "laptop", "tail1234.ts.net", "laptop.example.com"]) {
     assert.equal(deviceTailnet(local), "");
   }
-  assert.throws(() => deviceWindowUrl("home.tail396477.ts.net", ""), /invalid/);
+  assert.throws(() => deviceWindowUrl("home.tail1234.ts.net", ""), /invalid/);
 });
 
 test("reads the tailnet from tailscale status", () => {
   const status = (Self) => JSON.stringify({ Self });
-  assert.equal(tailnetFromStatus(status({ DNSName: "home.tail396477.ts.net." })), "tail396477.ts.net");
-  assert.equal(tailnetFromStatus(status({ DNSName: "home.tail396477.ts.net" })), "tail396477.ts.net");
+  assert.equal(tailnetFromStatus(status({ DNSName: "home.tail1234.ts.net." })), "tail1234.ts.net");
+  assert.equal(tailnetFromStatus(status({ DNSName: "home.tail1234.ts.net" })), "tail1234.ts.net");
   for (const bad of [status(undefined), status({}), status({ DNSName: 42 }), status({ DNSName: "home.example.com." }), status({ DNSName: "home." }), "null", "{not json", "", undefined]) {
     assert.equal(tailnetFromStatus(bad), "");
   }
@@ -274,7 +274,7 @@ test("main process sandboxes PC windows without the app preload", () => {
   assert.ok(open.includes("reloadIfStuck()"));
 });
 
-const ORIGIN = "https://home.tail396477.ts.net";
+const ORIGIN = "https://home.tail1234.ts.net";
 const linked = (filePath, origin = ORIGIN, thread = "t-1") => `${origin}/api/threads/${thread}/linked-file?path=${encodeURIComponent(filePath)}`;
 
 test("linked-file URLs on the PC's own origin get a download name", () => {
@@ -287,10 +287,10 @@ test("other paths, origins and lookalike hosts are not linked files", () => {
   assert.equal(deviceLinkedFileName(`${ORIGIN}/api/threads/t-1/other?path=%2Fa.pdf`, ORIGIN), "");
   assert.equal(deviceLinkedFileName(`${ORIGIN}/api/threads/a/b/linked-file?path=%2Fa.pdf`, ORIGIN), "");
   assert.equal(deviceLinkedFileName(`${ORIGIN}/x/api/threads/t-1/linked-file?path=%2Fa.pdf`, ORIGIN), "");
-  assert.equal(deviceLinkedFileName(linked("/a.pdf", "https://other.tail396477.ts.net"), ORIGIN), "");
-  assert.equal(deviceLinkedFileName(linked("/a.pdf", "https://home.tail396477.ts.net.evil.com"), ORIGIN), "");
-  assert.equal(deviceLinkedFileName(linked("/a.pdf", "https://home.tail396477.ts.net:8443"), ORIGIN), "");
-  assert.equal(deviceLinkedFileName(linked("/a.pdf", "http://home.tail396477.ts.net"), ORIGIN), "");
+  assert.equal(deviceLinkedFileName(linked("/a.pdf", "https://other.tail1234.ts.net"), ORIGIN), "");
+  assert.equal(deviceLinkedFileName(linked("/a.pdf", "https://home.tail1234.ts.net.evil.com"), ORIGIN), "");
+  assert.equal(deviceLinkedFileName(linked("/a.pdf", "https://home.tail1234.ts.net:8443"), ORIGIN), "");
+  assert.equal(deviceLinkedFileName(linked("/a.pdf", "http://home.tail1234.ts.net"), ORIGIN), "");
   assert.equal(deviceLinkedFileName(linked("/a.pdf").replace("https://", "https://user@"), ORIGIN), "");
   assert.equal(deviceLinkedFileName("not a url", ORIGIN), "");
   assert.equal(deviceLinkedFileName(undefined, ORIGIN), "");

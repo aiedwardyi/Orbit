@@ -91,7 +91,7 @@ describe("EventBus", () => {
 
   it("auto-mode allows a request.opened summary that only mentions shutdown in a branch name", () => {
     const summary =
-      "cd /c/Users/mredw/OneDrive/Desktop/nudge && git push -u origin feat/graceful-shutdown && git log --oneline -1";
+      "cd /c/Users/you/Desktop/demo-app && git push -u origin feat/graceful-shutdown && git log --oneline -1";
     const bus = new EventBus();
     const seen: RuntimeEvent[] = [];
     bus.subscribe((event) => seen.push(event));

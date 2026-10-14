@@ -30,33 +30,33 @@ describe("mentionedBots", () => {
   const peers = [
     { id: "1", name: "New Bot" },
     { id: "2", name: "New Bot 2" },
-    { id: "3", name: "Milind" },
+    { id: "3", name: "Sam" },
     { id: "4", name: "Ghost", hidden: true },
   ];
   it("matches a tag at a word start, case-insensitively", () => {
-    expect(mentionedBots("hey @milind, look", peers).map((b) => b.id)).toEqual(["3"]);
-    expect(mentionedBots("@Milind first thing", peers).map((b) => b.id)).toEqual(["3"]);
+    expect(mentionedBots("hey @sam, look", peers).map((b) => b.id)).toEqual(["3"]);
+    expect(mentionedBots("@Sam first thing", peers).map((b) => b.id)).toEqual(["3"]);
   });
   it("prefers the longest name so prefixes never half-match", () => {
     expect(mentionedBots("ask @New Bot 2 about it", peers).map((b) => b.id)).toEqual(["2"]);
   });
   it("dedupes repeats and collects multiple bots", () => {
-    expect(mentionedBots("@Milind and @New Bot and @Milind", peers).map((b) => b.id)).toEqual(["3", "1"]);
+    expect(mentionedBots("@Sam and @New Bot and @Sam", peers).map((b) => b.id)).toEqual(["3", "1"]);
   });
   it("ignores emails, hidden bots, and mid-word @", () => {
-    expect(mentionedBots("mail milind@milind.dev please", peers)).toEqual([]);
+    expect(mentionedBots("mail maintainer@sam.example.com please", peers)).toEqual([]);
     expect(mentionedBots("@Ghost around?", peers)).toEqual([]);
   });
   it("requires a word boundary at the end of the name", () => {
     expect(mentionedBots("ask @New Bottle about it", peers)).toEqual([]);
-    expect(mentionedBots("@Milindo is someone else", peers)).toEqual([]);
+    expect(mentionedBots("@Samo is someone else", peers)).toEqual([]);
   });
 });
 
 describe("roomResponders", () => {
   const members = [
     { id: "atlas", name: "Atlas" },
-    { id: "milind", name: "Milind" },
+    { id: "sam", name: "Sam" },
   ];
 
   it("routes an unmentioned message to the configured lead", () => {
@@ -64,7 +64,7 @@ describe("roomResponders", () => {
   });
 
   it("lets explicit mentions override the configured lead", () => {
-    expect(roomResponders("@Milind take this", members, { kind: "member", botId: "atlas" })).toEqual([members[1]]);
+    expect(roomResponders("@Sam take this", members, { kind: "member", botId: "atlas" })).toEqual([members[1]]);
   });
 
   it("supports everyone and mentions-only room policies", () => {

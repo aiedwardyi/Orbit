@@ -115,7 +115,7 @@ function app(access: PhoneAccess, reached: string[], linkedRoot: string, staticD
     if (await access.handle(req, res, path, method, credentials.bearerOk)) return;
     if (method === "GET" && path === "/api/remote-link") {
       reached.push("remote-link");
-      return send(res, 200, { url: `https://home.tail396477.ts.net/remote?key=${REMOTE_KEY}` });
+      return send(res, 200, { url: `https://home.tail1234.ts.net/remote?key=${REMOTE_KEY}` });
     }
     if (method === "GET" && path === "/api/events") {
       res.writeHead(200, { "content-type": "text/event-stream" });
@@ -613,7 +613,7 @@ describe("relay request gate", () => {
   it("rejects a spoofed Host and a missing or foreign Origin", async () => {
     const w = await world();
     const session = await pairPhone(w);
-    for (const host of ["localhost", "127.0.0.1:8799", "home.tail396477.ts.net"]) {
+    for (const host of ["localhost", "127.0.0.1:8799", "home.tail1234.ts.net"]) {
       expect((await viaRelay(w.r, "/api/bots", { headers: { host, cookie: session } })).status).toBe(403);
     }
     expect((await viaRelay(w.r, "/api/bots", { method: "POST", headers: { cookie: session } })).status).toBe(403);

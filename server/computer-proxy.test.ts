@@ -235,7 +235,7 @@ describe("computer proxy (fake box)", () => {
         arguments: {
           actions: [
             { action: "click", x: 10, y: 20 },
-            { action: "type_text", text: "milind@example.com" },
+            { action: "type_text", text: "maintainer@example.com" },
             { action: "press_key", keys: "Tab" },
           ],
         },

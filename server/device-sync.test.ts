@@ -18,7 +18,7 @@ import {
 
 const NOW = 1_800_000_000_000;
 const freshDir = () => mkdtempSync(join(tmpdir(), "orbit-devices-"));
-const rec = (id: string, host = `${id}.tail396477.ts.net`) => ({ deviceId: id, name: id, host });
+const rec = (id: string, host = `${id}.tail1234.ts.net`) => ({ deviceId: id, name: id, host });
 
 describe("device sync", () => {
   it("writes name, host and time only, never a secret", () => {
@@ -133,7 +133,7 @@ describe("relay presence", () => {
   it("keeps a relay host next to the tailnet host", () => {
     const folder = freshDir();
     writeDeviceRecord(folder, { ...rec("home"), relayHost: relay("home"), chatSync: 2 }, NOW);
-    expect(listDevices(folder, "home", NOW)[0]).toMatchObject({ host: "home.tail396477.ts.net", relayHost: relay("home") });
+    expect(listDevices(folder, "home", NOW)[0]).toMatchObject({ host: "home.tail1234.ts.net", relayHost: relay("home") });
   });
 
   it("stays readable by older PCs, including a relay-only record", () => {
@@ -150,9 +150,9 @@ describe("relay presence", () => {
     const folder = freshDir();
     const dir = join(folder, DEVICE_DIR);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "old.json"), JSON.stringify({ deviceId: "old", name: "Old", host: "old.tail396477.ts.net", lastSeen: NOW }));
+    writeFileSync(join(dir, "old.json"), JSON.stringify({ deviceId: "old", name: "Old", host: "old.tail1234.ts.net", lastSeen: NOW }));
     for (const [id, bad] of [["a", "evil.example"], ["b", "https://abcdefghijklmnop.wink.test"], ["c", "ABCDEFGHIJKLMNOP.wink.test"], ["d", 42]]) {
-      writeFileSync(join(dir, `${id}.json`), JSON.stringify({ deviceId: id, name: id, host: `${id}.tail396477.ts.net`, relayHost: bad, lastSeen: NOW }));
+      writeFileSync(join(dir, `${id}.json`), JSON.stringify({ deviceId: id, name: id, host: `${id}.tail1234.ts.net`, relayHost: bad, lastSeen: NOW }));
     }
     const list = listDevices(folder, "old", NOW);
     expect(list.map((d) => [d.deviceId, d.relayHost])).toEqual([["a", undefined], ["b", undefined], ["c", undefined], ["d", undefined], ["old", undefined]]);
@@ -181,8 +181,8 @@ describe("relay presence", () => {
     writeDeviceRecord(folder, rec("work"), NOW);
     const picked = pickerDevices(listDevices(folder, "home", NOW), null);
     expect(picked).toEqual([
-      { deviceId: "home", name: "home", host: "home.tail396477.ts.net", lastSeen: NOW, current: true, offline: false },
-      { deviceId: "work", name: "work", host: "work.tail396477.ts.net", lastSeen: NOW, current: false, offline: false },
+      { deviceId: "home", name: "home", host: "home.tail1234.ts.net", lastSeen: NOW, current: true, offline: false },
+      { deviceId: "work", name: "work", host: "work.tail1234.ts.net", lastSeen: NOW, current: false, offline: false },
     ]);
   });
 });
