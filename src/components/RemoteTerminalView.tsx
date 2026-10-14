@@ -33,6 +33,10 @@ type RemoteTerminalSnapshot = {
   panes?: RemoteTerminalPane[];
 };
 
+// Stands in for a closed main, so its tab can open it from any device.
+const MAIN_TAB = "remote:main";
+const MAIN_CLOSED: RemoteTerminalSnapshot = { state: "no-terminal" };
+
 const REFRESH_MS = 1_000;
 const SPIN_MS = 500;
 const REFRESH_TIMEOUT_MS = 5_000;
@@ -85,11 +89,15 @@ function folderName(cwd: string): string {
   return trimmed.split(/[\\/]/).pop() || cwd;
 }
 
-/** Alt+n picks the nth pane in this view's order. Null is the main pane. Undefined is past the end. */
+function paneSelection(pane: RemoteTerminalPane): string | null {
+  return pane.main && pane.sessionId !== MAIN_TAB ? null : pane.sessionId;
+}
+
+/** Alt+n picks the nth tab in this view's order. Null is the live main pane. Undefined is past the end. */
 export function remotePaneHotkey(panes: RemoteTerminalPane[], n: number): string | null | undefined {
   const pane = panes[n - 1];
   if (!pane) return undefined;
-  return pane.main ? null : pane.sessionId;
+  return paneSelection(pane);
 }
 
 export function RemoteTerminalView({
@@ -127,18 +135,21 @@ export function RemoteTerminalView({
   const pinnedRef = useRef(true);
 
   const panes = snapshot?.panes ?? [];
-  const panesRef = useRef(panes);
-  panesRef.current = panes;
+  const mainPane = panes.find((pane) => pane.main);
+  const tabs: RemoteTerminalPane[] = panes.length && !mainPane ? [{ sessionId: MAIN_TAB, main: true, exited: true }, ...panes] : panes;
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
-  const mainPane = panes.find((pane) => pane.main);
   const fallbackPane = mainPane ? undefined : panes[0]?.sessionId;
-  const activePaneId = selectedPane ?? mainPane?.sessionId ?? fallbackPane;
+  const picked = selectedPane === MAIN_TAB && tabs[0]?.sessionId !== MAIN_TAB ? null : selectedPane;
+  const onMainTab = picked === MAIN_TAB;
+  const activePaneId = picked ?? mainPane?.sessionId ?? fallbackPane;
 
   const refresh = useCallback(async () => {
     const request = ++requestRef.current;
     const path = `/api/bots/${encodeURIComponent(bot.id)}/terminal`;
-    const targetPane = selectedPane ?? fallbackPane;
+    const targetPane = onMainTab ? undefined : picked ?? fallbackPane;
     try {
       const qs = targetPane ? `?sessionId=${encodeURIComponent(targetPane)}` : "";
       const next = await api(`${path}${qs}`);
@@ -166,7 +177,7 @@ export function RemoteTerminalView({
       }
       setError(message);
     }
-  }, [bot.id, selectedPane, fallbackPane]);
+  }, [bot.id, picked, onMainTab, fallbackPane]);
 
   // The 1s poll usually beats a tap, so the button spins briefly or it reads as a dud.
   const refreshNow = useCallback(async () => {
@@ -183,7 +194,7 @@ export function RemoteTerminalView({
 
   useEffect(() => {
     if (!visibleRef.current || !paneHotkey) return;
-    const next = remotePaneHotkey(panesRef.current, paneHotkey.n);
+    const next = remotePaneHotkey(tabsRef.current, paneHotkey.n);
     if (next !== undefined) setSelectedPane(next);
   }, [paneHotkey]);
 
@@ -215,7 +226,7 @@ export function RemoteTerminalView({
 
   // A tab tap selects before its snapshot lands; the old pane's screen and credentials must not stand in.
   const inSync = !activePaneId || !snapshot?.sessionId || snapshot.sessionId === activePaneId;
-  const shown = inSync ? snapshot : null;
+  const shown = onMainTab ? MAIN_CLOSED : inSync ? snapshot : null;
   const noTerminal = shown?.state === "no-terminal";
   const text = shown && !noTerminal ? snapshotText(shown) : "";
   const canType = !!shown?.sessionId && shown.generation !== undefined && !noTerminal && !shown.exited;
@@ -319,7 +330,7 @@ export function RemoteTerminalView({
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-inset text-ink" aria-label={t("terminal.title")}>
-      <header className={`flex shrink-0 items-center gap-2 bg-panel px-2 py-2 md:pl-5 ${sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT} ${panes.length > 1 ? "" : "border-b border-hairline"}`}>
+      <header className={`flex shrink-0 items-center gap-2 bg-panel px-2 py-2 md:pl-5 ${sidebarOnRight ? DRAWER_HEADER_RIGHT : DRAWER_HEADER_LEFT} ${tabs.length > 1 ? "" : "border-b border-hairline"}`}>
         <TerminalSquare size={16} className="shrink-0 text-accent-text" />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[13px] font-medium">{t("terminal.title")} <span className="text-ink-secondary">/ {bot.name}</span></h1>
@@ -337,16 +348,16 @@ export function RemoteTerminalView({
           <X size={18} />
         </button>
       </header>
-      {panes.length > 1 && (
+      {tabs.length > 1 && (
         <div role="tablist" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-hairline bg-panel px-3 pb-2 md:px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {panes.map((pane) => (
+          {tabs.map((pane) => (
             <button
               key={pane.sessionId}
               type="button"
               role="tab"
               aria-selected={activePaneId === pane.sessionId}
               onClick={() => {
-                setSelectedPane(pane.main ? null : pane.sessionId);
+                setSelectedPane(paneSelection(pane));
                 focusInput(inputRef.current);
               }}
               title={paneLabel(pane)}
