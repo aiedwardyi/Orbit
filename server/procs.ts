@@ -15,9 +15,11 @@ import {
   type ExecFileOptions,
   type SpawnOptions,
 } from "node:child_process";
+import { createHash } from "node:crypto";
+import { realpathSync, statSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
-import { join } from "node:path";
-import { resolveCliSpawn, type ResolvedSpawn } from "./env-path.ts";
+import { basename, isAbsolute, join } from "node:path";
+import { findCliCandidates, resolveCliSpawn, type ResolvedSpawn } from "./env-path.ts";
 
 export function resolveCli(cli: string, args: string[] = []): ResolvedSpawn {
   return resolveCliSpawn(cli, args);
@@ -51,6 +53,32 @@ export function spawnCli(
   return child;
 }
 
+const versionByBinary = new Map<string, string>();
+const VERSION_CACHE_MAX = 64;
+
+/** An explicit check (Check again, saved CLI) must re-launch `--version`. */
+export function clearVersionCache(): void {
+  versionByBinary.clear();
+}
+
+/** Path, inode, size, mtime and ctime of every file a spawn runs, plus its env. Null for
+ * wsl.exe: its own file says nothing about the Linux CLI behind it. */
+function binaryKey(cli: string, resolved: ResolvedSpawn, env: NodeJS.ProcessEnv | undefined): string | null {
+  const command = isAbsolute(resolved.command) ? resolved.command : findCliCandidates(resolved.command)[0];
+  if (!command || /^wsl(\.exe)?$/i.test(basename(command))) return null;
+  const parts = [cli, createHash("sha256").update(JSON.stringify(env ?? null)).digest("hex")];
+  for (const file of [command, ...resolved.args.filter((arg) => isAbsolute(arg))]) {
+    try {
+      const real = realpathSync(file);
+      const stat = statSync(real);
+      parts.push(`${real}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`);
+    } catch {
+      if (file === command) return null;
+    }
+  }
+  return parts.join("\n");
+}
+
 export function execCli(
   cli: string,
   args: string[],
@@ -58,9 +86,18 @@ export function execCli(
   cb: (err: Error | null, stdout: string, stderr?: string) => void,
 ): void {
   const resolved = resolveCli(cli, args);
-  execFile(resolved.command, resolved.args, { ...opts, windowsHide: true, encoding: "utf8" }, (err, stdout, stderr) =>
-    cb(err, stdout, stderr),
-  );
+  // Every engine check asks each CLI for --version; an unchanged binary
+  // answers the same, and a launch is what can stall the server on Windows.
+  const versionKey = args.length === 1 && args[0] === "--version" ? binaryKey(cli, resolved, opts.env) : null;
+  const known = versionKey ? versionByBinary.get(versionKey) : undefined;
+  if (known !== undefined) return queueMicrotask(() => cb(null, known, ""));
+  execFile(resolved.command, resolved.args, { ...opts, windowsHide: true, encoding: "utf8" }, (err, stdout, stderr) => {
+    if (versionKey && !err) {
+      if (versionByBinary.size >= VERSION_CACHE_MAX) versionByBinary.clear();
+      versionByBinary.set(versionKey, stdout);
+    }
+    cb(err, stdout, stderr);
+  });
 }
 
 /** Human wording for a failed CLI spawn.

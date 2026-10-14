@@ -1,12 +1,16 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "@/lib/i18n";
 import { Onboarding } from "./Onboarding";
 
-afterEach(() => {
+let roots: Root[] = [];
+
+afterEach(async () => {
+  for (const root of roots) await act(async () => root.unmount());
+  roots = [];
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   document.body.innerHTML = "";
@@ -16,7 +20,9 @@ async function renderWith(status: number, onDone = vi.fn()) {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "x" }), { status })));
   const host = document.createElement("div");
   document.body.append(host);
-  await act(async () => createRoot(host).render(createElement(I18nProvider, null, createElement(Onboarding, { onDone }))));
+  const root = createRoot(host);
+  roots.push(root);
+  await act(async () => root.render(createElement(I18nProvider, null, createElement(Onboarding, { onDone }))));
   return host;
 }
 
@@ -54,5 +60,18 @@ describe("Onboarding engine check", () => {
     const host = await renderWith(500);
     expect(host.textContent).toContain("Wink couldn't check the AI engines on this computer.");
     expect(host.textContent).not.toContain("Sign in to this PC");
+  });
+
+  it("reads the last check on open and asks for a fresh probe on retry and on focus", async () => {
+    const host = await renderWith(500);
+    const fetchMock = vi.mocked(fetch);
+    const retry = [...host.querySelectorAll("button")].find((button) => button.textContent === "Try again");
+    await act(async () => retry!.click());
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/instances",
+      "/api/instances?refresh=1",
+      "/api/instances?refresh=1",
+    ]);
   });
 });

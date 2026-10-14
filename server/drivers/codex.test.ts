@@ -813,6 +813,14 @@ describe("CodexDriver turns (fake app-server)", () => {
     });
   });
 
+  it("re-checks sign-in on a refresh instead of reusing a recent signed-in answer", async () => {
+    await create();
+    await expect(instance.snapshot()).resolves.toMatchObject({ authenticated: true });
+    process.env.FAKE_CODEX_MODE = "logged-out";
+    await expect(instance.snapshot()).resolves.toMatchObject({ authenticated: true });
+    await expect(instance.snapshot({ refresh: true })).resolves.toMatchObject({ authenticated: false });
+  });
+
   it("also accepts login status from older Codex versions that used stdout", async () => {
     await create({ mode: "logged-in-stdout" });
     await expect(instance.snapshot()).resolves.toMatchObject({

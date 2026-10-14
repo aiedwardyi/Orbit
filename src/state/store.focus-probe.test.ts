@@ -11,7 +11,8 @@ class FakeEventSource {
 }
 
 let unmount: (() => Promise<void>) | null = null;
-let probes = 0;
+let requests: string[] = [];
+const probes = () => requests.filter((url) => url === "/api/instances?refresh=1").length;
 
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -19,10 +20,10 @@ beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  probes = 0;
+  requests = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-    if (String(url) !== "/api/instances") return new Promise<Response>(() => {});
-    probes += 1;
+    if (!String(url).startsWith("/api/instances")) return new Promise<Response>(() => {});
+    requests.push(String(url));
     return Response.json({ instances: [] });
   }));
   const host = document.createElement("div");
@@ -52,30 +53,36 @@ async function away(ms: number) {
 
 describe("engine re-probe on focus", () => {
   it("re-probes when the user comes back from a trip away", async () => {
-    const before = probes;
+    const before = probes();
     await away(30_000);
-    expect(probes).toBe(before + 1);
+    expect(probes()).toBe(before + 1);
+  });
+
+  it("asks the server to re-probe without starting WSL", async () => {
+    await away(30_000);
+    expect(requests.at(-1)).toBe("/api/instances?refresh=1");
+    expect(requests).not.toContain("/api/instances?rescan=1");
   });
 
   it("ignores quick focus bounces", async () => {
-    const before = probes;
+    const before = probes();
     for (let i = 0; i < 5; i++) await away(4_000);
-    expect(probes).toBe(before);
+    expect(probes()).toBe(before);
   });
 
   it("does not loop when its own probe steals focus, however long the flash stays up", async () => {
     await away(30_000);
-    const after = probes;
+    const after = probes();
     await away(6_000);
-    expect(probes).toBe(after);
+    expect(probes()).toBe(after);
   });
 
   it("re-probes on a real trip away after a flash", async () => {
     await away(30_000);
     await away(6_000);
-    const after = probes;
+    const after = probes();
     vi.setSystemTime(Date.now() + 10_000);
     await away(30_000);
-    expect(probes).toBe(after + 1);
+    expect(probes()).toBe(after + 1);
   });
 });

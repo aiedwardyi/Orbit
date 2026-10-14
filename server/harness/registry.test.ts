@@ -1,10 +1,44 @@
 // The registry's contract is forward/backward compatibility: a config
 // written by a newer or differently-built app must load as an
 // unavailable shadow, never crash the fleet. These tests pin that.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import * as procs from "../procs.ts";
 import { makeFakeDriver } from "../testing/fake-driver.ts";
 import { ProviderRegistry } from "./registry.ts";
+
+/** A fake driver whose snapshot() and refreshModels() stand in for CLI launches. */
+function countingDriver() {
+  const fake = makeFakeDriver();
+  const originalCreate = fake.driver.create.bind(fake.driver);
+  const counts = { snapshots: 0, refreshes: 0 };
+  let gate: Promise<void> | null = null;
+  fake.driver.create = async (input) => {
+    const instance = await originalCreate(input);
+    const snapshot = instance.snapshot;
+    Object.assign(instance, {
+      snapshot: async (opts?: { rescan?: boolean }) => {
+        const probe = ++counts.snapshots;
+        await gate;
+        return { ...(await snapshot(opts)), version: `probe ${probe}` };
+      },
+      refreshModels: async () => { counts.refreshes += 1; },
+    });
+    return instance;
+  };
+  const hold = () => {
+    let release!: () => void;
+    gate = new Promise<void>((resolve) => { release = resolve; });
+    return () => {
+      gate = null;
+      release();
+    };
+  };
+  return { driver: fake.driver, counts, hold };
+}
+
+const versions = (rows: { instanceId: string; snapshot: { version?: string | null } }[]) =>
+  Object.fromEntries(rows.map((row) => [row.instanceId, row.snapshot.version]));
 
 describe("ProviderRegistry", () => {
   it("resolves sign-in only from the registered driver", async () => {
@@ -125,6 +159,106 @@ describe("ProviderRegistry", () => {
     await description;
     expect(ready).toBe(true);
     expect(described).toBe(true);
+  });
+
+  it("answers a cached describe from the last probe without probing or refreshing models", async () => {
+    const { driver, counts } = countingDriver();
+    let now = 1_000;
+    const registry = new ProviderRegistry([driver], { now: () => now, modelRefreshTtlMs: 100 });
+    await registry.load({ a: { driver: "fake" }, b: { driver: "fake" } });
+    await registry.describe();
+    expect(counts).toEqual({ snapshots: 2, refreshes: 0 });
+
+    now += 600_000;
+    for (let i = 0; i < 3; i++) {
+      expect(versions(await registry.describeCached())).toEqual({ a: "probe 1", b: "probe 2" });
+    }
+    expect(counts).toEqual({ snapshots: 2, refreshes: 0 });
+
+    await registry.describe();
+    expect(counts).toEqual({ snapshots: 4, refreshes: 2 });
+  });
+
+  it("waits on the boot probe instead of starting a second one", async () => {
+    const { driver, counts, hold } = countingDriver();
+    const registry = new ProviderRegistry([driver]);
+    await registry.load({ a: { driver: "fake" } });
+    const release = hold();
+    const boot = registry.describe();
+    const reads = Promise.all([registry.describeCached(), registry.describeCached()]);
+    release();
+    await boot;
+    expect((await reads).map(versions)).toEqual([{ a: "probe 1" }, { a: "probe 1" }]);
+    expect(counts.snapshots).toBe(1);
+  });
+
+  it("keeps answering from the last probe while a refresh is in flight", async () => {
+    const { driver, hold } = countingDriver();
+    const registry = new ProviderRegistry([driver]);
+    await registry.load({ a: { driver: "fake" } });
+    await registry.describe();
+    const release = hold();
+    const refresh = registry.describe();
+    expect(versions(await registry.describeCached())).toEqual({ a: "probe 1" });
+    release();
+    expect(versions(await refresh)).toEqual({ a: "probe 2" });
+    expect(versions(await registry.describeCached())).toEqual({ a: "probe 2" });
+  });
+
+  it("keeps the newest probe when an older one finishes after it", async () => {
+    const fake = makeFakeDriver();
+    const registry = new ProviderRegistry([fake.driver]);
+    await registry.load({ a: { driver: "fake" } });
+    let release!: () => void;
+    let calls = 0;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    fake.created.get("a")!.instance.snapshot = async () => {
+      if (++calls === 1) {
+        await held;
+        return { state: "unavailable", reason: "before install" };
+      }
+      return { state: "available", version: "after install" };
+    };
+    const older = registry.describe();
+    expect((await registry.describe({ rescan: true }))[0].snapshot.state).toBe("available");
+    release();
+    await older;
+    expect((await registry.describeCached())[0].snapshot.state).toBe("available");
+  });
+
+  it("clears the version cache on a rescan only", async () => {
+    const clear = vi.spyOn(procs, "clearVersionCache");
+    try {
+      const { driver } = countingDriver();
+      const registry = new ProviderRegistry([driver]);
+      await registry.load({ a: { driver: "fake" } });
+      await registry.describeCached();
+      await registry.describe();
+      await registry.describe({ refresh: true });
+      expect(clear).not.toHaveBeenCalled();
+      await registry.describe({ rescan: true });
+      expect(clear).toHaveBeenCalledTimes(1);
+    } finally {
+      clear.mockRestore();
+    }
+  });
+
+  it("probes only the instances a config change added or edited, and drops removed ones", async () => {
+    const { driver, counts } = countingDriver();
+    const registry = new ProviderRegistry([driver]);
+    await registry.load({ a: { driver: "fake" } });
+    await registry.describeCached();
+    expect(counts.snapshots).toBe(1);
+
+    await registry.load({ b: { driver: "fake" } });
+    expect(versions(await registry.describeCached())).toEqual({ a: "probe 1", b: "probe 2" });
+    await registry.load({ a: { driver: "fake", config: { cli: "edited" } } });
+    const edited = await registry.describeCached();
+    expect(versions(edited)).toEqual({ a: "probe 3", b: "probe 2" });
+    expect(edited.find((row) => row.instanceId === "a")?.cli).toBe("edited");
+    registry.remove("b");
+    expect(versions(await registry.describeCached())).toEqual({ a: "probe 3" });
+    expect(counts.snapshots).toBe(3);
   });
 
   it("uses defaultConfig when the entry has no config", async () => {

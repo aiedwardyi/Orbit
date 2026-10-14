@@ -821,7 +821,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       else resolve(undefined);
     });
   }));
-  const snapshot = async (opts?: { rescan?: boolean }): Promise<ProviderSnapshot> => {
+  const snapshot = async (opts?: { rescan?: boolean; refresh?: boolean }): Promise<ProviderSnapshot> => {
     const env = childEnv();
     const version = await new Promise<string | null>((resolve) => {
       execCli(config.cli, ["--version"], { timeout: 8000, env }, (err, stdout) =>
@@ -829,7 +829,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       );
     });
     if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-    const authenticated = await signedIn(opts?.rescan);
+    const authenticated = await signedIn(opts?.rescan || opts?.refresh);
     // childEnv drops OPENAI_API_KEY on purpose — turns run on the ChatGPT login
     return { state: "available", version, authenticated, billing: "subscription" };
   };

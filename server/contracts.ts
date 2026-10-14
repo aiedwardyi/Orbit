@@ -432,8 +432,9 @@ export interface ProviderInstance {
   readonly refreshModels?: () => Promise<void>;
   readonly adapter: ProviderAdapter;
   /** `rescan` = the user asked (Check again, saved a CLI): probes that
-   * would start WSL are allowed to, where a passive refresh may not. */
-  snapshot(opts?: { rescan?: boolean }): Promise<ProviderSnapshot>;
+   * would start WSL are allowed to, where a passive refresh may not.
+   * `refresh` = a page refocus: re-check sign-in, never start WSL. */
+  snapshot(opts?: { rescan?: boolean; refresh?: boolean }): Promise<ProviderSnapshot>;
   /** Cheap one-shot text call (upstream TextGeneration) — titles, summaries. */
   generateText?(prompt: string, opts?: { timeoutMs?: number; signal?: AbortSignal }): Promise<string>;
   /** the model and default deadline generateText runs on, for telemetry */

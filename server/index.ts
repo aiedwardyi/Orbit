@@ -826,11 +826,13 @@ async function resolvedBotSelection(bot: BotRecord, task?: TaskRecord): Promise<
 // stable per task and resolves again only at a turn boundary.
 let describeInFlight: ReturnType<typeof registry.describe> | null = null;
 
-/** One PATH/catalog walk at a time. Boot, create-bot, and GET /api/instances
- * share the in-flight promise so first chat does not start a second scan. */
-function describeInstances(rescan = false) {
+/** One PATH/catalog walk at a time. A refresh joins the walk in flight; a
+ * rescan starts its own. Everything else answers from the last probe. */
+function describeInstances(probe: "cached" | "refresh" | "rescan" = "cached") {
+  if (probe === "cached") return registry.describeCached();
+  const rescan = probe === "rescan";
   if (!describeInFlight || rescan) {
-    const pending = registry.describe({ rescan });
+    const pending = registry.describe({ rescan, refresh: probe === "refresh" });
     describeInFlight = pending;
     void pending.finally(() => {
       if (describeInFlight === pending) describeInFlight = null;
@@ -9969,12 +9971,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
 
     if (method === "GET" && path === "/api/instances") {
-      // Rescan PATH first: this endpoint is how the app answers "what can I
-      // run?", and the interesting case is a CLI installed since launch.
+      // A plain GET runs on every page load, so it answers from the last probe:
+      // one CLI launch on Windows can stall the whole server for ~5 s.
+      // ?refresh=1 re-probes for a CLI installed or signed in since;
+      // ?rescan=1 may also start WSL.
+      const probe =
+        url.searchParams.get("rescan") === "1" ? "rescan" : url.searchParams.get("refresh") === "1" ? "refresh" : "cached";
       // Windows never pushes PATH changes into a live process, so without
-      // this the answer is frozen at boot and "check again" is a no-op.
-      resetPathCache();
-      const instances = withRateLimits(await describeInstances(url.searchParams.get("rescan") === "1"));
+      // this a re-probe answers from the boot PATH.
+      if (probe !== "cached") resetPathCache();
+      const instances = withRateLimits(await describeInstances(probe));
       rememberAutomaticAvailability(instances);
       return json(res, 200, { instances });
     }

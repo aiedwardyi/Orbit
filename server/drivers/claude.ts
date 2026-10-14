@@ -1721,7 +1721,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     const signedIn = cachedSignIn(() =>
       claudeSignedIn(config.cli, claudeEnvironment(undefined, { ...process.env, ...input.environment })),
     );
-    const snapshot = async (opts?: { rescan?: boolean }): Promise<ProviderSnapshot> => {
+    const snapshot = async (opts?: { rescan?: boolean; refresh?: boolean }): Promise<ProviderSnapshot> => {
       const env = claudeEnvironment(undefined, { ...process.env, ...input.environment });
       const version = await new Promise<string | null>((resolve) => {
         execCli(config.cli, ["--version"], { timeout: 8000, env }, (err, stdout) =>
@@ -1729,7 +1729,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         );
       });
       if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-      const authenticated = await signedIn(opts?.rescan);
+      const authenticated = await signedIn(opts?.rescan || opts?.refresh);
       // claudeEnvironment strips ANTHROPIC_API_KEY, so turns run on the
       // CLI's own login (Pro/Max): the cost it reports is what the call
       // WOULD bill, not a charge

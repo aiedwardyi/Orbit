@@ -563,6 +563,24 @@ describe("Antigravity snapshot", () => {
     await instance.dispose();
   });
 
+  it("re-checks sign-in on a refresh instead of reusing a recent signed-in answer", async () => {
+    chmodSync(FAKE_CLI, 0o755);
+    let signedIn = true;
+    vi.mocked(auth.antigravitySignIn).mockImplementation(() => createSignIn(async () => signedIn));
+    const instance = await AntigravityDriver.create({
+      instanceId: "agy-refresh",
+      displayName: undefined,
+      environment: {},
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    expect((await instance.snapshot()).authenticated).toBe(true);
+    signedIn = false;
+    expect((await instance.snapshot()).authenticated).toBe(true);
+    expect((await instance.snapshot({ refresh: true })).authenticated).toBe(false);
+    await instance.dispose();
+  });
+
   it("a missing binary is unavailable", async () => {
     const instance = await AntigravityDriver.create({
       instanceId: "agy-missing",

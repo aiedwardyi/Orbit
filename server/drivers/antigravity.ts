@@ -1017,14 +1017,14 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       return { turnId };
     };
 
-    const snapshot = async (opts?: { rescan?: boolean }): Promise<ProviderSnapshot> => {
+    const snapshot = async (opts?: { rescan?: boolean; refresh?: boolean }): Promise<ProviderSnapshot> => {
       const version = await new Promise<string | null>((resolve) => {
         execCli(config.cli, ["--version"], { timeout: 8000, env }, (err, stdout) =>
           resolve(err ? null : stdout.trim()),
         );
       });
       if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-      return { state: "available", version, authenticated: await signIn.check(opts?.rescan) };
+      return { state: "available", version, authenticated: await signIn.check(opts?.rescan || opts?.refresh) };
     };
 
     return {
