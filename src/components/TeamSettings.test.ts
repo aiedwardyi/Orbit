@@ -125,7 +125,8 @@ describe("Team settings", () => {
     await act(async () => team!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await vi.waitFor(() => expect(host.textContent).toContain("Ada"));
     expect(host.textContent).toContain("Team · 8.5h in 7 days · 1 online");
-    expect(host.textContent).toContain("Online · 2 PCs");
+    expect(host.textContent).toContain("Online");
+    expect(host.textContent).not.toContain("PCs");
     expect(host.textContent).toContain("Bea");
     expect(host.textContent).toContain("3h ago");
     expect(host.querySelector("[title='Hours Wink was open']")).not.toBeNull();
@@ -145,14 +146,14 @@ describe("Team settings", () => {
     expect([...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "General")!.getAttribute("aria-current")).toBeNull();
   });
 
-  it("says Phone 0 when today had no phone sessions", async () => {
+  it("says Mobile 0m when the week had no phone sessions", async () => {
     await render();
     await vi.waitFor(() => expect(labels()).toContain("Team"));
     const team = [...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "Team");
     await act(async () => team!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await vi.waitFor(() => expect(host.textContent).toContain("Ada"));
-    expect(host.textContent).toContain("Phone 0");
-    expect(host.textContent).not.toContain("Phone -");
+    expect(host.textContent).toContain("Mobile 0m in 7 days");
+    expect(host.textContent).not.toContain("Phone");
   });
 
   it("hides Team when the server says not owner", async () => {
