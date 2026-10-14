@@ -11,15 +11,18 @@ import { installOrbitMsg, terminalPaneEnv } from "../electron/terminal-mailbox.m
 import {
   loadMailboxSecret, mailboxGrant, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, MAILBOX_NOTE_MAX_CHARS, MAILBOX_SECRET_FILE, MAILBOX_STALE_GRANT, readMailboxBody,
 } from "./mailbox.ts";
+import { PANE_WAKE_DEBOUNCE_MS, PANE_WAKE_PROMPT } from "./pane-wake.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const FAKE_CLAUDE = join(ROOT, "server", "testing", "fake-claude-cli.ts");
 const TOKEN = "a".repeat(48);
 const MAILBOX_KEY = "b".repeat(64);
 const PANE = "0f3c9a1e-7b2d-4c55-9e10-3a4b5c6d7e8f";
 let child: ChildProcess;
 let base: string;
 let home: string;
+let promptLog: string;
 let terminalStub: ReturnType<typeof createServer>;
 const deferredNotes: string[] = [];
 const UNWATCHED_TEXT = "the pane just exited";
@@ -81,16 +84,26 @@ beforeAll(async () => {
   mkdirSync(userData);
   writeFileSync(join(userData, MAILBOX_SECRET_FILE), MAILBOX_KEY);
   mkdirSync(data);
+  promptLog = join(home, "claude-prompts.jsonl");
   writeFileSync(join(data, "config.json"), JSON.stringify({
-    instances: { ghost: { driver: "not-a-real-driver", displayName: "Ghost" } },
+    instances: {
+      ghost: { driver: "not-a-real-driver", displayName: "Ghost" },
+      // holds its turn open until a steer lands
+      claude: {
+        driver: "claudeAgent",
+        environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_UNTIL_STEER: "1", FAKE_CLAUDE_PROMPT_LOG: promptLog },
+        config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" },
+      },
+    },
   }));
-  const bot = (id: string, extra: { section?: string; chiefOfStaff?: boolean } = {}) => ({
+  const bot = (id: string, extra: { section?: string; chiefOfStaff?: boolean; modelSelection?: { instanceId: string; model: string } } = {}) => ({
     id, threadId: `${id}-thread`, name: id, title: "", description: "", notifications: false, color: "purple", unread: false,
     modelSelection: { instanceId: "ghost", model: "ghost" }, resumeCursors: {}, computer: "off", ...extra,
   });
   writeFileSync(join(data, "bots.json"), JSON.stringify([
     bot("teacher", { section: "Team", chiefOfStaff: true }), bot("worker", { section: "Team" }), bot("solo", { section: "Solo" }),
     bot("stale-teacher", { section: "Stale", chiefOfStaff: true }), bot("stale-worker", { section: "Stale" }),
+    bot("lead", { section: "Lead", modelSelection: { instanceId: "claude", model: "claude-fake" } }),
   ]));
 
   const listener = createServer();
@@ -297,6 +310,37 @@ describe("POST /api/mailbox", () => {
     expect(sent.stderr).toContain(MAILBOX_STALE_GRANT);
     // Often the job's first PowerShell start, which can take over 30 s on CI.
   }, 120_000);
+
+  it("steers a note into a busy teacher's live turn instead of waking it", async () => {
+    const headers = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
+    const until = async (what: string, ready: () => Promise<boolean>) => {
+      const deadline = Date.now() + 20_000;
+      while (!(await ready())) {
+        if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    };
+    // SAFETY: GET /api/bots always answers { bots } with each bot's id and busy flag.
+    const busy = async () => ((await (await fetch(`${base}/api/bots`, { headers })).json()) as { bots: Array<{ id: string; busy?: boolean }> }).bots.find((bot) => bot.id === "lead")?.busy;
+    expect((await fetch(`${base}/api/bots/lead/messages`, { method: "POST", headers, body: JSON.stringify({ text: "run the workers" }) })).status).toBe(202);
+    await until("the tool chip", async () => (await transcript("lead-thread")).some((message) => message.kind === "activity"));
+    const response = await post({ text: "DONE: lead work" }, { pane: PANE, bot: "lead", teacher: "lead" }, mailboxGrant(MAILBOX_KEY, PANE, "lead", "lead"));
+    // SAFETY: a stored note always answers with its message id.
+    const { id } = await response.json() as { id: string };
+    await until("the turn to settle", async () => (await busy()) === false);
+    expect((await transcript("lead-thread")).some((message) => message.role === "bot" && message.kind === "text" &&
+      message.text?.includes("steered: [Pane note from pane 0f3c9a1e, untrusted worker output]"))).toBe(true);
+    // SAFETY: the server writes bots.json as the bot records it loaded, tasks included.
+    const bots = JSON.parse(readFileSync(join(home, "data", "bots.json"), "utf8")) as Array<{ id: string; tasks?: Array<{ paneNotesDeliveredId?: string }> }>;
+    expect(bots.find((bot) => bot.id === "lead")?.tasks?.[0]?.paneNotesDeliveredId).toBe(id);
+    // past the wake debounce: a wake would claim the bot again
+    const quietUntil = Date.now() + PANE_WAKE_DEBOUNCE_MS + 3_000;
+    while (Date.now() < quietUntil) {
+      expect(await busy()).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(readFileSync(promptLog, "utf8")).not.toContain(PANE_WAKE_PROMPT);
+  }, 40_000);
 
   it("delivers to the live teacher after the granted teacher is deleted", async () => {
     const scope = { pane: PANE, bot: "stale-worker", teacher: "stale-teacher" };
