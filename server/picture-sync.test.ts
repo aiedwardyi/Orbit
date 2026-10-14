@@ -364,4 +364,27 @@ describe("picture sync", () => {
     }
     expect(ledger.includes(name)).toBe(false);
   });
+
+  it("never publishes a big file, even one named like a picture", () => {
+    const folder = temp("pic-bigfile-");
+    const dataDir = temp("pic-bigfile-a-");
+    mkdirSync(join(dataDir, "attachments"), { recursive: true });
+    const wink = join(temp("pic-downloads-"), "Wink");
+    mkdirSync(wink);
+    const path = join(wink, "big.jpg");
+    writeFileSync(path, Buffer.from("big-file-bytes"));
+    publishThreadPictures({
+      folder,
+      dataDir,
+      now: 1_700_000_000_000,
+      messages: [{ text: `<attached-file path="${path}" name="big.jpg" size="14" type="image/jpeg" />`, at: 1_700_000_000_000 }],
+    });
+    let published = true;
+    try {
+      statSync(join(folder, PICTURES_DIR, "big.jpg"));
+    } catch {
+      published = false;
+    }
+    expect(published).toBe(false);
+  });
 });
