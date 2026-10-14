@@ -125,7 +125,8 @@ describe("peer turn registry", () => {
     const userJoins = index.match(/resumePaneWakes\((?:bot|current)\.id\);\r?\n\s*takeOverPeerTurn\(threadId\);/g) ?? [];
     expect(calls).toHaveLength(3);
     expect(userJoins).toHaveLength(3);
-    expect(index).toMatch(/\.steer\(threadId, composeUserTurnPrompt\(text,/);
+    expect(index).toMatch(/const prompt = consumable \? composeUserTurnPrompt\(text, turnOpts\)/);
+    expect(index).toMatch(/\.steer\(threadId, prompt, \(taken\) =>/);
     const paneWake = index.slice(index.indexOf("const paneWake = new PaneWakeScheduler("));
     expect(paneWake.slice(0, paneWake.indexOf("\n});"))).not.toContain("takeOverPeerTurn");
     for (const driver of ["./drivers/claude.ts", "./drivers/codex.ts", "./drivers/acp/core.ts"]) {

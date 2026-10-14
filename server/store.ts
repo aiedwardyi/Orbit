@@ -1693,6 +1693,13 @@ export class Store {
     this.saveBots();
   }
 
+  /** Marks a steer carried, added once the model took it in; keeps what a later dispatch recorded. */
+  addReactionsDelivered(botId: string, threadId: string, keys: string[]) {
+    if (!keys.length) return;
+    const delivered = this.taskByThread(botId, threadId)?.reactionsDelivered ?? [];
+    this.markReactionsDelivered(botId, threadId, [...new Set([...delivered, ...keys])]);
+  }
+
   markPaneNotesSkipped(botId: string, threadId: string, noteId: string) {
     const task = this.taskByThread(botId, threadId);
     if (!task || task.paneNotesSkippedId === noteId) return;

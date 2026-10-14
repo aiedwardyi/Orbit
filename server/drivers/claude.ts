@@ -769,6 +769,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       closing: boolean;
       /** a task_notification landed between turns; the CLI's wake is due by then */
       wakeDeadline: number | null;
+      /** `consumed` of steers no model request has carried yet; an error
+       * `result` keeps them, since the CLI then runs them as their own query */
+      steerAcks: Array<(taken: boolean) => void>;
       stderr: string;
       /** settle the current turn; set once the spawn handlers exist */
       settleTurn?: (ok: boolean, stopReason: string | null) => void;
@@ -797,6 +800,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       return live.length > 0 && live.every((task) => task.autoAttended);
     };
 
+    const ackSteers = (s: Session, taken: boolean) => {
+      for (const ack of s.steerAcks.splice(0)) ack(taken);
+    };
+
     /** Mark the session unusable for reuse and start process teardown.
      * Does not close the permission broker — Windows named pipes drop
      * existing clients on server.close()/unlink, and a late ask on a
@@ -806,6 +813,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (!s) return undefined;
       if (s.closing) return s;
       s.closing = true;
+      // the CLI drops queued messages when it exits
+      ackSteers(s, false);
       if (s.idleTimer) clearTimeout(s.idleTimer);
       appendNative(threadId, { dir: "out", source: "claude.session", msg: { close: why } });
       // stdin EOF is the CLI's exit signal; give it a moment, then insist
@@ -1183,6 +1192,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         closing: false,
         wakeDeadline: null,
         stderr: "",
+        steerAcks: [],
       };
       sessions.set(threadId, session);
 
@@ -1296,8 +1306,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               emit({ ...base(threadId, currentTurnId()), type: "session.started", sessionId: o.session_id, model: o.model });
             } else if (o.subtype === "thinking_tokens") {
               emit({ ...base(threadId, currentTurnId()), type: "item.updated", itemType: "reasoning", tokens: o.estimated_tokens });
-            } else if (o.subtype === "status" && o.status === "requesting" && session.turn) {
-              session.turn.unsentSteers = 0;
+            } else if (o.subtype === "status" && o.status === "requesting") {
+              if (session.turn) session.turn.unsentSteers = 0;
+              ackSteers(session, true);
             } else if (o.subtype === "task_started" && o.is_backgrounded === true && typeof o.task_id === "string") {
               // between turns only background work starts tasks; inherit from it
               session.background.set(o.task_id, {
@@ -1505,6 +1516,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       });
 
       child.on("close", (code) => {
+        ackSteers(session, false);
         // a turn still running when the process died is a failed turn; a
         // process that exited between turns (idle close, contract change)
         // is just a session ending
@@ -1679,23 +1691,31 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     };
 
     /** Same stdin write and unsent-steer count as a user steer. */
-    const deliverSteer = (s: Session, threadId: string, text: string, attachImages = true): Promise<boolean> => {
+    const deliverSteer = (
+      s: Session,
+      threadId: string,
+      text: string,
+      attachImages = true,
+      consumed?: (taken: boolean) => void,
+    ): Promise<boolean> => {
       const turn = s.turn;
       if (!turn || turn.settled || s.closing || s.child.exitCode !== null) return Promise.resolve(false);
       turn.unsentSteers = (turn.unsentSteers ?? 0) + 1;
+      if (consumed) s.steerAcks.push(consumed);
       return writeUser(s, threadId, text, attachImages).then((written) => {
         if (!written && turn.unsentSteers) turn.unsentSteers -= 1;
+        if (!written && consumed) s.steerAcks = s.steerAcks.filter((ack) => ack !== consumed);
         return written;
       });
     };
 
     /** A user message into the running turn: the CLI delivers it before its
      * next model call. False when nothing is running here to steer. */
-    const steer = (threadId: string, text: string): Promise<boolean> => {
+    const steer = (threadId: string, text: string, consumed?: (taken: boolean) => void): Promise<boolean> => {
       const s = sessions.get(threadId);
       if (!s) return Promise.resolve(false);
       if (s.turn) s.turn.narrationNoticeSent = false;
-      return deliverSteer(s, threadId, text);
+      return deliverSteer(s, threadId, text, true, consumed);
     };
 
     const signedIn = cachedSignIn(() =>
@@ -1801,6 +1821,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           images: true,
           effortLevels: ["low", "medium", "high", "xhigh", "max"],
           queueing: true,
+          steerConsumed: true,
           pinnedSystem: true,
           localComputerMcp: config.permissionMode !== "bypassPermissions",
           askApproval: config.permissionMode !== "bypassPermissions",
