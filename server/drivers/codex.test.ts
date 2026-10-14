@@ -359,7 +359,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     const command = [
       "\"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"",
       "-Command",
-      `\"Get-Content -Raw -LiteralPath 'C:\\Users\\Ada\\workspaces\\${"very-long-folder\\".repeat(8)}NOTES.md'\"`,
+      `"Get-Content -Raw -LiteralPath 'C:\\Users\\Ada\\workspaces\\${"very-long-folder\\".repeat(8)}NOTES.md'"`,
     ].join(" ");
     expect(command.length).toBeGreaterThan(200);
     const opened = await recorder.until((event) => event.type === "request.opened");
