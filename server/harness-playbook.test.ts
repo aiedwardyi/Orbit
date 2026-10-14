@@ -99,6 +99,25 @@ describe("harness playbook", () => {
     expect(prompt).toContain("its progress file and \"continue from the uncommitted changes already here\"");
   });
 
+  it("respawns workers after an app restart and leaves other bots' processes alone", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("An app update or restart closes every pane mid-run.");
+    expect(prompt).toContain("tell the user which of your workers it would stop");
+    expect(prompt).toContain("close only the ones you can prove it started");
+  });
+
+  it("reads the pane before calling a worker still running", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("read the pane before you say a worker is still running");
+  });
+
+  it("sends work that must outlive the turn to a pane worker", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("Background subagents end with your turn");
+  });
+
+  it("gates timing runs on a quiet machine", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("Timing runs need a quiet machine");
+  });
+
   it("fills the worktree path from the configured root", () => {
     const prompt = loadHarnessPlaybook(undefined, join("D:", "wt"));
     expect(prompt).toContain(join("D:", "wt", "<name>"));
