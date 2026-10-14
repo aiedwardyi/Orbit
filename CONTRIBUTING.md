@@ -34,7 +34,7 @@ Three layers:
 - **node:test**: `electron/*.node-test.mjs`, run with `node --test <file>`. `pnpm test:terminal`, `pnpm test:updater` and the other `test:*` scripts in `package.json` group them. A few files are in no group yet, so run the one you touched directly.
 - **relay**: `relay/` has its own lockfile and suite. Run `pnpm check` and `pnpm test` from that directory.
 
-`pnpm test` runs vitest behind `scripts/test-floor.mjs`, which fails the run when fewer tests register than expected. That catches a file that silently stops being collected.
+`pnpm test` runs vitest behind `scripts/test-floor.mjs`, which fails the run when fewer tests register than a fixed floor. That catches a config or glob change that drops a large part of the suite, not one missing file.
 
 Some suites boot the real server: `server/index.test.ts` and the others that import `server/index.ts`. They are the slow part of the suite. To run only the files you touched:
 
