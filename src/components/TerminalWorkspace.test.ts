@@ -1830,3 +1830,114 @@ it("replays at once without IntersectionObserver", async () => {
   expect(terminal.resize).toHaveBeenCalledWith(100, 30);
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SNAP"]);
 });
+
+type LiveQueueEntry = { id: string; data: string; seq: number };
+async function liveQueues() {
+  const module = await import("./TerminalWorkspace") as unknown as { terminalLiveQueues?: LiveQueueEntry[][] };
+  expect(module.terminalLiveQueues, "terminalLiveQueues hook").toBeDefined();
+  return module.terminalLiveQueues!;
+}
+
+it("queues nothing while hidden with no attach in flight", async () => {
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  const open = vi.fn(async () => ({ id: "session-hide", cwd: "C:\\work", shell: "pwsh.exe", output: "HIDE_SNAP", seq: 1, exitCode: null }));
+  const bot = mountBridge({
+    appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  });
+  const render = (visible: boolean) => root.render(createElement(TerminalWorkspace, { bot, visible, focusBlocked: false, onClose: vi.fn() }));
+  await act(async () => render(false));
+  expect(open).not.toHaveBeenCalled();
+  await act(async () => {
+    receive({ id: "other-pane", data: "OTHER", seq: 99 });
+    receive({ id: "session-hide", data: "HIDDEN_EARLY", seq: 99 });
+  });
+  // No attach in flight, so every event is dropped instead of queued.
+  expect((await liveQueues()).flat()).toHaveLength(0);
+  await act(async () => render(true));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["HIDE_SNAP"]);
+});
+
+it("shows attaching-session output mid-replay once, in order", async () => {
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  let writeCb: (() => void) | undefined;
+  terminal.write.mockImplementation((data: string, cb?: () => void) => {
+    if (String(data) === "MID_SNAP") {
+      writeCb = cb;
+      return;
+    }
+    if (typeof cb === "function") queueMicrotask(cb);
+  });
+  const open = vi.fn(async () => ({ id: "session-mid", cwd: "C:\\work", shell: "pwsh.exe", output: "MID_SNAP", seq: 1, exitCode: null }));
+  const bot = mountBridge({
+    appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  });
+  await act(async () => root.render(createElement(TerminalWorkspace, { bot, visible: true, focusBlocked: false, onClose: vi.fn() })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["MID_SNAP"]);
+  await act(async () => {
+    receive({ id: "session-mid", data: "live-b", seq: 3 });
+    receive({ id: "other-pane", data: "OTHER", seq: 99 });
+    receive({ id: "session-mid", data: "live-a", seq: 2 });
+    receive({ id: "session-mid", data: "live-a-dup", seq: 2 });
+  });
+  // Only the attaching session is queued; other panes' output is dropped.
+  expect((await liveQueues()).flat().map((event) => event.data).sort()).toEqual(["live-a", "live-a-dup", "live-b"]);
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["MID_SNAP"]);
+  await act(async () => { writeCb?.(); });
+  await act(async () => { await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["MID_SNAP", "live-a", "live-b"]);
+});
+
+it("keeps new-session output from the restart fallback gap", async () => {
+  let receive!: (event: { id: string; data: string; seq: number }) => void;
+  let resolveFallback!: (value: TerminalSnapshot) => void;
+  const open = vi.fn(async (opts: { restart?: boolean }) => {
+    if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
+    if (open.mock.calls.length === 1) return { id: "session-old", cwd: "C:\\work", shell: "pwsh.exe", output: "OLD", seq: 1, exitCode: null as number | null };
+    return new Promise<TerminalSnapshot>((resolve) => { resolveFallback = resolve; });
+  });
+  const bridge: TerminalBridge = {
+    appearance: vi.fn(async () => null),
+    open,
+    write: vi.fn(),
+    resize: vi.fn(async () => {}),
+    onData: (cb) => { receive = cb; return vi.fn(); },
+    onExit: () => vi.fn(),
+  };
+  Object.defineProperty(window, "ogb", { configurable: true, value: { platform: "win32", terminal: bridge, pickFolder: vi.fn(async () => null) } });
+  vi.stubGlobal("localStorage", window.localStorage);
+  vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root.render(createElement(TerminalWorkspace, {
+    bot: { id: "bot-gap-new", name: "Desk", cwd: "C:\\work" },
+    visible: true,
+    focusBlocked: false,
+    onClose: vi.fn(),
+  })));
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["OLD"]);
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  expect(restartBtn).toBeTruthy();
+  await act(async () => { restartBtn!.click(); });
+  const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
+  expect(confirmBtn).toBeTruthy();
+  await act(async () => { confirmBtn!.click(); });
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  // New session output arrives while the fallback open is still pending.
+  await act(async () => {
+    receive({ id: "session-new", data: "NEW_GAP", seq: 2 });
+  });
+  await act(async () => {
+    resolveFallback({ id: "session-new", cwd: "C:\\work", shell: "pwsh.exe", output: "NEW", seq: 1, exitCode: null });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["OLD", "NEW", "NEW_GAP"]);
+});

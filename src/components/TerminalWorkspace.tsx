@@ -32,6 +32,8 @@ function samePath(a: string | null | undefined, b: string | null | undefined): b
 
 // Per bot, in memory: pane id, or null for the main shell.
 export const lastViewedPanes = new Map<string, string | null>();
+// Live output queues of mounted overlays (read by tests).
+export const terminalLiveQueues: { id: string; data: string; seq: number }[][] = [];
 
 export function pickInitialPane(panes: { id: string; exited?: boolean }[], lastViewedId?: string | null): string | null {
   if (lastViewedId === null) return null;
@@ -172,6 +174,7 @@ export function TerminalWorkspace({
     let replaying = false;
     let seen: IntersectionObserver | null = null;
     const liveQueue: OutputEvent[] = [];
+    terminalLiveQueues.push(liveQueue);
     const exits = new Map<string, number>();
     setSession(null);
     setLaunchProject(null);
@@ -250,8 +253,13 @@ export function TerminalWorkspace({
       terminal.write(event.data);
     };
     const offData = bridge.onData((event) => {
-      if (!replayComplete) liveQueue.push(event);
-      else receive(event);
+      if (replayComplete) {
+        receive(event);
+        return;
+      }
+      // Queue only the attaching session; drop everything while no attach is in flight.
+      if (!opening && (id === null || event.id !== id)) return;
+      liveQueue.push(event);
     });
     const offExit = bridge.onExit((event) => {
       if (!replayComplete || event.id === id) exits.set(event.id, event.exitCode);
@@ -496,7 +504,10 @@ export function TerminalWorkspace({
             // Host keeps the prior session when the new target is unavailable.
             // Defer needsFolder until fallback open settles — avoid flashing the banner mid-resume.
             try {
+              // Resume id unknown until open settles: queue everything like an open in flight.
+              opening = true;
               const resumed = await bridge.open({ botId: expectedBotId, cols: terminal.cols, rows: terminal.rows, restart: false });
+              opening = false;
               if (!alive) return;
               if (botIdRef.current !== expectedBotId) {
                 setReplacing(false);
@@ -522,6 +533,7 @@ export function TerminalWorkspace({
               setFolderReason(resumed.reason ?? result.reason ?? "choose-folder");
               recoverPreservedSession();
             } catch (cause) {
+              opening = false;
               report(cause);
               setNeedsFolder(true);
               setFolderReason(result.reason ?? "choose-folder");
@@ -567,6 +579,8 @@ export function TerminalWorkspace({
       cancelAnimationFrame(frame);
       seen?.disconnect();
       seen = null;
+      const queueIndex = terminalLiveQueues.indexOf(liveQueue);
+      if (queueIndex >= 0) terminalLiveQueues.splice(queueIndex, 1);
       observer.disconnect();
       appearance.disconnect();
       window.removeEventListener(TERMINAL_APPEARANCE_EVENT, updateAppearance);
