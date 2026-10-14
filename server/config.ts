@@ -298,6 +298,7 @@ export function builtInBrowserEnabled(_cfg: AppConfig): boolean {
 
 // OMB_DATA_DIR isolates test/soak rigs from the user's real fleet.
 export const DATA_DIR = process.env.OMB_DATA_DIR ?? join(homedir(), ".orbit");
+export const DOWNLOADS_DIR = process.env.OMB_DOWNLOADS_DIR ?? join(homedir(), "Downloads");
 export const EVENTS_DIR = join(DATA_DIR, "events");
 export const NATIVE_DIR = join(DATA_DIR, "native");
 

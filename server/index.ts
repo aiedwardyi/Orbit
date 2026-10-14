@@ -51,6 +51,7 @@ import {
   userProjectTexts,
 } from "./project-folder.ts";
 import { attachmentExists, ATTACHMENTS_DIR, ensureAttachmentsDir, importLocalImage, readAttachment, receiveAttachment, saveImage, type SavedAttachment } from "./attachments.ts";
+import { cloudSyncRoots, createUploads, uploadTargetDir } from "./uploads.ts";
 import {
   avatarGenerationRequestSchema,
   avatarGenerationStateMatches,
@@ -101,6 +102,7 @@ import {
   withInstanceCli,
   vpsSshAlias,
   DATA_DIR,
+  DOWNLOADS_DIR,
   EVENTS_DIR,
   NATIVE_DIR,
 } from "./config.ts";
@@ -315,7 +317,7 @@ import { postPhoneKeepAwake, type PhoneKeepAwakeMessage } from "./phone-keep-awa
 import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
 import { GoogleAccount, applyGoogleAccountMessage, googleAccountRoute, takeGoogleEnv } from "./google-account.ts";
 import { teamRoute } from "./team-route.ts";
-import { createGoogleSync, googleSyncRoute } from "./google-sync.ts";
+import { createGoogleSync, GOOGLE_MIRROR_DIR, googleSyncRoute } from "./google-sync.ts";
 import type { PublicPhone } from "./phone-devices.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
 import * as vps from "./vps-computer.ts";
@@ -2147,6 +2149,18 @@ const googleSync = createGoogleSync({
     return profileSyncSettings.workspaceId;
   },
   republishing: () => threadSyncV2?.republishing() ?? false,
+});
+const uploadCloudRoots = cloudSyncRoots();
+let uploadTarget: { folder: string | null; dir: string } | undefined;
+const uploads = createUploads({
+  dir: () => {
+    const folder = profileSyncSettings.folder;
+    if (uploadTarget?.folder !== folder) {
+      const roots = [...uploadCloudRoots, join(DATA_DIR, GOOGLE_MIRROR_DIR), ...(folder === null ? [] : [folder])];
+      uploadTarget = { folder, dir: uploadTargetDir(DOWNLOADS_DIR, roots, DATA_DIR) };
+    }
+    return uploadTarget.dir;
+  },
 });
 
 /** Bots a joining PC held back stay local until someone talks to them. */
@@ -7793,6 +7807,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const saved = await receiveAttachment(req);
       return json(res, 201, saved);
     }
+    if (path.startsWith("/api/uploads") && (await uploads.handle(req, res, method, path, url))) return;
 
     m = path.match(/^\/api\/threads\/([\w-]+)\/linked-file$/);
     if (m && method === "GET") {
@@ -10506,6 +10521,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
 syncAllThreads();
 googleSync.resume();
+uploads.sweep();
+setInterval(() => uploads.sweep(), 60 * 60 * 1000).unref();
 // Wake timers die with the process; re-arm teachers whose stored notes are
 // undelivered. Untracked legacy tasks wait for the next send, as before.
 for (const bot of store.bots) {

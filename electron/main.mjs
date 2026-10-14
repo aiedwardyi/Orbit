@@ -887,6 +887,7 @@ async function startServerOn(port) {
     OMB_SKILLS_DIR: path.join(process.resourcesPath, "skills"),
     OMB_PORT: String(port),
     OMB_USER_DATA: app.getPath("userData"),
+    OMB_DOWNLOADS_DIR: app.getPath("downloads"),
     OMB_PACKAGED: "1",
     ...(childEnvCredentials.composioApiKey
       ? { COMPOSIO_API_KEY: childEnvCredentials.composioApiKey }

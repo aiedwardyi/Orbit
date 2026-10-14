@@ -15,6 +15,10 @@ const summaryLabel = (message: Message) => (message.summarized ? ENGINE_SUMMARY_
 export function replyExcerpt(text: string, limit = MAX_REPLY_EXCERPT): string {
   const clean = text
     .replace(/<attached-image\s+path="[^"]*"\s*\/>/g, "[image]")
+    .replace(/<attached-file\s+path="([^"]*)"((?:\s+[a-z]+="[^"]*")*)\s*\/?>/g, (_tag, path: string, attrs: string) => {
+      const name = /\sname="([^"]*)"/.exec(attrs)?.[1] ?? path.split(/[\\/]/).pop() ?? "";
+      return `[file: ${name.replaceAll("&quot;", "\"").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&")}]`;
+    })
     .replace(/\s+/g, " ")
     .trim();
   if (clean.length <= limit) return clean;
