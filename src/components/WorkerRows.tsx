@@ -240,6 +240,7 @@ function Mark({ run, state, className }: ShownRun & { className?: string }) {
 export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLive = false, onOpenTerminalPane }: { name: string; runs: ShownRun[]; livePanes?: Set<string> | null; paneLabels?: ReadonlyMap<string, string>; waitForLive?: boolean; onOpenTerminalPane?: (sessionId: string) => void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [right, setRight] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -297,7 +298,17 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
         ref={buttonRef}
         type="button"
         data-worker-strip=""
-        onClick={() => setOpen((current) => !current)}
+        onClick={(event) => {
+          if (!open) {
+            // The menu hangs left of the chip; past the chat column's edge it is clipped under the sidebar.
+            const menuWidth = 300;
+            const row = rootRef.current!.getBoundingClientRect();
+            const main = event.currentTarget.closest("main")?.getBoundingClientRect();
+            const [min, max] = main ? [main.left + 8, main.right - 8] : [8, window.innerWidth - 8];
+            setRight(row.right - Math.min(Math.max(row.right, min + menuWidth), max));
+          }
+          setOpen((current) => !current);
+        }}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={t("workers.stripAria", counts)}
@@ -321,7 +332,8 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
           data-worker-list
           role="dialog"
           aria-labelledby={titleId}
-          className="absolute right-0 top-full z-40 mt-1 w-[300px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50"
+          style={{ right }}
+          className="absolute top-full z-40 mt-1 w-[300px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50"
         >
           <h2 id={titleId} className="px-3 py-2 text-[15px] font-semibold text-ink">{t("workers.title", { name })}</h2>
           <div className="max-h-[320px] overflow-y-auto">

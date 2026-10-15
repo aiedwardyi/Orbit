@@ -431,6 +431,24 @@ describe("WorkerChip", () => {
     }
   });
 
+  it("keeps the desktop menu inside a chat column that starts near the chip", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const { host, chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
+    const main = document.createElement("main");
+    document.body.append(main);
+    main.append(host);
+    const box = (left: number, right: number) => new window.DOMRect(left, 0, right - left, 40);
+    vi.spyOn(main, "getBoundingClientRect").mockReturnValue(box(280, 700));
+    vi.spyOn(chip()!.parentElement!, "getBoundingClientRect").mockReturnValue(box(436, 470));
+    try {
+      await act(async () => chip()!.click());
+      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("-118px");
+    } finally {
+      await unmount();
+      main.remove();
+    }
+  });
+
   it("scrolls a desktop list of eight entries", async () => {
     vi.stubGlobal("matchMedia", () => ({ matches: false }));
     const runs = Array.from({ length: 8 }, (_, i) => shown(`W${i}`, "working", `s${i}`, i));
