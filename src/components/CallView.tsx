@@ -490,6 +490,7 @@ function Call({ bot }: { bot: Bot }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (e.defaultPrevented || document.querySelector('[role="dialog"][aria-modal="true"]')) return;
         e.preventDefault();
         endCall(bot.id);
       } else if (e.code === "Space" && speaker.isSpeaking()) {
