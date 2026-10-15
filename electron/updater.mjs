@@ -84,6 +84,10 @@ export function registerUpdaterIpc() {
   ipcMain.handle("update:install", () => updaterCoordinator?.install());
 }
 
+export function retargetUpdater(mainWindow) {
+  win = mainWindow;
+}
+
 export function startUpdater(mainWindow) {
   win = mainWindow;
   // dev / unsigned builds can't auto-update — leave the banner dormant

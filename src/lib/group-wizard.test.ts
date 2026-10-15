@@ -41,6 +41,17 @@ describe("wizard engine suggestion", () => {
     expect(suggestEngine([], ["codex"])).toBeNull();
   });
 
+  it("skips retired engines when substituting for a missing preferred kind", () => {
+    const instances = [engine("gem-1", "geminiAgent"), engine("ag-1", "antigravityAgent")];
+    const pick = suggestEngine(instances, ["codex"])!;
+    expect(pick.instance.instanceId).toBe("ag-1");
+    expect(pick.substituted).toBe(true);
+  });
+
+  it("returns null when only retired fallback engines are connected", () => {
+    expect(suggestEngine([engine("gem-1", "geminiAgent")], ["codex"])).toBeNull();
+  });
+
   it("treats missing auth as connected but explicit false as not", () => {
     expect(isEngineConnected(engine("a", "codex", "available", undefined))).toBe(true);
     expect(isEngineConnected(engine("b", "codex", "available", false))).toBe(false);
