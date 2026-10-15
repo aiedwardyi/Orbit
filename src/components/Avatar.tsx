@@ -14,7 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import { type MausColor, type MausMotion, type MausState } from "@/lib/mascot";
-import { mascotSvgMarkup, scopeMascotSvgIds } from "@/lib/mascot-art";
+import { mascotLayerMarkup, mascotSvgMarkup, scopeMascotSvgIds } from "@/lib/mascot-art";
 import {
   botAvatarAssetPath,
   botAvatarProfile,
@@ -112,7 +112,7 @@ function MausAvatarComponent(
 
   const style = resolveMascotStyle(mascotStyle, color);
   const markup = useMemo(
-    () => scopeMascotSvgIds(mascotSvgMarkup(style, color), reactId),
+    () => mascotLayerMarkup(scopeMascotSvgIds(mascotSvgMarkup(style, color), reactId)),
     [style, color, reactId],
   );
   const delay = motionDelay(style, color);

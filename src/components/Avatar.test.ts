@@ -94,6 +94,15 @@ describe("cute mascot renderer", () => {
     expect(sources["Avatar.tsx"]).toContain("220");
   });
 
+  it("animates the eyes on composited HTML spans", () => {
+    const mascot = stylesCss.slice(stylesCss.indexOf(".mascot-avatar {"), stylesCss.indexOf("@keyframes mascot-idle-eyes"));
+    expect(mascot).toMatch(/\.mascot-avatar \.mascot-blink\s*\{[^}]*transform-origin: var\(--mascot-eye-origin/);
+    expect(mascot).not.toContain("fill-box");
+    expect(mascot).not.toContain("will-change");
+    expect(sources["Avatar.tsx"]).toContain("mascotLayerMarkup");
+    expect(stylesCss).toMatch(/\.thinking-sheen > span\s*\{[^}]*will-change: transform;/);
+  });
+
   it("parks idle and blink CSS on mascot-avatar--still", () => {
     expect(sources["Avatar.tsx"]).toContain("mascot-avatar--still");
     expect(sources["Avatar.tsx"]).toContain("animated");
