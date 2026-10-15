@@ -21,6 +21,7 @@ import type { RoutineRequestCardData } from "../../shared/routine-request";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { ToolDetail } from "../../shared/tool-detail";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
+import { ringingRuns, routineChatOnScreen } from "@/lib/routine-ring";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { currentCall } from "@/lib/call";
 import { showNotification, type NotificationTarget, type TerminalAttentionReason } from "@/lib/notify";
@@ -2987,7 +2988,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         key: "routines",
         request: async () => {
           const { routines, runs } = await api("/api/routines");
-          return () => rawDispatch({ type: "routinesHydrated", routines, runs });
+          return () => rawDispatch({ type: "routinesHydrated", routines: routines ?? [], runs: runs ?? [] });
         },
       },
       {
@@ -3500,6 +3501,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", onWindowActivated);
     };
   }, [dispatch]);
+
+  // Opening a chat settles its fired routines, once that conversation is on screen.
+  const shownChat = routineChatOnScreen(state)
+    ? (state.bots.find((b) => b.id === state.selectedId) ?? state.groups.find((g) => g.id === state.selectedId))
+    : undefined;
+  const ringKey = shownChat ? ringingRuns(state.routineRuns, shownChat.threadId).map((run) => run.id).join(",") : "";
+  useEffect(() => {
+    if (!ringKey) return;
+    const settle = () => {
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      for (const runId of ringKey.split(",")) dispatch({ type: "markRoutineRunSeen", runId });
+    };
+    settle();
+    window.addEventListener("focus", settle);
+    document.addEventListener("visibilitychange", settle);
+    return () => {
+      window.removeEventListener("focus", settle);
+      document.removeEventListener("visibilitychange", settle);
+    };
+  }, [ringKey, dispatch]);
 
   // Phone browsers discard hidden tabs; the reload paints this instead of the
   // full-screen connecting state while the live snapshot loads.

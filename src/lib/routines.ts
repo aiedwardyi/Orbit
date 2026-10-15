@@ -46,6 +46,7 @@ export interface RoutineRun {
   /** The conversation this run reports to; the execution stays on `threadId`. */
   sourceThreadId?: string;
   threadId?: string;
+  cardMessageId?: string;
   startedAt?: number;
   finishedAt?: number;
   output?: string;

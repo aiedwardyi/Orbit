@@ -115,6 +115,7 @@ import { Presence, usePresence } from "@/lib/use-presence";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { anyChatNeedsYou, chatNeedsYou } from "@/lib/open-question";
+import { anyRoutineRinging, routineChatOnScreen, routineRinging } from "@/lib/routine-ring";
 import { useArrivalGlow } from "@/lib/arrival-glow";
 import { DeviceSwitcher } from "./DeviceSwitcher";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
@@ -281,7 +282,8 @@ function GroupListItem({
     .map((id) => state.bots.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
   const last = group.messages.filter(isShownMessage).at(-1);
-  const asking = chatNeedsYou(group.messages);
+  const question = chatNeedsYou(group.messages);
+  const asking = question || routineRinging(state.routineRuns, group.threadId, group.tasks);
   const unreadRing = Boolean(group.unread) && !asking;
   const arrival = useArrivalGlow([group.id], { enabled: !selected, asking });
   const select = () => {
@@ -392,7 +394,7 @@ function GroupListItem({
         )}
         data-arrival-glow={arrival.playing || undefined}
         onAnimationEnd={arrival.onAnimationEnd}
-        aria-label={density === "icons" ? (asking ? t("ask.rowHasQuestion", { name: group.name }) : group.name) : undefined}
+        aria-label={density === "icons" ? (asking ? t(question ? "ask.rowHasQuestion" : "routine.rowRang", { name: group.name }) : group.name) : undefined}
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
       >
         <StackedMauses members={members} density={density} />
@@ -400,7 +402,7 @@ function GroupListItem({
           <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
             <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">
               {group.name}
-              {asking && <span className="sr-only">{t("ask.hasQuestionSuffix")}</span>}
+              <span className="sr-only" aria-live="polite">{asking ? t(question ? "ask.hasQuestionSuffix" : "routine.rangSuffix") : ""}</span>
             </span>
             {last && (
               <span
@@ -880,7 +882,8 @@ function BotListItem({
     ? t(workerPanes === 1 ? "chrome.workerPanesOne" : "chrome.workerPanesMany", { count: workerPanes })
     : null;
   const workerPanesTitle = workerPanesLabel && [workerPanesLabel, ...paneLabels.filter(Boolean)].join("\n");
-  const asking = chatNeedsYou(bot.messages);
+  const question = chatNeedsYou(bot.messages);
+  const asking = question || routineRinging(state.routineRuns, bot.threadId, bot.tasks);
   const unreadRing = Boolean(bot.unread) && !asking;
   const arrival = useArrivalGlow([bot.id], { enabled: !selected, asking });
   const rowClass = cn(
@@ -990,7 +993,7 @@ function BotListItem({
                 density === "compact" ? "text-[13px] font-medium" : "text-[15px] font-semibold",
               )}
             />
-            {asking && <span className="sr-only">{t("ask.hasQuestionSuffix")}</span>}
+            <span className="sr-only" aria-live="polite">{asking ? t(question ? "ask.hasQuestionSuffix" : "routine.rangSuffix") : ""}</span>
           </span>
           {last && !renaming && (
             <span
@@ -1105,7 +1108,7 @@ function BotListItem({
       <div
         role="button"
         tabIndex={0}
-        aria-label={iconOnly ? (asking ? t("ask.rowHasQuestion", { name: iconLabel }) : iconLabel) : undefined}
+        aria-label={iconOnly ? (asking ? t(question ? "ask.rowHasQuestion" : "routine.rowRang", { name: iconLabel }) : iconLabel) : undefined}
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onClick={(event) => {
           select();
@@ -1348,7 +1351,11 @@ export function Sidebar({
   const sidebarOnRight = sidebarSide === "right";
   const collapsedUnread = sidebarCollapsed ? collapsedUnreadCount(state.bots, state.groups, state.selectedId) : 0;
   const collapsedUnreadBadge = formatCollapsedUnreadBadge(collapsedUnread);
-  const collapsedAsking = sidebarCollapsed && anyChatNeedsYou([...state.bots, ...listedGroups(state.groups)], state.selectedId);
+  const collapsedChats = [...state.bots, ...listedGroups(state.groups)];
+  const collapsedExceptId = routineChatOnScreen(state) ? state.selectedId : undefined;
+  const collapsedQuestion = anyChatNeedsYou(collapsedChats, collapsedExceptId);
+  const collapsedRoutine = anyRoutineRinging(state.routineRuns, collapsedChats, collapsedExceptId);
+  const collapsedAsking = sidebarCollapsed && (collapsedQuestion || collapsedRoutine);
   const collapsedBadgeRef = useRef<HTMLSpanElement>(null);
   const lastCollapsedUnread = useRef(collapsedUnread);
   useEffect(() => {
@@ -2268,11 +2275,13 @@ export function Sidebar({
             onClick={toggleCollapsed}
             aria-label={
               density === "icons"
-                ? collapsedAsking
+                ? collapsedQuestion
                   ? t("ask.expandSidebar")
-                  : collapsedUnreadBadge != null
-                    ? t("chrome.expandSidebarUnread", { count: collapsedUnreadBadge })
-                    : t("chrome.expandSidebar")
+                  : collapsedRoutine
+                    ? t("routine.expandSidebar")
+                    : collapsedUnreadBadge != null
+                      ? t("chrome.expandSidebarUnread", { count: collapsedUnreadBadge })
+                      : t("chrome.expandSidebar")
                 : t("chrome.collapseSidebar")
             }
             data-sidebar-needs-you={collapsedAsking || undefined}
@@ -2495,7 +2504,8 @@ export function Sidebar({
               hiddenItems.flatMap((item) => item.bot ? [item.bot] : []),
               hiddenItems.flatMap((item) => item.group ? [item.group] : []),
             );
-            const hiddenAsking = anyChatNeedsYou(hiddenItems.flatMap((item) => item.bot ?? item.group ?? []));
+            const hiddenChats = hiddenItems.flatMap((item) => item.bot ?? item.group ?? []);
+            const hiddenAsking = anyChatNeedsYou(hiddenChats) || anyRoutineRinging(state.routineRuns, hiddenChats);
             return (
               <div
                 key={id}

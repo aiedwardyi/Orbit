@@ -29,10 +29,10 @@ function load(name: string, deps: Record<string, unknown>) {
   return new Function(...Object.keys(deps), `${javascript}\nreturn ${name};`)(...Object.values(deps));
 }
 
-function route(pattern: string, deps: Record<string, unknown>) {
-  const from = source.indexOf(`    m = path.match(${pattern});`);
+function route(pattern: string, deps: Record<string, unknown>, binding = "m", end = "\n    m = path.match(") {
+  const from = source.indexOf(`    ${binding} = path.match(${pattern});`);
   expect(from).toBeGreaterThan(0);
-  const body = source.slice(from, source.indexOf('\n    m = path.match(', from + 1));
+  const body = source.slice(from, source.indexOf(end, from + 1));
   const javascript = ts.transpileModule(`async function invoke(path) { const req = {}; const res = {}; const method = "POST"; let m; ${body} }`, {
     compilerOptions: { target: ts.ScriptTarget.ESNext },
   }).outputText;
@@ -54,7 +54,7 @@ function interruptRig() {
   };
 }
 
-function rig(options: { preparing?: boolean; live?: boolean; error?: Error; rejectBusy?: boolean; room?: boolean; priorRoom?: boolean } = {}) {
+function rig(options: { preparing?: boolean; live?: boolean; error?: Error; rejectBusy?: boolean; room?: boolean; priorRoom?: boolean; routine?: boolean } = {}) {
   let finishPreparation!: () => void;
   const preparation = new Promise<void>((resolve) => { finishPreparation = resolve; });
   const claims = new Map<string, string>();
@@ -73,6 +73,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
   const groupQueues = new Map<string, Promise<void>>();
   const groupTaskResumes = new Map();
   const operations: { cancelled: boolean }[] = [];
+  const routineRun = { id: "run-1", botId: "bot-1", status: "running", sourceThreadId: "thread-1" };
   let finishRoom!: () => void;
   let finishPriorRoom!: () => void;
   if (options.priorRoom) groupQueues.set(group.id, new Promise((resolve) => { finishPriorRoom = resolve; }));
@@ -170,7 +171,12 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
   });
   const stop = route('/^\\/api\\/bots\\/([\\w-]+)\\/interrupt$/', {
     store, taskResumes, botHasActiveTurn,
-    readBody: async () => ({}), routines: { activeRunForBot: () => null },
+    readBody: async () => ({}),
+    routines: {
+      activeRunForBot: () => options.routine && routineRun.status === "running" ? routineRun : null,
+      cancelRun: async () => { routineRun.status = "cancelled"; },
+    },
+    runThread: (run: typeof routineRun) => run.sourceThreadId,
     registry: { get: () => undefined },
     bumpTurnEpoch: () => ++epoch,
     markThreadInterrupted: interrupts.mark,
@@ -178,13 +184,24 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     releaseInterruptedBot: () => { bot.busy = false; },
     json: (_res: unknown, status: number, body: unknown) => ({ status, body }),
   });
+  const cancelRun = route('/^\\/api\\/routine-runs\\/([\\w-]+)\\/(cancel|seen)$/', {
+    store, botHasActiveTurn,
+    routines: {
+      listRuns: () => [{ ...routineRun }],
+      cancelRun: async () => { routineRun.status = "cancelled"; return routineRun; },
+    },
+    runThread: (run: typeof routineRun) => run.sourceThreadId,
+    bumpTurnEpoch: () => ++epoch,
+    releaseInterruptedBot: () => { bot.busy = false; },
+    json: (_res: unknown, status: number, body: unknown) => ({ status, body }),
+  }, "const runMatch", "\n\n");
   const subscriber = source.slice(source.indexOf('bus.subscribe((event: RuntimeEvent) => {\n  if (event.type !== "turn.completed") return;\n  providerReload.settled'));
   const fold = ts.transpileModule(subscriber.slice(0, subscriber.indexOf('\n});') + 4), {
     compilerOptions: { target: ts.ScriptTarget.ESNext },
   }).outputText;
   let settle!: (event: { type: string; threadId: string }) => void;
-  new Function("bus", "providerReload", "drainQueuedSends", "paneWake", "followPendingSyncImports", "store", "syncMemory", fold)(
-    { subscribe: (fn: typeof settle) => { settle = fn; } }, { settled: noop }, drainQueuedSends, paneWake, noop, store, noop,
+  new Function("bus", "providerReload", "drainQueuedSends", "paneWake", "routines", "followPendingSyncImports", "store", "syncMemory", fold)(
+    { subscribe: (fn: typeof settle) => { settle = fn; } }, { settled: noop }, drainQueuedSends, paneWake, { tick: noop }, noop, store, noop,
   );
   const deleteBotFully = load("deleteBotFully", {
     registry: { get: () => undefined }, store: { ...store, deleteBot: noop },
@@ -205,9 +222,10 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     json: (_res: unknown, status: number, body: unknown) => ({ status, body }),
   });
   return {
-    bot, starts, frames, messages, interrupts,
+    bot, starts, frames, messages, interrupts, routineRun,
     resume: () => invoke("/api/bots/bot-1/tasks/thread-1/resume"),
     stop: () => stop("/api/bots/bot-1/interrupt"),
+    cancelRun: () => cancelRun("/api/routine-runs/run-1/cancel"),
     stopGroup: () => stopGroup("/api/groups/group-1/interrupt"),
     deleteBot: () => deleteBotFully(bot),
     finishPriorRoom: async () => { finishPriorRoom(); await flush(); },
@@ -249,6 +267,22 @@ describe("task resume during cancelled preparation", () => {
     await f.settle();
     expect(f.starts).toEqual([]);
     expect(f.frames).toContainEqual({ kind: "task.resume", botId: f.bot.id, threadId: f.bot.threadId, error: null });
+  });
+
+  it("one Stop cancels a routine turn still preparing", async () => {
+    const f = rig({ preparing: true, routine: true });
+    await f.stop();
+    await f.finishPreparation();
+    expect(f.starts).toEqual([]);
+    expect(f.routineRun.status).toBe("cancelled");
+  });
+
+  it("calendar Cancel stops a routine turn still preparing", async () => {
+    const f = rig({ preparing: true, routine: true });
+    await f.cancelRun();
+    await f.finishPreparation();
+    expect(f.starts).toEqual([]);
+    expect(f.routineRun.status).toBe("cancelled");
   });
 
   it("coalesces double clicks to one resumed turn", async () => {
@@ -406,5 +440,58 @@ describe("interrupt ownership", () => {
     f.bind(threadId, "stopped-turn", "bot-1", 0);
     expect(f.stale(threadId, "stopped-turn")).toBe(true);
     expect(f.interruptedTurnIds.has("stopped-turn")).toBe(true);
+  });
+});
+
+function routineOption(name: string, deps: Record<string, unknown>) {
+  let found: ts.PropertyAssignment | undefined;
+  function visit(node: ts.Node) {
+    if (ts.isNewExpression(node) && node.expression.getText(parsed) === "RoutineManager") {
+      const options = node.arguments?.[0];
+      if (options && ts.isObjectLiteralExpression(options)) {
+        found = options.properties.find((property): property is ts.PropertyAssignment =>
+          ts.isPropertyAssignment(property) && property.name.getText(parsed) === name);
+      }
+    }
+    if (!found) node.forEachChild(visit);
+  }
+  visit(parsed);
+  const javascript = ts.transpileModule(`const option = ${found!.initializer.getText(parsed)};`, {
+    compilerOptions: { target: ts.ScriptTarget.ESNext },
+  }).outputText;
+  return new Function(...Object.keys(deps), `${javascript}\nreturn option;`)(...Object.values(deps));
+}
+
+describe("routine cancel", () => {
+  it("closes the provider cards a cancelled routine left open", async () => {
+    const closed: string[] = [];
+    const interruptTurn = routineOption("interruptTurn", {
+      store: { bot: () => ({ modelSelection: { instanceId: "fake" } }) },
+      registry: { get: () => ({ adapter: { interruptTurn: async () => { throw new Error("no session"); } } }) },
+      closeOpenApprovals: (threadId: string) => closed.push(threadId),
+    });
+    await interruptTurn("bot-1", "thread-1", "maus");
+    expect(closed).toEqual(["thread-1"]);
+  });
+
+  it("lets a cancelled room routine abort its preparation", async () => {
+    const cancelled = new Set<string>();
+    let isCancelled: (() => boolean) | undefined;
+    const startChatTurn = routineOption("startChatTurn", {
+      routineSourceOwner: () => ({ bot: { id: "bot-1" }, group: { id: "group-1" }, threadId: "room-1" }),
+      botHasActiveTurn: () => false,
+      busyRejection: (message: string) => new Error(message),
+      routineTriggerIsUnattended: () => false,
+      markUnattended: () => {},
+      runGroupMemberTurn: async (...args: unknown[]) => {
+        isCancelled = args[7] as typeof isCancelled;
+        return true;
+      },
+      routines: { isCancelled: (id: string) => cancelled.has(id) },
+    });
+    await startChatTurn({ id: "run-1", triggerSource: "schedule" }, "[Routine] Standup", () => {});
+    expect(isCancelled?.()).toBe(false);
+    cancelled.add("run-1");
+    expect(isCancelled?.()).toBe(true);
   });
 });

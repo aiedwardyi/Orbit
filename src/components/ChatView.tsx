@@ -113,6 +113,7 @@ import { useReplyDraft } from "@/lib/drafts";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
+import { isRinging } from "@/lib/routine-ring";
 import { activeRunForBot, routineThreadReturn, routineWorkingElsewhere } from "../../shared/working-thread";
 import { parsePaneNote, type PaneNote } from "../../shared/pane-note";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
@@ -1164,9 +1165,11 @@ const MessagesList = memo(function MessagesList({
             case "routine.run": {
               const executionThreadId = m.routineRun?.executionThreadId;
               const canOpen = hasRoutineExecutionTask(bot.tasks, executionThreadId);
+              const localRun = state.routineRuns.find((run) => run.id === m.routineRun?.runId);
               return (
                 <RoutineRunCard
                   message={m}
+                  ringing={Boolean(localRun && isRinging(localRun))}
                   onOpen={canOpen
                     ? () => openNotificationTarget(
                         dispatch,

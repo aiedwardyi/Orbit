@@ -19,7 +19,7 @@ import {
 } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import { defaultModelEffort, isEffortOffered } from "../shared/model-effort.ts";
-import { canDeleteWhileWorking, canSwitchWhileWorking, workingThreadId } from "../shared/working-thread.ts";
+import { canDeleteWhileWorking, canSwitchWhileWorking, runThread, workingThreadId } from "../shared/working-thread.ts";
 import {
   CREDENTIAL_TARGETS,
   credentialResumeOutcome,
@@ -110,7 +110,7 @@ import {
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
+import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
 import { createSummaryRepair, logSummaryCall } from "./summary-repair.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
@@ -163,6 +163,7 @@ import {
   drainSteeredMessages,
   foldQueuedSends,
   hasQueuedSendBefore,
+  hasQueuedSends,
   isSendCancelled,
   markSendRunning,
   queuedSteeredMessage,
@@ -328,7 +329,7 @@ import { createGoogleSync, GOOGLE_MIRROR_DIR, googleSyncRoute } from "./google-s
 import type { PublicPhone } from "./phone-devices.ts";
 import { isRelayRequest } from "./phone-relay/via.ts";
 import * as vps from "./vps-computer.ts";
-import { RoutineManager, routineTriggerIsUnattended, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
+import { RoutineManager, routineBotState, routineRunCard, routineTriggerIsUnattended, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { browserScreenshot, readBrowserConnection } from "./browser-connection.ts";
 import { RoutineRequestService } from "./routine-requests.ts";
 import {
@@ -2543,6 +2544,8 @@ function queueTaskPacket(packet: TaskResumePacket): void {
 let turnClock = 0;
 const turnDispatchedAt = new Map<string, number>();
 const turnStartedAtMs = new Map<string, number>();
+// A routine fired in a chat is not the user's task: it neither resumes nor settles that record.
+const routineTurnThreads = new Set<string>();
 const turnInterruptedAt = new Map<string, number>();
 const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
@@ -2759,7 +2762,7 @@ const watchdog = new TurnWatchdog({
     repeats.settle(turn.threadId);
     settlePendingToolMessages(turn.threadId);
     const bot = store.bot(turn.botId);
-    const packet = bot && store.taskByThread(bot.id, turn.threadId)
+    const packet = bot && store.taskByThread(bot.id, turn.threadId) && !routineTurnThreads.has(turn.threadId)
       ? taskPacketForWrite(turn.threadId)
       : null;
     if (packet) {
@@ -3068,7 +3071,10 @@ bus.subscribe((event: RuntimeEvent) => {
       scheduleSaveRateLimits(rateLimitsByInstance, DATA_DIR);
     }
   }
-  const routineRun = routines?.handleRuntimeEvent(event) ?? null;
+  const routineRun = routines?.handleRuntimeEvent(
+    event,
+    store.botByThread(event.threadId)?.id ?? groupSpeakers.get(event.threadId)?.botId,
+  ) ?? null;
   const bot = store.botByThread(event.threadId);
   const group = bot ? undefined : store.groupByThread(event.threadId);
   if (!bot && !group) return;
@@ -3579,7 +3585,7 @@ bus.subscribe((event: RuntimeEvent) => {
           if (event.prompt && event.providerInstanceId) {
             store.recordNativePrompt(bot.id, event.threadId, event.providerInstanceId, event.prompt, event.contextWindow);
           }
-          const packet = taskPacketForWrite(event.threadId);
+          const packet = routineTurnThreads.has(event.threadId) ? null : taskPacketForWrite(event.threadId);
           if (packet) {
             persistTaskPacket(recordTaskCompletion(packet, {
               ok: event.ok,
@@ -3808,6 +3814,9 @@ bus.subscribe((event: RuntimeEvent) => {
   providerReload.settled(event.threadId);
   drainQueuedSends();
   paneWake.settled();
+  // after both, so held sends and pane wakes claim the bot before a queued routine;
+  // a drained room turn only claims it a microtask later
+  setTimeout(() => void routines?.tick(), 0);
   followPendingSyncImports();
   const settledBot = store.botByThread(event.threadId);
   if (settledBot) syncMemory(settledBot.id);
@@ -4304,7 +4313,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   }
 
   const priorTaskPacket = taskPacketForWrite(threadId);
-  const recovering = isRecoveringPacket(priorTaskPacket);
+  const routineTurn = Boolean(opts?.cardContinuation && opts?.automationSource);
+  const recovering = !routineTurn && isRecoveringPacket(priorTaskPacket);
   if (!opts?.cardContinuation && text.trim()) {
     const packet = priorTaskPacket
       ? recordTaskInstruction(priorTaskPacket, {
@@ -4551,7 +4561,12 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     !replaysNatively,
     modelContextWindow,
   );
-  const turnPrompt = paneNotes.length ? [...paneNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
+  // a replayed transcript already carries them
+  const routineCards = replaysTranscript
+    ? []
+    : routineCardsSinceLastUserTurn(activeMessages, skipTranscript, task.providerSessionBoundId);
+  const turnNotes = [...paneNotes, ...routineCards];
+  const turnPrompt = turnNotes.length ? [...turnNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
   const turnTranscript = withoutTurnNotes(transcript, paneNotes);
   const { turnText, resume } = buildTurnContext({
     text: turnPrompt,
@@ -4618,6 +4633,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   turnUsage.delete(threadId);
   turnDispatchedAt.set(threadId, tickTurnClock());
   turnStartedAtMs.set(threadId, Date.now());
+  if (routineTurn) routineTurnThreads.add(threadId);
+  else routineTurnThreads.delete(threadId);
   const seed = turnSeeds.set(threadId, {
     compactionId: turnSeedCompactionId({
       replayed: replaysTranscript,
@@ -5114,7 +5131,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         kind: "activity",
         tool: { name: `error: ${message.slice(0, 160)}`, ok: false },
       });
-      const packet = taskPacketForWrite(threadId);
+      const packet = routineTurnThreads.has(threadId) ? null : taskPacketForWrite(threadId);
       if (packet) {
         persistTaskPacket(recordTaskCompletion(packet, {
           ok: false,
@@ -5137,39 +5154,24 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   return startedTurn(userMessage);
 }
 
-// ── routines: persisted definitions → detached bot tasks ───────────────
+// ── routines: persisted definitions → turns in their chat ──────────────
 // The scheduler owns timing and receipts; the existing harness remains the
 // only owner of provider sessions, approvals, tools, computers and messages.
 function routineSourceOwner(run: RoutineRun) {
   const threadId = run.sourceThreadId?.trim();
-  if (!threadId) return null;
   // Validate before messagesFor(): Store lazily opens transcript storage, so
   // reading an orphan id first would recreate a deleted conversation.
   const bot = store.bot(run.botId);
   if (!bot) return null;
-  if (store.taskByThread(bot.id, threadId)) return { bot, group: undefined, threadId };
-  const group = store.groupByThread(threadId);
-  return group?.memberIds.includes(bot.id) ? { bot, group, threadId } : null;
+  if (threadId && store.taskByThread(bot.id, threadId)) return { bot, group: undefined, threadId };
+  const group = threadId ? store.groupByThread(threadId) : undefined;
+  if (threadId && group?.memberIds.includes(bot.id)) return { bot, group, threadId };
+  // No source, or a deleted one: ring in the bot's current 1:1. Webhooks report nowhere.
+  return run.triggerSource === "webhook" ? null : { bot, group: undefined, threadId: bot.threadId };
 }
 
 function routineSourceThread(run: RoutineRun): string | null {
   return routineSourceOwner(run)?.threadId ?? null;
-}
-
-function routineRunCard(run: RoutineRun): NonNullable<Message["routineRun"]> {
-  const visibleSummary = run.status === "waiting" ? run.attention : run.output;
-  const summary = visibleSummary ? visibleSummary.slice(0, 2_000) : undefined;
-  const error = run.error ? run.error.slice(0, 500) : undefined;
-  const card: NonNullable<Message["routineRun"]> = {
-    runId: run.id,
-    routineId: run.routineId,
-    routineName: run.routineName,
-    status: run.status,
-  };
-  if (run.threadId) card.executionThreadId = run.threadId;
-  if (summary) card.summary = summary;
-  if (error) card.error = error;
-  return card;
 }
 
 function routineRunFallbackText(card: NonNullable<Message["routineRun"]>): string {
@@ -5191,7 +5193,7 @@ function routineRunFallbackText(card: NonNullable<Message["routineRun"]>): strin
 /** Upsert one durable lifecycle card per run. Replaying the same transition,
  * including restart recovery, patches the existing run id instead of adding
  * another chat message. */
-function syncRoutineRunToSource(run: RoutineRun): string | null {
+function syncRoutineRunToSource(run: RoutineRun): { threadId: string; messageId: string } | null {
   const source = routineSourceOwner(run);
   if (!source) return null;
   const sourceThreadId = source.threadId;
@@ -5201,19 +5203,23 @@ function syncRoutineRunToSource(run: RoutineRun): string | null {
     (message) => message.kind === "routine.run" && message.routineRun?.runId === run.id,
   );
   const statusChanged = existing?.routineRun?.status !== run.status;
+  let messageId: string;
   if (existing) {
     store.patchMessage(sourceThreadId, existing.id, { text, routineRun: card });
+    messageId = existing.id;
   } else {
     const message: Omit<Message, "id" | "at"> = {
       role: "bot",
       kind: "routine.run",
       text,
       routineRun: card,
+      // only the PC that holds the routine fires it; synced copies stay inert
+      origin: profileSyncSettings.deviceId,
     };
     if (source.group) {
       message.from = { botId: source.bot.id, name: source.bot.name, color: source.bot.color };
     }
-    store.appendMessage(sourceThreadId, message);
+    messageId = store.appendMessage(sourceThreadId, message).id;
   }
 
   // Merely queueing/running is ambient progress. Attention and terminal
@@ -5222,15 +5228,16 @@ function syncRoutineRunToSource(run: RoutineRun): string | null {
     if (source.group) store.patchGroup(source.group.id, { unread: true });
     else store.patchBot(source.bot.id, { unread: true });
   }
-  return sourceThreadId;
+  return { threadId: sourceThreadId, messageId };
 }
 
 routines = new RoutineManager({
   emit: broadcast,
-  botState: (botId) => {
-    const bot = store.bot(botId);
-    return !bot ? "missing" : botHasActiveTurn(botId) ? "busy" : "ready";
-  },
+  botState: (botId, threadId) => routineBotState({
+    exists: Boolean(store.bot(botId)),
+    activeTurn: botHasActiveTurn(botId, threadId),
+    queuedSends: hasQueuedSends(botId),
+  }),
   createTask: (botId, title, activate = false) => {
     const task = store.createTask(botId, title, activate);
     const bot = store.bot(botId);
@@ -5240,6 +5247,41 @@ routines = new RoutineManager({
   startTurn: (botId, threadId, prompt, runOn, triggerSource, onDispatchError) =>
     startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, onDispatchError })
       .then(() => undefined),
+  // A control-plane turn like a pane wake: the line is never a user row, and
+  // the card it answers stays out of this turn's replay so it arrives once.
+  startChatTurn: async (run, line, onDispatchError) => {
+    const source = routineSourceOwner(run);
+    if (!source) throw new Error("The routine's chat no longer exists");
+    const automationSource = run.triggerSource ?? "schedule";
+    if (source.group) {
+      // Wait in the routine queue, never the room's: only this one can cancel the run and keeps its trigger.
+      if (botHasActiveTurn(source.bot.id, source.threadId)) throw busyRejection("the room is busy");
+      if (routineTriggerIsUnattended(automationSource)) markUnattended(source.bot.id);
+      // claimed synchronously; the scheduler must not wait out the turn and its chained replies
+      void runGroupMemberTurn(
+        source.group.id,
+        source.threadId,
+        source.bot.id,
+        0,
+        new Set(),
+        line,
+        onDispatchError,
+        () => routines!.isCancelled(run.id),
+        undefined,
+        run.cardMessageId ? new Set([run.cardMessageId]) : undefined,
+      ).then((started) => {
+        if (!started) onDispatchError("The routine's room is no longer available");
+      }, (error) => onDispatchError(error instanceof Error ? error.message : String(error)));
+      return;
+    }
+    await startTurn(source.bot.id, line, {
+      threadId: source.threadId,
+      cardContinuation: true,
+      automationSource,
+      excludeMessageIds: run.cardMessageId ? [run.cardMessageId] : undefined,
+      onDispatchError,
+    });
+  },
   interruptTurn: async (botId, threadId, runOn) => {
     const bot = store.bot(botId);
     const instance = runOn === "cloud"
@@ -5247,7 +5289,8 @@ routines = new RoutineManager({
       : bot
         ? registry.get(bot.modelSelection.instanceId)
         : null;
-    await instance?.adapter.interruptTurn(threadId);
+    await instance?.adapter.interruptTurn(threadId).catch(() => {});
+    closeOpenApprovals(threadId);
   },
   onRunChanged: syncRoutineRunToSource,
   onRunFailed: (run) => {
@@ -5580,6 +5623,7 @@ async function runGroupMemberTurn(
   onDispatchError?: (message: string) => void,
   isCancelled?: () => boolean,
   instructionId?: string,
+  excludeIds?: ReadonlySet<string>,
 ): Promise<boolean> {
   if (isCancelled?.()) return false;
   const group = store.group(groupId);
@@ -5609,6 +5653,7 @@ async function runGroupMemberTurn(
       isCancelled,
       releaseTurnStart,
       instructionId,
+      excludeIds,
     );
   } finally {
     releaseTurnStart();
@@ -5632,6 +5677,7 @@ async function runClaimedGroupMemberTurn(
   isCancelled?: () => boolean,
   releaseTurnStart?: () => void,
   instructionId?: string,
+  excludeIds?: ReadonlySet<string>,
 ): Promise<boolean> {
   const epoch = currentTurnEpoch(botId);
   if (isCancelled?.()) return false;
@@ -5698,6 +5744,7 @@ async function runClaimedGroupMemberTurn(
     messages: store.activePath(threadId),
     referenceMessages: store.messagesFor(threadId),
     contextWindow: modelContextWindow,
+    excludeIds,
     taskRecordText: durableTaskRecordText || `Room: ${group.name}\nBulletin: ${group.bulletin.trim() || "none"}`,
     userName,
     includeSpeakers: true,
@@ -7577,9 +7624,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     const runMatch = path.match(/^\/api\/routine-runs\/([\w-]+)\/(cancel|seen)$/);
     if (runMatch && method === "POST") {
+      const live = runMatch[2] === "cancel"
+        ? routines!.listRuns().find((candidate) => candidate.id === runMatch[1] && candidate.status === "running")
+        : undefined;
+      const bot = live ? store.bot(live.botId) : undefined;
+      const inFlight = Boolean(bot && (bot.busy || botHasActiveTurn(bot.id)));
+      // a turn still preparing has no session to interrupt yet
+      if (bot) bumpTurnEpoch(bot.id);
       const run = runMatch[2] === "cancel"
         ? await routines!.cancelRun(runMatch[1])
         : routines!.markSeen(runMatch[1]);
+      if (live && bot && inFlight) releaseInterruptedBot(bot.id, runThread(live) ?? bot.threadId);
       return run ? json(res, 200, { run }) : json(res, 404, { error: "no such active run" });
     }
 
@@ -9669,12 +9724,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const routineRun = routines!.activeRunForBot(bot.id);
       if (routineRun) {
-        if (expectedThreadId !== undefined && routineRun.threadId !== expectedThreadId) {
+        if (expectedThreadId !== undefined && runThread(routineRun) !== expectedThreadId) {
           return json(res, 409, { error: "this bot is running a routine in another conversation" });
         }
+        const inFlight = Boolean(bot.busy || botHasActiveTurn(bot.id));
         taskResumes.forgetBot(bot.id);
         store.patchBot(bot.id, { paneWakePaused: true });
+        // a turn still preparing has no session to interrupt yet
+        bumpTurnEpoch(bot.id);
         await routines!.cancelRun(routineRun.id);
+        if (inFlight) releaseInterruptedBot(bot.id, runThread(routineRun) ?? bot.threadId);
         return json(res, 200, { ok: true });
       }
       const instance = registry.get(bot.modelSelection.instanceId);
@@ -9796,7 +9855,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const working = workingThreadId({
         busy: Boolean(bot.busy),
         viewedThreadId: bot.threadId,
-        liveRoutineThreadId: routines!.activeRunForBot(bot.id)?.threadId,
+        liveRoutineThreadId: runThread(routines!.activeRunForBot(bot.id) ?? {}),
       });
       if (!canSwitchWhileWorking(m[2], working)) {
         return json(res, 409, { error: "this bot is working — stop it before switching tasks" });
@@ -9809,7 +9868,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const active = claimed ?? workingThreadId({
           busy: Boolean(current.busy),
           viewedThreadId: current.threadId,
-          liveRoutineThreadId: routines!.activeRunForBot(bot.id)?.threadId,
+          liveRoutineThreadId: runThread(routines!.activeRunForBot(bot.id) ?? {}),
         });
         if (!canSwitchWhileWorking(m[2], active)) return json(res, 409, { error: "this bot is working - stop it before switching tasks" });
       } else pullSyncedThread(m[2]);
@@ -9836,7 +9895,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const working = workingThreadId({
           busy: Boolean(bot.busy),
           viewedThreadId: bot.threadId,
-          liveRoutineThreadId: routines!.activeRunForBot(bot.id)?.threadId,
+          liveRoutineThreadId: runThread(routines!.activeRunForBot(bot.id) ?? {}),
         });
         if (!canDeleteWhileWorking(m[2], working)) {
           return json(res, 409, { error: "this task is running — stop it first" });
@@ -10636,7 +10695,8 @@ hostShutdown = () => {
   askHold.flush();
   const routineThreadByBotId: Record<string, string> = {};
   for (const bot of store.bots) {
-    const threadId = routines?.activeRunForBot(bot.id)?.threadId;
+    const run = routines?.activeRunForBot(bot.id);
+    const threadId = run ? runThread(run) : undefined;
     if (threadId) routineThreadByBotId[bot.id] = threadId;
   }
   for (const stamp of shutdownStampsForClose({

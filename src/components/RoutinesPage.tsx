@@ -27,7 +27,7 @@ import { MAUS_COLORS, type MausState } from "@/lib/mascot";
 import type { Routine, RoutineInput, RoutineRun, RoutineRunOn, RoutineRunStatus } from "@/lib/routines";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { usePresence } from "@/lib/use-presence";
-import { api, useStore, type Bot } from "@/state/store";
+import { api, openNotificationTarget, useStore, type Bot } from "@/state/store";
 import {
   activeRunForRoutine,
   isActiveRunStatus,
@@ -502,6 +502,17 @@ export function RoutineEditor({
   );
 }
 
+/** A chat run lands on its card in the chat it fired in. */
+export function openRunInChat(
+  dispatch: Parameters<typeof openNotificationTarget>[0],
+  state: Parameters<typeof openNotificationTarget>[2],
+  run: Pick<RoutineRun, "botId" | "sourceThreadId" | "cardMessageId">,
+) {
+  if (!run.sourceThreadId) return;
+  openNotificationTarget(dispatch, { botId: run.botId, threadId: run.sourceThreadId }, state);
+  if (run.cardMessageId) dispatch({ type: "focusMessage", threadId: run.sourceThreadId, messageId: run.cardMessageId });
+}
+
 function RoutineDetails({
   item,
   bot,
@@ -633,6 +644,7 @@ function RoutineDetails({
         <div className="flex flex-wrap items-center gap-2 border-t border-hairline/40 px-5 py-4">
           {routine && <button disabled={working || Boolean(active)} onClick={() => void startRunNow()} className="flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-[13px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-40"><Play size={14} />{runNowLabel}</button>}
           {run?.threadId && <button onClick={() => { dispatch({ type: "select", id: bot.id }); dispatch({ type: "switchTask", botId: bot.id, threadId: run.threadId! }); onClose(); }} className="flex items-center gap-2 rounded-xl bg-raised px-3.5 py-2 text-[13px] text-ink hover:bg-raised-hover"><ExternalLink size={14} />{t("routine.openThread")}</button>}
+          {run && !run.threadId && run.sourceThreadId && run.runOn !== "cloud" && <button onClick={() => { openRunInChat(dispatch, state, run); onClose(); }} className="flex items-center gap-2 rounded-xl bg-raised px-3.5 py-2 text-[13px] text-ink hover:bg-raised-hover"><ExternalLink size={14} />{t("routine.openInChat")}</button>}
           {run && ["queued", "running", "waiting"].includes(run.status) && <button disabled={working} onClick={() => void invoke(`/api/routine-runs/${run.id}/cancel`)} className="flex items-center gap-2 rounded-xl bg-raised px-3.5 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-40"><X size={14} />Cancel run</button>}
           <div className="flex-1" />
           {routine && canToggleRoutine(routine) && <button disabled={working} onClick={async () => { setWorking(true); setError(""); try { const response = await api(`/api/routines/${routine.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !routine.enabled }) }); dispatch({ type: "routinePatched", routine: response.routine }); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setWorking(false); } }} className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40">{routine.enabled ? <Pause size={14} /> : <Play size={14} />}{routine.enabled ? "Pause" : "Resume"}</button>}

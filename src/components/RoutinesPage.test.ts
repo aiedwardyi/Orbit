@@ -31,7 +31,7 @@ vi.mock("@/components/Avatar", () => ({
   BotAvatar: () => null,
 }));
 
-import { RoutineEditor, routineEditorSaveInput } from "./RoutinesPage";
+import { openRunInChat, RoutineEditor, routineEditorSaveInput } from "./RoutinesPage";
 
 const bot = {
   id: "bot-1",
@@ -114,5 +114,31 @@ describe("Friends routine editor", () => {
       durationMinutes: 90,
       enabled: undefined,
     });
+  });
+});
+
+describe("routine run history", () => {
+  it("Open in chat jumps to the card", () => {
+    const dispatch = vi.fn();
+    const state = {
+      hydrated: true,
+      bots: [{ id: bot.id, threadId: "t1", tasks: [{ threadId: "t1" }, { threadId: "t2" }] }],
+      groups: [{ id: "room", threadId: "room-1", tasks: [{ threadId: "room-1" }, { threadId: "room-2" }] }],
+    };
+
+    openRunInChat(dispatch, state, { botId: bot.id, sourceThreadId: "t2", cardMessageId: "card-1" });
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+      { type: "select", id: bot.id },
+      { type: "switchTask", botId: bot.id, threadId: "t2" },
+      { type: "focusMessage", threadId: "t2", messageId: "card-1" },
+    ]);
+
+    dispatch.mockClear();
+    openRunInChat(dispatch, state, { botId: bot.id, sourceThreadId: "room-2", cardMessageId: "card-2" });
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+      { type: "select", id: "room" },
+      { type: "switchGroupTask", groupId: "room", threadId: "room-2" },
+      { type: "focusMessage", threadId: "room-2", messageId: "card-2" },
+    ]);
   });
 });

@@ -351,6 +351,7 @@ export function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: 
   if (out.routineRun) {
     const routineRun = { ...out.routineRun };
     routineRun.routineName = redactSecretsInText(routineRun.routineName);
+    if (routineRun.instruction) routineRun.instruction = redactSecretsInText(routineRun.instruction);
     if (routineRun.summary) routineRun.summary = redactSecretsInText(routineRun.summary);
     if (routineRun.error) routineRun.error = redactSecretsInText(routineRun.error);
     out.routineRun = routineRun;

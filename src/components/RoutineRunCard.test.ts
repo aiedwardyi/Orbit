@@ -1,7 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { applyLocale } from "@/lib/i18n";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { Message } from "@/state/store";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
@@ -27,29 +28,52 @@ function message(
   };
 }
 
+const at = (hours: number, minutes: number) => new Date(2026, 9, 15, hours, minutes).getTime();
+
 describe("RoutineRunCard", () => {
-  it("shows a compact completion receipt and a path to the isolated run", () => {
+  afterEach(() => applyLocale("en"));
+
+  it("shows name, time and the instruction in one line with no Open run", () => {
     const markup = renderToStaticMarkup(createElement(RoutineRunCard, {
-      message: message("completed", { summary: "The brief is ready with three follow-ups." }),
+      message: message("completed", {
+        executionThreadId: undefined,
+        runOn: "maus",
+        scheduledFor: at(20, 0),
+        instruction: "Start a 25-minute study session:\npick up from list comprehensions.",
+        summary: "Study time! Last session we stopped at list comprehensions.",
+      }),
+      ringing: true,
       onOpen: vi.fn(),
     }));
 
     expect(markup).toContain("Morning brief");
-    expect(markup).toContain("Completed");
-    expect(markup).toContain("The brief is ready with three follow-ups.");
-    expect(markup).toContain("Open run");
-    expect(markup).toContain('aria-label="Morning brief routine run: Completed"');
+    expect(markup).toContain(">20:00<");
+    expect(markup).toMatch(/class="[^"]*\btruncate\b[^"]*">Start a 25-minute study session: pick up from list comprehensions\.<\/div>/);
+    expect(markup).toContain("Rang at 20:00");
+    expect(markup).toContain("border-accent/40");
+    expect(markup).not.toContain("Study time!");
+    expect(markup).not.toContain("Open run");
   });
 
-  it("drops the visible Completed label but keeps it for screen readers, and keeps Failed", () => {
+  it("shows a compact completion receipt and a path to the isolated run", () => {
+    const markup = renderToStaticMarkup(createElement(RoutineRunCard, {
+      message: message("completed", { scheduledFor: at(8, 0), summary: "The brief is ready with three follow-ups." }),
+      onOpen: vi.fn(),
+    }));
+
+    expect(markup).toContain("Morning brief");
+    expect(markup).toContain("Rang at 08:00");
+    expect(markup).toContain("The brief is ready with three follow-ups.");
+    expect(markup).toContain("Open run");
+    expect(markup).toContain('aria-label="Morning brief: Rang at 08:00"');
+  });
+
+  it("settles a seen card to the answered look and keeps a failure visible", () => {
     const completed = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("completed") }));
-    expect(completed).toContain('aria-label="Morning brief routine run: Completed"');
-    expect(completed).toMatch(/<span aria-live="polite" class="[^"]*\bsr-only\b[^"]*">Completed<\/span>/);
-    expect(
-      completed.replace(/aria-label="[^"]*"/g, "").replace(/<span[^>]*\bsr-only\b[^>]*>[^<]*<\/span>/g, ""),
-    ).not.toContain("Completed");
-    const failed = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("failed") }));
-    expect(failed.replace(/aria-label="[^"]*"/g, "")).toContain("Failed");
+    expect(completed).toContain("border-hairline/30 opacity-70");
+    expect(completed).not.toContain("border-accent/40");
+    const failed = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("failed", { error: "No engine" }) }));
+    expect(failed.replace(/aria-label="[^"]*"/g, "")).toContain("Failed: No engine");
   });
 
   it("makes a waiting question or approval an explicit Review action", () => {
@@ -58,7 +82,7 @@ describe("RoutineRunCard", () => {
       onOpen: vi.fn(),
     }));
 
-    expect(markup).toContain("Needs your input");
+    expect(markup).toContain("Needs a reply below");
     expect(markup).toContain("Review");
     expect(markup).toContain('aria-label="Review for Morning brief"');
   });
@@ -70,8 +94,7 @@ describe("RoutineRunCard", () => {
       onOpen: vi.fn(),
     }));
 
-    expect(markup).toContain("Failed");
-    expect(markup).toContain("Provider failed");
+    expect(markup).toContain("Failed: Provider failed");
     expect(markup).toContain("…");
     expect(markup).not.toContain(verbose);
   });
@@ -97,6 +120,42 @@ describe("RoutineRunCard", () => {
 
     expect(markup).toContain("Missed");
     expect(markup).not.toContain("Open run");
+  });
+
+  it("labels a running cloud routine as running", () => {
+    const markup = renderToStaticMarkup(createElement(RoutineRunCard, {
+      message: message("running", { runOn: "cloud", scheduledFor: at(8, 0), startedAt: at(8, 1) }),
+    }));
+
+    expect(markup).toContain("Running on Cloud VM");
+    expect(markup).not.toContain("Rang at");
+  });
+
+  it("tells the time of a card made before 1.0.184 from the card itself", () => {
+    const old = (status: RoutineRunCardData["status"]): Message => ({
+      ...message(status, { summary: "Done." }),
+      at: at(7, 30),
+    });
+    const foot = (status: RoutineRunCardData["status"]) =>
+      renderToStaticMarkup(createElement(RoutineRunCard, { message: old(status) }))
+        .replace(/aria-label="[^"]*"/g, "");
+
+    expect(foot("completed")).toContain("Rang at 07:30");
+    expect(foot("missed")).toContain("Missed 07:30, this PC was off");
+    applyLocale("ko");
+    expect(foot("completed")).toContain("07:30에 울렸어요");
+    expect(foot("missed")).toContain("07:30 알람을 놓쳤어요. PC가 꺼져 있었어요");
+  });
+
+  it("labels the run actions in Korean", () => {
+    applyLocale("ko");
+    const open = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("completed"), onOpen: vi.fn() }));
+    expect(open).toContain('aria-label="Morning brief 실행 보기"');
+    expect(open).toContain("실행 보기<");
+    const review = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("waiting"), onOpen: vi.fn() }));
+    expect(review).toContain('aria-label="Morning brief 확인하기"');
+    expect(review).toContain("확인하기<");
+    expect(`${open}${review}`).not.toMatch(/Open run|Review/);
   });
 
   it("recognizes only an execution thread still present in the owning bot's tasks", () => {

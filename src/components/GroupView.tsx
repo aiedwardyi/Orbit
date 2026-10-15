@@ -21,6 +21,7 @@ import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { useSkin } from "@/lib/skins";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
+import { isRinging } from "@/lib/routine-ring";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { DEFAULT_MAUS_COLOR, normalizeState } from "@/lib/mascot";
 import { effectiveDefaultResponder, groupResponseHint, responderControlLabel } from "@/lib/group-routing";
@@ -457,6 +458,7 @@ export const Transcript = memo(function Transcript({
         const routineTarget = routineOwner && hasRoutineExecutionTask(routineOwner.tasks, routineExecutionThreadId)
           ? { botId: routineOwner.id, threadId: routineExecutionThreadId }
           : undefined;
+        const routineRun = m.kind === "routine.run" ? state.routineRuns.find((run) => run.id === m.routineRun?.runId) : undefined;
         const worker = workerAt.get(m.id);
         const row = worker ? (
           <WorkerRow {...worker} live={null} open={open.has(worker.run.id)} onToggle={() => toggle(worker.run.id)} />
@@ -487,6 +489,7 @@ export const Transcript = memo(function Transcript({
             <div className="flex justify-start">
               <RoutineRunCard
                 message={m}
+                ringing={Boolean(routineRun && isRinging(routineRun))}
                 onOpen={routineTarget
                   ? () => openNotificationTarget(dispatch, routineTarget, state)
                   : undefined}

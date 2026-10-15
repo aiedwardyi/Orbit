@@ -413,8 +413,8 @@ describe("Friends Routine naming and one Stop", () => {
     expect(ko["chat.backToChat"]).toBe("대화로 돌아가기");
     expect(en["task.running"]).toBe("Running");
     expect(ko["task.running"]).toBe("실행 중");
-    expect(en["routine.pageHelp"]).toBe("A routine starts a fresh conversation on this bot each time it runs.");
-    expect(ko["routine.pageHelp"]).toBe("루틴은 실행될 때마다 이 봇에서 새 대화를 시작합니다.");
+    expect(en["routine.pageHelp"]).toBe("On this PC, a routine runs in the chat it came from. Cloud routines start a fresh conversation.");
+    expect(ko["routine.pageHelp"]).toBe("이 PC의 루틴은 만들어진 대화에서 실행되고, 클라우드 루틴은 새 대화를 시작합니다.");
     expect(translate("en", "chat.routineRunningElsewhere", { name: "keep this name" })).toContain("keep this name");
     expect(translate("ko", "chat.routineRunningElsewhere", { name: "keep this name" })).toContain("keep this name");
     expect(Object.hasOwn(catalogs.en, "keep this name")).toBe(false);
@@ -1123,3 +1123,28 @@ describe("skin picker taglines", () => {
   });
 });
 
+
+describe("routine alarm copy", () => {
+  it("words the routine card, ringing row and Open in chat in English and Korean", () => {
+    const phrases = [
+      ["routine.card.queued", "Starts when the current reply ends", "지금 답변이 끝나면 시작해요"],
+      ["routine.card.rang", "Rang at 08:00", "08:00에 울렸어요"],
+      ["routine.card.waiting", "Needs a reply below", "아래에서 답이 필요해요"],
+      ["routine.card.failed", "Failed: No engine", "실패했어요: No engine"],
+      ["routine.card.missed", "Missed 08:00, this PC was off", "08:00 알람을 놓쳤어요. PC가 꺼져 있었어요"],
+      ["routine.card.cloud", "Ran on Cloud VM", "클라우드 VM에서 실행했어요"],
+      ["routine.card.cloudRunning", "Running on Cloud VM", "클라우드 VM에서 실행 중이에요"],
+      ["routine.rowRang", "Career: routine rang", "Career: 루틴 알람이 울렸어요"],
+      ["routine.openBotList", "Open bot list, a routine rang", "봇 목록 열기, 루틴 알람이 울렸어요"],
+      ["routine.expandSidebar", "Expand sidebar, a routine rang", "사이드바 펼치기, 루틴 알람이 울렸어요"],
+      ["routine.openInChat", "Open in chat", "대화에서 보기"],
+    ] as const;
+    const vars = { time: "08:00", error: "No engine", name: "Career" };
+    const korean = resolveLocale("system", "ko-KR");
+    expect(korean).toBe("ko");
+    for (const [key, english, koreanText] of phrases) {
+      expect(translate("en", key, vars), key).toBe(english);
+      expect(translate(korean, key, vars), key).toBe(koreanText);
+    }
+  });
+});
