@@ -1420,7 +1420,14 @@ export class Store {
     if (!bot) return false;
     this.bots = this.bots.filter((b) => b.id !== id);
     for (const group of this.groups) {
-      if (group.memberIds.includes(id)) this.repairRoomTaskPacketOwners(group);
+      const patch: Partial<Pick<GroupRecord, "memberIds" | "busyBotId">> = {};
+      if (group.busyBotId === id) patch.busyBotId = null;
+      if (group.memberIds.includes(id)) {
+        // a member edit can't change a DM's pair or empty a room, so those keep the id
+        if (!group.dm && group.memberIds.length > 1) patch.memberIds = group.memberIds.filter((memberId) => memberId !== id);
+        else this.repairRoomTaskPacketOwners(group);
+      }
+      if (Object.keys(patch).length) this.patchGroup(group.id, patch);
     }
     // every task's transcript goes with the bot, not just the open one
     for (const threadId of new Set([bot.threadId, ...(bot.tasks ?? []).map((t) => t.threadId)])) {

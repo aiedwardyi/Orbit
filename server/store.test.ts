@@ -761,7 +761,7 @@ describe("Store", () => {
 
     expect(deleted).toBe(true);
     expect(store.bot(owner.id)).toBeNull();
-    expect(events).toEqual(["thread.deleted", "bot.deleted"]);
+    expect(events).toEqual(["group", "thread.deleted", "bot.deleted"]);
     expect(existsSync(workspace)).toBe(false);
     const restarted = new Store(selection);
     const expected = { ...saved, botId: replacement.id };

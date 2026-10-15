@@ -1597,8 +1597,11 @@ async function localVmDeleteRefusal(botId: string): Promise<string | null> {
 }
 
 async function deleteBotFully(bot: BotRecord): Promise<void> {
-  // a running turn dies with its bot
-  await registry.get(bot.modelSelection.instanceId)?.adapter.interruptTurn(bot.threadId).catch(() => {});
+  // a running turn dies with its bot, including one on a room's thread
+  const instance = registry.get(bot.modelSelection.instanceId);
+  const busyGroup = store.groups.find((g) => g.busyBotId === bot.id);
+  if (busyGroup) await instance?.adapter.interruptTurn(busyGroup.threadId).catch(() => {});
+  await instance?.adapter.interruptTurn(bot.threadId).catch(() => {});
   stopScreenPoller(bot.id);
   activeVpsThreads.delete(bot.id);
   routines!.disableForBot(bot.id);
