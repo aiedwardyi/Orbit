@@ -3,7 +3,7 @@
 // strip instead, and fades out there when the turn ends.
 import { cloneElement, Component, isValidElement, useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
-import { useSkin } from "@/lib/skins";
+import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { termElapsed } from "@/lib/terminal-skin";
 import type { Message } from "@/state/store";
 import { BotAvatar, type BotAvatarProps } from "./Avatar";
@@ -71,7 +71,7 @@ export function TurnPresence({
   /** When the turn began; the Terminal skin counts up from it. */
   since?: number;
 }) {
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const [wasVisible, setWasVisible] = useState(visible);
   const [fading, setFading] = useState(false);
   if (visible !== wasVisible) {
@@ -100,7 +100,7 @@ export function TurnPresence({
 /** The mascot docked in a live reply's action strip. It fades out in place
  * when the turn ends, so the reply's own actions take the strip unmoved. */
 export function DockedPresence({ avatar, label, live, since, className }: { avatar: ReactNode; label: string; live: boolean; since?: number; className?: string }) {
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const [gone, setGone] = useState(!live);
   if (live && gone) setGone(false);
 

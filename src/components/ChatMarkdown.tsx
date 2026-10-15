@@ -12,7 +12,7 @@ import { Check, Copy } from "lucide-react";
 import { z } from "zod";
 
 import { useI18n, type MessageKey } from "@/lib/i18n";
-import { useSkin } from "@/lib/skins";
+import { isTerminalSkin, useSkin } from "@/lib/skins";
 
 // tiny highlight cache so revisiting a thread doesn't re-tokenize settled
 // blocks; keys are content-hashed and capped. Streamed partials may land here
@@ -384,7 +384,7 @@ function DesktopFileLink({ filePath, base, children }: { filePath: string; base?
   const { t } = useI18n();
   const [reason, setReason] = useState("");
   const ref = useRef<HTMLButtonElement>(null);
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const text = useContext(MarkdownTextContext);
   // No bridge at all means a phone or browser, not an outdated desktop app.
   const desktop = Boolean(window.ogb);

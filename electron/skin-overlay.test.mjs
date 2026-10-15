@@ -177,6 +177,18 @@ describe("skin overlay chrome", () => {
     expect(skinThemeSource("wink-day")).toBe("light");
   });
 
+  it("locks caption chrome for the Terminal palettes", () => {
+    expect(SKIN_CHROME["terminal-dracula"]).toEqual({ color: "#282a36", symbolColor: "#a4abcc" });
+    expect(SKIN_CHROME["terminal-ice"]).toEqual({ color: "#000000", symbolColor: "#8aa8b8" });
+    expect(SKIN_CHROME["paper-tape"]).toEqual({ color: "#f3eddc", symbolColor: "#5a5446" });
+    for (const id of ["terminal-dracula", "terminal-ice", "paper-tape"]) {
+      expect(extractOmbSkin(Buffer.from(`xxomb-skin\u0000\u0001${id}\u0000yy`))).toBe(id);
+    }
+    expect(skinThemeSource("terminal-dracula")).toBe("dark");
+    expect(skinThemeSource("terminal-ice")).toBe("dark");
+    expect(skinThemeSource("paper-tape")).toBe("light");
+  });
+
   it("extracts onyx, dracula, and cobalt from the omb-skin marker", () => {
     expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001onyx\u0000yy"))).toBe("onyx");
     expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001dracula\u0000yy"))).toBe("dracula");

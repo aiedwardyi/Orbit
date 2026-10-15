@@ -18,7 +18,7 @@ import {
 import { BotAvatar } from "./Avatar";
 import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
-import { useSkin } from "@/lib/skins";
+import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { isRinging } from "@/lib/routine-ring";
@@ -112,7 +112,7 @@ export function RoomToolChip({
 }) {
   const { dispatch, state } = useStore();
   const { t } = useI18n();
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const now = useNow();
   const [retried, setRetried] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -343,7 +343,7 @@ export const Transcript = memo(function Transcript({
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const showToolCalls = showToolCallsEnabled(state.config);
   const showActivities = showToolCalls || terminal;
   const memberOf = (id?: string) => members.find((b) => b.id === id);
@@ -1241,7 +1241,7 @@ export function GroupView({ group }: { group: Group }) {
   // the settled reply takes over, with the mascot docked under it.
   const lastGroupMessage = group.messages.at(-1);
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const showToolCalls = showToolCallsEnabled(state.config);
   const showActivities = showToolCalls || terminal;
   const activityLabel = liveActivityLabel(lastGroupMessage, showActivities);

@@ -43,7 +43,7 @@ import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup
 import { BotAvatar } from "./Avatar";
 import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
-import { useSkin } from "@/lib/skins";
+import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { boxShadowReach, phoneHeaderChipClearsMenu, phoneHeaderSlots, transformShift, PHONE_HEADER_MENU_RESERVE_PX, PHONE_MENU_GLOW_PX, type PhoneHeaderBox, type PhoneHeaderSlot } from "@/lib/phone-header";
 import { isPhone } from "@/lib/phone-swipe";
@@ -786,7 +786,7 @@ const Bubble = memo(function Bubble({
 function ActivityChip({ message, notices }: { message: Message; notices?: LinkedApproval[] }) {
   const { dispatch, state } = useStore();
   const { t } = useI18n();
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const tool = message.tool;
   if (!tool) return null;
   if (tool.name === "memory.save") return <MemorySaveChip summary={tool.spoken ?? ""} at={message.at} />;
@@ -1070,7 +1070,7 @@ const MessagesList = memo(function MessagesList({
 }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const showToolCalls = showToolCallsEnabled(state.config);
   const showActivities = showToolCalls || terminal;
   const { workerAt, open, toggle } = useWorkerRows(workers, messages);
@@ -1639,7 +1639,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const livePanes = useLivePanes(bot.id, runs.length > 0 || (state.terminalPanes[bot.id]?.length ?? 0) > 0, paneLabelsKey(state.terminalPanes[bot.id]), sessionKey, dispatch);
   const workers = useMemo(() => runs.map((run) => ({ run, state: shownState(run, livePanes) })), [runs, livePanes]);
   const rowWorkers = useMemo(() => jump.messages ? workerRuns(messages, jump.messages).map((run) => ({ run, state: shownState(run, livePanes) })) : workers, [messages, jump.messages, livePanes, workers]);
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const showToolCalls = showToolCallsEnabled(state.config);
   const showActivities = showToolCalls || terminal;
   const renders = useCallback(

@@ -1321,7 +1321,121 @@
   --radius-xl: 0px;
 }
 
-@scope ([data-skin="terminal"]) to ([data-skin]) {
+/* ── Terminal Dracula, Terminal Ice, Paper Tape ───────────────────────────
+   Terminal's chrome in other palettes: the same @scope below, tokens only.
+   Paper Tape is the light one, with a $ prompt and unbulleted replies.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="terminal-dracula"] {
+  --color-app: #282a36;
+  --color-panel: #2c2e3b;
+  --color-raised: #343746;
+  --color-raised-hover: #3a3d4e;
+  --color-card: #2e313e;
+  --color-inset: #21222c;
+  --color-control: #343746;
+  --color-hairline: #44475a;
+
+  --color-ink: #f8f8f2;
+  --color-ink-secondary: #a4abcc;
+
+  --color-accent: #bd93f9;
+  --color-accent-border: #c5a0fa;
+  --color-accent-text: #bd93f9;
+  --color-focus: #bd93f9;
+  --color-accent-ink: #282a36;
+  --color-bubble-user: #323544;
+
+  --color-success: #50fa7b;
+  --color-danger: #ff6b6b;
+  --color-danger-ink: #282a36;
+  --color-warning: #ffb86c;
+  --color-scrollbar: #44475a;
+  --color-maus-line: #a4abcc;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+[data-skin="terminal-ice"] {
+  --color-app: #000000;
+  --color-panel: #05080c;
+  --color-raised: #101418;
+  --color-raised-hover: #181e24;
+  --color-card: #0a0e12;
+  --color-inset: #000000;
+  --color-control: #12161a;
+  --color-hairline: #243038;
+
+  --color-ink: #c8dce8;
+  --color-ink-secondary: #8aa8b8;
+
+  --color-accent: #7dcfff;
+  --color-accent-border: #9ad9ff;
+  --color-accent-text: #7dcfff;
+  --color-focus: #7dcfff;
+  --color-accent-ink: #000000;
+  --color-bubble-user: #101418;
+
+  --color-success: #73daca;
+  --color-danger: #ff6b6b;
+  --color-danger-ink: #000000;
+  --color-warning: #ff9e64;
+  --color-scrollbar: #243038;
+  --color-maus-line: #8aa8b8;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+[data-skin="paper-tape"] {
+  color-scheme: light;
+  --color-app: #f3eddc;
+  --color-panel: #ebe4d0;
+  --color-raised: #fbf8ef;
+  --color-raised-hover: #e6dec7;
+  --color-card: #f8f3e6;
+  --color-inset: #ece5d2;
+  --color-control: #e0d7bf;
+  --color-hairline: #bfb59b;
+
+  --color-ink: #1c1b17;
+  --color-ink-secondary: #5a5446;
+
+  --color-accent: #a8321e;
+  --color-accent-border: #c04a34;
+  --color-accent-text: #9a2d1a;
+  --color-focus: #9a2d1a;
+  --color-accent-ink: #ffffff;
+  --color-bubble-user: #ebe4d0;
+
+  --color-success: #2e6b2f;
+  --color-danger: #b0281c;
+  --color-danger-ink: #ffffff;
+  --color-warning: #7d5600;
+  --color-scrollbar: #bfb59b;
+  --color-maus-line: #5a5446;
+
+  --color-syntax-fg: #1c1b17;
+  --color-syntax-comment: #635c4c;
+  --color-syntax-keyword: #9a2d1a;
+  --color-syntax-string: #2a5a1e;
+  --color-syntax-function: #5a2f8a;
+  --color-syntax-constant: #1f4f8a;
+  --color-syntax-variable: #7a4a00;
+  --color-syntax-tag: #1f6b3a;
+  --color-syntax-invalid: #9a2d1a;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+@scope (:is([data-skin="terminal"], [data-skin="terminal-dracula"], [data-skin="terminal-ice"], [data-skin="paper-tape"])) to ([data-skin]) {
   [class*="rounded"] {
     border-radius: 0;
   }
@@ -1648,6 +1762,17 @@
   }
 }
 
+@scope ([data-skin="paper-tape"]) to ([data-skin]) {
+  [data-orbit-message="bot"] [data-orbit-message-content]::before {
+    content: none;
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content]::before,
+  [data-orbit-composer-frame]::after {
+    content: "$";
+  }
+}
+
 @keyframes term-blink {
   to {
     visibility: hidden;
@@ -1660,7 +1785,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .term-blink,
-  [data-skin="terminal"] .term-step[data-term-step="running"]::before {
+  :is([data-skin="terminal"], [data-skin="terminal-dracula"], [data-skin="terminal-ice"], [data-skin="paper-tape"]) .term-step[data-term-step="running"]::before {
     animation: none;
   }
 }
@@ -3820,7 +3945,7 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   opacity: 0.75;
 }
 /* A stronger halo reads as a smudge on light grounds. */
-:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="community-light"], [data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .orbit-ring-halo {
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="community-light"], [data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .orbit-ring-halo {
   opacity: 0.55;
 }
 .orbit-ring-host > :not(.orbit-ring) {
@@ -4488,21 +4613,21 @@ button:disabled.bg-danger {
 
 /* The paper skins use the same Shiki source palette with their own
    readable foreground tokens. */
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki {
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki {
   color: var(--color-syntax-fg) !important;
 }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#8b949e" i] { color: var(--color-syntax-comment) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ff7b72" i] { color: var(--color-syntax-keyword) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#a5d6ff" i] { color: var(--color-syntax-string) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#d2a8ff" i] { color: var(--color-syntax-function) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#79c0ff" i] { color: var(--color-syntax-constant) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ffa657" i],
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#f2cc60" i] { color: var(--color-syntax-variable) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#7ee787" i] { color: var(--color-syntax-tag) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#ffa198" i] { color: var(--color-syntax-invalid) !important; }
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#e6edf3" i],
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#f0f6fc" i],
-:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"]) .shiki span[style*="#161b22" i] { color: var(--color-syntax-fg) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#8b949e" i] { color: var(--color-syntax-comment) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#ff7b72" i] { color: var(--color-syntax-keyword) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#a5d6ff" i] { color: var(--color-syntax-string) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#d2a8ff" i] { color: var(--color-syntax-function) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#79c0ff" i] { color: var(--color-syntax-constant) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#ffa657" i],
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#f2cc60" i] { color: var(--color-syntax-variable) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#7ee787" i] { color: var(--color-syntax-tag) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#ffa198" i] { color: var(--color-syntax-invalid) !important; }
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#e6edf3" i],
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#f0f6fc" i],
+:is([data-skin="notebook"], [data-skin="messenger"], [data-skin="community-light"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .shiki span[style*="#161b22" i] { color: var(--color-syntax-fg) !important; }
 
 /* A sidebar row (or the control hiding it) whose chat is waiting on the
    person: the theme accent as a thin ring plus a soft outer glow that
