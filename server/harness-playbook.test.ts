@@ -118,6 +118,10 @@ describe("harness playbook", () => {
     expect(harnessPlaybookPrompt(true)).toContain("Timing runs need a quiet machine");
   });
 
+  it("keeps worker processes off the user's screen", () => {
+    expect(harnessPlaybookPrompt(true)).toContain("keep its processes off the user's screen");
+  });
+
   it("fills the worktree path from the configured root", () => {
     const prompt = loadHarnessPlaybook(undefined, join("D:", "wt"));
     expect(prompt).toContain(join("D:", "wt", "<name>"));
