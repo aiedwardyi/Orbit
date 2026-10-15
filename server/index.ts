@@ -96,6 +96,7 @@ import {
   showToolCallsEnabled,
   detailedRepliesEnabled,
   skillRecorderEnabled,
+  memoryNotesEnabled,
   builtInBrowserEnabled,
   sweepLegacyOpencodeKey,
   syncCredentialEnv,
@@ -2566,6 +2567,7 @@ const memoryPass = createMemoryPass({
     const claude = registry.instances().find((instance) => instance.driverKind === "claude" && instance.enabled && instance.generateText);
     return claude ? (prompt, signal) => claude.generateText!(prompt, { signal, timeoutMs: 120_000, ephemeral: true }) : null;
   },
+  enabled: () => memoryNotesEnabled(cfg),
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
 });
 // Room thread → the instruction id its running turn was dispatched against.
@@ -6540,6 +6542,7 @@ function configStatus() {
       showToolCalls: showToolCallsEnabled(cfg),
       detailedReplies: detailedRepliesEnabled(cfg),
       browser: builtInBrowserEnabled(cfg),
+      memoryNotes: memoryNotesEnabled(cfg),
       terminalHost: Boolean(terminalBridgeAccess),
     },
     browserProfiles: cfg.browserProfiles ?? [],
@@ -10187,6 +10190,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         Object.assign(cfg, loadConfig());
       }
       if ((cfg.profile?.name ?? "").trim() !== previousPerson) phoneAccess.nameChanged();
+      memoryPass.onConfigChanged();
       // Provider keys update their instances. Other settings need no reload.
       const reloadKeys = Object.keys(patch).filter(
         (key) =>

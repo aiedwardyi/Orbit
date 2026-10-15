@@ -88,6 +88,8 @@ const featureConfigSchema = z.object({
   detailedReplies: z.boolean().optional(),
   /** The built-in per-bot browser (Browser tab). Removed: ignored. */
   browser: z.boolean().optional(),
+  /** Background notes from chat into MEMORY.md. On unless switched off. */
+  memoryNotes: z.boolean().optional(),
 });
 const instanceConfigSchema = z.object({
   driver: z.string().min(1),
@@ -183,8 +185,8 @@ export interface AppConfig {
   /** Shared preserves the historical singleton. Per-bot gives every bot a
    * separate container, durable workspace, viewer and lease. */
   localVm?: { mode?: "shared" | "per-bot"; maxInstances?: number };
-  /** Opt-in product experiments. Every flag defaults to disabled. */
-  features?: { skillRecorder?: boolean; showToolCalls?: boolean; toolDetailCapture?: boolean; detailedReplies?: boolean; browser?: boolean };
+  /** Product switches. Every flag defaults to off except memoryNotes. */
+  features?: { skillRecorder?: boolean; showToolCalls?: boolean; toolDetailCapture?: boolean; detailedReplies?: boolean; browser?: boolean; memoryNotes?: boolean };
   /** Named browser sessions any bot can be pointed at. */
   browserProfiles?: BrowserProfile[];
   instances?: InstanceConfigMap;
@@ -281,6 +283,10 @@ export function localVmMaxInstances(cfg: AppConfig): number {
 
 export function skillRecorderEnabled(cfg: AppConfig): boolean {
   return cfg.features?.skillRecorder === true;
+}
+
+export function memoryNotesEnabled(cfg: AppConfig): boolean {
+  return cfg.features?.memoryNotes !== false;
 }
 
 export function detailedRepliesEnabled(cfg: AppConfig): boolean {

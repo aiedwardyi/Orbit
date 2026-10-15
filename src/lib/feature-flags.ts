@@ -1,9 +1,14 @@
 export interface FeatureFlagConfig {
-  features?: { skillRecorder?: boolean; showToolCalls?: boolean; detailedReplies?: boolean; browser?: boolean };
+  features?: { skillRecorder?: boolean; showToolCalls?: boolean; detailedReplies?: boolean; browser?: boolean; memoryNotes?: boolean };
 }
 
 export function detailedRepliesEnabled(config: FeatureFlagConfig | null | undefined): boolean {
   return config?.features?.detailedReplies === true;
+}
+
+/** Background chat notes into MEMORY.md. On unless switched off. */
+export function memoryNotesEnabled(config: FeatureFlagConfig | null | undefined): boolean {
+  return config?.features?.memoryNotes !== false;
 }
 
 /** Experimental features are available only after an explicit opt-in. */

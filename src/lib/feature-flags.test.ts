@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { builtInBrowserEnabled, showToolCallsEnabled, skillRecorderEnabled } from "./feature-flags";
+import { builtInBrowserEnabled, memoryNotesEnabled, showToolCallsEnabled, skillRecorderEnabled } from "./feature-flags";
 
 describe("experimental feature flags", () => {
   it("keeps Teach a skill hidden by default", () => {
@@ -22,6 +22,13 @@ describe("experimental feature flags", () => {
 
   it("shows tool-call chips only after explicit opt-in", () => {
     expect(showToolCallsEnabled({ features: { showToolCalls: true } })).toBe(true);
+  });
+
+  it("keeps auto notes on until switched off", () => {
+    expect(memoryNotesEnabled(null)).toBe(true);
+    expect(memoryNotesEnabled({ features: {} })).toBe(true);
+    expect(memoryNotesEnabled({ features: { memoryNotes: true } })).toBe(true);
+    expect(memoryNotesEnabled({ features: { memoryNotes: false } })).toBe(false);
   });
 
   it("keeps the built-in browser off even when switched on", () => {

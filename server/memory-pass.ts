@@ -19,15 +19,19 @@ const FACT_MAX = 200;
 const SUMMARY_MAX = 120;
 const STATE_FILE = "memory-pass.json";
 
-const factsSchema = z.array(z.object({ fact: z.string(), quote: z.string() })).max(20);
+const factsSchema = z.array(z.object({ fact: z.string(), quote: z.string(), replaces: z.string().nullish() })).max(20);
 const stateSchema = z.object({ threads: z.record(z.string(), z.array(z.string())) });
 
 export type NoteGenerator = (prompt: string, signal: AbortSignal) => Promise<string>;
+export type Fact = z.infer<typeof factsSchema>[number];
+export type Note = { line: string; replaces?: string };
 
 export interface MemoryPassDeps {
   store: Pick<Store, "onChange" | "messagesFor" | "groupByThread" | "botByThread" | "appendMessage">;
   /** The Claude one-shot call, whatever engine the bot runs; null when no Claude CLI is set up. */
   generate(): NoteGenerator | null;
+  /** The Settings switch, read live. */
+  enabled(): boolean;
   busy(botId: string, threadId: string): boolean;
   dataDir: string;
   now?(): number;
@@ -36,6 +40,8 @@ export interface MemoryPassDeps {
 export interface MemoryPass {
   /** Call when a 1:1 turn settles. */
   onSettled(botId: string, threadId: string): void;
+  /** Call after a config change: switched off drops pending ids and any running pass. */
+  onConfigChanged(): void;
   /** Resolves once no pass is running. */
   idle(): Promise<void>;
   dispose(): void;
@@ -76,8 +82,9 @@ export function notePrompt(notes: string, lines: string[]): string {
     "- Never record passwords, PINs, codes, keys, tokens, account numbers or one-time codes.",
     "- fact: one short plain line about the user, for example \"38 years old\" or \"Can't read Korean\".",
     `- quote: the user's exact words that state the fact, copied verbatim, ${QUOTE_MAX} characters max.`,
+    "- replaces: only when the fact makes a CURRENT NOTES line untrue or outdated, that whole line copied exactly. Otherwise leave it out.",
     "",
-    "Reply with JSON only: [{\"fact\": \"...\", \"quote\": \"...\"}], or [] when nothing qualifies.",
+    "Reply with JSON only: [{\"fact\": \"...\", \"quote\": \"...\", \"replaces\": \"...\"}], or [] when nothing qualifies.",
     "",
     "CURRENT NOTES:",
     "<notes>",
@@ -91,7 +98,7 @@ export function notePrompt(notes: string, lines: string[]): string {
   ].join("\n");
 }
 
-export function parseFacts(output: string): Array<{ fact: string; quote: string }> {
+export function parseFacts(output: string): Fact[] {
   const start = output.indexOf("[");
   const end = output.lastIndexOf("]");
   if (start < 0 || end < start) return [];
@@ -126,24 +133,38 @@ function quoteWords(quote: string): string[] {
 }
 
 const squash = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+const words = (text: string): string[] => text.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? [];
+const sameLine = (line: string, target: string) => line.replace(/\r$/, "") === target;
+
+/** A line only the note-taker wrote, found exactly once and claimed by one fact. */
+function replaceable(target: string | null | undefined, lines: string[], claims: Map<string, number>): target is string {
+  return Boolean(
+    target && /\(noted \d{4}-\d{2}-\d{2}\)$/.test(target) && claims.get(target) === 1 &&
+      lines.filter((line) => sameLine(line, target)).length === 1,
+  );
+}
 
 /** Facts that quote the user verbatim, carry no secret, and are not already noted. */
-export function acceptFacts(facts: Array<{ fact: string; quote: string }>, userText: string, notes: string) {
+export function acceptFacts(facts: Fact[], userText: string, notes: string): Note[] {
   const source = squash(userText);
-  const noted = notes.split("\n").map((line) => line.toLowerCase());
+  const lines = notes.split("\n");
+  const claims = new Map<string, number>();
+  for (const { replaces } of facts) if (replaces) claims.set(replaces, (claims.get(replaces) ?? 0) + 1);
   const seen = new Set<string>();
-  return facts.flatMap(({ fact, quote }) => {
+  return facts.flatMap(({ fact, quote, replaces }) => {
     const line = fact.replace(/^[-*]\s+/, "").replace(/\s+/g, " ").trim();
     const said = quote.trim();
     if (!line || line.length > FACT_MAX || !said || said.length > QUOTE_MAX) return [];
     if (!source.includes(squash(said))) return [];
     if (secretLike(line) || secretLike(said)) return [];
-    const words = quoteWords(said);
-    if (words.length && noted.some((note) => words.every((word) => note.includes(word)))) return [];
-    const key = squash(line);
-    if (seen.has(key) || noted.some((note) => note.includes(key))) return [];
+    const target = replaceable(replaces, lines, claims) ? replaces : undefined;
+    const noted = lines.filter((note) => !target || !sameLine(note, target)).map(words);
+    const quoted = quoteWords(said);
+    if (quoted.length && noted.some((note) => quoted.every((word) => note.includes(word)))) return [];
+    const key = words(line).join(" ") || squash(line);
+    if (seen.has(key) || noted.some((note) => ` ${note.join(" ")} `.includes(` ${key} `))) return [];
     seen.add(key);
-    return [line];
+    return [target ? { line, replaces: target } : { line }];
   });
 }
 
@@ -152,11 +173,19 @@ function day(ms: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-/** MEMORY.md with the facts appended, or null when it would pass the load budget. */
-export function appendNotes(raw: string, facts: string[], now: number): string | null {
+/** MEMORY.md with replaced lines swapped in place and the rest appended, or null when it would pass the load budget. */
+export function appendNotes(raw: string, notes: Note[], now: number): string | null {
   const base = raw.trim() ? raw : MEMORY_SEED;
   const stamp = day(now);
-  const text = `${base.endsWith("\n") ? base : `${base}\n`}${facts.map((fact) => `- ${fact} (noted ${stamp})\n`).join("")}`;
+  const lines = base.split("\n");
+  const added: string[] = [];
+  for (const { line, replaces } of notes) {
+    const at = replaces === undefined ? [] : lines.flatMap((current, index) => (sameLine(current, replaces) ? [index] : []));
+    if (at.length === 1) lines[at[0]!] = `- ${line} (noted ${stamp})${lines[at[0]!]!.endsWith("\r") ? "\r" : ""}`;
+    else added.push(`- ${line} (noted ${stamp})\n`);
+  }
+  const swapped = lines.join("\n");
+  const text = `${swapped.endsWith("\n") ? swapped : `${swapped}\n`}${added.join("")}`;
   if (text.split("\n").length > MEMORY_MAX_LINES || Buffer.byteLength(text, "utf8") > MEMORY_MAX_BYTES) return null;
   return text;
 }
@@ -166,6 +195,17 @@ export function noteSummary(facts: string[]): string {
   return joined.length > SUMMARY_MAX ? `${joined.slice(0, SUMMARY_MAX - 3).trimEnd()}...` : joined;
 }
 
+/** The pending rows, scanned from the newest end until every id is found. */
+export function pendingRows(messages: readonly Message[], ids: string[]): Map<string, Message> {
+  const wanted = new Set(ids);
+  const found = new Map<string, Message>();
+  for (let i = messages.length - 1; i >= 0 && found.size < wanted.size; i -= 1) {
+    const message = messages[i]!;
+    if (wanted.has(message.id)) found.set(message.id, message);
+  }
+  return found;
+}
+
 const UNAVAILABLE = /ENOENT|not logged in|log ?in|login|sign ?in|authenticat|api key/i;
 
 interface PassLog {
@@ -173,6 +213,7 @@ interface PassLog {
   threadId: string;
   lines?: number;
   facts?: number;
+  replaced?: number;
   ms: number;
   result: "saved" | "none" | "busy" | "too-large" | "conflict" | "error";
 }
@@ -248,16 +289,16 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
 
   const run = async (botId: string, threadId: string, signal: AbortSignal) => {
     const ids = [...(pending.get(threadId) ?? [])];
-    if (!ids.length) return;
-    const byId = new Map(deps.store.messagesFor(threadId).map((message) => [message.id, message]));
+    if (!ids.length || !deps.enabled()) return;
+    const generate = deps.generate();
+    if (!generate) return warnOnce("no Claude CLI instance");
+    const rows = pendingRows(deps.store.messagesFor(threadId), ids);
     const lines = ids.flatMap((id) => {
-      const row = byId.get(id);
+      const row = rows.get(id);
       const text = eligibleRow(row) ? userTyping(row.text) : "";
       return text ? [text] : [];
     });
     if (!lines.length) return done(threadId, ids);
-    const generate = deps.generate();
-    if (!generate) return warnOnce("no Claude CLI instance");
     const memory = readMemoryFile(botId);
     const raw = memoryFileRaw(botId);
     const started = now();
@@ -265,13 +306,15 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
     try {
       output = await generate(notePrompt(memory.text, lines), signal);
     } catch (error) {
+      if (disposed || !deps.enabled()) return;
       if (UNAVAILABLE.test(error instanceof Error ? error.message : String(error))) {
         return warnOnce("Claude CLI missing or signed out");
       }
       log({ botId, threadId, lines: lines.length, ms: now() - started, result: "error" });
       return;
     }
-    if (disposed) return;
+    // switched off mid-pass: write nothing, and the dropped ids stay dropped
+    if (disposed || signal.aborted || !deps.enabled()) return;
     const ms = now() - started;
     const facts = acceptFacts(parseFacts(output), lines.join("\n\n"), memory.text);
     if (!facts.length) {
@@ -295,9 +338,9 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
     deps.store.appendMessage(threadId, {
       role: "bot",
       kind: "activity",
-      tool: { name: MEMORY_SAVE_TOOL, ok: true, spoken: noteSummary(facts) },
+      tool: { name: MEMORY_SAVE_TOOL, ok: true, spoken: noteSummary(facts.map((note) => note.line)) },
     });
-    log({ botId, threadId, lines: lines.length, facts: facts.length, ms, result: "saved" });
+    log({ botId, threadId, lines: lines.length, facts: facts.length, replaced: facts.filter((note) => note.replaces).length, ms, result: "saved" });
     done(threadId, ids);
   };
 
@@ -329,7 +372,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
   };
 
   const unsubscribe = deps.store.onChange((change: StoreChange) => {
-    if (change.type !== "message" || change.imported || disposed) return;
+    if (change.type !== "message" || change.imported || disposed || !deps.enabled()) return;
     const { message, threadId } = change;
     if (message.role !== "user" || message.kind !== "text" || deps.store.groupByThread(threadId)) return;
     const ids = pending.get(threadId) ?? [];
@@ -340,6 +383,17 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
     saveSoon();
   });
 
+  const stop = () => {
+    for (const timer of timers.values()) clearTimeout(timer);
+    timers.clear();
+    queue.length = 0;
+    for (const pass of running.values()) pass.controller.abort();
+    if (!pending.size) return;
+    pending.clear();
+    save();
+  };
+
+  if (!deps.enabled()) stop();
   for (const threadId of pending.keys()) {
     const bot = deps.store.botByThread(threadId);
     if (bot) arm(bot.id, threadId);
@@ -348,9 +402,12 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
   return {
     onSettled(botId, threadId) {
       const count = pending.get(threadId)?.length ?? 0;
-      if (disposed || !count) return;
+      if (disposed || !count || !deps.enabled()) return;
       if (count >= BATCH_MESSAGES) enqueue(botId, threadId);
       else arm(botId, threadId);
+    },
+    onConfigChanged() {
+      if (!disposed && !deps.enabled()) stop();
     },
     async idle() {
       while (running.size) await Promise.all([...running.values()].map((pass) => pass.done));

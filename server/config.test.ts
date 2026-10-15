@@ -20,6 +20,7 @@ import {
   saveConfig,
   showToolCallsEnabled,
   skillRecorderEnabled,
+  memoryNotesEnabled,
   builtInBrowserEnabled,
   sweepLegacyOpencodeKey,
   syncCredentialEnv,
@@ -154,6 +155,18 @@ describe("configuration boundaries", () => {
     expect(() => parseConfigPatch({ features: { skillRecorder: "yes" } })).toThrow(
       "features.skillRecorder",
     );
+  });
+
+  it("keeps auto notes on by default and saves the switch per PC", () => {
+    expect(memoryNotesEnabled({})).toBe(true);
+    expect(memoryNotesEnabled(loadConfig())).toBe(true);
+    saveConfig(parseConfigPatch({ features: { detailedReplies: true } }));
+    saveConfig(parseConfigPatch({ features: { memoryNotes: false } }));
+    expect(memoryNotesEnabled(loadConfig())).toBe(false);
+    expect(loadConfig().features?.detailedReplies).toBe(true);
+    saveConfig(parseConfigPatch({ features: { memoryNotes: true } }));
+    expect(memoryNotesEnabled(loadConfig())).toBe(true);
+    expect(() => parseConfigPatch({ features: { memoryNotes: "off" } })).toThrow("features.memoryNotes");
   });
 
   it("keeps tool-call chips off by default and accepts an explicit opt-in", () => {

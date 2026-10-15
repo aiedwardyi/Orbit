@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +11,7 @@ import {
   eligibleRow,
   noteSummary,
   parseFacts,
+  pendingRows,
   secretLike,
   userTyping,
   type MemoryPass,
@@ -60,11 +61,12 @@ describe("memory pass", () => {
   let busy: Set<string>;
   let generate: ReturnType<typeof vi.fn<NoteGenerator>>;
   let generator: NoteGenerator | null;
+  let on: boolean;
   let pass: MemoryPass;
   const passes: MemoryPass[] = [];
 
   const start = () => {
-    const created = createMemoryPass({ store, dataDir, generate: () => generator, busy: (botId) => busy.has(botId) });
+    const created = createMemoryPass({ store, dataDir, generate: () => generator, enabled: () => on, busy: (botId) => busy.has(botId) });
     passes.push(created);
     return created;
   };
@@ -76,6 +78,11 @@ describe("memory pass", () => {
     await pass.idle();
   };
   const chips = (threadId: string) => store.rows(threadId).filter((m) => m.tool?.name === MEMORY_SAVE_TOOL);
+  const stored = () => JSON.parse(readFileSync(join(dataDir, "memory-pass.json"), "utf8"));
+  const switchTo = (next: boolean) => {
+    on = next;
+    pass.onConfigChanged();
+  };
 
   beforeEach(() => {
     vi.useFakeTimers({ now: NOW });
@@ -85,6 +92,7 @@ describe("memory pass", () => {
     busy = new Set();
     generate = vi.fn<NoteGenerator>(async () => "[]");
     generator = generate;
+    on = true;
     writeMemoryFile("bot-t1", "");
     pass = start();
   });
@@ -272,6 +280,92 @@ describe("memory pass", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(store.rows("t1").every((m) => m.role === "user")).toBe(true);
   });
+
+  it("records nothing and calls no model while switched off", async () => {
+    switchTo(false);
+    for (let i = 0; i < 8; i += 1) say("t1", `i'm 38 ${i}`);
+    await settle("t1", 3 * MINUTE);
+    expect(generate).not.toHaveBeenCalled();
+    pass.dispose();
+    expect(existsSync(join(dataDir, "memory-pass.json"))).toBe(false);
+  });
+
+  it("drops pending ids when switched off and never backfills them", async () => {
+    say("t1", "i'm 38");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(stored().threads.t1).toHaveLength(1);
+    switchTo(false);
+    expect(stored()).toEqual({ threads: {} });
+    switchTo(true);
+    await settle("t1", 3 * MINUTE);
+    expect(generate).not.toHaveBeenCalled();
+    say("t1", "i can't read korean");
+    await settle("t1", 3 * MINUTE);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls[0]![0]).toContain("i can't read korean");
+    expect(generate.mock.calls[0]![0]).not.toContain("i'm 38");
+  });
+
+  it("discards a pass running when switched off", async () => {
+    let finish: (output: string) => void = () => {};
+    generate.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    for (let i = 0; i < 8; i += 1) say("t1", "i'm 38");
+    pass.onSettled("bot-t1", "t1");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(generate).toHaveBeenCalledTimes(1);
+    switchTo(false);
+    expect(generate.mock.calls[0]![1].aborted).toBe(true);
+    switchTo(true);
+    finish(facts(["38 years old", "i'm 38"]));
+    await pass.idle();
+    expect(memoryFileRaw("bot-t1")).toBe("");
+    expect(chips("t1")).toHaveLength(0);
+    await settle("t1", 3 * MINUTE);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops stored pending ids when it starts switched off", async () => {
+    say("t1", "i'm 38");
+    await vi.advanceTimersByTimeAsync(1_000);
+    pass.dispose();
+    on = false;
+    pass = start();
+    expect(stored()).toEqual({ threads: {} });
+    on = true;
+    await vi.advanceTimersByTimeAsync(10 * MINUTE);
+    await pass.idle();
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("checks the switch and the generator before loading thread rows", async () => {
+    const load = vi.spyOn(store, "messagesFor");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    say("t1", "i'm 38");
+    generator = null;
+    await settle("t1", 3 * MINUTE);
+    expect(load).not.toHaveBeenCalled();
+    generator = generate;
+    switchTo(false);
+    say("t1", "i can't read korean");
+    await settle("t1", 3 * MINUTE);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("swaps an outdated note in place and appends the rest", async () => {
+    writeMemoryFile("bot-t1", "# Memory\n- 38 years old (noted 2026-10-14)\n- Lives in Seoul\n- Prefers pnpm\n");
+    generate.mockResolvedValue(JSON.stringify([
+      { fact: "39 years old", quote: "I'm 39 now", replaces: "- 38 years old (noted 2026-10-14)" },
+      { fact: "Lives in Busan", quote: "I moved to Busan last week", replaces: "- Lives in Seoul" },
+    ]));
+    say("t1", "I'm 39 now");
+    say("t1", "I moved to Busan last week");
+    await settle("t1", 3 * MINUTE);
+    expect(memoryFileRaw("bot-t1")).toBe(
+      "# Memory\n- 39 years old (noted 2026-10-15)\n- Lives in Seoul\n- Prefers pnpm\n- Lives in Busan (noted 2026-10-15)\n",
+    );
+    expect(chips("t1")).toHaveLength(1);
+    expect(chips("t1")[0]!.tool?.spoken).toBe("39 years old, Lives in Busan");
+  });
 });
 
 describe("memory pass filters", () => {
@@ -310,7 +404,7 @@ describe("memory pass filters", () => {
 
   it("rejects facts without a verbatim quote", () => {
     const text = "i'm 38 and live in Seoul";
-    expect(acceptFacts([{ fact: "38 years old", quote: "I'm 38" }], text, "")).toEqual(["38 years old"]);
+    expect(acceptFacts([{ fact: "38 years old", quote: "I'm 38" }], text, "")).toEqual([{ line: "38 years old" }]);
     expect(acceptFacts([{ fact: "Lives in Korea", quote: "lives in Korea" }], text, "")).toEqual([]);
     expect(acceptFacts([{ fact: "Is 39", quote: "" }], text, "")).toEqual([]);
     expect(acceptFacts([{ fact: "x", quote: "y".repeat(121) }], "y".repeat(121), "")).toEqual([]);
@@ -334,7 +428,64 @@ describe("memory pass filters", () => {
     const text = "i can't read korean. i'm 38";
     const notes = "# Memory\n- Can't read Korean; translate for dad\n";
     expect(acceptFacts([{ fact: "Unable to read Korean", quote: "i can't read korean" }], text, notes)).toEqual([]);
-    expect(acceptFacts([{ fact: "38", quote: "i'm 38" }, { fact: "38", quote: "38" }], text, notes)).toEqual(["38"]);
+    expect(acceptFacts([{ fact: "38", quote: "i'm 38" }, { fact: "38", quote: "38" }], text, notes)).toEqual([{ line: "38" }]);
+  });
+
+  it("dedupes on whole words only", () => {
+    const notes = "# Memory\n- Runs Wink 1.0.138 (noted 2026-10-01)\n- Lives at 3838 Main St\n";
+    expect(acceptFacts([{ fact: "38", quote: "I'm 38" }], "I'm 38", notes)).toEqual([{ line: "38" }]);
+    expect(acceptFacts([{ fact: "Main St", quote: "I'm on Main St" }], "I'm on Main St", notes)).toEqual([]);
+    expect(acceptFacts([{ fact: "38 years old", quote: "I'm 38" }], "I'm 38", "- 38 years old\n")).toEqual([]);
+  });
+
+  it("keeps a valid replaces and skips dedupe against that line only", () => {
+    const old = "- Turns 38 next week (noted 2026-10-01)";
+    const fact = { fact: "38 years old", quote: "I'm 38", replaces: old };
+    expect(acceptFacts([fact], "I'm 38", `# Memory\n${old}\n`)).toEqual([{ line: "38 years old", replaces: old }]);
+    expect(acceptFacts([fact], "I'm 38", `# Memory\n${old}\n- Has 38 plants (noted 2026-10-02)\n`)).toEqual([]);
+  });
+
+  it.each([
+    ["a hand-written line", "# Memory\n- Lives in Seoul\n", "- Lives in Seoul"],
+    ["a missing line", "# Memory\n- Lives in Seoul\n", "- Lives in Daegu (noted 2026-10-01)"],
+    ["a duplicated line", "# Memory\n- Lives in Daegu (noted 2026-10-01)\n- Lives in Daegu (noted 2026-10-01)\n", "- Lives in Daegu (noted 2026-10-01)"],
+  ])("ignores replaces of %s and appends", (_case, notes, replaces) => {
+    const accepted = acceptFacts([{ fact: "Lives in Busan", quote: "I moved to Busan", replaces }], "I moved to Busan", notes);
+    expect(accepted).toEqual([{ line: "Lives in Busan" }]);
+    expect(appendNotes(notes, accepted, NOW)).toBe(`${notes}- Lives in Busan (noted 2026-10-15)\n`);
+  });
+
+  it("ignores a line claimed by two facts", () => {
+    const old = "- Lives in Daegu (noted 2026-10-01)";
+    const notes = `# Memory\n${old}\n`;
+    const accepted = acceptFacts(
+      [
+        { fact: "Lives in Busan", quote: "I moved to Busan", replaces: old },
+        { fact: "Works in Ulsan", quote: "I work in Ulsan", replaces: old },
+      ],
+      "I moved to Busan and I work in Ulsan",
+      notes,
+    );
+    expect(accepted).toEqual([{ line: "Lives in Busan" }, { line: "Works in Ulsan" }]);
+    expect(appendNotes(notes, accepted, NOW)).toBe(`${notes}- Lives in Busan (noted 2026-10-15)\n- Works in Ulsan (noted 2026-10-15)\n`);
+  });
+
+  it("swaps one line and leaves every other byte alone", () => {
+    const raw = "# Memory\r\n- Likes  tea \r\n- Is 38 (noted 2026-10-01)\r\n\n## Work\n- Uses pnpm";
+    expect(appendNotes(raw, [{ line: "Is 39", replaces: "- Is 38 (noted 2026-10-01)" }, { line: "Hates drama" }], NOW)).toBe(
+      "# Memory\r\n- Likes  tea \r\n- Is 39 (noted 2026-10-15)\r\n\n## Work\n- Uses pnpm\n- Hates drama (noted 2026-10-15)\n",
+    );
+    const full = `# M\n- a (noted 2026-10-01)\n${"x".repeat(23_960)}\n`;
+    expect(appendNotes(full, [{ line: "y".repeat(60), replaces: "- a (noted 2026-10-01)" }], NOW)).toBeNull();
+  });
+
+  it("finds pending rows from the newest end without reading older rows", () => {
+    const rows = Array.from({ length: 10 }, (_, i) => row({ id: `r${i}` }));
+    for (let i = 0; i < 8; i += 1) {
+      Object.defineProperty(rows, i, { get: () => { throw new Error(`read row ${i}`); } });
+    }
+    expect([...pendingRows(rows, ["r8", "r9"]).keys()]).toEqual(["r9", "r8"]);
+    expect([...pendingRows(rows.slice(8), ["r9", "gone"]).keys()]).toEqual(["r9"]);
   });
 
   it("parses the model's JSON reply", () => {
@@ -344,8 +495,8 @@ describe("memory pass filters", () => {
   });
 
   it("appends within the budget only", () => {
-    expect(appendNotes("# M", ["a"], NOW)).toBe("# M\n- a (noted 2026-10-15)\n");
-    expect(appendNotes(`# M\n${"x".repeat(23_990)}\n`, ["a"], NOW)).toBeNull();
+    expect(appendNotes("# M", [{ line: "a" }], NOW)).toBe("# M\n- a (noted 2026-10-15)\n");
+    expect(appendNotes(`# M\n${"x".repeat(23_990)}\n`, [{ line: "a" }], NOW)).toBeNull();
   });
 
   it("keeps the chip summary short", () => {
@@ -362,5 +513,17 @@ describe("memory pass wiring", () => {
     expect(index).toMatch(/createMemoryPass\(\{[\s\S]*?driverKind === "claude"[\s\S]*?ephemeral: true[\s\S]*?botHasActiveTurn/);
     expect(index).toMatch(/summaryRepair\.onSettled\(bot\.id, event\.threadId\);\s*memoryPass\.onSettled\(bot\.id, event\.threadId\);/);
     expect(index).toContain("memoryPass.dispose();");
+  });
+
+  it("reads the Settings switch live and drops pending notes on a config change", () => {
+    expect(index).toMatch(/createMemoryPass\(\{[\s\S]*?enabled: \(\) => memoryNotesEnabled\(cfg\),[\s\S]*?\}\);/);
+    expect(index).toMatch(/saveConfig\(patch\);[\s\S]*?Object\.assign\(cfg, loadConfig\(\)\);\s*\}\s*if \(\(cfg\.profile[^\n]*\n\s*memoryPass\.onConfigChanged\(\);/);
+    expect(index).toContain("memoryNotes: memoryNotesEnabled(cfg),");
+  });
+
+  it("loads only the pending rows, never a Map of the whole thread", () => {
+    const source = readFileSync(join(here, "memory-pass.ts"), "utf8");
+    expect(source).toContain("pendingRows(deps.store.messagesFor(threadId), ids)");
+    expect(source).not.toMatch(/new Map\(deps\.store\.messagesFor/);
   });
 });
