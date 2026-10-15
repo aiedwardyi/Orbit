@@ -4299,6 +4299,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           sendId: opts?.sendId,
           from: opts?.peerSender,
           comm: opts?.peerComm,
+          origin: opts?.automationSource ? profileSyncSettings.deviceId : undefined,
         });
   }
 
