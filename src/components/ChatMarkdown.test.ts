@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatMarkdown, isRelativeHref, resolveRelativePath, settleStreamTail, streamBlocks } from "./ChatMarkdown";
 import { applyLocale } from "@/lib/i18n";
@@ -13,6 +13,9 @@ import { applySkin } from "@/lib/skins";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("shiki", () => ({ codeToHtml: async (code: string) => `<pre><code>${code}</code></pre>` }));
+
+beforeEach(() => localStorage.setItem("omb-reply-style", "live"));
+afterEach(() => localStorage.removeItem("omb-reply-style"));
 
 describe("ChatMarkdown streaming", () => {
   it("preserves code card identity and spoiler state across deltas and settle", async () => {

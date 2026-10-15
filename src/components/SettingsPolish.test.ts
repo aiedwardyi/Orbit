@@ -262,6 +262,30 @@ describe("Settings Polish", () => {
     }
   });
 
+  it("defaults Reply style to Paragraphs on this device", async () => {
+    mockState.appSettingsSection = "general";
+    localStorage.removeItem("omb-reply-style");
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal))));
+    const choice = host.querySelector('[role="radiogroup"][aria-label="Reply style"] [role="radio"][aria-checked="true"]');
+    expect(choice?.textContent).toBe("Paragraphs");
+  });
+
+  it("saves Reply style locally and restores it when settings reopen", async () => {
+    mockState.appSettingsSection = "general";
+    localStorage.removeItem("omb-reply-style");
+    mockApi.mockClear();
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal))));
+    const live = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) => button.textContent === "Live typing");
+    mockApi.mockClear();
+    await act(async () => live?.click());
+    expect(localStorage.getItem("omb-reply-style")).toBe("live");
+    expect(mockApi).not.toHaveBeenCalled();
+    await act(async () => root.render(null));
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal))));
+    expect(host.querySelector('[role="radiogroup"][aria-label="Reply style"] [aria-checked="true"]')?.textContent).toBe("Live typing");
+    localStorage.removeItem("omb-reply-style");
+  });
+
   it("the Connections pane shows \"Connections\" exactly once", async () => {
     mockState.appSettingsSection = "connections";
     await act(async () => {

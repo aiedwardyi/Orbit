@@ -35,6 +35,7 @@ export type TurnStreamState = {
   streaming: Record<string, string>;
   reasoning: Record<string, string>;
   signal: TurnSignals;
+  reveal?: Record<string, { whole: number; ended?: boolean }>;
   /** Client wait generation. Bumped when a turn starts before the tail moves. */
   gen?: Record<string, number>;
   /** Identity the current buffers were written under, per thread. */
@@ -261,6 +262,36 @@ export function revealStream(text: string, ramps: readonly StreamRamp[], now: nu
   };
 }
 
+export function splitReplyBlocks(text: string, complete = false, whole = 0): string[] {
+  const blocks: string[] = [];
+  let start = 0;
+  let fence = "";
+  const push = (end: number, next = end) => {
+    const block = text.slice(start, end).trimEnd();
+    if (block.trim()) blocks.push(block);
+    start = next;
+  };
+  for (let at = 0; at < text.length; ) {
+    const end = text.indexOf("\n", at);
+    const next = end === -1 ? text.length : end + 1;
+    const line = text.slice(at, end === -1 ? next : end).replace(/\r$/, "");
+    const mark = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence) {
+      if (mark && mark[1][0] === fence[0] && mark[1].length >= fence.length && !mark[2].trim()) {
+        fence = "";
+        push(next);
+      }
+    } else if (mark && (mark[1][0] !== "`" || !mark[2].includes("`"))) {
+      fence = mark[1];
+    } else if (end !== -1 && !line.trim()) {
+      push(at, next);
+    }
+    at = next;
+  }
+  if (complete || whole > start) push(complete ? text.length : whole);
+  return blocks;
+}
+
 function bumpedGen(prev: TurnStreamState, threadId: string) {
   return { ...prev.gen, [threadId]: (prev.gen?.[threadId] ?? 0) + 1 };
 }
@@ -276,6 +307,7 @@ function withoutThreadBuffers(
     !(threadId in prev.streaming) &&
     !(threadId in prev.reasoning) &&
     !hasTurn &&
+    !prev.reveal?.[threadId] &&
     signal === prev.signal &&
     gen === prev.gen
   ) {
@@ -284,7 +316,8 @@ function withoutThreadBuffers(
   const { [threadId]: _s, ...streaming } = prev.streaming;
   const { [threadId]: _r, ...reasoning } = prev.reasoning;
   const { [threadId]: _t, ...turn } = prev.turn ?? {};
-  return { ...prev, streaming, reasoning, turn, signal, gen };
+  const { [threadId]: _v, ...reveal } = prev.reveal ?? {};
+  return { ...prev, streaming, reasoning, turn, signal, gen, ...(prev.reveal ? { reveal } : {}) };
 }
 
 /**
@@ -339,7 +372,8 @@ export function writeStreamDelta(
   } else if (!same) {
     delete reasoning[threadId];
   }
-  return { ...prev, streaming, reasoning, turn: { ...prev.turn, [threadId]: currentTurn } };
+  const { [threadId]: _v, ...reveal } = prev.reveal ?? {};
+  return { ...prev, streaming, reasoning, turn: { ...prev.turn, [threadId]: currentTurn }, ...(!same && prev.reveal ? { reveal } : {}) };
 }
 
 /** Move the current wait onto a new tail without dropping its buffers. */

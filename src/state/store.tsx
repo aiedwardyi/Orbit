@@ -28,6 +28,7 @@ import { showNotification, type NotificationTarget, type TerminalAttentionReason
 import { speaker } from "@/lib/tts";
 import { preferredStartupSelectionId, type SidebarOrder } from "@/lib/sidebar-order";
 import { loadSidebarOrder } from "@/lib/sidebar-preferences";
+import { loadReplyStyle } from "@/lib/reply-style";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-chat-snapshot";
 import { readSnapshotCache, writeSnapshotCache } from "./snapshot-cache";
@@ -156,6 +157,7 @@ export interface Message {
   summarized?: boolean;
   /** Client-only accepted send; replaced by the canonical transcript row. */
   placeholder?: true;
+  streamWhole?: number;
   /** screen messages: a frame of the bot's computer (base64) */
   png?: string;
   mime?: string;
@@ -2196,6 +2198,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     deltaBuffer.current.delete(threadId);
     setStream((prev) => {
       const next = nextStreamState(prev, threadId, reason);
+      if (reason === "completed" && loadReplyStyle() === "paragraphs" && prev.streaming[threadId]) {
+        return {
+          ...next,
+          streaming: { ...next.streaming, [threadId]: prev.streaming[threadId] },
+          turn: { ...next.turn, [threadId]: prev.turn?.[threadId] ?? "" },
+          reveal: { ...next.reveal, [threadId]: { whole: prev.streaming[threadId].length, ended: true } },
+        };
+      }
       return next === prev ? prev : next;
     });
     releaseSettled();
@@ -2247,8 +2257,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const buf = deltaBuffer.current;
     if (buf.size === 0) return;
     const entries: [string, PendingDeltas][] = [];
+    const paragraphs = loadReplyStyle() === "paragraphs";
     for (const [threadId, d] of buf) {
-      const step = now === undefined || !d.streaming || !d.ramps ? null : revealStream(d.streaming, d.ramps, now);
+      const step = paragraphs || now === undefined || !d.streaming || !d.ramps ? null : revealStream(d.streaming, d.ramps, now);
       if (step?.rest) {
         buf.set(threadId, { tail: d.tail, streaming: step.rest, ramps: step.ramps });
         if (step.shown || d.reasoning !== undefined) entries.push([threadId, { ...d, streaming: step.shown }]);
@@ -2264,6 +2275,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const tail = lastMessageIdFor(threadId);
           if (d.tail !== tail) continue;
           next = writeStreamDelta(next, threadId, d, currentTurnId(next, threadId, tail));
+          if (paragraphs && d.streaming !== undefined) {
+            const whole = now === undefined || document.visibilityState !== "visible" || !(threadId in liveTurns.current);
+            next = {
+              ...next,
+              reveal: { ...next.reveal, [threadId]: { whole: whole ? next.streaming[threadId].length : (next.reveal?.[threadId]?.whole ?? 0) } },
+            };
+          }
         }
         return next;
       });
@@ -2275,7 +2293,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (deltaFlush.current !== null) return;
     deltaFlush.current = requestAnimationFrame(() => {
       deltaFlush.current = null;
-      flushDeltas(reducedMotion() ? undefined : performance.now());
+      flushDeltas(loadReplyStyle() === "live" && reducedMotion() ? undefined : performance.now());
     });
   };
 
@@ -3313,7 +3331,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               const next: PendingDeltas = { ...applyStreamDelta(base, event.streamKind, event.delta), tail };
               // Only a live turn's reply types out; text after the turn ended lands whole.
               if (event.streamKind === "assistant_text") {
-                next.ramps = event.threadId in liveTurns.current
+                next.ramps = loadReplyStyle() === "live" && event.threadId in liveTurns.current
                   ? [...(base.ramps ?? []), [event.delta.length, performance.now()]]
                   : undefined;
               }

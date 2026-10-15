@@ -677,7 +677,7 @@ const Bubble = memo(function Bubble({
             </>
           ) : markdownText.trim() ? (
             <MessageBoundary fallbackText={markdownText}>
-              <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} threadId={bot.threadId} />
+              <ChatMarkdown text={markdownText} streaming={streaming} whole={message.streamWhole} baseDir={botFolder} threadId={bot.threadId} />
             </MessageBoundary>
           ) : null}
         </div>
@@ -1816,19 +1816,20 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   // Stage transitions (Preparing -> Waiting -> Reconnecting) swap presence
   // content while messages, buffers and busy stay put, so the pin watches it.
   const turnSignal = stream.signal[bot.threadId];
+  const reveal = stream.reveal?.[bot.threadId];
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
   const activityLabel = turnStageLabel(
     turnPhase({ signal: stream.signal[bot.threadId], lastMessage, streaming, reasoning }),
     liveActivityLabel(lastMessage, showActivities),
   );
-  const waiting = turnPresenceWaiting({
+  const waiting = !reveal?.ended && turnPresenceWaiting({
     busy: bot.busy,
     turnActive: turnSignal !== undefined,
     activity: bot.activity,
     lastMessage,
     accepted: state.acceptedSends[bot.threadId],
   });
-  const streamingMessage = useMemo<Message | null>(() => waiting && streaming ? {
+  const streamingMessage = useMemo<Message | null>(() => (waiting || reveal?.ended) && streaming ? {
     id: `stream:${bot.threadId}:${lastMessage?.id ?? ""}`,
     parentId: lastMessage?.id,
     role: "bot",
@@ -1836,7 +1837,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     text: streaming,
     at: lastMessage?.at ?? 0,
     placeholder: true,
-  } : null, [waiting, streaming, bot.threadId, lastMessage?.id, lastMessage?.at]);
+    streamWhole: reveal?.whole,
+  } : null, [waiting, streaming, reveal, bot.threadId, lastMessage?.id, lastMessage?.at]);
   const liveTail = laterCount === 0 && !jump.messages;
   const listedStreaming = liveTail ? streamingMessage : null;
 
@@ -1847,7 +1849,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     if (messageVisible(listed[i], { showToolCalls, showActivities, transcript: messages })) tail = listed[i];
   }
   const tailSlot = tail?.role === "bot" && tail.kind === "text" ? replySlot(bot.threadId, tail, shown) : null;
-  const docked = useReplyDock(listedStreaming ? tailSlot : null, tailSlot, waiting);
+  const docked = useReplyDock(listedStreaming && waiting ? tailSlot : null, tailSlot, waiting);
   const dockSlot = docked?.slot;
   const dockLive = docked?.live ?? false;
   const dock = useMemo<ReplyDock | null>(() => dockSlot ? {

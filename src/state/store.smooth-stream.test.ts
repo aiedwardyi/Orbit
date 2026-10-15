@@ -32,6 +32,7 @@ let unmount: (() => Promise<void>) | undefined;
 let reducedMotion = false;
 
 beforeEach(() => {
+  localStorage.setItem("omb-reply-style", "live");
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("EventSource", FakeEventSource);

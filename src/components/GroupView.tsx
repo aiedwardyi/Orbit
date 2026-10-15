@@ -582,7 +582,7 @@ export const Transcript = memo(function Transcript({
                     </>
                   ) : markdownText.trim() ? (
                     <MessageBoundary fallbackText={markdownText}>
-                      <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} threadId={group.threadId} />
+                      <ChatMarkdown text={markdownText} streaming={streaming} whole={m.streamWhole} baseDir={botFolder} threadId={group.threadId} />
                     </MessageBoundary>
                   ) : null}
                 </div>
@@ -1245,7 +1245,8 @@ export function GroupView({ group }: { group: Group }) {
   const showToolCalls = showToolCallsEnabled(state.config);
   const showActivities = showToolCalls || terminal;
   const activityLabel = liveActivityLabel(lastGroupMessage, showActivities);
-  const waiting = turnPresenceWaiting({
+  const reveal = stream.reveal?.[group.threadId];
+  const waiting = !reveal?.ended && turnPresenceWaiting({
     busy: Boolean(speaker),
     turnActive: stream.signal[group.threadId] !== undefined,
     activity: speaker?.activity,
@@ -1254,7 +1255,7 @@ export function GroupView({ group }: { group: Group }) {
     accepted: state.acceptedSends[group.threadId],
   });
   const liveText = buffersForTurn(stream, group.threadId, lastGroupMessage?.id).streaming;
-  const streamingMessage = useMemo<Message | null>(() => waiting && liveText ? {
+  const streamingMessage = useMemo<Message | null>(() => (waiting || reveal?.ended) && liveText ? {
     id: `stream:${group.threadId}:${lastGroupMessage?.id ?? ""}`,
     parentId: lastGroupMessage?.id,
     role: "bot",
@@ -1262,8 +1263,9 @@ export function GroupView({ group }: { group: Group }) {
     text: liveText,
     at: lastGroupMessage?.at ?? 0,
     placeholder: true,
+    streamWhole: reveal?.whole,
     from: speaker ? { botId: speaker.id, name: speaker.name, color: speaker.color } : undefined,
-  } : null, [waiting, liveText, group.threadId, lastGroupMessage?.id, lastGroupMessage?.at, speaker]);
+  } : null, [waiting, liveText, reveal, group.threadId, lastGroupMessage?.id, lastGroupMessage?.at, speaker]);
   const presenceSpeaker = speaker ?? members[0];
 
   // Windowed transcript, mirroring ChatView: only a tail of the room mounts;
@@ -1344,7 +1346,7 @@ export function GroupView({ group }: { group: Group }) {
     if (messageVisible(windowedMessages[i], showToolCalls, showActivities)) tail = windowedMessages[i];
   }
   const tailSlot = tail?.role === "bot" && tail.kind === "text" ? replySlot(group.threadId, tail, shown) : null;
-  const docked = useReplyDock(listedStreaming ? tailSlot : null, tailSlot, waiting);
+  const docked = useReplyDock(listedStreaming && waiting ? tailSlot : null, tailSlot, waiting);
   const dockSlot = docked?.slot;
   const dockLive = docked?.live ?? false;
   const lastUserAt = group.messages.findLast((m) => m.role === "user")?.at;
