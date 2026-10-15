@@ -878,6 +878,7 @@ export type Action =
     }
   | { type: "ackTerminalAttention"; botId: string; sessionId: string }
   | { type: "setTerminalPanes"; panes: Record<string, string[]> }
+  | { type: "setBotTerminalPanes"; botId: string; labels: string[] }
   | { type: "botPatched"; bot: BotAnnouncement }
   | { type: "messageAdded"; threadId: string; message: Message }
   | { type: "messagePatched"; threadId: string; message: Message }
@@ -1361,6 +1362,14 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "setTerminalPanes":
       return { ...state, terminalPanes: action.panes };
+    case "setBotTerminalPanes": {
+      const held = state.terminalPanes[action.botId];
+      if (action.labels.length === 0 ? !held : held?.length === action.labels.length && held.every((label, i) => label === action.labels[i])) return state;
+      const terminalPanes = { ...state.terminalPanes };
+      if (action.labels.length === 0) delete terminalPanes[action.botId];
+      else terminalPanes[action.botId] = action.labels;
+      return { ...state, terminalPanes };
+    }
     case "botPatched": {
       const before = state.bots.find((b) => b.id === action.bot.id);
       // Bot frames are complete except for their transcript. An unknown one

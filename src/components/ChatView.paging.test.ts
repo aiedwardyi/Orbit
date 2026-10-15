@@ -7,7 +7,7 @@ import { StoreProvider, useStore, type Bot, type Group, type Message } from "@/s
 import type { TurnStreamState } from "@/lib/turn-stage";
 import { applySkin } from "@/lib/skins";
 
-import { ChatView } from "./ChatView";
+import { ChatView, clearLivePaneCache } from "./ChatView";
 import { GroupView } from "./GroupView";
 
 const live = vi.hoisted(() => ({ current: { streaming: {}, reasoning: {}, signal: {}, gen: {}, turn: {} } as TurnStreamState }));
@@ -113,6 +113,7 @@ function Gate() {
 afterEach(async () => {
   await unmount?.();
   unmount = null;
+  clearLivePaneCache();
   resizeCallbacks = [];
   suspendWhen = null;
   vi.unstubAllGlobals();

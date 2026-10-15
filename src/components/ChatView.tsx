@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Dispatch } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -34,6 +34,7 @@ import {
   openNotificationTarget,
   shownModelSelection,
   visibleMessages,
+  type Action,
   type Bot,
   type InstanceInfo,
   type Message,
@@ -893,15 +894,27 @@ const paneLabelsKey = (labels: string[] | undefined) => `${labels?.length ?? 0}:
 /** Last answered live set per bot, so a switch back renders it before the fresh answer lands. */
 const lastLive = new Map<string, Set<string>>();
 
+/** Host labels for those panes, for chip rows with no transcript run. */
+const lastLabels = new Map<string, Map<string, string>>();
+
+const rememberLabels = (botId: string, panes: { sessionId: string; label?: string | null }[]) =>
+  lastLabels.set(botId, new Map(panes.flatMap((p) => (p.label ? [[p.sessionId, p.label] as const] : []))));
+
 /** Drops every cached live set. Tests only. */
 export function clearLivePaneCache() {
   lastLive.clear();
+  lastLabels.clear();
 }
 
-/** Bot-spawned pane ids still open, null until the bridge or the host first answers. Exported for tests. */
-export function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionKey: string): Set<string> | null {
+/** Bot-spawned pane ids still open, null until the bridge or the host first answers. A device read also refreshes this bot's badge. Exported for tests. */
+export function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionKey: string, dispatch?: Dispatch<Action>): Set<string> | null {
   const [live, setLive] = useState<{ botId: string; ids: Set<string> } | null>(null);
   const phoneRead = useRef<{ busy: boolean; next: (() => void) | null }>({ busy: false, next: null });
+  // A badge write from this hook's own read must not trigger another read.
+  const wrote = useRef<string | null>(null);
+  const keyed = useRef(paneKey);
+  if (paneKey !== keyed.current && paneKey !== wrote.current) keyed.current = paneKey;
+  const readKey = keyed.current;
   useEffect(() => {
     const bridge = window.ogb?.terminal;
     if (!bridge || !enabled) return;
@@ -914,6 +927,7 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
     };
     void Promise.resolve().then(() => bridge.readBot?.(botId)).then((snapshot) => {
       if (!alive || !snapshot?.panes) return;
+      rememberLabels(botId, snapshot.panes);
       const ids = new Set(snapshot.panes.filter((p) => !p.main && !p.exited && !closed.has(p.sessionId)).map((p) => p.sessionId));
       for (const id of opened) if (!closed.has(id)) ids.add(id);
       save(ids);
@@ -970,12 +984,17 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
           (body) => {
             if (!alive || call !== latest) return;
             if (!Array.isArray(body?.panes)) { retry(); return; }
-            save(new Set(body.panes.filter((p: { main?: boolean; exited?: boolean }) => !p.main && !p.exited).map((p: { sessionId: string }) => p.sessionId)));
+            rememberLabels(botId, body.panes);
+            const open = body.panes.filter((p: { main?: boolean; exited?: boolean }) => !p.main && !p.exited);
+            const labels = open.slice(0, 16).map((p: { label?: string | null }) => p.label ?? "");
+            wrote.current = paneLabelsKey(labels);
+            dispatch?.({ type: "setBotTerminalPanes", botId, labels });
+            save(new Set(open.map((p: { sessionId: string }) => p.sessionId)));
             delay = 1000;
           },
           (cause) => {
             if (!alive || call !== latest) return;
-            if (/unknown terminal/i.test(cause instanceof Error ? cause.message : "")) { save(new Set()); delay = 1000; }
+            if (/unknown terminal/i.test(cause instanceof Error ? cause.message : "")) { wrote.current = paneLabelsKey([]); dispatch?.({ type: "setBotTerminalPanes", botId, labels: [] }); save(new Set()); delay = 1000; }
             else retry();
           },
         ).finally(() => {
@@ -998,7 +1017,7 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
       pending.next = null;
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [botId, enabled, paneKey, sessionKey]);
+  }, [botId, enabled, readKey, sessionKey, dispatch]);
   return live?.botId === botId ? live.ids : lastLive.get(botId) ?? null;
 }
 
@@ -1607,7 +1626,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const shown = jump.messages ?? messages;
   const runs = useMemo(() => workerRuns(messages), [messages]);
   const sessionKey = runs.map((run) => run.sessionId).filter(Boolean).sort().join("\n");
-  const livePanes = useLivePanes(bot.id, runs.length > 0, paneLabelsKey(state.terminalPanes[bot.id]), sessionKey);
+  const livePanes = useLivePanes(bot.id, runs.length > 0 || (state.terminalPanes[bot.id]?.length ?? 0) > 0, paneLabelsKey(state.terminalPanes[bot.id]), sessionKey, dispatch);
   const workers = useMemo(() => runs.map((run) => ({ run, state: shownState(run, livePanes) })), [runs, livePanes]);
   const rowWorkers = useMemo(() => jump.messages ? workerRuns(messages, jump.messages).map((run) => ({ run, state: shownState(run, livePanes) })) : workers, [messages, jump.messages, livePanes, workers]);
   const terminal = useSkin() === "terminal";
@@ -2088,7 +2107,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary max-md:hidden" />}
         </div>
         <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 max-md:min-w-0 max-md:shrink max-md:flex-nowrap">
-          <WorkerChip name={bot.name} runs={workers} livePanes={livePanes} waitForLive={livePanes === null && window.ogb?.terminal != null} onOpenTerminalPane={onOpenTerminalPane} />
+          <WorkerChip name={bot.name} runs={workers} livePanes={livePanes} paneLabels={lastLabels.get(bot.id)} waitForLive={livePanes === null && window.ogb?.terminal != null} onOpenTerminalPane={onOpenTerminalPane} />
           {onOpenTerminal && (
             <button
               type="button"

@@ -237,13 +237,13 @@ function Mark({ run, state, className }: ShownRun & { className?: string }) {
 }
 
 /** Header chip for this chat's listed runs. Opens the worker list. */
-export function WorkerChip({ name, runs, livePanes = null, waitForLive = false, onOpenTerminalPane }: { name: string; runs: ShownRun[]; livePanes?: Set<string> | null; waitForLive?: boolean; onOpenTerminalPane?: (sessionId: string) => void }) {
+export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLive = false, onOpenTerminalPane }: { name: string; runs: ShownRun[]; livePanes?: Set<string> | null; paneLabels?: ReadonlyMap<string, string>; waitForLive?: boolean; onOpenTerminalPane?: (sessionId: string) => void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
-  const listed = livePanes === null && waitForLive ? [] : listedRuns(runs, livePanes);
+  const listed = livePanes === null && waitForLive ? [] : listedRuns(runs, livePanes, paneLabels);
   const [phone, setPhone] = useState(isPhone);
   useEffect(() => {
     const media = window.matchMedia?.(PHONE_QUERY);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Message } from "@/state/store";
-import { byUrgency, listedRuns, listedSessionId, parseWorkerLabel, shownState, workerAnchors, workerProvider, workerRuns } from "./worker-runs";
+import { byUrgency, latestPaneRun, listedRuns, listedSessionId, parseWorkerLabel, shownState, workerAnchors, workerProvider, workerRuns } from "./worker-runs";
 
 const BOT = "61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b";
 const PANE = "5d09c0d0-2844-43b0-982e-88305df70570";
@@ -413,7 +413,46 @@ describe("listedRuns", () => {
     expect(listedRuns([{ run, state: run.state }], live).map((shown) => shown.run.nick)).toEqual(["OLD-JOB"]);
     expect(listedSessionId(run, live)).toBe("5d09c0d0-not-loaded");
     const both = new Set(["5d09c0d0-a", "5d09c0d0-b"]);
-    expect(listedRuns([{ run, state: run.state }], both)).toEqual([]);
+    expect(listedRuns([{ run, state: run.state }], both).map((shown) => shown.run.sessionId)).toEqual(["5d09c0d0-a", "5d09c0d0-b"]);
     expect(listedSessionId(run, both)).toBeNull();
+  });
+
+  describe("placeholders", () => {
+    const WORK = "aaaaaaaa-1";
+    const bare = (ids: string[], labels?: ReadonlyMap<string, string>) => listedRuns(runs(), new Set([WORK, ...ids]), labels);
+
+    it("adds one working row for a live pane with no transcript run", () => {
+      const [first, extra] = bare(["eeeeeeee-1"]);
+      expect(first!.run.nick).toBe("WORK");
+      expect(extra).toMatchObject({ state: "working", run: { id: "pane:eeeeeeee-1", nick: "eeeeeeee", model: null, provider: null, sessionId: "eeeeeeee-1", pane8: "eeeeeeee", messageIds: [], notes: [] } });
+    });
+
+    it("titles the row with the pane label and takes its model and provider", () => {
+      const [, extra] = bare(["eeeeeeee-1"], new Map([["eeeeeeee-1", "SIDE | Opus 5.5 | high"]]));
+      expect(extra!.run).toMatchObject({ nick: "SIDE", model: "Opus 5.5", provider: "claudeAgent" });
+    });
+
+    it("falls back to the pane id for a blank label", () => {
+      expect(bare(["eeeeeeee-1"], new Map([["eeeeeeee-1", ""]]))[1]!.run.nick).toBe("eeeeeeee");
+    });
+
+    it("sorts after the real working rows", () => {
+      expect(bare(["eeeeeeee-1"]).map((shown) => shown.run.nick)).toEqual(["WORK", "eeeeeeee"]);
+    });
+
+    it("lists every live pane up to the 16 per bot cap", () => {
+      const ids = Array.from({ length: 16 }, (_, index) => `${String(index).padStart(8, "0")}-1`);
+      const listed = listedRuns([], new Set(ids));
+      expect(listed).toHaveLength(16);
+      expect(new Set(listed.map((shown) => shown.run.id)).size).toBe(16);
+    });
+
+    it("lists nothing extra while liveness is unknown", () => {
+      expect(listedRuns([], null)).toEqual([]);
+    });
+
+    it("never stands in for a transcript run", () => {
+      expect(latestPaneRun([], WORK)).toBeUndefined();
+    });
   });
 });

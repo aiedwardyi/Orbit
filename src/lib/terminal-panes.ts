@@ -6,8 +6,8 @@ import { api, type Action } from "@/state/store";
 export const PANE_COUNT_REFRESH_MS = 15_000;
 
 const payloadSchema = z.object({
-  counts: z.record(z.string(), z.number().int().min(1).max(8)).optional(),
-  panes: z.record(z.string(), z.array(z.string()).min(1).max(8)).optional(),
+  counts: z.record(z.string(), z.number().int().min(1).max(16)).optional(),
+  panes: z.record(z.string(), z.array(z.string()).min(1).max(16)).optional(),
 });
 
 type PaneCountPayload = { counts?: Record<string, number>; panes?: Record<string, string[]> };

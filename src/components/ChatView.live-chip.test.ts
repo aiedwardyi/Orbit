@@ -3,7 +3,7 @@ import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { StoreProvider, type Bot, type Message } from "@/state/store";
+import { StoreProvider, useStore, type Bot, type Message } from "@/state/store";
 import type { TurnStreamState } from "@/lib/turn-stage";
 
 import { ChatView } from "./ChatView";
@@ -28,6 +28,7 @@ type Snapshot = { panes: { sessionId: string; main: boolean; exited: boolean }[]
 
 function stubBridge() {
   const resolvers = new Map<string, (snapshot: Snapshot) => void>();
+  const exits: Array<(event: { botId: string; id: string }) => void> = [];
   const readBot = vi.fn((botId: string) => new Promise<Snapshot>((resolve) => { resolvers.set(botId, resolve); }));
   vi.stubGlobal("ogb", {
     platform: "win32",
@@ -35,10 +36,10 @@ function stubBridge() {
       readBot,
       onOpened: vi.fn(() => () => {}),
       onClosed: vi.fn(() => () => {}),
-      onExit: vi.fn(() => () => {}),
+      onExit: vi.fn((cb: (event: { botId: string; id: string }) => void) => { exits.push(cb); return () => {}; }),
     },
   });
-  return { resolvers };
+  return { resolvers, exits };
 }
 
 const answer = async (resolvers: Map<string, (snapshot: Snapshot) => void>, botId: string, ids: string[]) => {
@@ -67,9 +68,18 @@ function Harness({ initial }: { initial: Bot }) {
   return createElement(ChatView, { bot: current });
 }
 
-const mountChat = async (initial: Bot) => {
+let badgeOf: (botId: string) => string[] = () => [];
+let seedBadge: (panes: Record<string, string[]>) => void = () => {};
+function BadgeProbe() {
+  const { state, dispatch } = useStore();
+  badgeOf = (botId) => state.terminalPanes[botId] ?? [];
+  seedBadge = (panes) => dispatch({ type: "setTerminalPanes", panes });
+  return null;
+}
+
+const mountChat = async (initial: Bot, fetchImpl: typeof fetch = async () => new Response("{}", { status: 404 })) => {
   vi.stubGlobal("EventSource", FakeEventSource);
-  vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+  vi.stubGlobal("fetch", vi.fn(fetchImpl));
   vi.stubGlobal("ResizeObserver", class {
     observe() {}
     unobserve() {}
@@ -79,7 +89,7 @@ const mountChat = async (initial: Bot) => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(createElement(StoreProvider, null, createElement(Harness, { initial }))));
+  await act(async () => root.render(createElement(StoreProvider, null, createElement(Harness, { initial }), createElement(BadgeProbe))));
   return { host, unmount: async () => { await act(async () => root.unmount()); host.remove(); } };
 };
 
@@ -89,6 +99,13 @@ afterEach(() => {
   vi.restoreAllMocks();
   localStorage.clear();
 });
+
+const remoteTerminal = (botId: string, live: { ids: string[] }): typeof fetch => {
+  return async (input) => {
+    if (!String(input).includes(`/api/bots/${botId}/terminal`)) return new Response("{}", { status: 404 });
+    return Response.json({ panes: live.ids.map((sessionId) => ({ sessionId, label: `L-${sessionId}`, main: false, exited: false })) });
+  };
+};
 
 const chipLabel = (host: HTMLElement) => host.querySelector("[data-worker-strip]")?.getAttribute("aria-label") ?? null;
 
@@ -123,5 +140,58 @@ describe("worker chip liveness", () => {
     } finally {
       await unmount();
     }
+  });
+
+  it("counts a live pane with no launch in the loaded messages, and drops it on exit", async () => {
+    const { resolvers, exits } = stubBridge();
+    const ids = Array.from({ length: 7 }, (_, index) => `p${index}pppppp-${index}`);
+    const seven = bot("chip-seven", "Seven", ids.slice(0, 6).map((id, index) => launch(`ls${index}`, `S${index}`, id)));
+    const { host, unmount } = await mountChat(seven);
+    try {
+      await answer(resolvers, "chip-seven", ids);
+      await vi.waitFor(() => expect(chipLabel(host)).toBe("7 working, 0 waiting, 0 failed, 0 done. Show workers"));
+      await act(async () => {
+        for (const cb of exits) cb({ botId: "chip-seven", id: ids[6]! });
+        await sleep(10);
+      });
+      await vi.waitFor(() => expect(chipLabel(host)).toBe("6 working, 0 waiting, 0 failed, 0 done. Show workers"));
+    } finally {
+      await unmount();
+    }
+  });
+
+  describe("device view (remote reads)", () => {
+    const ids = ["r0rrrrrr-0", "r1rrrrrr-1", "r2rrrrrr-2"];
+
+    it("drops the badge and the chip together when a pane exits", async () => {
+      const remote = bot("chip-remote", "Remote", ids.map((id, index) => launch(`lr${index}`, `R${index}`, id)));
+      const live = { ids };
+      const { host, unmount } = await mountChat(remote, remoteTerminal("chip-remote", live));
+      try {
+        await act(async () => seedBadge({ "chip-remote": ids.map((id) => `L-${id}`) }));
+        await vi.waitFor(() => expect(chipLabel(host)).toBe("3 working, 0 waiting, 0 failed, 0 done. Show workers"));
+        expect(badgeOf("chip-remote")).toHaveLength(3);
+        live.ids = ids.slice(0, 2);
+        await act(async () => {
+          document.dispatchEvent(new Event("visibilitychange"));
+          await sleep(10);
+        });
+        await vi.waitFor(() => expect(chipLabel(host)).toBe("2 working, 0 waiting, 0 failed, 0 done. Show workers"));
+        expect(badgeOf("chip-remote")).toEqual(ids.slice(0, 2).map((id) => `L-${id}`));
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("lists the badge's panes when the loaded page has no runs", async () => {
+      const bare = bot("chip-bare", "Bare", []);
+      const { host, unmount } = await mountChat(bare, remoteTerminal("chip-bare", { ids }));
+      try {
+        await act(async () => seedBadge({ "chip-bare": ids.map((id) => `L-${id}`) }));
+        await vi.waitFor(() => expect(chipLabel(host)).toBe("3 working, 0 waiting, 0 failed, 0 done. Show workers"));
+      } finally {
+        await unmount();
+      }
+    });
   });
 });

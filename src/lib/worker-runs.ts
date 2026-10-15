@@ -64,9 +64,10 @@ export function listedSessionId(run: { sessionId: string | null; pane8: string |
   return extra === undefined ? only ?? null : null;
 }
 
-/** Live panes in any state. Unknown liveness keeps today's working and waiting runs. */
-export function listedRuns<T extends { run: WorkerRun; state: WorkerShownState }>(runs: readonly T[], livePanes: ReadonlySet<string> | null): T[] {
-  if (!livePanes) return runs.filter((shown) => shown.state === "working" || shown.state === "waiting").sort(byUrgency);
+type ShownLike = { run: WorkerRun; state: WorkerShownState };
+
+/** Newest transcript run per live pane. */
+function paneRuns<T extends ShownLike>(runs: readonly T[], livePanes: ReadonlySet<string>): Map<string, T> {
   const panes = new Map<string, T>();
   for (const shown of runs) {
     const sessionId = listedSessionId(shown.run, livePanes);
@@ -75,11 +76,29 @@ export function listedRuns<T extends { run: WorkerRun; state: WorkerShownState }
     const latest = shown.run.latest;
     if (!held || latest.at > held.run.latest.at || (latest.at === held.run.latest.at && latest.index > held.run.latest.index)) panes.set(sessionId, shown);
   }
-  return [...panes.values()].sort(byUrgency);
+  return panes;
+}
+
+/** Live panes in any state; one with no transcript run gets a working placeholder. Unknown liveness keeps today's working and waiting runs. */
+export function listedRuns(runs: readonly ShownLike[], livePanes: ReadonlySet<string> | null, labels?: ReadonlyMap<string, string>): ShownLike[] {
+  if (!livePanes) return runs.filter((shown) => shown.state === "working" || shown.state === "waiting").sort(byUrgency);
+  const panes = paneRuns(runs, livePanes);
+  const listed = [...panes.values()];
+  const claimed = new Set(panes.keys());
+  for (const sessionId of livePanes) {
+    if (claimed.has(sessionId)) continue;
+    const pane8 = sessionId.slice(0, 8);
+    const { nick, model } = parseWorkerLabel(labels?.get(sessionId));
+    listed.push({
+      state: "working",
+      run: { id: `pane:${sessionId}`, nick: nick ?? pane8, model, provider: workerProvider(model), state: "working", at: Number.MAX_SAFE_INTEGER, latest: { at: 0, index: 0 }, pane8, sessionId, folder: null, botId: null, messageIds: [], notes: [] },
+    });
+  }
+  return listed.sort(byUrgency);
 }
 
 export function latestPaneRun(runs: readonly WorkerRun[], sessionId: string): WorkerRun | undefined {
-  return listedRuns(runs.map((run) => ({ run, state: run.state })), new Set([sessionId]))[0]?.run;
+  return paneRuns(runs.map((run) => ({ run, state: run.state })), new Set([sessionId])).get(sessionId)?.run;
 }
 
 /** True when the pane's run is still the one captured before a snapshot await. */
