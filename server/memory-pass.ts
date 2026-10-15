@@ -30,8 +30,8 @@ export interface MemoryPassDeps {
   store: Pick<Store, "onChange" | "messagesFor" | "groupByThread" | "botByThread" | "appendMessage">;
   /** The Claude one-shot call, whatever engine the bot runs; null when no Claude CLI is set up. */
   generate(): NoteGenerator | null;
-  /** The Settings switch, read live. */
-  enabled(): boolean;
+  /** The bot's Auto notes switch, read live. */
+  enabled(botId: string): boolean;
   busy(botId: string, threadId: string): boolean;
   dataDir: string;
   now?(): number;
@@ -40,7 +40,7 @@ export interface MemoryPassDeps {
 export interface MemoryPass {
   /** Call when a 1:1 turn settles. */
   onSettled(botId: string, threadId: string): void;
-  /** Call after a config change: switched off drops pending ids and any running pass. */
+  /** Call after a config change: bots switched off drop pending ids and any running pass. */
   onConfigChanged(): void;
   /** Resolves once no pass is running. */
   idle(): Promise<void>;
@@ -292,7 +292,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
 
   const run = async (botId: string, threadId: string, signal: AbortSignal) => {
     const ids = [...(pending.get(threadId) ?? [])];
-    if (!ids.length || !deps.enabled()) return;
+    if (!ids.length || !deps.enabled(botId)) return;
     const generate = deps.generate();
     if (!generate) return warnOnce("no Claude CLI instance");
     const rows = pendingRows(deps.store.messagesFor(threadId), ids);
@@ -309,7 +309,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
     try {
       output = await generate(notePrompt(memory.text, lines), signal);
     } catch (error) {
-      if (disposed || !deps.enabled()) return;
+      if (disposed || !deps.enabled(botId)) return;
       if (UNAVAILABLE.test(error instanceof Error ? error.message : String(error))) {
         return warnOnce("Claude CLI missing or signed out");
       }
@@ -317,7 +317,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
       return;
     }
     // switched off mid-pass: write nothing, and the dropped ids stay dropped
-    if (disposed || signal.aborted || !deps.enabled()) return;
+    if (disposed || signal.aborted || !deps.enabled(botId)) return;
     const ms = now() - started;
     const facts = acceptFacts(parseFacts(output), lines.join("\n\n"), memory.text);
     if (!facts.length) {
@@ -375,9 +375,13 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
   };
 
   const unsubscribe = deps.store.onChange((change: StoreChange) => {
-    if (change.type !== "message" || change.imported || disposed || !deps.enabled()) return;
+    if (disposed) return;
+    if (change.type === "bot.deleted" || (change.type === "bot" && !deps.enabled(change.botId))) return stop();
+    if (change.type !== "message" || change.imported) return;
     const { message, threadId } = change;
     if (message.role !== "user" || message.kind !== "text" || deps.store.groupByThread(threadId)) return;
+    const bot = deps.store.botByThread(threadId);
+    if (!bot || !deps.enabled(bot.id)) return;
     const ids = pending.get(threadId) ?? [];
     if (!ids.includes(message.id)) ids.push(message.id);
     pending.set(threadId, ids.slice(-MAX_PENDING));
@@ -387,16 +391,23 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
   });
 
   const stop = () => {
-    for (const timer of timers.values()) clearTimeout(timer);
-    timers.clear();
-    queue.length = 0;
-    for (const pass of running.values()) pass.controller.abort();
-    if (!pending.size) return;
-    pending.clear();
-    save();
+    const off = (threadId: string) => {
+      const bot = deps.store.botByThread(threadId);
+      return !bot || !deps.enabled(bot.id);
+    };
+    for (const [threadId, timer] of timers) {
+      if (!off(threadId)) continue;
+      clearTimeout(timer);
+      timers.delete(threadId);
+    }
+    for (let i = queue.length - 1; i >= 0; i -= 1) if (off(queue[i]!.threadId)) queue.splice(i, 1);
+    for (const [threadId, pass] of running) if (off(threadId)) pass.controller.abort();
+    const before = pending.size;
+    for (const threadId of pending.keys()) if (off(threadId)) pending.delete(threadId);
+    if (pending.size !== before) save();
   };
 
-  if (!deps.enabled()) stop();
+  stop();
   for (const threadId of pending.keys()) {
     const bot = deps.store.botByThread(threadId);
     if (bot) arm(bot.id, threadId);
@@ -405,12 +416,12 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
   return {
     onSettled(botId, threadId) {
       const count = pending.get(threadId)?.length ?? 0;
-      if (disposed || !count || !deps.enabled()) return;
+      if (disposed || !count || !deps.enabled(botId)) return;
       if (count >= BATCH_MESSAGES) enqueue(botId, threadId);
       else arm(botId, threadId);
     },
     onConfigChanged() {
-      if (!disposed && !deps.enabled()) stop();
+      if (!disposed) stop();
     },
     async idle() {
       while (running.size) await Promise.all([...running.values()].map((pass) => pass.done));

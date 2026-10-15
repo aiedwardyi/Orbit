@@ -34,6 +34,7 @@ const portableBotChanges = z.object({
   effort: z.string().trim().max(40).nullable().optional(),
   modelMode: z.enum(["automatic", "pinned"]).nullable().optional(),
   approvePeerComms: z.boolean().optional(),
+  memoryNotes: z.boolean().nullable().optional(),
   memoryDocument: z.string().trim().max(240).nullable().optional(),
 }).strict();
 const sectionChanges = z.object({
@@ -412,8 +413,12 @@ export function parseSyncOperationText(text: string): ProfileSyncOperation {
 
 export function syncOperationFileName(operation: ProfileSyncOperation): string {
   const safe = (value: string) => value.replace(/[^A-Za-z0-9._-]/g, "_");
-  return `${String(operation.sequence).padStart(12, "0")}-${safe(operation.deviceId)}-${safe(operation.operationId)}.json`;
+  // Older readers scan only .json.
+  const ext = operation.entity === "bot" && "memoryNotes" in (operation.changes ?? {}) ? "notes" : "json";
+  return `${String(operation.sequence).padStart(12, "0")}-${safe(operation.deviceId)}-${safe(operation.operationId)}.${ext}`;
 }
+
+const isSyncOperationFile = (name: string) => name.endsWith(".json") || name.endsWith(".notes");
 
 export function writeSyncOperation(folder: string, operation: ProfileSyncOperation): string {
   const parsed = parseSyncOperation(operation);
@@ -434,7 +439,7 @@ export function readSyncOperations(folder: string): { operations: ProfileSyncOpe
   }
   const operations: ProfileSyncOperation[] = [];
   const invalidFiles: string[] = [];
-  const jsonNames = names.filter((value) => value.endsWith(".json")).sort();
+  const jsonNames = names.filter(isSyncOperationFile).sort();
   const truncated = jsonNames.length > PROFILE_SYNC_MAX_FILES;
   for (const name of jsonNames.slice(0, PROFILE_SYNC_MAX_FILES)) {
     const path = join(directory, basename(name));
@@ -608,7 +613,7 @@ export function syncOperationsSignature(folder: string): string {
   } catch {
     return "";
   }
-  return createHash("sha256").update(names.filter((name) => name.endsWith(".json")).sort().join("\n")).digest("hex");
+  return createHash("sha256").update(names.filter(isSyncOperationFile).sort().join("\n")).digest("hex");
 }
 
 export interface SyncEntityValues {
@@ -632,8 +637,9 @@ export function unsyncedChanges(synced: Record<string, string>, local: readonly 
   });
 }
 
-// 1.0.60 rejects a bot op carrying any of these keys
-const LATER_BOT_DEFAULTS: Record<string, unknown> = { effort: null, modelMode: null, approvePeerComms: false };
+// 1.0.60 rejects a bot op carrying any of these keys, 1.0.184 one carrying memoryNotes
+const LATER_BOT_DEFAULTS: Record<string, unknown> = { effort: null, modelMode: null, approvePeerComms: false, memoryNotes: null };
+const OWN_OP_BOT_FIELDS = ["memoryNotes"];
 
 /** Leaves never-synced defaults of LATER_BOT_DEFAULTS out of the op, marking them synced so a later change still publishes. */
 export function compatibleSyncChanges(synced: Record<string, string>, item: SyncEntityValues): SyncEntityValues {
@@ -646,6 +652,15 @@ export function compatibleSyncChanges(synced: Record<string, string>, item: Sync
     delete changes[field];
   }
   return { ...item, changes };
+}
+
+/** Bot fields older builds reject go out in their own op, so those builds skip only that op. Empty ops drop out. */
+export function ownOpSyncChanges(item: SyncEntityValues): SyncEntityValues[] {
+  const own = item.entity === "bot" ? Object.keys(item.changes).filter((field) => OWN_OP_BOT_FIELDS.includes(field)) : [];
+  const rest = Object.fromEntries(Object.entries(item.changes).filter(([field]) => !own.includes(field)));
+  return [rest, ...own.map((field) => ({ [field]: item.changes[field] }))]
+    .filter((changes) => Object.keys(changes).length)
+    .map((changes) => ({ ...item, changes }));
 }
 
 /** Only the model fields the import plan allows move; the merged selection must still be one the instance offers. */

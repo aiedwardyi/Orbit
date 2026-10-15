@@ -6,7 +6,7 @@ import { CloudBackendPicker } from "./CloudBackendPicker";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
-import { builtInBrowserEnabled } from "@/lib/feature-flags";
+import { builtInBrowserEnabled, memoryNotesEnabled } from "@/lib/feature-flags";
 import { showBotDetailsAdvanced } from "@/lib/friends-chrome";
 import {
   dropMemory,
@@ -220,7 +220,8 @@ const formatBytes = (bytes: number) => (bytes < 1024 ? `${bytes} B` : `${Math.ro
  * re-reads, so notes the bot wrote mid-session show up on the next open. */
 function MemoryCard({ bot }: { bot: Bot }) {
   const { t } = useI18n();
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
+  const autoNotes = memoryNotesEnabled(state.config, bot);
   const [botId] = useState(bot.id);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -438,6 +439,21 @@ function MemoryCard({ bot }: { bot: Bot }) {
         </div>
       )}
       {error && <div className="mt-2 text-[12px] text-danger">{error}</div>}
+      <div className="mt-3 flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-[14px] font-medium text-ink">{t("settings.memoryNotes.toggle")}</div>
+          <div className="mt-0.5 break-keep text-[12px] leading-relaxed text-ink-secondary">{t("settings.memoryNotes.help")}</div>
+        </div>
+        <button
+          role="switch"
+          aria-checked={autoNotes}
+          aria-label={t("settings.memoryNotes.toggle")}
+          onClick={() => dispatch({ type: "updateBot", botId: bot.id, patch: { memoryNotes: !autoNotes } })}
+          className={cn("relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors", autoNotes ? "bg-accent" : "bg-control")}
+        >
+          <span className={cn("absolute top-[3px] size-5 rounded-full bg-white transition-all", autoNotes ? "left-[21px]" : "left-[3px]")} />
+        </button>
+      </div>
     </div>
   );
 }

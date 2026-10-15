@@ -6,9 +6,9 @@ export function detailedRepliesEnabled(config: FeatureFlagConfig | null | undefi
   return config?.features?.detailedReplies === true;
 }
 
-/** Background chat notes into MEMORY.md. On unless switched off. */
-export function memoryNotesEnabled(config: FeatureFlagConfig | null | undefined): boolean {
-  return config?.features?.memoryNotes !== false;
+/** Background chat notes into MEMORY.md. The bot's own switch, else the old global one, on unless switched off. */
+export function memoryNotesEnabled(config: FeatureFlagConfig | null | undefined, bot?: { memoryNotes?: boolean } | null): boolean {
+  return bot?.memoryNotes ?? (config?.features?.memoryNotes !== false);
 }
 
 /** Experimental features are available only after an explicit opt-in. */

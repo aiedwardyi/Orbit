@@ -361,6 +361,8 @@ export interface Bot {
   /** When this bot wants to talk to another bot (ask_bot/delegate_bot),
    * pause and ask the user first. Off by default. */
   approvePeerComms?: boolean;
+  /** Background notes from chat into MEMORY.md. Unset follows features.memoryNotes. */
+  memoryNotes?: boolean;
   /** Whether this bot may use the workspace's connected apps. Unset means
    * allowed for existing bots; imported bots start with this disabled. */
   composio?: boolean;

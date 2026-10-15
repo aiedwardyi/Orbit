@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/lib/i18n";
 import type { Bot } from "@/state/store";
 
-const { mockDispatch } = vi.hoisted(() => ({ mockDispatch: vi.fn() }));
+const { mockDispatch, mockConfig } = vi.hoisted(() => ({ mockDispatch: vi.fn(), mockConfig: { current: {} as { features?: { memoryNotes?: boolean } } } }));
 
 vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
@@ -25,7 +25,7 @@ vi.mock("@/state/store", async (importOriginal) => {
           },
         ],
         bots: [],
-        config: {},
+        config: mockConfig.current,
         mascotMotion: null,
       },
       dispatch: mockDispatch,
@@ -209,6 +209,50 @@ describe("SettingsPanel memory and order", () => {
     const box = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Memory"]');
     expect(box?.value).toBe("likes tea");
     expect(host.querySelector('button[aria-expanded][class*="justify-between"]')).toBeNull();
+  });
+
+  it("shows Auto notes in the memory card, on by default, and saves it on the bot", async () => {
+    await act(async () => {
+      root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
+    });
+    const toggle = host.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Auto notes"]')!;
+    expect(host.textContent).toContain("Saves facts you mention in chat to the bot's Memory, using Claude Haiku.");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    const text = host.textContent ?? "";
+    expect(text.indexOf("Auto notes")).toBeGreaterThan(text.indexOf("Memory"));
+    expect(text.indexOf("Auto notes")).toBeLessThan(text.indexOf("Project folder"));
+    await act(async () => toggle.click());
+    expect(mockDispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "bot-1", patch: { memoryNotes: false } });
+  });
+
+  it("follows the global switch until the bot has its own", async () => {
+    mockConfig.current = { features: { memoryNotes: false } };
+    try {
+      await act(async () => {
+        root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
+      });
+      const toggle = () => host.querySelector('button[aria-label="Auto notes"]')!;
+      expect(toggle().getAttribute("aria-checked")).toBe("false");
+      await act(async () => {
+        root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: { ...claudeBot, memoryNotes: true } })));
+      });
+      expect(toggle().getAttribute("aria-checked")).toBe("true");
+    } finally {
+      mockConfig.current = {};
+    }
+  });
+
+  it("labels Auto notes in Korean", async () => {
+    localStorage.setItem("omb-locale", "ko");
+    try {
+      await act(async () => {
+        root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
+      });
+      expect(host.querySelector('button[role="switch"][aria-label="자동 메모"]')).not.toBeNull();
+      expect(host.textContent).toContain("채팅에서 말한 사실을 Claude Haiku로 봇의 메모리에 저장해요.");
+    } finally {
+      localStorage.removeItem("omb-locale");
+    }
   });
 
   it("orders the detail rows with lean startup after the terminal share", async () => {

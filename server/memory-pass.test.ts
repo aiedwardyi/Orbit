@@ -17,6 +17,7 @@ import {
   type MemoryPass,
   type NoteGenerator,
 } from "./memory-pass.ts";
+import { memoryNotesEnabled } from "./config.ts";
 import { MEMORY_SAVE_TOOL } from "./memory-save.ts";
 import type { Message, StoreChange } from "./store.ts";
 import { MEMORY_SEED, memoryFileRaw, writeMemoryFile } from "./workspace.ts";
@@ -50,6 +51,7 @@ function fakeStore() {
       return full;
     },
     rows: (threadId: string) => threads.get(threadId) ?? [],
+    emit,
   };
 }
 
@@ -62,11 +64,13 @@ describe("memory pass", () => {
   let generate: ReturnType<typeof vi.fn<NoteGenerator>>;
   let generator: NoteGenerator | null;
   let on: boolean;
+  let botSwitch: Map<string, boolean>;
   let pass: MemoryPass;
   const passes: MemoryPass[] = [];
 
   const start = () => {
-    const created = createMemoryPass({ store, dataDir, generate: () => generator, enabled: () => on, busy: (botId) => busy.has(botId) });
+    const enabled = (botId: string) => memoryNotesEnabled({ features: { memoryNotes: on } }, { memoryNotes: botSwitch.get(botId) });
+    const created = createMemoryPass({ store, dataDir, generate: () => generator, enabled, busy: (botId) => busy.has(botId) });
     passes.push(created);
     return created;
   };
@@ -83,6 +87,10 @@ describe("memory pass", () => {
     on = next;
     pass.onConfigChanged();
   };
+  const switchBot = (botId: string, next: boolean) => {
+    botSwitch.set(botId, next);
+    store.emit({ type: "bot", botId });
+  };
 
   beforeEach(() => {
     vi.useFakeTimers({ now: NOW });
@@ -93,6 +101,7 @@ describe("memory pass", () => {
     generate = vi.fn<NoteGenerator>(async () => "[]");
     generator = generate;
     on = true;
+    botSwitch = new Map();
     writeMemoryFile("bot-t1", "");
     pass = start();
   });
@@ -350,6 +359,119 @@ describe("memory pass", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
+  it("drops orphaned pending ids on restart", async () => {
+    say("t1", "i'm 38");
+    await vi.advanceTimersByTimeAsync(1_000);
+    pass.dispose();
+    vi.spyOn(store, "botByThread").mockReturnValue(null);
+    pass = start();
+    expect(stored()).toEqual({ threads: {} });
+    await vi.advanceTimersByTimeAsync(3 * MINUTE);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("clears an orphaned thread's idle timer on a config sweep", async () => {
+    say("t1", "i'm 38");
+    pass.onSettled("bot-t1", "t1");
+    await vi.advanceTimersByTimeAsync(1_000);
+    vi.spyOn(store, "botByThread").mockReturnValue(null);
+    pass.onConfigChanged();
+    expect(stored()).toEqual({ threads: {} });
+    await vi.advanceTimersByTimeAsync(3 * MINUTE);
+    await pass.idle();
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("aborts a deleted bot's running pass and drops its queued thread", async () => {
+    let finish: (output: string) => void = () => {};
+    generate.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    const lookup = store.botByThread;
+    const find = vi.spyOn(store, "botByThread").mockImplementation((threadId) => lookup(threadId === "t3" ? "t1" : threadId));
+    for (let i = 0; i < 8; i += 1) say("t1", "i'm 38");
+    pass.onSettled("bot-t1", "t1");
+    for (let i = 0; i < 8; i += 1) say("t2", "i like tea");
+    pass.onSettled("bot-t2", "t2");
+    for (let i = 0; i < 8; i += 1) say("t3", "i like coffee");
+    pass.onSettled("bot-t1", "t3");
+    await vi.advanceTimersByTimeAsync(1_000);
+    find.mockImplementation((threadId) => threadId === "t1" || threadId === "t3" ? null : lookup(threadId));
+    store.emit({ type: "bot.deleted", botId: "bot-t1" });
+    expect(generate.mock.calls[0]![1].aborted).toBe(true);
+    expect(stored()).toEqual({ threads: {} });
+    finish(facts(["38 years old", "i'm 38"]));
+    await pass.idle();
+    expect(memoryFileRaw("bot-t1")).toBe("");
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips a bot switched off while another bot runs", async () => {
+    switchBot("bot-t1", false);
+    for (let i = 0; i < 8; i += 1) {
+      say("t1", `i'm 38 ${i}`);
+      say("t2", `i like tea ${i}`);
+    }
+    await settle("t1", 3 * MINUTE);
+    await settle("t2", 3 * MINUTE);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls[0]![0]).toContain("i like tea");
+    expect(stored().threads.t1).toBeUndefined();
+  });
+
+  it("follows the global switch for a bot without its own", async () => {
+    pass.dispose();
+    on = false;
+    botSwitch.set("bot-t2", true);
+    pass = start();
+    say("t1", "i'm 38");
+    say("t2", "i like tea");
+    await settle("t1", 3 * MINUTE);
+    await settle("t2", 3 * MINUTE);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls[0]![0]).toContain("i like tea");
+  });
+
+  it("lets the bot's own switch beat the global one", async () => {
+    pass.dispose();
+    on = false;
+    botSwitch.set("bot-t1", true);
+    pass = start();
+    say("t1", "i'm 38");
+    say("t2", "i like tea");
+    await settle("t1", 3 * MINUTE);
+    await settle("t2", 3 * MINUTE);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate.mock.calls[0]![0]).toContain("i'm 38");
+    pass.dispose();
+    on = true;
+    botSwitch.set("bot-t1", false);
+    pass = start();
+    say("t1", "i can't read korean");
+    await settle("t1", 3 * MINUTE);
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops only the switched-off bot's pending ids and running pass", async () => {
+    let finish: (output: string) => void = () => {};
+    generate.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    for (let i = 0; i < 8; i += 1) say("t1", "i'm 38");
+    say("t2", "i like tea");
+    pass.onSettled("bot-t1", "t1");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(Object.keys(stored().threads).sort()).toEqual(["t1", "t2"]);
+    switchBot("bot-t1", false);
+    expect(generate.mock.calls[0]![1].aborted).toBe(true);
+    expect(Object.keys(stored().threads)).toEqual(["t2"]);
+    switchBot("bot-t1", true);
+    finish(facts(["38 years old", "i'm 38"]));
+    await pass.idle();
+    expect(memoryFileRaw("bot-t1")).toBe("");
+    await settle("t1", 3 * MINUTE);
+    await settle("t2", 3 * MINUTE);
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate.mock.calls[1]![0]).toContain("i like tea");
+  });
+
   it("checks the switch and the generator before loading thread rows", async () => {
     const load = vi.spyOn(store, "messagesFor");
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -529,9 +651,16 @@ describe("memory pass wiring", () => {
   });
 
   it("reads the Settings switch live and drops pending notes on a config change", () => {
-    expect(index).toMatch(/createMemoryPass\(\{[\s\S]*?enabled: \(\) => memoryNotesEnabled\(cfg\),[\s\S]*?\}\);/);
+    expect(index).toMatch(/createMemoryPass\(\{[\s\S]*?enabled: \(botId\) => memoryNotesEnabled\(cfg, store\.bot\(botId\)\),[\s\S]*?\}\);/);
     expect(index).toMatch(/saveConfig\(patch\);[\s\S]*?Object\.assign\(cfg, loadConfig\(\)\);\s*\}\s*if \(\(cfg\.profile[^\n]*\n\s*memoryPass\.onConfigChanged\(\);/);
     expect(index).toContain("memoryNotes: memoryNotesEnabled(cfg),");
+  });
+
+  it("saves and syncs the switch on the bot record", () => {
+    expect(index).toContain("patch.memoryNotes = body.memoryNotes;");
+    expect(index).toContain("memoryNotes: bot.memoryNotes ?? null,");
+    expect(index).toContain('if ("memoryNotes" in apply) patch.memoryNotes = typeof apply.memoryNotes === "boolean" ? apply.memoryNotes : undefined;');
+    expect(index).toContain("ownOpSyncChanges(compatibleSyncChanges(synced, unsynced))");
   });
 
   it("loads only the pending rows, never a Map of the whole thread", () => {

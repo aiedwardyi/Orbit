@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,6 +18,7 @@ import {
   markImported,
   markSynced,
   mergeSyncedModelSelection,
+  ownOpSyncChanges,
   planProfileImport,
   profileImportDue,
   syncedDeleteChoice,
@@ -33,6 +34,7 @@ import {
   serializeSyncOperation,
   syncAvatarMatches,
   syncOperationFileName,
+  syncOperationsSignature,
   unresolvedSyncConflicts,
   seenCheckpointAfterSave,
   writeSyncAvatarAsset,
@@ -279,6 +281,37 @@ describe("profile sync operations", () => {
     expect(result.truncated).toBe(false);
   });
 
+  it("detects an arriving auto notes record without another bot edit", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-notes-arrival-"));
+    roots.push(root);
+    writeSyncOperation(root, operation());
+    const signature = syncOperationsSignature(root);
+    const seen = { signature, invalid: false, missingAssets: [] };
+    expect(profileImportDue(seen, signature, root)).toBe(false);
+    const notes = operation({ operationId: "notes", sequence: 2, changes: { memoryNotes: false } });
+    writeFileSync(join(root, "changes", "notes.notes"), serializeSyncOperation(notes));
+    const next = syncOperationsSignature(root);
+    expect(next).not.toBe(signature);
+    expect(profileImportDue(seen, next, root)).toBe(true);
+    const read = readSyncOperations(root);
+    expect(read.invalidFiles).toEqual([]);
+    expect(applySyncOperations(emptyProfileSyncState(), read.operations).bots["bot-1"]?.memoryNotes).toBe(false);
+  });
+
+  it("reports invalid auto notes records and ignores unfinished writes", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-notes-invalid-"));
+    roots.push(root);
+    writeSyncOperation(root, operation());
+    const directory = join(root, "changes");
+    writeFileSync(join(directory, "invalid.notes"), "{");
+    const signature = syncOperationsSignature(root);
+    writeFileSync(join(directory, "pending.notes.tmp"), "{");
+    expect(syncOperationsSignature(root)).toBe(signature);
+    const read = readSyncOperations(root);
+    expect(read.operations).toHaveLength(1);
+    expect(read.invalidFiles).toEqual(["invalid.notes"]);
+  });
+
   it("carries a custom avatar asset through a bot operation", () => {
     const record = operation({ operationId: "avatar-op", changes: { name: "Tutor", avatarAsset: "assets/abc123.png" } });
     expect(record.changes).toMatchObject({ avatarAsset: "assets/abc123.png" });
@@ -378,12 +411,10 @@ describe("automatic bot sync", () => {
       entityId: (host.botMap[localId] ??= `g-${host.id}-${localId}`),
       changes: bot.changes,
     })));
-    const operations = changed.flatMap((unsynced) => {
-      const item = compatibleSyncChanges(host.synced, unsynced);
-      if (!Object.keys(item.changes).length) return [];
+    const operations = changed.flatMap((unsynced) => ownOpSyncChanges(compatibleSyncChanges(host.synced, unsynced)).map((item) => {
       markSynced(host.synced, item);
-      return [record(item)];
-    });
+      return record(item);
+    }));
     for (const [localId, globalId] of Object.entries(host.botMap)) {
       if (host.bots.has(localId)) continue;
       operations.push(record({ entity: "bot", entityId: globalId, deleted: true }));
@@ -625,6 +656,78 @@ describe("automatic bot sync", () => {
     expect(publish(a)[0]!.changes).toEqual({ effort: "high" });
     tutor.changes.effort = null;
     expect(publish(a)[0]!.changes).toEqual({ effort: null });
+  });
+
+  it("leaves an unset auto notes switch out of every op", () => {
+    const a = device("a");
+    const tutor = { name: "Tutor", changes: { name: "Tutor", approvePeerComms: false, memoryNotes: null } as Record<string, unknown> };
+    a.bots.set("tutor", tutor);
+    expect(publish(a).map((op) => op.changes)).toEqual([{ name: "Tutor" }]);
+    tutor.changes.name = "Coach";
+    expect(publish(a).map((op) => op.changes)).toEqual([{ name: "Coach" }]);
+  });
+
+  it("publishes a flipped auto notes switch in its own op, apart from a rename in the same pass", () => {
+    const a = device("a");
+    const tutor = { name: "Tutor", changes: { name: "Tutor", memoryNotes: null } as Record<string, unknown> };
+    a.bots.set("tutor", tutor);
+    publish(a);
+    tutor.changes.name = "Coach";
+    tutor.changes.memoryNotes = false;
+    expect(publish(a).map((op) => op.changes)).toEqual([{ name: "Coach" }, { memoryNotes: false }]);
+  });
+
+  it.each([
+    { scenario: "a notes-only flip", fresh: false, changes: { memoryNotes: false } },
+    { scenario: "a flip and rename", fresh: false, changes: { name: "Coach", memoryNotes: false } },
+    { scenario: "a new bot", fresh: true, changes: { name: "Coach", color: "blue", model: "opus", memoryNotes: true } },
+  ])("keeps $scenario out of legacy JSON scans", ({ fresh, changes }) => {
+    const folder = mkdtempSync(join(tmpdir(), "orbit-profile-sync-notes-legacy-"));
+    roots.push(folder);
+    const a = device("a");
+    const tutor = { name: "Tutor", changes: { name: "Tutor", memoryNotes: null } as Record<string, unknown> };
+    a.bots.set("tutor", tutor);
+    if (!fresh) for (const op of publish(a)) writeSyncOperation(folder, op);
+    Object.assign(tutor.changes, changes);
+    for (const op of publish(a)) writeSyncOperation(folder, op);
+    const legacy = readdirSync(join(folder, "changes")).filter((name) => name.endsWith(".json"))
+      .map((name) => parseSyncOperationText(readFileSync(join(folder, "changes", name), "utf8")));
+    expect(legacy.every((op) => !("memoryNotes" in (op.changes ?? {})))).toBe(true);
+    const oldBot = applySyncOperations(emptyProfileSyncState(), legacy).bots["g-a-tutor"]!;
+    const { memoryNotes, ...rest } = tutor.changes;
+    expect(oldBot).toMatchObject(rest);
+    expect(oldBot.memoryNotes).toBeUndefined();
+    const read = readSyncOperations(folder);
+    expect(read.invalidFiles).toEqual([]);
+    expect(read.operations.filter((op) => "memoryNotes" in (op.changes ?? {})).map((op) => op.changes)).toEqual([{ memoryNotes }]);
+    expect(applySyncOperations(emptyProfileSyncState(), read.operations).bots["g-a-tutor"]).toMatchObject(tutor.changes);
+    expect(publish(a)).toEqual([]);
+  });
+
+  it("applies an auto notes op a 1.0.184 scan skipped once this build reads the same file", () => {
+    const folder = mkdtempSync(join(tmpdir(), "orbit-profile-sync-notes-"));
+    roots.push(folder);
+    const a = device("a");
+    const b = device("b");
+    const tutor = { name: "Tutor", changes: { name: "Tutor", memoryNotes: null } as Record<string, unknown> };
+    a.bots.set("tutor", tutor);
+    publish(a);
+    // b ran 1.0.184: it knows the bot but never synced memoryNotes
+    importInto(b);
+    tutor.changes.name = "Coach";
+    tutor.changes.memoryNotes = false;
+    for (const op of publish(a)) writeSyncOperation(folder, op);
+    const local = b.bots.get("b-bot-1")!;
+    local.changes.memoryNotes = null;
+    const seen = { signature: "log", invalid: true, missingAssets: [] };
+    expect(profileImportDue(seen, "log", folder)).toBe(true);
+    const read = readSyncOperations(folder);
+    expect(read.invalidFiles).toEqual([]);
+    expect(read.operations.map((op) => op.changes)).toEqual([{ name: "Coach" }, { memoryNotes: false }]);
+    expect(publish(b)).toEqual([]);
+    importInto(b);
+    expect(local.changes).toMatchObject({ name: "Coach", memoryNotes: false });
+    expect(publish(b)).toEqual([]);
   });
 
   it("retries an avatar whose asset lands after its op and keeps the local base until then", () => {

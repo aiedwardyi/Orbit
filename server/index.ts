@@ -335,6 +335,7 @@ import { RoutineRequestService } from "./routine-requests.ts";
 import {
   applySyncOperations,
   compatibleSyncChanges,
+  ownOpSyncChanges,
   createSyncOperation,
   emptyProfileSyncState,
   loadOrCreateSyncWorkspace,
@@ -1312,6 +1313,7 @@ function portableSyncChanges(bot: BotRecord, folder: string): Record<string, unk
     effort: bot.modelSelection.effort ?? null,
     modelMode: bot.modelSelection.mode ?? null,
     approvePeerComms: Boolean(bot.approvePeerComms),
+    memoryNotes: bot.memoryNotes ?? null,
   };
 }
 
@@ -1395,9 +1397,7 @@ function publishProfileChanges(): number {
     input: Omit<ProfileSyncOperation, "format" | "version" | "operationId" | "deviceId" | "sequence" | "recordedAt">,
   ) => nextProfileSyncOperation(baseCheckpoint ? { ...input, baseCheckpoint } : input, now);
   let written = 0;
-  for (const unsynced of changed) {
-    const item = compatibleSyncChanges(synced, unsynced);
-    if (!Object.keys(item.changes).length) continue;
+  for (const item of changed.flatMap((unsynced) => ownOpSyncChanges(compatibleSyncChanges(synced, unsynced)))) {
     try {
       writeSyncOperation(folder, record(item));
     } catch (error) {
@@ -1443,6 +1443,7 @@ function applySyncedBotFields(
   if ("pinned" in apply) patch.pinned = apply.pinned === true;
   if ("chiefOfStaff" in apply) patch.chiefOfStaff = apply.chiefOfStaff === true;
   if ("approvePeerComms" in apply) patch.approvePeerComms = apply.approvePeerComms === true;
+  if ("memoryNotes" in apply) patch.memoryNotes = typeof apply.memoryNotes === "boolean" ? apply.memoryNotes : undefined;
   if (["instanceId", "model", "effort", "modelMode"].some((field) => field in apply)) {
     patch.modelSelection = mergeSyncedModelSelection(bot.modelSelection, apply, instanceOffersModel);
   }
@@ -2577,7 +2578,7 @@ const memoryPass = createMemoryPass({
     const claude = registry.instances().find((instance) => instance.driverKind === "claude" && instance.enabled && instance.generateText);
     return claude ? (prompt, signal) => claude.generateText!(prompt, { signal, timeoutMs: 120_000, ephemeral: true }) : null;
   },
-  enabled: () => memoryNotesEnabled(cfg),
+  enabled: (botId) => memoryNotesEnabled(cfg, store.bot(botId)),
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
 });
 // Room thread → the instruction id its running turn was dispatched against.
@@ -9013,6 +9014,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.leanStartup !== undefined) {
         if (typeof body.leanStartup !== "boolean") return json(res, 400, { error: "leanStartup must be true or false" });
         patch.leanStartup = body.leanStartup;
+      }
+      if (body.memoryNotes !== undefined) {
+        if (typeof body.memoryNotes !== "boolean") return json(res, 400, { error: "memoryNotes must be true or false" });
+        patch.memoryNotes = body.memoryNotes;
       }
       if (
         body.computer !== undefined &&
