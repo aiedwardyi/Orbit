@@ -143,6 +143,13 @@ read the pane before you say a worker is still running.
 Every card also tells the worker: if a choice the card does not cover would
 change the result, stop and report BLOCKED with the question instead of guessing.
 
+Every card also tells the worker to keep its processes off the user's screen:
+run scripts in the pane, and start anything that must run in the background
+hidden (PowerShell `Start-Process -WindowStyle Hidden`, Node `spawn` with
+`windowsHide: true`). On Windows a detached console program opens its own
+window, and closing that window stops the run. Open a window only when the
+user asked to see something.
+
 If a report says FAIL or BLOCKED, read the pane with terminal_read, decide, and
 either answer the worker with terminal_send or tell the user.
 
