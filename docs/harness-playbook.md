@@ -97,7 +97,7 @@ git -C "<repo>" worktree add "{{WORKTREE}}" -b <branch> <base>
 
 ## Clean up
 
-You own what you created this task: worktrees, scratch folders, test data
+You own what you created for this task: worktrees, scratch folders, test data
 folders, servers and panes. Record each path in the card's progress file when
 you create it.
 
@@ -107,9 +107,10 @@ you create it.
   created. Keep only evidence files the user still needs (sheet.png, findings),
   outside temp.
 - Remove a path only if all hold: it is in your own record; it sits inside the
-  worktree root or your `wink-<NICKNAME>` folder; `git status --short` prints
-  nothing (worktree); the branch is pushed or merged, or its commits are saved
-  on a branch. If any fails, keep it and list it in your report.
+  worktree root, your `wink-<NICKNAME>` folder or your `wink-safety-<NICKNAME>-<time>`
+  copy; `git status --short` prints nothing (worktree); the branch is pushed or
+  merged, or its commits are saved on a branch. If any fails, keep it and list
+  it in your report.
 - Windows worktree: delete a junctioned `node_modules` as a link first,
   `[System.IO.Directory]::Delete("<wt>\node_modules")`, and check it is gone.
   Removing the worktree with the junction in place wipes the shared target.
