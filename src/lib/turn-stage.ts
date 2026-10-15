@@ -2,6 +2,10 @@
 // mascot once deltas arrive; before the first token, this label is what
 // separates a slow provider from a wedged one. Every phase below reads a
 // signal the client already receives.
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
+
 import type { Message } from "@/state/store";
 import { t } from "./i18n";
 
@@ -35,6 +39,7 @@ export type TurnStreamState = {
   streaming: Record<string, string>;
   reasoning: Record<string, string>;
   signal: TurnSignals;
+  reveal?: Record<string, { whole: number; ended?: boolean }>;
   /** Client wait generation. Bumped when a turn starts before the tail moves. */
   gen?: Record<string, number>;
   /** Identity the current buffers were written under, per thread. */
@@ -261,6 +266,21 @@ export function revealStream(text: string, ramps: readonly StreamRamp[], now: nu
   };
 }
 
+export function splitReplyBlocks(text: string, complete = false, whole = 0): string[] {
+  if (/^ {0,3}\[[^\]\n]+\]:/m.test(text)) return complete || whole >= text.length ? [text] : [];
+  const nodes = fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }).children;
+  return nodes.flatMap((node, i) => {
+    const start = text.lastIndexOf("\n", node.position!.start.offset! - 1) + 1;
+    const end = node.position!.end.offset!;
+    const block = text.slice(start, end);
+    const mark = node.type === "code" ? /^ {0,3}(`{3,}|~{3,})/.exec(block)?.[1] : undefined;
+    const closed = mark && new RegExp(`\\n {0,3}${mark[0]}{${mark.length},}[ \\t]*\\r?$`).test(block);
+    const blank = !["list", "blockquote", "code", "html"].includes(node.type) && /^\r?\n[ \t]*\r?\n/.test(text.slice(end));
+    if (complete || i < nodes.length - 1 || closed || blank) return [block.trimEnd()];
+    return whole > start ? [text.slice(start, whole).trimEnd()] : [];
+  });
+}
+
 function bumpedGen(prev: TurnStreamState, threadId: string) {
   return { ...prev.gen, [threadId]: (prev.gen?.[threadId] ?? 0) + 1 };
 }
@@ -276,6 +296,7 @@ function withoutThreadBuffers(
     !(threadId in prev.streaming) &&
     !(threadId in prev.reasoning) &&
     !hasTurn &&
+    !prev.reveal?.[threadId] &&
     signal === prev.signal &&
     gen === prev.gen
   ) {
@@ -284,7 +305,8 @@ function withoutThreadBuffers(
   const { [threadId]: _s, ...streaming } = prev.streaming;
   const { [threadId]: _r, ...reasoning } = prev.reasoning;
   const { [threadId]: _t, ...turn } = prev.turn ?? {};
-  return { ...prev, streaming, reasoning, turn, signal, gen };
+  const { [threadId]: _v, ...reveal } = prev.reveal ?? {};
+  return { ...prev, streaming, reasoning, turn, signal, gen, ...(prev.reveal ? { reveal } : {}) };
 }
 
 /**
@@ -339,7 +361,8 @@ export function writeStreamDelta(
   } else if (!same) {
     delete reasoning[threadId];
   }
-  return { ...prev, streaming, reasoning, turn: { ...prev.turn, [threadId]: currentTurn } };
+  const { [threadId]: _v, ...reveal } = prev.reveal ?? {};
+  return { ...prev, streaming, reasoning, turn: { ...prev.turn, [threadId]: currentTurn }, ...(!same && prev.reveal ? { reveal } : {}) };
 }
 
 /** Move the current wait onto a new tail without dropping its buffers. */

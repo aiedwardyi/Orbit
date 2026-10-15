@@ -82,7 +82,7 @@ import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
   focusWindow,
-  followedTailStart,
+  followedWindow,
   resolveTranscriptWindow,
   shiftForPrepend,
   tailWindowStart,
@@ -182,7 +182,7 @@ export function RoomToolChip({
           type="button"
           onClick={() => dispatch({ type: "select", id: comm.groupId })}
           title={t("chat.openConversation", { name: comm.withName })}
-          className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
+          className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink focus-visible:bg-control focus-visible:text-ink"
         >
           <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
           <span className="min-w-0 max-w-[480px] truncate">{commLabel(message, t)}</span>
@@ -215,11 +215,10 @@ export function RoomToolChip({
         <div
           title={approvalHover(notices, t)}
           className={cn(
-            "flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
+            "flex min-w-0 max-w-full items-center gap-2 border border-transparent px-3 py-1.5 text-[13px]",
             // Only turn-level `error:` rows go red; a plain failed step the
             // bot retried past renders like any other.
             tool.name.startsWith("error:") ? "text-danger" : "text-ink-secondary",
-            status && "rounded-2xl",
           )}
         >
           <span
@@ -584,7 +583,7 @@ export const Transcript = memo(function Transcript({
                     </>
                   ) : markdownText.trim() ? (
                     <MessageBoundary fallbackText={markdownText}>
-                      <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} threadId={group.threadId} />
+                      <ChatMarkdown text={markdownText} streaming={streaming} whole={m.streamWhole} baseDir={botFolder} threadId={group.threadId} />
                     </MessageBoundary>
                   ) : null}
                 </div>
@@ -1247,7 +1246,8 @@ export function GroupView({ group }: { group: Group }) {
   const showToolCalls = showToolCallsEnabled(state.config);
   const showActivities = showToolCalls || terminal;
   const activityLabel = liveActivityLabel(lastGroupMessage, showActivities);
-  const waiting = turnPresenceWaiting({
+  const reveal = stream.reveal?.[group.threadId];
+  const waiting = !reveal?.ended && turnPresenceWaiting({
     busy: Boolean(speaker),
     turnActive: stream.signal[group.threadId] !== undefined,
     activity: speaker?.activity,
@@ -1256,7 +1256,7 @@ export function GroupView({ group }: { group: Group }) {
     accepted: state.acceptedSends[group.threadId],
   });
   const liveText = buffersForTurn(stream, group.threadId, lastGroupMessage?.id).streaming;
-  const streamingMessage = useMemo<Message | null>(() => waiting && liveText ? {
+  const streamingMessage = useMemo<Message | null>(() => (waiting || reveal?.ended) && liveText ? {
     id: `stream:${group.threadId}:${lastGroupMessage?.id ?? ""}`,
     parentId: lastGroupMessage?.id,
     role: "bot",
@@ -1264,8 +1264,9 @@ export function GroupView({ group }: { group: Group }) {
     text: liveText,
     at: lastGroupMessage?.at ?? 0,
     placeholder: true,
+    streamWhole: reveal?.whole,
     from: speaker ? { botId: speaker.id, name: speaker.name, color: speaker.color } : undefined,
-  } : null, [waiting, liveText, group.threadId, lastGroupMessage?.id, lastGroupMessage?.at, speaker]);
+  } : null, [waiting, liveText, reveal, group.threadId, lastGroupMessage?.id, lastGroupMessage?.at, speaker]);
   const presenceSpeaker = speaker ?? members[0];
 
   // Windowed transcript, mirroring ChatView: only a tail of the room mounts;
@@ -1325,10 +1326,10 @@ export function GroupView({ group }: { group: Group }) {
     startIndex,
     endIndex,
   } = useMemo(
-    () => resolveTranscriptWindow(shown, follow && !jump.messages && transcriptWindow.end === null && !transcriptWindow.expanded
-      ? followedTailStart(transcriptWindow.start, shown.length, TRANSCRIPT_WINDOW_SIZE, renders)
+    () => resolveTranscriptWindow(shown, follow && !jump.messages
+      ? followedWindow(transcriptWindow, shown.length, TRANSCRIPT_WINDOW_SIZE, renders).start
       : transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
-    [shown, follow, jump.messages, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded],
+    [shown, follow, jump.messages, renders, transcriptWindow],
   );
 
   const setBottomFollow = useCallback((next: boolean) => {
@@ -1346,7 +1347,7 @@ export function GroupView({ group }: { group: Group }) {
     if (messageVisible(windowedMessages[i], showToolCalls, showActivities)) tail = windowedMessages[i];
   }
   const tailSlot = tail?.role === "bot" && tail.kind === "text" ? replySlot(group.threadId, tail, shown) : null;
-  const docked = useReplyDock(listedStreaming ? tailSlot : null, tailSlot, waiting);
+  const docked = useReplyDock(listedStreaming && waiting ? tailSlot : null, tailSlot, waiting);
   const dockSlot = docked?.slot;
   const dockLive = docked?.live ?? false;
   const lastUserAt = group.messages.findLast((m) => m.role === "user")?.at;
@@ -1407,10 +1408,9 @@ export function GroupView({ group }: { group: Group }) {
     !shown.some((message) => message.id === state.focusMessage?.messageId);
   useFocusMessage(group.threadId, shown.length > 0 && !focusPaging && focusWindowNonce === state.focusMessage?.nonce);
   useEffect(() => {
-    if (!follow || jump.messages || transcriptWindow.end !== null || transcriptWindow.expanded) return;
-    const start = followedTailStart(transcriptWindow.start, group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
-    if (start !== transcriptWindow.start) setTranscriptWindow((w) => ({ ...w, start }));
-  }, [follow, jump.messages, group.messages.length, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded]);
+    if (!follow || jump.messages || followedWindow(transcriptWindow, group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders) === transcriptWindow) return;
+    setTranscriptWindow((w) => followedWindow(w, group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders));
+  }, [follow, jump.messages, group.messages.length, renders, transcriptWindow]);
   // A plain tail holds at least the newest window of visible rows - see ChatView.
   const tailStart = useMemo(() => tailWindowStart(group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders), [group.messages.length, renders]);
 

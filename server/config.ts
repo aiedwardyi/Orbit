@@ -285,8 +285,8 @@ export function skillRecorderEnabled(cfg: AppConfig): boolean {
   return cfg.features?.skillRecorder === true;
 }
 
-export function memoryNotesEnabled(cfg: AppConfig): boolean {
-  return cfg.features?.memoryNotes !== false;
+export function memoryNotesEnabled(cfg: AppConfig, bot?: { memoryNotes?: boolean } | null): boolean {
+  return bot?.memoryNotes ?? (cfg.features?.memoryNotes !== false);
 }
 
 export function detailedRepliesEnabled(cfg: AppConfig): boolean {

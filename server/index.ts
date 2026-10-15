@@ -164,6 +164,7 @@ import {
   foldQueuedSends,
   hasQueuedSendBefore,
   hasQueuedSends,
+  initializeSteerQueue,
   isSendCancelled,
   markSendRunning,
   queuedSteeredMessage,
@@ -172,6 +173,7 @@ import {
   queueSteeredMessage,
 } from "./steer-queue.ts";
 import { sendPostReceipt, startedTurn } from "./send-receipt.ts";
+import { steersSend } from "./send-deliver.ts";
 import {
   acceptedSendMatch,
   parseSendId,
@@ -335,6 +337,7 @@ import { RoutineRequestService } from "./routine-requests.ts";
 import {
   applySyncOperations,
   compatibleSyncChanges,
+  ownOpSyncChanges,
   createSyncOperation,
   emptyProfileSyncState,
   loadOrCreateSyncWorkspace,
@@ -966,6 +969,7 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 }
 let bootSelection = { instanceId: "", model: "" };
 const store = new Store(() => bootSelection);
+initializeSteerQueue(store);
 if (store.botsFile === "unreadable") console.warn("bot sync: bots.json is there but did not load; not syncing bots until it does");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-sonnet-5", "claude-sonnet-5-5");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-haiku-4-5", "claude-haiku-5-5");
@@ -1312,6 +1316,7 @@ function portableSyncChanges(bot: BotRecord, folder: string): Record<string, unk
     effort: bot.modelSelection.effort ?? null,
     modelMode: bot.modelSelection.mode ?? null,
     approvePeerComms: Boolean(bot.approvePeerComms),
+    memoryNotes: bot.memoryNotes ?? null,
   };
 }
 
@@ -1395,9 +1400,7 @@ function publishProfileChanges(): number {
     input: Omit<ProfileSyncOperation, "format" | "version" | "operationId" | "deviceId" | "sequence" | "recordedAt">,
   ) => nextProfileSyncOperation(baseCheckpoint ? { ...input, baseCheckpoint } : input, now);
   let written = 0;
-  for (const unsynced of changed) {
-    const item = compatibleSyncChanges(synced, unsynced);
-    if (!Object.keys(item.changes).length) continue;
+  for (const item of changed.flatMap((unsynced) => ownOpSyncChanges(compatibleSyncChanges(synced, unsynced)))) {
     try {
       writeSyncOperation(folder, record(item));
     } catch (error) {
@@ -1443,6 +1446,7 @@ function applySyncedBotFields(
   if ("pinned" in apply) patch.pinned = apply.pinned === true;
   if ("chiefOfStaff" in apply) patch.chiefOfStaff = apply.chiefOfStaff === true;
   if ("approvePeerComms" in apply) patch.approvePeerComms = apply.approvePeerComms === true;
+  if ("memoryNotes" in apply) patch.memoryNotes = typeof apply.memoryNotes === "boolean" ? apply.memoryNotes : undefined;
   if (["instanceId", "model", "effort", "modelMode"].some((field) => field in apply)) {
     patch.modelSelection = mergeSyncedModelSelection(bot.modelSelection, apply, instanceOffersModel);
   }
@@ -2577,7 +2581,7 @@ const memoryPass = createMemoryPass({
     const claude = registry.instances().find((instance) => instance.driverKind === "claude" && instance.enabled && instance.generateText);
     return claude ? (prompt, signal) => claude.generateText!(prompt, { signal, timeoutMs: 120_000, ephemeral: true }) : null;
   },
-  enabled: () => memoryNotesEnabled(cfg),
+  enabled: (botId) => memoryNotesEnabled(cfg, store.bot(botId)),
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
 });
 // Room thread → the instruction id its running turn was dispatched against.
@@ -4082,7 +4086,7 @@ const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. For a video, audio or other file, link its absolute path in markdown, like [clip.mp4](C:\\path\\clip.mp4) or, when the path contains spaces, in angle brackets like [clip.mp4](<C:\\My Files\\clip.mp4>), so the user can open it with one click. Never end with only a file path. To create a new image, call generate_image.";
 
 const ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS =
-  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. If that line answered it, your final message does not return to it: no recap, no 'On your question' part, no expanded take, unless your later work changed the answer or a Wink note says the user never saw that line, in which case the answer goes out again, exactly once. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you.";
+  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. If that line answered it, your final message does not return to it: no recap, no 'On your question' part, no expanded take, unless your later work changed the answer or a Wink note says the user never saw that line, in which case the answer goes out again, exactly once. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you. Clean up after yourself: once a task's result is verified, remove the temporary files, folders and worktrees you created for it, by exact path only; never delete by wildcard or age, or anything you did not create, and ask when unsure.";
 const REPLY_STYLE_INSTRUCTIONS =
   " Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. After tool work, close with a short standalone summary of what you did and found. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
 const ALWAYS_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS + REPLY_STYLE_INSTRUCTIONS;
@@ -9014,6 +9018,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (typeof body.leanStartup !== "boolean") return json(res, 400, { error: "leanStartup must be true or false" });
         patch.leanStartup = body.leanStartup;
       }
+      if (body.memoryNotes !== undefined) {
+        if (typeof body.memoryNotes !== "boolean") return json(res, 400, { error: "memoryNotes must be true or false" });
+        patch.memoryNotes = body.memoryNotes;
+      }
       if (
         body.computer !== undefined &&
         !["cloud", "vm", "local", "off"].includes(String(body.computer))
@@ -9466,9 +9474,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // busy flips only after preparation, so without this check rapid
           // sends race the claim and receive a false busy rejection.
           if (currentAtStart.busy || botHasActiveTurn(bot.id, threadId)) {
-            const instance = registry.get(currentAtStart.modelSelection.instanceId);
+            const adapter = registry.get(currentAtStart.modelSelection.instanceId)?.adapter;
             let steered = false;
-            if (currentAtStart.busy && instance?.adapter.capabilities.queueing && instance.adapter.steer) {
+            if (steersSend(adapter, currentAtStart.busy, body.deliver === "after")) {
               const turnOpts = {
                 replyTo,
                 messages: store.activePath(threadId),
@@ -9477,10 +9485,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               };
               // Reactions count only once the model took them in; an engine
               // that cannot tell leaves them to the next turn's prompt.
-              const consumable = instance.adapter.capabilities.steerConsumed === true;
+              const consumable = adapter.capabilities.steerConsumed === true;
               const prompt = consumable ? composeUserTurnPrompt(text, turnOpts) : promptWithReply(text, replyTo, turnOpts.userName);
               const reactions = consumable ? userTurnReactionKeys(turnOpts) : [];
-              steered = await instance.adapter
+              steered = await adapter
                 .steer(threadId, prompt, (taken) => {
                   if (taken) store.addReactionsDelivered(bot.id, threadId, reactions);
                 })
@@ -9530,6 +9538,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const queued = queueSteeredMessage(current.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
+              after: body.deliver === "after",
               // Reply quote only — startTurn wraps reactions when this drains.
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
@@ -9550,6 +9559,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const held = queueSteeredMessage(bot.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
+              after: body.deliver === "after",
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
             if (held.skipped) return { ok: true as const, cancelled: true as const, threadId };
@@ -10653,6 +10663,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 };
 
 syncAllThreads();
+setImmediate(drainQueuedSends);
 googleSync.resume();
 uploads.sweep();
 setInterval(() => uploads.sweep(), 60 * 60 * 1000).unref();

@@ -1640,7 +1640,7 @@
 
   .term-step[data-term-step="running"]::before {
     color: var(--color-ink-secondary);
-    animation: term-blink 1s steps(2, start) infinite;
+    animation: term-blink 1s step-end infinite;
   }
 
   .term-step-result {
@@ -2110,13 +2110,13 @@
 }
 
 @keyframes term-blink {
-  to {
-    visibility: hidden;
+  50% {
+    opacity: 0;
   }
 }
 
 .term-blink {
-  animation: term-blink 1.2s steps(2, start) infinite;
+  animation: term-blink 1.2s step-end infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4324,6 +4324,7 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
 
 /* Cute mascot idle: Grok-style blink + soft eye drift. No body bounce. */
 .mascot-avatar {
+  position: relative;
   line-height: 0;
   border-radius: 50%;
   overflow: hidden;
@@ -4333,10 +4334,16 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   width: 100%;
   height: 100%;
 }
+/* Eyes animate on HTML spans: a transform on an SVG <g> relayouts every tick. */
+.mascot-avatar .mascot-idle,
+.mascot-avatar .mascot-blink,
+.mascot-avatar .mascot-top {
+  position: absolute;
+  inset: 0;
+}
 .mascot-avatar .mascot-idle,
 .mascot-avatar .mascot-blink {
-  transform-box: fill-box;
-  transform-origin: center;
+  transform-origin: var(--mascot-eye-origin, center);
 }
 .mascot-avatar .mascot-idle {
   animation: mascot-idle-eyes 8s ease-in-out infinite;
@@ -4355,8 +4362,8 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
 }
 @keyframes mascot-idle-eyes {
   0%, 100% { transform: translate(0, 0); }
-  40% { transform: translate(4%, 3%); }
-  72% { transform: translate(-3%, 1.5%); }
+  40% { transform: translate(calc(var(--mascot-eye-w, 100%) * 0.04), calc(var(--mascot-eye-h, 100%) * 0.03)); }
+  72% { transform: translate(calc(var(--mascot-eye-w, 100%) * -0.03), calc(var(--mascot-eye-h, 100%) * 0.015)); }
 }
 @keyframes mascot-blink {
   0%, 41%, 44%, 90%, 93.5%, 100% { transform: scaleY(1); }
@@ -4389,7 +4396,7 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   mask-image: linear-gradient(90deg, transparent 30%, #000 50%, transparent 70%);
   user-select: none;
 }
-.thinking-sheen, .thinking-sheen > span { animation: shimmer 1s linear infinite; }
+.thinking-sheen, .thinking-sheen > span { animation: shimmer 1s linear infinite; will-change: transform; }
 .thinking-sheen > span { display: block; animation-direction: reverse; }
 
 /* Question choice card: keep the 5px accent signal round even under boxy. */

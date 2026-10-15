@@ -431,6 +431,55 @@ describe("WorkerChip", () => {
     }
   });
 
+  it("keeps the desktop menu inside a chat column that starts near the chip", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const { host, chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
+    const main = document.createElement("main");
+    document.body.append(main);
+    main.append(host);
+    const box = (left: number, right: number) => new window.DOMRect(left, 0, right - left, 40);
+    vi.spyOn(main, "getBoundingClientRect").mockReturnValue(box(280, 700));
+    vi.spyOn(chip()!.parentElement!, "getBoundingClientRect").mockReturnValue(box(436, 470));
+    try {
+      await act(async () => chip()!.click());
+      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("-118px");
+    } finally {
+      await unmount();
+      main.remove();
+    }
+  });
+
+  it.each(["window", "column"])("repositions the desktop menu when the %s resizes", async (target) => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const callbacks: Array<() => void> = [];
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { callbacks.push(callback); }
+      observe() {}
+      disconnect() {}
+    });
+    const { host, chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
+    const main = document.createElement("main");
+    document.body.append(main);
+    main.append(host);
+    const box = (left: number, right: number) => new window.DOMRect(left, 0, right - left, 40);
+    const column = vi.spyOn(main, "getBoundingClientRect").mockReturnValue(box(280, 700));
+    const row = vi.spyOn(chip()!.parentElement!, "getBoundingClientRect").mockReturnValue(box(436, 470));
+    try {
+      await act(async () => chip()!.click());
+      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("-118px");
+      column.mockReturnValue(box(280, 900));
+      row.mockReturnValue(box(816, 850));
+      await act(async () => {
+        if (target === "window") window.dispatchEvent(new Event("resize"));
+        else for (const callback of callbacks) callback();
+      });
+      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("0px");
+    } finally {
+      await unmount();
+      main.remove();
+    }
+  });
+
   it("scrolls a desktop list of eight entries", async () => {
     vi.stubGlobal("matchMedia", () => ({ matches: false }));
     const runs = Array.from({ length: 8 }, (_, i) => shown(`W${i}`, "working", `s${i}`, i));

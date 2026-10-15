@@ -866,7 +866,7 @@ describe("ChatView transcript window", () => {
     }
   });
 
-  it("keeps an expanded window after scrolling back to the bottom during a live turn", async () => {
+  it("lets go of an expanded window after scrolling back to the bottom during a live turn", async () => {
     const { host, render, unmount } = await mount();
     const messages = Array.from({ length: 370 }, (_, i) => userMsg(`m${i}`, `row ${i};`));
     try {
@@ -881,15 +881,12 @@ describe("ChatView transcript window", () => {
       scroller.scrollTop = TRANSCRIPT_PX - VIEWPORT_PX;
       await act(async () => scroller.dispatchEvent(new Event("scroll")));
       expect(button(host, "Jump to latest")).toBeUndefined();
+      expect(host.textContent).toContain("row 130;");
 
       await render({ ...botA, messages: [...messages, tool(0)] });
-      expect(host.textContent).toContain("row 130;");
-
-      await render({ ...botA, messages: [...messages, tool(0), tool(1)] });
-      await act(async () => {
-        await sleep(300);
-      });
-      expect(host.textContent).toContain("row 130;");
+      expect(host.textContent).not.toContain("row 249;");
+      expect(host.textContent).toContain("row 250;");
+      expect(button(host, "Show earlier messages")).toBeDefined();
     } finally {
       await unmount();
     }
@@ -1428,6 +1425,7 @@ describe("docked reply mascot", () => {
   });
 
   it("renders the mascot standalone before any text, then docks it in the live reply's action strip", async () => {
+    localStorage.setItem("omb-reply-style", "live");
     const { host, render, mascots, unmount } = await mount();
     try {
       live.current = working("thread-a");
@@ -1508,6 +1506,7 @@ describe("docked reply mascot", () => {
   });
 
   it("renders a room's live answer as a transcript row with its name label", async () => {
+    localStorage.setItem("omb-reply-style", "live");
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     vi.stubGlobal("ResizeObserver", class {

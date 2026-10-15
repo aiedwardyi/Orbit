@@ -51,7 +51,6 @@ describe("Account settings", () => {
       if (path === "/api/phone-relay/status") return Response.json({ configured: false, available: phoneAvailable });
       if (path === "/api/remote-link") return Response.json({ url: url || null });
       if (path === "/api/key-uses") return Response.json({ uses: {} });
-      if (path === "/api/config") return Response.json({ ...config, features: { ...config.features, memoryNotes: false } });
       return Response.json({ error: `no route ${path}` }, { status: 404 });
     });
     vi.stubGlobal("fetch", request);
@@ -122,30 +121,11 @@ describe("Account settings", () => {
     expect(pane.textContent).toContain("Show work steps");
   });
 
-  it("shows Memory after Replies, on by default, and switches it off", async () => {
+  it("leaves General without the Memory card", async () => {
     const pane = await render("general");
-    const titles = [...pane.children].map((card) => card.firstElementChild?.textContent);
-    expect(titles.indexOf("Memory")).toBe(titles.indexOf("Replies") + 1);
-    const card = [...pane.children].find((child) => child.firstElementChild?.textContent === "Memory")!;
-    expect(card.textContent).toContain("Auto notes");
-    expect(card.textContent).toContain("Saves facts you mention in chat to the bot's Memory, using Claude Haiku.");
-    const toggle = card.querySelector<HTMLButtonElement>('[role="switch"]')!;
-    expect(toggle.getAttribute("aria-label")).toBe("Auto notes");
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    await act(async () => toggle.click());
-    const patch = request.mock.calls.find(([path]) => path === "/api/config");
-    expect(patch?.[1]).toMatchObject({ method: "PATCH", body: JSON.stringify({ features: { memoryNotes: false } }) });
-    expect(toggle.getAttribute("aria-checked")).toBe("false");
-  });
-
-  it("labels Memory in Korean on a ko-KR system", async () => {
-    localStorage.setItem("omb-locale", "system");
-    vi.stubGlobal("ogb", { getLocale: () => "ko-KR" });
-    const pane = await render("general");
-    const card = [...pane.children].find((child) => child.firstElementChild?.textContent === "메모리")!;
-    expect(card.textContent).toContain("자동 메모");
-    expect(card.textContent).toContain("채팅에서 말한 사실을 Claude Haiku로 봇의 메모리에 저장해요.");
-    expect(card.querySelector('[role="switch"]')?.getAttribute("aria-label")).toBe("자동 메모");
+    expect([...pane.children].map((card) => card.firstElementChild?.textContent)).not.toContain("Memory");
+    expect(pane.textContent).not.toContain("Auto notes");
+    expect(pane.querySelector('[aria-label="Auto notes"]')).toBeNull();
   });
 
   it("leaves Connections without phone components or their requests", async () => {

@@ -13,6 +13,8 @@ import { z } from "zod";
 
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { isTerminalSkin, useSkin } from "@/lib/skins";
+import { useReplyStyle } from "@/lib/reply-style";
+import { splitReplyBlocks } from "@/lib/turn-stage";
 
 // tiny highlight cache so revisiting a thread doesn't re-tokenize settled
 // blocks; keys are content-hashed and capped. Streamed partials may land here
@@ -590,23 +592,53 @@ function Spoiler({ children }: { children?: ReactNode }) {
 function ChatMarkdownComponent({
   text,
   streaming = false,
+  whole = 0,
   baseDir,
   threadId,
 }: {
   text: string;
   streaming?: boolean;
+  whole?: number;
   baseDir?: string | null;
   threadId?: string;
 }) {
-  // A streamed reply keeps its blocks once settled, so settling re-parses nothing.
+  const style = useReplyStyle();
+  const root = useRef<HTMLDivElement>(null);
+  const seen = useRef(new WeakSet<Element>());
+  const previousWhole = useRef(0);
+  const previousStyle = useRef(style);
+  // Live typing keeps its blocks once settled.
   const [split, setSplit] = useState(streaming);
   if (streaming && !split) setSplit(true);
   const blocks = useMemo(() => {
+    if (style === "paragraphs") return streaming ? splitReplyBlocks(text, false, whole) : [text];
     if (!split) return [text];
     const parts = streamBlocks(text);
     if (streaming) parts[parts.length - 1] = settleStreamTail(parts[parts.length - 1]);
     return parts;
-  }, [split, text, streaming]);
+  }, [split, text, streaming, style, whole]);
+  useLayoutEffect(() => {
+    const catchup = whole > previousWhole.current || whole >= text.length;
+    const fade = style === "paragraphs" && previousStyle.current === style && streaming && !catchup
+      && document.visibilityState === "visible" && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    for (const child of root.current?.children ?? []) {
+      if (!seen.current.has(child) && fade) child.animate?.(
+        [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "translateY(0)" }],
+        { duration: 400, easing: "ease-out" },
+      );
+      seen.current.add(child);
+    }
+    previousWhole.current = whole;
+    previousStyle.current = style;
+  }, [blocks, streaming, style, whole, text.length]);
+  useEffect(() => {
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const stop = () => {
+      if (media?.matches) root.current?.getAnimations?.({ subtree: true }).forEach((animation) => animation.cancel());
+    };
+    media?.addEventListener?.("change", stop);
+    return () => media?.removeEventListener?.("change", stop);
+  }, []);
   const components = useMemo(() => ({
     pre({ children }: { children?: ReactNode }) {
       // fenced code arrives as <pre><code class="language-x">…</code></pre>
@@ -708,7 +740,7 @@ function ChatMarkdownComponent({
   }), [baseDir, threadId]);
   return (
     <StreamingContext.Provider value={streaming}>
-      <div className="chat-md min-w-0 [&>*+*]:mt-2">
+      <div ref={root} className="chat-md min-w-0 [&>*+*]:mt-2">
         {blocks.map((block, i) => (
           <MarkdownBlock key={i} text={block} components={components} />
         ))}

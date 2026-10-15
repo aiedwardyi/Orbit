@@ -26,6 +26,7 @@ export interface FailedComposerSend {
   requestText: string;
   replyToId?: string;
   threadId: string;
+  after?: boolean;
 }
 type FailedComposerSendInput = Omit<FailedComposerSend, "id">;
 export interface ComposerSendSnapshot extends FailedComposerSendInput {
@@ -312,13 +313,14 @@ export function rememberFailedComposerSend(
 
 /** Recovers a rejected POST without ever replacing a newer draft. */
 export function recoverFailedComposerSend(sent: ComposerSendSnapshot): "restored" | "outbox" {
-  if (draftRevision(sent.draftId) !== sent.revision) {
+  if (sent.after || draftRevision(sent.draftId) !== sent.revision) {
     rememberFailedComposerSend(sent.draftId, {
       sendId: sent.sendId,
       text: sent.text,
       requestText: sent.requestText,
       replyToId: sent.replyToId,
       threadId: sent.threadId,
+      after: sent.after,
     });
     return "outbox";
   }

@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChartScatter, ChevronDown, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Settings, Smartphone, Terminal, User, Users, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
-import { builtInBrowserEnabled, detailedRepliesEnabled, memoryNotesEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
+import { builtInBrowserEnabled, detailedRepliesEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
   showSettingsAdvancedSection,
   showSettingsEnginesNav,
@@ -44,6 +44,7 @@ import { loadSidebarSide, saveSidebarSide, type SidebarSide } from "@/lib/sideba
 import { isPhone, saveVibration, vibrationEnabled } from "@/lib/phone-swipe";
 import { saveRainbowBox, useRainbowBox } from "@/lib/rainbow-box";
 import { saveTerminalPopups, useTerminalPopups } from "@/lib/terminal-popups";
+import { saveReplyStyle, useReplyStyle, type ReplyStyle } from "@/lib/reply-style";
 import { cn } from "@/lib/cn";
 import { SyncPanel } from "./SyncPanel";
 import { StartFreshRow } from "./StartFreshRow";
@@ -200,6 +201,7 @@ function DetailedRepliesRow() {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const enabled = detailedRepliesEnabled(state.config);
+  const style = useReplyStyle();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -222,6 +224,27 @@ function DetailedRepliesRow() {
 
   return (
     <Card title={t("settings.detailedReplies.title")}>
+      <div className="mb-4 border-b border-hairline/30 pb-4">
+        <div className="mb-2 text-[14px] font-medium text-ink">{t("settings.replyStyle.title")}</div>
+        <div role="radiogroup" aria-label={t("settings.replyStyle.title")} className="flex gap-1 rounded-lg bg-inset p-0.5">
+          {(["paragraphs", "live"] as ReplyStyle[]).map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={style === option}
+              onClick={() => saveReplyStyle(option)}
+              className={cn(
+                "min-w-0 flex-1 rounded-[max(0px,calc(var(--radius-lg)_-_2px))] px-2 py-1.5 text-center text-[13px] font-medium transition-colors",
+                style === option ? "bg-raised text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+              )}
+            >
+              {option === "paragraphs" ? t("settings.replyStyle.paragraphs") : t("settings.replyStyle.live")}
+            </button>
+          ))}
+        </div>
+        <div className="mt-1 text-[12px] leading-relaxed text-ink-secondary">{t("settings.replyStyle.help")}</div>
+      </div>
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="text-[14px] font-medium text-ink">{t("settings.detailedReplies.toggle")}</div>
@@ -233,55 +256,6 @@ function DetailedRepliesRow() {
           role="switch"
           aria-checked={enabled}
           aria-label={t("settings.detailedReplies.aria")}
-          disabled={saving}
-          onClick={() => void toggle()}
-          className={`${cnSwitch(enabled)} disabled:cursor-wait disabled:opacity-50`}
-        >
-          <span className={cnKnob(enabled)} />
-        </button>
-      </div>
-      {error ? <p role="alert" className="mt-2 text-[12px] text-danger">{error}</p> : null}
-    </Card>
-  );
-}
-
-function MemoryNotesRow() {
-  const { t } = useI18n();
-  const { state, dispatch } = useStore();
-  const enabled = memoryNotesEnabled(state.config);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const toggle = async () => {
-    if (saving) return;
-    setSaving(true);
-    setError("");
-    try {
-      const config: ConfigStatus = await api("/api/config", {
-        method: "PATCH",
-        body: JSON.stringify({ features: { memoryNotes: !enabled } }),
-      });
-      dispatch({ type: "configStatus", config });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("settings.memoryNotes.saveError"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Card title={t("settings.memoryNotes.title")}>
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-[14px] font-medium text-ink">{t("settings.memoryNotes.toggle")}</div>
-          <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
-            {t("settings.memoryNotes.help")}
-          </div>
-        </div>
-        <button
-          role="switch"
-          aria-checked={enabled}
-          aria-label={t("settings.memoryNotes.toggle")}
           disabled={saving}
           onClick={() => void toggle()}
           className={`${cnSwitch(enabled)} disabled:cursor-wait disabled:opacity-50`}
@@ -757,7 +731,6 @@ export function SettingsModal({
                 <TerminalAppearanceRow />
                 <ToolCallsRow />
                 <DetailedRepliesRow />
-                <MemoryNotesRow />
                 <NotificationsRow />
                 <VibrationRow />
                 <UpdatesRow />

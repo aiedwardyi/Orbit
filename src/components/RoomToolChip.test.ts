@@ -67,6 +67,24 @@ describe("RoomToolChip", () => {
     expect(dispatched).toEqual([{ type: "select", id: "pair" }, { type: "select", id: "pair" }, { type: "select", id: "pair" }]);
   });
 
+  it("matches the conversation chip's keyboard foreground to hover", async () => {
+    const [button] = await renderRows([sent]);
+    const classes = new Set(button.className.split(/\s+/));
+    expect(classes.has("hover:text-ink")).toBe(true);
+    expect(classes.has("focus-visible:text-ink")).toBe(true);
+  });
+
+  it("draws the conversation and step chips flat, with a fill only on the button's hover and focus", async () => {
+    const [button] = await renderRows([sent, { id: "step", at: 2, role: "bot", kind: "activity", tool: { name: "Bash: npm test", ok: true } }]);
+    const row = host.querySelector(".font-mono")!.parentElement!;
+    for (const chip of [button, row]) {
+      const cls = new Set(chip.className.split(/\s+/));
+      expect(cls.has("border-transparent")).toBe(true);
+      expect([...cls].filter((c) => /^(bg-|border-hairline|rounded-(full|2xl))/.test(c))).toEqual([]);
+    }
+    for (const c of ["rounded-lg", "hover:bg-control", "focus-visible:bg-control", "hover:text-ink"]) expect(button.classList.contains(c)).toBe(true);
+  });
+
   it("translates both labels into Korean in a room", async () => {
     localStorage.setItem("omb-locale", "ko");
     const chips = await renderRows([sent, reply]);
@@ -87,7 +105,7 @@ describe("RoomToolChip", () => {
       line("waiting", "Delegation to @Atlas waiting \u2014 they're busy (retry 1/3 when they finish)"),
       line("other", "error: the CLI exited"),
     ];
-    const labels = () => Array.from(host.querySelectorAll(".bg-panel > span")).map((span) => span.textContent);
+    const labels = () => Array.from(host.querySelectorAll(".border-transparent > span")).map((span) => span.textContent);
     await renderRows(rows);
     expect(labels()).toEqual([
       "Delegation to @Atlas denied by user",
@@ -115,14 +133,13 @@ describe("RoomToolChip", () => {
       line("failed", "error: delegation failed \u2014 Atlas is offline"),
       line("bash", "Bash: npm test"),
     ]);
-    const spans = Array.from(host.querySelectorAll(".bg-panel > span"));
+    const spans = Array.from(host.querySelectorAll(".border-transparent > span"));
     expect(spans.map((span) => span.className)).toEqual([
       "min-w-0 max-w-[480px] break-words",
       "min-w-0 max-w-[480px] break-words",
       "min-w-0 max-w-[480px] break-words",
       "min-w-0 max-w-[480px] truncate font-mono",
     ]);
-    expect(spans.map((span) => span.parentElement!.classList.contains("rounded-2xl"))).toEqual([true, true, true, false]);
   });
 
   it("translates Message from and the failed-turn fold labels into Korean in a room", async () => {

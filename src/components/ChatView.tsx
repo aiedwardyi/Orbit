@@ -104,7 +104,7 @@ import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
   focusWindow,
-  followedTailStart,
+  followedWindow,
   resolveTranscriptWindow,
   shiftForPrepend,
   tailWindowStart,
@@ -678,7 +678,7 @@ const Bubble = memo(function Bubble({
             </>
           ) : markdownText.trim() ? (
             <MessageBoundary fallbackText={markdownText}>
-              <ChatMarkdown text={markdownText} streaming={streaming} baseDir={botFolder} threadId={bot.threadId} />
+              <ChatMarkdown text={markdownText} streaming={streaming} whole={message.streamWhole} baseDir={botFolder} threadId={bot.threadId} />
             </MessageBoundary>
           ) : null}
         </div>
@@ -800,7 +800,7 @@ function ActivityChip({ message, notices }: { message: Message; notices?: Linked
         <button
           onClick={() => dispatch({ type: "select", id: comm.groupId })}
           title={t("chat.openConversation", { name: comm.withName })}
-          className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
+          className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink focus-visible:bg-control focus-visible:text-ink"
         >
           <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} />
           <span className="min-w-0 max-w-[480px] truncate">{commLabel(message, t)}</span>
@@ -823,7 +823,7 @@ function ActivityChip({ message, notices }: { message: Message; notices?: Linked
     <div className="flex justify-start">
       <div
         title={failed ? t("chat.stepDidNotComplete") : approvalHover(notices, t)}
-        className={cn("flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary", status && "rounded-2xl")}
+        className="flex min-w-0 max-w-full items-center gap-2 border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary"
       >
         {tool.ok === undefined ? (
           <Loader2 size={13} className="shrink-0 animate-spin" />
@@ -1648,7 +1648,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     (index: number) => messageVisible(messages[index], { showToolCalls, showActivities, transcript: messages }),
     [messages, showToolCalls, showActivities],
   );
-  // `expanded`: the reader asked for scrollback, so the followed tail never slides it away.
+  // `expanded`: scrollback the reader asked for, held until they follow the bottom again.
   const [transcriptWindow, setTranscriptWindow] = useState<{
     key: string;
     start: number;
@@ -1712,10 +1712,10 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     startIndex,
     endIndex,
   } = useMemo(
-    () => resolveTranscriptWindow(shown, follow && !jump.messages && transcriptWindow.end === null && !transcriptWindow.expanded
-      ? followedTailStart(transcriptWindow.start, shown.length, TRANSCRIPT_WINDOW_SIZE, renders)
+    () => resolveTranscriptWindow(shown, follow && !jump.messages
+      ? followedWindow(transcriptWindow, shown.length, TRANSCRIPT_WINDOW_SIZE, renders).start
       : transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
-    [shown, follow, jump.messages, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded],
+    [shown, follow, jump.messages, renders, transcriptWindow],
   );
   useLayoutEffect(() => {
     windowAnchor.current = { id: windowedMessages[0]?.id, index: startIndex };
@@ -1818,19 +1818,20 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   // Stage transitions (Preparing -> Waiting -> Reconnecting) swap presence
   // content while messages, buffers and busy stay put, so the pin watches it.
   const turnSignal = stream.signal[bot.threadId];
+  const reveal = stream.reveal?.[bot.threadId];
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
   const activityLabel = turnStageLabel(
     turnPhase({ signal: stream.signal[bot.threadId], lastMessage, streaming, reasoning }),
     liveActivityLabel(lastMessage, showActivities),
   );
-  const waiting = turnPresenceWaiting({
+  const waiting = !reveal?.ended && turnPresenceWaiting({
     busy: bot.busy,
     turnActive: turnSignal !== undefined,
     activity: bot.activity,
     lastMessage,
     accepted: state.acceptedSends[bot.threadId],
   });
-  const streamingMessage = useMemo<Message | null>(() => waiting && streaming ? {
+  const streamingMessage = useMemo<Message | null>(() => (waiting || reveal?.ended) && streaming ? {
     id: `stream:${bot.threadId}:${lastMessage?.id ?? ""}`,
     parentId: lastMessage?.id,
     role: "bot",
@@ -1838,7 +1839,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     text: streaming,
     at: lastMessage?.at ?? 0,
     placeholder: true,
-  } : null, [waiting, streaming, bot.threadId, lastMessage?.id, lastMessage?.at]);
+    streamWhole: reveal?.whole,
+  } : null, [waiting, streaming, reveal, bot.threadId, lastMessage?.id, lastMessage?.at]);
   const liveTail = laterCount === 0 && !jump.messages;
   const listedStreaming = liveTail ? streamingMessage : null;
 
@@ -1849,7 +1851,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     if (messageVisible(listed[i], { showToolCalls, showActivities, transcript: messages })) tail = listed[i];
   }
   const tailSlot = tail?.role === "bot" && tail.kind === "text" ? replySlot(bot.threadId, tail, shown) : null;
-  const docked = useReplyDock(listedStreaming ? tailSlot : null, tailSlot, waiting);
+  const docked = useReplyDock(listedStreaming && waiting ? tailSlot : null, tailSlot, waiting);
   const dockSlot = docked?.slot;
   const dockLive = docked?.live ?? false;
   const dock = useMemo<ReplyDock | null>(() => dockSlot ? {
@@ -1926,10 +1928,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     !shown.some((message) => message.id === state.focusMessage?.messageId);
   useFocusMessage(bot.threadId, shown.length > 0 && !focusPaging && focusWindowNonce === state.focusMessage?.nonce);
   useEffect(() => {
-    if (!follow || jump.messages || transcriptWindow.end !== null || transcriptWindow.expanded) return;
-    const start = followedTailStart(transcriptWindow.start, messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
-    if (start !== transcriptWindow.start) setTranscriptWindow((w) => ({ ...w, start }));
-  }, [follow, jump.messages, messages.length, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded]);
+    if (!follow || jump.messages || followedWindow(transcriptWindow, messages.length, TRANSCRIPT_WINDOW_SIZE, renders) === transcriptWindow) return;
+    setTranscriptWindow((w) => followedWindow(w, messages.length, TRANSCRIPT_WINDOW_SIZE, renders));
+  }, [follow, jump.messages, messages.length, renders, transcriptWindow]);
   // A plain tail holds at least the newest window of visible rows. Shifting it
   // for an auto-paged older page would leave a tool-heavy tail nearly blank.
   const tailStart = useMemo(() => tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), [messages.length, renders]);
@@ -2370,7 +2371,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           )}
           {provisioning && (
             <div className="flex justify-start">
-              <div className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary">
+              <div className="flex items-center gap-2 border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary">
                 <Loader2 size={13} className="animate-spin" />
                 Setting up this bot's computer…
               </div>

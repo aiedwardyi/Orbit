@@ -377,6 +377,27 @@ describe("send while the server holds the thread", () => {
     expect(store.state.error).toBeNull();
   });
 
+  it("asks only an after-this-turn send to wait, and paints it waiting", async () => {
+    const bodies: unknown[] = [];
+    let release!: (response: Response) => void;
+    await mount(
+      () => Response.json({ messages: [], hasMore: false }),
+      (init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return bodies.length === 1 ? Promise.resolve(queued()) : new Promise<Response>((done) => (release = done));
+      },
+    );
+    await act(async () => store.dispatch({ type: "send", botId: bot.id, text: "now", sendId: "s5", threadId: bot.threadId }));
+    await act(async () =>
+      store.dispatch({ type: "send", botId: bot.id, text: "later", sendId: "s6", threadId: bot.threadId, after: true }),
+    );
+    expect(bodies[0]).not.toHaveProperty("deliver");
+    expect(bodies[1]).toMatchObject({ sendId: "s6", deliver: "after" });
+    expect(store.state.acceptedSends[bot.threadId]).toEqual([expect.objectContaining({ sendId: "s6", kind: "sends-next", after: true })]);
+    await act(async () => release(Response.json({ ok: true, queued: true, queueId: "q6", threadId: bot.threadId }, { status: 202 })));
+    await vi.waitFor(() => expect(store.state.pendingQueued[bot.threadId]?.map((entry) => entry.queueId)).toEqual(["q1", "q6"]));
+  });
+
   it("does not re-POST a send stopped while its lookup was pending", async () => {
     let answer!: () => void;
     let asked = false;

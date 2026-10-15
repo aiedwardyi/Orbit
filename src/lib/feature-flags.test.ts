@@ -31,6 +31,12 @@ describe("experimental feature flags", () => {
     expect(memoryNotesEnabled({ features: { memoryNotes: false } })).toBe(false);
   });
 
+  it("lets a bot's own auto notes switch beat the global one", () => {
+    expect(memoryNotesEnabled({ features: { memoryNotes: false } }, {})).toBe(false);
+    expect(memoryNotesEnabled({ features: { memoryNotes: false } }, { memoryNotes: true })).toBe(true);
+    expect(memoryNotesEnabled({ features: {} }, { memoryNotes: false })).toBe(false);
+  });
+
   it("keeps the built-in browser off even when switched on", () => {
     expect(builtInBrowserEnabled(null)).toBe(false);
     expect(builtInBrowserEnabled({})).toBe(false);

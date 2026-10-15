@@ -31,6 +31,8 @@
   color: #a2a4ad;
 }
 
+html[data-orbit-caption="win32"] .model-cross-header { top: calc(var(--orbit-caption-height) + 15px); }
+
 .model-cross-header button { padding: 8px; }
 
 .model-cross-stage {

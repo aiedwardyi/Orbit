@@ -169,6 +169,14 @@ describe("configuration boundaries", () => {
     expect(() => parseConfigPatch({ features: { memoryNotes: "off" } })).toThrow("features.memoryNotes");
   });
 
+  it("lets a bot's own auto notes switch beat the global one", () => {
+    const off = { features: { memoryNotes: false } };
+    expect(memoryNotesEnabled(off, null)).toBe(false);
+    expect(memoryNotesEnabled(off, {})).toBe(false);
+    expect(memoryNotesEnabled(off, { memoryNotes: true })).toBe(true);
+    expect(memoryNotesEnabled({}, { memoryNotes: false })).toBe(false);
+  });
+
   it("keeps tool-call chips off by default and accepts an explicit opt-in", () => {
     expect(showToolCallsEnabled({})).toBe(false);
     expect(showToolCallsEnabled(loadConfig())).toBe(false);

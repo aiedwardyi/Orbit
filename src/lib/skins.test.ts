@@ -290,6 +290,12 @@ describe("Terminal tool rows", () => {
     expect(out).toContain("overflow-wrap: anywhere;");
   });
 
+  it("blinks on opacity so the tick stays off the main thread", () => {
+    const blink = css.match(/@keyframes term-blink\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+    expect(blink).toContain("opacity: 0;");
+    expect(blink).not.toContain("visibility");
+  });
+
   it("wraps the header and clamps it at four lines", () => {
     const head = rule(String.raw`\.term-step-head`);
     expect(head).toContain("-webkit-line-clamp: 4;");
@@ -1139,9 +1145,9 @@ describe("dark ink skins", () => {
     },
     {
       file: "src/components/GroupView.tsx",
-      snippet: "rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
+      snippet: "border border-transparent px-3 py-1.5 text-[13px]",
       textToken: "--color-danger",
-      surfaceToken: "--color-panel",
+      surfaceToken: "--color-app",
     },
     {
       file: "src/components/Sidebar.tsx",
@@ -1168,7 +1174,7 @@ describe("dark ink skins", () => {
     const chip = DANGER_PAIRINGS.find((p) => p.file.endsWith("GroupView.tsx"))!;
     const clear = DANGER_PAIRINGS.find((p) => p.file.endsWith("ApiKeys.tsx"))!;
 
-    // Rest surface in gruvbox: EnginesSettings on raised, RoomToolChip on panel
+    // Rest surface in gruvbox: EnginesSettings on raised, RoomToolChip on app
     expect.soft(contrast(cssToken("gruvbox", engines.textToken)!, cssToken("gruvbox", engines.surfaceToken)!)).toBeGreaterThanOrEqual(4.5);
     expect.soft(contrast(cssToken("gruvbox", chip.textToken)!, cssToken("gruvbox", chip.surfaceToken)!)).toBeGreaterThanOrEqual(4.5);
 

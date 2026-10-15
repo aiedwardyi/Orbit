@@ -28,6 +28,7 @@ import { showNotification, type NotificationTarget, type TerminalAttentionReason
 import { speaker } from "@/lib/tts";
 import { preferredStartupSelectionId, type SidebarOrder } from "@/lib/sidebar-order";
 import { loadSidebarOrder } from "@/lib/sidebar-preferences";
+import { loadReplyStyle } from "@/lib/reply-style";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-chat-snapshot";
 import { readSnapshotCache, writeSnapshotCache } from "./snapshot-cache";
@@ -156,6 +157,7 @@ export interface Message {
   summarized?: boolean;
   /** Client-only accepted send; replaced by the canonical transcript row. */
   placeholder?: true;
+  streamWhole?: number;
   /** screen messages: a frame of the bot's computer (base64) */
   png?: string;
   mime?: string;
@@ -361,6 +363,8 @@ export interface Bot {
   /** When this bot wants to talk to another bot (ask_bot/delegate_bot),
    * pause and ask the user first. Off by default. */
   approvePeerComms?: boolean;
+  /** Background notes from chat into MEMORY.md. Unset follows features.memoryNotes. */
+  memoryNotes?: boolean;
   /** Whether this bot may use the workspace's connected apps. Unset means
    * allowed for existing bots; imported bots start with this disabled. */
   composio?: boolean;
@@ -819,6 +823,8 @@ export type Action =
       sendId?: string;
       replyToId?: string;
       threadId?: string;
+      /** Wait for the running turn instead of steering into it. */
+      after?: boolean;
       onError?: () => void;
     }
   | { type: "pendingQueued"; threadId: string; queueId: string; text: string; at?: number }
@@ -1772,6 +1778,7 @@ export function reducer(state: AppState, action: Action): AppState {
           kind: paint.kind,
           text: action.text,
           at: Date.now(),
+          after: action.after,
         }),
       };
       if (paint.kind === "thinking") {
@@ -2185,7 +2192,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   // `reason` is what ended the stream, not just that it ended: only a turn
   // boundary or a rewind may also drop the thread's staging signal.
-  const clearStream = (threadId: string, reason: TurnEvent = "settled-message") => {
+  const clearStream = (threadId: string, reason: TurnEvent = "settled-message", keepReply = false) => {
     // Drop the thread's un-flushed deltas too: the settled message that
     // triggered this clear already contains them. Without this, the pending
     // rAF re-creates a "ghost" stream bubble holding the tail fragment —
@@ -2196,6 +2203,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     deltaBuffer.current.delete(threadId);
     setStream((prev) => {
       const next = nextStreamState(prev, threadId, reason);
+      if (reason === "completed" && keepReply && loadReplyStyle() === "paragraphs" && prev.streaming[threadId]) {
+        return {
+          ...next,
+          streaming: { ...next.streaming, [threadId]: prev.streaming[threadId] },
+          turn: { ...next.turn, [threadId]: prev.turn?.[threadId] ?? "" },
+          reveal: { ...next.reveal, [threadId]: { whole: prev.streaming[threadId].length, ended: true } },
+        };
+      }
       return next === prev ? prev : next;
     });
     releaseSettled();
@@ -2247,8 +2262,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const buf = deltaBuffer.current;
     if (buf.size === 0) return;
     const entries: [string, PendingDeltas][] = [];
+    const paragraphs = loadReplyStyle() === "paragraphs";
     for (const [threadId, d] of buf) {
-      const step = now === undefined || !d.streaming || !d.ramps ? null : revealStream(d.streaming, d.ramps, now);
+      const step = paragraphs || now === undefined || !d.streaming || !d.ramps ? null : revealStream(d.streaming, d.ramps, now);
       if (step?.rest) {
         buf.set(threadId, { tail: d.tail, streaming: step.rest, ramps: step.ramps });
         if (step.shown || d.reasoning !== undefined) entries.push([threadId, { ...d, streaming: step.shown }]);
@@ -2264,6 +2280,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const tail = lastMessageIdFor(threadId);
           if (d.tail !== tail) continue;
           next = writeStreamDelta(next, threadId, d, currentTurnId(next, threadId, tail));
+          if (paragraphs && d.streaming !== undefined) {
+            const whole = now === undefined || document.visibilityState !== "visible" || !(threadId in liveTurns.current);
+            next = {
+              ...next,
+              reveal: { ...next.reveal, [threadId]: { whole: whole ? next.streaming[threadId].length : (next.reveal?.[threadId]?.whole ?? 0) } },
+            };
+          }
         }
         return next;
       });
@@ -2275,7 +2298,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (deltaFlush.current !== null) return;
     deltaFlush.current = requestAnimationFrame(() => {
       deltaFlush.current = null;
-      flushDeltas(reducedMotion() ? undefined : performance.now());
+      flushDeltas(loadReplyStyle() === "live" && reducedMotion() ? undefined : performance.now());
     });
   };
 
@@ -2438,7 +2461,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const post = () =>
             api(`/api/bots/${action.botId}/messages`, {
               method: "POST",
-              body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
+              body: JSON.stringify({
+                text: action.text,
+                replyToId: action.replyToId,
+                threadId,
+                sendId,
+                deliver: action.after ? "after" : undefined,
+              }),
             });
           const settle = (body: any) => {
             if (receiptRejectsAcceptedSend(body)) {
@@ -3313,7 +3342,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               const next: PendingDeltas = { ...applyStreamDelta(base, event.streamKind, event.delta), tail };
               // Only a live turn's reply types out; text after the turn ended lands whole.
               if (event.streamKind === "assistant_text") {
-                next.ramps = event.threadId in liveTurns.current
+                next.ramps = loadReplyStyle() === "live" && event.threadId in liveTurns.current
                   ? [...(base.ramps ?? []), [event.delta.length, performance.now()]]
                   : undefined;
               }
@@ -3325,7 +3354,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             liveTurns.current = liveTurnIdAfter(liveTurns.current, event.threadId, event);
             // flush any buffered tail before clearing so no tokens are lost
             flushDeltas();
-            clearStream(event.threadId, "completed");
+            clearStream(event.threadId, "completed", event.ok !== false);
           } else if (event.type === "turn.started" || event.type === "turn.retrying") {
             if (!isReplacementTurnStart(liveTurns.current, event.threadId, event.turnId, event.createdAt)) break;
             liveTurns.current = liveTurnIdAfter(liveTurns.current, event.threadId, event);

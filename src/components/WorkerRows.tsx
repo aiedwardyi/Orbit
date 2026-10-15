@@ -240,6 +240,7 @@ function Mark({ run, state, className }: ShownRun & { className?: string }) {
 export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLive = false, onOpenTerminalPane }: { name: string; runs: ShownRun[]; livePanes?: Set<string> | null; paneLabels?: ReadonlyMap<string, string>; waitForLive?: boolean; onOpenTerminalPane?: (sessionId: string) => void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  const [right, setRight] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -257,6 +258,28 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
   useEffect(() => {
     if (listed.length === 0) setOpen(false);
   }, [listed.length]);
+  useLayoutEffect(() => {
+    if (!open || phone || !rootRef.current) return;
+    const root = rootRef.current;
+    const main = root.closest("main");
+    const place = () => {
+      // The menu hangs left of the chip; the chat column clips its edges.
+      const menuWidth = 300;
+      const row = root.getBoundingClientRect();
+      const bounds = main?.getBoundingClientRect();
+      const [min, max] = bounds ? [bounds.left + 8, bounds.right - 8] : [8, window.innerWidth - 8];
+      setRight(row.right - Math.min(Math.max(row.right, min + menuWidth), max));
+    };
+    place();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+    observer?.observe(root);
+    if (main) observer?.observe(main);
+    window.addEventListener("resize", place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", place);
+    };
+  }, [open, phone]);
   useEffect(() => {
     if (!open || phone) return;
     let byEscape = false;
@@ -321,7 +344,8 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
           data-worker-list
           role="dialog"
           aria-labelledby={titleId}
-          className="absolute right-0 top-full z-40 mt-1 w-[300px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50"
+          style={{ right }}
+          className="absolute top-full z-40 mt-1 w-[300px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50"
         >
           <h2 id={titleId} className="px-3 py-2 text-[15px] font-semibold text-ink">{t("workers.title", { name })}</h2>
           <div className="max-h-[320px] overflow-y-auto">

@@ -146,7 +146,7 @@ export function ActivityRun({
             type="button"
             onClick={() => setOpen(false)}
             aria-expanded
-            className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control"
+            className="flex items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control focus-visible:bg-control"
           >
             <ChevronRight size={13} className="rotate-90" />
             <span>{describeRun(messages)} ·</span>
@@ -164,7 +164,7 @@ export function ActivityRun({
         onClick={() => setOpen(true)}
         aria-expanded={false}
         title="Show every step"
-        className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control"
+        className="flex items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control focus-visible:bg-control"
       >
         <span className="max-w-[480px] truncate">{describeRun(messages)} ·</span>
         <StepStatus ok={running ? undefined : !failed} />

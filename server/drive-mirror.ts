@@ -82,7 +82,7 @@ export function drivePathRule(path: string, ids: DriveOwnIds): DrivePathRule {
   const parts = path.split("/");
   const [root] = parts;
   if (path === "workspace.json" || ["assets", "pictures", "threads", "memory"].includes(root)) return "once";
-  if (root === "changes" && parts.length === 2 && /^\d+-[A-Za-z0-9._-]+\.json$/.test(parts[1])) {
+  if (root === "changes" && parts.length === 2 && /^\d+-[A-Za-z0-9._-]+\.(?:json|notes)$/.test(parts[1])) {
     return parts[1].replace(/^\d+-/, "").startsWith(`${ids.profileDeviceId}-`) ? "own" : "once";
   }
   if (root === "devices" && parts.length === 2 && parts[1].endsWith(".json")) return parts[1] === `${ids.profileDeviceId}.json` ? "own" : "peer";

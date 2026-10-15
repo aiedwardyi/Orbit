@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatMarkdown, isRelativeHref, resolveRelativePath, settleStreamTail, streamBlocks } from "./ChatMarkdown";
 import { applyLocale } from "@/lib/i18n";
@@ -13,6 +13,9 @@ import { applySkin } from "@/lib/skins";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("shiki", () => ({ codeToHtml: async (code: string) => `<pre><code>${code}</code></pre>` }));
+
+beforeEach(() => localStorage.setItem("omb-reply-style", "live"));
+afterEach(() => localStorage.removeItem("omb-reply-style"));
 
 describe("ChatMarkdown streaming", () => {
   it("preserves code card identity and spoiler state across deltas and settle", async () => {
@@ -35,6 +38,40 @@ describe("ChatMarkdown streaming", () => {
     } finally {
       await act(async () => root.unmount());
       host.remove();
+    }
+  });
+});
+
+describe("ChatMarkdown paragraphs", () => {
+  it.each([
+    ["English loose list", "1. First step\n\n   More detail.\n\n2. Second step"],
+    ["Korean loose list", "1. 첫 번째 단계\n\n   추가 설명.\n\n2. 두 번째 단계"],
+    ["English nested list", "- First\n\n  - Nested\n\n    More detail.\n\n- Second"],
+    ["Korean nested list", "- 첫 번째\n\n  - 하위 항목\n\n    추가 설명.\n\n- 두 번째"],
+    ["English quote", "> First paragraph\n>\n> Second paragraph"],
+    ["Korean quote", "> 첫 번째 문단\n>\n> 두 번째 문단"],
+    ["English list fence", "1. Run:\n\n   ```sh\n   echo first\n\n   echo second\n   ```\n\n   Then continue.\n\n2. Finish"],
+    ["Korean list fence", "1. 실행:\n\n   ```sh\n   echo 처음\n\n   echo 다음\n   ```\n\n   계속 진행.\n\n2. 완료"],
+    ["English indented code", "    first\n\n    second"],
+    ["Korean indented code", "    처음\n\n    다음"],
+    ["English reference", "See [docs][d].\n\n[d]: https://example.com"],
+    ["Korean reference", "[문서][d]를 보세요.\n\n[d]: https://example.com"],
+  ])("renders %s like history while staged and after settling", async (_, text) => {
+    localStorage.setItem("omb-reply-style", "paragraphs");
+    const host = document.createElement("div");
+    const history = document.createElement("div");
+    const root = createRoot(host);
+    const historyRoot = createRoot(history);
+    try {
+      await act(async () => historyRoot.render(createElement(ChatMarkdown, { text })));
+      await act(async () => root.render(createElement(ChatMarkdown, { text, streaming: true, whole: text.length })));
+      expect(host.innerHTML).toBe(history.innerHTML);
+      const settled = `Intro.\n\n${text}\n\nDone.`;
+      await act(async () => historyRoot.render(createElement(ChatMarkdown, { text: settled })));
+      await act(async () => root.render(createElement(ChatMarkdown, { text: settled })));
+      expect(host.innerHTML).toBe(history.innerHTML);
+    } finally {
+      await act(async () => { root.unmount(); historyRoot.unmount(); });
     }
   });
 });
