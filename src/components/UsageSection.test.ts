@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { createRequire } from "node:module";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -156,6 +157,72 @@ describe("UsageSection friends plan card", () => {
     expect(codex).toBeGreaterThan(claude);
     expect(grok).toBeGreaterThan(codex);
     expect(muse).toBeGreaterThan(grok);
+  });
+
+  describe("plan grid", () => {
+    type TailwindNode = { compile: (css: string, options: { base: string; onDependency: () => void }) => Promise<{ build: (classes: string[]) => string }> };
+    const widestRowPx = 260;
+    const columnGapPx = 20;
+    const escapeClass = (name: string) => name.replace(/[^\w-]/g, "\\$&").replace(/[\\/^$*+?.()|[\]{}]/g, "\\$&");
+    const declarations = (css: string, classes: string[]) =>
+      classes.flatMap((name) => [...css.matchAll(new RegExp(`\\.${escapeClass(name)}\\s*\\{([^}]*)\\}`, "g"))].map((m) => ({ at: m.index ?? 0, body: m[1] ?? "" })));
+    const containerBlock = (css: string) => {
+      const head = /@container plan \(width >= ([\d.]+)rem\) \{/.exec(css);
+      if (!head) return null;
+      let depth = 1;
+      let end = head.index + head[0].length;
+      while (depth > 0 && end < css.length) depth += css[end++] === "{" ? 1 : css[end - 1] === "}" ? -1 : 0;
+      return { minRem: Number(head[1]), start: head.index, end };
+    };
+    const render = async () => {
+      const host = document.createElement("div");
+      host.innerHTML = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      const classes = [...new Set([...host.querySelectorAll("[class]")].flatMap((el) => el.getAttribute("class")?.split(/\s+/) ?? []))];
+      const { compile } = createRequire(createRequire(import.meta.url).resolve("@tailwindcss/vite"))("@tailwindcss/node") as TailwindNode;
+      const css = (await compile('@import "tailwindcss";', { base: process.cwd(), onDependency: () => {} })).build(classes);
+      const label = [...host.querySelectorAll("span.truncate")].find((span) => span.textContent === "Claude");
+      const list = label?.parentElement?.parentElement?.parentElement;
+      if (!list?.parentElement) throw new Error("plan list missing");
+      return { css, list, wrapper: list.parentElement };
+    };
+    const classesOf = (el: Element) => el.getAttribute("class")?.split(/\s+/).filter(Boolean) ?? [];
+
+    it("measures the plan card as a container and splits into two columns only past the two-block width", async () => {
+      persistPreference("en");
+      const { css, list, wrapper } = await render();
+      const block = containerBlock(css);
+      expect(declarations(css, classesOf(wrapper)).map((d) => d.body).join(";")).toContain("container-type: inline-size");
+      expect(block).not.toBeNull();
+      const inside = declarations(css, classesOf(list)).filter((d) => block && d.at > block.start && d.at < block.end).map((d) => d.body).join(";");
+      const outside = declarations(css, classesOf(list)).filter((d) => !block || d.at < block.start || d.at > block.end).map((d) => d.body).join(";");
+      expect(outside).toContain("flex-direction: column");
+      expect(outside).not.toContain("grid-template-columns");
+      expect(inside).toMatch(/grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+      expect(inside).toContain("align-items: flex-start");
+      expect((block?.minRem ?? 0) * 16).toBeGreaterThanOrEqual(2 * widestRowPx + columnGapPx);
+    });
+
+    it.each([
+      [3, ["Claude", "Codex", "Grok"]],
+      [4, ["Claude", "Codex", "Grok", "Meta Muse"]],
+      [5, ["Claude", "Claude Two", "Codex", "Grok", "Meta Muse"]],
+    ])("keeps %i engines in order, one cell each, with no stretched last cell", async (count, expected) => {
+      const previous = mockState.instances;
+      const claude = previous.find((instance) => instance.instanceId === "claude");
+      if (!claude) throw new Error("claude fixture missing");
+      const extra = { ...claude, instanceId: "claude-two", displayName: "Claude Two" };
+      const plan = previous.filter((instance) => ["claude", "codex", "grok", "muse"].includes(instance.instanceId));
+      mockState.instances = count === 3 ? plan.filter((instance) => instance.instanceId !== "muse") : count === 5 ? [...plan, extra] : plan;
+      try {
+        persistPreference("en");
+        const { css, list } = await render();
+        const names = [...list.children].map((child) => child.querySelector("span.truncate")?.textContent);
+        expect(names).toEqual(expected);
+        for (const child of list.children) expect(declarations(css, classesOf(child)).map((d) => d.body).join(";")).not.toMatch(/grid-column|justify-self|align-self/);
+      } finally {
+        mockState.instances = previous;
+      }
+    });
   });
 
   it("keeps the toggle group and refresh button on one unwrapped row", async () => {
@@ -763,7 +830,7 @@ describe("UsageSection friends plan card", () => {
       ];
       const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
       expect(html).toContain("mt-2 flex flex-col items-start gap-1.5");
-      expect(html).not.toContain("grid-cols-");
+      expect(html).not.toMatch(/[\s"]grid-cols-/);
       expect(html).toContain('aria-label="5h: 10% used"');
       expect(html).toContain('aria-label="7d: 49% used"');
       expect(html).toContain('aria-label="7d: 75% used"');
