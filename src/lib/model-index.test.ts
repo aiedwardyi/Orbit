@@ -11,12 +11,15 @@ import {
   chartProvider,
   fitLogTicks,
   formatCost,
+  blendedPrice,
   formatPrice,
   indexView,
   logTicks,
   markUniverse,
+  modelIndexToday,
   modelShapes,
   paretoFrontier,
+  priceOn,
   scoredIndexes,
   winkCatalog,
 } from "./model-index";
@@ -318,6 +321,53 @@ describe("price format", () => {
     expect(formatPrice({ input: 4, cachedInput: 0.2, output: 20 })).toBe("$4 / $20");
     expect(formatPrice({ input: 0.1, cachedInput: 0.01, output: 0.5 })).toBe("$0.10 / $0.50");
     expect(formatPrice({ input: 1.25, cachedInput: 0.15, output: 4.25 })).toBe("$1.25 / $4.25");
+  });
+});
+
+describe("price in effect", () => {
+  const costRow = (model: string) => MODEL_INDEX_ENTRIES.find((e) => e.index === "cost" && e.model === model)!;
+  const view = (today: string) => indexView("cost", [], MODEL_INDEX_ENTRIES, today).points;
+  const at = (model: string, today: string) => view(today).find((p) => p.model === model)!;
+
+  it("keeps the promo through the last day and switches on next.from", () => {
+    const argon = costRow("gemini-4-argon").price!;
+    expect(priceOn(argon, "2026-11-30")).toBe(argon);
+    expect(priceOn(argon, "2026-12-01")).toEqual({ input: 4, cachedInput: 0.2, output: 20 });
+    const flash = costRow("gemini-3.8-flash").price!;
+    expect(formatPrice(priceOn(flash, "2026-12-31"))).toBe("$0.75 / $3.75");
+    expect(priceOn(flash, "2027-01-01")).toEqual({ input: 1.5, cachedInput: 0.15, output: 7.5 });
+  });
+
+  it("charts Argon and 3.8 Flash at the new price once it starts", () => {
+    expect([at("gemini-4-argon", "2026-11-30").price?.output, at("gemini-4-argon", "2026-11-30").score]).toEqual([10, 1.47]);
+    expect([at("gemini-4-argon", "2026-12-01").price?.output, at("gemini-4-argon", "2026-12-01").score]).toEqual([20, blendedPrice({ input: 4, cachedInput: 0.2, output: 20 })]);
+    expect(at("gemini-3.8-flash", "2026-12-31").score).toBe(0.5775);
+    expect(at("gemini-3.8-flash", "2027-01-01").score).toBeCloseTo(1.155, 10);
+    expect(at("gemini-3.8-flash", "2027-01-01").price?.next).toBeUndefined();
+  });
+
+  it("ranks by the price in effect and drops the promo wording", () => {
+    const rank = (today: string) => view(today).sort((a, b) => a.score - b.score).findIndex((p) => p.model === "gemini-4-argon");
+    expect(rank("2026-12-01")).toBeGreaterThan(rank("2026-11-30"));
+    expect(at("gemini-4-argon", "2026-11-30").sourceLabel).toContain("promo price through 2026-11-30");
+    expect(at("gemini-4-argon", "2026-12-01").sourceLabel).toBe("Gemini API pricing (USD per 1M tokens)");
+  });
+
+  it("leaves a row with no next, and its marks, unchanged", () => {
+    const opus = costRow("claude-opus-5-5");
+    expect(opus.price?.next).toBeUndefined();
+    expect(at("claude-opus-5-5", "2030-01-01")).toMatchObject({ score: opus.score, price: opus.price, sourceLabel: opus.sourceLabel });
+    expect(markUniverse(MODEL_INDEX_ENTRIES, "2026-12-01").find((m) => m.model === "gemini-4-argon")?.price?.output).toBe(20);
+    expect(markUniverse(MODEL_INDEX_ENTRIES, "2026-11-30").find((m) => m.model === "gemini-4-argon")?.price?.output).toBe(10);
+  });
+
+  it("blends every committed score the way the build does", () => {
+    for (const e of MODEL_INDEX_ENTRIES.filter((row) => row.index === "cost")) expect(blendedPrice(e.price!), e.model).toBe(e.score);
+  });
+
+  it("reads today as the local calendar day", () => {
+    expect(modelIndexToday(new Date(2026, 11, 1, 0, 5))).toBe("2026-12-01");
+    expect(modelIndexToday(new Date(2026, 10, 30, 23, 59))).toBe("2026-11-30");
   });
 });
 

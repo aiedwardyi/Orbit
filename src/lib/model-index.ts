@@ -1,5 +1,5 @@
 import type { InstanceInfo } from "@/state/store";
-import { MODEL_INDEX_ENTRIES, type ModelIndexEntry, type ModelIndexKey, type ModelPrice } from "../../shared/model-index-data.ts";
+import { MODEL_INDEX_ENTRIES, type ModelIndexEntry, type ModelIndexKey, type ModelPrice, type ModelRates } from "../../shared/model-index-data.ts";
 import { PICKER_MODEL_IDS, pickerModels, pickerRows } from "./cross-model-picker";
 
 export const MODEL_INDEXES: readonly ModelIndexKey[] = ["intelligence", "coding", "agentic", "general", "legal", "cost"];
@@ -40,6 +40,30 @@ export const formatCost = (usd: number) => (usd < 0.01 ? `$${Number(usd.toPrecis
 
 /** Input / output USD per 1M tokens, e.g. "$4 / $20". */
 export const formatPrice = ({ input, output }: ModelPrice) => `${formatUsd(input)} / ${formatUsd(output)}`;
+
+/** The one clock the index reads: today as a local YYYY-MM-DD. */
+export function modelIndexToday(now = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+/** The 7:2:1 blend (cache hit / input / output) behind a cost score. */
+export const blendedPrice = ({ input, cachedInput, output }: ModelRates) => (7 * cachedInput + 2 * input + output) / 10;
+
+/** A promo price keeps its `next` until that date arrives, then the `next` rates replace it. */
+export function priceOn(price: ModelPrice, today: string): ModelPrice {
+  const { next } = price;
+  if (!next || today < next.from) return price;
+  const { input, cachedInput, output } = next;
+  const { until: _until, next: _next, ...rest } = price;
+  return { ...rest, input, cachedInput, output };
+}
+
+/** A cost row at the price in effect on `today`; its score follows. Rows with no `next` come back as is. */
+function entryOn(entry: ModelIndexEntry, today: string): ModelIndexEntry {
+  if (!entry.price?.next || today < entry.price.next.from) return entry;
+  const price = priceOn(entry.price, today);
+  return { ...entry, price, score: blendedPrice(price), sourceLabel: entry.sourceLabel.replace(/, promo price through \d{4}-\d{2}-\d{2}/, "") };
+}
 
 export function chartProvider(provider: string): ChartProvider {
   return (CHART_PROVIDERS as readonly string[]).includes(provider) ? (provider as ChartProvider) : "other";
@@ -104,18 +128,20 @@ export function modelShapes(slots: number, entries: readonly ModelIndexEntry[] =
 /** Picker models only: anything else in the data never reaches the chart. */
 const ours = (entries: readonly ModelIndexEntry[]) => entries.filter((entry) => PICKER.has(entry.model));
 
-function priceByModel(entries: readonly ModelIndexEntry[]): Map<string, ModelPrice | undefined> {
-  return new Map(entries.filter((entry) => entry.index === "cost").map((entry) => [entry.model, entry.price]));
+function priceByModel(entries: readonly ModelIndexEntry[], today: string): Map<string, ModelPrice | undefined> {
+  return new Map(entries.filter((entry) => entry.index === "cost").map((entry) => [entry.model, entryOn(entry, today).price]));
 }
 
 export function indexView(
   index: ModelIndexKey,
   catalog: CatalogModel[],
   entries: readonly ModelIndexEntry[] = MODEL_INDEX_ENTRIES,
+  today = modelIndexToday(),
 ): { points: ModelIndexPoint[]; missing: CatalogModel[] } {
-  const prices = priceByModel(ours(entries));
+  const prices = priceByModel(ours(entries), today);
   const points = ours(entries)
     .filter((entry) => entry.index === index)
+    .map((entry) => (entry.index === "cost" ? entryOn(entry, today) : entry))
     .map((entry) => ({ ...entry, key: `${entry.model}:${entry.effort}`, price: prices.get(entry.model) }));
   const scored = new Set(points.map((point) => point.model));
   return { points, missing: catalog.filter((model) => !scored.has(model.model)) };
@@ -124,8 +150,8 @@ export function indexView(
 type Mark = Pick<ModelIndexPoint, "key" | "provider" | "model" | "label" | "effort" | "price">;
 
 /** Every model + effort in the data, so marks stay mounted and glide between indexes. */
-export function markUniverse(entries: readonly ModelIndexEntry[] = MODEL_INDEX_ENTRIES): Mark[] {
-  const prices = priceByModel(ours(entries));
+export function markUniverse(entries: readonly ModelIndexEntry[] = MODEL_INDEX_ENTRIES, today = modelIndexToday()): Mark[] {
+  const prices = priceByModel(ours(entries), today);
   const marks = new Map<string, Mark>();
   for (const { provider, model, label, effort } of ours(entries)) {
     const key = `${model}:${effort}`;

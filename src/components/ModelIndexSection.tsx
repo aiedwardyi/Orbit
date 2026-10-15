@@ -19,6 +19,7 @@ import {
   linearTicks,
   fitLogTicks,
   markUniverse,
+  modelIndexToday,
   modelShapes,
   paretoFrontier,
   scoredIndexes,
@@ -26,7 +27,7 @@ import {
   type ChartProvider,
   type ModelIndexPoint,
 } from "@/lib/model-index";
-import { MODEL_INDEX_SOURCES, type ModelIndexKey } from "../../shared/model-index-data.ts";
+import { MODEL_INDEX_SOURCES, type ModelIndexKey, type ModelPrice } from "../../shared/model-index-data.ts";
 import "./ModelIndexSection.css";
 
 type View = "scatter" | "bars";
@@ -115,9 +116,9 @@ const LEAVE_MS = 600;
 const color = (provider: string) => `var(--mi-${chartProvider(provider)})`;
 const shortLabel = (label: string) => label.replace(/^Claude /, "");
 const formatCostTick = (usd: number) => `$${usd}`;
-const formatValue = (index: ModelIndexKey, point: ModelIndexPoint) =>
+const formatValue = (index: ModelIndexKey, point: ModelIndexPoint, priceText: (price: ModelPrice) => string) =>
   index === "cost" && point.price
-    ? formatPrice(point.price)
+    ? priceText(point.price)
     : index === "general"
       ? Math.round(point.score).toLocaleString("en-US")
       : `${point.score.toFixed(1)}${PERCENT.has(index) ? "%" : ""}`;
@@ -720,11 +721,13 @@ function Bars({
   marks,
   points,
   index,
+  priceText,
   onHover,
 }: {
   marks: Mark[];
   points: ModelIndexPoint[];
   index: ModelIndexKey;
+  priceText: (price: ModelPrice) => string;
   onHover: OnHover;
 }) {
   // Cost ranks cheapest blended price first; every score ranks best first.
@@ -762,13 +765,13 @@ function Bars({
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <div
                 data-mi-bar
-                className="h-3.5 rounded-r-[4px]"
+                className="h-3.5 shrink-0 rounded-r-[4px]"
                 style={{
                   width: `calc((100% - ${index === "cost" ? 5.5 : 4}rem) * ${point ? point.score / max : 0})`,
                   backgroundColor: color(mark.provider),
                 }}
               />
-              <span className="shrink-0 text-[12px] tabular-nums text-ink">{point ? formatValue(index, point) : ""}</span>
+              <span className="min-w-0 text-[12px] leading-[13px] tabular-nums text-ink">{point ? formatValue(index, point, priceText) : ""}</span>
             </div>
           </div>
         );
@@ -792,7 +795,8 @@ export function ModelIndexSection() {
   const tipRef = useRef<HTMLDivElement>(null);
   const phone = isPhone();
 
-  const { points, missing } = useMemo(() => indexView(index, catalog), [index, catalog]);
+  const today = modelIndexToday();
+  const { points, missing } = useMemo(() => indexView(index, catalog, undefined, today), [index, catalog, today]);
   const priced = points.some((point) => point.cost);
   const shown = priced ? view : "bars";
   const noCost = shown === "scatter" ? points.filter((point) => !point.cost).length : 0;
@@ -808,6 +812,17 @@ export function ModelIndexSection() {
     new Date(iso.slice(0, 10))
       .toLocaleDateString(localeTag(locale), { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })
       .replace(/ /g, "\u00a0");
+  // A promo price shows the coming one with its start date; each part stays on one line.
+  const priceText = (price: ModelPrice) =>
+    price.next
+      ? t("modelIndex.price.next", {
+          now: formatPrice(price).replace(/ /g, "\u00a0"),
+          next: formatPrice(price.next).replace(/ /g, "\u00a0"),
+          date: new Date(price.next.from)
+            .toLocaleDateString(localeTag(locale), { month: "short", day: "numeric", timeZone: "UTC" })
+            .replace(/ /g, "\u00a0"),
+        })
+      : formatPrice(price);
   const stale = (date: string) => {
     const now = new Date();
     return Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - Date.parse(date.slice(0, 10)) > STALE_DAYS * DAY_MS;
@@ -974,7 +989,7 @@ export function ModelIndexSection() {
                     t={t}
                   />
                 ) : (
-                  <Bars marks={MARKS} points={points} index={index} onHover={onHover} />
+                  <Bars marks={MARKS} points={points} index={index} priceText={priceText} onHover={onHover} />
                 )}
               </div>
             )}
@@ -992,8 +1007,8 @@ export function ModelIndexSection() {
                     <span className="shrink-0 rounded bg-inset px-1.5 text-[11px] text-ink-secondary">{hovered.effort}</span>
                   )}
                 </div>
-                <div className="mt-1 flex items-baseline gap-2">
-                  <span className="shrink-0 text-[17px] font-semibold leading-tight text-ink">{formatValue(index, hovered)}</span>
+                <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-[17px] font-semibold leading-tight text-ink">{formatValue(index, hovered, priceText)}</span>
                   <span className="truncate text-ink-secondary">
                     {t(index === "cost" ? "modelIndex.tooltip.cost" : index === "agentic" || index === "coding" ? BENCH_KEY[index] : INDEX_KEY[index])}
                   </span>
@@ -1011,7 +1026,7 @@ export function ModelIndexSection() {
                   <>
                     <div className="flex justify-between gap-3 tabular-nums">
                       <span className="break-keep text-ink-secondary">{t("modelIndex.tooltip.cost")}</span>
-                      <span className="shrink-0 text-ink">{hovered.price ? formatPrice(hovered.price) : "-"}</span>
+                      <span className="shrink-0 text-ink">{hovered.price ? priceText(hovered.price) : "-"}</span>
                     </div>
                     <p className="text-[11px] leading-snug text-ink-secondary">{t("modelIndex.tooltip.sameEffort")}</p>
                   </>
