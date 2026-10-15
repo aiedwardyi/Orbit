@@ -54,7 +54,7 @@ function interruptRig() {
   };
 }
 
-function rig(options: { preparing?: boolean; live?: boolean; error?: Error; rejectBusy?: boolean; room?: boolean; priorRoom?: boolean } = {}) {
+function rig(options: { preparing?: boolean; live?: boolean; error?: Error; rejectBusy?: boolean; room?: boolean; priorRoom?: boolean; routine?: boolean } = {}) {
   let finishPreparation!: () => void;
   const preparation = new Promise<void>((resolve) => { finishPreparation = resolve; });
   const claims = new Map<string, string>();
@@ -73,6 +73,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
   const groupQueues = new Map<string, Promise<void>>();
   const groupTaskResumes = new Map();
   const operations: { cancelled: boolean }[] = [];
+  const routineRun = { id: "run-1", status: "running", sourceThreadId: "thread-1" };
   let finishRoom!: () => void;
   let finishPriorRoom!: () => void;
   if (options.priorRoom) groupQueues.set(group.id, new Promise((resolve) => { finishPriorRoom = resolve; }));
@@ -170,7 +171,12 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
   });
   const stop = route('/^\\/api\\/bots\\/([\\w-]+)\\/interrupt$/', {
     store, taskResumes, botHasActiveTurn,
-    readBody: async () => ({}), routines: { activeRunForBot: () => null },
+    readBody: async () => ({}),
+    routines: {
+      activeRunForBot: () => options.routine && routineRun.status === "running" ? routineRun : null,
+      cancelRun: async () => { routineRun.status = "cancelled"; },
+    },
+    runThread: (run: typeof routineRun) => run.sourceThreadId,
     registry: { get: () => undefined },
     bumpTurnEpoch: () => ++epoch,
     markThreadInterrupted: interrupts.mark,
@@ -205,7 +211,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     json: (_res: unknown, status: number, body: unknown) => ({ status, body }),
   });
   return {
-    bot, starts, frames, messages, interrupts,
+    bot, starts, frames, messages, interrupts, routineRun,
     resume: () => invoke("/api/bots/bot-1/tasks/thread-1/resume"),
     stop: () => stop("/api/bots/bot-1/interrupt"),
     stopGroup: () => stopGroup("/api/groups/group-1/interrupt"),
@@ -249,6 +255,14 @@ describe("task resume during cancelled preparation", () => {
     await f.settle();
     expect(f.starts).toEqual([]);
     expect(f.frames).toContainEqual({ kind: "task.resume", botId: f.bot.id, threadId: f.bot.threadId, error: null });
+  });
+
+  it("one Stop cancels a routine turn still preparing", async () => {
+    const f = rig({ preparing: true, routine: true });
+    await f.stop();
+    await f.finishPreparation();
+    expect(f.starts).toEqual([]);
+    expect(f.routineRun.status).toBe("cancelled");
   });
 
   it("coalesces double clicks to one resumed turn", async () => {

@@ -632,6 +632,29 @@ describe("RoutineManager", () => {
     expect(h.failed).toHaveLength(1);
   });
 
+  it("marks a run seen without touching its card", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Calendar brief",
+      prompt: "Brief",
+      botId: "maus-seen",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt! + 13 * 60 * 60_000);
+    await h.manager.tick();
+    const missed = h.manager.listRuns()[0]!;
+    expect(missed.status).toBe("missed");
+    h.changed.length = 0;
+    h.emitted.length = 0;
+
+    const seen = h.manager.markSeen(missed.id);
+
+    expect(seen?.seenAt).toBe(h.options.now!());
+    expect(h.changed).toEqual([]);
+    expect(h.emitted).toEqual([{ kind: "routine.run", run: expect.objectContaining({ id: missed.id, seenAt: seen!.seenAt }) }]);
+    expect(h.manager.listRuns().find((run) => run.id === missed.id)?.seenAt).toBe(seen!.seenAt);
+  });
+
   it("keeps recurring history while advancing the definition", async () => {
     const h = harness();
     const routine = h.manager.create({

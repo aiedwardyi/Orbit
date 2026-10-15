@@ -39,9 +39,10 @@ export function hasRoutineExecutionTask(
   );
 }
 
-function footer(run: RoutineRunCardData, ringing: boolean, t: Translate) {
+// cards made before 1.0.184 carry no run times, so fall back to the card's own
+function footer(run: RoutineRunCardData, at: number, ringing: boolean, t: Translate) {
   const className = "shrink-0";
-  const scheduled = clock(run.scheduledFor);
+  const scheduled = clock(run.scheduledFor ?? at);
   switch (run.status) {
     case "queued":
       return { icon: <Clock size={14} className={className} />, text: t("routine.card.queued") };
@@ -68,7 +69,7 @@ function footer(run: RoutineRunCardData, ringing: boolean, t: Translate) {
         icon: run.status === "completed" && !ringing
           ? <Check size={14} className={cn(className, "text-success")} />
           : <Bell size={14} className={cn(className, "text-accent")} />,
-        text: t("routine.card.rang", { time: clock(run.startedAt ?? run.scheduledFor) }),
+        text: t("routine.card.rang", { time: clock(run.startedAt ?? run.scheduledFor ?? at) }),
       };
     }
   }
@@ -99,7 +100,7 @@ export function RoutineRunCard({
     ) : null;
   }
 
-  const foot = footer(run, ringing, t);
+  const foot = footer(run, message.at, ringing, t);
   const instruction = run.instruction?.replace(/\s+/g, " ").trim();
   // detached runs (cloud, webhook, older local) report their result here
   const result = run.executionThreadId && run.status !== "failed" && run.status !== "missed"

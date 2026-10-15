@@ -9717,9 +9717,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (expectedThreadId !== undefined && runThread(routineRun) !== expectedThreadId) {
           return json(res, 409, { error: "this bot is running a routine in another conversation" });
         }
+        const inFlight = Boolean(bot.busy || botHasActiveTurn(bot.id));
         taskResumes.forgetBot(bot.id);
         store.patchBot(bot.id, { paneWakePaused: true });
+        // a turn still preparing has no session to interrupt yet
+        bumpTurnEpoch(bot.id);
         await routines!.cancelRun(routineRun.id);
+        if (inFlight) releaseInterruptedBot(bot.id, runThread(routineRun) ?? bot.threadId);
         return json(res, 200, { ok: true });
       }
       const instance = registry.get(bot.modelSelection.instanceId);

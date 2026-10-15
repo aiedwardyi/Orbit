@@ -3859,8 +3859,7 @@ describe("harness HTTP API", () => {
         expect(runCards[0].routineRun.executionThreadId).toBeUndefined();
 
         // Reading the source and then marking the failure seen in Routines
-        // must not make the original conversation unread again. markSeen
-        // re-emits the receipt without changing its lifecycle status.
+        // must not make the original conversation unread again.
         expect((await api("POST", `/api/bots/${bot.id}/read`)).status).toBe(200);
         expect((await api("POST", `/api/routine-runs/${queued.body.run.id}/seen`)).status).toBe(200);
         const afterSeen = (await api("GET", "/api/bots?messages=0")).body.bots

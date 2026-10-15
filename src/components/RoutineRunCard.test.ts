@@ -1,7 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { applyLocale } from "@/lib/i18n";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { Message } from "@/state/store";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
@@ -30,6 +31,8 @@ function message(
 const at = (hours: number, minutes: number) => new Date(2026, 9, 15, hours, minutes).getTime();
 
 describe("RoutineRunCard", () => {
+  afterEach(() => applyLocale("en"));
+
   it("shows name, time and the instruction in one line with no Open run", () => {
     const markup = renderToStaticMarkup(createElement(RoutineRunCard, {
       message: message("completed", {
@@ -126,6 +129,22 @@ describe("RoutineRunCard", () => {
 
     expect(markup).toContain("Running on Cloud VM");
     expect(markup).not.toContain("Rang at");
+  });
+
+  it("tells the time of a card made before 1.0.184 from the card itself", () => {
+    const old = (status: RoutineRunCardData["status"]): Message => ({
+      ...message(status, { summary: "Done." }),
+      at: at(7, 30),
+    });
+    const foot = (status: RoutineRunCardData["status"]) =>
+      renderToStaticMarkup(createElement(RoutineRunCard, { message: old(status) }))
+        .replace(/aria-label="[^"]*"/g, "");
+
+    expect(foot("completed")).toContain("Rang at 07:30");
+    expect(foot("missed")).toContain("Missed 07:30, this PC was off");
+    applyLocale("ko");
+    expect(foot("completed")).toContain("07:30에 울렸어요");
+    expect(foot("missed")).toContain("07:30 알람을 놓쳤어요. PC가 꺼져 있었어요");
   });
 
   it("recognizes only an execution thread still present in the owning bot's tasks", () => {

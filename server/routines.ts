@@ -666,7 +666,8 @@ export class RoutineManager {
     if (!run.seenAt) {
       run.seenAt = this.now();
       this.save();
-      this.emitRun(run);
+      // seen only settles the ring; the card and unread stay put
+      this.options.emit?.({ kind: "routine.run", run: { ...run } });
     }
     return { ...run };
   }
