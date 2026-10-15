@@ -834,6 +834,8 @@ export const en = {
   "chat.routineRunningElsewhere": "{name} is running in another thread on this bot.",
   "chat.routineWaitingElsewhere": "{name} is waiting for you in another thread on this bot.",
   "chat.openRoutineThread": "Open that thread",
+  "chat.routineRunThread": "You're viewing a run of {name}.",
+  "chat.backToChat": "Back to chat",
 
   "composer.placeholder": "Message {name}",
   "composer.roomPlaceholder": "Message {name} — {hint}",
@@ -2222,6 +2224,8 @@ export const ko = {
   "chat.routineRunningElsewhere": "이 봇의 다른 대화에서 {name} 루틴이 실행 중입니다.",
   "chat.routineWaitingElsewhere": "이 봇의 다른 대화에서 {name} 루틴이 사용자 응답을 기다립니다.",
   "chat.openRoutineThread": "그 대화 열기",
+  "chat.routineRunThread": "{name} 루틴 실행을 보고 있습니다.",
+  "chat.backToChat": "대화로 돌아가기",
 
   "composer.placeholder": "{name}에게 메시지 보내기",
   "composer.roomPlaceholder": "{name}에게 메시지 — {hint}",

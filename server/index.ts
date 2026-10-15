@@ -2671,12 +2671,15 @@ function releaseInterruptedBot(botId: string, threadId: string) {
 
 /** Put a notification on the wire. Clients decide what to do with it — a
  * desktop notification now, a push to a paired phone later. */
-function notify(notification: Notification | null, turnMs?: number) {
+function notify(notification: Notification | null, turnMs?: number, routineRun?: RoutineRun | null) {
   if (!notification) return;
   // nested rather than spread — the frame's own `kind` names the frame,
   // exactly like {kind:"message", message} and {kind:"bot", bot}
   broadcast({ kind: "notify", notification, at: Date.now() });
-  phonePing(notification.botId, pingForNotification(notification, turnMs), notification);
+  const routine = routineRun
+    ? { name: routineRun.routineName, unattended: routineTriggerIsUnattended(routineRun.triggerSource) }
+    : undefined;
+  phonePing(notification.botId, pingForNotification(notification, turnMs, routine), notification);
 }
 
 const phonePingAllowed = createPingLimiter();
@@ -3388,7 +3391,7 @@ bus.subscribe((event: RuntimeEvent) => {
           asker,
           (routineRun && routineSourceThread(routineRun)) || event.threadId,
           event.summary,
-        ));
+        ), undefined, routineRun);
         // A peer turn's card sits on the peer's own thread. Say so where the
         // ask came from, or that conversation just looks stalled.
         const askedFrom = peerTurnSource.get(event.threadId);
@@ -3591,6 +3594,7 @@ bus.subscribe((event: RuntimeEvent) => {
           notify(
             buildNotification("done", bot, routineReportThread ?? event.threadId, completionDetail),
             startedAt === undefined ? undefined : Date.now() - startedAt,
+            routineRun,
           );
         }
         if (screenPollers.has(bot.id)) {

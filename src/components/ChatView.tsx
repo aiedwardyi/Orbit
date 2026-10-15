@@ -112,7 +112,7 @@ import { useReplyDraft } from "@/lib/drafts";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
-import { activeRunForBot, routineWorkingElsewhere } from "../../shared/working-thread";
+import { activeRunForBot, routineThreadReturn, routineWorkingElsewhere } from "../../shared/working-thread";
 import { parsePaneNote, type PaneNote } from "../../shared/pane-note";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
 import { shownState, workerRuns } from "@/lib/worker-runs";
@@ -1555,6 +1555,13 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     bot.threadId,
     activeRunForBot(state.routineRuns, bot.id),
   );
+  const runReturn = routineThreadReturn({
+    botId: bot.id,
+    viewedThreadId: bot.threadId,
+    tasks: bot.tasks,
+    runs: state.routineRuns,
+    groups: state.groups,
+  });
   const find = useSearchFindSeed(bot.threadId);
   const findOpen = find.findOpen;
   const { replyTo, selectReply, clearReply, consumeReply, restoreReply } = useReplyDraft(
@@ -2179,6 +2186,41 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                 className="shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent/10"
               >
                 {t("chat.openRoutineThread")}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {runReturn && (
+        <div className="w-full px-5">
+          <div
+            role="status"
+            className="mb-2 flex items-center gap-2 rounded-lg border border-accent/25 bg-accent/[0.07] px-3 py-1.5"
+          >
+            <Clock size={13} className="shrink-0 text-accent" />
+            <p className="min-w-0 flex-1 truncate text-[12.5px] text-ink">
+              {t("chat.routineRunThread", { name: runReturn.name })}
+            </p>
+            {(runReturn.group || runReturn.botThreadId) && (
+              <button
+                type="button"
+                onClick={() => {
+                  // a live run holds the bot on its thread; the room needs no bot switch
+                  if (runReturn.botThreadId && !(runReturn.group && runReturn.live)) {
+                    dispatch({ type: "switchTask", botId: bot.id, threadId: runReturn.botThreadId });
+                  }
+                  if (runReturn.group) {
+                    const group = state.groups.find((candidate) => candidate.id === runReturn.group?.id);
+                    dispatch({ type: "select", id: runReturn.group.id });
+                    if (group && group.threadId !== runReturn.group.threadId) {
+                      dispatch({ type: "switchGroupTask", groupId: runReturn.group.id, threadId: runReturn.group.threadId });
+                    }
+                  }
+                }}
+                className="shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-accent hover:bg-accent/10"
+              >
+                {t("chat.backToChat")}
               </button>
             )}
           </div>

@@ -41,6 +41,14 @@ describe("RoutineRunCard", () => {
     expect(markup).toContain('aria-label="Morning brief routine run: Completed"');
   });
 
+  it("drops the visible Completed label but keeps it for screen readers, and keeps Failed", () => {
+    const completed = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("completed") }));
+    expect(completed).toContain('aria-label="Morning brief routine run: Completed"');
+    expect(completed.replace(/aria-label="[^"]*"/g, "")).not.toContain("Completed");
+    const failed = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("failed") }));
+    expect(failed.replace(/aria-label="[^"]*"/g, "")).toContain("Failed");
+  });
+
   it("makes a waiting question or approval an explicit Review action", () => {
     const markup = renderToStaticMarkup(createElement(RoutineRunCard, {
       message: message("waiting", { summary: "The routine needs an answer before it can continue." }),

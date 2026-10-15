@@ -8,10 +8,17 @@ export const PHONE_PING_REPEAT_MS = 10_000;
 
 export type PhonePing = { title: string; message: string; icon: string; tags?: string[]; priority?: number };
 
-/** Short done replies stay quiet; everything that blocks on a person pings. */
-export function pingForNotification(notification: Notification, turnMs?: number): PhonePing | null {
-  if (notification.kind === "done" && !(turnMs !== undefined && turnMs >= PHONE_PING_DONE_MIN_MS)) return null;
+export type PingRoutine = { name: string; unattended: boolean };
+
+/** Short done replies stay quiet; everything that blocks on a person pings.
+ * An unattended routine run has nobody watching, so its done pings at any length. */
+export function pingForNotification(notification: Notification, turnMs?: number, routine?: PingRoutine): PhonePing | null {
+  const unattended = routine?.unattended === true;
+  if (notification.kind === "done" && !unattended && !(turnMs !== undefined && turnMs >= PHONE_PING_DONE_MIN_MS)) return null;
   const ping: PhonePing = { title: notification.title, message: notification.body, icon: notification.icon };
+  if (unattended && notification.kind !== "routine-failed") {
+    ping.title = `${notification.botName}'s routine “${routine.name}” ${notification.kind === "done" ? "finished" : "needs you"}`;
+  }
   if (notification.kind === "approval" || notification.kind === "question" || notification.kind === "takeover") ping.priority = 4;
   return ping;
 }

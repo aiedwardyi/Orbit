@@ -15,6 +15,7 @@ export const ARRIVAL_GLOW_THROTTLE_MS = 10_000;
 
 type Entry = { nonce: number; at: number };
 const entries = new Map<string, Entry>();
+const glowedRuns = new Set<string>();
 const chatListeners = new Map<string, Set<() => void>>();
 const allListeners = new Set<() => void>();
 let nonceCounter = 0;
@@ -63,6 +64,7 @@ function arrivalVersion(): number {
 /** Tests only: forget every recorded arrival. */
 export function resetArrivalGlow(): void {
   entries.clear();
+  glowedRuns.clear();
   chatListeners.clear();
   allListeners.clear();
   nonceCounter = 0;
@@ -73,15 +75,25 @@ export interface ArrivalFrame {
   threadId?: string;
   replayed?: boolean;
   imported?: boolean;
-  message?: { role?: string; kind?: string; summarized?: boolean } | null;
+  message?: {
+    id?: string;
+    role?: string;
+    kind?: string;
+    summarized?: boolean;
+    routineRun?: { runId: string; status: string };
+  } | null;
 }
+
+type ArrivalRows = ReadonlyArray<{ id: string; routineRun?: { status: string } }>;
 
 export interface ArrivalChats {
   hydrated: boolean;
   selectedId: string;
-  bots: Array<{ id: string; threadId: string; hidden?: boolean }>;
-  groups: Array<{ id: string; threadId: string }>;
+  bots: Array<{ id: string; threadId: string; hidden?: boolean; messages?: ArrivalRows }>;
+  groups: Array<{ id: string; threadId: string; messages?: ArrivalRows }>;
 }
+
+const ROUTINE_ARRIVAL_STATUSES = new Set(["completed", "waiting", "failed", "missed"]);
 
 /** The chat id to glow for a live SSE frame, or null. Mirrors messageAdded's
  * thread lookup, so the glow tracks transcripts that actually update. */
@@ -91,17 +103,30 @@ export function arrivalChatForFrame(frame: ArrivalFrame, chats: ArrivalChats): s
   const message = frame.message;
   if (!message || message.role !== "bot" || message.kind !== "text") return null;
   if (!isShownMessage(message)) return null;
-  if (!frame.threadId) return null;
-  const bot = chats.bots.find((candidate) => candidate.threadId === frame.threadId);
-  if (bot) {
-    if (bot.hidden || bot.id === chats.selectedId) return null;
-    return bot.id;
-  }
-  const group = chats.groups.find((candidate) => candidate.threadId === frame.threadId);
-  if (group) {
-    if (group.id === chats.selectedId) return null;
-    return group.id;
-  }
+  return arrivalOwner(frame.threadId, chats)?.id ?? null;
+}
+
+/** The chat id to glow when a routine card's status patches into a result,
+ * or null. Rows outside the loaded window stay quiet; one run glows once. */
+export function arrivalChatForRoutinePatch(frame: ArrivalFrame, chats: ArrivalChats): string | null {
+  if (!chats.hydrated) return null;
+  if (!frame || frame.replayed || frame.imported) return null;
+  const message = frame.message;
+  const run = message?.kind === "routine.run" ? message.routineRun : undefined;
+  if (!run || !ROUTINE_ARRIVAL_STATUSES.has(run.status) || glowedRuns.has(run.runId)) return null;
+  const owner = arrivalOwner(frame.threadId, chats);
+  const previous = owner?.messages?.find((row) => row.id === message?.id)?.routineRun;
+  if (!owner || !previous || previous.status === run.status) return null;
+  glowedRuns.add(run.runId);
+  return owner.id;
+}
+
+function arrivalOwner(threadId: string | undefined, chats: ArrivalChats) {
+  if (!threadId) return null;
+  const bot = chats.bots.find((candidate) => candidate.threadId === threadId);
+  if (bot) return bot.hidden || bot.id === chats.selectedId ? null : bot;
+  const group = chats.groups.find((candidate) => candidate.threadId === threadId);
+  if (group) return group.id === chats.selectedId ? null : group;
   return null;
 }
 

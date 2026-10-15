@@ -27,6 +27,19 @@ describe("pingForNotification", () => {
     expect(pingForNotification(frame("done"), 59_999)).toBeNull();
     expect(pingForNotification(frame("done"), 60_000)).toEqual({ title: "Scout done", message: "detail", icon: "/notify-icons/squircle-blue.png" });
   });
+
+  it("pings an unattended routine run under 60 s, titled with the bot and routine", () => {
+    const routine = { name: "Tool to try", unattended: true };
+    expect(pingForNotification(frame("done"), 10_500, routine)).toEqual({ title: "Scout's routine “Tool to try” finished", message: "detail", icon: "/notify-icons/squircle-blue.png" });
+    expect(pingForNotification(frame("done"), undefined, routine)?.title).toBe("Scout's routine “Tool to try” finished");
+    expect(pingForNotification(frame("approval"), 1_000, routine)).toEqual({ title: "Scout's routine “Tool to try” needs you", message: "detail", icon: "/notify-icons/squircle-blue.png", priority: 4 });
+    expect(pingForNotification(frame("routine-failed"), 1_000, routine)?.title).toBe("Scout routine-failed");
+  });
+
+  it("keeps the 60 s rule for live chat and manual routine runs", () => {
+    expect(pingForNotification(frame("done"), 10_500)).toBeNull();
+    expect(pingForNotification(frame("done"), 10_500, { name: "Tool to try", unattended: false })).toBeNull();
+  });
 });
 
 describe("pingForMailbox", () => {

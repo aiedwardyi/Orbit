@@ -43,6 +43,8 @@ export interface RoutineRun {
   triggerSource?: RoutineRunTrigger;
   webhookId?: string;
   deliveryId?: string;
+  /** The conversation this run reports to; the execution stays on `threadId`. */
+  sourceThreadId?: string;
   threadId?: string;
   startedAt?: number;
   finishedAt?: number;
