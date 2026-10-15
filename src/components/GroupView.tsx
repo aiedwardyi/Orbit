@@ -1483,7 +1483,7 @@ export function GroupView({ group }: { group: Group }) {
   }, [jump.messages, tailStart, transcriptWindow]);
 
   const advanceLater = useForwardWindow({
-    key: transcriptKey, shown, startIndex, endIndex, jump, scrollRef, previousScrollTop,
+    key: transcriptKey, window: transcriptWindow, shown, startIndex, endIndex, jump, scrollRef, previousScrollTop,
     setWindow: setTranscriptWindow, pauseFollow: () => setBottomFollow(false),
     renders: (rows, index) => messageVisible(rows[index], showToolCalls, showActivities),
   });

@@ -51,8 +51,8 @@ export function useThreadMessage(threadId: string, messageId: string | undefined
 
 type JumpWindow = { key: string; targetId: string; messages: Message[]; hasMore: boolean; snapshot: number };
 
-async function fetchAround(threadId: string, messageId: string): Promise<{ rows: Message[]; hasMore: boolean }> {
-  const page = await api(`/api/threads/${threadId}/messages?around=${encodeURIComponent(messageId)}&limit=${MESSAGE_PAGE}`);
+async function fetchAround(threadId: string, messageId: string, signal?: AbortSignal): Promise<{ rows: Message[]; hasMore: boolean }> {
+  const page = await api(`/api/threads/${threadId}/messages?around=${encodeURIComponent(messageId)}&limit=${MESSAGE_PAGE}`, { signal });
   return { rows: Array.isArray(page?.messages) ? page.messages : [], hasMore: page?.hasMore === true };
 }
 
@@ -115,7 +115,7 @@ export function useJumpWindow(
   const latest = useRef(0);
   // own counter, so a snapshot refetch never strands a jump still in flight
   const refetched = useRef(0);
-  const forwardInflight = useRef(new Set<string>());
+  const forwardInflight = useRef(new Map<string, number>());
   const [forwardFailed, setForwardFailed] = useState<string | null>(null);
   // leaving the view drops the window; coming back opens at the newest message
   if (held && held.key !== key) setHeld(null);
@@ -183,15 +183,15 @@ export function useJumpWindow(
   const forwardKey = current && cursor ? `${key}:${current.targetId}:${cursor}:${snapshot}` : null;
   const newer = useCallback(
     (beforeCommit: (rows: Message[]) => void) => {
-      if (!current || !cursor || !forwardKey || forwardInflight.current.has(key)) return;
       const generation = latest.current;
-      forwardInflight.current.add(key);
+      if (!current || !cursor || !forwardKey || forwardInflight.current.get(key) === generation) return;
+      forwardInflight.current.set(key, generation);
       setForwardFailed(null);
       const valid = () => {
         const now = committed.current;
-        return generation === latest.current && now.key === key && now.current?.targetId === current.targetId && now.current.snapshot === current.snapshot && now.snapshot === snapshot && now.loaded[0]?.id === head;
+        return generation === latest.current && now.key === key && now.current?.targetId === current.targetId && now.current?.snapshot === current.snapshot && now.snapshot === snapshot && now.loaded[0]?.id === head;
       };
-      fetchAround(threadId, cursor)
+      fetchAround(threadId, cursor, AbortSignal.timeout(10_000))
         .then(({ rows }) => {
           if (!valid()) return;
           const held = committed.current.current!;
@@ -211,7 +211,7 @@ export function useJumpWindow(
           } else setHeld({ ...held, messages: next });
         })
         .catch(() => { if (valid()) setForwardFailed(forwardKey); })
-        .finally(() => forwardInflight.current.delete(key));
+        .finally(() => { if (forwardInflight.current.get(key) === generation) forwardInflight.current.delete(key); });
     },
     [current, cursor, dispatch, forwardKey, head, key, snapshot, threadId],
   );
@@ -225,9 +225,10 @@ export function useJumpWindow(
 }
 
 export function useForwardWindow<W extends { key: string; start: number; end: number | null; expanded?: boolean }>({
-  key, shown, startIndex, endIndex, jump, scrollRef, previousScrollTop, setWindow, pauseFollow, renders,
+  key, window, shown, startIndex, endIndex, jump, scrollRef, previousScrollTop, setWindow, pauseFollow, renders,
 }: {
   key: string;
+  window: W;
   shown: Message[];
   startIndex: number;
   endIndex: number;
@@ -240,6 +241,8 @@ export function useForwardWindow<W extends { key: string; start: number; end: nu
 }) {
   const anchor = useRef<{ key: string; row: TranscriptAnchor | null } | null>(null);
   const changing = useRef(false);
+  const committed = useRef({ window, endIndex });
+  useLayoutEffect(() => { committed.current = { window, endIndex }; });
   useLayoutEffect(() => {
     changing.current = false;
     const el = scrollRef.current;
@@ -254,11 +257,17 @@ export function useForwardWindow<W extends { key: string; start: number; end: nu
     if (!el || (!jump.messages && endIndex >= shown.length) || changing.current) return;
     if (!retry && (jump.forwardFailed || !shouldAdvanceWindow(movingDown, distanceFromTranscriptEdge(el), el.clientHeight))) return;
     const commit = (rows: Message[]) => {
+      const now = committed.current;
+      if (now.window !== window) {
+        // A null end would mount the new page even though this advance was discarded.
+        if (now.window.key === key && now.window.end === null) setWindow((current) => current === now.window ? { ...current, end: now.endIndex } : current);
+        return;
+      }
       changing.current = true;
       pauseFollow();
       anchor.current = { key, row: captureTranscriptAnchor(el) };
       const next = advanceWindow(startIndex, endIndex, rows.length, undefined, (index) => renders(rows, index));
-      setWindow((window) => window.key === key ? { ...window, ...next, expanded: false } : window);
+      setWindow((current) => current === window ? { ...current, ...next, expanded: false } : current);
     };
     if (endIndex < shown.length) commit(shown);
     else jump.newer(commit);
