@@ -5050,3 +5050,9 @@ button:disabled.bg-danger {
 @media (prefers-reduced-motion: reduce) {
   .arrival-glow::before { animation: none; opacity: 0; }
 }
+
+/* The phone menu sits flush with the chat title; pull its rings in so they never touch it. */
+[data-phone-menu].needs-you-glow::after,
+[data-phone-menu].arrival-glow::before {
+  inset: 5px;
+}
