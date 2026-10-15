@@ -183,8 +183,8 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     compilerOptions: { target: ts.ScriptTarget.ESNext },
   }).outputText;
   let settle!: (event: { type: string; threadId: string }) => void;
-  new Function("bus", "providerReload", "drainQueuedSends", "paneWake", "followPendingSyncImports", "store", "syncMemory", fold)(
-    { subscribe: (fn: typeof settle) => { settle = fn; } }, { settled: noop }, drainQueuedSends, paneWake, noop, store, noop,
+  new Function("bus", "providerReload", "drainQueuedSends", "paneWake", "routines", "followPendingSyncImports", "store", "syncMemory", fold)(
+    { subscribe: (fn: typeof settle) => { settle = fn; } }, { settled: noop }, drainQueuedSends, paneWake, { tick: noop }, noop, store, noop,
   );
   const deleteBotFully = load("deleteBotFully", {
     registry: { get: () => undefined }, store: { ...store, deleteBot: noop },
