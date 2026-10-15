@@ -157,3 +157,112 @@ export function packetAfterInterruption(
   if (!seed?.text.trim()) return null;
   return stampTaskResumePacket(seedTaskResumePacket(seed), reason, stamp);
 }
+
+export interface TaskResumeEntry {
+  botId: string;
+  threadId: string;
+  order: number;
+}
+
+export interface TaskResumeDeps {
+  busy(entry: TaskResumeEntry): boolean;
+  earlierSend(entry: TaskResumeEntry): boolean;
+  start(entry: TaskResumeEntry): Promise<unknown>;
+  isBusy(error: unknown): boolean;
+  settled(entry: TaskResumeEntry, error: unknown | null): void;
+}
+
+export class TaskResumeScheduler {
+  private readonly pending = new Map<string, TaskResumeEntry & { starting: boolean }>();
+  private readonly deps: TaskResumeDeps;
+
+  constructor(deps: TaskResumeDeps) {
+    this.deps = deps;
+  }
+
+  async request(botId: string, threadId: string, order: number): Promise<{ pending: boolean }> {
+    const key = `${botId}\0${threadId}`;
+    if (this.pending.has(key)) return { pending: true };
+    const entry = { botId, threadId, order, starting: false };
+    this.pending.set(key, entry);
+    if (this.deps.busy(entry) || this.deps.earlierSend(entry)) return { pending: true };
+    return this.dispatch(key, entry);
+  }
+
+  settled(): void {
+    for (const [key, entry] of this.pending) {
+      if (entry.starting || this.deps.busy(entry) || this.deps.earlierSend(entry)) continue;
+      void this.dispatch(key, entry).catch(() => {});
+    }
+  }
+
+  blocksQueuedSend(botId: string): boolean {
+    return [...this.pending.values()].some((entry) => entry.botId === botId && !this.deps.earlierSend(entry));
+  }
+
+  forgetBot(botId: string): void {
+    for (const [key, entry] of this.pending) {
+      if (entry.botId !== botId) continue;
+      this.pending.delete(key);
+      this.deps.settled(entry, null);
+    }
+  }
+
+  forgetThread(threadId: string): void {
+    for (const [key, entry] of this.pending) {
+      if (entry.threadId !== threadId) continue;
+      this.pending.delete(key);
+      this.deps.settled(entry, null);
+    }
+  }
+
+  private async dispatch(key: string, entry: TaskResumeEntry & { starting: boolean }): Promise<{ pending: boolean }> {
+    entry.starting = true;
+    try {
+      await this.deps.start(entry);
+    } catch (error) {
+      if (this.pending.get(key) !== entry) return { pending: false };
+      entry.starting = false;
+      if (this.deps.isBusy(error)) return { pending: true };
+      this.pending.delete(key);
+      this.deps.settled(entry, error);
+      throw error;
+    }
+    if (this.pending.get(key) === entry) {
+      this.pending.delete(key);
+      this.deps.settled(entry, null);
+    }
+    return { pending: false };
+  }
+}
+
+export class PendingTurnInterrupts {
+  private readonly dispatched = new Map<string, { threadId: string; interrupted: boolean }>();
+  private readonly interruptedTurnIds: Set<string>;
+
+  constructor(interruptedTurnIds: Set<string>) {
+    this.interruptedTurnIds = interruptedTurnIds;
+  }
+
+  started(threadId: string, botId: string, epoch: number): void {
+    this.dispatched.set(`${threadId}\0${botId}\0${epoch}`, { threadId, interrupted: false });
+  }
+
+  mark(threadId: string, botId: string, epoch: number): void {
+    const dispatch = this.dispatched.get(`${threadId}\0${botId}\0${epoch}`);
+    if (dispatch) dispatch.interrupted = true;
+  }
+
+  bind(threadId: string, botId: string, epoch: number, turnId?: string): void {
+    const key = `${threadId}\0${botId}\0${epoch}`;
+    const dispatch = this.dispatched.get(key);
+    this.dispatched.delete(key);
+    if (dispatch?.interrupted && turnId) this.interruptedTurnIds.add(turnId);
+  }
+
+  delete(threadId: string): void {
+    for (const [key, dispatch] of this.dispatched) {
+      if (dispatch.threadId === threadId) this.dispatched.delete(key);
+    }
+  }
+}

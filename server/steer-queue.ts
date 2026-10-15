@@ -287,6 +287,14 @@ export function queueMark(): number {
   return queueSeq;
 }
 
+export function hasQueuedSendBefore(botId: string, order: number): boolean {
+  for (const entry of queues.values()) {
+    if (entry.botId !== botId) continue;
+    if (entry.items.some((item) => !isRoomItem(item) && item.seq <= order && !isSendCancelled(item.sendId))) return true;
+  }
+  return false;
+}
+
 /** Take this thread's 1:1 sends queued after `since` for a turn about to
  * dispatch, so a send made during its preparation joins it the way steer
  * would have. Nothing is taken while an older send still waits ahead, so

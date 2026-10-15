@@ -144,9 +144,9 @@ export function TaskRecoveryCard({
           type: "resumeTask",
           botId: bot.id,
           threadId: packet.threadId,
-          onSettled: (error) => {
+          onSettled: (error, pending) => {
             if (gen !== settleGen.current) return;
-            setResuming(false);
+            setResuming(pending === true);
             if (error) setResumeError(error);
           },
         });
