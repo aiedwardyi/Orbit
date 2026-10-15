@@ -36,7 +36,7 @@ import { openLiveEvents } from "@/lib/live-events";
 import { holdReload } from "@/lib/reload-hold";
 import { hapticTick } from "@/lib/phone-swipe";
 import { isShownMessage } from "@/lib/shown-message";
-import { arrivalChatForFrame, noteArrival } from "@/lib/arrival-glow";
+import { arrivalChatForFrame, arrivalChatForRoutinePatch, noteArrival } from "@/lib/arrival-glow";
 import {
   acceptedSendPaint,
   applyOptimisticBusy,
@@ -3195,9 +3195,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }
           break;
         }
-        case "message.patch":
+        case "message.patch": {
+          // read before the patch lands: the glow needs the card's old status
+          const arrivalId = arrivalChatForRoutinePatch(frame, stateRef.current);
           rawDispatch({ type: "messagePatched", threadId: frame.threadId, message: frame.message });
+          if (arrivalId) noteArrival(arrivalId);
           break;
+        }
         case "thread":
           rawDispatch({ type: "threadActive", threadId: frame.threadId, activeLeafId: frame.activeLeafId });
           // a rewind also invalidates any half-streamed text from the old branch

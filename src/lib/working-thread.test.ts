@@ -5,6 +5,7 @@ import {
   canDeleteWhileWorking,
   canSwitchWhileWorking,
   liveCalendarSelection,
+  routineThreadReturn,
   routineWorkingElsewhere,
   runNowClick,
   workingThreadId,
@@ -126,5 +127,44 @@ describe("routineWorkingElsewhere", () => {
       status: "queued",
     });
     expect(routineWorkingElsewhere("exec-thread", running)).toBeNull();
+  });
+});
+
+describe("routineThreadReturn", () => {
+  const run = (patch: { status?: string; sourceThreadId?: string } = {}) => ({ ...running, status: "completed", ...patch });
+  const tasks = [{ threadId: "exec-thread" }, { threadId: "side-task" }, { threadId: "chat-thread" }];
+  const room = { id: "room-1", threadId: "room-thread", memberIds: ["bot-1"], tasks: [{ threadId: "room-old" }] };
+  const input = (patch: Partial<Parameters<typeof routineThreadReturn>[0]> = {}) => ({
+    botId: "bot-1",
+    viewedThreadId: "exec-thread",
+    tasks,
+    runs: [run({ sourceThreadId: "chat-thread" })],
+    groups: [room],
+    ...patch,
+  });
+
+  it("stays away from a normal thread", () => {
+    expect(routineThreadReturn(input({ viewedThreadId: "chat-thread" }))).toBeNull();
+  });
+
+  it("returns a run thread to the chat it reports to", () => {
+    expect(routineThreadReturn(input())).toEqual({ name: "Morning brief", live: false, botThreadId: "chat-thread", group: null });
+    expect(routineThreadReturn(input({ runs: [run({ status: "waiting", sourceThreadId: "chat-thread" })] }))?.live).toBe(true);
+  });
+
+  it("returns a room-origin run to its room and moves the bot to its newest non-routine task", () => {
+    const runs = [run({ sourceThreadId: "room-old" }), { ...run(), id: "old", threadId: "side-task" }];
+    expect(routineThreadReturn(input({ runs }))).toEqual({
+      name: "Morning brief",
+      live: false,
+      botThreadId: "chat-thread",
+      group: { id: "room-1", threadId: "room-old" },
+    });
+  });
+
+  it("falls back to the newest non-routine task when the source is gone", () => {
+    expect(routineThreadReturn(input({ runs: [run({ sourceThreadId: "deleted" })] }))?.botThreadId).toBe("side-task");
+    expect(routineThreadReturn(input({ runs: [run()] }))?.botThreadId).toBe("side-task");
+    expect(routineThreadReturn(input({ runs: [run({ sourceThreadId: "room-thread" })], groups: [{ ...room, memberIds: [] }] }))?.group).toBeNull();
   });
 });

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ARRIVAL_GLOW_THROTTLE_MS,
   arrivalChatForFrame,
+  arrivalChatForRoutinePatch,
   arrivalNonce,
   noteArrival,
   resetArrivalGlow,
@@ -117,5 +118,51 @@ describe("arrivalChatForFrame", () => {
     for (const message of kinds) {
       expect(arrivalChatForFrame(frame("closed-thread", message), chats()), JSON.stringify(message)).toBeNull();
     }
+  });
+});
+
+describe("arrivalChatForRoutinePatch", () => {
+  const card = (status: string, runId = "run-1") => ({
+    id: "card",
+    role: "bot",
+    kind: "routine.run",
+    routineRun: { runId, status },
+  });
+  const withCard = (selectedId = "open", status = "running") => {
+    const base = chats(selectedId);
+    return {
+      ...base,
+      bots: base.bots.map((bot) => ({ ...bot, messages: [card(status)] })),
+      groups: base.groups.map((group) => ({ ...group, messages: [card(status)] })),
+    };
+  };
+
+  it("glows a closed bot or room once when a run lands a result", () => {
+    for (const status of ["completed", "waiting", "failed", "missed"]) {
+      resetArrivalGlow();
+      expect(arrivalChatForRoutinePatch(frame("closed-thread", card(status)), withCard()), status).toBe("closed");
+    }
+    resetArrivalGlow();
+    expect(arrivalChatForRoutinePatch(frame("room-thread", card("completed")), withCard())).toBe("room");
+  });
+
+  it("never glows twice for one run", () => {
+    expect(arrivalChatForRoutinePatch(frame("closed-thread", card("waiting")), withCard())).toBe("closed");
+    expect(arrivalChatForRoutinePatch(frame("closed-thread", card("completed")), withCard("open", "waiting"))).toBeNull();
+  });
+
+  it("stays quiet before hydration, on replayed, imported, and older rows", () => {
+    expect(arrivalChatForRoutinePatch(frame("closed-thread", card("completed")), { ...withCard(), hydrated: false })).toBeNull();
+    expect(arrivalChatForRoutinePatch({ ...frame("closed-thread", card("completed")), replayed: true }, withCard())).toBeNull();
+    expect(arrivalChatForRoutinePatch({ ...frame("closed-thread", card("completed")), imported: true }, withCard())).toBeNull();
+    expect(arrivalChatForRoutinePatch(frame("closed-thread", card("completed")), chats())).toBeNull();
+  });
+
+  it("stays quiet for the open chat, unchanged status, and progress states", () => {
+    expect(arrivalChatForRoutinePatch(frame("open-thread", card("completed")), withCard())).toBeNull();
+    expect(arrivalChatForRoutinePatch(frame("closed-thread", card("completed")), withCard("open", "completed"))).toBeNull();
+    expect(arrivalChatForRoutinePatch(frame("closed-thread", card("running")), withCard("open", "queued"))).toBeNull();
+    expect(arrivalChatForRoutinePatch(frame("closed-thread", card("cancelled")), withCard())).toBeNull();
+    expect(arrivalChatForRoutinePatch(frame("closed-thread", { ...card("completed"), kind: "text" }), withCard())).toBeNull();
   });
 });

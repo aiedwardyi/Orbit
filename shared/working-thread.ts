@@ -90,3 +90,31 @@ export function routineWorkingElsewhere(
   if (run.threadId && run.threadId === viewedThreadId) return null;
   return { name: run.routineName, threadId: run.threadId, status: run.status };
 }
+
+/** On a routine's execution thread, where "Back to chat" lands: the
+ * conversation the routine reports to, else the bot's newest non-routine
+ * task. A room source also moves the bot off the run thread. */
+export function routineThreadReturn(input: {
+  botId: string;
+  viewedThreadId: string;
+  tasks: readonly { threadId: string }[] | undefined;
+  runs: readonly { routineName: string; status: string; threadId?: string; sourceThreadId?: string }[];
+  groups: readonly { id: string; threadId: string; memberIds: readonly string[]; tasks?: readonly { threadId: string }[] }[];
+}): { name: string; live: boolean; botThreadId: string | null; group: { id: string; threadId: string } | null } | null {
+  const run = input.runs.find((candidate) => candidate.threadId === input.viewedThreadId);
+  if (!run) return null;
+  const routineThreads = new Set(input.runs.map((candidate) => candidate.threadId));
+  const tasks = (input.tasks ?? []).filter((task) => !routineThreads.has(task.threadId));
+  const source = run.sourceThreadId;
+  const base = { name: run.routineName, live: LIVE.has(run.status) };
+  if (source && tasks.some((task) => task.threadId === source)) return { ...base, botThreadId: source, group: null };
+  const fallback = tasks[0]?.threadId ?? null;
+  const group = source
+    ? input.groups.find(
+      (candidate) =>
+        candidate.memberIds.includes(input.botId) &&
+        (candidate.threadId === source || (candidate.tasks ?? []).some((task) => task.threadId === source)),
+    )
+    : undefined;
+  return { ...base, botThreadId: fallback, group: group && source ? { id: group.id, threadId: source } : null };
+}

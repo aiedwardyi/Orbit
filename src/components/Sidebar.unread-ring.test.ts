@@ -496,6 +496,37 @@ describe("Sidebar arrival glow", () => {
     }
   });
 
+  it("glows once when a routine card patches to completed, not on hydration", async () => {
+    const card = (status: string) => ({
+      id: "run-card",
+      role: "bot",
+      kind: "routine.run",
+      text: "Routine",
+      at: 5,
+      routineRun: { runId: "run-1", routineId: "routine-1", routineName: "Tool to try", status },
+    });
+    const { host, dispatch, unmount } = await mountSidebar({
+      bots: [bot("open"), bot("closed", { unread: true, messages: [card("running")] })],
+      groups: [room("room", { messages: [{ ...card("completed"), id: "room-card", routineRun: { ...card("completed").routineRun, runId: "run-2" } }] })],
+    });
+    try {
+      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
+      await act(async () => dispatch()({ type: "select", id: "open" }));
+      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
+      await sendFrame({ kind: "message.patch", threadId: "closed-thread", message: card("completed") });
+      const { control } = rowControl(host, "closed");
+      expect(control?.hasAttribute("data-arrival-glow")).toBe(true);
+      await endGlow(control!);
+      expect(control?.hasAttribute("data-arrival-glow")).toBe(false);
+      await sendFrame({ kind: "message.patch", threadId: "closed-thread", message: { ...card("failed"), at: 40 } });
+      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
+      await sendFrame({ kind: "message.patch", threadId: "room-thread", message: { ...card("completed"), id: "room-card", routineRun: { ...card("completed").routineRun, runId: "run-2" } } });
+      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
   it("drops the glow for needs-you when an ask card lands mid-glow", async () => {
     const { host, dispatch, unmount } = await mountSidebar({
       bots: [bot("open"), bot("closed", { unread: true })],

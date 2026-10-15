@@ -407,6 +407,10 @@ describe("Friends Routine naming and one Stop", () => {
     expect(ko["chat.routineWaitingElsewhere"]).toBe("이 봇의 다른 대화에서 {name} 루틴이 사용자 응답을 기다립니다.");
     expect(en["chat.openRoutineThread"]).toBe("Open that thread");
     expect(ko["chat.openRoutineThread"]).toBe("그 대화 열기");
+    expect(en["chat.routineRunThread"]).toBe("You're viewing a run of {name}.");
+    expect(ko["chat.routineRunThread"]).toBe("{name} 루틴 실행을 보고 있습니다.");
+    expect(en["chat.backToChat"]).toBe("Back to chat");
+    expect(ko["chat.backToChat"]).toBe("대화로 돌아가기");
     expect(en["task.running"]).toBe("Running");
     expect(ko["task.running"]).toBe("실행 중");
     expect(en["routine.pageHelp"]).toBe("A routine starts a fresh conversation on this bot each time it runs.");
