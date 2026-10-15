@@ -219,3 +219,11 @@ for (const event of ["second-instance", "open-url", "activate"]) {
     assert.equal(harness.context.pendingNotificationTarget, null);
   });
 }
+
+test("a new main window takes over the updater's state pushes", () => {
+  const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+  assert.match(main, /import \{[^}]*\bretargetUpdater\b[^}]*\} from "\.\/updater\.mjs";/);
+  assert.match(main, /function createWindow\(\) \{[\s\S]*?mainWindow = win;\s*retargetUpdater\(win\);/);
+  const updater = readFileSync(new URL("./updater.mjs", import.meta.url), "utf8");
+  assert.match(updater, /export function retargetUpdater\(mainWindow\) \{\s*win = mainWindow;\s*\}/);
+});

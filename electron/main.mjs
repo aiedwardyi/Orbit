@@ -25,7 +25,7 @@ import { createPaneRuns, notifyRestartedPanes } from "./pane-runs.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
-import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, startUpdater, updaterBridge } from "./updater.mjs";
+import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, retargetUpdater, startUpdater, updaterBridge } from "./updater.mjs";
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
 import { createCloseGuard } from "./close-guard.mjs";
 import { applyStartFresh, requestStartFresh } from "./start-fresh.mjs";
@@ -1644,6 +1644,7 @@ function createWindow() {
     },
   });
   mainWindow = win;
+  retargetUpdater(win);
   win.webContents.session.webRequest.onBeforeSendHeaders({ urls: ["*://*/*"] }, (details, callback) => {
     callback({ requestHeaders: appAuthorization.headers(details, mainWindow?.webContents) });
   });
