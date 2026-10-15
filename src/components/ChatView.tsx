@@ -103,7 +103,7 @@ import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
   focusWindow,
-  followedTailStart,
+  followedWindow,
   resolveTranscriptWindow,
   shiftForPrepend,
   tailWindowStart,
@@ -1646,7 +1646,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     (index: number) => messageVisible(messages[index], { showToolCalls, showActivities, transcript: messages }),
     [messages, showToolCalls, showActivities],
   );
-  // `expanded`: the reader asked for scrollback, so the followed tail never slides it away.
+  // `expanded`: scrollback the reader asked for, held until they follow the bottom again.
   const [transcriptWindow, setTranscriptWindow] = useState<{
     key: string;
     start: number;
@@ -1710,10 +1710,10 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     startIndex,
     endIndex,
   } = useMemo(
-    () => resolveTranscriptWindow(shown, follow && !jump.messages && transcriptWindow.end === null && !transcriptWindow.expanded
-      ? followedTailStart(transcriptWindow.start, shown.length, TRANSCRIPT_WINDOW_SIZE, renders)
+    () => resolveTranscriptWindow(shown, follow && !jump.messages
+      ? followedWindow(transcriptWindow, shown.length, TRANSCRIPT_WINDOW_SIZE, renders).start
       : transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
-    [shown, follow, jump.messages, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded],
+    [shown, follow, jump.messages, renders, transcriptWindow],
   );
   useLayoutEffect(() => {
     windowAnchor.current = { id: windowedMessages[0]?.id, index: startIndex };
@@ -1924,10 +1924,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     !shown.some((message) => message.id === state.focusMessage?.messageId);
   useFocusMessage(bot.threadId, shown.length > 0 && !focusPaging && focusWindowNonce === state.focusMessage?.nonce);
   useEffect(() => {
-    if (!follow || jump.messages || transcriptWindow.end !== null || transcriptWindow.expanded) return;
-    const start = followedTailStart(transcriptWindow.start, messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
-    if (start !== transcriptWindow.start) setTranscriptWindow((w) => ({ ...w, start }));
-  }, [follow, jump.messages, messages.length, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded]);
+    if (!follow || jump.messages || followedWindow(transcriptWindow, messages.length, TRANSCRIPT_WINDOW_SIZE, renders) === transcriptWindow) return;
+    setTranscriptWindow((w) => followedWindow(w, messages.length, TRANSCRIPT_WINDOW_SIZE, renders));
+  }, [follow, jump.messages, messages.length, renders, transcriptWindow]);
   // A plain tail holds at least the newest window of visible rows. Shifting it
   // for an auto-paged older page would leave a tool-heavy tail nearly blank.
   const tailStart = useMemo(() => tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), [messages.length, renders]);

@@ -64,6 +64,18 @@ export function followedTailStart(
   return total - startIndex > size * 2 ? tailWindowStart(total, size, renders) : startIndex;
 }
 
+/** A followed tail lets go of opened scrollback, or one "Show earlier" pins every later row. */
+export function followedWindow<W extends { start: number; end: number | null; expanded?: boolean }>(
+  window: W,
+  total: number,
+  size: number = TRANSCRIPT_WINDOW_SIZE,
+  renders?: (index: number) => boolean,
+): W {
+  if (window.end !== null) return window;
+  const start = followedTailStart(window.start, total, size, renders);
+  return start === window.start && !window.expanded ? window : { ...window, start, expanded: false };
+}
+
 /** Older rows were prepended: keep the window on the same rows, or open one
  * "Show earlier" step into them when the reader asked for them. */
 export function shiftForPrepend<W extends { start: number; end: number | null }>(

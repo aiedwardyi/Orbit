@@ -81,7 +81,7 @@ import {
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
   focusWindow,
-  followedTailStart,
+  followedWindow,
   resolveTranscriptWindow,
   shiftForPrepend,
   tailWindowStart,
@@ -1323,10 +1323,10 @@ export function GroupView({ group }: { group: Group }) {
     startIndex,
     endIndex,
   } = useMemo(
-    () => resolveTranscriptWindow(shown, follow && !jump.messages && transcriptWindow.end === null && !transcriptWindow.expanded
-      ? followedTailStart(transcriptWindow.start, shown.length, TRANSCRIPT_WINDOW_SIZE, renders)
+    () => resolveTranscriptWindow(shown, follow && !jump.messages
+      ? followedWindow(transcriptWindow, shown.length, TRANSCRIPT_WINDOW_SIZE, renders).start
       : transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
-    [shown, follow, jump.messages, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded],
+    [shown, follow, jump.messages, renders, transcriptWindow],
   );
 
   const setBottomFollow = useCallback((next: boolean) => {
@@ -1405,10 +1405,9 @@ export function GroupView({ group }: { group: Group }) {
     !shown.some((message) => message.id === state.focusMessage?.messageId);
   useFocusMessage(group.threadId, shown.length > 0 && !focusPaging && focusWindowNonce === state.focusMessage?.nonce);
   useEffect(() => {
-    if (!follow || jump.messages || transcriptWindow.end !== null || transcriptWindow.expanded) return;
-    const start = followedTailStart(transcriptWindow.start, group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders);
-    if (start !== transcriptWindow.start) setTranscriptWindow((w) => ({ ...w, start }));
-  }, [follow, jump.messages, group.messages.length, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded]);
+    if (!follow || jump.messages || followedWindow(transcriptWindow, group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders) === transcriptWindow) return;
+    setTranscriptWindow((w) => followedWindow(w, group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders));
+  }, [follow, jump.messages, group.messages.length, renders, transcriptWindow]);
   // A plain tail holds at least the newest window of visible rows - see ChatView.
   const tailStart = useMemo(() => tailWindowStart(group.messages.length, TRANSCRIPT_WINDOW_SIZE, renders), [group.messages.length, renders]);
 

@@ -6,6 +6,7 @@ import {
   expandWindowStart,
   focusWindow,
   followedTailStart,
+  followedWindow,
   resolveTranscriptWindow,
   tailWindowStart,
   shouldAdvanceWindow,
@@ -234,5 +235,33 @@ describe("followedTailStart", () => {
 
   it("leaves a stale boundary past the end for resolve to handle", () => {
     expect(followedTailStart(500, 100)).toBe(500);
+  });
+});
+
+describe("followedWindow", () => {
+  it("lets go of opened scrollback and slides to a fresh tail", () => {
+    expect(followedWindow({ start: 0, end: null, expanded: true }, 400)).toEqual({ start: tailWindowStart(400), end: null, expanded: false });
+  });
+
+  it("keeps rows within two windows when it lets go of scrollback", () => {
+    expect(followedWindow({ start: 100, end: null, expanded: true }, 300)).toEqual({ start: 100, end: null, expanded: false });
+  });
+
+  it("caps a followed tail at two windows after scrollback", () => {
+    let window = { start: 0, end: null, expanded: true };
+    for (let total = 400; total < 1000; total++) {
+      window = followedWindow(window, total);
+      expect(total - window.start).toBeLessThanOrEqual(TRANSCRIPT_WINDOW_SIZE * 2);
+    }
+  });
+
+  it("returns the same window when nothing moves", () => {
+    const window = { start: 100, end: null };
+    expect(followedWindow(window, 300)).toBe(window);
+  });
+
+  it("keeps a finite window", () => {
+    const window = { start: 0, end: 200, expanded: true };
+    expect(followedWindow(window, 400)).toBe(window);
   });
 });
