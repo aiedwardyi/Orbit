@@ -70,7 +70,7 @@ describe("ChatView tool chips", () => {
         expect([...cls].filter((c) => /^(bg-|border-hairline|rounded-(full|2xl))/.test(c))).toEqual([]);
       }
       const button = tokens(comm);
-      for (const c of ["rounded-lg", "hover:bg-control", "focus-visible:bg-control", "hover:text-ink"]) expect(button.has(c)).toBe(true);
+      for (const c of ["rounded-lg", "hover:bg-control", "focus-visible:bg-control", "hover:text-ink", "focus-visible:text-ink"]) expect(button.has(c)).toBe(true);
     } finally {
       await act(async () => root.unmount());
       host.remove();

@@ -67,6 +67,13 @@ describe("RoomToolChip", () => {
     expect(dispatched).toEqual([{ type: "select", id: "pair" }, { type: "select", id: "pair" }, { type: "select", id: "pair" }]);
   });
 
+  it("matches the conversation chip's keyboard foreground to hover", async () => {
+    const [button] = await renderRows([sent]);
+    const classes = new Set(button.className.split(/\s+/));
+    expect(classes.has("hover:text-ink")).toBe(true);
+    expect(classes.has("focus-visible:text-ink")).toBe(true);
+  });
+
   it("draws the conversation and step chips flat, with a fill only on the button's hover and focus", async () => {
     const [button] = await renderRows([sent, { id: "step", at: 2, role: "bot", kind: "activity", tool: { name: "Bash: npm test", ok: true } }]);
     const row = host.querySelector(".font-mono")!.parentElement!;
