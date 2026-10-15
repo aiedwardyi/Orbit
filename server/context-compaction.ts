@@ -8,6 +8,7 @@ import {
   readContextCompaction,
   type ContextCompactionV1,
 } from "../shared/context-compaction.ts";
+import type { RoutineRunCardData } from "../shared/routine-run.ts";
 
 export const MODEL_CONTEXT_FALLBACK = 128_000;
 // A local host can load a model with an 8k window and not report it.
@@ -260,6 +261,26 @@ function pendingPaneNotes(messages: Message[], excludeIds: ReadonlySet<string>, 
   return notes;
 }
 
+/** Routine cards that landed without a turn (missed, cloud results) since the last user turn.
+ * A fired chat card stops the walk: its own turn carried everything pending before it. */
+export function routineCardsSinceLastUserTurn(messages: Message[], excludeIds: ReadonlySet<string>, boundId?: string): string[] {
+  const lines: string[] = [];
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]!;
+    if (message.id === boundId) break;
+    if (excludeIds.has(message.id)) continue;
+    if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) break;
+    const card = message.kind === "routine.run" ? message.routineRun : undefined;
+    if (!card) continue;
+    const landed = card.status === "missed" ||
+      (card.runOn === "cloud" && (card.status === "completed" || card.status === "failed"));
+    if (!landed && card.runOn !== "cloud" && card.status !== "queued" && card.status !== "cancelled") break;
+    const text = landed ? routineRunText(card) : null;
+    if (text) lines.unshift(text);
+  }
+  return lines;
+}
+
 /** Oldest first, up to what leaves history room for a summary; a lone oversized note is clipped. */
 function fitPaneNotes(notes: Array<{ id: string; text: string }>, contextWindow: number): Array<{ id: string; text: string }> {
   const budget = contextBudget(contextWindow);
@@ -342,6 +363,23 @@ function cardText(card: OptionCardData): string | null {
   ].join(" ");
 }
 
+const pad = (value: number) => String(value).padStart(2, "0");
+
+/** One bounded user-side line. A queued or cancelled run never reached the bot. */
+function routineRunText(card: RoutineRunCardData): string | null {
+  if (card.status === "queued" || card.status === "cancelled") return null;
+  const at = card.scheduledFor === undefined ? null : new Date(card.scheduledFor);
+  const when = at ? ` ${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}` : "";
+  const line = `${card.routineName} ${card.status === "missed" ? "missed" : "fired"}${when}${card.instruction ? `: ${card.instruction}` : ""}`;
+  const result = card.runOn === "cloud" && card.status === "completed" && card.summary
+    ? ` [result: ${replyExcerpt(redactSecretsInText(card.summary), CARD_TEXT_CHARS)}]`
+    : "";
+  const failed = card.status === "failed"
+    ? ` [failed${card.error ? `: ${replyExcerpt(redactSecretsInText(card.error), CARD_TEXT_CHARS)}` : ""}]`
+    : "";
+  return `[Routine card] ${replyExcerpt(redactSecretsInText(line), CARD_TEXT_CHARS)}${result}${failed}`;
+}
+
 function replayUnits(
   messages: Message[],
   excludeIds: ReadonlySet<string>,
@@ -412,6 +450,8 @@ function replayUnits(
         chip: { name: message.tool.name, ok: message.tool.ok, speaker, speakerId: message.from?.botId ?? speaker },
       }];
     }
+    const routine = message.kind === "routine.run" && message.routineRun ? routineRunText(message.routineRun) : null;
+    if (routine) return [{ id: message.id, pathIndex, role: "user", text: routine, label: "", card: true }];
     const card = message.kind === "options" && message.card ? cardText(message.card) : null;
     if (card) {
       const speaker = message.from?.name ?? "Bot";

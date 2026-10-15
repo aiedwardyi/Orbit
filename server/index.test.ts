@@ -2799,7 +2799,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("refuses to switch a bot's active task while its turn is running", async () => {
+  it("runs a local routine in the bot's open chat and keeps that chat from deletion", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     let routineId = "";
     try {
@@ -2811,9 +2811,8 @@ describe("harness HTTP API", () => {
       })).status).toBe(200);
 
       const originalTask = bot.threadId;
-      // One chat per bot: a bot can no longer grow a second task through its
-      // own create-task route. A routine run still spins up a detached task
-      // and keeps the bot busy on it without disturbing the viewed thread.
+      // One chat per bot: a local routine run fires in that chat and never
+      // grows a task of its own.
       const created = await api("POST", "/api/routines", {
         name: "Running task",
         prompt: "keep running",
@@ -2831,10 +2830,18 @@ describe("harness HTTP API", () => {
         const runs = (await api("GET", "/api/routines")).body.runs as Array<{ id: string; status: string }>;
         return runs.find((candidate) => candidate.id === queued.body.run.id)?.status === "running";
       }).toBe(true);
+      // SAFETY: /api/routines lists stored runs, which carry these optional thread ids.
+      const run = ((await api("GET", "/api/routines")).body.runs as Array<{
+        id: string;
+        threadId?: string;
+        sourceThreadId?: string;
+      }>).find((candidate) => candidate.id === queued.body.run.id)!;
+      expect(run.threadId).toBeUndefined();
+      expect(run.sourceThreadId).toBe(originalTask);
 
-      const blocked = await api("POST", `/api/bots/${bot.id}/tasks/${originalTask}`);
+      const blocked = await api("DELETE", `/api/bots/${bot.id}/tasks/${originalTask}`);
       expect(blocked.status).toBe(409);
-      expect(blocked.body.error).toMatch(/stop it before switching tasks/i);
+      expect(blocked.body.error).toMatch(/this task is running/i);
       const current = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,
       );
@@ -2846,7 +2853,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("coalesces run-now and lets the open chat align to a detached routine thread", async () => {
+  it("coalesces run-now and runs it in the open chat", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     let routineId = "";
     try {
@@ -2877,21 +2884,17 @@ describe("harness HTTP API", () => {
       expect(second.body.run.id).toBe(first.body.run.id);
 
       await expect.poll(async () => {
-        const runs = (await api("GET", "/api/routines")).body.runs as Array<{
-          id: string;
-          threadId?: string;
-          status: string;
-        }>;
-        const run = runs.find((candidate) => candidate.id === first.body.run.id);
-        return Boolean(run?.threadId) && run?.status === "running";
+        const runs = (await api("GET", "/api/routines")).body.runs as Array<{ id: string; status: string }>;
+        return runs.find((candidate) => candidate.id === first.body.run.id)?.status === "running";
       }).toBe(true);
 
       const run = ((await api("GET", "/api/routines")).body.runs as Array<{
         id: string;
         threadId?: string;
+        sourceThreadId?: string;
       }>).find((candidate) => candidate.id === first.body.run.id)!;
-      expect(run.threadId).toBeTruthy();
-      expect(run.threadId).not.toBe(viewed);
+      expect(run.threadId).toBeUndefined();
+      expect(run.sourceThreadId).toBe(viewed);
 
       const current = (await api("GET", "/api/bots?messages=0")).body.bots.find(
         (candidate: { id: string }) => candidate.id === bot.id,
@@ -2899,20 +2902,9 @@ describe("harness HTTP API", () => {
       expect(current.busy).toBe(true);
       expect(current.threadId).toBe(viewed);
 
-      const aligned = await api("POST", `/api/bots/${bot.id}/tasks/${run.threadId}`);
+      const aligned = await api("POST", `/api/bots/${bot.id}/tasks/${viewed}`);
       expect(aligned.status).toBe(200);
-      expect(aligned.body.bot.threadId).toBe(run.threadId);
-
-      const away = await api("POST", `/api/bots/${bot.id}/tasks/${viewed}`);
-      expect(away.status).toBe(409);
-      expect(away.body.error).toMatch(/stop it before switching tasks/i);
-
-      const deleteRunning = await api("DELETE", `/api/bots/${bot.id}/tasks/${run.threadId}`);
-      expect(deleteRunning.status).toBe(409);
-      expect(deleteRunning.body.error).toMatch(/this task is running/i);
-
-      const deleteIdle = await api("DELETE", `/api/bots/${bot.id}/tasks/${viewed}`);
-      expect(deleteIdle.status).toBe(200);
+      expect(aligned.body.bot.threadId).toBe(viewed);
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
       if (routineId) await api("DELETE", `/api/routines/${routineId}`).catch(() => undefined);
@@ -3818,7 +3810,7 @@ describe("harness HTTP API", () => {
 
       // The initial fixture turn is deliberately hung. Once it is stopped,
       // force a deterministic dispatch failure by choosing the configured
-      // but unavailable ghost provider. The execution stays detached, while one source card is
+      // but unavailable ghost provider. The run fires in this chat, and one source card is
       // appended then patched through queued → running → failed.
       expect((await api("POST", `/api/bots/${bot.id}/interrupt`)).status).toBe(200);
       await expect.poll(async () => {
@@ -3864,7 +3856,7 @@ describe("harness HTTP API", () => {
           routineName: "Weekday brief",
           status: "failed",
         });
-        expect(runCards[0].routineRun.executionThreadId).not.toBe(bot.threadId);
+        expect(runCards[0].routineRun.executionThreadId).toBeUndefined();
 
         // Reading the source and then marking the failure seen in Routines
         // must not make the original conversation unread again. markSeen
@@ -3898,15 +3890,15 @@ describe("harness HTTP API", () => {
           startedAt: expect.any(String),
           finishedAt: expect.any(String),
           error: expect.stringMatching(/provider instance "ghost" is unavailable/i),
-          executionThreadId: runCards[0].routineRun.executionThreadId,
+          executionThreadId: null,
         });
       } finally {
         routineEvents.close();
       }
 
       // A deleted source conversation is a safe fallback, not an instruction
-      // to recreate its transcript. The run still gets its detached receipt
-      // and failure, but no lifecycle message is written to the orphan id.
+      // to recreate its transcript. The run falls back to the bot's chat and
+      // fails there, but no lifecycle message is written to the orphan id.
       // One chat per bot means a bot itself can no longer grow a second
       // task — a scratch room the bot belongs to stands in for the
       // disposable source thread.

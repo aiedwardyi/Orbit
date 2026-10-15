@@ -82,13 +82,19 @@ export function liveCalendarSelection<
   return { ...selected, routine, run: selectedRun };
 }
 
+/** Where a run's turn lives: its detached task, else the chat it fires in. */
+export function runThread(run: { threadId?: string; sourceThreadId?: string }): string | undefined {
+  return run.threadId ?? run.sourceThreadId;
+}
+
 export function routineWorkingElsewhere(
   viewedThreadId: string,
-  run: { routineName: string; status: string; threadId?: string } | null | undefined,
+  run: { routineName: string; status: string; threadId?: string; sourceThreadId?: string } | null | undefined,
 ): { name: string; threadId?: string; status: ActiveRunStatus } | null {
   if (!run || !isActiveRunStatus(run.status)) return null;
-  if (run.threadId && run.threadId === viewedThreadId) return null;
-  return { name: run.routineName, threadId: run.threadId, status: run.status };
+  const threadId = runThread(run);
+  if (threadId && threadId === viewedThreadId) return null;
+  return { name: run.routineName, threadId, status: run.status };
 }
 
 /** On a routine's execution thread, where "Back to chat" lands: the

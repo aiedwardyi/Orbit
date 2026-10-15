@@ -7,7 +7,8 @@ import { DATA_DIR } from "./config.ts";
 import type { RuntimeEvent } from "./contracts.ts";
 import { redactSecretsInText } from "./redact.ts";
 import type { RoutineRequestOperation } from "../shared/routine-request.ts";
-import { activeRunForRoutine } from "../shared/working-thread.ts";
+import type { RoutineRunCardData } from "../shared/routine-run.ts";
+import { activeRunForRoutine, runThread } from "../shared/working-thread.ts";
 
 export type RoutineSchedule =
   | { type: "once"; at: number }
@@ -71,10 +72,11 @@ export interface RoutineRun {
   triggerSource?: RoutineRunTrigger;
   webhookId?: string;
   deliveryId?: string;
-  /** Snapshot the routine's reporting destination. Execution remains on the
-   * separate `threadId` so recurring work never contaminates chat context. */
+  /** The chat the run reports to; a local run also fires there. Cloud and
+   * webhook runs execute on the separate `threadId`. */
   sourceThreadId?: string;
   threadId?: string;
+  cardMessageId?: string;
   startedAt?: number;
   finishedAt?: number;
   output?: string;
@@ -153,9 +155,11 @@ export interface RoutineManagerOptions {
     triggerSource: RoutineRunTrigger,
     onDispatchError: (message: string) => void,
   ) => Promise<void>;
+  /** Fires a local run in its chat as a control-plane turn, below its card. */
+  startChatTurn: (run: RoutineRun, line: string, onDispatchError: (message: string) => void) => Promise<void>;
   interruptTurn?: (botId: string, threadId: string, runOn: RoutineRunOn) => Promise<void>;
-  /** Projects every durable transition into the source conversation. */
-  onRunChanged?: (run: RoutineRun) => void;
+  /** Projects every durable transition into the source conversation and says where the card landed. */
+  onRunChanged?: (run: RoutineRun) => { threadId: string; messageId: string } | null | void;
   onRunFailed?: (run: RoutineRun) => void;
 }
 
@@ -227,6 +231,50 @@ function sanitizeInput(input: RoutineInput): Omit<Routine, "id" | "createdAt" | 
     schedule: cleanSchedule(input.schedule),
     durationMinutes: Math.min(240, Math.max(15, Math.round(Number(input.durationMinutes) || 30))),
   };
+}
+
+/** Held user sends count as busy, so the user's own lines go first. */
+export function routineBotState(input: { exists: boolean; activeTurn: boolean; queuedSends: boolean }): "ready" | "busy" | "missing" {
+  if (!input.exists) return "missing";
+  return input.activeTurn || input.queuedSends ? "busy" : "ready";
+}
+
+/** Local runs ring in their chat; cloud and webhook runs keep a detached task. */
+function firesInChat(run: RoutineRun): boolean {
+  return (run.runOn ?? "maus") === "maus" && run.triggerSource !== "webhook";
+}
+
+function isBusyRejection(error: Error): boolean {
+  return "code" in error && error.code === "BOT_BUSY";
+}
+
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function routineFireLine(run: Pick<RoutineRun, "routineName" | "scheduledFor">, prompt: string): string {
+  const at = new Date(run.scheduledFor);
+  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  return `[Routine] ${run.routineName} fired at ${time} ${DAYS[at.getDay()]} ${MONTHS[at.getMonth()]} ${at.getDate()}: ${prompt}`;
+}
+
+export function routineRunCard(run: RoutineRun): RoutineRunCardData {
+  const visibleSummary = run.status === "waiting" ? run.attention : run.output;
+  const summary = visibleSummary ? visibleSummary.slice(0, 2_000) : undefined;
+  const error = run.error ? run.error.slice(0, 500) : undefined;
+  const card: RoutineRunCardData = {
+    runId: run.id,
+    routineId: run.routineId,
+    routineName: run.routineName,
+    status: run.status,
+    runOn: run.runOn ?? "maus",
+    scheduledFor: run.scheduledFor,
+  };
+  if (run.prompt) card.instruction = run.prompt.slice(0, 2_000);
+  if (run.startedAt) card.startedAt = run.startedAt;
+  if (run.threadId) card.executionThreadId = run.threadId;
+  if (summary) card.summary = summary;
+  if (error) card.error = error;
+  return card;
 }
 
 export class RoutineManager {
@@ -493,12 +541,13 @@ export class RoutineManager {
     }
     for (const run of this.runs) {
       if (run.botId !== botId || !["queued", "running", "waiting"].includes(run.status)) continue;
+      const threadId = run.status === "queued" ? run.threadId : runThread(run);
       run.status = "cancelled";
       run.attention = undefined;
       run.finishedAt = this.now();
       run.error = "The assigned bot was deleted";
       this.emitRun(run);
-      if (run.threadId) void this.options.interruptTurn?.(run.botId, run.threadId, run.runOn ?? "maus").catch(() => {});
+      if (threadId) void this.options.interruptTurn?.(run.botId, threadId, run.runOn ?? "maus").catch(() => {});
       changed = true;
     }
     if (changed) this.save();
@@ -598,12 +647,13 @@ export class RoutineManager {
   async cancelRun(id: string): Promise<RoutineRun | null> {
     const run = this.runs.find((r) => r.id === id);
     if (!run || !["queued", "running", "waiting"].includes(run.status)) return null;
+    const threadId = run.status === "queued" ? run.threadId : runThread(run);
     run.status = "cancelled";
     run.attention = undefined;
     run.finishedAt = this.now();
     this.save();
     this.emitRun(run);
-    if (run.threadId) await this.options.interruptTurn?.(run.botId, run.threadId, run.runOn ?? "maus").catch(() => {});
+    if (threadId) await this.options.interruptTurn?.(run.botId, threadId, run.runOn ?? "maus").catch(() => {});
     queueMicrotask(() => void this.tick());
     return { ...run };
   }
@@ -671,7 +721,8 @@ export class RoutineManager {
       if (changed) this.save();
       for (const missed of missedRuns) this.options.onRunFailed?.(missed);
 
-      for (const run of [...this.runs].reverse()) {
+      const queued = this.runs.filter((run) => run.status === "queued").sort((a, b) => a.scheduledFor - b.scheduledFor);
+      for (const run of queued) {
         if (run.status !== "queued") continue;
         const state = this.options.botState(run.botId);
         if (state === "busy") continue;
@@ -679,9 +730,15 @@ export class RoutineManager {
           this.failRun(run, "The assigned bot no longer exists");
           continue;
         }
+        if (firesInChat(run)) {
+          await this.startChatRun(run);
+          continue;
+        }
         // A webhook is an incoming message, so make its task the bot's live
-        // chat immediately. Scheduled work remains detached and unobtrusive.
-        const task = this.options.createTask(run.botId, run.routineName, run.triggerSource === "webhook");
+        // chat immediately. Cloud work remains detached and unobtrusive.
+        const task = run.threadId
+          ? { threadId: run.threadId }
+          : this.options.createTask(run.botId, run.routineName, run.triggerSource === "webhook");
         if (!task) {
           this.failRun(run, "Could not create a task for this run");
           continue;
@@ -707,7 +764,8 @@ export class RoutineManager {
             (message) => this.failThread(task.threadId, message),
           );
         } catch (error) {
-          this.failThread(task.threadId, error instanceof Error ? error.message : String(error));
+          if (error instanceof Error && isBusyRejection(error)) this.requeue(run);
+          else this.failThread(task.threadId, error instanceof Error ? error.message : String(error));
         }
       }
     } finally {
@@ -715,8 +773,46 @@ export class RoutineManager {
     }
   }
 
-  handleRuntimeEvent(event: RuntimeEvent): RoutineRun | null {
-    const run = this.runs.find((r) => r.threadId === event.threadId && ["running", "waiting"].includes(r.status));
+  private async startChatRun(run: RoutineRun) {
+    const prompt = run.prompt ?? this.routines.find((r) => r.id === run.routineId)?.prompt;
+    if (!prompt) {
+      this.failRun(run, "The routine was deleted before it could start");
+      return;
+    }
+    run.startedAt = this.now();
+    run.status = "running";
+    this.save();
+    this.emitRun(run);
+    const triggerSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
+    const fail = (message: string) => {
+      if (!["running", "waiting"].includes(run.status)) return;
+      this.failRun(run, message);
+      queueMicrotask(() => void this.tick());
+    };
+    try {
+      await this.options.startChatTurn({ ...run, triggerSource }, routineFireLine(run, prompt), fail);
+    } catch (error) {
+      if (error instanceof Error && isBusyRejection(error)) this.requeue(run);
+      else fail(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** Lost a start race: the run waits for the next settle instead of failing. */
+  private requeue(run: RoutineRun) {
+    if (run.status !== "running") return;
+    run.status = "queued";
+    run.startedAt = undefined;
+    this.save();
+    this.emitRun(run);
+  }
+
+  /** A chat run is matched by its chat and bot: a room thread hosts several members' turns. */
+  handleRuntimeEvent(event: RuntimeEvent, ownerBotId?: string): RoutineRun | null {
+    const run = this.runs.find(
+      (r) =>
+        ["running", "waiting"].includes(r.status) &&
+        (r.threadId ? r.threadId === event.threadId : r.sourceThreadId === event.threadId && r.botId === ownerBotId),
+    );
     if (!run) return null;
     if (event.type === "request.opened") {
       run.status = "waiting";
@@ -807,17 +903,24 @@ export class RoutineManager {
   }
 
   private emitRun(run: RoutineRun) {
+    const card = this.notifyRunChanged(run);
+    // A run follows its card: a gone or missing source falls back to the bot's 1:1.
+    if (card && (run.cardMessageId !== card.messageId || run.sourceThreadId !== card.threadId)) {
+      run.cardMessageId = card.messageId;
+      run.sourceThreadId = card.threadId;
+      this.save();
+    }
     this.options.emit?.({ kind: "routine.run", run: { ...run } });
-    this.notifyRunChanged(run);
   }
 
   private notifyRunChanged(run: RoutineRun) {
     try {
-      this.options.onRunChanged?.({ ...run });
+      return this.options.onRunChanged?.({ ...run }) ?? null;
     } catch (error) {
       // Reporting is secondary to scheduler truth. A transcript write must
       // never strand the run in memory or prevent the next tick.
       console.error("routine: source-thread lifecycle update failed", error);
+      return null;
     }
   }
 

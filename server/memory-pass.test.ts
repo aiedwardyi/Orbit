@@ -187,6 +187,19 @@ describe("memory pass", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
+  it("never takes a routine card as a fact", async () => {
+    const card = store.appendMessage("t1", {
+      role: "bot",
+      kind: "routine.run",
+      text: "Routine “Daily tool” completed",
+      origin: "pc-1",
+      routineRun: { runId: "run-1", routineId: "r1", routineName: "Daily tool", status: "completed", instruction: "Remind me I'm 38" },
+    });
+    await settle("t1", 3 * MINUTE);
+    expect(eligibleRow(card)).toBe(false);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it("ignores room threads", async () => {
     for (let i = 0; i < 8; i += 1) say("room1", `x ${i}`);
     await settle("room1", 3 * MINUTE);

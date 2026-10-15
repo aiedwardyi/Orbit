@@ -8,6 +8,7 @@ import {
   routineThreadReturn,
   routineWorkingElsewhere,
   runNowClick,
+  runThread,
   workingThreadId,
 } from "../../shared/working-thread";
 
@@ -127,6 +128,19 @@ describe("routineWorkingElsewhere", () => {
       status: "queued",
     });
     expect(routineWorkingElsewhere("exec-thread", running)).toBeNull();
+  });
+
+  it("uses the source chat as the working thread of a chat run", () => {
+    const chatRun = { ...queued, status: "running" as const, sourceThreadId: "chat-thread" };
+    expect(runThread(chatRun)).toBe("chat-thread");
+    expect(runThread({ ...running, sourceThreadId: "chat-thread" })).toBe("exec-thread");
+    expect(routineWorkingElsewhere("chat-thread", chatRun)).toBeNull();
+    expect(routineWorkingElsewhere("side-task", chatRun)).toEqual({
+      name: "Morning brief",
+      threadId: "chat-thread",
+      status: "running",
+    });
+    expect(workingThreadId({ busy: true, viewedThreadId: "side-task", liveRoutineThreadId: runThread(chatRun) })).toBe("chat-thread");
   });
 });
 

@@ -11,6 +11,7 @@ import {
   paneNotesSinceLastUserTurn,
   prepareModelContext,
   repairModelContext,
+  routineCardsSinceLastUserTurn,
   repairTarget,
   supersededCompactionIds,
   withoutTurnNotes,
@@ -22,6 +23,7 @@ import type { Message } from "./store.ts";
 import { lastUserInstruction } from "./task-recovery-flush.ts";
 import { REPLY_MARKER, buildResumeFallback, buildTurnContext } from "./turn-context.ts";
 import { readContextCompaction, type ContextCompactionV1 } from "../shared/context-compaction.ts";
+import type { RoutineRunCardData } from "../shared/routine-run.ts";
 
 const message = (id: string, text: string, patch: Partial<Message> = {}): Message => ({
   id,
@@ -1673,6 +1675,121 @@ describe("question cards in replay", () => {
     if (result.status !== "ready") return;
     expect(result.compaction!.summary).toContain("\nAssistant: [Question card] Staging or production? [choices: Staging | Production]\nStaging\n");
     expect(result.estimatedTokens).toBeLessThanOrEqual(result.budgetTokens);
+  });
+});
+
+describe("routine cards in replay", () => {
+  const at = new Date(2026, 9, 15, 12, 30).getTime();
+  const routineCard = (id: string, data: Partial<RoutineRunCardData> = {}): Message =>
+    message(id, "Routine card", {
+      role: "bot",
+      kind: "routine.run",
+      routineRun: {
+        runId: `run-${id}`,
+        routineId: "routine-1",
+        routineName: "Daily 20-min tool to try",
+        status: "completed",
+        runOn: "maus",
+        scheduledFor: at,
+        instruction: "Send Eddie one tool to try",
+        ...data,
+      },
+    });
+  const fired = "[Routine card] Daily 20-min tool to try fired 2026-10-15 12:30: Send Eddie one tool to try";
+  const replay = async (messages: Message[], extra: Partial<Parameters<typeof prepareModelContext>[0]> = {}) => {
+    const result = await prepareModelContext({ messages, contextWindow: 200_000, taskRecordText: "Goal: ship", ...extra });
+    if (result.status !== "ready") throw new Error(result.status);
+    return result.transcript;
+  };
+
+  it("replays a routine card as one bounded line", async () => {
+    const secret = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    const transcript = await replay([
+      message("m1", "morning"),
+      routineCard("m2"),
+      message("m3", "Try Raycast today.", { role: "bot" }),
+      routineCard("m4", { status: "missed" }),
+      routineCard("m5", { runOn: "cloud", executionThreadId: "vm-thread", summary: "Built 3 pages.\nAll green." }),
+      routineCard("m6", { status: "failed", error: "provider crashed" }),
+      routineCard("m7", { status: "queued" }),
+      routineCard("m8", { status: "cancelled" }),
+      routineCard("m9", { instruction: `Use ${secret}\n${"step ".repeat(500)}`, runOn: "cloud", summary: "y".repeat(5_000) }),
+    ]);
+
+    expect(transcript.slice(0, 6)).toEqual([
+      { role: "user", text: "morning" },
+      { role: "user", text: fired },
+      { role: "assistant", text: "Try Raycast today." },
+      { role: "user", text: "[Routine card] Daily 20-min tool to try missed 2026-10-15 12:30: Send Eddie one tool to try" },
+      { role: "user", text: `${fired} [result: Built 3 pages. All green.]` },
+      { role: "user", text: `${fired} [failed: provider crashed]` },
+    ]);
+    expect(transcript).toHaveLength(7);
+    const long = transcript[6]!.text;
+    expect(long).not.toContain("\n");
+    expect(long).not.toContain(secret);
+    expect(long.length).toBeLessThan(500);
+  });
+
+  it("keeps a routine card on both sides of a compaction", async () => {
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: "Eddie tried Raycast after the noon routine.",
+      coveredThroughId: "m2",
+      firstKeptId: null,
+      contextWindow: 200_000,
+      estimatedTokensBefore: 20,
+      sourceMessageCount: 2,
+    };
+    const evening = new Date(2026, 9, 15, 18, 0).getTime();
+    const texts = (await replay([
+      message("m1", "morning"),
+      routineCard("m2"),
+      compactionMessage("c1", "m2", previous),
+      message("m3", "evening"),
+      routineCard("m4", { scheduledFor: evening }),
+    ])).map((item) => item.text);
+
+    expect(texts[0]).toContain("Eddie tried Raycast after the noon routine.");
+    expect(texts.slice(1)).toEqual([
+      "evening",
+      "[Routine card] Daily 20-min tool to try fired 2026-10-15 18:00: Send Eddie one tool to try",
+    ]);
+    expect(texts.join("\n")).not.toContain("12:30");
+
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nEddie tried Raycast");
+    const result = await prepareModelContext({
+      messages: [message("m0", "start the routine"), routineCard("m1"), ...longHistory(205, 2)],
+      contextWindow: 2_048,
+      taskRecordText: "Goal: try tools",
+      summarize,
+    });
+    expect(result.status).toBe("ready");
+    expect(summarize.mock.calls[0]?.[0]).toContain(`\n${fired}\n`);
+  });
+
+  it("delivers a missed routine card on the next resumed turn", () => {
+    const missed = "[Routine card] Daily 20-min tool to try missed 2026-10-15 12:30: Send Eddie one tool to try";
+    const cloud = `${fired} [result: Done.]`;
+    const path = [
+      message("m1", "Start"),
+      message("m2", "On it", { role: "bot" }),
+      routineCard("m3", { status: "missed" }),
+      routineCard("m4", { runOn: "cloud", summary: "Done." }),
+      routineCard("m5", { runOn: "cloud", status: "running" }),
+      message("m6", "Any news?"),
+    ];
+
+    expect(routineCardsSinceLastUserTurn(path, new Set(["m6"]))).toEqual([missed, cloud]);
+    // a session bound at the missed card already replayed it
+    expect(routineCardsSinceLastUserTurn(path, new Set(["m6"]), "m3")).toEqual([cloud]);
+    // the next turn finds them behind a user turn
+    expect(routineCardsSinceLastUserTurn([...path, message("m7", "Here", { role: "bot" }), message("m8", "Thanks")], new Set(["m8"]))).toEqual([]);
+
+    // a fire turn carries earlier missed cards; later turns stop at its card
+    const fire = [message("m1", "Start"), routineCard("m2", { status: "missed" }), routineCard("m3", { status: "running" })];
+    expect(routineCardsSinceLastUserTurn(fire, new Set(["m3"]))).toEqual([missed]);
+    expect(routineCardsSinceLastUserTurn([...fire, message("m4", "Try Raycast", { role: "bot" }), message("m5", "ok")], new Set(["m5"]))).toEqual([]);
   });
 });
 

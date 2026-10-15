@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   nextOccurrence,
   RoutineManager,
+  routineBotState,
+  routineRunCard,
   routineTriggerIsUnattended,
   type RoutineManagerOptions,
   type RoutineSchedule,
@@ -44,7 +46,16 @@ function harness(start = new Date(2026, 7, 17, 8, 0, 0).getTime()) {
       runOns.push(runOn);
       triggerSources.push(triggerSource);
     },
-    onRunChanged: (run) => changed.push(run),
+    startChatTurn: async (run, line) => {
+      started.push({ botId: run.botId, threadId: run.sourceThreadId!, prompt: line });
+      runOns.push(run.runOn);
+      triggerSources.push(run.triggerSource!);
+    },
+    // the server posts each card in its source chat, else the bot's 1:1
+    onRunChanged: (run) => {
+      changed.push(run);
+      return run.webhookId ? null : { threadId: run.sourceThreadId ?? "bot-chat", messageId: `card-${run.id}` };
+    },
     onRunFailed: (run) => failed.push(run),
   };
   const manager = new RoutineManager(options);
@@ -105,7 +116,7 @@ describe("RoutineManager", () => {
     const reloaded = new RoutineManager(h.options);
     expect(reloaded.listRoutines()).toHaveLength(1);
     expect(reloaded.listRuns()).toMatchObject([
-      { routineId: routine.id, routineName: "Morning brief", status: "failed", threadId: "thread-1" },
+      { routineId: routine.id, routineName: "Morning brief", status: "failed", sourceThreadId: "bot-chat" },
     ]);
     // Reload recovery truthfully marks an in-process run as interrupted.
     expect(reloaded.listRuns()[0]!.error).toContain("restarted");
@@ -115,10 +126,13 @@ describe("RoutineManager", () => {
         routineId: routine.id,
         routineName: "Morning brief",
         status: "failed",
-        threadId: "thread-1",
+        sourceThreadId: "bot-chat",
         error: "Wink restarted while this routine was running",
       },
     ]);
+    // never fired again after the restart
+    await reloaded.tick();
+    expect(h.started).toHaveLength(1);
   });
 
   it("persists confirmation receipts with the scheduler mutation and removes them after settlement", () => {
@@ -162,7 +176,7 @@ describe("RoutineManager", () => {
     expect(new RoutineManager(h.options).routineRequestReceipt(request.requestId)).toBeNull();
   });
 
-  it("persists trusted chat provenance and snapshots it onto detached runs", async () => {
+  it("persists trusted chat provenance and snapshots it onto chat runs", async () => {
     const h = harness();
     const request = {
       requestId: "request-source-thread",
@@ -189,14 +203,13 @@ describe("RoutineManager", () => {
     const run = reloaded.listRuns()[0]!;
     expect(run).toMatchObject({
       sourceThreadId: request.threadId,
-      threadId: "thread-1",
       status: "running",
     });
-    expect(run.threadId).not.toBe(run.sourceThreadId);
+    expect(run.threadId).toBeUndefined();
     expect(h.changed.map(({ status, sourceThreadId, threadId }) => ({ status, sourceThreadId, threadId })))
       .toEqual([
         { status: "queued", sourceThreadId: request.threadId, threadId: undefined },
-        { status: "running", sourceThreadId: request.threadId, threadId: "thread-1" },
+        { status: "running", sourceThreadId: request.threadId, threadId: undefined },
       ]);
   });
 
@@ -355,7 +368,7 @@ describe("RoutineManager", () => {
     expect(h.manager.listRuns().filter((run) => run.routineId === routine.id && run.status === "queued")).toHaveLength(1);
   });
 
-  it("queues behind a busy bot, then dispatches into a detached task", async () => {
+  it("queues behind a busy bot, then fires in its chat", async () => {
     const h = harness();
     h.setBot("busy");
     const routine = h.manager.create({
@@ -372,11 +385,12 @@ describe("RoutineManager", () => {
 
     h.setBot("ready");
     await h.manager.tick();
-    expect(h.started).toEqual([{ botId: "maus-2", threadId: "thread-1", prompt: "Review the queue" }]);
-    expect(h.manager.listRuns()[0]).toMatchObject({ status: "running", threadId: "thread-1" });
-    expect(h.manager.activeRunForBot("maus-2")?.threadId).toBe("thread-1");
-    expect(h.manager.isActiveThread("thread-1")).toBe(true);
-    expect(h.taskActivations).toEqual([false]);
+    expect(h.started).toEqual([
+      { botId: "maus-2", threadId: "bot-chat", prompt: "[Routine] Review queue fired at 08:01 Mon Aug 17: Review the queue" },
+    ]);
+    expect(h.manager.listRuns()[0]).toMatchObject({ status: "running", sourceThreadId: "bot-chat" });
+    expect(h.manager.activeRunForBot("maus-2")?.sourceThreadId).toBe("bot-chat");
+    expect(h.taskActivations).toEqual([]);
   });
 
   it("cancels queued work when a routine is paused", async () => {
@@ -415,7 +429,7 @@ describe("RoutineManager", () => {
     h.setBot("ready");
     await h.manager.tick();
 
-    expect(h.started[0]?.prompt).toBe("Use the original instructions");
+    expect(h.started[0]?.prompt).toBe("[Routine] Original brief fired at 08:01 Mon Aug 17: Use the original instructions");
     expect(h.manager.listRuns()[0]).toMatchObject({
       routineName: "Original brief",
       prompt: "Use the original instructions",
@@ -524,7 +538,7 @@ describe("RoutineManager", () => {
     const base = {
       eventId: "event-1",
       provider: "fake",
-      threadId: "thread-1",
+      threadId: "bot-chat",
       createdAt: new Date(h.manager.listRuns()[0]!.startedAt!).toISOString(),
     };
     const secret = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
@@ -534,16 +548,16 @@ describe("RoutineManager", () => {
       requestType: "question",
       tool: "ask",
       summary: `Choose the two actions before using ${secret}`,
-    });
+    }, "maus-3");
     expect(h.manager.listRuns()[0]).toMatchObject({
       status: "waiting",
       attention: expect.stringContaining("Choose the two actions"),
     });
     expect(h.manager.listRuns()[0]!.attention).not.toContain(secret);
-    h.manager.handleRuntimeEvent({ ...base, type: "request.resolved", behavior: "answer", source: "user" });
+    h.manager.handleRuntimeEvent({ ...base, type: "request.resolved", behavior: "answer", source: "user" }, "maus-3");
     expect(h.manager.listRuns()[0]!.attention).toBeUndefined();
-    h.manager.handleRuntimeEvent({ ...base, type: "item.completed", itemType: "assistant_text", text: "Report shipped." });
-    h.manager.handleRuntimeEvent({ ...base, type: "turn.completed", ok: true, cost: 0.02 });
+    h.manager.handleRuntimeEvent({ ...base, type: "item.completed", itemType: "assistant_text", text: "Report shipped." }, "maus-3");
+    h.manager.handleRuntimeEvent({ ...base, type: "turn.completed", ok: true, cost: 0.02 }, "maus-3");
 
     expect(h.manager.listRuns()[0]).toMatchObject({
       status: "completed",
@@ -565,23 +579,23 @@ describe("RoutineManager", () => {
     const base = {
       eventId: "event-1",
       provider: "fake",
-      threadId: "thread-1",
+      threadId: "bot-chat",
       createdAt: new Date(h.manager.listRuns()[0]!.startedAt!).toISOString(),
     };
-    h.manager.handleRuntimeEvent({ ...base, type: "item.completed", itemType: "assistant_text", text: "Report shipped." });
+    h.manager.handleRuntimeEvent({ ...base, type: "item.completed", itemType: "assistant_text", text: "Report shipped." }, "maus-3");
     h.manager.handleRuntimeEvent({
       ...base,
       type: "item.completed",
       itemType: "assistant_text",
       text: "I've wrapped up the report.",
       summarized: true,
-    });
-    h.manager.handleRuntimeEvent({ ...base, type: "turn.completed", ok: true, cost: 0.02 });
+    }, "maus-3");
+    h.manager.handleRuntimeEvent({ ...base, type: "turn.completed", ok: true, cost: 0.02 }, "maus-3");
 
     expect(h.manager.listRuns()[0]).toMatchObject({ status: "completed", output: "Report shipped." });
   });
 
-  it("reports a failed run once with its detached thread", async () => {
+  it("reports a failed run once with its chat thread", async () => {
     const h = harness();
     const routine = h.manager.create({
       name: "Broken report",
@@ -595,23 +609,23 @@ describe("RoutineManager", () => {
     h.manager.handleRuntimeEvent({
       eventId: "failed",
       provider: "fake",
-      threadId: "thread-1",
+      threadId: "bot-chat",
       createdAt: new Date().toISOString(),
       type: "turn.completed",
       ok: false,
       stopReason: "provider crashed",
-    });
+    }, "maus-failed");
 
     expect(h.failed).toMatchObject([
       {
         routineName: "Broken report",
         botId: "maus-failed",
-        threadId: "thread-1",
+        sourceThreadId: "bot-chat",
         status: "failed",
         error: "provider crashed",
       },
     ]);
-    expect(h.manager.listRuns()[0]).toMatchObject({ threadId: "thread-1", status: "failed" });
+    expect(h.manager.listRuns()[0]).toMatchObject({ sourceThreadId: "bot-chat", status: "failed" });
 
     h.manager.markSeen(h.failed[0].id);
     expect(h.failed).toHaveLength(1);
@@ -727,5 +741,207 @@ describe("RoutineManager", () => {
     await h.manager.tick();
     expect(h.started).toHaveLength(1);
     expect(h.manager.listRuns()[0]).toMatchObject({ status: "running", scheduledFor: lateAt });
+  });
+
+  it("fires a scheduled run as a turn in its source chat without creating a task", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Daily 20-min tool to try",
+      prompt: "Send Eddie one tool to try",
+      botId: "maus-1",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 12, 30).getTime() },
+    }, {
+      requestId: "request-chat-fire",
+      messageId: "message-chat-fire",
+      botId: "maus-1",
+      threadId: "chat-1",
+      action: "create",
+      fingerprintVersion: 1,
+      fingerprint: "3".repeat(64),
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+
+    expect(h.taskActivations).toEqual([]);
+    expect(h.started).toEqual([{
+      botId: "maus-1",
+      threadId: "chat-1",
+      prompt: "[Routine] Daily 20-min tool to try fired at 12:30 Mon Aug 17: Send Eddie one tool to try",
+    }]);
+    expect(h.triggerSources).toEqual(["schedule"]);
+    const run = h.manager.listRuns()[0]!;
+    expect(run).toMatchObject({ status: "running", sourceThreadId: "chat-1", cardMessageId: `card-${run.id}` });
+    expect(run.threadId).toBeUndefined();
+  });
+
+  it("puts a run back in the queue on a busy rejection", async () => {
+    const h = harness();
+    let busy = true;
+    const fired: string[] = [];
+    h.options.startChatTurn = async (_run, line) => {
+      if (busy) throw Object.assign(new Error("the bot is already working"), { status: 409, code: "BOT_BUSY" });
+      fired.push(line);
+    };
+    const routine = h.manager.create({
+      name: "Raced check",
+      prompt: "Check it",
+      botId: "maus-1",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+
+    expect(h.manager.listRuns()[0]).toMatchObject({ status: "queued" });
+    expect(h.manager.listRuns()[0]!.startedAt).toBeUndefined();
+    expect(h.failed).toEqual([]);
+
+    busy = false;
+    await h.manager.tick();
+    await h.manager.tick();
+    expect(fired).toHaveLength(1);
+    expect(h.manager.listRuns()[0]).toMatchObject({ status: "running" });
+  });
+
+  it("waits while the bot has queued sends", async () => {
+    const h = harness();
+    let queuedSends = true;
+    h.options.botState = () => routineBotState({ exists: true, activeTurn: false, queuedSends });
+    const routine = h.manager.create({
+      name: "Held check",
+      prompt: "Check it",
+      botId: "maus-1",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    expect(h.started).toHaveLength(0);
+    expect(h.manager.listRuns()[0]).toMatchObject({ status: "queued" });
+
+    queuedSends = false;
+    await h.manager.tick();
+    expect(h.started).toHaveLength(1);
+    expect(routineBotState({ exists: false, activeTurn: false, queuedSends: false })).toBe("missing");
+    expect(routineBotState({ exists: true, activeTurn: true, queuedSends: false })).toBe("busy");
+  });
+
+  it("dispatches the oldest queued run first", async () => {
+    const h = harness();
+    const order: string[] = [];
+    const dispatch = (name: string) => {
+      order.push(name);
+      h.setBot("busy");
+    };
+    h.options.startChatTurn = async (run) => dispatch(run.routineName);
+    h.options.startTurn = async (_botId, _threadId, prompt) => dispatch(prompt);
+    h.setBot("busy");
+    const first = h.manager.create({
+      name: "First",
+      prompt: "First",
+      botId: "maus-1",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    const second = h.manager.create({
+      name: "Second",
+      prompt: "Second",
+      botId: "maus-1",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 2).getTime() },
+    });
+    h.setNow(first.nextRunAt!);
+    await h.manager.tick();
+    h.setNow(second.nextRunAt!);
+    await h.manager.tick();
+
+    h.setBot("ready");
+    await h.manager.tick();
+    expect(order).toEqual(["First"]);
+  });
+
+  it("folds chat-turn events matched by source thread and bot", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Room report",
+      prompt: "Write the report",
+      botId: "maus-room",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    }, {
+      requestId: "request-room",
+      messageId: "message-room",
+      botId: "maus-room",
+      threadId: "room-thread",
+      action: "create",
+      fingerprintVersion: 1,
+      fingerprint: "4".repeat(64),
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    const base = { eventId: "event-1", provider: "fake", threadId: "room-thread", createdAt: new Date().toISOString() };
+
+    // another member speaking in the same room is not this run
+    expect(h.manager.handleRuntimeEvent({ ...base, type: "item.completed", itemType: "assistant_text", text: "Not mine." }, "maus-other")).toBeNull();
+    h.manager.handleRuntimeEvent({ ...base, type: "item.completed", itemType: "assistant_text", text: "Report done." }, "maus-room");
+    h.manager.handleRuntimeEvent({ ...base, type: "turn.completed", ok: true }, "maus-room");
+
+    expect(h.manager.listRuns()[0]).toMatchObject({ status: "completed", output: "Report done." });
+  });
+
+  it("keeps cloud runs detached and posts the result", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "VM report",
+      prompt: "Build on the VM",
+      botId: "maus-cloud",
+      runOn: "cloud",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+
+    expect(h.taskActivations).toEqual([false]);
+    expect(h.started).toEqual([{ botId: "maus-cloud", threadId: "thread-1", prompt: "Build on the VM" }]);
+    const base = { eventId: "event-1", provider: "box", threadId: "thread-1", createdAt: new Date().toISOString() };
+    h.manager.handleRuntimeEvent({ ...base, type: "item.completed", itemType: "assistant_text", text: "Built 3 pages." }, "maus-cloud");
+    h.manager.handleRuntimeEvent({ ...base, type: "turn.completed", ok: true }, "maus-cloud");
+
+    expect(routineRunCard(h.changed.at(-1))).toMatchObject({
+      status: "completed",
+      runOn: "cloud",
+      executionThreadId: "thread-1",
+      summary: "Built 3 pages.",
+      instruction: "Build on the VM",
+    });
+  });
+
+  it("falls back to the bot's chat when the source is deleted", async () => {
+    const h = harness();
+    const routine = h.manager.create({
+      name: "Orphan report",
+      prompt: "Write the report",
+      botId: "maus-1",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    }, {
+      requestId: "request-orphan",
+      messageId: "message-orphan",
+      botId: "maus-1",
+      threadId: "deleted-chat",
+      action: "create",
+      fingerprintVersion: 1,
+      fingerprint: "5".repeat(64),
+    });
+    // the server finds the source gone and posts the card in the bot's 1:1
+    h.options.onRunChanged = (run) => {
+      h.changed.push(run);
+      return { threadId: "bot-chat", messageId: "card-orphan" };
+    };
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+
+    expect(h.started).toEqual([{
+      botId: "maus-1",
+      threadId: "bot-chat",
+      prompt: "[Routine] Orphan report fired at 08:01 Mon Aug 17: Write the report",
+    }]);
+    expect(h.manager.listRuns()[0]).toMatchObject({ sourceThreadId: "bot-chat", cardMessageId: "card-orphan" });
+    h.manager.handleRuntimeEvent({ eventId: "done", provider: "fake", threadId: "bot-chat", createdAt: new Date().toISOString(), type: "turn.completed", ok: true }, "maus-1");
+    expect(h.manager.listRuns()[0]).toMatchObject({ status: "completed" });
   });
 });

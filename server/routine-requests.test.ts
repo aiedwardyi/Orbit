@@ -70,6 +70,7 @@ function harness(
     botState: (botId) => (botId === "missing" ? "missing" : "busy"),
     createTask: () => null,
     startTurn: async () => {},
+    startChatTurn: async () => {},
   });
   const store = new MemoryStore();
   const service = new RoutineRequestService({
