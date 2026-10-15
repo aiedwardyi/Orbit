@@ -290,3 +290,14 @@ describe("ActivityRun in the Terminal skin", () => {
     expect(html).not.toContain("2 steps");
   });
 });
+
+describe("ActivityRun pill", () => {
+  it.each([false, true])("is flat at rest and fills on hover and focus (open %s)", (forceOpen) => {
+    const host = document.createElement("div");
+    host.innerHTML = render("steel-gray", createElement(ActivityRun, { messages: [step("Grep", "x", true, 800), step("Read", "a.ts", true, 300)], forceOpen, children: null }));
+    const cls = new Set(host.querySelector("button")!.className.split(/\s+/));
+    expect(cls.has("border-transparent")).toBe(true);
+    expect([...cls].filter((c) => /^(bg-|border-hairline|rounded-(full|2xl))/.test(c))).toEqual([]);
+    for (const c of ["rounded-lg", "hover:bg-control", "focus-visible:bg-control"]) expect(cls.has(c)).toBe(true);
+  });
+});

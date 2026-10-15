@@ -799,7 +799,7 @@ function ActivityChip({ message, notices }: { message: Message; notices?: Linked
         <button
           onClick={() => dispatch({ type: "select", id: comm.groupId })}
           title={t("chat.openConversation", { name: comm.withName })}
-          className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
+          className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink focus-visible:bg-control focus-visible:text-ink"
         >
           <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} />
           <span className="min-w-0 max-w-[480px] truncate">{commLabel(message, t)}</span>
@@ -822,7 +822,7 @@ function ActivityChip({ message, notices }: { message: Message; notices?: Linked
     <div className="flex justify-start">
       <div
         title={failed ? t("chat.stepDidNotComplete") : approvalHover(notices, t)}
-        className={cn("flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary", status && "rounded-2xl")}
+        className="flex min-w-0 max-w-full items-center gap-2 border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary"
       >
         {tool.ok === undefined ? (
           <Loader2 size={13} className="shrink-0 animate-spin" />
@@ -2367,7 +2367,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           )}
           {provisioning && (
             <div className="flex justify-start">
-              <div className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary">
+              <div className="flex items-center gap-2 border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary">
                 <Loader2 size={13} className="animate-spin" />
                 Setting up this bot's computer…
               </div>

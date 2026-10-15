@@ -181,7 +181,7 @@ export function RoomToolChip({
           type="button"
           onClick={() => dispatch({ type: "select", id: comm.groupId })}
           title={t("chat.openConversation", { name: comm.withName })}
-          className="flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
+          className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink focus-visible:bg-control focus-visible:text-ink"
         >
           <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
           <span className="min-w-0 max-w-[480px] truncate">{commLabel(message, t)}</span>
@@ -214,11 +214,10 @@ export function RoomToolChip({
         <div
           title={approvalHover(notices, t)}
           className={cn(
-            "flex min-w-0 max-w-full items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
+            "flex min-w-0 max-w-full items-center gap-2 border border-transparent px-3 py-1.5 text-[13px]",
             // Only turn-level `error:` rows go red; a plain failed step the
             // bot retried past renders like any other.
             tool.name.startsWith("error:") ? "text-danger" : "text-ink-secondary",
-            status && "rounded-2xl",
           )}
         >
           <span
