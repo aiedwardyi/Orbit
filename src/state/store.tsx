@@ -2187,7 +2187,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   // `reason` is what ended the stream, not just that it ended: only a turn
   // boundary or a rewind may also drop the thread's staging signal.
-  const clearStream = (threadId: string, reason: TurnEvent = "settled-message") => {
+  const clearStream = (threadId: string, reason: TurnEvent = "settled-message", keepReply = false) => {
     // Drop the thread's un-flushed deltas too: the settled message that
     // triggered this clear already contains them. Without this, the pending
     // rAF re-creates a "ghost" stream bubble holding the tail fragment —
@@ -2198,7 +2198,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     deltaBuffer.current.delete(threadId);
     setStream((prev) => {
       const next = nextStreamState(prev, threadId, reason);
-      if (reason === "completed" && loadReplyStyle() === "paragraphs" && prev.streaming[threadId]) {
+      if (reason === "completed" && keepReply && loadReplyStyle() === "paragraphs" && prev.streaming[threadId]) {
         return {
           ...next,
           streaming: { ...next.streaming, [threadId]: prev.streaming[threadId] },
@@ -3343,7 +3343,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             liveTurns.current = liveTurnIdAfter(liveTurns.current, event.threadId, event);
             // flush any buffered tail before clearing so no tokens are lost
             flushDeltas();
-            clearStream(event.threadId, "completed");
+            clearStream(event.threadId, "completed", event.ok !== false);
           } else if (event.type === "turn.started" || event.type === "turn.retrying") {
             if (!isReplacementTurnStart(liveTurns.current, event.threadId, event.turnId, event.createdAt)) break;
             liveTurns.current = liveTurnIdAfter(liveTurns.current, event.threadId, event);

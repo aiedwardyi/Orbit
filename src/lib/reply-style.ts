@@ -4,8 +4,10 @@ export type ReplyStyle = "paragraphs" | "live";
 export const REPLY_STYLE_KEY = "omb-reply-style";
 const CHANGE_EVENT = "orbit-reply-style";
 let fallback: ReplyStyle = "paragraphs";
+let sessionFallback: ReplyStyle | null = null;
 
 export function loadReplyStyle(): ReplyStyle {
+  if (sessionFallback !== null) return sessionFallback;
   try {
     const storage = globalThis.localStorage;
     if (!storage) return fallback;
@@ -18,12 +20,17 @@ export function loadReplyStyle(): ReplyStyle {
 
 export function saveReplyStyle(style: ReplyStyle): void {
   fallback = style;
+  sessionFallback = style;
   try {
-    globalThis.localStorage?.setItem(REPLY_STYLE_KEY, style);
+    const storage = globalThis.localStorage;
+    if (storage) {
+      storage.setItem(REPLY_STYLE_KEY, style);
+      sessionFallback = null;
+    }
   } catch {
     // Keep the choice for this session when storage is blocked.
   }
-  window.dispatchEvent(new Event(CHANGE_EVENT));
+  globalThis.window?.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
 function subscribe(onChange: () => void) {

@@ -3,6 +3,13 @@ import { describe, expect, it } from "vitest";
 import { splitReplyBlocks } from "./turn-stage";
 
 describe("paragraph reply blocks", () => {
+  it("keeps reference definitions with their links", () => {
+    const text = "See [docs][d].\n\n[d]: https://example.com";
+    expect(splitReplyBlocks(text)).toEqual([]);
+    expect(splitReplyBlocks(text, true)).toEqual([text]);
+    expect(splitReplyBlocks(text, false, text.length)).toEqual([text]);
+  });
+
   it.each([
     ["paragraph", "One thought.\n\n", "One thought."],
     ["heading", "## Heading\n\n", "## Heading"],

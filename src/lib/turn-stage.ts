@@ -263,6 +263,7 @@ export function revealStream(text: string, ramps: readonly StreamRamp[], now: nu
 }
 
 export function splitReplyBlocks(text: string, complete = false, whole = 0): string[] {
+  if (/^ {0,3}\[[^\]\n]+\]:/m.test(text)) return complete || whole >= text.length ? [text] : [];
   const blocks: string[] = [];
   let start = 0;
   let fence = "";

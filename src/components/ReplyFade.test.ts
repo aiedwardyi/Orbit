@@ -168,4 +168,21 @@ describe("paragraph reply reveal", () => {
     await emit({ kind: "runtime", event: { type: "turn.completed", threadId: "t1", turnId: "turn1" } });
     expect(host.querySelector(".chat-md")?.textContent).toBe("Complete.Unfinished");
   });
+
+  it.each([false, true])("clears an unsettled stream after terminal failure, room=%s", async (room) => {
+    const host = await mount(room);
+    await emit(started);
+    await delta("Complete.\n\nUnfinished");
+    await emit({ kind: "runtime", event: { type: "turn.completed", threadId: "t1", turnId: "turn1", ok: false, stopReason: "exit_before_result" } });
+    expect(host.querySelector(".chat-md")).toBeNull();
+  });
+
+  it("renders a settled reference link after streaming", async () => {
+    const host = await mount();
+    await emit(started);
+    const text = "See [docs][d].\n\n[d]: https://example.com";
+    await delta(text);
+    await emit({ kind: "message", threadId: "t1", message: reply(text) });
+    expect(host.querySelector('.chat-md a[href="https://example.com"]')?.textContent).toBe("docs");
+  });
 });
