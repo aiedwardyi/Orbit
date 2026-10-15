@@ -141,7 +141,7 @@ export function indexView(
   const prices = priceByModel(ours(entries), today);
   const points = ours(entries)
     .filter((entry) => entry.index === index)
-    .map((entry) => (entry.index === "cost" ? entryOn(entry, today) : entry))
+    .map((entry) => (index === "cost" ? entryOn(entry, today) : entry))
     .map((entry) => ({ ...entry, key: `${entry.model}:${entry.effort}`, price: prices.get(entry.model) }));
   const scored = new Set(points.map((point) => point.model));
   return { points, missing: catalog.filter((model) => !scored.has(model.model)) };

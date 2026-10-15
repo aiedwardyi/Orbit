@@ -228,7 +228,10 @@ describe("cost tab", () => {
 });
 
 describe("promo price on the cost tab", () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   const costRow = async (day: [number, number, number], model: string, locale: "en" | "ko" = "en") => {
     vi.useFakeTimers({ toFake: ["Date"] });

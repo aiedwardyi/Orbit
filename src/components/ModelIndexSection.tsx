@@ -1026,7 +1026,7 @@ export function ModelIndexSection() {
                   <>
                     <div className="flex justify-between gap-3 tabular-nums">
                       <span className="break-keep text-ink-secondary">{t("modelIndex.tooltip.cost")}</span>
-                      <span className="shrink-0 text-ink">{hovered.price ? priceText(hovered.price) : "-"}</span>
+                      <span className="min-w-0 text-right text-ink">{hovered.price ? priceText(hovered.price) : "-"}</span>
                     </div>
                     <p className="text-[11px] leading-snug text-ink-secondary">{t("modelIndex.tooltip.sameEffort")}</p>
                   </>
