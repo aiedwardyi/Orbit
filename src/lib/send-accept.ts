@@ -12,6 +12,8 @@ export type AcceptedSend = {
   kind: AcceptedSendKind;
   text: string;
   at?: number;
+  /** Sent "after this turn": waits even on an engine that could steer it. */
+  after?: boolean;
 };
 
 export type AcceptedSends = Record<string, AcceptedSend[]>;
@@ -52,7 +54,7 @@ export function splitQueuedSends(
 ) {
   const ids = new Set([
     ...pending.map((entry) => entry.queueId),
-    ...(canSteer ? [] : accepted.filter((entry) => entry.kind === "sends-next").map((entry) => entry.sendId)),
+    ...accepted.filter((entry) => entry.kind === "sends-next" && (!canSteer || entry.after)).map((entry) => entry.sendId),
   ]);
   const queued = messages.filter((message) => message.placeholder && ids.has(message.id));
   if (!queued.length) return { listed: messages, queued };

@@ -278,7 +278,8 @@ export function RemoteTerminalView({
 
   const onInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const touch = window.matchMedia?.("(pointer: coarse)").matches;
-    if (composerEnterIntent(event, { composing: false, justEnded: false, touch }) !== "send") return;
+    const enter = composerEnterIntent(event, { composing: false, justEnded: false, touch });
+    if (enter !== "send" && enter !== "send-after") return;
     event.preventDefault();
     event.currentTarget.form?.requestSubmit();
   };

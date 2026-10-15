@@ -235,7 +235,7 @@ describe("hapticTick", () => {
 
   it("fires on send in the composer", () => {
     const composer = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
-    const send = composer.slice(composer.indexOf("  const send = () => {"), composer.indexOf("  const previewTerminalSend"));
+    const send = composer.slice(composer.indexOf("  const send = ("), composer.indexOf("  const previewTerminalSend"));
     expect(send).toContain("hapticTick();");
   });
 });

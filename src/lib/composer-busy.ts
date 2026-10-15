@@ -62,6 +62,8 @@ export interface ComposerBusyInput {
   canSteer: boolean;
   name: string;
   idlePlaceholder: string;
+  /** Touch has no Ctrl+Enter; a hold on Send does the same. */
+  touch?: boolean;
 }
 
 export interface ComposerBusyChrome {
@@ -101,10 +103,11 @@ export function composerBusyChrome(
       sendTitleKey: "composer.sendsWhenFinished",
     };
   }
+  const steerKey = input.touch ? "composer.sendIntoTurnTouch" : "composer.sendIntoTurn";
   return {
     placeholder: input.idlePlaceholder,
     sendLooksQueued: false,
-    sendAriaKey: input.canSteer ? "composer.sendIntoTurn" : "composer.sendMessage",
-    sendTitleKey: input.canSteer ? "composer.sendIntoTurn" : "composer.send",
+    sendAriaKey: input.canSteer ? steerKey : "composer.sendMessage",
+    sendTitleKey: input.canSteer ? steerKey : "composer.send",
   };
 }

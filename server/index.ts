@@ -164,6 +164,7 @@ import {
   foldQueuedSends,
   hasQueuedSendBefore,
   hasQueuedSends,
+  initializeSteerQueue,
   isSendCancelled,
   markSendRunning,
   queuedSteeredMessage,
@@ -172,6 +173,7 @@ import {
   queueSteeredMessage,
 } from "./steer-queue.ts";
 import { sendPostReceipt, startedTurn } from "./send-receipt.ts";
+import { steersSend } from "./send-deliver.ts";
 import {
   acceptedSendMatch,
   parseSendId,
@@ -967,6 +969,7 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 }
 let bootSelection = { instanceId: "", model: "" };
 const store = new Store(() => bootSelection);
+initializeSteerQueue(store);
 if (store.botsFile === "unreadable") console.warn("bot sync: bots.json is there but did not load; not syncing bots until it does");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-sonnet-5", "claude-sonnet-5-5");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-haiku-4-5", "claude-haiku-5-5");
@@ -9471,9 +9474,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // busy flips only after preparation, so without this check rapid
           // sends race the claim and receive a false busy rejection.
           if (currentAtStart.busy || botHasActiveTurn(bot.id, threadId)) {
-            const instance = registry.get(currentAtStart.modelSelection.instanceId);
+            const adapter = registry.get(currentAtStart.modelSelection.instanceId)?.adapter;
             let steered = false;
-            if (currentAtStart.busy && instance?.adapter.capabilities.queueing && instance.adapter.steer) {
+            if (steersSend(adapter, currentAtStart.busy, body.deliver === "after")) {
               const turnOpts = {
                 replyTo,
                 messages: store.activePath(threadId),
@@ -9482,10 +9485,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               };
               // Reactions count only once the model took them in; an engine
               // that cannot tell leaves them to the next turn's prompt.
-              const consumable = instance.adapter.capabilities.steerConsumed === true;
+              const consumable = adapter.capabilities.steerConsumed === true;
               const prompt = consumable ? composeUserTurnPrompt(text, turnOpts) : promptWithReply(text, replyTo, turnOpts.userName);
               const reactions = consumable ? userTurnReactionKeys(turnOpts) : [];
-              steered = await instance.adapter
+              steered = await adapter
                 .steer(threadId, prompt, (taken) => {
                   if (taken) store.addReactionsDelivered(bot.id, threadId, reactions);
                 })
@@ -9535,6 +9538,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const queued = queueSteeredMessage(current.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
+              after: body.deliver === "after",
               // Reply quote only — startTurn wraps reactions when this drains.
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
@@ -9555,6 +9559,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const held = queueSteeredMessage(bot.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
+              after: body.deliver === "after",
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
             if (held.skipped) return { ok: true as const, cancelled: true as const, threadId };
@@ -10658,6 +10663,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 };
 
 syncAllThreads();
+setImmediate(drainQueuedSends);
 googleSync.resume();
 uploads.sweep();
 setInterval(() => uploads.sweep(), 60 * 60 * 1000).unref();

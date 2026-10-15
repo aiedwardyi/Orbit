@@ -63,6 +63,7 @@ import {
 } from "@/lib/composer-busy";
 import { composerIsBusy } from "@/lib/send-accept";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
+import { holdToSendAfter } from "@/lib/send-hold";
 import { fitComposerHeight } from "@/lib/composer-dock";
 import { composerNeedsTap } from "@/lib/focus-composer";
 import { holdReload } from "@/lib/reload-hold";
@@ -457,11 +458,11 @@ export function Composer({
 
   // Image paste is offered unless a known responder refuses it. A missing
   // instance is still hydrating, so keep the image and validate before send.
-  const imageTargetsSupport = (message: string) => {
+  const imageTargetsSupport = (message: string, after = false) => {
     const responders = group
       ? roomRespondersForComposer(message, members ?? [], group)
       : bot
-        ? [{ modelSelection: modelForNextSend(bot, { busy, canSteer }) }]
+        ? [{ modelSelection: modelForNextSend(bot, { busy, canSteer: canSteer && !after }) }]
         : [];
     return imageSupportForTargets(state.instances, responders);
   };
@@ -567,7 +568,7 @@ export function Composer({
     ? groupComposerHint(group, members ?? [], t)
     : t("composer.placeholder", { name: bot?.name ?? "" });
   const busyChrome = composerBusyChrome(
-    { busy, isRoom: Boolean(group), canSteer, name: busyName, idlePlaceholder },
+    { busy, isRoom: Boolean(group), canSteer, name: busyName, idlePlaceholder, touch: window.matchMedia?.("(pointer: coarse)").matches },
     t,
   );
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
@@ -578,7 +579,7 @@ export function Composer({
   );
   const retryFailedSend = (failed: FailedComposerSend) => {
     if (failed.requestText.includes("<attached-image ")) {
-      const support = imageTargetsSupport(failed.requestText);
+      const support = imageTargetsSupport(failed.requestText, failed.after);
       if (support !== "supported") {
         showImageSupportNotice(support);
         return;
@@ -590,6 +591,7 @@ export function Composer({
       text: failed.requestText,
       replyToId: failed.replyToId,
       threadId: failed.threadId,
+      after: failed.after,
       onError: () => {
         rememberFailedComposerSend(draftId, {
           sendId: failed.sendId,
@@ -597,6 +599,7 @@ export function Composer({
           requestText: failed.requestText,
           replyToId: failed.replyToId,
           threadId: failed.threadId,
+          after: failed.after,
         });
       },
     };
@@ -607,7 +610,7 @@ export function Composer({
     }
     onSend?.();
   };
-  const send = () => {
+  const send = (after = false) => {
     const action = composerBusySendAction({
       locked,
       isRoom: Boolean(group),
@@ -617,7 +620,7 @@ export function Composer({
     if (action === "block" || uploading) return;
     const liveText = composerSendSourceText(inputRef.current?.value, text);
     if (attachments.some((attachment) => attachment.kind === "image")) {
-      const support = imageTargetsSupport(liveText);
+      const support = imageTargetsSupport(liveText, after);
       if (support !== "supported") {
         showImageSupportNotice(support);
         return;
@@ -636,6 +639,7 @@ export function Composer({
       reply: replyTo ?? null,
       replyToId: replyTo?.id,
       threadId,
+      after,
     };
     // Clear the live box before React re-renders so a second Enter in this
     // tick cannot resend the same line, and the next fill+Enter reads the
@@ -668,6 +672,7 @@ export function Composer({
         sendId: sentDraft.sendId,
         replyToId: replyTo?.id,
         threadId,
+        after,
         onError: () => restoreDraft(sentDraft),
       });
     }
@@ -1096,7 +1101,7 @@ export function Composer({
                 setHighlight((h) => (h + delta + candidates.length) % candidates.length);
                 return;
               }
-              if (isComposerEnterKey(e) || e.key === "Tab") {
+              if ((isComposerEnterKey(e) && !e.ctrlKey && !e.metaKey) || e.key === "Tab") {
                 e.preventDefault();
                 pickMention(candidates[highlight]);
                 return;
@@ -1114,15 +1119,14 @@ export function Composer({
               return;
             }
             // Shift+Enter inserts a newline; plain Enter sends, except on touch
-            if (
-              composerEnterIntent(e, {
-                composing: composingRef.current,
-                justEnded: Date.now() - compositionEndedAtRef.current < 50,
-                touch: window.matchMedia?.("(pointer: coarse)").matches,
-              }) === "send"
-            ) {
+            const enter = composerEnterIntent(e, {
+              composing: composingRef.current,
+              justEnded: Date.now() - compositionEndedAtRef.current < 50,
+              touch: window.matchMedia?.("(pointer: coarse)").matches,
+            });
+            if (enter === "send" || enter === "send-after") {
               e.preventDefault();
-              send();
+              send(enter === "send-after");
             }
             if (e.key === "Escape" && recording) setRecording(false);
           }}
@@ -1199,12 +1203,12 @@ export function Composer({
             </button>
           )}
           <button
-            onClick={send}
+            {...holdToSendAfter(send)}
             disabled={uploading}
             aria-label={t(busyChrome.sendAriaKey)}
             title={uploading ? t("composer.uploadWaiting") : t(busyChrome.sendTitleKey)}
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-full text-accent-ink disabled:opacity-40",
+              "flex size-8 shrink-0 select-none items-center justify-center rounded-full text-accent-ink [-webkit-touch-callout:none] disabled:opacity-40",
               busyChrome.sendLooksQueued
                 ? "bg-raised text-ink-secondary hover:bg-raised-hover"
                 : "bg-accent hover:brightness-110",
