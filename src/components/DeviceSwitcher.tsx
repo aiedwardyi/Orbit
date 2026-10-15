@@ -193,7 +193,7 @@ export function DeviceSwitcher({
         data-device-tag={labeled ? "" : undefined}
         onClick={(event) => {
           if (open) return close();
-          const menuWidth = 240;
+          const menuWidth = 240; // mirrors w-60
           if (labeled) {
             const rect = event.currentTarget.getBoundingClientRect();
             const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8));
