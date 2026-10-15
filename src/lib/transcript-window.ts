@@ -37,6 +37,22 @@ export function expandWindowStart(startIndex: number, size: number = TRANSCRIPT_
   return Math.max(0, startIndex - size);
 }
 
+export function advanceWindow(
+  startIndex: number,
+  endIndex: number,
+  total: number,
+  size: number = TRANSCRIPT_WINDOW_SIZE,
+  renders: (index: number) => boolean = () => true,
+): { start: number; end: number | null } {
+  let end = endIndex;
+  for (let counted = 0; end < total && counted < size; end++) if (renders(end)) counted++;
+  return { start: Math.max(startIndex, tailWindowStart(end, size * 2, renders)), end: end >= total ? null : end };
+}
+
+export function shouldAdvanceWindow(movingDown: boolean, distanceFromEdge: number, clientHeight: number): boolean {
+  return movingDown && clientHeight > 0 && distanceFromEdge <= clientHeight;
+}
+
 /** A followed tail slides once it outgrows two windows, so a long live session
  * stops mounting every new row. Only safe while the reader is at the bottom. */
 export function followedTailStart(

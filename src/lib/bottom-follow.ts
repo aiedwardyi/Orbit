@@ -34,6 +34,37 @@ export function restoreTranscriptScroll(el: TranscriptScroll, before: Transcript
   el.scrollTop = before.scrollTop + el.scrollHeight - before.scrollHeight;
 }
 
+export type TranscriptAnchor = { attribute: "data-mid" | "data-run"; id: string; top: number };
+
+function rowBox(row: Element): DOMRect | undefined {
+  return [row, ...row.children].map((el) => el.getBoundingClientRect()).filter((box) => box.height > 0).at(-1);
+}
+
+export function captureTranscriptAnchor(el: HTMLElement | null): TranscriptAnchor | null {
+  if (!el) return null;
+  const pane = el.getBoundingClientRect();
+  for (const row of el.querySelectorAll("[data-mid], [data-run]")) {
+    const box = rowBox(row);
+    if (!box || box.bottom <= pane.top || box.top >= pane.bottom) continue;
+    const attribute = row.hasAttribute("data-mid") ? "data-mid" : "data-run";
+    return { attribute, id: row.getAttribute(attribute)!, top: box.top };
+  }
+  return null;
+}
+
+export function restoreTranscriptAnchor(el: HTMLElement, anchor: TranscriptAnchor): void {
+  const row = Array.from(el.querySelectorAll(`[${anchor.attribute}]`)).find((row) => row.getAttribute(anchor.attribute) === anchor.id);
+  const box = row && rowBox(row);
+  if (box) el.scrollTop += box.top - anchor.top;
+}
+
+export function distanceFromTranscriptEdge(el: HTMLElement): number {
+  const rows = el.querySelectorAll("[data-mid], [data-run]");
+  const row = rows[rows.length - 1];
+  const box = row && rowBox(row);
+  return box ? box.bottom - el.getBoundingClientRect().bottom : el.scrollHeight - el.scrollTop - el.clientHeight;
+}
+
 /** The newest row is under the fold, so Jump to latest has somewhere to go. `after` is what
  * follows that row (presence row, padding), which can sit under the fold while the row shows. */
 export function newestBelowView(el: ScrollBox, after = 0): boolean {

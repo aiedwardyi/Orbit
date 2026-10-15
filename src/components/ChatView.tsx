@@ -81,7 +81,7 @@ import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
 import { useFindCurrentId, useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
-import { screenImageUrl, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
+import { screenImageUrl, useForwardWindow, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
 import { activityVisibleInChat, groupActivityRuns, isServerLine, itemMatchesFind, localizeServerLine, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
 import { chatTranscriptRows, messageVisible } from "@/lib/chat-transcript";
 import { isShownMessage } from "@/lib/shown-message";
@@ -1658,6 +1658,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
       }
     }
   }
+  const [follow, setFollow] = useState(true);
   const {
     visible: windowedMessages,
     hiddenCount,
@@ -1665,8 +1666,10 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     startIndex,
     endIndex,
   } = useMemo(
-    () => resolveTranscriptWindow(shown, transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
-    [shown, transcriptWindow.start, transcriptWindow.end],
+    () => resolveTranscriptWindow(shown, follow && !jump.messages && transcriptWindow.end === null && !transcriptWindow.expanded
+      ? followedTailStart(transcriptWindow.start, shown.length, TRANSCRIPT_WINDOW_SIZE, renders)
+      : transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end),
+    [shown, follow, jump.messages, renders, transcriptWindow.start, transcriptWindow.end, transcriptWindow.expanded],
   );
   useLayoutEffect(() => {
     windowAnchor.current = { id: windowedMessages[0]?.id, index: startIndex };
@@ -1689,7 +1692,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   // scroll position checks — streamed content growth flickers "at bottom"
   // false for a frame, and breaking there kills follow permanently
   // (upstream-verified failure). Scrolling back to the end re-arms it.
-  const [follow, setFollow] = useState(true);
   const followRef = useRef(true);
   const previousScrollTop = useRef(0);
   const touchY = useRef(0);
@@ -1969,11 +1971,12 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     setTranscriptWindow((w) => (w.end === null && !w.expanded ? { ...w, start: Math.min(w.start, tailStart) } : w));
   }, [jump.messages, tailStart, transcriptWindow]);
 
-  const showLater = () => {
-    setBottomFollow(false);
-    const nextEnd = Math.min(shown.length, endIndex + TRANSCRIPT_WINDOW_SIZE);
-    setTranscriptWindow((w) => ({ ...w, end: nextEnd >= shown.length ? null : nextEnd }));
-  };
+  const advanceLater = useForwardWindow({
+    key: transcriptKey, window: transcriptWindow, shown, startIndex, endIndex, jump, scrollRef, previousScrollTop,
+    setWindow: setTranscriptWindow, pauseFollow: () => setBottomFollow(false),
+    renders: (rows, index) => messageVisible(rows[index], { showToolCalls, showActivities, transcript: rows }),
+  });
+  const showLater = () => advanceLater(true, true);
 
   // keyboard is a scroll gesture too (upstream lesson): PageUp/Home break
   // follow like an upward wheel; the at-end onScroll check re-arms it
@@ -2191,18 +2194,25 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         style={{ overflowAnchor: follow ? "none" : "auto" }}
         onWheel={(e) => {
           if (e.deltaY < 0) breakFollow();
-          else if (atEnd()) setBottomFollow(true);
+          else {
+            advanceLater(e.deltaY > 0);
+            if (!jump.messages && laterCount === 0 && atEnd()) setBottomFollow(true);
+          }
         }}
         onTouchStart={(e) => (touchY.current = e.touches[0]?.clientY ?? 0)}
         onTouchMove={(e) => {
           const y = e.touches[0]?.clientY ?? 0;
           if (y > touchY.current + 4) breakFollow();
-          else if (atEnd()) setBottomFollow(true);
+          else {
+            advanceLater(y < touchY.current - 4);
+            if (!jump.messages && laterCount === 0 && atEnd()) setBottomFollow(true);
+          }
         }}
         onScroll={() => {
           const el = scrollRef.current;
           if (!el) return;
           const scrollTop = el.scrollTop;
+          advanceLater(scrollTop > previousScrollTop.current);
           const resume = shouldResumeBottomFollow({
             following: followRef.current,
             previousScrollTop: previousScrollTop.current,
@@ -2210,7 +2220,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             distanceFromBottom: el.scrollHeight - scrollTop - el.clientHeight,
           });
           previousScrollTop.current = scrollTop;
-          if (resume) setBottomFollow(true);
+          if (resume && !jump.messages && laterCount === 0) setBottomFollow(true);
           measure();
         }}
         onClick={(e) => {
@@ -2267,13 +2277,13 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             workers={rowWorkers}
             livePanes={livePanes}
           />
-          {laterCount > 0 && (
+          {jump.forwardFailed && (
             <div className="flex justify-center">
               <button
                 onClick={showLater}
                 className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
               >
-                Show later messages ({laterCount} more)
+                {t("room.retryLater")}
               </button>
             </div>
           )}

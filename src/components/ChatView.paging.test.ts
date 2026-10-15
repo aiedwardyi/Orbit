@@ -119,6 +119,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   localStorage.clear();
   applySkin("precision");
+  vi.useRealTimers();
 });
 
 async function mount(view: "chat" | "room") {
@@ -409,7 +410,11 @@ describe("paged transcripts", () => {
     expect(calls).toContain("/api/threads/thread-a/messages?limit=200&before=m2401");
     expect(store.state.bots[0]!.messages).toHaveLength(201);
 
-    await act(async () => button(host, "Show later messages")!.click());
+    const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => 400 });
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => scroller.querySelectorAll("[data-orbit-message]").length * 10 });
+    scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
     expect(button(host, "Show later messages")).toBeUndefined();
     await act(async () => button(host, "Jump to latest")!.click());
     expect(host.textContent).toContain("row 5000;");
@@ -1214,4 +1219,226 @@ describe("open window and jump pill", () => {
     await arrive(threadOf(view), { id: "x150", at: 1, role: "user", kind: "text", text: "x row 150;" });
     expect(scroller.scrollTop).toBe(0);
   });
+});
+
+it.each([
+  ["chat", false], ["room", false], ["chat", true], ["room", true],
+] as const)("scrolls a far quote forward to the live %s tail (detached: %s)", async (view, detached) => {
+  const thread = Array.from({ length: 500 }, (_, i): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null }));
+  thread[499] = { ...thread[499]!, replyToId: "m20" };
+  const threadId = view === "chat" ? "thread-a" : "thread-g";
+  const loaded = detached ? thread.slice(-200) : thread;
+  const calls = pagedServer(threadId, thread, view === "chat" ? { bots: [bot(loaded, detached)], groups: [] } : { bots: [], groups: [room(loaded, detached)] });
+  const host = await mount(view);
+  await vi.waitFor(() => expect(host.querySelector('[data-mid="m499"]')).not.toBeNull());
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-mid="m499"] button[title="Jump to original message"]')!.click());
+  await vi.waitFor(() => expect(host.querySelector('[data-mid="m20"]')).not.toBeNull());
+  expect(host.querySelector('[data-mid="m499"]')).toBeNull();
+  const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+  Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => 400 });
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => scroller.querySelectorAll("[data-orbit-message]").length * 10 });
+  const originalBox = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    if (this === scroller) return { top: 0, bottom: 400, height: 400 } as DOMRect;
+    const wrapper = this.parentElement;
+    if (wrapper?.hasAttribute("data-mid") && wrapper.lastElementChild === this) {
+      const index = Array.from(scroller.querySelectorAll("[data-mid]")).indexOf(wrapper);
+      const top = index * 10 - scroller.scrollTop;
+      return { top, bottom: top + 10, height: 10 } as DOMRect;
+    }
+    return originalBox.call(this);
+  });
+  for (let step = 0; step < 12 && !host.querySelector('[data-mid="m499"]'); step++) {
+    scroller.scrollTop = 100;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
+    scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight - 100;
+    const anchor = Array.from(scroller.querySelectorAll("[data-mid]")).find((row) => row.lastElementChild!.getBoundingClientRect().top >= 0)!;
+    const anchorId = anchor.getAttribute("data-mid");
+    const anchorTop = anchor.lastElementChild!.getBoundingClientRect().top;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
+    expect(scroller.querySelector(`[data-mid="${anchorId}"]`)!.lastElementChild!.getBoundingClientRect().top).toBe(anchorTop);
+    expect(scroller.querySelectorAll("[data-orbit-message]").length).toBeLessThanOrEqual(240);
+    expect(button(host, "Show later messages")).toBeUndefined();
+  }
+  expect(host.querySelector('[data-mid="m499"]')).not.toBeNull();
+  if (detached) {
+    expect(calls).toContain(`/api/threads/${threadId}/messages?around=m199&limit=200`);
+    expect(calls).toContain(`/api/threads/${threadId}/messages?around=m299&limit=200`);
+    const held = view === "chat" ? store.state.bots[0]!.messages : store.state.groups[0]!.messages;
+    expect(new Set(held.map((message) => message.id)).size).toBe(held.length);
+  } else expect(calls.filter((call) => call.includes("around="))).toEqual([]);
+  expect(button(host, "Jump to latest")).toBeDefined();
+  scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+  await act(async () => scroller.dispatchEvent(new Event("scroll")));
+  expect(scroller.style.overflowAnchor).toBe("none");
+  await arrive(threadId, { ...row(500), parentId: "m499" });
+  await act(async () => resizeCallbacks.forEach((callback) => callback()));
+  expect((view === "chat" ? store.state.bots[0]!.messages : store.state.groups[0]!.messages).at(-1)?.id).toBe("m500");
+  expect(host.querySelector('[data-mid="m500"]')).not.toBeNull();
+  expect(scroller.scrollTop).toBe(scroller.scrollHeight);
+  expect(scroller.querySelectorAll("[data-orbit-message]").length).toBeLessThanOrEqual(240);
+});
+
+it.each(["chat", "room"] as const)("retries a failed %s forward page only through Show later", async (view) => {
+  const thread = Array.from({ length: 500 }, (_, i): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null }));
+  thread[499] = { ...thread[499]!, replyToId: "m20" };
+  const threadId = view === "chat" ? "thread-a" : "thread-g";
+  const loaded = thread.slice(-200);
+  pagedServer(threadId, thread, view === "chat" ? { bots: [bot(loaded, true)], groups: [] } : { bots: [], groups: [room(loaded, true)] });
+  const served = fetch;
+  let failed = true;
+  let attempts = 0;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (String(url).includes("around=m199")) {
+      attempts++;
+      if (failed) return new Response("{}", { status: 500 });
+    }
+    return served(url);
+  }));
+  const host = await mount(view);
+  await vi.waitFor(() => expect(host.querySelector('[data-mid="m499"]')).not.toBeNull());
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-mid="m499"] button[title="Jump to original message"]')!.click());
+  await vi.waitFor(() => expect(host.querySelector('[data-mid="m20"]')).not.toBeNull());
+  const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+  Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => 400 });
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => scroller.querySelectorAll("[data-orbit-message]").length * 10 });
+  for (let step = 0; step < 2; step++) {
+    scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
+  }
+  await vi.waitFor(() => expect(button(host, "Show later messages")).toBeDefined());
+  await act(async () => {
+    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true }));
+    scroller.scrollTop++;
+    scroller.dispatchEvent(new Event("scroll"));
+  });
+  expect(attempts).toBe(1);
+  expect(scroller.style.overflowAnchor).toBe("auto");
+  failed = false;
+  await act(async () => button(host, "Show later messages")!.click());
+  await vi.waitFor(() => expect(host.querySelector('[data-mid="m299"]')).not.toBeNull());
+  expect(attempts).toBe(2);
+  expect(button(host, "Show later messages")).toBeUndefined();
+});
+
+async function forwardRace(view: "chat" | "room", target = 20) {
+  const thread = Array.from({ length: 500 }, (_, i): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null }));
+  const threadId = view === "chat" ? "thread-a" : "thread-g";
+  const loaded = thread.slice(-100);
+  const calls = pagedServer(threadId, thread, view === "chat" ? { bots: [bot(loaded, true)], groups: [] } : { bots: [], groups: [room(loaded, true)] });
+  const served = fetch;
+  const host = await mount(view);
+  await act(async () => store.dispatch({ type: "focusMessage", threadId, messageId: `m${target}` }));
+  await vi.waitFor(() => expect(host.querySelector(`[data-mid="m${target}"]`)).not.toBeNull());
+  const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+  Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => 400 });
+  Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => scroller.querySelectorAll("[data-orbit-message]").length * 10 });
+  const edge = async () => {
+    scroller.scrollTop = 0;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
+    scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+    await act(async () => scroller.dispatchEvent(new Event("scroll")));
+  };
+  return { host, scroller, threadId, calls, served, edge };
+}
+
+it.each([
+  ["chat", false], ["room", false], ["chat", true], ["room", true],
+] as const)("keeps an old %s forward request from blocking a new jump (close: %s)", async (view, close) => {
+  const { host, threadId, served, edge } = await forwardRace(view);
+  let release!: (response: Response) => void;
+  let releaseNew!: (response: Response) => void;
+  let attempts = 0;
+  vi.stubGlobal("fetch", vi.fn((url: string) => {
+    if (String(url).includes("around=m199")) return new Promise<Response>((resolve) => { release = resolve; });
+    if (String(url).includes("around=m320")) {
+      attempts++;
+      return new Promise<Response>((resolve) => { releaseNew = resolve; });
+    }
+    return served(url);
+  }));
+  await edge();
+  await edge();
+  expect(release).toBeDefined();
+  if (close) await act(async () => button(host, "Jump to latest")!.click());
+  await act(async () => store.dispatch({ type: "focusMessage", threadId, messageId: "m220" }));
+  await edge();
+  await edge();
+  expect(attempts).toBe(1);
+  await act(async () => release(Response.json({ messages: rows(100, 300), hasMore: true })));
+  await edge();
+  expect(attempts).toBe(1);
+  const next = Array.from({ length: 200 }, (_, i) => ({ ...row(221 + i), parentId: `m${220 + i}` }));
+  await act(async () => releaseNew(Response.json({ messages: next, hasMore: true })));
+  expect(host.querySelector('[data-mid="m400"]')).not.toBeNull();
+});
+
+it.each(["chat", "room"] as const)("times out a hung %s forward page and advances on retry", async (view) => {
+  const { host, served, edge } = await forwardRace(view);
+  let attempts = 0;
+  vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+    if (String(url).includes("around=m199") && ++attempts === 1) {
+      return new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true }));
+    }
+    return served(url);
+  }));
+  vi.useFakeTimers();
+  vi.spyOn(AbortSignal, "timeout").mockImplementation((delay) => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new DOMException("Timed out", "TimeoutError")), delay);
+    return controller.signal;
+  });
+  await edge();
+  await edge();
+  await act(async () => vi.advanceTimersByTimeAsync(9_999));
+  expect(button(host, "Show later messages")).toBeUndefined();
+  await act(async () => vi.advanceTimersByTimeAsync(1));
+  expect(button(host, "Show later messages")).toBeDefined();
+  expect(AbortSignal.timeout).toHaveBeenCalledWith(10_000);
+  await act(async () => button(host, "Show later messages")!.click());
+  expect(attempts).toBe(2);
+  expect(host.querySelector('[data-mid="m299"]')).not.toBeNull();
+  expect(button(host, "Show later messages")).toBeUndefined();
+});
+
+it.each([
+  ["chat", false], ["room", false], ["chat", true], ["room", true],
+] as const)("preserves a newer %s window and its anchor when a forward page lands (prepend: %s)", async (view, prepend) => {
+  const { host, scroller, threadId, served, edge } = await forwardRace(view, 180);
+  let release!: (response: Response) => void;
+  let attempts = 0;
+  vi.stubGlobal("fetch", vi.fn((url: string) => {
+    if (String(url).includes("around=m280")) {
+      attempts++;
+      return new Promise<Response>((resolve) => { release = resolve; });
+    }
+    return served(url);
+  }));
+  await edge();
+  await edge();
+  expect(release).toBeDefined();
+  await act(async () => button(host, "Show earlier messages")!.click());
+  if (prepend) await act(async () => button(host, "Show earlier messages")!.click());
+  const ids = () => [...scroller.querySelectorAll("[data-mid]")].map((el) => el.getAttribute("data-mid"));
+  const before = ids();
+  scroller.scrollTop = 100;
+  const originalBox = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    if (this === scroller) return DOMRect.fromRect({ height: 400 });
+    const wrapper = this.parentElement;
+    if (wrapper?.hasAttribute("data-mid") && wrapper.lastElementChild === this) {
+      return DOMRect.fromRect({ y: ids().indexOf(wrapper.getAttribute("data-mid")) * 10 - scroller.scrollTop, height: 10 });
+    }
+    return originalBox.call(this);
+  });
+  const anchorId = before[10];
+  const anchor = scroller.querySelector(`[data-mid="${anchorId}"]`)!.lastElementChild!;
+  const top = anchor.getBoundingClientRect().top;
+  await act(async () => release(await served(`/api/threads/${threadId}/messages?around=m280&limit=200`)));
+  expect(ids()).toEqual(before);
+  expect(scroller.querySelector(`[data-mid="${anchorId}"]`)).not.toBeNull();
+  expect(anchor.getBoundingClientRect().top).toBe(top);
+  await edge();
+  expect(host.querySelector('[data-mid="m380"]')).not.toBeNull();
+  expect(attempts).toBe(1);
 });
