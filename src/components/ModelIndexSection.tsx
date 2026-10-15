@@ -771,7 +771,7 @@ function Bars({
                   backgroundColor: color(mark.provider),
                 }}
               />
-              <span className="min-w-0 text-[12px] leading-[13px] tabular-nums text-ink">{point ? formatValue(index, point, priceText) : ""}</span>
+              <span className="min-w-0 break-keep text-[12px] leading-[13px] tabular-nums text-ink">{point ? formatValue(index, point, priceText) : ""}</span>
             </div>
           </div>
         );
@@ -1008,7 +1008,7 @@ export function ModelIndexSection() {
                   )}
                 </div>
                 <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-[17px] font-semibold leading-tight text-ink">{formatValue(index, hovered, priceText)}</span>
+                  <span className="break-keep text-[17px] font-semibold leading-tight text-ink">{formatValue(index, hovered, priceText)}</span>
                   <span className="truncate text-ink-secondary">
                     {t(index === "cost" ? "modelIndex.tooltip.cost" : index === "agentic" || index === "coding" ? BENCH_KEY[index] : INDEX_KEY[index])}
                   </span>
@@ -1026,7 +1026,7 @@ export function ModelIndexSection() {
                   <>
                     <div className="flex justify-between gap-3 tabular-nums">
                       <span className="break-keep text-ink-secondary">{t("modelIndex.tooltip.cost")}</span>
-                      <span className="min-w-0 text-right text-ink">{hovered.price ? priceText(hovered.price) : "-"}</span>
+                      <span className="min-w-0 break-keep text-right text-ink">{hovered.price ? priceText(hovered.price) : "-"}</span>
                     </div>
                     <p className="text-[11px] leading-snug text-ink-secondary">{t("modelIndex.tooltip.sameEffort")}</p>
                   </>

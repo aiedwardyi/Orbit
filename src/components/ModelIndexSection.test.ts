@@ -258,6 +258,21 @@ describe("promo price on the cost tab", () => {
   it("leaves a row with no next as one price", async () => {
     expect(await costRow([2026, 10, 30], "Claude Opus 5.5")).toBe("Claude Opus 5.5$4 / $20");
   });
+
+  it("keeps Korean dates whole on the Cost bars and on the Cost and Legal tooltips", async () => {
+    const date = "12월 1일부터";
+    const kept = () =>
+      [...host.querySelectorAll("span")].filter((el) => !el.children.length && el.textContent?.includes(date)).map((el) => el.className.includes("break-keep"));
+    const argon = () => [...host.querySelectorAll<HTMLElement>('[tabindex="0"]')].find((el) => (el.getAttribute("aria-label") ?? el.textContent)?.includes("Gemini 4 Argon"))!;
+    await costRow([2026, 10, 30], "Gemini 4 Argon", "ko");
+    expect(kept()).toEqual([true]);
+    act(() => argon().focus());
+    expect(kept()).toEqual([true, true]);
+    await mount();
+    for (let i = 0; i < 3; i++) press(window);
+    act(() => argon().focus());
+    expect(kept()).toEqual([true]);
+  });
 });
 
 describe("score vs cost", () => {
