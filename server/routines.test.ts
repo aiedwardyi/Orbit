@@ -880,6 +880,41 @@ describe("RoutineManager", () => {
     expect(order).toEqual(["First"]);
   });
 
+  it("leaves the next chat run to the server's settle tick", async () => {
+    const h = harness();
+    const order: string[] = [];
+    h.options.startChatTurn = async (run) => {
+      order.push(run.routineName);
+      h.setBot("busy");
+    };
+    for (const [name, minute] of [["First", 1], ["Second", 2]] as const) {
+      h.manager.create({
+        name,
+        prompt: name,
+        botId: "maus-1",
+        schedule: { type: "once", at: new Date(2026, 7, 17, 8, minute).getTime() },
+      });
+    }
+    h.setNow(new Date(2026, 7, 17, 8, 2).getTime());
+    await h.manager.tick();
+    expect(order).toEqual(["First"]);
+
+    h.setBot("ready");
+    h.manager.handleRuntimeEvent({
+      eventId: "done",
+      provider: "fake",
+      threadId: "bot-chat",
+      createdAt: new Date().toISOString(),
+      type: "turn.completed",
+      ok: true,
+    }, "maus-1");
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    expect(order).toEqual(["First"]);
+
+    await h.manager.tick();
+    expect(order).toEqual(["First", "Second"]);
+  });
+
   it("folds chat-turn events matched by source thread and bot", async () => {
     const h = harness();
     const routine = h.manager.create({

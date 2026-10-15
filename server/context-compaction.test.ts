@@ -1710,7 +1710,7 @@ describe("routine cards in replay", () => {
       message("m3", "Try Raycast today.", { role: "bot" }),
       routineCard("m4", { status: "missed" }),
       routineCard("m5", { runOn: "cloud", executionThreadId: "vm-thread", summary: "Built 3 pages.\nAll green." }),
-      routineCard("m6", { status: "failed", error: "provider crashed" }),
+      routineCard("m6", { status: "failed", startedAt: at, error: "provider crashed" }),
       routineCard("m7", { status: "queued" }),
       routineCard("m8", { status: "cancelled" }),
       routineCard("m9", { instruction: `Use ${secret}\n${"step ".repeat(500)}`, runOn: "cloud", summary: "y".repeat(5_000) }),
@@ -1729,6 +1729,19 @@ describe("routine cards in replay", () => {
     expect(long).not.toContain("\n");
     expect(long).not.toContain(secret);
     expect(long.length).toBeLessThan(500);
+  });
+
+  it("drops a chat run that failed before it reached the bot", async () => {
+    const transcript = await replay([
+      message("m1", "morning"),
+      routineCard("m2", { status: "failed", error: "provider instance is unavailable" }),
+      routineCard("m3", { status: "failed", startedAt: at, error: "provider crashed" }),
+    ]);
+
+    expect(transcript).toEqual([
+      { role: "user", text: "morning" },
+      { role: "user", text: `${fired} [failed: provider crashed]` },
+    ]);
   });
 
   it("keeps a routine card on both sides of a compaction", async () => {

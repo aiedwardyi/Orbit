@@ -422,3 +422,56 @@ describe("interrupt ownership", () => {
     expect(f.interruptedTurnIds.has("stopped-turn")).toBe(true);
   });
 });
+
+function routineOption(name: string, deps: Record<string, unknown>) {
+  let found: ts.PropertyAssignment | undefined;
+  function visit(node: ts.Node) {
+    if (ts.isNewExpression(node) && node.expression.getText(parsed) === "RoutineManager") {
+      const options = node.arguments?.[0];
+      if (options && ts.isObjectLiteralExpression(options)) {
+        found = options.properties.find((property): property is ts.PropertyAssignment =>
+          ts.isPropertyAssignment(property) && property.name.getText(parsed) === name);
+      }
+    }
+    if (!found) node.forEachChild(visit);
+  }
+  visit(parsed);
+  const javascript = ts.transpileModule(`const option = ${found!.initializer.getText(parsed)};`, {
+    compilerOptions: { target: ts.ScriptTarget.ESNext },
+  }).outputText;
+  return new Function(...Object.keys(deps), `${javascript}\nreturn option;`)(...Object.values(deps));
+}
+
+describe("routine cancel", () => {
+  it("closes the provider cards a cancelled routine left open", async () => {
+    const closed: string[] = [];
+    const interruptTurn = routineOption("interruptTurn", {
+      store: { bot: () => ({ modelSelection: { instanceId: "fake" } }) },
+      registry: { get: () => ({ adapter: { interruptTurn: async () => { throw new Error("no session"); } } }) },
+      closeOpenApprovals: (threadId: string) => closed.push(threadId),
+    });
+    await interruptTurn("bot-1", "thread-1", "maus");
+    expect(closed).toEqual(["thread-1"]);
+  });
+
+  it("lets a cancelled room routine abort its preparation", async () => {
+    const cancelled = new Set<string>();
+    let isCancelled: (() => boolean) | undefined;
+    const startChatTurn = routineOption("startChatTurn", {
+      routineSourceOwner: () => ({ bot: { id: "bot-1" }, group: { id: "group-1" }, threadId: "room-1" }),
+      botHasActiveTurn: () => false,
+      busyRejection: (message: string) => new Error(message),
+      routineTriggerIsUnattended: () => false,
+      markUnattended: () => {},
+      runGroupMemberTurn: async (...args: unknown[]) => {
+        isCancelled = args[7] as typeof isCancelled;
+        return true;
+      },
+      routines: { isCancelled: (id: string) => cancelled.has(id) },
+    });
+    await startChatTurn({ id: "run-1", triggerSource: "schedule" }, "[Routine] Standup", () => {});
+    expect(isCancelled?.()).toBe(false);
+    cancelled.add("run-1");
+    expect(isCancelled?.()).toBe(true);
+  });
+});

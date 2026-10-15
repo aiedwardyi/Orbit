@@ -5265,7 +5265,7 @@ routines = new RoutineManager({
         new Set(),
         line,
         onDispatchError,
-        undefined,
+        () => routines!.isCancelled(run.id),
         undefined,
         run.cardMessageId ? new Set([run.cardMessageId]) : undefined,
       ).then((started) => {
@@ -5288,7 +5288,8 @@ routines = new RoutineManager({
       : bot
         ? registry.get(bot.modelSelection.instanceId)
         : null;
-    await instance?.adapter.interruptTurn(threadId);
+    await instance?.adapter.interruptTurn(threadId).catch(() => {});
+    closeOpenApprovals(threadId);
   },
   onRunChanged: syncRoutineRunToSource,
   onRunFailed: (run) => {

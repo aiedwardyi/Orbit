@@ -389,9 +389,10 @@ function cardText(card: OptionCardData): string | null {
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
-/** One bounded user-side line. A queued or cancelled run never reached the bot. */
+/** One bounded user-side line. A queued, cancelled or unstarted failed chat run never reached the bot. */
 function routineRunText(card: RoutineRunCardData): string | null {
   if (card.status === "queued" || card.status === "cancelled") return null;
+  if (card.status === "failed" && !card.executionThreadId && card.startedAt === undefined) return null;
   const at = card.scheduledFor === undefined ? null : new Date(card.scheduledFor);
   const when = at ? ` ${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}` : "";
   const line = `${card.routineName} ${card.status === "missed" ? "missed" : "fired"}${when}${card.instruction ? `: ${card.instruction}` : ""}`;

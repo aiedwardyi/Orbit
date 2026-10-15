@@ -107,7 +107,7 @@ export function RoutineRunCard({
     ? compactDetail(run.summary)
     : "";
   const time = clock(run.scheduledFor);
-  const actionLabel = run.status === "waiting" ? "Review" : "Open run";
+  const actionLabel = t(run.status === "waiting" ? "routine.card.review" : "routine.card.openRun");
 
   return (
     <section
@@ -133,7 +133,7 @@ export function RoutineRunCard({
           <button
             type="button"
             onClick={onOpen}
-            aria-label={`${actionLabel} for ${run.routineName}`}
+            aria-label={t("routine.card.actionFor", { action: actionLabel, name: run.routineName })}
             className={cn(
               "ml-auto flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11.5px] font-medium transition-colors",
               run.status === "waiting"

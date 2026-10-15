@@ -358,6 +358,10 @@ export class RoutineManager {
       .map((r) => ({ ...r }));
   }
 
+  isCancelled(id: string): boolean {
+    return this.runs.find((run) => run.id === id)?.status === "cancelled";
+  }
+
   activeRunForBot(botId: string): RoutineRun | null {
     const run = this.runs.find(
       (candidate) => candidate.botId === botId && ["running", "waiting"].includes(candidate.status),
@@ -838,7 +842,7 @@ export class RoutineManager {
       run.denials = event.denials;
       if (!event.ok) {
         this.failRun(run, event.stopReason ?? run.error ?? "The bot did not complete this run");
-        queueMicrotask(() => void this.tick());
+        if (run.threadId) queueMicrotask(() => void this.tick());
         return { ...run };
       }
       run.status = "completed";
@@ -850,7 +854,8 @@ export class RoutineManager {
     }
     this.save();
     this.emitRun(run);
-    if (event.type === "turn.completed") queueMicrotask(() => void this.tick());
+    // a chat run's settle ticks after held sends claim the bot
+    if (event.type === "turn.completed" && run.threadId) queueMicrotask(() => void this.tick());
     return { ...run };
   }
 

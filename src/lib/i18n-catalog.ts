@@ -615,6 +615,9 @@ export const en = {
   "routine.card.cancelled": "Cancelled",
   "routine.card.cloud": "Ran on Cloud VM",
   "routine.card.cloudRunning": "Running on Cloud VM",
+  "routine.card.review": "Review",
+  "routine.card.openRun": "Open run",
+  "routine.card.actionFor": "{action} for {name}",
   "chrome.connectedApps": "Connected apps",
   "connectedApps.view": "Connected apps view",
   "connectedApps.unavailable":
@@ -2023,6 +2026,9 @@ export const ko = {
   "routine.card.cancelled": "취소했어요",
   "routine.card.cloud": "클라우드 VM에서 실행했어요",
   "routine.card.cloudRunning": "클라우드 VM에서 실행 중이에요",
+  "routine.card.review": "확인하기",
+  "routine.card.openRun": "실행 보기",
+  "routine.card.actionFor": "{name} {action}",
   "chrome.connectedApps": "연결 앱",
   "connectedApps.view": "연결 앱 보기",
   "connectedApps.unavailable":

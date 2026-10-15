@@ -147,6 +147,17 @@ describe("RoutineRunCard", () => {
     expect(foot("missed")).toContain("07:30 알람을 놓쳤어요. PC가 꺼져 있었어요");
   });
 
+  it("labels the run actions in Korean", () => {
+    applyLocale("ko");
+    const open = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("completed"), onOpen: vi.fn() }));
+    expect(open).toContain('aria-label="Morning brief 실행 보기"');
+    expect(open).toContain("실행 보기<");
+    const review = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("waiting"), onOpen: vi.fn() }));
+    expect(review).toContain('aria-label="Morning brief 확인하기"');
+    expect(review).toContain("확인하기<");
+    expect(`${open}${review}`).not.toMatch(/Open run|Review/);
+  });
+
   it("recognizes only an execution thread still present in the owning bot's tasks", () => {
     const tasks = [{ threadId: "source-thread" }, { threadId: "execution-thread" }];
 
