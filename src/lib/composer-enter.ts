@@ -1,14 +1,17 @@
 /** What a composer Enter should do. Shift+Enter stays a newline. IME
- * confirm (Hangul and friends) must not send — keyCode 229 and
+ * confirm (Hangul and friends) must not send: keyCode 229 and
  * composition start/end are the reliable signals. A stale isComposing
  * flag after composition has ended must not block a real Enter. */
 
-export type ComposerEnterIntent = "send" | "newline" | "none";
+/** "send-after": Ctrl/Cmd+Enter, which waits for the running turn instead of joining it. */
+export type ComposerEnterIntent = "send" | "send-after" | "newline" | "none";
 
 export type ComposerEnterEvent = {
   key: string;
   code?: string;
   shiftKey: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
   keyCode?: number;
   isComposing?: boolean;
   nativeEvent?: { isComposing?: boolean; keyCode?: number };
@@ -36,7 +39,8 @@ export function composerEnterIntent(event: ComposerEnterEvent, ime: ComposerImeS
   if (keyCode === 229) return "none";
   if (ime.composing || ime.justEnded) return "none";
   // Stuck isComposing after commit: only a real Enter (keyCode 13) sends.
-  // A missing keyCode is not 13 — do not take the send-through.
-  if (nativeComposing) return keyCode === 13 ? "send" : "none";
-  return "send";
+  // A missing keyCode is not 13, so do not take the send-through.
+  const send = event.ctrlKey || event.metaKey ? "send-after" : "send";
+  if (nativeComposing) return keyCode === 13 ? send : "none";
+  return send;
 }

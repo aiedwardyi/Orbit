@@ -2367,6 +2367,34 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("queues an after-this-turn send on a steering engine and runs it once Stop settles", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const botState = async (messages: number) => (await api("GET", `/api/bots?messages=${messages}`)).body.bots.find(
+      (candidate: { id: string }) => candidate.id === bot.id,
+    );
+    try {
+      const hanging = (await api("GET", "/api/instances")).body.instances.find(
+        (instance: { instanceId: string }) => instance.instanceId === "claude",
+      );
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: hanging.models.default },
+      })).status).toBe(200);
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "Keep going until I stop you" })).status).toBe(202);
+      await expect.poll(async () => (await botState(0))?.busy).toBe(true);
+      const later = await api("POST", `/api/bots/${bot.id}/messages`, { text: "after this turn", deliver: "after" });
+      expect(later.body).toMatchObject({ ok: true, queued: true });
+      expect(later.body.steered).toBeUndefined();
+      expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
+      await expect.poll(async () => (await botState(20))?.messages.some(
+        (message: { role: string; text?: string; steered?: boolean }) =>
+          message.role === "user" && message.text === "after this turn" && !message.steered,
+      ), { timeout: 10_000 }).toBe(true);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it("never starts a send whose Stop landed first", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     try {

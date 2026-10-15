@@ -56,6 +56,20 @@ describe("composerBusyChrome", () => {
     expect(chrome.placeholder).toBe(idle);
     expect(chrome.sendLooksQueued).toBe(false);
     expect(chrome.sendAriaKey).toBe("composer.sendIntoTurn");
+    expect(enT(chrome.sendTitleKey)).toBe("Send now. Ctrl+Enter sends after this turn");
+  });
+
+  it("names the hold on touch instead of Ctrl+Enter", () => {
+    const chrome = composerBusyChrome({
+      busy: true,
+      isRoom: false,
+      canSteer: true,
+      name: "Scout",
+      idlePlaceholder: idle,
+      touch: true,
+    }, enT);
+    expect(chrome.sendAriaKey).toBe("composer.sendIntoTurnTouch");
+    expect(enT(chrome.sendTitleKey)).toBe("Tap to send now. Hold to send after this turn");
   });
 
   it("uses the supplied English translator even when Korean is active", () => {

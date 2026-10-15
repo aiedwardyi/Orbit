@@ -5,6 +5,8 @@ import { composerEnterIntent, isComposerEnterKey } from "./composer-enter";
 function enter(
   overrides: {
     shiftKey?: boolean;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
     key?: string;
     code?: string;
     keyCode?: number;
@@ -15,6 +17,8 @@ function enter(
     key: overrides.key ?? "Enter",
     code: overrides.code ?? "Enter",
     shiftKey: overrides.shiftKey ?? false,
+    ctrlKey: overrides.ctrlKey,
+    metaKey: overrides.metaKey,
     keyCode: overrides.keyCode,
     isComposing: overrides.isComposing,
   };
@@ -39,6 +43,29 @@ describe("composerEnterIntent", () => {
 
   it("inserts a newline on Shift+Enter", () => {
     expect(composerEnterIntent(enter({ shiftKey: true, keyCode: 13 }), idle)).toBe("newline");
+  });
+
+  it("sends after the turn on Ctrl+Enter and Cmd+Enter", () => {
+    expect(composerEnterIntent(enter({ ctrlKey: true, keyCode: 13 }), idle)).toBe("send-after");
+    expect(composerEnterIntent(enter({ metaKey: true, keyCode: 13 }), idle)).toBe("send-after");
+    expect(composerEnterIntent(enter({ ctrlKey: true, code: "NumpadEnter", keyCode: 13 }), idle)).toBe("send-after");
+  });
+
+  it("keeps Shift a newline even with Ctrl or Cmd", () => {
+    expect(composerEnterIntent(enter({ ctrlKey: true, shiftKey: true, keyCode: 13 }), idle)).toBe("newline");
+    expect(composerEnterIntent(enter({ metaKey: true, shiftKey: true, keyCode: 13 }), idle)).toBe("newline");
+  });
+
+  it("never sends Ctrl+Enter or Cmd+Enter mid-composition", () => {
+    const composing = { composing: true, justEnded: false };
+    expect(composerEnterIntent(enter({ ctrlKey: true, keyCode: 13, isComposing: true }), composing)).toBe("none");
+    expect(composerEnterIntent(enter({ metaKey: true, keyCode: 229, isComposing: true }), idle)).toBe("none");
+    expect(composerEnterIntent(enter({ ctrlKey: true, keyCode: 13 }), { composing: false, justEnded: true })).toBe("none");
+    expect(composerEnterIntent(enter({ ctrlKey: true, isComposing: true }), idle)).toBe("none");
+  });
+
+  it("keeps a touch keyboard's Ctrl+Enter a newline", () => {
+    expect(composerEnterIntent(enter({ ctrlKey: true, keyCode: 13 }), { ...idle, touch: true })).toBe("newline");
   });
 
   it("does not send while an IME is composing", () => {

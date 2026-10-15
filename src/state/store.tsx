@@ -819,6 +819,8 @@ export type Action =
       sendId?: string;
       replyToId?: string;
       threadId?: string;
+      /** Wait for the running turn instead of steering into it. */
+      after?: boolean;
       onError?: () => void;
     }
   | { type: "pendingQueued"; threadId: string; queueId: string; text: string; at?: number }
@@ -1772,6 +1774,7 @@ export function reducer(state: AppState, action: Action): AppState {
           kind: paint.kind,
           text: action.text,
           at: Date.now(),
+          after: action.after,
         }),
       };
       if (paint.kind === "thinking") {
@@ -2438,7 +2441,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const post = () =>
             api(`/api/bots/${action.botId}/messages`, {
               method: "POST",
-              body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId }),
+              body: JSON.stringify({
+                text: action.text,
+                replyToId: action.replyToId,
+                threadId,
+                sendId,
+                deliver: action.after ? "after" : undefined,
+              }),
             });
           const settle = (body: any) => {
             if (receiptRejectsAcceptedSend(body)) {

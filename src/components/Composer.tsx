@@ -63,6 +63,7 @@ import {
 } from "@/lib/composer-busy";
 import { composerIsBusy } from "@/lib/send-accept";
 import { composerEnterIntent, isComposerEnterKey } from "@/lib/composer-enter";
+import { holdToSendAfter } from "@/lib/send-hold";
 import { fitComposerHeight } from "@/lib/composer-dock";
 import { composerNeedsTap } from "@/lib/focus-composer";
 import { holdReload } from "@/lib/reload-hold";
@@ -567,7 +568,7 @@ export function Composer({
     ? groupComposerHint(group, members ?? [], t)
     : t("composer.placeholder", { name: bot?.name ?? "" });
   const busyChrome = composerBusyChrome(
-    { busy, isRoom: Boolean(group), canSteer, name: busyName, idlePlaceholder },
+    { busy, isRoom: Boolean(group), canSteer, name: busyName, idlePlaceholder, touch: window.matchMedia?.("(pointer: coarse)").matches },
     t,
   );
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
@@ -607,7 +608,7 @@ export function Composer({
     }
     onSend?.();
   };
-  const send = () => {
+  const send = (after = false) => {
     const action = composerBusySendAction({
       locked,
       isRoom: Boolean(group),
@@ -668,6 +669,7 @@ export function Composer({
         sendId: sentDraft.sendId,
         replyToId: replyTo?.id,
         threadId,
+        after: after && canSteer,
         onError: () => restoreDraft(sentDraft),
       });
     }
@@ -1114,15 +1116,14 @@ export function Composer({
               return;
             }
             // Shift+Enter inserts a newline; plain Enter sends, except on touch
-            if (
-              composerEnterIntent(e, {
-                composing: composingRef.current,
-                justEnded: Date.now() - compositionEndedAtRef.current < 50,
-                touch: window.matchMedia?.("(pointer: coarse)").matches,
-              }) === "send"
-            ) {
+            const enter = composerEnterIntent(e, {
+              composing: composingRef.current,
+              justEnded: Date.now() - compositionEndedAtRef.current < 50,
+              touch: window.matchMedia?.("(pointer: coarse)").matches,
+            });
+            if (enter === "send" || enter === "send-after") {
               e.preventDefault();
-              send();
+              send(enter === "send-after");
             }
             if (e.key === "Escape" && recording) setRecording(false);
           }}
@@ -1199,12 +1200,12 @@ export function Composer({
             </button>
           )}
           <button
-            onClick={send}
+            {...holdToSendAfter(send)}
             disabled={uploading}
             aria-label={t(busyChrome.sendAriaKey)}
             title={uploading ? t("composer.uploadWaiting") : t(busyChrome.sendTitleKey)}
             className={cn(
-              "flex size-8 shrink-0 items-center justify-center rounded-full text-accent-ink disabled:opacity-40",
+              "flex size-8 shrink-0 select-none items-center justify-center rounded-full text-accent-ink [-webkit-touch-callout:none] disabled:opacity-40",
               busyChrome.sendLooksQueued
                 ? "bg-raised text-ink-secondary hover:bg-raised-hover"
                 : "bg-accent hover:brightness-110",
