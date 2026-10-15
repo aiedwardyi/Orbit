@@ -432,7 +432,14 @@ const Transcript = memo(function Transcript({
         const attachedImages = user && m.text ? splitAttachedImages(m.text) : null;
         const menuTarget =
           m.kind === "text" && m.text && !m.placeholder
-            ? { threadId: group.threadId, message: m, copyText: attachedImages?.display ?? m.text ?? "", user }
+            ? {
+              threadId: group.threadId,
+              message: m,
+              copyText: attachedImages?.display ?? m.text ?? "",
+              user,
+              pinned: group.pinnedMessageId === m.id,
+              canPin: user || (!streaming && !docked?.live),
+            }
             : null;
         const detectedOptions =
           !user && !streaming && m.kind === "text" ? detectChatOptions(m.text ?? "") : null;
@@ -1182,6 +1189,14 @@ export function GroupView({ group }: { group: Group }) {
     `group:${group.id}:${group.threadId}`,
     group.messages,
   );
+  // same toggle the hover Pin button dispatches, so other devices sync it
+  const togglePin = (message: Message) => {
+    dispatch({
+      type: "patchGroup",
+      groupId: group.id,
+      patch: { pinnedMessageId: group.pinnedMessageId === message.id ? "" : message.id },
+    });
+  };
   const [menu, setMenu] = useState<MessageMenuRequest | null>(null);
   // Same instance can show another thread without a click outside the menu.
   const [menuThread, setMenuThread] = useState(group.threadId);
@@ -1844,7 +1859,7 @@ export function GroupView({ group }: { group: Group }) {
       </div>
 
       {menu?.kind === "message" ? (
-        <MessageMenu x={menu.x} y={menu.y} opener={menu.opener} target={menu.target} onReply={selectReply} onClose={() => setMenu(null)} />
+        <MessageMenu x={menu.x} y={menu.y} opener={menu.opener} target={menu.target} onReply={selectReply} onPin={togglePin} onClose={() => setMenu(null)} />
       ) : menu ? (
         <SelectionMenu x={menu.x} y={menu.y} opener={menu.opener} text={menu.text} onClose={() => setMenu(null)} />
       ) : null}

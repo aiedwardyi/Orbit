@@ -5,7 +5,7 @@
 // phone's own selection.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { Copy, MessageSquareReply, SmilePlus, TextCursor, X } from "lucide-react";
+import { Copy, MessageSquareReply, Pin, PinOff, SmilePlus, TextCursor, X } from "lucide-react";
 import { EXTENDED_REACTIONS } from "../../shared/reactions";
 import { useStore, type Message } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
@@ -227,6 +227,8 @@ export interface MessageMenuTarget {
   message: Message;
   copyText: string;
   user: boolean;
+  pinned: boolean;
+  canPin: boolean;
 }
 
 export type MessageMenuRequest =
@@ -336,6 +338,7 @@ export function MessageMenu({
   opener,
   target,
   onReply,
+  onPin,
   onClose,
 }: {
   x: number;
@@ -343,11 +346,12 @@ export function MessageMenu({
   opener: HTMLElement;
   target: MessageMenuTarget;
   onReply: (message: Message) => void;
+  onPin: (message: Message) => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
   const { dispatch } = useStore();
-  const { threadId, message, copyText, user } = target;
+  const { threadId, message, copyText, user, pinned, canPin } = target;
   const [expanded, setExpanded] = useState(false);
   const [touch] = useState(isTouchPrimary);
   // kept against the row, since the transcript can scroll before Select text
@@ -450,6 +454,23 @@ export function MessageMenu({
           )}
           <div className="mx-2 my-1 border-t border-hairline/40" />
         </>
+      )}
+      {canPin && (
+        <button
+          type="button"
+          role="menuitem"
+          data-menu-pin
+          onClick={() => {
+            onPin(message);
+            closeMenu(opener, ref.current, onClose);
+          }}
+          className={cn(ROW_CLASS, touch && "min-h-10")}
+        >
+          {pinned
+            ? <PinOff size={16} className="text-ink-secondary" />
+            : <Pin size={16} className="text-ink-secondary" />}
+          {t(pinned ? "chat.unpinMessage" : "chat.pinMessage")}
+        </button>
       )}
       <button
         type="button"
