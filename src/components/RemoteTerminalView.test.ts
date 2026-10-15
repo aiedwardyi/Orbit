@@ -345,6 +345,24 @@ describe("RemoteTerminalView", () => {
     }
   });
 
+  it("drops the old pane's styled screen while a tab tap is fetching", async () => {
+    const panes = [
+      { sessionId: "main", main: true },
+      { sessionId: "worker", main: false },
+    ];
+    const pending = new Promise<never>(() => {});
+    store.api.mockImplementation(async (path: string) =>
+      path.includes("sessionId=worker") ? pending : { sessionId: "main", screenText: "old", screenRuns: [[{ t: "old", fg: 2 }]], recentText: "history", panes });
+    const { host, root } = await renderView();
+    try {
+      expect(host.querySelector("pre")?.textContent).toBe("history\n\nold");
+      await act(async () => click(host.querySelectorAll('[role="tab"]')[1]!));
+      expect(host.querySelector("pre")?.textContent).toBe("");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("ignores a closed pane's late error after selecting another pane", async () => {
     const panes = [
       { sessionId: "main", main: true },

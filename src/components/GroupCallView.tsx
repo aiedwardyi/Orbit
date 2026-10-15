@@ -410,6 +410,7 @@ function GroupCall({ group, members }: { group: Group; members: Bot[] }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (event.defaultPrevented || document.querySelector('[role="dialog"][aria-modal="true"]')) return;
         event.preventDefault();
         endCall(group.id);
       } else if (event.code === "Space" && speaker.isSpeaking()) {

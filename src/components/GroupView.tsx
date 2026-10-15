@@ -316,7 +316,7 @@ function RoomReplyQuote({ group, replyToId, transcript }: { group: Group; replyT
   ) : null;
 }
 
-const Transcript = memo(function Transcript({
+export const Transcript = memo(function Transcript({
   group,
   members,
   messages,
@@ -480,7 +480,7 @@ const Transcript = memo(function Transcript({
             <div className="flex justify-start">
               <AskUserRecord
                 message={m}
-                transcript={group.messages}
+                transcript={transcript}
                 askerName={memberOf(m.from?.botId)?.name ?? m.from?.name}
                 pinned={pinnedQuestion(group.messages)?.id === m.id}
               />

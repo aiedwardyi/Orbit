@@ -25,7 +25,7 @@ import { createPaneRuns, notifyRestartedPanes } from "./pane-runs.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
-import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, startUpdater, updaterBridge } from "./updater.mjs";
+import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, retargetUpdater, startUpdater, updaterBridge } from "./updater.mjs";
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
 import { createCloseGuard } from "./close-guard.mjs";
 import { applyStartFresh, requestStartFresh } from "./start-fresh.mjs";
@@ -37,7 +37,7 @@ import { stopUtilityChild } from "./utility-child.mjs";
 import { buildDiagnosticsReport, decodeLogTail, diagnosticsFileName, redactSecretsInLine } from "./diagnostics.mjs";
 import { safeExternalUrl } from "./external-open.mjs";
 import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace-credentials.mjs";
-import { activateExistingWindow } from "./single-instance.mjs";
+import { activateExistingWindow, liveMainWindow } from "./single-instance.mjs";
 import {
   handleDesktopNotify,
   parseNotificationTargetFromCommandLine,
@@ -143,11 +143,16 @@ let pendingNotificationTarget = parseNotificationTargetFromCommandLine(process.a
 
 function deliverNotificationTarget(win, target = pendingNotificationTarget) {
   if (!target || !win || win.isDestroyed()) return;
+  if (win !== liveMainWindow(mainWindow)) return;
+  // Same URL gate as package installs: never deliver to the connecting or error page.
+  if (app.isPackaged && !shouldDeliverPackageInstall(win.webContents.getURL())) return;
   if (win.webContents.isLoadingMainFrame()) return;
   win.webContents.send("desktop:notification-click", target);
   if (target === pendingNotificationTarget) pendingNotificationTarget = null;
 }
 let mainWindow = null;
+// Startup owns the first window; activation before it only queues targets for that window's load.
+let startupWindowCreated = false;
 let unreadCount = 0;
 let unreadOverlayIcon = null;
 
@@ -244,6 +249,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 function deliverPackageInstall(win) {
   if (!pendingPackageInstallUrl || !win || win.isDestroyed()) return;
+  if (win !== liveMainWindow(mainWindow)) return;
   // The connecting data URL is a real document. Delivering here would clear
   // the pending orbit://install before Sidebar's listener exists.
   if (app.isPackaged && !shouldDeliverPackageInstall(win.webContents.getURL())) return;
@@ -252,13 +258,24 @@ function deliverPackageInstall(win) {
   pendingPackageInstallUrl = null;
 }
 
+function activateMainWindow() {
+  const target = liveMainWindow(mainWindow);
+  if (!target) {
+    if (!startupWindowCreated) return;
+    const next = createWindow();
+    if (!app.isPackaged || packagedBootPhase === BOOT_READY) void startBrowserSurface(next);
+    return;
+  }
+  activateExistingWindow([target]);
+  deliverPackageInstall(target);
+  deliverNotificationTarget(target);
+}
+
 function queuePackageInstall(rawLink) {
   const packageUrl = packageUrlFromDeepLink(rawLink);
   if (!packageUrl) return false;
   pendingPackageInstallUrl = packageUrl;
-  activateExistingWindow(BrowserWindow.getAllWindows());
-  const target = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed());
-  deliverPackageInstall(target);
+  activateMainWindow();
   return true;
 }
 
@@ -272,10 +289,7 @@ app.on("second-instance", (_event, commandLine) => {
   if (packageUrl) pendingPackageInstallUrl = packageUrl;
   const notifyTarget = parseNotificationTargetFromCommandLine(commandLine);
   if (notifyTarget) pendingNotificationTarget = notifyTarget;
-  activateExistingWindow(BrowserWindow.getAllWindows());
-  const target = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed());
-  deliverPackageInstall(target);
-  deliverNotificationTarget(target, notifyTarget ?? pendingNotificationTarget);
+  activateMainWindow();
 });
 
 // Packaged: the harness server ships in Resources (compiled JS, zero deps)
@@ -1630,6 +1644,7 @@ function createWindow() {
     },
   });
   mainWindow = win;
+  retargetUpdater(win);
   win.webContents.session.webRequest.onBeforeSendHeaders({ urls: ["*://*/*"] }, (details, callback) => {
     callback({ requestHeaders: appAuthorization.headers(details, mainWindow?.webContents) });
   });
@@ -2358,6 +2373,7 @@ app.whenReady().then(async () => {
   // connecting page does not need keys; the child env does.
   const credentialsReady = loadSecureCredentials();
   const win = createWindow();
+  startupWindowCreated = true;
   if (resetFailed) void dialog.showMessageBox(win, { type: "info", message: nativeText("settings.startFresh.error") });
   slog(`window shown packaged=${app.isPackaged} serverReady=${serverReady} uptime=${process.uptime().toFixed(2)}s`);
   startUpdater(win);
@@ -2366,10 +2382,7 @@ app.whenReady().then(async () => {
   // connecting window does not quit, and a dock click in that interval
   // must be able to open a new one.
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      const next = createWindow();
-      if (!app.isPackaged || packagedBootPhase === BOOT_READY) void startBrowserSurface(next);
-    }
+    activateMainWindow();
   });
   void openSecureCredentialDocument(await credentialsReady);
   const hostedAccount = ensureCompanionAccountService();
@@ -2478,12 +2491,17 @@ app.on("before-quit", (e) => {
   // stop it here so quitting never orphans a recording process
   if (nativeActions.appleSpeech) stopSpeech();
   stopRecorder();
-  terminalHost.dispose();
+  // Panes stop one at a time below, so the windows go now rather than at the final quit.
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.hide();
+  }
+  const terminalsStopped = terminalHost.dispose();
   try {
     browserSurface?.closeAll();
   } catch {}
   const cleanup = Promise.race([
     Promise.all([
+      terminalsStopped,
       // Windows utilityProcess.kill() is TerminateProcess: ask the child to
       // run disposeAll/killCliTree first, then force-kill if it ignores us.
       stopUtilityChild(serverProc, { timeoutMs: CUA_STOP_TIMEOUT_MS })

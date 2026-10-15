@@ -162,6 +162,7 @@ import {
   continueQueuedDrainIfIdle,
   drainSteeredMessages,
   foldQueuedSends,
+  hasQueuedSendBefore,
   hasQueuedSends,
   isSendCancelled,
   markSendRunning,
@@ -211,8 +212,10 @@ import {
   isRecoveryFlushReason,
   lastUserInstruction,
   packetAfterInterruption,
+  PendingTurnInterrupts,
   shouldStampRecoveryDismiss,
   shutdownStampsForClose,
+  TaskResumeScheduler,
   turnCompletionDisposition,
   type RecoveryFlushReason,
 } from "./task-recovery-flush.ts";
@@ -1619,6 +1622,7 @@ async function deleteBotFully(bot: BotRecord): Promise<void> {
   discardDelegationsFrom(commsBus, bot.id);
   computerControl.forget(bot.id);
   paneWake.forgetBot(bot.id);
+  taskResumes.forgetBot(bot.id);
   const target = perBotLocalVmTarget(bot.id);
   localVmIdles.get(target.key)?.cancel();
   localVmIdles.delete(target.key);
@@ -2584,7 +2588,7 @@ function turnOwnsTaskPacket(threadId: string, packet: { instructionId?: string }
   const bound = roomTurnInstruction.get(threadId);
   return !bound || packet?.instructionId === bound;
 }
-const pendingInterruptThreads = new Set<string>();
+const pendingInterruptThreads = new PendingTurnInterrupts(interruptedTurnIds);
 const adapterTurnByThread = new Map<string, Promise<unknown>>();
 const ADAPTER_TURN_HANDOFF_MS = 8_000;
 
@@ -2620,17 +2624,15 @@ function bumpTurnEpoch(botId: string): number {
   return next;
 }
 
-function markThreadInterrupted(threadId: string) {
+function markThreadInterrupted(threadId: string, botId: string, epoch: number) {
   turnInterruptedAt.set(threadId, tickTurnClock());
   const live = liveTurnIdByThread.get(threadId);
   if (live) interruptedTurnIds.add(live);
-  else pendingInterruptThreads.add(threadId);
+  pendingInterruptThreads.mark(threadId, botId, epoch);
 }
 
-function bindInterruptedTurn(threadId: string, turnId?: string) {
-  if (!pendingInterruptThreads.has(threadId)) return;
-  pendingInterruptThreads.delete(threadId);
-  if (turnId) interruptedTurnIds.add(turnId);
+function bindInterruptedTurn(threadId: string, turnId: string | undefined, botId: string, epoch: number) {
+  pendingInterruptThreads.bind(threadId, botId, epoch, turnId);
 }
 
 function forgetTurnThread(threadId: string) {
@@ -3883,6 +3885,7 @@ const noteSteer = new NoteSteerer({
 });
 
 function drainQueuedSends() {
+  taskResumes.settled();
   drainSteeredMessages(store, (botId, threadId, prompt, userMessage, excludeIds, room) => {
     // a send that never runs leaves no turn.completed to rerun a taken-over handoff
     const rerunIfIdle = () =>
@@ -3924,7 +3927,7 @@ function drainQueuedSends() {
       continueQueuedDrainIfIdle(store, botId, drainQueuedSends, botHasActiveTurn);
       rerunIfIdle();
     });
-  }, botHasActiveTurn);
+  }, (botId) => botHasActiveTurn(botId) || taskResumes.blocksQueuedSend(botId));
 }
 
 // ── live screen: poll the bot's computer while it works ───────────────
@@ -4148,6 +4151,47 @@ function botHasActiveTurn(botId: string, threadId?: string): boolean {
 const BOT_BUSY = "BOT_BUSY";
 const busyRejection = (message: string) => Object.assign(new Error(message), { status: 409, code: BOT_BUSY });
 const isBusyRejection = (error: unknown) => (error as { code?: unknown } | null)?.code === BOT_BUSY;
+
+const groupTaskResumes = new Map<string, {
+  groupId: string;
+  operation: GroupTurnOperation;
+  prompt: string;
+  ready: boolean;
+  release: () => void;
+}>();
+const taskResumes = new TaskResumeScheduler({
+  busy: ({ botId, threadId }) => botHasActiveTurn(botId, threadId) || groupTaskResumes.get(`${botId}\0${threadId}`)?.ready === false,
+  earlierSend: ({ botId, order }) => hasQueuedSendBefore(botId, order),
+  start: ({ botId, threadId }) => {
+    const bot = store.bot(botId);
+    if (!bot) throw Object.assign(new Error("no such bot"), { status: 404 });
+    const room = groupTaskResumes.get(`${botId}\0${threadId}`);
+    if (room) {
+      const group = store.conversationForBot(botId, threadId)?.group;
+      if (!group || group.id !== room.groupId || group.threadId !== threadId) {
+        throw Object.assign(new Error("switch to this channel task before continuing it"), { status: 409 });
+      }
+      resumePaneWakes(botId);
+      let failure: string | undefined;
+      return runGroupMemberTurn(group.id, threadId, botId, 0, new Set(), room.prompt, (message) => { failure = message; }, () => room.operation.cancelled)
+        .then(() => { if (failure) throw new Error(failure); });
+    }
+    if (bot.threadId !== threadId) {
+      throw Object.assign(new Error("switch to this task before continuing it"), { status: 409 });
+    }
+    resumePaneWakes(botId);
+    return startTurn(bot.id, TASK_RESUME_PROMPT, { threadId, cardContinuation: true });
+  },
+  isBusy: isBusyRejection,
+  settled: ({ botId, threadId }, error) => {
+    const key = `${botId}\0${threadId}`;
+    const room = groupTaskResumes.get(key);
+    groupTaskResumes.delete(key);
+    room?.release();
+    broadcast({ kind: "task.resume", botId, threadId, error: error ? (error instanceof Error ? error.message : String(error)) : null });
+    queueMicrotask(drainQueuedSends);
+  },
+});
 
 async function startTurn(botId: string, text: string, opts?: StartTurnOptions) {
   if (!tryClaimTurnStart(botId, opts?.threadId ?? store.bot(botId)?.threadId)) {
@@ -5029,6 +5073,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           }
           systemSeed = systemSeeds.set(threadId, { instanceId, cursor: resumeCursor, system });
         }
+        pendingInterruptThreads.started(threadId, bot.id, epoch);
         return live.adapter.sendTurn({
         threadId,
         text,
@@ -5045,7 +5090,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         cwd,
       });
       });
-      bindInterruptedTurn(threadId, started.turnId);
+      bindInterruptedTurn(threadId, started.turnId, bot.id, epoch);
       // a deferred recycle's live session never took this turn's summary, so
       // it certifies nothing and the next turn still sees it as unseeded
       if (started.turnId && !recycleDeferred) seed.turnId = started.turnId;
@@ -5070,6 +5115,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         startScreenPoller(bot.id, previewCapture, { screenIsTheWork: instance.driverKind === "boxAgent" });
       }
     } catch (e) {
+      pendingInterruptThreads.bind(threadId, bot.id, epoch);
       providerReload.settled(threadId);
       releaseLocalVmThread(threadId);
       if (activeVpsThreads.get(bot.id) === threadId) activeVpsThreads.delete(bot.id);
@@ -5631,6 +5677,7 @@ async function runClaimedGroupMemberTurn(
   instructionId?: string,
   excludeIds?: ReadonlySet<string>,
 ): Promise<boolean> {
+  const epoch = currentTurnEpoch(botId);
   if (isCancelled?.()) return false;
   const group = store.group(groupId);
   const bot = store.bot(botId);
@@ -5926,8 +5973,12 @@ async function runClaimedGroupMemberTurn(
     // Orbit compaction or a pre-compact fat soak.
     keepRoomTurnInstruction = true;
     dispatchAdapterTurn(threadId, () => {
+      if (currentTurnEpoch(bot.id) !== epoch || isCancelled?.()) {
+        return Promise.reject(Object.assign(new Error("turn cancelled before dispatch"), { cancelled: true }));
+      }
       const live = providerReload.started(threadId, selection.instanceId);
       if (!live) return Promise.reject(new Error(`${bot.name}'s model is unavailable`));
+      pendingInterruptThreads.started(threadId, bot.id, epoch);
       return live.adapter.sendTurn({
         threadId,
         text,
@@ -5940,12 +5991,18 @@ async function runClaimedGroupMemberTurn(
       });
     })
       .then((started) => {
-        bindInterruptedTurn(threadId, started.turnId);
-        if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
+        bindInterruptedTurn(threadId, started.turnId, bot.id, epoch);
+        if (started.turnId && currentTurnEpoch(bot.id) === epoch && !isCancelled?.()) liveTurnIdByThread.set(threadId, started.turnId);
         reply.claim(started.turnId);
       })
       .catch((err) => {
+        pendingInterruptThreads.bind(threadId, bot.id, epoch);
         providerReload.settled(threadId);
+        if (err?.cancelled) {
+          watchdog.settle(threadId);
+          finish("dispatch_failed");
+          return;
+        }
         const message = err instanceof Error ? err.message : "turn failed";
         store.appendMessage(threadId, {
           role: "bot",
@@ -6000,20 +6057,18 @@ async function runClaimedGroupMemberTurn(
 }
 
 function startGroupCardContinuation(groupId: string, threadId: string, botId: string, prompt: string) {
+  const key = `${botId}\0${threadId}`;
+  if (groupTaskResumes.has(key)) return;
   const operation = beginGroupTurnOperation(groupId, threadId);
+  let release!: () => void;
+  const done = new Promise<void>((resolve) => { release = resolve; });
+  const entry = { groupId, operation, prompt, ready: false, release };
+  groupTaskResumes.set(key, entry);
   const previous = groupQueues.get(groupId) ?? Promise.resolve();
   const next = previous.then(async () => {
-    if (operation.cancelled) return;
-    await runGroupMemberTurn(
-      groupId,
-      threadId,
-      botId,
-      0,
-      new Set(),
-      prompt,
-      undefined,
-      () => operation.cancelled,
-    );
+    entry.ready = true;
+    drainQueuedSends();
+    await done;
   });
   const tracked = next.finally(() => finishGroupTurnOperation(groupId, operation));
   groupQueues.set(groupId, tracked.catch(() => {}));
@@ -8647,12 +8702,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       // This covers setup-before-busy and responder handoffs, and makes every
       // queued responder observe cancellation before it can start.
       cancelGroupTurnOperations(group.id, group.threadId);
+      taskResumes.forgetThread(group.threadId);
       cancelQueuedRoomParticipations(group.id, group.threadId);
       const busy = group.busyBotId ? store.bot(group.busyBotId) : undefined;
       const instance = busy ? registry.get(busy.modelSelection.instanceId) : undefined;
       if (busy) {
-        bumpTurnEpoch(busy.id);
-        markThreadInterrupted(group.threadId);
+        const epoch = bumpTurnEpoch(busy.id) - 1;
+        markThreadInterrupted(group.threadId, busy.id, epoch);
         flushInterruptedTask(group.threadId, busy.id, "stop");
       }
       await instance?.adapter.interruptTurn(group.threadId).catch(() => {});
@@ -9661,6 +9717,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (expectedThreadId !== undefined && runThread(routineRun) !== expectedThreadId) {
           return json(res, 409, { error: "this bot is running a routine in another conversation" });
         }
+        taskResumes.forgetBot(bot.id);
         store.patchBot(bot.id, { paneWakePaused: true });
         await routines!.cancelRun(routineRun.id);
         return json(res, 200, { ok: true });
@@ -9678,11 +9735,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "the bot switched tasks before it could be interrupted" });
       }
       const inFlight = Boolean(busyGroup || bot.busy || botHasActiveTurn(bot.id));
+      taskResumes.forgetBot(bot.id);
       store.patchBot(bot.id, { paneWakePaused: true });
       const stoppedThreadId = busyGroup?.threadId ?? bot.activeThreadId ?? bot.threadId;
       if (inFlight) {
-        bumpTurnEpoch(bot.id);
-        markThreadInterrupted(stoppedThreadId);
+        const epoch = bumpTurnEpoch(bot.id) - 1;
+        markThreadInterrupted(stoppedThreadId, bot.id, epoch);
         flushInterruptedTask(stoppedThreadId, bot.id, "stop");
       }
       if (busyGroup) {
@@ -9719,25 +9777,19 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (conversation.group.threadId !== m[2]) {
           return json(res, 409, { error: "switch to this channel task before continuing it" });
         }
-        if (groupIsWorking(conversation.group) || bot.busy) {
-          return json(res, 409, { error: "this channel is already working" });
-        }
       } else if (bot.threadId !== m[2]) {
         return json(res, 409, { error: "switch to this task before continuing it" });
-      } else if (bot.busy) {
-        return json(res, 409, { error: "this bot is already working" });
       }
       const packet = taskPacketForWrite(m[2]);
       if (!packet || !isRecoveryFlushReason(packet.flushReason) || isCompletedTaskRecord(packet)) {
         return json(res, 409, { error: "this task has no interrupted work to continue" });
       }
-      resumePaneWakes(bot.id);
       if (conversation.group) {
         startGroupCardContinuation(conversation.group.id, m[2], bot.id, TASK_RESUME_PROMPT);
-        return json(res, 202, { ok: true });
       }
-      await startTurn(bot.id, TASK_RESUME_PROMPT, { threadId: m[2], cardContinuation: true });
-      return json(res, 202, { ok: true });
+      const result = await taskResumes.request(bot.id, m[2], queueMark());
+      drainQueuedSends();
+      return json(res, 202, { ok: true, pending: result.pending });
     }
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)\/recovery$/);

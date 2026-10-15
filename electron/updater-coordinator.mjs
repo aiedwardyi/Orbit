@@ -22,6 +22,8 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
   let downloadOperation = null;
   let installOperation = null;
   let downloadedVersion = null;
+  // The feed withdrew the staged build: it stays unusable until a new download lands.
+  let withdrawn = false;
   let rechecks = 0;
   const routedErrors = new WeakSet();
 
@@ -35,7 +37,7 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
       installOperation = null;
     }
     if (!manual) {
-      setState({ status: "idle" });
+      setState(downloadedVersion ? { status: "downloaded", version: downloadedVersion } : { status: "idle" });
       return;
     }
     setState({ status: "error", message: String(error?.message ?? error) });
@@ -46,15 +48,16 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     routeError(manual, error);
   }
 
-  function checkOwnsState() {
-    return !rechecks && !downloadOperation && !checkOperation?.supersededByDownload;
+  function checkOwnsState(version) {
+    return !rechecks && !downloadOperation && !installOperation && !checkOperation?.supersededByDownload
+      && (!downloadedVersion || (version && isNewerVersion(version, downloadedVersion)));
   }
 
   updater.on("checking-for-update", () => {
     if (checkOwnsState()) setState({ status: "checking" });
   });
   updater.on("update-available", (info) => {
-    if (checkOwnsState()) {
+    if (checkOwnsState(info?.version)) {
       setState({ status: "available", version: info?.version, message: undefined });
     }
   });
@@ -76,6 +79,7 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
   );
   updater.on("update-downloaded", (info) => {
     downloadedVersion = info?.version;
+    withdrawn = false;
     // On macOS electron-updater emits this before Squirrel.Mac has finished
     // staging the ZIP. Keep the UI in downloading until downloadUpdate's
     // promise resolves, which is the point the native updater is ready.
@@ -111,6 +115,12 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     return operation.promise;
   }
 
+  function withdraw() {
+    downloadedVersion = null;
+    withdrawn = true;
+    setState({ status: "idle" });
+  }
+
   // downloadUpdate acts on the last check's result, which can be an hour stale.
   // Resolves null when the re-check failed, so callers fall back to the known release.
   function recheck() {
@@ -144,7 +154,7 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
       .then((check) => {
         if (check && !check.isUpdateAvailable) {
           // The feed withdrew the release: the updater's cached metadata must not be downloaded.
-          setState({ status: "idle" });
+          withdraw();
           return undefined;
         }
         const latest = check?.updateInfo?.version;
@@ -174,9 +184,9 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     setState({ status: "installing" });
     operation.promise = recheck().then((result) => {
       if (installOperation !== operation) return;
-      if (result && !result.isUpdateAvailable) {
+      if (result ? !result.isUpdateAvailable : withdrawn) {
         installOperation = null;
-        setState({ status: "idle" });
+        withdraw();
         return;
       }
       const latest = result?.isUpdateAvailable ? result.updateInfo?.version : undefined;

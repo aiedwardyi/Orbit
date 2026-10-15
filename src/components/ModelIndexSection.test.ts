@@ -125,7 +125,10 @@ describe("source freshness", () => {
     if (year === undefined || month === undefined || day === undefined) throw new Error(`bad date ${iso}`);
     return new Date(year, month - 1, day + plusDays, hour, minute);
   };
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it("says when it was checked when the source publishes no date", () => {
     expect(host.textContent).toContain(`Checked ${nbDay(sourceFor("intelligence").retrievedAt)}`);
@@ -221,6 +224,39 @@ describe("cost tab", () => {
     expect(opus?.textContent).toContain("$4 / $20");
     expect(host.textContent).toContain("List price per 1M tokens");
     expect(host.textContent).toContain("Ranked by the 7:2:1 blend");
+  });
+});
+
+describe("promo price on the cost tab", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const costRow = async (day: [number, number, number], model: string, locale: "en" | "ko" = "en") => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(...day, 12));
+    vi.stubGlobal("localStorage", { getItem: () => locale });
+    await mount();
+    for (let i = 0; i < 4; i++) press(window);
+    return [...host.querySelectorAll('[tabindex="0"]')].find((el) => el.textContent?.includes(model))?.textContent;
+  };
+
+  it("shows both prices with the start date before it, in English and Korean", async () => {
+    expect(await costRow([2026, 10, 30], "Gemini 4 Argon")).toBe("Gemini 4 Argon$2\u00a0/\u00a0$10, $4\u00a0/\u00a0$20 from Dec\u00a01");
+    expect(await costRow([2026, 11, 30], "Gemini 3.8 Flash")).toBe("Gemini 3.8 Flash$0.75\u00a0/\u00a0$3.75, $1.50\u00a0/\u00a0$7.50 from Jan\u00a01");
+    expect(await costRow([2026, 10, 30], "Gemini 4 Argon", "ko")).toBe("Gemini 4 Argon$2\u00a0/\u00a0$10, 12월\u00a01일부터 $4\u00a0/\u00a0$20");
+  });
+
+  it("shows only the new price, with no promo wording, once it starts", async () => {
+    expect(await costRow([2026, 11, 1], "Gemini 4 Argon")).toBe("Gemini 4 Argon$4 / $20");
+    expect(await costRow([2026, 11, 1], "Gemini 4 Argon", "ko")).toBe("Gemini 4 Argon$4 / $20");
+    expect(await costRow([2027, 0, 1], "Gemini 3.8 Flash")).toBe("Gemini 3.8 Flash$1.50 / $7.50");
+    expect(host.textContent).not.toMatch(/ from |promo/);
+  });
+
+  it("leaves a row with no next as one price", async () => {
+    expect(await costRow([2026, 10, 30], "Claude Opus 5.5")).toBe("Claude Opus 5.5$4 / $20");
   });
 });
 

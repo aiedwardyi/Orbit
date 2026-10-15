@@ -416,10 +416,10 @@ export function RemoteTerminalView({
           }}
           className="orbit-remote-terminal min-h-0 flex-1 overflow-auto overscroll-contain whitespace-pre p-4 text-[12px] leading-relaxed select-text"
         >
-          {snapshot?.screenRuns ? (
+          {shown?.screenRuns ? (
             <>
-              {snapshot.recentText && `${snapshot.recentText}\n\n`}
-              {snapshot.screenRuns.map((row, y) => (
+              {shown.recentText && `${shown.recentText}\n\n`}
+              {shown.screenRuns.map((row, y) => (
                 <Fragment key={y}>
                   {y > 0 && "\n"}
                   {row.map((run, x) => (
