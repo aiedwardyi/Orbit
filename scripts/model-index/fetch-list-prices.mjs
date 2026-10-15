@@ -51,6 +51,7 @@ export function parseAnthropic(html, names) {
 function googlePrice(line, what, id) {
   const m = line.match(/^\$([\d.]+)(?: through ([A-Z][a-z]+ \d{1,2}, \d{4})\. \$([\d.]+) starting ([A-Z][a-z]+ \d{1,2}, \d{4})\.)?/);
   if (!m) throw new Unverifiable(`Google ${id}: unexpected ${what} price`);
+  if (line.slice(m[0].length).trim() && !(m[2] && m[3] && m[4])) throw new Unverifiable(`Google ${id}: unexpected ${what} price`);
   return { now: Number(m[1]), until: m[2] && isoDate(m[2]), next: m[3] && Number(m[3]), from: m[4] && isoDate(m[4]) };
 }
 
@@ -107,8 +108,13 @@ export function parseMeta(html, names) {
       // Contributor mode"); a line with no markers is Standard only.
       const markStd = tier[1].indexOf("in Standard mode");
       const markContrib = tier[1].indexOf("in Contributor mode");
-      const standardLine = markStd >= 0 && markContrib > markStd ? tier[1].slice(0, markStd) : tier[1];
-      const contribLine = markStd >= 0 && markContrib > markStd ? tier[1].slice(markStd, markContrib) : "";
+      const listFor = (mark) => {
+        if (mark < 0) return "";
+        const semi = tier[1].lastIndexOf(";", mark);
+        return tier[1].slice(semi < 0 ? 0 : semi + 1, mark);
+      };
+      const standardLine = markStd < 0 && markContrib < 0 ? tier[1] : listFor(markStd);
+      const contribLine = listFor(markContrib);
       const triple = (cells) => cells.includes(null) ? null : { input: cells[1], cachedInput: cells[0], output: cells[2] };
       const standard = triple([num(tier[2]), num(tier[4]), num(tier[6])]);
       const contributor = triple([num(tier[3]), num(tier[5]), num(tier[7])]);

@@ -44,12 +44,16 @@ export function wizardModelOptions(instance: InstanceInfo): WizardModelOption[] 
 }
 
 /** Resolve the row model against the offered options so the select never
- * goes blank: a requested model outside the offered set falls back to the
- * first offered option. */
+ * goes blank: a requested model outside the offered set falls back to
+ * 3.8 Flash High for a Gemini engine, else the first offered option. */
 export function resolveWizardModel(instance: InstanceInfo, model: string | null): string {
   const offered = wizardModelOptions(instance);
   const requested = model ?? instance.models.default;
   if (offered.some((option) => option.id === requested)) return requested;
+  if (instance.driverKind === "antigravityAgent") {
+    const flash = offered.find((option) => option.id === "gemini-3.8-flash-high");
+    if (flash) return flash.id;
+  }
   return offered[0]?.id ?? requested;
 }
 

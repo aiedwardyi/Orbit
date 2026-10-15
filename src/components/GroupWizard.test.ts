@@ -487,8 +487,8 @@ describe("GroupWizard members", () => {
         "gemini-3.8-flash-medium",
       ]);
       // The engine default (3.5) is not offered, so the select resolves to
-      // the first offered tier instead of going blank.
-      expect(modelSelect.value).toBe("gemini-4-argon-high");
+      // 3.8 Flash High even though Argon is listed first.
+      expect(modelSelect.value).toBe("gemini-3.8-flash-high");
       const [job] = jobInputs(host);
       await act(async () => {
         const native = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
@@ -500,7 +500,7 @@ describe("GroupWizard members", () => {
       });
       await flush();
       expect(JSON.parse(String(apiCalls[0]!.init?.body))).toMatchObject({
-        modelSelection: { instanceId: "ag-1", model: "gemini-4-argon-high" },
+        modelSelection: { instanceId: "ag-1", model: "gemini-3.8-flash-high" },
       });
     } finally {
       await act(async () => {
