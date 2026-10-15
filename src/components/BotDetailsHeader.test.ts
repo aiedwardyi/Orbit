@@ -144,7 +144,7 @@ vi.mock("@/state/store", async (importOriginal) => {
       refreshInstances: async () => undefined,
     }),
     useStreaming: () => ({
-      streaming: { t1: "A reply still streaming" }, reasoning: {}, signal: {},
+      streaming: { t1: "A reply still streaming\n\n" }, reasoning: {}, signal: {},
       turn: { t1: currentTurnId({}, "t1", "u1") },
     }),
   };

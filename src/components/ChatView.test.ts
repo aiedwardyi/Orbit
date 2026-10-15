@@ -1425,6 +1425,7 @@ describe("docked reply mascot", () => {
   });
 
   it("renders the mascot standalone before any text, then docks it in the live reply's action strip", async () => {
+    localStorage.setItem("omb-reply-style", "live");
     const { host, render, mascots, unmount } = await mount();
     try {
       live.current = working("thread-a");
@@ -1505,6 +1506,7 @@ describe("docked reply mascot", () => {
   });
 
   it("renders a room's live answer as a transcript row with its name label", async () => {
+    localStorage.setItem("omb-reply-style", "live");
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     vi.stubGlobal("ResizeObserver", class {
