@@ -106,11 +106,12 @@ export function RoutineRunCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             <h3 className="truncate text-[13.5px] font-semibold text-ink">{run.routineName}</h3>
-            {run.status !== "completed" && (
-              <span aria-live="polite" className={cn("text-[11.5px] font-medium", copy.tone)}>
-                {copy.label}
-              </span>
-            )}
+            <span
+              aria-live="polite"
+              className={cn("text-[11.5px] font-medium", copy.tone, run.status === "completed" && "sr-only")}
+            >
+              {copy.label}
+            </span>
           </div>
           {detail && <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-ink-secondary">{detail}</p>}
         </div>
