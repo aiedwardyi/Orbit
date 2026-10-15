@@ -2,6 +2,10 @@
 // mascot once deltas arrive; before the first token, this label is what
 // separates a slow provider from a wedged one. Every phase below reads a
 // signal the client already receives.
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm } from "micromark-extension-gfm";
+
 import type { Message } from "@/state/store";
 import { t } from "./i18n";
 
@@ -264,33 +268,17 @@ export function revealStream(text: string, ramps: readonly StreamRamp[], now: nu
 
 export function splitReplyBlocks(text: string, complete = false, whole = 0): string[] {
   if (/^ {0,3}\[[^\]\n]+\]:/m.test(text)) return complete || whole >= text.length ? [text] : [];
-  const blocks: string[] = [];
-  let start = 0;
-  let fence = "";
-  const push = (end: number, next = end) => {
-    const block = text.slice(start, end).trimEnd();
-    if (block.trim()) blocks.push(block);
-    start = next;
-  };
-  for (let at = 0; at < text.length; ) {
-    const end = text.indexOf("\n", at);
-    const next = end === -1 ? text.length : end + 1;
-    const line = text.slice(at, end === -1 ? next : end).replace(/\r$/, "");
-    const mark = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    if (fence) {
-      if (mark && mark[1][0] === fence[0] && mark[1].length >= fence.length && !mark[2].trim()) {
-        fence = "";
-        push(next);
-      }
-    } else if (mark && (mark[1][0] !== "`" || !mark[2].includes("`"))) {
-      fence = mark[1];
-    } else if (end !== -1 && !line.trim()) {
-      push(at, next);
-    }
-    at = next;
-  }
-  if (complete || whole > start) push(complete ? text.length : whole);
-  return blocks;
+  const nodes = fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] }).children;
+  return nodes.flatMap((node, i) => {
+    const start = text.lastIndexOf("\n", node.position!.start.offset! - 1) + 1;
+    const end = node.position!.end.offset!;
+    const block = text.slice(start, end);
+    const mark = node.type === "code" ? /^ {0,3}(`{3,}|~{3,})/.exec(block)?.[1] : undefined;
+    const closed = mark && new RegExp(`\\n {0,3}${mark[0]}{${mark.length},}[ \\t]*\\r?$`).test(block);
+    const blank = !["list", "blockquote", "code", "html"].includes(node.type) && /^\r?\n[ \t]*\r?\n/.test(text.slice(end));
+    if (complete || i < nodes.length - 1 || closed || blank) return [block.trimEnd()];
+    return whole > start ? [text.slice(start, whole).trimEnd()] : [];
+  });
 }
 
 function bumpedGen(prev: TurnStreamState, threadId: string) {

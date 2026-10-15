@@ -607,12 +607,12 @@ function ChatMarkdownComponent({
   const seen = useRef(new WeakSet<Element>());
   const previousWhole = useRef(0);
   const previousStyle = useRef(style);
-  // A streamed reply keeps its blocks once settled, so settling re-parses nothing.
+  // Live typing keeps its blocks once settled.
   const [split, setSplit] = useState(streaming);
   if (streaming && !split) setSplit(true);
   const blocks = useMemo(() => {
+    if (style === "paragraphs") return streaming ? splitReplyBlocks(text, false, whole) : [text];
     if (!split) return [text];
-    if (style === "paragraphs") return splitReplyBlocks(text, !streaming, whole);
     const parts = streamBlocks(text);
     if (streaming) parts[parts.length - 1] = settleStreamTail(parts[parts.length - 1]);
     return parts;

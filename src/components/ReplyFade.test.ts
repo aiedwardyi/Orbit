@@ -109,7 +109,7 @@ describe("paragraph reply reveal", () => {
     expect(animate).toHaveBeenCalledTimes(2);
     await emit({ kind: "message", threadId: "t1", message: reply("First thought.\n\nSecond thought.\n\nTail") });
     expect(host.querySelector(".chat-md > :first-child")).toBe(first);
-    expect(host.querySelector(".chat-md")?.textContent).toBe("First thought.Second thought.Tail");
+    expect(host.querySelector(".chat-md")?.textContent).toBe("First thought.\nSecond thought.\nTail");
     expect(animate).toHaveBeenCalledTimes(2);
     await emit({ kind: "runtime", event: { type: "turn.completed", threadId: "t1", turnId: "turn1" } });
     expect(animate).toHaveBeenCalledTimes(2);
