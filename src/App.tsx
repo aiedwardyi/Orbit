@@ -34,7 +34,7 @@ import { useTerminalPanes } from "@/lib/terminal-panes";
 import { rememberTerminalOpened, schedulePrestart } from "@/lib/terminal-prestart";
 import { composerNeedsTap, focusComposerOnActivation } from "@/lib/focus-composer";
 import { webPushTarget } from "@/lib/web-push";
-import { useDrawerSwipe, usePhoneSwipe } from "@/lib/use-phone-swipe";
+import { useDrawerSwipe, useIsPhone, usePhoneSwipe } from "@/lib/use-phone-swipe";
 import { BackNavigation, backDepth, followSelection, trailTarget, type BackLayer } from "@/lib/back-navigation";
 import { SKINS, applySkin, nextSkin, readSkin, type SkinId } from "@/lib/skins";
 import { Presence } from "@/lib/use-presence";
@@ -99,11 +99,15 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // turn the aside into a containing block for its fixed descendants (see
   // Sidebar.tsx's className comment).
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // The button is md:hidden: at desktop width its animation never runs, so an
+  // ungated glow would sit flagged until a later resize replays it. Gating on
+  // visibility consumes the arrival instead.
+  const phoneMenuVisible = useIsPhone();
   const menuArrival = useArrivalGlow(
     [...state.bots.filter((bot) => !bot.hidden), ...listedGroups(state.groups)]
       .filter((chat) => chat.id !== state.selectedId)
       .map((chat) => chat.id),
-    { enabled: !drawerOpen, asking: menuAsking },
+    { enabled: !drawerOpen && phoneMenuVisible, asking: menuAsking },
   );
   const [themeToast, setThemeToast] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);

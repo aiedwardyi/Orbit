@@ -4555,6 +4555,7 @@ button:disabled.bg-danger {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
+  opacity: 0;
   box-shadow:
     0 0 0 1.5px color-mix(in oklab, var(--color-accent) 92%, transparent),
     0 0 14px 3px color-mix(in oklab, var(--color-accent) 60%, transparent);

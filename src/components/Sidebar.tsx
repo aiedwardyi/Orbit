@@ -1349,12 +1349,6 @@ export function Sidebar({
   const collapsedUnread = sidebarCollapsed ? collapsedUnreadCount(state.bots, state.groups, state.selectedId) : 0;
   const collapsedUnreadBadge = formatCollapsedUnreadBadge(collapsedUnread);
   const collapsedAsking = sidebarCollapsed && anyChatNeedsYou([...state.bots, ...listedGroups(state.groups)], state.selectedId);
-  const collapsedArrival = useArrivalGlow(
-    [...state.bots.filter((bot) => !bot.hidden), ...listedGroups(state.groups)]
-      .filter((chat) => chat.id !== state.selectedId)
-      .map((chat) => chat.id),
-    { enabled: sidebarCollapsed, asking: Boolean(collapsedAsking) },
-  );
   const collapsedBadgeRef = useRef<HTMLSpanElement>(null);
   const lastCollapsedUnread = useRef(collapsedUnread);
   useEffect(() => {
@@ -1865,6 +1859,21 @@ export function Sidebar({
   const rowsReorderable = q.length === 0;
   // Search must show every match. The icon rail has no headers but honors the same collapse.
   const sectionsCollapsible = q.length === 0;
+  // The rail shows every chat except those inside a collapsed section, and a
+  // visible icon glows for itself: the expand button stands in only for those
+  // section-hidden chats, so one arrival glows exactly one place.
+  const collapsedArrival = useArrivalGlow(
+    !sidebarCollapsed
+      ? []
+      : sectionIds.flatMap((id) =>
+          sectionsCollapsible && collapsedSections.has(id)
+            ? (orderedItemsBySection.get(id) ?? [])
+                .filter((item) => item.id !== state.selectedId)
+                .map((item) => item.id)
+            : [],
+        ),
+    { enabled: sidebarCollapsed, asking: Boolean(collapsedAsking) },
+  );
   const toggleSection = (id: string) => {
     const next = collapsedSections.has(id)
       ? [...collapsedSections].filter((candidate) => candidate !== id)

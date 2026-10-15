@@ -107,6 +107,68 @@ const endGlow = (el: Element) =>
     el.dispatchEvent(new Event("animationend", { bubbles: true }));
   });
 
+// Drives matchMedia width queries: desktop until setPhone(true), then phone.
+const stubViewportWidth = () => {
+  let phone = false;
+  const listeners = new Set<() => void>();
+  vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+    matches: query.includes("max-width") ? phone : false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: (...args: any[]) => {
+      listeners.add(args[1] as () => void);
+    },
+    removeEventListener: (...args: any[]) => {
+      listeners.delete(args[1] as () => void);
+    },
+    dispatchEvent: () => false,
+  }));
+  return {
+    setPhone: async (value: boolean) => {
+      phone = value;
+      await act(async () => {
+        listeners.forEach((notify) => notify());
+      });
+    },
+  };
+};
+
+async function mountApp(bots: unknown[]) {
+  window.localStorage.setItem("omb-onboarding-done", "true");
+  const engine = {
+    instanceId: "muse",
+    driverKind: "museAgent",
+    displayName: "Meta Muse",
+    snapshot: { state: "available" },
+    models: { default: "muse-spark", options: [{ id: "muse-spark", label: "Meta Muse" }] },
+  };
+  vi.stubGlobal("EventSource", FakeEventSource);
+  vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+    if (path === "/api/bots?messages=200") {
+      return new Response(JSON.stringify({ bots, groups: [] }));
+    }
+    if (path === "/api/instances") return new Response(JSON.stringify({ instances: [engine] }));
+    return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
+  }));
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(host);
+  await act(async () => root.render(createElement(App)));
+  await act(async () => FakeEventSource.current!.onmessage?.({
+    data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
+    lastEventId: "",
+  }));
+  return {
+    host,
+    unmount: async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    },
+  };
+}
+
 describe("Sidebar unread ring", () => {
   it("rings an unread bot row and drops the dot", async () => {
     const { host, unmount } = await mountSidebar({ bots: [bot("open"), bot("closed", { unread: true })], groups: [] });
@@ -412,23 +474,44 @@ describe("Sidebar arrival glow", () => {
     }
   });
 
-  it("glows the collapsed sidebar button once for a hidden chat", async () => {
+  it("glows the collapsed sidebar button once for a section-hidden chat", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(["section:Ops"]));
+    const { host, dispatch, unmount } = await mountSidebar({
+      bots: [bot("open", { section: "Calm" }), bot("h1", { section: "Ops", unread: true }), bot("h2", { section: "Ops" })],
+      groups: [],
+    });
+    try {
+      await vi.waitFor(() => expect(host.querySelector("[data-sidebar-collapsed-unread]")).not.toBeNull());
+      await act(async () => dispatch()({ type: "select", id: "open" }));
+      expect(host.querySelector('[data-sidebar-row-id="h1"]')).toBeNull();
+      const expand = () => host.querySelector("[data-sidebar-collapsed-unread]")?.closest("button") ?? null;
+      expect(expand()?.hasAttribute("data-arrival-glow")).toBe(false);
+      await sendFrame(replyFrame("h1-thread", botText("live-1", 11)));
+      expect(expand()?.hasAttribute("data-arrival-glow")).toBe(true);
+      expect(expand()?.className).toContain("arrival-glow");
+      await endGlow(expand()!);
+      expect(expand()?.hasAttribute("data-arrival-glow")).toBe(false);
+      expect(host.querySelector("[data-sidebar-collapsed-unread]")?.textContent).toBe("1");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("glows the rail icon and not the expand button when the icon is visible", async () => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
     const { host, dispatch, unmount } = await mountSidebar({
       bots: [bot("open"), bot("closed", { unread: true })],
       groups: [],
     });
     try {
-      await vi.waitFor(() => expect(host.querySelector("[data-sidebar-collapsed-unread]")).not.toBeNull());
+      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
       await act(async () => dispatch()({ type: "select", id: "open" }));
       const expand = () => host.querySelector("[data-sidebar-collapsed-unread]")?.closest("button") ?? null;
-      expect(expand()?.hasAttribute("data-arrival-glow")).toBe(false);
       await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
-      expect(expand()?.hasAttribute("data-arrival-glow")).toBe(true);
-      expect(expand()?.className).toContain("arrival-glow");
-      await endGlow(expand()!);
+      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(true);
       expect(expand()?.hasAttribute("data-arrival-glow")).toBe(false);
-      expect(host.querySelector("[data-sidebar-collapsed-unread]")?.textContent).toBe("1");
+      expect(expand()?.className).not.toContain("arrival-glow");
     } finally {
       await unmount();
     }
@@ -485,35 +568,11 @@ describe("Sidebar arrival glow", () => {
   });
 
   it("glows the phone menu button once for a hidden chat while the drawer is closed", async () => {
-    window.localStorage.setItem("omb-onboarding-done", "true");
-    const engine = {
-      instanceId: "muse",
-      driverKind: "museAgent",
-      displayName: "Meta Muse",
-      snapshot: { state: "available" },
-      models: { default: "muse-spark", options: [{ id: "muse-spark", label: "Meta Muse" }] },
-    };
+    const width = stubViewportWidth();
+    await width.setPhone(true);
     const picked = { modelSelection: { instanceId: "muse", model: "muse-spark" } };
-    vi.stubGlobal("EventSource", FakeEventSource);
-    vi.stubGlobal("fetch", vi.fn(async (path: string) => {
-      if (path === "/api/bots?messages=200") {
-        return new Response(JSON.stringify({
-          bots: [bot("open", picked), bot("closed", { ...picked, unread: true })],
-          groups: [],
-        }));
-      }
-      if (path === "/api/instances") return new Response(JSON.stringify({ instances: [engine] }));
-      return new Response(JSON.stringify({ error: "not in this test" }), { status: 404 });
-    }));
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    const host = document.body.appendChild(document.createElement("div"));
-    const root = createRoot(host);
+    const { host, unmount } = await mountApp([bot("open", picked), bot("closed", { ...picked, unread: true })]);
     try {
-      await act(async () => root.render(createElement(App)));
-      await act(async () => FakeEventSource.current!.onmessage?.({
-        data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
-        lastEventId: "",
-      }));
       await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
       expect(host.querySelector("[data-menu-unread]")?.textContent).toBe("1");
       const menu = () => host.querySelector("[data-phone-menu]");
@@ -525,8 +584,27 @@ describe("Sidebar arrival glow", () => {
       expect(menu()?.hasAttribute("data-arrival-glow")).toBe(false);
       expect(host.querySelector("[data-menu-unread]")?.textContent).toBe("1");
     } finally {
-      await act(async () => root.unmount());
-      host.remove();
+      await unmount();
+    }
+  });
+
+  it("leaves the phone menu unflagged at desktop width and replays nothing on resize", async () => {
+    const width = stubViewportWidth();
+    const picked = { modelSelection: { instanceId: "muse", model: "muse-spark" } };
+    const { host, unmount } = await mountApp([bot("open", picked), bot("closed", { ...picked, unread: true })]);
+    try {
+      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
+      const menu = () => host.querySelector("[data-phone-menu]");
+      expect(menu()?.hasAttribute("data-arrival-glow")).toBe(false);
+      await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
+      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(true);
+      expect(menu()?.hasAttribute("data-arrival-glow")).toBe(false);
+      await width.setPhone(true);
+      expect(menu()?.hasAttribute("data-arrival-glow")).toBe(false);
+      await width.setPhone(false);
+      expect(menu()?.hasAttribute("data-arrival-glow")).toBe(false);
+    } finally {
+      await unmount();
     }
   });
 
@@ -548,5 +626,10 @@ describe("Sidebar arrival glow", () => {
     const reduced = css.slice(css.lastIndexOf("@media (prefers-reduced-motion: reduce)"));
     expect(reduced).toContain(".arrival-glow::before");
     expect(reduced).toContain("animation: none");
+  });
+
+  it("rests the arrival glow invisible outside the animation", () => {
+    const glow = css.match(/\.arrival-glow::before \{(.*?)\}/s)?.[1] ?? "";
+    expect(glow).toMatch(/opacity:\s*0\b/);
   });
 });

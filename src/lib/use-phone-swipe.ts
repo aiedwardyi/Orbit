@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { SidebarSide } from "./sidebar-preferences";
 import {
+  PHONE_QUERY,
   SWIPE_MOTION_MS,
   SWIPE_SPRING,
   dragOffset,
@@ -134,6 +135,18 @@ export function usePhoneSwipe(
   }, [el, hasBot, enabled]);
 
   return stage;
+}
+
+/** Reactive isPhone: true while below the breakpoint, so below-md controls can hide with it. */
+export function useIsPhone(): boolean {
+  const [phone, setPhone] = useState(isPhone);
+  useEffect(() => {
+    const media = window.matchMedia?.(PHONE_QUERY);
+    const flip = () => setPhone(isPhone());
+    media?.addEventListener?.("change", flip);
+    return () => media?.removeEventListener?.("change", flip);
+  }, []);
+  return phone;
 }
 
 type DrawerDrag = Omit<Drag, "ids"> & { drawer: HTMLElement; scrim: HTMLElement | null };
