@@ -4532,10 +4532,17 @@ button:disabled.bg-danger {
   .needs-you-glow::after { animation: none; opacity: 1; }
 }
 
-/* An unread chat that is not asking: the same thin accent ring as
-   .needs-you-glow, steady. No glow, no motion. Box shadows only, so the
-   row never changes size, and no `filter`, so provider model dots keep
-   their own colors on every skin. */
+[data-phone-drawer] > .overflow-y-auto {
+  /* Borrow the empty space above and below without moving the rows. */
+  margin-block: -6px;
+  padding-block: 6px;
+}
+
+/* An unread chat that is not asking: a soft, steady accent halo outside
+   the row. No ring line, no motion, nothing painted inside. It fades out
+   within the list's 8 px side padding, so the scroller's sides never cut it
+   flat. Box shadows only, so the row never changes size, and no `filter`, so
+   provider model dots keep their own colors on every skin. */
 .unread-ring::after {
   content: "";
   position: absolute;
@@ -4543,12 +4550,14 @@ button:disabled.bg-danger {
   border-radius: inherit;
   pointer-events: none;
   box-shadow:
-    0 0 0 1.5px color-mix(in oklab, var(--color-accent) 92%, transparent);
+    0 0 4px 4px color-mix(in oklab, var(--color-accent) 70%, transparent);
 }
 
-/* One in-and-out of the needs-you glow when a live reply lands. It lives
-   on ::before so the steady ring's ::after never fades with it; removed on
-   animation end. Never combined with .needs-you-glow. */
+/* One in-and-out of the needs-you ring and glow when a live reply lands.
+   It lives on ::before over the halo's ::after, so an unread row peaks with
+   the needs-you shadows, then eases back down to the halo, which never
+   fades. It ends at opacity 0, so removing the class on animation end
+   changes nothing on screen. Never combined with .needs-you-glow. */
 .arrival-glow::before {
   content: "";
   position: absolute;
@@ -4562,12 +4571,14 @@ button:disabled.bg-danger {
   animation: arrival-glow-once 2s ease-in-out 1;
 }
 
-/* On a ringed row only the soft glow fades: the outline stays at full
-   strength from the first frame to the last, so removing the class changes
-   nothing on screen. */
-.unread-ring.arrival-glow::before {
-  box-shadow:
-    0 0 14px 3px color-mix(in oklab, var(--color-accent) 60%, transparent);
+/* Icon-only rows center a lone avatar in a full-width control, so the halo
+   and its arrival hug the avatar's square instead of the control. */
+.unread-ring.justify-center::after,
+.unread-ring.justify-center.arrival-glow::before {
+  inset: 6px auto;
+  left: 50%;
+  aspect-ratio: 1;
+  translate: -50%;
 }
 
 @keyframes arrival-glow-once {

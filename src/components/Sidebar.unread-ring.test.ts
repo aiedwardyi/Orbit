@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// An unread chat that is not asking wears a steady accent ring instead of a
-// dot; a live reply to a closed chat glows once, then rests on the ring.
+// An unread chat that is not asking wears a steady accent halo instead of a
+// dot; a live reply to a closed chat glows once, then rests on the halo.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,18 @@ import App from "../App";
 import { Sidebar } from "./Sidebar";
 
 const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
+// Top-level shadows of a rule's box-shadow; commas inside color-mix() don't split.
+const shadows = (rule: string) => {
+  const list = [""];
+  let depth = 0;
+  for (const char of rule.match(/box-shadow:\s*([^;]*);/)?.[1] ?? "") {
+    if (char === "," && depth === 0) list.push("");
+    else list[list.length - 1] += char;
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+  }
+  return list.map((shadow) => shadow.trim()).filter(Boolean);
+};
 
 class FakeEventSource {
   static current: FakeEventSource | null = null;
@@ -267,15 +279,33 @@ describe("Sidebar unread ring", () => {
   it("is box shadows on a pseudo-element only, with no sizing or filter side effects", () => {
     const ring = css.match(/\.unread-ring::after \{(.*?)\}/s)?.[1] ?? "";
     expect(ring).toContain("box-shadow");
-    expect(ring).toContain("1.5px");
-    expect(ring).toContain("92%");
-    expect(ring).not.toContain("14px");
     expect(ring).not.toContain("animation");
     expect(css.match(/\.unread-ring \{(.*?)\}/s)?.[1] ?? "").not.toContain("box-shadow");
     const rule = css.match(/\.unread-ring \{(.*?)\}/s)?.[1] ?? "";
     expect(rule).not.toContain("filter");
     expect(rule).not.toContain("opacity");
     expect(rule).not.toContain("border");
+  });
+
+  it("is a blurred accent halo with no spread-only ring line", () => {
+    const halo = shadows(css.match(/\.unread-ring::after \{(.*?)\}/s)?.[1] ?? "");
+    expect(halo.length).toBeGreaterThan(0);
+    expect(halo.some((shadow) => /^0 0 0 /.test(shadow))).toBe(false);
+    expect(halo.some((shadow) => /^0 0 [1-9][\d.]*px /.test(shadow) && shadow.includes("var(--color-accent)"))).toBe(true);
+  });
+
+  it("gives edge rows the side halo gutter without moving the list", async () => {
+    const { host, unmount } = await mountSidebar({ bots: [bot("open")], groups: [room("room")] });
+    try {
+      expect(host.querySelector("[data-phone-drawer] > .overflow-y-auto")).not.toBeNull();
+      const gutter = css.match(/\[data-phone-drawer\] > \.overflow-y-auto \{(.*?)\}/s)?.[1] ?? "";
+      const padding = Number(gutter.match(/padding-block:\s*([\d.]+)px/)?.[1] ?? 0);
+      const margin = Number(gutter.match(/margin-block:\s*(-?[\d.]+)px/)?.[1] ?? 0);
+      expect(padding + 2).toBeGreaterThanOrEqual(8);
+      expect(padding + margin).toBe(0);
+    } finally {
+      await unmount();
+    }
   });
 });
 
@@ -689,16 +719,51 @@ describe("Sidebar arrival glow", () => {
     expect(glow).toContain("60%");
     expect(glow).toContain("arrival-glow-once 2s ease-in-out 1");
     expect(glow).not.toContain("infinite");
-    const ringed = css.match(/\.unread-ring\.arrival-glow::before \{(.*?)\}/s)?.[1] ?? "";
-    expect(ringed).toContain("14px");
-    expect(ringed).not.toContain("1.5px");
-    expect(ringed).not.toContain("92%");
     const cycle = css.slice(css.indexOf("@keyframes arrival-glow-once"));
     expect(cycle).toMatch(/opacity:\s*0\b/);
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     const reduced = css.slice(css.lastIndexOf("@media (prefers-reduced-motion: reduce)"));
     expect(reduced).toContain(".arrival-glow::before");
     expect(reduced).toContain("animation: none");
+  });
+
+  it("peaks an unread row's arrival at the needs-you ring and glow", () => {
+    const peak = shadows(css.match(/\.needs-you-glow::after \{(.*?)\}/s)?.[1] ?? "");
+    expect(peak.length).toBe(2);
+    expect(shadows(css.match(/\.arrival-glow::before \{(.*?)\}/s)?.[1] ?? "")).toEqual(peak);
+    expect(css).not.toMatch(/\.unread-ring\.arrival-glow::before[^{]*\{[^}]*box-shadow/);
+  });
+
+  it("keeps the halo with no animation under reduced motion", async () => {
+    vi.spyOn(window, "matchMedia").mockReturnValue({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    });
+    const { host, dispatch, unmount } = await mountSidebar({
+      bots: [bot("open"), bot("closed", { unread: true })],
+      groups: [],
+    });
+    try {
+      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
+      await act(async () => dispatch()({ type: "select", id: "open" }));
+      await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
+      const { control } = rowControl(host, "closed");
+      expect(control?.className).toContain("unread-ring");
+      expect(control?.hasAttribute("data-arrival-glow")).toBe(false);
+    } finally {
+      await unmount();
+    }
+    const halo = css.match(/\.unread-ring::after \{(.*?)\}/s)?.[1] ?? "";
+    expect(halo).not.toContain("animation");
+    expect(shadows(halo).some((shadow) => /^0 0 [1-9][\d.]*px /.test(shadow))).toBe(true);
+    const reduced = css.split("@media (prefers-reduced-motion: reduce)").slice(1).map((block) => block.split(/\n\}/)[0]);
+    expect(reduced.some((block) => block.includes(".unread-ring"))).toBe(false);
   });
 
   it("rests the arrival glow invisible outside the animation", () => {
