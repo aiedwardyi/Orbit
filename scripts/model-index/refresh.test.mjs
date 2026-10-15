@@ -168,6 +168,17 @@ describe("list price parsers", () => {
     expect(prices["gemini-3.7-flash"]).toBeUndefined();
   });
 
+  it("reads a model with no Free tier from its Standard paid column", () => {
+    const prices = listPrices.parseGoogle(fixture("google-pricing.html"), ["gemini-4-argon"]);
+    expect(prices["gemini-4-argon"]).toEqual({
+      input: 2,
+      cachedInput: 0.1,
+      output: 10,
+      until: "2026-11-30",
+      next: { from: "2026-12-01", input: 4, cachedInput: 0.2, output: 20 },
+    });
+  });
+
   it("fails on a Google price line or heading change", () => {
     const html = fixture("google-pricing.html");
     expect(() => listPrices.parseGoogle(html.replace(/Free of charge/g, "Free"), ["gemini-3.8-flash"])).toThrow(Unverifiable);
@@ -176,9 +187,10 @@ describe("list price parsers", () => {
   });
 
   it("reads Meta tiers by the models each lists", () => {
-    const prices = listPrices.parseMeta(fixture("meta-pricing.html"), ["muse-spark-1.3", "muse-spark-1.3-contributor"]);
+    const prices = listPrices.parseMeta(fixture("meta-pricing.html"), ["muse-spark-1.3", "muse-spark-1.3-contributor", "muse-wonder-1.0"]);
     expect(prices["muse-spark-1.3"]).toEqual({ input: 1.25, cachedInput: 0.15, output: 4.25 });
     expect(prices["muse-spark-1.3-contributor"]).toEqual({ input: 0.1, cachedInput: 0.002, output: 0.2 });
+    expect(prices["muse-wonder-1.0"]).toEqual({ input: 4, cachedInput: 0.2, output: 20 });
   });
 
   it("fails when Meta's price table changes", () => {
@@ -186,9 +198,10 @@ describe("list price parsers", () => {
   });
 
   it("fails when a malformed Meta tier is followed by the next tier's prices", () => {
-    const html = "<p>Models: muse-spark-1.3</p><p>broken tier</p><p>Models: muse-spark-1.3-contributor</p><p>Usage Price per 1M tokens Cached input $0.002 Input $0.10 Output $0.20</p>";
+    const table = "Usage Standard mode (per 1M tokens) Contributor mode (per 1M tokens) Cached input $0.002 $0.001 Input $0.10 $0.05 Output $0.20 $0.10";
+    const html = `<p>Models: muse-spark-1.3 in Standard mode.</p><p>broken tier</p><p>Models: muse-spark-9 in Standard mode.</p><p>${table}</p>`;
     expect(() => listPrices.parseMeta(html, ["muse-spark-1.3"])).toThrow(/Meta muse-spark-1.3: row shape changed/);
-    expect(listPrices.parseMeta(html, ["muse-spark-1.3-contributor"])["muse-spark-1.3-contributor"]).toEqual({ input: 0.1, cachedInput: 0.002, output: 0.2 });
+    expect(listPrices.parseMeta(html, ["muse-spark-9"])["muse-spark-9"]).toEqual({ input: 0.1, cachedInput: 0.002, output: 0.2 });
   });
 
   it("reads OpenAI standard short-context rates", () => {
@@ -242,7 +255,7 @@ describe("listed rows that no longer parse", () => {
     expect(listPrices.parseXai(xai, ["grok-5"])["grok-5"]).toBeUndefined();
     const meta = fixture("meta-pricing.html").replace("$0.002", "n/a");
     expect(() => listPrices.parseMeta(meta, ["muse-spark-1.3-contributor"])).toThrow(Unverifiable);
-    expect(listPrices.parseMeta(meta, ["muse-spark-1.3"])["muse-spark-1.3"]).toEqual({ input: 1.25, cachedInput: 0.15, output: 4.25 });
+    expect(() => listPrices.parseMeta(meta, ["muse-spark-1.3"])).toThrow(Unverifiable);
     expect(listPrices.parseMeta(meta, ["muse-spark-9"])["muse-spark-9"]).toBeUndefined();
   });
 });

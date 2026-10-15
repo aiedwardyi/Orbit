@@ -29,7 +29,7 @@ const engine = (instanceId: string, driverKind: string, displayName: string): In
 });
 
 /** Antigravity fixture with a catalog-shaped option list, including tiers the
- * wizard must not offer (3.1-pro, 3.6/3.5, legacy customs). */
+ * wizard must not offer (3.1-pro, 3.7/3.6/3.5, legacy customs). */
 const antigravity = (
   instanceId: string,
   displayName: string,
@@ -451,16 +451,19 @@ describe("GroupWizard members", () => {
     }
   });
 
-  it("offers only 3.8/3.7 tiers for an antigravity row and never blanks the model", async () => {
+  it("offers Argon beside 3.8 tiers for an antigravity row and never blanks the model", async () => {
     apiImpl = () => Promise.resolve({ bot: { id: `nb${++botSeq}`, name: "New bot" } });
     instances = [
       antigravity(
         "ag-1",
         "Antigravity",
         [
+          { id: "gemini-4-argon-high", label: "Gemini 4 Argon High" },
+          { id: "gemini-4-argon-low", label: "Gemini 4 Argon Low" },
           { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash High" },
           { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash Medium" },
           { id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash Low" },
+          { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash High" },
           { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
           { id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash High" },
           { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash" },
@@ -478,13 +481,14 @@ describe("GroupWizard members", () => {
       // SAFETY: the selector targets only the row model dropdowns rendered above.
       const modelSelect = host.querySelector('select[aria-label="Change model"]') as HTMLSelectElement;
       expect([...modelSelect.options].map((o) => o.value)).toEqual([
+        "gemini-4-argon-high",
+        "gemini-4-argon-low",
         "gemini-3.8-flash-high",
         "gemini-3.8-flash-medium",
-        "gemini-3.7-flash-low",
       ]);
       // The engine default (3.5) is not offered, so the select resolves to
       // the first offered tier instead of going blank.
-      expect(modelSelect.value).toBe("gemini-3.8-flash-high");
+      expect(modelSelect.value).toBe("gemini-4-argon-high");
       const [job] = jobInputs(host);
       await act(async () => {
         const native = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
@@ -496,7 +500,7 @@ describe("GroupWizard members", () => {
       });
       await flush();
       expect(JSON.parse(String(apiCalls[0]!.init?.body))).toMatchObject({
-        modelSelection: { instanceId: "ag-1", model: "gemini-3.8-flash-high" },
+        modelSelection: { instanceId: "ag-1", model: "gemini-4-argon-high" },
       });
     } finally {
       await act(async () => {

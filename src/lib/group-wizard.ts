@@ -26,9 +26,9 @@ export function wizardEngineOptions(
   return connected;
 }
 
-/** Antigravity offers only Gemini 3.8/3.7 Flash tiers, mirroring the main
- * picker cells (drops 3.1-pro, 3.6/3.5, legacy customs). */
-const ANTIGRAVITY_MODEL_PATTERN = /^gemini-3\.[87]-flash-(high|medium|low)$/;
+/** Antigravity offers only Gemini 4 Argon and 3.8 Flash tiers,
+ * mirroring the main picker cells (drops 3.1-pro, 3.7/3.6/3.5, legacy customs). */
+const ANTIGRAVITY_MODEL_PATTERN = /^(gemini-4-argon|gemini-3\.8-flash)-(high|medium|low)$/;
 
 export interface WizardModelOption {
   id: string;

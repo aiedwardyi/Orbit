@@ -70,7 +70,7 @@ describe("model index data", () => {
 
   it("prices every picker model its vendor still lists, once, per 1M tokens, blended 7:2:1", () => {
     const cost = MODEL_INDEX_ENTRIES.filter((e) => e.index === "cost");
-    expect(cost.map((e) => e.model).sort()).toEqual(PICKER_MODEL_IDS.filter((id) => id !== "gemini-3.7-flash").sort());
+    expect(cost.map((e) => e.model).sort()).toEqual([...PICKER_MODEL_IDS].sort());
     for (const e of cost) {
       expect(e.effort, e.model).toBe("all");
       expect(e.price, e.model).toBeDefined();
@@ -187,6 +187,19 @@ describe("sourced data", () => {
     expect(haiku.upToTokens).toBe(100_000);
     expect(haiku.above?.output).toBe(haiku.output * 5);
   });
+
+  it("prices Argon at today's promo rate with its November end date", () => {
+    const argon = MODEL_INDEX_ENTRIES.find((e) => e.index === "cost" && e.model === "gemini-4-argon")?.price;
+    expect([argon?.input, argon?.output]).toEqual([2, 10]);
+    expect([argon?.until, argon?.next?.from]).toEqual(["2026-11-30", "2026-12-01"]);
+    expect([argon?.next?.input, argon?.next?.output]).toEqual([4, 20]);
+  });
+
+  it("charts Argon on Legal from Vals and nowhere else", () => {
+    const scored = MODEL_INDEX_ENTRIES.filter((e) => e.model === "gemini-4-argon" && e.index !== "cost");
+    expect(scored.map((e) => [e.index, e.benchmark, e.score])).toEqual([["legal", "vals-legalbench", 88.299]]);
+    expect(scored[0]?.kind).toBe("independent");
+  });
 });
 
 describe("empty tabs", () => {
@@ -215,7 +228,7 @@ describe("catalog merge", () => {
   });
 
   it("drops scored models the picker does not offer", () => {
-    const entries = [entry("glm-5.3", "coding", 95), entry("gemini-4-argon", "coding", 90), entry("claude-opus-5-5", "coding", 60)];
+    const entries = [entry("glm-5.3", "coding", 95), entry("kimi-k3", "coding", 90), entry("claude-opus-5-5", "coding", 60)];
     expect(indexView("coding", [], entries).points.map((p) => p.model)).toEqual(["claude-opus-5-5"]);
     expect(markUniverse(entries).map((m) => m.model)).toEqual(["claude-opus-5-5"]);
   });

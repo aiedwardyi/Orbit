@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { STATIC_ANTIGRAVITY_MODELS } from "../../server/drivers/antigravity.ts";
 import { translate } from "./i18n";
 import {
   chipEffortLabel,
@@ -63,6 +64,15 @@ describe("modelChipText", () => {
     expect(
       modelChipText({ instance: antigravity, model: "gemini-3.8-flash-high" }, t),
     ).not.toMatch(/\(High\)/);
+  });
+
+  it("shows an Argon selection as base name plus tier, same as Flash", () => {
+    const argon = { displayName: "Gemini (Antigravity)", models: STATIC_ANTIGRAVITY_MODELS };
+    expect(modelChipText({ instance: argon, model: "gemini-4-argon-low" }, t)).toBe("Gemini 4 Argon");
+    expect(displayedChipEffort(argon, "gemini-4-argon-low", undefined)).toBe("low");
+    expect(modelChipTitle({ mode: "pinned", instance: argon, model: "gemini-4-argon-low" }, t)).toContain(
+      "Gemini 4 Argon · Low",
+    );
   });
 
   it("keeps a lone legacy tier label verbatim when no badge renders", () => {

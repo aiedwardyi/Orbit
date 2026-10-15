@@ -54,8 +54,13 @@ const FOREIGN_CREDENTIALS = [
 ];
 
 describe("readAntigravityModelCatalog", () => {
-  it("lists the three Gemini 3.8 Flash tiers ahead of older Flash entries", () => {
+  it("lists the three Gemini 4 Argon tiers first, then 3.8 Flash ahead of older Flash entries", () => {
     const ids = STATIC_ANTIGRAVITY_MODELS.options.map((option) => option.id);
+    expect(STATIC_ANTIGRAVITY_MODELS.options.slice(0, 3)).toEqual([
+      { id: "gemini-4-argon-high", label: "Gemini 4 Argon (High)", contextWindow: 1_048_576 },
+      { id: "gemini-4-argon-medium", label: "Gemini 4 Argon (Medium)", contextWindow: 1_048_576 },
+      { id: "gemini-4-argon-low", label: "Gemini 4 Argon (Low)", contextWindow: 1_048_576 },
+    ]);
     expect(STATIC_ANTIGRAVITY_MODELS.options.filter((option) => option.id.startsWith("gemini-3.8-"))).toEqual([
       { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", contextWindow: 1_048_576 },
       { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)", contextWindow: 1_048_576 },
@@ -75,13 +80,17 @@ describe("readAntigravityModelCatalog", () => {
       "gemini-3.6-flash-low",
     ]));
     expect(ids.some((id) => /^gemini-3\.8-pro/.test(id))).toBe(false);
+    expect(ids.indexOf("gemini-4-argon-high")).toBeLessThan(ids.indexOf("gemini-3.8-flash-high"));
     expect(ids.indexOf("gemini-3.8-flash-high")).toBeLessThan(ids.indexOf("gemini-3.7-flash-high"));
   });
 
-  // Ids taken verbatim from `agy models` on a real 1.1.27 install (MODEL-AG-STALE).
+  // Ids taken verbatim from `agy models` on a real 1.3.5 install (MODEL-AG-STALE).
   // Update this list only after re-running `agy models` and pasting the output —
   // PR #86 shipped a bare gemini-3.8-flash because nobody did.
-  const AGY_MODELS_OUTPUT_1_1_27 = [
+  const AGY_MODELS_OUTPUT_1_3_5 = [
+    "gemini-4-argon-high",
+    "gemini-4-argon-medium",
+    "gemini-4-argon-low",
     "gemini-3.8-flash-high",
     "gemini-3.8-flash-medium",
     "gemini-3.8-flash-low",
@@ -91,9 +100,6 @@ describe("readAntigravityModelCatalog", () => {
     "gemini-3.6-flash-high",
     "gemini-3.6-flash-medium",
     "gemini-3.6-flash-low",
-    "gemini-3.5-flash-high",
-    "gemini-3.5-flash-medium",
-    "gemini-3.5-flash-low",
     "gemini-3.1-pro-low",
     "gemini-3.1-pro-high",
   ];
@@ -102,14 +108,23 @@ describe("readAntigravityModelCatalog", () => {
   // absent from a current `agy models` run. Not proven fake, not reverified —
   // tracked explicitly so the catalog can't grow a new unverified id by
   // silently joining this list. Needs its own ticket to confirm or remove.
-  const ANTIGRAVITY_UNVERIFIED_LEGACY_IDS = ["claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium"];
+  // 3.5 Flash tiers were listed by agy 1.1.27 but are gone from the 1.3.5 output.
+  const ANTIGRAVITY_UNVERIFIED_LEGACY_IDS = [
+    "gemini-3.5-flash-high",
+    "gemini-3.5-flash-medium",
+    "gemini-3.5-flash-low",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6-thinking",
+    "gpt-oss-120b-medium",
+  ];
 
-  it("has no gemini id outside a real `agy models` run, and tracks every non-gemini id explicitly", () => {
+  it("has no id outside a real `agy models` run plus the tracked legacy list", () => {
     const ids = STATIC_ANTIGRAVITY_MODELS.options.map((option) => option.id);
-    const geminiIds = ids.filter((id) => id.startsWith("gemini-"));
-    const otherIds = ids.filter((id) => !id.startsWith("gemini-"));
-    expect(geminiIds.slice().sort()).toEqual(AGY_MODELS_OUTPUT_1_1_27.slice().sort());
-    expect(otherIds.slice().sort()).toEqual(ANTIGRAVITY_UNVERIFIED_LEGACY_IDS.slice().sort());
+    const legacy = new Set(ANTIGRAVITY_UNVERIFIED_LEGACY_IDS);
+    const verified = ids.filter((id) => !legacy.has(id));
+    const unverified = ids.filter((id) => legacy.has(id));
+    expect(verified.slice().sort()).toEqual(AGY_MODELS_OUTPUT_1_3_5.slice().sort());
+    expect(unverified.slice().sort()).toEqual(ANTIGRAVITY_UNVERIFIED_LEGACY_IDS.slice().sort());
     // the sort above ignores position, so newest-tier-first ordering needs its own check
     expect(ids.indexOf("gemini-3.6-flash-high")).toBeLessThan(ids.indexOf("gemini-3.5-flash-high"));
     expect(ids.indexOf("gemini-3.5-flash-low")).toBeLessThan(ids.indexOf("claude-sonnet-4-6"));
