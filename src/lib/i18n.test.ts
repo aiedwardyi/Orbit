@@ -413,8 +413,8 @@ describe("Friends Routine naming and one Stop", () => {
     expect(ko["chat.backToChat"]).toBe("대화로 돌아가기");
     expect(en["task.running"]).toBe("Running");
     expect(ko["task.running"]).toBe("실행 중");
-    expect(en["routine.pageHelp"]).toBe("A routine starts a fresh conversation on this bot each time it runs.");
-    expect(ko["routine.pageHelp"]).toBe("루틴은 실행될 때마다 이 봇에서 새 대화를 시작합니다.");
+    expect(en["routine.pageHelp"]).toBe("On this PC, a routine runs in the chat it came from. Cloud routines start a fresh conversation.");
+    expect(ko["routine.pageHelp"]).toBe("이 PC의 루틴은 만들어진 대화에서 실행되고, 클라우드 루틴은 새 대화를 시작합니다.");
     expect(translate("en", "chat.routineRunningElsewhere", { name: "keep this name" })).toContain("keep this name");
     expect(translate("ko", "chat.routineRunningElsewhere", { name: "keep this name" })).toContain("keep this name");
     expect(Object.hasOwn(catalogs.en, "keep this name")).toBe(false);

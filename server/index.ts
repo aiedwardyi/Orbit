@@ -7623,9 +7623,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     const runMatch = path.match(/^\/api\/routine-runs\/([\w-]+)\/(cancel|seen)$/);
     if (runMatch && method === "POST") {
+      const live = runMatch[2] === "cancel"
+        ? routines!.listRuns().find((candidate) => candidate.id === runMatch[1] && candidate.status === "running")
+        : undefined;
+      const bot = live ? store.bot(live.botId) : undefined;
+      const inFlight = Boolean(bot && (bot.busy || botHasActiveTurn(bot.id)));
+      // a turn still preparing has no session to interrupt yet
+      if (bot) bumpTurnEpoch(bot.id);
       const run = runMatch[2] === "cancel"
         ? await routines!.cancelRun(runMatch[1])
         : routines!.markSeen(runMatch[1]);
+      if (live && bot && inFlight) releaseInterruptedBot(bot.id, runThread(live) ?? bot.threadId);
       return run ? json(res, 200, { run }) : json(res, 404, { error: "no such active run" });
     }
 
