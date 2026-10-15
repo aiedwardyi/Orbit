@@ -287,6 +287,54 @@ describe("paged transcripts", () => {
     expect(calls).toContain("/api/threads/thread-g/messages?limit=200&before=m200");
   });
 
+  const chained = (i: number): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null });
+
+  async function scrolledBack(view: "chat" | "room") {
+    const thread = Array.from({ length: 500 }, (_, i) => chained(i));
+    const threadId = view === "chat" ? "thread-a" : "thread-g";
+    pagedServer(threadId, thread, view === "chat" ? { bots: [bot(thread, false)], groups: [] } : { bots: [], groups: [room(thread, false)] });
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.textContent).toContain("row 499;"));
+    const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+    const mounted = () => scroller.querySelectorAll("[data-orbit-message]").length;
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, get: () => 400 });
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => mounted() * 10 });
+    await act(async () => button(host, "Show earlier messages")!.click());
+    await act(async () => button(host, "Show earlier messages")!.click());
+    expect(mounted()).toBe(360);
+    return { host, scroller, threadId, mounted };
+  }
+
+  it.each(["chat", "room"] as const)("slides a %s window again once the reader follows the bottom after Show earlier", async (view) => {
+    const { host, scroller, threadId, mounted } = await scrolledBack(view);
+    scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+    await act(async () => scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true })));
+    expect(mounted()).toBe(120);
+    expect(host.querySelector('[data-mid="m499"]')).not.toBeNull();
+    for (let i = 500; i < 630; i++) {
+      await arrive(threadId, chained(i));
+      expect(mounted()).toBeLessThanOrEqual(240);
+    }
+    expect(host.querySelector('[data-mid="m629"]')).not.toBeNull();
+    await act(async () => resizeCallbacks.forEach((callback) => callback()));
+    expect(scroller.scrollTop).toBe(scroller.scrollHeight);
+
+    const first = Number(scroller.querySelector("[data-mid]")!.getAttribute("data-mid")!.slice(1));
+    const before = mounted();
+    await act(async () => button(host, "Show earlier messages")!.click());
+    expect(mounted()).toBe(before + 120);
+    expect(host.querySelector(`[data-mid="m${first - 120}"]`)).not.toBeNull();
+  });
+
+  it.each(["chat", "room"] as const)("keeps a scrolled-back %s window while rows arrive", async (view) => {
+    const { host, scroller, threadId, mounted } = await scrolledBack(view);
+    scroller.scrollTop = 500;
+    for (let i = 500; i < 530; i++) await arrive(threadId, chained(i));
+    expect(mounted()).toBe(390);
+    expect(host.querySelector('[data-mid="m140"]')).not.toBeNull();
+    expect(scroller.scrollTop).toBe(500);
+  });
+
   it("pages back to a search hit older than every loaded page", async () => {
     const thread = rows(0, 600);
     pagedServer("thread-a", thread, { bots: [bot(thread.slice(-200), true)], groups: [] });
