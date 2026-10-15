@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Dispatch } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -34,6 +34,7 @@ import {
   openNotificationTarget,
   shownModelSelection,
   visibleMessages,
+  type Action,
   type Bot,
   type InstanceInfo,
   type Message,
@@ -898,10 +899,15 @@ export function clearLivePaneCache() {
   lastLabels.clear();
 }
 
-/** Bot-spawned pane ids still open, null until the bridge or the host first answers. Exported for tests. */
-export function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionKey: string): Set<string> | null {
+/** Bot-spawned pane ids still open, null until the bridge or the host first answers. A device read also refreshes this bot's badge. Exported for tests. */
+export function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionKey: string, dispatch?: Dispatch<Action>): Set<string> | null {
   const [live, setLive] = useState<{ botId: string; ids: Set<string> } | null>(null);
   const phoneRead = useRef<{ busy: boolean; next: (() => void) | null }>({ busy: false, next: null });
+  // A badge write from this hook's own read must not trigger another read.
+  const wrote = useRef<string | null>(null);
+  const keyed = useRef(paneKey);
+  if (paneKey !== keyed.current && paneKey !== wrote.current) keyed.current = paneKey;
+  const readKey = keyed.current;
   useEffect(() => {
     const bridge = window.ogb?.terminal;
     if (!bridge || !enabled) return;
@@ -972,12 +978,16 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
             if (!alive || call !== latest) return;
             if (!Array.isArray(body?.panes)) { retry(); return; }
             rememberLabels(botId, body.panes);
-            save(new Set(body.panes.filter((p: { main?: boolean; exited?: boolean }) => !p.main && !p.exited).map((p: { sessionId: string }) => p.sessionId)));
+            const open = body.panes.filter((p: { main?: boolean; exited?: boolean }) => !p.main && !p.exited);
+            const labels = open.slice(0, 16).map((p: { label?: string | null }) => p.label ?? "");
+            wrote.current = paneLabelsKey(labels);
+            dispatch?.({ type: "setBotTerminalPanes", botId, labels });
+            save(new Set(open.map((p: { sessionId: string }) => p.sessionId)));
             delay = 1000;
           },
           (cause) => {
             if (!alive || call !== latest) return;
-            if (/unknown terminal/i.test(cause instanceof Error ? cause.message : "")) { save(new Set()); delay = 1000; }
+            if (/unknown terminal/i.test(cause instanceof Error ? cause.message : "")) { wrote.current = paneLabelsKey([]); dispatch?.({ type: "setBotTerminalPanes", botId, labels: [] }); save(new Set()); delay = 1000; }
             else retry();
           },
         ).finally(() => {
@@ -1000,7 +1010,7 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
       pending.next = null;
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [botId, enabled, paneKey, sessionKey]);
+  }, [botId, enabled, readKey, sessionKey, dispatch]);
   return live?.botId === botId ? live.ids : lastLive.get(botId) ?? null;
 }
 
@@ -1601,7 +1611,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const shown = jump.messages ?? messages;
   const runs = useMemo(() => workerRuns(messages), [messages]);
   const sessionKey = runs.map((run) => run.sessionId).filter(Boolean).sort().join("\n");
-  const livePanes = useLivePanes(bot.id, runs.length > 0, paneLabelsKey(state.terminalPanes[bot.id]), sessionKey);
+  const livePanes = useLivePanes(bot.id, runs.length > 0 || (state.terminalPanes[bot.id]?.length ?? 0) > 0, paneLabelsKey(state.terminalPanes[bot.id]), sessionKey, dispatch);
   const workers = useMemo(() => runs.map((run) => ({ run, state: shownState(run, livePanes) })), [runs, livePanes]);
   const rowWorkers = useMemo(() => jump.messages ? workerRuns(messages, jump.messages).map((run) => ({ run, state: shownState(run, livePanes) })) : workers, [messages, jump.messages, livePanes, workers]);
   const terminal = useSkin() === "terminal";

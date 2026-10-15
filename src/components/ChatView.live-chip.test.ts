@@ -3,7 +3,7 @@ import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { StoreProvider, type Bot, type Message } from "@/state/store";
+import { StoreProvider, useStore, type Bot, type Message } from "@/state/store";
 import type { TurnStreamState } from "@/lib/turn-stage";
 
 import { ChatView } from "./ChatView";
@@ -68,9 +68,18 @@ function Harness({ initial }: { initial: Bot }) {
   return createElement(ChatView, { bot: current });
 }
 
-const mountChat = async (initial: Bot) => {
+let badgeOf: (botId: string) => string[] = () => [];
+let seedBadge: (panes: Record<string, string[]>) => void = () => {};
+function BadgeProbe() {
+  const { state, dispatch } = useStore();
+  badgeOf = (botId) => state.terminalPanes[botId] ?? [];
+  seedBadge = (panes) => dispatch({ type: "setTerminalPanes", panes });
+  return null;
+}
+
+const mountChat = async (initial: Bot, fetchImpl: typeof fetch = async () => new Response("{}", { status: 404 })) => {
   vi.stubGlobal("EventSource", FakeEventSource);
-  vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+  vi.stubGlobal("fetch", vi.fn(fetchImpl));
   vi.stubGlobal("ResizeObserver", class {
     observe() {}
     unobserve() {}
@@ -80,7 +89,7 @@ const mountChat = async (initial: Bot) => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(createElement(StoreProvider, null, createElement(Harness, { initial }))));
+  await act(async () => root.render(createElement(StoreProvider, null, createElement(Harness, { initial }), createElement(BadgeProbe))));
   return { host, unmount: async () => { await act(async () => root.unmount()); host.remove(); } };
 };
 
@@ -90,6 +99,13 @@ afterEach(() => {
   vi.restoreAllMocks();
   localStorage.clear();
 });
+
+const remoteTerminal = (botId: string, live: { ids: string[] }): typeof fetch => {
+  return async (input) => {
+    if (!String(input).includes(`/api/bots/${botId}/terminal`)) return new Response("{}", { status: 404 });
+    return Response.json({ panes: live.ids.map((sessionId) => ({ sessionId, label: `L-${sessionId}`, main: false, exited: false })) });
+  };
+};
 
 const chipLabel = (host: HTMLElement) => host.querySelector("[data-worker-strip]")?.getAttribute("aria-label") ?? null;
 
@@ -142,5 +158,40 @@ describe("worker chip liveness", () => {
     } finally {
       await unmount();
     }
+  });
+
+  describe("device view (remote reads)", () => {
+    const ids = ["r0rrrrrr-0", "r1rrrrrr-1", "r2rrrrrr-2"];
+
+    it("drops the badge and the chip together when a pane exits", async () => {
+      const remote = bot("chip-remote", "Remote", ids.map((id, index) => launch(`lr${index}`, `R${index}`, id)));
+      const live = { ids };
+      const { host, unmount } = await mountChat(remote, remoteTerminal("chip-remote", live));
+      try {
+        await act(async () => seedBadge({ "chip-remote": ids.map((id) => `L-${id}`) }));
+        await vi.waitFor(() => expect(chipLabel(host)).toBe("3 working, 0 waiting, 0 failed, 0 done. Show workers"));
+        expect(badgeOf("chip-remote")).toHaveLength(3);
+        live.ids = ids.slice(0, 2);
+        await act(async () => {
+          document.dispatchEvent(new Event("visibilitychange"));
+          await sleep(10);
+        });
+        await vi.waitFor(() => expect(chipLabel(host)).toBe("2 working, 0 waiting, 0 failed, 0 done. Show workers"));
+        expect(badgeOf("chip-remote")).toEqual(ids.slice(0, 2).map((id) => `L-${id}`));
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("lists the badge's panes when the loaded page has no runs", async () => {
+      const bare = bot("chip-bare", "Bare", []);
+      const { host, unmount } = await mountChat(bare, remoteTerminal("chip-bare", { ids }));
+      try {
+        await act(async () => seedBadge({ "chip-bare": ids.map((id) => `L-${id}`) }));
+        await vi.waitFor(() => expect(chipLabel(host)).toBe("3 working, 0 waiting, 0 failed, 0 done. Show workers"));
+      } finally {
+        await unmount();
+      }
+    });
   });
 });
