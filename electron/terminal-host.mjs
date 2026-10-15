@@ -267,6 +267,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     stopTail = tail;
     return run;
   };
+  // Retired panes whose worker thread may outlive the shell; quit waits for these too.
+  const exiting = new Set();
   let stallTimer = null;
   // Panes that exited on their own with notes still to post; reclaiming them keeps the notes, a close drops them.
   const exitNotes = new Set();
@@ -469,6 +471,12 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     clearActivityTimer(session);
     if (active.get(session.key) === session.id) active.delete(session.key);
     if (!wasRetired) emit(session, "terminal:closed", { id: session.id, botId: session.botId });
+    const exited = session.pty.exited;
+    if (exited) {
+      exiting.add(exited);
+      const drop = () => exiting.delete(exited);
+      Promise.resolve(exited).then(drop, drop);
+    }
     session.stopPromise = (async () => {
       if (forceKill || session.exitCode === null) {
         try {
@@ -1093,7 +1101,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       sessions.clear();
       exitNotes.clear();
       disposal = Promise.all(stops)
-        .then(() => timeout(Promise.all(stopping.map((session) => session.pty.exited)), QUIT_PANE_MS, "Terminal worker did not exit"))
+        .then(() => timeout(Promise.all(exiting), QUIT_PANE_MS, "Terminal worker did not exit"))
         .catch(() => {});
       return disposal;
     },

@@ -65,6 +65,23 @@ test("dispose waits for worker exit after the shell has already exited", async (
   await disposal;
 });
 
+test("dispose waits for the worker of a pane closed just before quit", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  await f.host.openForBot("bot-1");
+  let releaseExit;
+  f.children[0].exited = new Promise((resolve) => { releaseExit = resolve; });
+  await f.host.closeBotPanes("bot-1");
+  assert.equal(f.children[0].killed, true);
+  let settled = false;
+  const disposal = Promise.resolve(f.host.dispose()).then(() => { settled = true; });
+  await wait(50);
+  assert.equal(settled, false);
+  releaseExit();
+  await disposal;
+});
+
 test("dispose bounds each pane at one second without terminating its worker", async () => {
   const f = fixture();
   for (let i = 0; i < 2; i++) await f.host.open(f.event, { ...f.input, botId: `bot-${i}` });
