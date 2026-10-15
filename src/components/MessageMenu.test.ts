@@ -145,6 +145,20 @@ const selectionMenu = () => document.querySelector("[data-selection-menu]");
 const menuReactions = () => Array.from(document.querySelectorAll("[data-menu-reaction]"));
 const storeMessage = (threadId: string, id: string) =>
   [...latest.bots, ...latest.groups].find((c) => c.threadId === threadId)?.messages.find((m) => m.id === id);
+const pinnedChatId = () => latest.bots.find((b) => b.threadId === "thread-helper")?.pinnedMessageId;
+const botWithPin = (messages: Message[], pinnedMessageId: string): Bot => ({ ...bot(messages), pinnedMessageId });
+const pinnedRoomId = () => latest.groups.find((g) => g.threadId === "thread-g")?.pinnedMessageId;
+const roomWithPin = (messages: Message[], pinnedMessageId: string): Group => ({ ...room(messages), pinnedMessageId });
+// room pins round-trip through PATCH, so the stub server confirms them like production
+function stubGroupPatch() {
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    if (typeof url === "string" && url.startsWith("/api/groups/")) {
+      const group = latest.groups.find((g) => url.endsWith(g.id))!;
+      return Response.json({ group: { ...group, ...JSON.parse(String(init?.body)) } });
+    }
+    return new Response("{}", { status: 404 });
+  }));
+}
 
 function stubClipboard() {
   const writeText = vi.fn<(text: string) => Promise<void>>(async () => {});
@@ -279,17 +293,55 @@ describe("message menu in 1:1 chats", () => {
     expect(messageMenu()).toBeNull();
   });
 
-  it("shows a user message with Reply and Copy only", async () => {
+  it("shows a user message with Pin, Reply and Copy only", async () => {
     const host = await mountChat(bot([userMsg("u1", "my words")]));
     await rightClick(host.querySelector('[data-mid="u1"] [data-orbit-message-content]')!);
 
     const menu = messageMenu();
     expect(menu).not.toBeNull();
-    expect(menu?.querySelectorAll("button")).toHaveLength(2);
+    expect(menu?.querySelectorAll("button")).toHaveLength(3);
     expect(menu?.querySelector("[data-menu-reaction]")).toBeNull();
     expect(menu?.querySelector("[data-menu-expand]")).toBeNull();
+    expect(menu?.querySelector("[data-menu-pin]")?.textContent).toBe("Pin message");
     expect(menu?.querySelector("[data-menu-reply]")?.textContent).toBe("Reply");
     expect(menu?.querySelector("[data-menu-copy]")?.textContent).toBe("Copy");
+  });
+
+  it("pins above Reply and toggles to Unpin like the hover button", async () => {
+    const messages = [userMsg("u1", "hi"), botMsg("b1", "hello there")];
+    const host = await mountChat(bot(messages));
+    await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
+
+    const menu = messageMenu();
+    const order = Array.from(menu!.querySelectorAll("button"));
+    const pinAt = order.findIndex((b) => b.hasAttribute("data-menu-pin"));
+    const replyAt = order.findIndex((b) => b.hasAttribute("data-menu-reply"));
+    expect(pinAt).toBe(replyAt - 1);
+    expect(menu?.querySelector("[data-menu-pin]")?.textContent).toBe("Pin message");
+    await act(async () => { document.querySelector("[data-menu-pin]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+
+    expect(pinnedChatId()).toBe("b1");
+    expect(messageMenu()).toBeNull();
+
+    await renderChat!(botWithPin(messages, "b1"));
+    await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
+    expect(messageMenu()?.querySelector("[data-menu-pin]")?.textContent).toBe("Unpin message");
+    await act(async () => { document.querySelector("[data-menu-pin]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(pinnedChatId()).toBe("");
+  });
+
+  it("pins from the menu and unpins with the hover button", async () => {
+    const messages = [botMsg("b1", "hover target")];
+    const host = await mountChat(bot(messages));
+    await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
+    await act(async () => { document.querySelector("[data-menu-pin]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(pinnedChatId()).toBe("b1");
+
+    await renderChat!(botWithPin(messages, "b1"));
+    const hover = host.querySelector('[data-mid="b1"] button[aria-label="Unpin message"]')!;
+    expect(hover).not.toBeNull();
+    await act(async () => { hover.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(pinnedChatId()).toBe("");
   });
 
   it("copies a user message verbatim", async () => {
@@ -423,8 +475,11 @@ describe("message menu in 1:1 chats", () => {
   it("moves with arrow keys and activates with Enter", async () => {
     const host = await mountChat(bot([userMsg("u1", "arrow target")]));
     await rightClick(host.querySelector('[data-mid="u1"] [data-orbit-message-content]')!);
+    const pin = document.querySelector<HTMLElement>("[data-menu-pin]")!;
     const reply = document.querySelector<HTMLElement>("[data-menu-reply]")!;
     const copy = document.querySelector<HTMLElement>("[data-menu-copy]")!;
+    expect(document.activeElement).toBe(pin);
+    await act(async () => { pin.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" })); });
     expect(document.activeElement).toBe(reply);
     await act(async () => { reply.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "ArrowDown" })); });
     expect(document.activeElement).toBe(copy);
@@ -456,14 +511,19 @@ describe("message menu in 1:1 chats", () => {
     expect(messageMenu()).toBeNull();
   });
 
-  it("labels Reply and Copy in English and Korean", async () => {
+  it("labels Pin, Reply and Copy in English and Korean", async () => {
     expect(en["chat.reply"]).toBe("Reply");
     expect(en["chat.copy"]).toBe("Copy");
+    expect(en["chat.pinMessage"]).toBe("Pin message");
+    expect(en["chat.unpinMessage"]).toBe("Unpin message");
     expect(ko["chat.reply"]).toBe("답장");
     expect(ko["chat.copy"]).toBe("복사");
+    expect(ko["chat.pinMessage"]).toBe("메시지 고정");
+    expect(ko["chat.unpinMessage"]).toBe("메시지 고정 해제");
     localStorage.setItem("omb-locale", "ko");
     const host = await mountChat(bot([userMsg("u1", "mine")]));
     await rightClick(host.querySelector('[data-mid="u1"] [data-orbit-message-content]')!);
+    expect(messageMenu()?.querySelector("[data-menu-pin]")?.textContent).toBe("메시지 고정");
     expect(messageMenu()?.querySelector("[data-menu-reply]")?.textContent).toBe("답장");
     expect(messageMenu()?.querySelector("[data-menu-copy]")?.textContent).toBe("복사");
   });
@@ -475,15 +535,46 @@ describe("message menu in rooms", () => {
     ...botMsg(id, text), from: { botId: "m1", name: "Ada", color: "blue" },
   });
 
-  it("opens a bot menu with reactions, Reply and Copy", async () => {
+  it("opens a bot menu with reactions, Pin, Reply and Copy", async () => {
     const host = await mountRoom(members, room([userMsg("u1", "hi all"), roomBot("b1", "room hello")]));
     await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
 
     const menu = messageMenu();
     expect(menu).not.toBeNull();
     expect(menuReactions()).toHaveLength(6);
+    expect(menu?.querySelector("[data-menu-pin]")?.textContent).toBe("Pin message");
     expect(menu?.querySelector("[data-menu-reply]")?.textContent).toBe("Reply");
     expect(menu?.querySelector("[data-menu-copy]")?.textContent).toBe("Copy");
+  });
+
+  it("pins a room message above Reply", async () => {
+    const messages: Message[] = [
+      userMsg("u1", "hi all"),
+      { ...botMsg("b1", "room hello"), from: { botId: "m1", name: "Ada", color: "blue" } },
+    ];
+    const host = await mountRoom(members, room(messages));
+    stubGroupPatch();
+    await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
+
+    const order = Array.from(messageMenu()!.querySelectorAll("button"));
+    const pinAt = order.findIndex((b) => b.hasAttribute("data-menu-pin"));
+    const replyAt = order.findIndex((b) => b.hasAttribute("data-menu-reply"));
+    expect(pinAt).toBe(replyAt - 1);
+    await act(async () => { document.querySelector("[data-menu-pin]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(pinnedRoomId()).toBe("b1");
+    expect(messageMenu()).toBeNull();
+  });
+
+  it("unpins a room message from the menu", async () => {
+    const messages: Message[] = [
+      { ...botMsg("b1", "room hello"), from: { botId: "m1", name: "Ada", color: "blue" } },
+    ];
+    const host = await mountRoom(members, roomWithPin(messages, "b1"));
+    stubGroupPatch();
+    await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
+    expect(messageMenu()?.querySelector("[data-menu-pin]")?.textContent).toBe("Unpin message");
+    await act(async () => { document.querySelector("[data-menu-pin]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(pinnedRoomId()).toBe("");
   });
 
   it("copies the room message text", async () => {
@@ -574,18 +665,28 @@ describe("message menu on touch", () => {
     expect(menu).not.toBeNull();
     expect(menuReactions().map((b) => b.textContent)).toEqual([...QUICK_REACTIONS]);
     expect(menu.querySelector("[data-menu-expand]")).not.toBeNull();
-    expect(labels("[role=menuitem]:not([data-menu-expand])")).toEqual(["Reply", "Copy", "Select text"]);
+    expect(labels("[role=menuitem]:not([data-menu-expand])")).toEqual(["Pin message", "Reply", "Copy", "Select text"]);
     expect(menu.lastElementChild?.hasAttribute("data-menu-select")).toBe(true);
     expect(menu.style.top).toBe("120px");
     expect(menu.style.left).toBe("100px");
     for (const button of menu.querySelectorAll("button")) expect(button.className).toMatch(/\b(size-10|min-h-10)\b/);
   });
 
-  it("opens his menu with Reply, Copy and Select text", async () => {
+  it("opens his menu with Pin, Reply, Copy and Select text", async () => {
     const host = await mountChat(bot([userMsg("u1", "my words")]));
     stubTouchScreen();
     await hold(content(host, "u1"));
-    expect(labels("button")).toEqual(["Reply", "Copy", "Select text"]);
+    expect(labels("button")).toEqual(["Pin message", "Reply", "Copy", "Select text"]);
+  });
+
+  it("pins from the hold menu above Reply", async () => {
+    const host = await mountChat(bot([userMsg("u1", "hi"), botMsg("b1", "hello there")]));
+    stubTouchScreen();
+    await hold(content(host, "b1"));
+    expect(labels("[role=menuitem]:not([data-menu-expand])")).toEqual(["Pin message", "Reply", "Copy", "Select text"]);
+    await act(async () => { document.querySelector("[data-menu-pin]")!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(pinnedChatId()).toBe("b1");
+    expect(messageMenu()).toBeNull();
   });
 
   it("opens after a hold in a room", async () => {
@@ -597,7 +698,7 @@ describe("message menu on touch", () => {
     expect(messageMenu()?.querySelector("[data-menu-select]")?.textContent).toBe("Select text");
     await tapOutside();
     await hold(content(host, "u1"));
-    expect(labels("button")).toEqual(["Reply", "Copy", "Select text"]);
+    expect(labels("button")).toEqual(["Pin message", "Reply", "Copy", "Select text"]);
   });
 
   it("opens nothing on a quick tap, a moving finger, a scroll or a second finger", async () => {
@@ -820,10 +921,10 @@ describe("message menu on touch", () => {
     const host = await mountChat(bot([userMsg("u1", "mine"), botMsg("b1", "hello")]));
     stubTouchScreen();
     await hold(content(host, "b1"));
-    expect(labels("[role=menuitem]:not([data-menu-expand])")).toEqual(["답장", "복사", "텍스트 선택"]);
+    expect(labels("[role=menuitem]:not([data-menu-expand])")).toEqual(["메시지 고정", "답장", "복사", "텍스트 선택"]);
     await tapOutside();
     await hold(content(host, "u1"));
-    expect(labels("button")).toEqual(["답장", "복사", "텍스트 선택"]);
+    expect(labels("button")).toEqual(["메시지 고정", "답장", "복사", "텍스트 선택"]);
   });
 
   it("keeps the desktop menu on a touchscreen laptop with a mouse", async () => {

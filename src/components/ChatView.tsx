@@ -518,7 +518,14 @@ const Bubble = memo(function Bubble({
 
   const menuTarget =
     message.kind === "text" && !message.placeholder
-      ? { threadId: bot.threadId, message, copyText: user ? visibleText : text, user }
+      ? {
+        threadId: bot.threadId,
+        message,
+        copyText: user ? visibleText : text,
+        user,
+        pinned: bot.pinnedMessageId === message.id,
+        canPin: user || (!streaming && !dock?.live),
+      }
       : null;
 
   return (
@@ -1555,6 +1562,14 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     `bot:${bot.id}:${bot.threadId}`,
     bot.messages,
   );
+  // same toggle the hover Pin button dispatches, so other devices sync it
+  const togglePin = (message: Message) => {
+    dispatch({
+      type: "updateBot",
+      botId: bot.id,
+      patch: { pinnedMessageId: bot.pinnedMessageId === message.id ? "" : message.id },
+    });
+  };
   const [menu, setMenu] = useState<MessageMenuRequest | null>(null);
   // Stays mounted across threads, so drop a menu that still names the previous one.
   const [menuThread, setMenuThread] = useState(bot.threadId);
@@ -2335,7 +2350,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
       </div>
 
       {menu?.kind === "message" ? (
-        <MessageMenu x={menu.x} y={menu.y} opener={menu.opener} target={menu.target} onReply={selectReply} onClose={() => setMenu(null)} />
+        <MessageMenu x={menu.x} y={menu.y} opener={menu.opener} target={menu.target} onReply={selectReply} onPin={togglePin} onClose={() => setMenu(null)} />
       ) : menu ? (
         <SelectionMenu x={menu.x} y={menu.y} opener={menu.opener} text={menu.text} onClose={() => setMenu(null)} />
       ) : null}
