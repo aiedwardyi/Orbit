@@ -6,8 +6,9 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 import { STATIC_GROK_MODELS } from "./acp/grok.ts";
 import { STATIC_CLAUDE_MODELS } from "./claude.ts";
 import { STATIC_CODEX_MODELS } from "./codex-catalog.ts";
+import { STATIC_ANTIGRAVITY_MODELS } from "./antigravity.ts";
 import { MSP_MUSE_EFFORT_LEVELS, MSP_MUSE_MODELS } from "./msp/muse.ts";
-import { TOOLS, callTool, claudeState, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText, workerModelsText, workerReportText } from "./terminal-proxy.ts";
+import { TOOLS, WORKER_GEMINI_EFFORTS, WORKER_GEMINI_FAMILIES, callTool, claudeState, readTerminalSnapshot, terminalReadGrant, terminalSnapshotText, workerModelsText, workerReportText } from "./terminal-proxy.ts";
 
 const CONFIG = { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" };
 const BUSY = "● Working on it\n✽ Undulating… (3s · ↓ 75 tokens · thought for 2s)\n────────────────────\n❯\n────────────────────";
@@ -81,7 +82,20 @@ describe("terminal proxy", () => {
     expect(description).toContain(`effort ${MSP_MUSE_EFFORT_LEVELS.join("/")}`);
     expect(description).toMatch(/models to launch in panes \(not bots\)/i);
     expect(description).toContain(workerModelsText());
-    expect(workerModelsText().length).toBeLessThan(700);
+    expect(workerModelsText().length).toBeLessThan(820);
+    expect(description).toContain("Gemini: Gemini 4 Argon = gemini-4-argon-<effort>, Gemini 3.8 Flash = gemini-3.8-flash-<effort> (effort high/medium/low, part of the id).");
+    const ids = STATIC_ANTIGRAVITY_MODELS.options.map((option) => option.id);
+    for (const family of WORKER_GEMINI_FAMILIES) {
+      for (const effort of WORKER_GEMINI_EFFORTS) expect(ids).toContain(`${family.id}-${effort}`);
+    }
+  });
+
+  it("gives Gemini workers the agy template, with the updater switch on Windows only", () => {
+    const flags = "agy --model <model-id> --dangerously-skip-permissions -i '<prompt>'.";
+    expect(workerReportText("win32").agy).toBe("$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; ");
+    expect(workerReportText("linux").agy).toBe("");
+    expect(TOOLS[2].description).toContain(`Gemini: ${workerReportText(process.platform).agy}${flags}`);
+    expect(TOOLS[2].description.indexOf("Gemini: ")).toBeGreaterThan(TOOLS[2].description.indexOf("Grok: grok"));
   });
 
   it("adds Codex pane env, notify and orbit-msg reports on Windows only", () => {

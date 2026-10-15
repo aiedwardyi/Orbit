@@ -46,6 +46,7 @@ export function workerReportText(platform: NodeJS.Platform, claudeSettings = exi
   return platform === "win32"
     ? {
         claude: claudeSettings ? `--settings '${CLAUDE_WORKER_SETTINGS}' ` : "",
+        agy: "$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; ",
         env: ORBIT_PANE_VARS.map((name) => `-c "shell_environment_policy.set.${name}='$env:${name}'" `).join(""),
         notify: `-c 'notify=["powershell.exe","-NoProfile","-ExecutionPolicy","Bypass","-File","${ORBIT_MSG_PS1}","--notify","last-assistant-message"]' `,
         read: "Do not poll it for a worker's final report: that arrives on its own as a pane note in this thread.",
@@ -53,6 +54,7 @@ export function workerReportText(platform: NodeJS.Platform, claudeSettings = exi
       }
     : {
         claude: "",
+        agy: "",
         env: "",
         notify: "",
         read: "orbit-msg is not installed on this platform, so a worker's final report does not arrive on its own; read its pane for it.",
@@ -61,6 +63,13 @@ export function workerReportText(platform: NodeJS.Platform, claudeSettings = exi
 }
 
 const REPORT_TEXT = workerReportText(process.platform);
+
+// Kept here, not imported from antigravity.ts: this proxy runs as its own light process.
+export const WORKER_GEMINI_FAMILIES = [
+  { name: "Gemini 4 Argon", id: "gemini-4-argon" },
+  { name: "Gemini 3.8 Flash", id: "gemini-3.8-flash" },
+];
+export const WORKER_GEMINI_EFFORTS = ["high", "medium", "low"];
 
 // Picker rows only; "Claude " and "Meta " prefixes are dropped to keep the list short.
 export function workerModelsText(): string {
@@ -72,6 +81,7 @@ export function workerModelsText(): string {
     line("Codex", STATIC_CODEX_MODELS),
     line("Muse", MSP_MUSE_MODELS, ` (effort ${MSP_MUSE_EFFORT_LEVELS.join("/")})`),
     line("Grok", STATIC_GROK_MODELS),
+    `Gemini: ${WORKER_GEMINI_FAMILIES.map((family) => `${family.name} = ${family.id}-<effort>`).join(", ")} (effort ${WORKER_GEMINI_EFFORTS.join("/")}, part of the id).`,
   ].join(" ");
 }
 
@@ -129,6 +139,7 @@ export const TOOLS = [
       `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox ${REPORT_TEXT.env}${REPORT_TEXT.notify}'<prompt>' (a new folder shows a trust prompt first; send Enter). ` +
       "Muse: muse --model <model-id> --reasoning-effort <effort> --yolo '<prompt>'. " +
       "Grok: grok -m <model-id> --effort <effort> --always-approve '<prompt>' (it may ask a y/n trust question first; send y). " +
+      `Gemini: ${REPORT_TEXT.agy}agy --model <model-id> --dangerously-skip-permissions -i '<prompt>'. ` +
       `${workerModelsText()} ` +
       "Engine CLIs run in the PowerShell pane; check them there, not from another shell. " +
       REPORT_TEXT.spawn,

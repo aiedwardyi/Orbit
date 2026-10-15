@@ -90,6 +90,7 @@ describe("harness playbook", () => {
     expect(prompt).toContain("CURRENT gets at most one short follow-up on");
     expect(prompt).toContain("anything more goes to a FRESH worker in the same worktree");
     expect(prompt).toContain("Default workers to high effort");
+    expect(prompt.replace(/\s+/g, " ")).toContain("Save Gemini 4 Argon for big jobs that gain from a second model family's view, like a whole-codebase audit or 3D and graphic design. Routine work goes to the other engines.");
   });
 
   it("keeps a progress file beside the card and hands it on", () => {

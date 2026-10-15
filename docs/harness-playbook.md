@@ -66,6 +66,9 @@ expensive the longer it runs.
 - Claude workers compact at about 500k and get their card and progress file back.
 - Default workers to high effort. Save max for a hard bug or an audit: its
   longer thinking stays in context and is re-read on every later step.
+- Save Gemini 4 Argon for big jobs that gain from a second model family's view,
+  like a whole-codebase audit or 3D and graphic design. Routine work goes to the
+  other engines.
 
 ## Audit cards
 
