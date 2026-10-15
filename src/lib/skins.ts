@@ -40,6 +40,9 @@ export const SKIN_IDS = [
   "terminal-dracula",
   "terminal-ice",
   "paper-tape",
+  "logfile",
+  "multiplexer",
+  "modal",
   "vscode-dark",
   "studio-gray",
   "steel-gray",
@@ -106,6 +109,9 @@ export const SKINS: readonly Skin[] = [
   { id: "terminal-dracula", name: "Terminal Dracula", tagline: "The coding CLI in Dracula purple." },
   { id: "terminal-ice", name: "Terminal Ice", tagline: "The coding CLI on true black, ice blue." },
   { id: "paper-tape", name: "Paper Tape", tagline: "A light terminal: cream paper, $ prompt." },
+  { id: "logfile", name: "Logfile", tagline: "Every line logged: timestamp, INFO, WARN." },
+  { id: "multiplexer", name: "Multiplexer", tagline: "tmux panes and a status bar." },
+  { id: "modal", name: "Modal", tagline: "vim gutter, -- INSERT -- and a ruler." },
   { id: "vscode-dark", name: "VS Code Dark", tagline: "Editor dark, command blue, readable syntax." },
   { id: "studio-gray", name: "Studio Gray", tagline: "Quiet graphite, periwinkle signal." },
   { id: "steel-gray", name: "Steel Gray", tagline: "Cool steel, mint signal." },
@@ -143,7 +149,7 @@ export const LIGHT_SKIN_IDS: ReadonlySet<SkinId> = new Set<SkinId>([
   "paper-tape",
 ]);
 
-const TERMINAL_SKIN_IDS: ReadonlySet<SkinId> = new Set<SkinId>(["terminal", "terminal-dracula", "terminal-ice", "paper-tape"]);
+const TERMINAL_SKIN_IDS: ReadonlySet<SkinId> = new Set<SkinId>(["terminal", "terminal-dracula", "terminal-ice", "paper-tape", "logfile", "multiplexer", "modal"]);
 
 export const isTerminalSkin = (id: SkinId): boolean => TERMINAL_SKIN_IDS.has(id);
 

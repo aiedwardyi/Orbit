@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TERM_STEP_WORD, termBlock, termElapsed, termHeaderArgs, termMeter, termResultLine, termStepAria, termUpdatedLine, termVerb } from "./terminal-skin";
+import { TERM_STEP_WORD, logLine, termBlock, termElapsed, termHeaderArgs, termMeter, termResultLine, termStepAria, termUpdatedLine, termVerb } from "./terminal-skin";
 import { termVerb as sharedTermVerb } from "../../shared/tool-verb";
 import { en, ko } from "./i18n-catalog";
 import { applyLocale, t } from "./i18n";
@@ -167,5 +167,26 @@ describe("termMeter", () => {
 
   it("empties the bar once the window has reset", () => {
     expect(termMeter({ ...window, resetsAt: now - 1 }, now, "remaining")).toMatchObject({ percent: null, bar: "▱▱▱▱▱" });
+  });
+});
+
+describe("logLine", () => {
+  const at = new Date(2026, 9, 15, 14, 2, 11).getTime();
+  const text = (role: "bot" | "user") => ({ role, kind: "text" });
+  const tool = (ok?: boolean, name = "Bash") => ({ role: "bot" as const, kind: "activity", tool: { name, ok } });
+
+  it("stamps nothing off Logfile", () => {
+    expect(logLine(false, at, [text("bot")])).toEqual({});
+  });
+
+  it("prints the 24-hour clock and tags replies INFO", () => {
+    expect(logLine(true, at, [text("bot")])).toEqual({ "data-log-time": "14:02:11", "data-log-level": "info" });
+    expect(logLine(true, new Date(2026, 9, 15, 9, 5, 7).getTime(), [text("user")])).toEqual({ "data-log-time": "09:05:07", "data-log-level": undefined });
+  });
+
+  it("tags failed tools and failed turns WARN, and leaves passing tools untagged", () => {
+    expect(logLine(true, at, [tool(true), tool(false)])["data-log-level"]).toBe("warn");
+    expect(logLine(true, at, [tool(undefined, "error: Gemini CLI exited with code 1")])["data-log-level"]).toBe("warn");
+    expect(logLine(true, at, [tool(true)])["data-log-level"]).toBeUndefined();
   });
 });

@@ -189,6 +189,16 @@ describe("skin overlay chrome", () => {
     expect(skinThemeSource("paper-tape")).toBe("light");
   });
 
+  it("locks caption chrome for Logfile, Multiplexer and Modal", () => {
+    expect(SKIN_CHROME.logfile).toEqual({ color: "#0e0f11", symbolColor: "#8a909a" });
+    expect(SKIN_CHROME.multiplexer).toEqual({ color: "#0d1014", symbolColor: "#8f9aa8" });
+    expect(SKIN_CHROME.modal).toEqual({ color: "#0b0c14", symbolColor: "#8d92b8" });
+    for (const id of ["logfile", "multiplexer", "modal"]) {
+      expect(extractOmbSkin(Buffer.from(`xxomb-skin\u0000\u0001${id}\u0000yy`))).toBe(id);
+      expect(skinThemeSource(id)).toBe("dark");
+    }
+  });
+
   it("extracts onyx, dracula, and cobalt from the omb-skin marker", () => {
     expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001onyx\u0000yy"))).toBe("onyx");
     expect(extractOmbSkin(Buffer.from("xxomb-skin\u0000\u0001dracula\u0000yy"))).toBe("dracula");

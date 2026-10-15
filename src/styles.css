@@ -1435,7 +1435,110 @@
   --radius-xl: 0px;
 }
 
-@scope (:is([data-skin="terminal"], [data-skin="terminal-dracula"], [data-skin="terminal-ice"], [data-skin="paper-tape"])) to ([data-skin]) {
+/* ── Logfile, Multiplexer, Modal ──────────────────────────────────────────
+   Terminal's chrome again, each with one tool's look on top: a log gutter,
+   tmux panes and status bar, vim's line numbers, mode and ruler.
+   ───────────────────────────────────────────────────────────────────────── */
+[data-skin="logfile"] {
+  --color-app: #0e0f11;
+  --color-panel: #121316;
+  --color-raised: #1a1c20;
+  --color-raised-hover: #222429;
+  --color-card: #141518;
+  --color-inset: #08090a;
+  --color-control: #1c1e22;
+  --color-hairline: #34373d;
+
+  --color-ink: #d3d6db;
+  --color-ink-secondary: #8a909a;
+
+  --color-accent: #6fa3e8;
+  --color-accent-border: #8ab5ee;
+  --color-accent-text: #7fb0f0;
+  --color-focus: #7fb0f0;
+  --color-accent-ink: #0e0f11;
+  --color-bubble-user: #1a1c20;
+
+  --color-success: #8fbf8a;
+  --color-danger: #ff6b6b;
+  --color-danger-ink: #0e0f11;
+  --color-warning: #e5a93d;
+  --color-scrollbar: #34373d;
+  --color-maus-line: #8a909a;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+[data-skin="multiplexer"] {
+  --color-app: #0d1014;
+  --color-panel: #11151a;
+  --color-raised: #191e25;
+  --color-raised-hover: #212730;
+  --color-card: #13171c;
+  --color-inset: #07090b;
+  --color-control: #1b2028;
+  --color-hairline: #3a434f;
+
+  --color-ink: #dde3ea;
+  --color-ink-secondary: #8f9aa8;
+
+  --color-accent: #a9bdd6;
+  --color-accent-border: #bccbe0;
+  --color-accent-text: #a9bdd6;
+  --color-focus: #a9bdd6;
+  --color-accent-ink: #0d1014;
+  --color-bubble-user: #191e25;
+
+  --color-success: #8ccf9e;
+  --color-danger: #ff7b7b;
+  --color-danger-ink: #0d1014;
+  --color-warning: #e8c27a;
+  --color-scrollbar: #3a434f;
+  --color-maus-line: #8f9aa8;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+[data-skin="modal"] {
+  --color-app: #0b0c14;
+  --color-panel: #10111b;
+  --color-raised: #181a28;
+  --color-raised-hover: #202233;
+  --color-card: #12131e;
+  --color-inset: #06070c;
+  --color-control: #1a1c2b;
+  --color-hairline: #34374d;
+
+  --color-ink: #d4d7f0;
+  --color-ink-secondary: #8d92b8;
+
+  --color-accent: #a3a8ff;
+  --color-accent-border: #b6baff;
+  --color-accent-text: #aeb2ff;
+  --color-focus: #aeb2ff;
+  --color-accent-ink: #0b0c14;
+  --color-bubble-user: #181a28;
+
+  --color-success: #9ece6a;
+  --color-danger: #f7768e;
+  --color-danger-ink: #0b0c14;
+  --color-warning: #e0af68;
+  --color-scrollbar: #34374d;
+  --color-maus-line: #8d92b8;
+
+  --font-sans: "Cascadia Mono", "Cascadia Code", "Consolas", "Malgun Gothic",
+    ui-monospace, monospace;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+}
+
+@scope (:is([data-skin="terminal"], [data-skin="terminal-dracula"], [data-skin="terminal-ice"], [data-skin="paper-tape"], [data-skin="logfile"], [data-skin="multiplexer"], [data-skin="modal"])) to ([data-skin]) {
   [class*="rounded"] {
     border-radius: 0;
   }
@@ -1773,6 +1876,239 @@
   }
 }
 
+/* Logfile: logLine() stamps each row's clock time and level as data-*, and
+   the row becomes a flex line so the gutter can sit beside it. */
+@scope ([data-skin="logfile"]) to ([data-skin]) {
+  [data-log-time] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+
+  /* day separators and sender labels keep a line of their own */
+  [data-log-time] > * {
+    flex-basis: 100%;
+  }
+
+  [data-log-time] > :last-child {
+    order: 2;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  [data-log-time]::before,
+  [data-log-time]::after {
+    order: 1;
+    flex: none;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  [data-log-time]::before {
+    content: "[" attr(data-log-time) "]";
+    width: 11ch;
+    color: var(--color-ink-secondary);
+  }
+
+  [data-log-time]::after {
+    content: "";
+    width: 5ch;
+  }
+
+  [data-log-level="info"]::after {
+    content: "INFO";
+    color: var(--color-accent-text);
+  }
+
+  [data-log-level="warn"]::after {
+    content: "WARN";
+    color: var(--color-warning);
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content] {
+    padding-left: 0;
+  }
+
+  [data-orbit-message="bot"] [data-orbit-message-content]::before {
+    content: none;
+  }
+
+  [data-orbit-message="user"] [data-orbit-message-content] {
+    background: transparent;
+  }
+
+  /* dense: hover actions overlay the line's end instead of a strip under it */
+  [data-orbit-message-body]:not(:has(> [data-turn-mascot], > [data-message-reactions])) {
+    padding-bottom: 0.25rem;
+  }
+
+  /* the hover clock under a line; the gutter already prints it */
+  [data-orbit-message] > button {
+    display: none;
+  }
+
+  [data-orbit-message-body] > [data-message-hover-actions] {
+    top: 0;
+    right: 0;
+    bottom: auto;
+    left: auto;
+    background: var(--color-app);
+  }
+
+  .term-step[data-term-step="failed"]::before {
+    color: var(--color-warning);
+  }
+
+  @media (max-width: 640px) {
+    [data-log-time] > :last-child {
+      flex-basis: 100%;
+    }
+  }
+}
+
+/* Multiplexer: tmux. The open view is the active pane, boxed in the accent,
+   and the status line is the one-line bar with this bot as its window. */
+@scope ([data-skin="multiplexer"]) to ([data-skin]) {
+  aside[data-phone-drawer] {
+    border-right-color: transparent;
+    box-shadow: inset 0 0 0 1px var(--color-hairline);
+  }
+
+  main {
+    position: relative;
+    overflow-x: clip;
+  }
+
+  /* drawn over the pane, or the composer's ground strip covers its foot */
+  main::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    border: 1px solid var(--color-accent);
+    pointer-events: none;
+  }
+
+  /* the bar bleeds to the pane's edges; main clips it */
+  .term-status {
+    display: flex;
+    gap: 2ch;
+    margin-top: 6px;
+    padding: 0 1ch 0 0;
+    background: var(--color-accent);
+    box-shadow: 0 0 0 100vmax var(--color-accent);
+    clip-path: inset(0 -100vmax);
+    color: var(--color-accent-ink);
+  }
+
+  .term-status * {
+    color: inherit;
+  }
+
+  .term-status::before {
+    content: "0:" attr(data-term-window) "*";
+    flex: none;
+    padding: 0 1ch;
+    background: var(--color-accent-ink);
+    color: var(--color-accent-text);
+  }
+
+  .term-status > div {
+    min-width: 0;
+  }
+
+  .term-status > div:first-child {
+    flex: 1 1 auto;
+  }
+
+  .term-status > div:last-child {
+    flex: 0 1 auto;
+  }
+
+  .term-status button:hover {
+    text-decoration: underline;
+  }
+}
+
+/* Modal: vim. A number per transcript row, the mode on the composer's lower
+   rule, and a ruler on the last line. The counter reaches the composer
+   because the composer dock follows the transcript as a sibling. */
+@scope ([data-skin="modal"]) to ([data-skin]) {
+  [data-orbit-transcript] {
+    counter-reset: modal-line;
+  }
+
+  [data-orbit-transcript] :is([data-mid], [data-run]):not([data-run] *) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    counter-increment: modal-line;
+  }
+
+  [data-orbit-transcript] :is([data-mid], [data-run]):not([data-run] *) > * {
+    flex-basis: 100%;
+  }
+
+  [data-orbit-transcript] :is([data-mid], [data-run]):not([data-run] *) > :last-child {
+    order: 2;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  [data-orbit-transcript] :is([data-mid], [data-run]):not([data-run] *)::before {
+    content: counter(modal-line);
+    order: 1;
+    flex: none;
+    width: 4ch;
+    margin-right: 2ch;
+    text-align: right;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--color-ink-secondary);
+  }
+
+  [data-orbit-composer-frame]::before,
+  :has(> [data-orbit-composer-frame])::after {
+    position: absolute;
+    bottom: 0;
+    z-index: 1;
+    padding: 0 1ch;
+    transform: translateY(50%);
+    background: var(--color-app);
+    color: var(--color-ink-secondary);
+    font-size: 12px;
+    line-height: 1.4;
+    pointer-events: none;
+  }
+
+  [data-orbit-composer-frame]::before {
+    content: "-- NORMAL --";
+    left: 1rem;
+  }
+
+  [data-orbit-composer-frame]:focus-within::before {
+    content: "-- INSERT --";
+    color: var(--color-ink);
+    font-weight: 700;
+  }
+
+  :has(> [data-orbit-composer-frame])::after {
+    content: counter(modal-line) ",1\00a0\00a0\00a0\00a0 Bot";
+    right: 1rem;
+  }
+
+  .term-status {
+    padding-top: 12px;
+  }
+
+  @media (max-width: 640px) {
+    [data-orbit-transcript] :is([data-mid], [data-run]):not([data-run] *)::before {
+      width: 3ch;
+      margin-right: 1ch;
+    }
+  }
+}
+
 @keyframes term-blink {
   to {
     visibility: hidden;
@@ -1785,7 +2121,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .term-blink,
-  :is([data-skin="terminal"], [data-skin="terminal-dracula"], [data-skin="terminal-ice"], [data-skin="paper-tape"]) .term-step[data-term-step="running"]::before {
+  :is([data-skin="terminal"], [data-skin="terminal-dracula"], [data-skin="terminal-ice"], [data-skin="paper-tape"], [data-skin="logfile"], [data-skin="multiplexer"], [data-skin="modal"]) .term-step[data-term-step="running"]::before {
     animation: none;
   }
 }

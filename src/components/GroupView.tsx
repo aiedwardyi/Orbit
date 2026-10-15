@@ -19,6 +19,7 @@ import { BotAvatar } from "./Avatar";
 import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { isTerminalSkin, useSkin } from "@/lib/skins";
+import { logLine } from "@/lib/terminal-skin";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { isRinging } from "@/lib/routine-ring";
@@ -343,7 +344,8 @@ export const Transcript = memo(function Transcript({
 }) {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
-  const terminal = isTerminalSkin(useSkin());
+  const skin = useSkin();
+  const terminal = isTerminalSkin(skin);
   const showToolCalls = showToolCallsEnabled(state.config);
   const showActivities = showToolCalls || terminal;
   const memberOf = (id?: string) => members.find((b) => b.id === id);
@@ -397,7 +399,7 @@ export const Transcript = memo(function Transcript({
         if (item.kind === "run") {
           const first = item.messages[0];
           return (
-            <div key={item.id} className="contents" data-run={item.id}>
+            <div key={item.id} className="contents" data-run={item.id} {...logLine(skin === "logfile", first.at, item.messages)}>
               {newDay && (
                 <div className="py-3 text-center text-[13px] text-ink-secondary">
                   {dayLabel(first.at)} {formatTime(first.at, localeTag(locale))}
@@ -632,7 +634,7 @@ export const Transcript = memo(function Transcript({
           ) : null;
         if (!row) return null;
         return (
-          <div key={key} className="contents" data-mid={m.id} data-find-for={item.notices?.map((notice) => notice.message.id).join(" ") || undefined}>
+          <div key={key} className="contents" data-mid={m.id} data-find-for={item.notices?.map((notice) => notice.message.id).join(" ") || undefined} {...logLine(skin === "logfile", m.at, [m])}>
             {newDay && (
               <div className="py-3 text-center text-[13px] text-ink-secondary">
                 {dayLabel(m.at)} {formatTime(m.at, localeTag(locale))}

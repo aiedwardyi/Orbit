@@ -246,7 +246,7 @@ describe("skins", () => {
 });
 
 const TERMINAL_SCOPE =
-  '@scope (:is([data-skin="terminal"], [data-skin="terminal-dracula"], [data-skin="terminal-ice"], [data-skin="paper-tape"])) to ([data-skin]) {';
+  '@scope (:is([data-skin="terminal"], [data-skin="terminal-dracula"], [data-skin="terminal-ice"], [data-skin="paper-tape"], [data-skin="logfile"], [data-skin="multiplexer"], [data-skin="modal"])) to ([data-skin]) {';
 
 describe("Terminal composer", () => {
   const terminal = css.split(TERMINAL_SCOPE)[1]?.split("@keyframes term-blink")[0] ?? "";
@@ -326,6 +326,48 @@ describe("Terminal palettes", () => {
     const paper = css.split('@scope ([data-skin="paper-tape"]) to ([data-skin]) {')[1]?.split("@keyframes term-blink")[0] ?? "";
     expect(paper).toMatch(/\[data-orbit-message="bot"\] \[data-orbit-message-content\]::before\s*\{\s*content: none;/);
     expect(paper).toMatch(/\[data-orbit-composer-frame\]::after\s*\{\s*content: "\$";/);
+  });
+});
+
+describe("Logfile, Multiplexer and Modal", () => {
+  const scope = (id: string) => css.split(`@scope ([data-skin="${id}"]) to ([data-skin]) {`)[1]?.split("\n}\n")[0] ?? "";
+  const source = (file: string) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../components", file), "utf8");
+
+  it("follow Paper Tape in the list as dark skins on Terminal's chrome", () => {
+    const ids = SKINS.map((s) => s.id);
+    const at = ids.indexOf("paper-tape");
+    expect(ids.slice(at + 1, at + 4)).toEqual(["logfile", "multiplexer", "modal"]);
+    for (const id of ["logfile", "multiplexer", "modal"] as const) {
+      expect(isTerminalSkin(id)).toBe(true);
+      expect(TERMINAL_SCOPE).toContain(`[data-skin="${id}"]`);
+      expect(LIGHT_SKIN_IDS.has(id)).toBe(false);
+      expect(scope(id)).not.toBe("");
+    }
+  });
+
+  it("prints Logfile's gutter from the rows' data-log attributes", () => {
+    const log = scope("logfile");
+    expect(log).toContain('content: "[" attr(data-log-time) "]";');
+    expect(log).toMatch(/\[data-log-level="info"\]::after\s*\{\s*content: "INFO";/);
+    expect(log).toMatch(/\[data-log-level="warn"\]::after\s*\{\s*content: "WARN";\s*color: var\(--color-warning\);/);
+    for (const file of ["ChatView.tsx", "GroupView.tsx"]) {
+      expect(source(file).match(/\{\.\.\.logLine\(skin === "logfile", /g)).toHaveLength(2);
+    }
+  });
+
+  it("draws Multiplexer's pane box and status bar with the bot as the inverted window", () => {
+    const mux = scope("multiplexer");
+    expect(mux).toMatch(/\.term-status::before\s*\{\s*content: "0:" attr\(data-term-window\) "\*";/);
+    expect(mux).toMatch(/main::after\s*\{[^}]*border: 1px solid var\(--color-accent\);[^}]*pointer-events: none;/);
+    expect(source("TermStatusLine.tsx")).toContain("data-term-window={bot.name}");
+  });
+
+  it("switches Modal's mode on composer focus and numbers the transcript rows", () => {
+    const vim = scope("modal");
+    expect(vim).toMatch(/\[data-orbit-composer-frame\]::before\s*\{\s*content: "-- NORMAL --";/);
+    expect(vim).toMatch(/\[data-orbit-composer-frame\]:focus-within::before\s*\{\s*content: "-- INSERT --";/);
+    expect(vim).toContain("counter-increment: modal-line;");
+    expect(vim).toMatch(/::after\s*\{\s*content: counter\(modal-line\) ",1\\00a0\\00a0\\00a0\\00a0 Bot";/);
   });
 });
 
@@ -1351,7 +1393,7 @@ describe("skin persistence", () => {
     expect(readSkin()).toBe("ledger");
   });
 
-  it.each(["terminal-dracula", "terminal-ice", "paper-tape"] as const)("tool detail opts in for %s too", async (id) => {
+  it.each(["terminal-dracula", "terminal-ice", "paper-tape", "logfile", "multiplexer", "modal"] as const)("tool detail opts in for %s too", async (id) => {
     const fetch = vi.fn(async () => Response.json({}));
     vi.stubGlobal("fetch", fetch);
     applySkin(id);

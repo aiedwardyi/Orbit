@@ -29,7 +29,7 @@ export function TermStatusLine({ bot, engine, cwd = bot.cwd, turns }: { bot: Bot
   const summary = visibleMessages(bot).findLast((message) => message.kind === "compaction" && readContextCompaction({ value: message.compaction }).status === "valid");
   const age = summary && readingAge(new Date(summary.at).toISOString(), now);
   return (
-    <div data-term-status role="group" aria-label={t("term.status.aria")} className="term-status">
+    <div data-term-status data-term-window={bot.name} role="group" aria-label={t("term.status.aria")} className="term-status">
       <div>
         <span aria-hidden="true" className="text-accent">◆</span> {model}
         {cwd && (
