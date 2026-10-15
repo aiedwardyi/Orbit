@@ -118,7 +118,7 @@ export function DeviceSwitcher({
           "animate-pop-in mt-1 w-60 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60",
           labeled ? "fixed z-50" : "absolute right-0 top-full z-40",
         )}
-        style={labeled ? pinned : undefined}
+        style={pinned}
       >
             {devices.map((device) =>
               device.current && renaming ? (
@@ -193,11 +193,17 @@ export function DeviceSwitcher({
         data-device-tag={labeled ? "" : undefined}
         onClick={(event) => {
           if (open) return close();
+          const menuWidth = 240; // mirrors w-60
           if (labeled) {
             const rect = event.currentTarget.getBoundingClientRect();
-            const menuWidth = 240;
             const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8));
             setPinned({ top: rect.bottom, left });
+          } else {
+            // The menu hangs off the button row's right edge; a narrow sidebar would push it off screen.
+            const row = (event.currentTarget.offsetParent ?? event.currentTarget).getBoundingClientRect();
+            const aside = event.currentTarget.closest("aside")?.getBoundingClientRect();
+            const [min, max] = aside && aside.width >= menuWidth + 16 ? [aside.left + 8, aside.right - 8] : [8, window.innerWidth - 8];
+            setPinned({ right: row.right - Math.min(Math.max(row.right, min + menuWidth), max) });
           }
           setOpen(true);
           reload();

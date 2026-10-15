@@ -188,6 +188,38 @@ describe("DeviceSwitcher", () => {
     expect(navigate).not.toHaveBeenCalled();
     expect(host.querySelector("ul:not([inert])")).toBeNull();
   });
+
+  it("keeps the desktop menu on screen beside a narrow sidebar", async () => {
+    setPhone(false);
+    setDesktop();
+    const { host } = await renderView([device("home", { current: true }), device("work")]);
+    const aside = document.createElement("aside");
+    document.body.append(aside);
+    aside.append(host);
+    const box = (left: number, right: number) => new DOMRect(left, 0, right - left, 40);
+    vi.spyOn(aside, "getBoundingClientRect").mockReturnValue(box(0, 220));
+    vi.spyOn(host, "getBoundingClientRect").mockReturnValue(box(0, 204));
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    Object.defineProperty(toggle, "offsetParent", { value: host });
+    await act(async () => click(toggle));
+    expect(host.querySelector("ul")!.style.right).toBe("-44px");
+  });
+
+  it("clamps the desktop menu to a wide sidebar's own edges", async () => {
+    setPhone(false);
+    setDesktop();
+    const { host } = await renderView([device("home", { current: true }), device("work")]);
+    const aside = document.createElement("aside");
+    document.body.append(aside);
+    aside.append(host);
+    const box = (left: number, right: number) => new DOMRect(left, 0, right - left, 40);
+    vi.spyOn(aside, "getBoundingClientRect").mockReturnValue(box(100, 400));
+    vi.spyOn(host, "getBoundingClientRect").mockReturnValue(box(100, 204));
+    const toggle = host.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    Object.defineProperty(toggle, "offsetParent", { value: host });
+    await act(async () => click(toggle));
+    expect(host.querySelector("ul")!.style.right).toBe("-144px");
+  });
 });
 
 describe("DeviceTag", () => {
