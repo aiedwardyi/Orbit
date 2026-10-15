@@ -4531,3 +4531,50 @@ button:disabled.bg-danger {
 @media (prefers-reduced-motion: reduce) {
   .needs-you-glow::after { animation: none; opacity: 1; }
 }
+
+/* An unread chat that is not asking: the same thin accent ring as
+   .needs-you-glow, steady. No glow, no motion. Box shadows only, so the
+   row never changes size, and no `filter`, so provider model dots keep
+   their own colors on every skin. */
+.unread-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1.5px color-mix(in oklab, var(--color-accent) 92%, transparent);
+}
+
+/* One in-and-out of the needs-you glow when a live reply lands. It lives
+   on ::before so the steady ring's ::after never fades with it; removed on
+   animation end. Never combined with .needs-you-glow. */
+.arrival-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow:
+    0 0 0 1.5px color-mix(in oklab, var(--color-accent) 92%, transparent),
+    0 0 14px 3px color-mix(in oklab, var(--color-accent) 60%, transparent);
+  animation: arrival-glow-once 2s ease-in-out 1;
+}
+
+/* On a ringed row only the soft glow fades: the outline stays at full
+   strength from the first frame to the last, so removing the class changes
+   nothing on screen. */
+.unread-ring.arrival-glow::before {
+  box-shadow:
+    0 0 14px 3px color-mix(in oklab, var(--color-accent) 60%, transparent);
+}
+
+@keyframes arrival-glow-once {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arrival-glow::before { animation: none; opacity: 0; }
+}

@@ -36,6 +36,7 @@ import { openLiveEvents } from "@/lib/live-events";
 import { holdReload } from "@/lib/reload-hold";
 import { hapticTick } from "@/lib/phone-swipe";
 import { isShownMessage } from "@/lib/shown-message";
+import { arrivalChatForFrame, noteArrival } from "@/lib/arrival-glow";
 import {
   acceptedSendPaint,
   applyOptimisticBusy,
@@ -3152,6 +3153,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rawDispatch({ type: "messageAdded", threadId: frame.threadId, message: frame.message });
           noteStreamTail(frame.threadId, frame.message?.id);
           if (launchFrom !== undefined && frame.message?.id) retargetStream(frame.threadId, launchFrom, frame.message.id);
+          // the sidebar's one-shot arrival glow; per-chat, store state untouched
+          const arrivalId = arrivalChatForFrame(frame, stateRef.current);
+          if (arrivalId) noteArrival(arrivalId);
           if (frame.message?.role === "user" && typeof frame.message.queueId === "string") {
             rawDispatch({
               type: "consumePendingQueued",

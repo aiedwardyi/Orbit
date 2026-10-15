@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
+import { useArrivalGlow } from "@/lib/arrival-glow";
 
 export function SidebarSectionHeader({
   name,
@@ -12,6 +13,7 @@ export function SidebarSectionHeader({
   hiddenCount = 0,
   unreadBadge = null,
   needsYou = false,
+  arrivalIds = [],
   onToggle,
   onDragStart,
   onDragEnd,
@@ -27,6 +29,8 @@ export function SidebarSectionHeader({
   unreadBadge?: string | null;
   /** a hidden row's chat is waiting on the person: the toggle glows */
   needsYou?: boolean;
+  /** ids of the hidden rows: a live reply to one glows the toggle once */
+  arrivalIds?: readonly string[];
   onToggle?: () => void;
   onDragStart?: (event: DragEvent<HTMLButtonElement>) => void;
   onDragEnd?: () => void;
@@ -52,6 +56,7 @@ export function SidebarSectionHeader({
       ? t("chrome.sectionCollapsedUnread", { name, count: hiddenCount, unread: unreadBadge })
       : t("chrome.sectionCollapsed", { name, count: hiddenCount });
   const asking = collapsed && needsYou;
+  const arrival = useArrivalGlow(arrivalIds, { enabled: collapsed, asking });
   const label = asking ? t("ask.sectionHasQuestion", { label: baseLabel }) : baseLabel;
   const content = (
     <>
@@ -118,10 +123,13 @@ export function SidebarSectionHeader({
           onDragEnd={onDragEnd}
           onKeyDown={onHeaderKeyDown}
           data-sidebar-needs-you={asking || undefined}
+          data-arrival-glow={arrival.playing || undefined}
+          onAnimationEnd={arrival.onAnimationEnd}
           className={cn(
             "flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-raised/50",
             dragging && "opacity-40",
             asking && "relative needs-you-glow",
+            arrival.playing && "relative arrival-glow",
           )}
           title="Alt+Up/Down to reorder"
         >
@@ -135,9 +143,12 @@ export function SidebarSectionHeader({
           aria-expanded={!collapsed}
           onClick={onToggle}
           data-sidebar-needs-you={asking || undefined}
+          data-arrival-glow={arrival.playing || undefined}
+          onAnimationEnd={arrival.onAnimationEnd}
           className={cn(
             "flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-raised/50",
             asking && "relative needs-you-glow",
+            arrival.playing && "relative arrival-glow",
           )}
         >
           {content}

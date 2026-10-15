@@ -14,6 +14,7 @@ import {
 } from "@/state/store";
 import { collapsedUnreadCount, formatCollapsedUnreadBadge, unreadConversationCount } from "@/lib/unread";
 import { anyChatNeedsYou } from "@/lib/open-question";
+import { useArrivalGlow } from "@/lib/arrival-glow";
 import { listedGroups, preferredStartupSelectionId } from "@/lib/sidebar-order";
 import { DRAWER_BUTTON_LEFT, DRAWER_BUTTON_RIGHT } from "@/lib/drawer-button";
 import { loadSidebarOrder, useSidebarSide } from "@/lib/sidebar-preferences";
@@ -33,7 +34,7 @@ import { useTerminalPanes } from "@/lib/terminal-panes";
 import { rememberTerminalOpened, schedulePrestart } from "@/lib/terminal-prestart";
 import { composerNeedsTap, focusComposerOnActivation } from "@/lib/focus-composer";
 import { webPushTarget } from "@/lib/web-push";
-import { useDrawerSwipe, usePhoneSwipe } from "@/lib/use-phone-swipe";
+import { useDrawerSwipe, useIsPhone, usePhoneSwipe } from "@/lib/use-phone-swipe";
 import { BackNavigation, backDepth, followSelection, trailTarget, type BackLayer } from "@/lib/back-navigation";
 import { SKINS, applySkin, nextSkin, readSkin, type SkinId } from "@/lib/skins";
 import { Presence } from "@/lib/use-presence";
@@ -98,6 +99,16 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // turn the aside into a containing block for its fixed descendants (see
   // Sidebar.tsx's className comment).
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // The button is md:hidden: at desktop width its animation never runs, so an
+  // ungated glow would sit flagged until a later resize replays it. Gating on
+  // visibility consumes the arrival instead.
+  const phoneMenuVisible = useIsPhone();
+  const menuArrival = useArrivalGlow(
+    [...state.bots.filter((bot) => !bot.hidden), ...listedGroups(state.groups)]
+      .filter((chat) => chat.id !== state.selectedId)
+      .map((chat) => chat.id),
+    { enabled: !drawerOpen && phoneMenuVisible, asking: menuAsking },
+  );
   const [themeToast, setThemeToast] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -626,7 +637,9 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         onClick={() => setDrawerOpen(true)}
         data-menu-needs-you={menuAsking || undefined}
         data-phone-menu
-        className={`absolute z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden ${sidebarOnRight ? DRAWER_BUTTON_RIGHT : DRAWER_BUTTON_LEFT}${menuAsking ? " needs-you-glow" : ""}`}
+        data-arrival-glow={menuArrival.playing || undefined}
+        onAnimationEnd={menuArrival.onAnimationEnd}
+        className={`absolute z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden ${sidebarOnRight ? DRAWER_BUTTON_RIGHT : DRAWER_BUTTON_LEFT}${menuAsking ? " needs-you-glow" : ""}${menuArrival.playing ? " arrival-glow" : ""}`}
       >
         <Menu size={18} />
         {menuUnreadBadge != null && (
