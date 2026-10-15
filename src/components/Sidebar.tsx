@@ -115,6 +115,7 @@ import { Presence, usePresence } from "@/lib/use-presence";
 import { phoneSettingsAction, SidebarPhoneButton } from "./SidebarPhoneButton";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { anyChatNeedsYou, chatNeedsYou } from "@/lib/open-question";
+import { useArrivalGlow } from "@/lib/arrival-glow";
 import { DeviceSwitcher } from "./DeviceSwitcher";
 import { phoneSettingsAvailable } from "@/lib/phone-availability";
 import { isPhone } from "@/lib/phone-swipe";
@@ -281,6 +282,8 @@ function GroupListItem({
     .filter((b): b is Bot => Boolean(b));
   const last = group.messages.filter(isShownMessage).at(-1);
   const asking = chatNeedsYou(group.messages);
+  const unreadRing = Boolean(group.unread) && !asking;
+  const arrival = useArrivalGlow([group.id], { asking });
   const select = () => {
     if (selected) onReselect?.();
     dispatch({ type: "select", id: group.id });
@@ -325,6 +328,7 @@ function GroupListItem({
       data-sidebar-row-kind="group"
       data-sidebar-row-id={group.id}
       data-sidebar-needs-you={asking || undefined}
+      data-sidebar-chat-unread={group.unread || undefined}
       title={density === "icons" ? group.name : undefined}
       {...dragProps}
     >
@@ -383,7 +387,11 @@ function GroupListItem({
           density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 px-2 py-1.5" : "gap-2 px-3 py-1.5",
           selected ? "bg-raised" : "hover:bg-raised/50",
           asking && "relative needs-you-glow",
+          unreadRing && "relative unread-ring",
+          arrival.playing && "relative arrival-glow",
         )}
+        data-arrival-glow={arrival.playing || undefined}
+        onAnimationEnd={arrival.onAnimationEnd}
         aria-label={density === "icons" ? (asking ? t("ask.rowHasQuestion", { name: group.name }) : group.name) : undefined}
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
       >
@@ -414,13 +422,9 @@ function GroupListItem({
             >
               {roomConversationPreview(group, state.bots, showToolCalls)}
             </span>
-            {group.unread && <span className="size-2 shrink-0 rounded-full bg-accent" />}
           </div>
         </div>
       </button>
-      {density === "icons" && group.unread && (
-        <span className="absolute bottom-1.5 right-1.5 size-2 rounded-full border border-panel bg-accent" />
-      )}
     </div>
   );
 }
@@ -877,6 +881,8 @@ function BotListItem({
     : null;
   const workerPanesTitle = workerPanesLabel && [workerPanesLabel, ...paneLabels.filter(Boolean)].join("\n");
   const asking = chatNeedsYou(bot.messages);
+  const unreadRing = Boolean(bot.unread) && !asking;
+  const arrival = useArrivalGlow([bot.id], { asking });
   const rowClass = cn(
     "flex w-full items-center rounded-xl border text-left",
     iconOnly
@@ -886,6 +892,8 @@ function BotListItem({
         : "gap-2 px-3 py-1.5 pr-12",
     sidebarConversationRowTone(selected),
     asking && "relative needs-you-glow",
+    unreadRing && "relative unread-ring",
+    arrival.playing && "relative arrival-glow",
   );
   const iconLabel = modelLabel ? `${bot.name} · ${modelLabel}` : bot.name;
   const body = (
@@ -913,17 +921,6 @@ function BotListItem({
               selected ? "ring-2 ring-raised" : "ring-2 ring-panel",
             )}
             style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }}
-          />
-        )}
-        {bot.unread && (
-          <span
-            data-sidebar-chat-unread
-            aria-hidden="true"
-            className={cn(
-              "pointer-events-none absolute bottom-0.5 right-0.5 size-2 rounded-full border",
-              selected ? "border-raised" : "border-panel",
-              "bg-accent",
-            )}
           />
         )}
         {(terminalCopy || workerPanesLabel) && (
@@ -1043,7 +1040,12 @@ function BotListItem({
   // are presentational, which hides the field from assistive tech.
   if (renaming) {
     return (
-      <div className={rowClass} onContextMenu={onContextMenu}>
+      <div
+        className={rowClass}
+        onContextMenu={onContextMenu}
+        data-arrival-glow={arrival.playing || undefined}
+        onAnimationEnd={arrival.onAnimationEnd}
+      >
         {body}
       </div>
     );
@@ -1087,6 +1089,7 @@ function BotListItem({
       data-sidebar-row-kind="bot"
       data-sidebar-row-id={bot.id}
       data-sidebar-needs-you={asking || undefined}
+      data-sidebar-chat-unread={bot.unread || undefined}
       title={iconOnly ? iconLabel : undefined}
       {...dragProps}
     >
@@ -1131,6 +1134,8 @@ function BotListItem({
         }}
         onContextMenu={onContextMenu}
         className={rowClass}
+        data-arrival-glow={arrival.playing || undefined}
+        onAnimationEnd={arrival.onAnimationEnd}
       >
         {body}
       </div>
@@ -1344,6 +1349,12 @@ export function Sidebar({
   const collapsedUnread = sidebarCollapsed ? collapsedUnreadCount(state.bots, state.groups, state.selectedId) : 0;
   const collapsedUnreadBadge = formatCollapsedUnreadBadge(collapsedUnread);
   const collapsedAsking = sidebarCollapsed && anyChatNeedsYou([...state.bots, ...listedGroups(state.groups)], state.selectedId);
+  const collapsedArrival = useArrivalGlow(
+    [...state.bots.filter((bot) => !bot.hidden), ...listedGroups(state.groups)]
+      .filter((chat) => chat.id !== state.selectedId)
+      .map((chat) => chat.id),
+    { enabled: sidebarCollapsed, asking: Boolean(collapsedAsking) },
+  );
   const collapsedBadgeRef = useRef<HTMLSpanElement>(null);
   const lastCollapsedUnread = useRef(collapsedUnread);
   useEffect(() => {
@@ -2256,9 +2267,12 @@ export function Sidebar({
                 : t("chrome.collapseSidebar")
             }
             data-sidebar-needs-you={collapsedAsking || undefined}
+            data-arrival-glow={collapsedArrival.playing || undefined}
+            onAnimationEnd={collapsedArrival.onAnimationEnd}
             className={cn(
               "relative flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink",
               collapsedAsking && "needs-you-glow",
+              collapsedArrival.playing && "arrival-glow",
             )}
             title={density === "icons" ? t("chrome.expandSidebar") : t("chrome.collapseSidebar")}
           >
@@ -2499,6 +2513,7 @@ export function Sidebar({
                     hiddenCount={hiddenItems.length}
                     unreadBadge={formatCollapsedUnreadBadge(hiddenUnread)}
                     needsYou={hiddenAsking}
+                    arrivalIds={hiddenItems.map((item) => item.id)}
                     onToggle={sectionsCollapsible ? () => toggleSection(id) : undefined}
                     onDragStart={(event) => {
                       event.dataTransfer.effectAllowed = "move";

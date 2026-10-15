@@ -14,6 +14,7 @@ import {
 } from "@/state/store";
 import { collapsedUnreadCount, formatCollapsedUnreadBadge, unreadConversationCount } from "@/lib/unread";
 import { anyChatNeedsYou } from "@/lib/open-question";
+import { useArrivalGlow } from "@/lib/arrival-glow";
 import { listedGroups, preferredStartupSelectionId } from "@/lib/sidebar-order";
 import { DRAWER_BUTTON_LEFT, DRAWER_BUTTON_RIGHT } from "@/lib/drawer-button";
 import { loadSidebarOrder, useSidebarSide } from "@/lib/sidebar-preferences";
@@ -98,6 +99,12 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // turn the aside into a containing block for its fixed descendants (see
   // Sidebar.tsx's className comment).
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const menuArrival = useArrivalGlow(
+    [...state.bots.filter((bot) => !bot.hidden), ...listedGroups(state.groups)]
+      .filter((chat) => chat.id !== state.selectedId)
+      .map((chat) => chat.id),
+    { enabled: !drawerOpen, asking: menuAsking },
+  );
   const [themeToast, setThemeToast] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -626,7 +633,9 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
         onClick={() => setDrawerOpen(true)}
         data-menu-needs-you={menuAsking || undefined}
         data-phone-menu
-        className={`absolute z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden ${sidebarOnRight ? DRAWER_BUTTON_RIGHT : DRAWER_BUTTON_LEFT}${menuAsking ? " needs-you-glow" : ""}`}
+        data-arrival-glow={menuArrival.playing || undefined}
+        onAnimationEnd={menuArrival.onAnimationEnd}
+        className={`absolute z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden ${sidebarOnRight ? DRAWER_BUTTON_RIGHT : DRAWER_BUTTON_LEFT}${menuAsking ? " needs-you-glow" : ""}${menuArrival.playing ? " arrival-glow" : ""}`}
       >
         <Menu size={18} />
         {menuUnreadBadge != null && (

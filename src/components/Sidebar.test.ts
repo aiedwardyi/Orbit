@@ -1667,7 +1667,7 @@ describe("Sidebar bot second line", () => {
     }
   });
 
-  it("keeps model and chat dots in fixed corners while exposing terminal attention", async () => {
+  it("keeps the model dot cornered and rings the unread row while exposing terminal attention", async () => {
     const attentionBot = {
       ...bot("attention"),
       unread: true,
@@ -1700,8 +1700,10 @@ describe("Sidebar bot second line", () => {
       expect(badge.getAttribute("title")).toBe("The terminal is waiting for input.");
       expect(host.querySelector("[data-sidebar-model-dot]")?.className).toContain("bottom-0.5");
       expect(host.querySelector("[data-sidebar-model-dot]")?.className).toContain("left-0.5");
-      expect(host.querySelector("[data-sidebar-chat-unread]")?.className).toContain("bottom-0.5");
-      expect(host.querySelector("[data-sidebar-chat-unread]")?.className).toContain("right-0.5");
+      const row = host.querySelector('[data-sidebar-row-id="attention"]');
+      expect(row?.hasAttribute("data-sidebar-chat-unread")).toBe(true);
+      expect(row?.querySelector('[role="button"]')?.className).toContain("unread-ring");
+      expect(row?.querySelector("span.bg-accent")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();
