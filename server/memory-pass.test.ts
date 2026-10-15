@@ -359,6 +359,51 @@ describe("memory pass", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
+  it("drops orphaned pending ids on restart", async () => {
+    say("t1", "i'm 38");
+    await vi.advanceTimersByTimeAsync(1_000);
+    pass.dispose();
+    vi.spyOn(store, "botByThread").mockReturnValue(null);
+    pass = start();
+    expect(stored()).toEqual({ threads: {} });
+    await vi.advanceTimersByTimeAsync(3 * MINUTE);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("clears an orphaned thread's idle timer on a config sweep", async () => {
+    say("t1", "i'm 38");
+    pass.onSettled("bot-t1", "t1");
+    await vi.advanceTimersByTimeAsync(1_000);
+    vi.spyOn(store, "botByThread").mockReturnValue(null);
+    pass.onConfigChanged();
+    expect(stored()).toEqual({ threads: {} });
+    await vi.advanceTimersByTimeAsync(3 * MINUTE);
+    await pass.idle();
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("aborts a deleted bot's running pass and drops its queued thread", async () => {
+    let finish: (output: string) => void = () => {};
+    generate.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    const lookup = store.botByThread;
+    const find = vi.spyOn(store, "botByThread").mockImplementation((threadId) => lookup(threadId === "t3" ? "t1" : threadId));
+    for (let i = 0; i < 8; i += 1) say("t1", "i'm 38");
+    pass.onSettled("bot-t1", "t1");
+    for (let i = 0; i < 8; i += 1) say("t2", "i like tea");
+    pass.onSettled("bot-t2", "t2");
+    for (let i = 0; i < 8; i += 1) say("t3", "i like coffee");
+    pass.onSettled("bot-t1", "t3");
+    await vi.advanceTimersByTimeAsync(1_000);
+    find.mockImplementation((threadId) => threadId === "t1" || threadId === "t3" ? null : lookup(threadId));
+    store.emit({ type: "bot.deleted", botId: "bot-t1" });
+    expect(generate.mock.calls[0]![1].aborted).toBe(true);
+    expect(stored()).toEqual({ threads: {} });
+    finish(facts(["38 years old", "i'm 38"]));
+    await pass.idle();
+    expect(memoryFileRaw("bot-t1")).toBe("");
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+
   it("skips a bot switched off while another bot runs", async () => {
     switchBot("bot-t1", false);
     for (let i = 0; i < 8; i += 1) {

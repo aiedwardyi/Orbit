@@ -376,7 +376,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
 
   const unsubscribe = deps.store.onChange((change: StoreChange) => {
     if (disposed) return;
-    if (change.type === "bot" && !deps.enabled(change.botId)) return stop();
+    if (change.type === "bot.deleted" || (change.type === "bot" && !deps.enabled(change.botId))) return stop();
     if (change.type !== "message" || change.imported) return;
     const { message, threadId } = change;
     if (message.role !== "user" || message.kind !== "text" || deps.store.groupByThread(threadId)) return;
@@ -391,14 +391,17 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
   });
 
   const stop = () => {
-    const off = (threadId: string, botId = deps.store.botByThread(threadId)?.id) => botId !== undefined && !deps.enabled(botId);
+    const off = (threadId: string) => {
+      const bot = deps.store.botByThread(threadId);
+      return !bot || !deps.enabled(bot.id);
+    };
     for (const [threadId, timer] of timers) {
       if (!off(threadId)) continue;
       clearTimeout(timer);
       timers.delete(threadId);
     }
-    for (let i = queue.length - 1; i >= 0; i -= 1) if (off(queue[i]!.threadId, queue[i]!.botId)) queue.splice(i, 1);
-    for (const [threadId, pass] of running) if (off(threadId, pass.botId)) pass.controller.abort();
+    for (let i = queue.length - 1; i >= 0; i -= 1) if (off(queue[i]!.threadId)) queue.splice(i, 1);
+    for (const [threadId, pass] of running) if (off(threadId)) pass.controller.abort();
     const before = pending.size;
     for (const threadId of pending.keys()) if (off(threadId)) pending.delete(threadId);
     if (pending.size !== before) save();
