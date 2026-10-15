@@ -186,6 +186,14 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
   new Function("bus", "providerReload", "drainQueuedSends", "paneWake", "followPendingSyncImports", "store", "syncMemory", fold)(
     { subscribe: (fn: typeof settle) => { settle = fn; } }, { settled: noop }, drainQueuedSends, paneWake, noop, store, noop,
   );
+  const deleteBotFully = load("deleteBotFully", {
+    registry: { get: () => undefined }, store: { ...store, deleteBot: noop },
+    stopScreenPoller: noop, activeVpsThreads: new Map(), routines: { disableForBot: noop }, webhooks: { disableForBot: noop },
+    lastReply: new Map(), cancelPeerApprovalsFor: noop, discardDelegations: noop, commsBus: {}, discardDelegationsFrom: noop,
+    computerControl: { forget: noop }, paneWake: { forgetBot: noop }, taskResumes,
+    perBotLocalVmTarget: () => ({ key: "vm" }), localVmIdles: new Map(),
+    EVENTS_DIR: "events", NATIVE_DIR: "native", join: (...parts: string[]) => parts.join("/"), unlinkSync: noop,
+  });
   const original = options.preparing ? startTurn(bot.id, "original") : Promise.resolve();
   const stopGroup = route('/^\\/api\\/groups\\/([\\w-]+)\\/interrupt$/', {
     store, taskResumes,
@@ -201,6 +209,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     resume: () => invoke("/api/bots/bot-1/tasks/thread-1/resume"),
     stop: () => stop("/api/bots/bot-1/interrupt"),
     stopGroup: () => stopGroup("/api/groups/group-1/interrupt"),
+    deleteBot: () => deleteBotFully(bot),
     finishPriorRoom: async () => { finishPriorRoom(); await flush(); },
     sendToRoom: (text: string) => {
       const next = (groupQueues.get(group.id) ?? Promise.resolve()).then(async () => { await startTurn(bot.id, text); });
@@ -343,6 +352,15 @@ describe("held room task resume", () => {
     f.sendToRoom("after Stop");
     await flush();
     expect(f.starts).toEqual(["after Stop"]);
+  });
+
+  it("bot delete releases a held resume's queue reservation", async () => {
+    const f = rig({ room: true, live: true });
+    expect((await f.resume()).body.pending).toBe(true);
+    await f.deleteBot();
+    f.sendToRoom("after delete");
+    await flush();
+    expect(f.starts).toEqual(["after delete"]);
   });
 });
 

@@ -1621,6 +1621,7 @@ async function deleteBotFully(bot: BotRecord): Promise<void> {
   discardDelegationsFrom(commsBus, bot.id);
   computerControl.forget(bot.id);
   paneWake.forgetBot(bot.id);
+  taskResumes.forgetBot(bot.id);
   const target = perBotLocalVmTarget(bot.id);
   localVmIdles.get(target.key)?.cancel();
   localVmIdles.delete(target.key);

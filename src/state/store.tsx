@@ -3397,6 +3397,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // abandoned generation. Keep the new generation behind hydrate().
         pendingFrames.splice(0);
         settling.current.clear();
+        // a held resume's task.resume frame may be lost in the gap
+        for (const settle of pendingTaskResumes.current.values()) settle(null);
         return hydrate();
       },
       onFrame: (frame) => {

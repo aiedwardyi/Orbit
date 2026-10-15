@@ -101,6 +101,15 @@ describe("held task resume card", () => {
     expect(f.host.querySelector("button")!.disabled).toBe(false);
   });
 
+  it("frees a held state when a snapshot replaces the event stream", async () => {
+    const f = await mount();
+    await f.click();
+    expect(f.host.querySelector("button")!.disabled).toBe(true);
+    await frame({ kind: "hello", resumed: false, cursor: "c2" });
+    expect(f.host.querySelector("button")!.disabled).toBe(false);
+    expect(f.host.querySelector(".text-danger")).toBeNull();
+  });
+
   it("clears a held state on Stop and ignores a late pending receipt after failure", async () => {
     let receipt!: (response: Response) => void;
     const post = vi.fn(async () => Response.json({ ok: true, pending: true }, { status: 202 }));
