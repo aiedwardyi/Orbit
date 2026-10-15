@@ -18,6 +18,10 @@ export function spawnTerminalPty(modulePath, shell, args, options) {
     resolveReady = resolve;
     rejectReady = reject;
   });
+  let resolveExited;
+  const exitedPromise = new Promise((resolve) => {
+    resolveExited = resolve;
+  });
   const errorValue = (value) => value instanceof Error ? value : new Error(String(value));
   const notifyError = (error) => {
     const cause = errorValue(error);
@@ -97,12 +101,15 @@ export function spawnTerminalPty(modulePath, shell, args, options) {
   worker.on("exit", (exitCode) => {
     if (exitCode !== 0 && !exited) fail(new Error(`Terminal worker exited (${exitCode})`));
     finish(exitCode);
+    resolveExited();
   });
   return {
     onData: (listener) => dataListeners.add(listener),
     onExit: (listener) => exitListeners.add(listener),
     onError: (listener) => errorListeners.add(listener),
     ready: readyPromise,
+    // The shell's exit arrives before the worker thread is gone.
+    exited: exitedPromise,
     write: (data) => request("write", { data }),
     resize: (cols, rows) => request("resize", { cols, rows }),
     kill: () => request("kill", {}),

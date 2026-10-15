@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
 import { createTerminalHost, createTerminalOutputParser, resolveBotSession, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender } from "./terminal-host.mjs";
+import { spawnTerminalPty } from "./terminal-pty.mjs";
 
 function fixture(options = {}) {
   const events = [];
@@ -27,6 +30,142 @@ function fixture(options = {}) {
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+test("dispose stops panes one at a time through their shutdown acknowledgements", async () => {
+  const f = fixture();
+  const stops = [];
+  const releases = [];
+  for (let i = 0; i < 3; i++) {
+    await f.host.open(f.event, { ...f.input, botId: `bot-${i}` });
+    f.children[i].kill = () => { stops.push(i); return new Promise((resolve) => { releases[i] = resolve; }); };
+  }
+  const disposal = f.host.dispose();
+  assert.ok(disposal instanceof Promise);
+  assert.equal(f.host.dispose(), disposal);
+  for (let i = 0; i < 3; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(stops, Array.from({ length: i + 1 }, (_, index) => index));
+    releases[i]();
+  }
+  await disposal;
+});
+
+test("dispose waits for worker exit after the shell has already exited", async () => {
+  const f = fixture();
+  await f.host.open(f.event, f.input);
+  let releaseExit;
+  f.children[0].exited = new Promise((resolve) => { releaseExit = resolve; });
+  f.children[0].exit({ exitCode: 0 });
+  let settled = false;
+  const disposal = Promise.resolve(f.host.dispose()).then(() => { settled = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  assert.equal(f.children[0].killed, false);
+  releaseExit();
+  await disposal;
+});
+
+test("dispose waits for the worker of a pane closed just before quit", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  await f.host.openForBot("bot-1");
+  let releaseExit;
+  f.children[0].exited = new Promise((resolve) => { releaseExit = resolve; });
+  await f.host.closeBotPanes("bot-1");
+  assert.equal(f.children[0].killed, true);
+  let settled = false;
+  const disposal = Promise.resolve(f.host.dispose()).then(() => { settled = true; });
+  await wait(50);
+  assert.equal(settled, false);
+  releaseExit();
+  await disposal;
+});
+
+test("dispose bounds each pane at one second without terminating its worker", async () => {
+  const f = fixture();
+  for (let i = 0; i < 2; i++) await f.host.open(f.event, { ...f.input, botId: `bot-${i}` });
+  let terminated = false;
+  f.children[0].kill = () => new Promise(() => {});
+  f.children[0].terminate = () => { terminated = true; };
+  const started = Date.now();
+  const disposal = f.host.dispose();
+  await wait(650);
+  assert.equal(terminated, false);
+  assert.equal(f.children[1].killed, false);
+  await disposal;
+  assert.equal(f.children[1].killed, true);
+  assert.ok(Date.now() - started >= 950);
+  assert.ok(Date.now() - started < 1500);
+  assert.equal(terminated, false);
+});
+
+test("dispose bounds all worker exits together at one second", async () => {
+  const f = fixture();
+  for (let i = 0; i < 3; i++) {
+    await f.host.open(f.event, { ...f.input, botId: `bot-${i}` });
+    f.children[i].exited = new Promise(() => {});
+  }
+  const started = Date.now();
+  await f.host.dispose();
+  assert.ok(Date.now() - started >= 950);
+  assert.ok(Date.now() - started < 1500);
+});
+
+test("dispose waits for a starting pane before requesting its shutdown", async () => {
+  let releaseReady;
+  const ready = new Promise((resolve) => { releaseReady = resolve; });
+  const child = { ready, killed: false, onData() {}, onExit() {}, write() {}, resize() {}, kill() { this.killed = true; } };
+  let spawned;
+  const spawning = new Promise((resolve) => { spawned = resolve; });
+  const f = fixture({ loadPty: () => ({ spawn() { spawned(); return child; } }) });
+  const opening = assert.rejects(f.host.open(f.event, f.input), /shutting down|cancelled/);
+  await spawning;
+  const disposal = f.host.dispose();
+  assert.ok(disposal instanceof Promise);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(child.killed, false);
+  releaseReady();
+  await Promise.all([opening, disposal]);
+  assert.equal(child.killed, true);
+});
+
+test("closeBotPanes shares serial shutdown with dispose", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner });
+  owner = f.owner;
+  await f.host.openForBot("bot-1");
+  await f.host.openForBot("bot-1");
+  await f.host.openForBot("bot-2");
+  let releaseKill;
+  f.children[0].kill = () => new Promise((resolve) => { releaseKill = resolve; });
+  const closing = f.host.closeBotPanes("bot-1");
+  const disposal = f.host.dispose();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(f.children.slice(1).map((child) => child.killed), [false, false]);
+  releaseKill();
+  await Promise.all([closing, disposal]);
+  assert.deepEqual(f.children.slice(1).map((child) => child.killed), [true, true]);
+});
+
+test("pty exited settles on worker exit after the shell exit notification", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "quit-pty-"));
+  const modulePath = path.join(dir, "pty.cjs");
+  fs.writeFileSync(modulePath, 'exports.spawn = () => ({ onData() {}, onExit(listener) { this.exit = listener; }, kill() { setImmediate(() => this.exit({ exitCode: 0 })); } });\n');
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const pty = spawnTerminalPty(modulePath, "fake", [], {});
+  t.after(() => pty.kill().catch(() => {}));
+  await pty.ready;
+  assert.ok(pty.exited instanceof Promise);
+  let workerExited = false;
+  let shellExited = false;
+  void pty.exited.then(() => { workerExited = true; });
+  pty.onExit(() => { shellExited = true; assert.equal(workerExited, false); });
+  await pty.kill();
+  await pty.exited;
+  assert.equal(shellExited, true);
+  assert.equal(workerExited, true);
+});
 
 test("rejects iframe, foreign window and navigated renderer on every action", async () => {
   const f = fixture();
