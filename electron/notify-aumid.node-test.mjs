@@ -77,8 +77,13 @@ describe("notification activation args", () => {
     assert.ok(at > -1);
     const block = main.slice(at, at + 2000);
     assert.ok(block.includes("parseNotificationTargetFromCommandLine"));
-    assert.ok(block.includes("activateExistingWindow"));
-    assert.ok(block.includes("deliverNotificationTarget"));
+    assert.ok(block.includes("activateMainWindow"));
+    const start = main.indexOf("function activateMainWindow(");
+    const end = main.indexOf("function queuePackageInstall(");
+    assert.ok(start > -1 && end > start);
+    const activate = main.slice(start, end);
+    assert.ok(activate.includes("activateExistingWindow"));
+    assert.ok(activate.includes("deliverNotificationTarget"));
     assert.ok(main.includes('webContents.send("desktop:notification-click"'));
   });
 });
