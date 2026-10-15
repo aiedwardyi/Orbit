@@ -1745,11 +1745,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       signal?: AbortSignal,
       timeoutMs = REVIEW_TIMEOUT_MS,
       effort?: "low",
+      ephemeral = false,
     ): Promise<string> =>
       new Promise((resolve, reject) => {
         const child = spawnCli(
           config.cli,
-          ["-p", "--model", "claude-haiku-5-5", "--output-format", "text", ...(effort ? ["--effort", effort] : [])],
+          [
+            "-p", "--model", "claude-haiku-5-5", "--output-format", "text",
+            ...(effort ? ["--effort", effort] : []),
+            ...(ephemeral ? ["--no-session-persistence"] : []),
+          ],
           {
             stdio: ["pipe", "pipe", "pipe"],
             env: claudeEnvironment("claude-haiku-5-5", { ...process.env, ...input.environment }),
@@ -1859,7 +1864,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return () => listeners.delete(listener);
         },
       },
-      generateText: (prompt, opts) => generateReview(prompt, opts?.signal, opts?.timeoutMs ?? SUMMARY_TIMEOUT_MS, "low"),
+      generateText: (prompt, opts) =>
+        generateReview(prompt, opts?.signal, opts?.timeoutMs ?? SUMMARY_TIMEOUT_MS, "low", opts?.ephemeral),
       textModel: "claude-haiku-5-5",
       textTimeoutMs: SUMMARY_TIMEOUT_MS,
       reviewPermission: (prompt, signal) => generateReview(prompt, signal),

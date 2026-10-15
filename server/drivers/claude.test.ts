@@ -2475,6 +2475,19 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv[seen.argv.indexOf("--model") + 1]).toBe("claude-haiku-5-5");
+    expect(seen.argv).not.toContain("--no-session-persistence");
+  });
+
+  it("keeps no session transcript for an ephemeral generateText", async () => {
+    await create();
+    const dump = join(scratch, "generate-text-ephemeral.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.generateText?.("note facts", { ephemeral: true });
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.argv).toContain("--no-session-persistence");
+    expect(seen.argv[seen.argv.indexOf("--effort") + 1]).toBe("low");
   });
 
   it("generateText preserves an existing turn dump", async () => {

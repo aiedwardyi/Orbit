@@ -271,6 +271,7 @@ import {
   MEMORY_FILE_MAX_BYTES,
 } from "./workspace.ts";
 import { MEMORY_SAVE_TOOL, peekMemory, rememberMemoryWrite } from "./memory-save.ts";
+import { createMemoryPass } from "./memory-pass.ts";
 import {
   readSectionContext,
   sectionContextKey,
@@ -2558,6 +2559,15 @@ const summaryRepair = createSummaryRepair({
   },
   userName: () => cfg.profile?.name?.trim() || "User",
 });
+const memoryPass = createMemoryPass({
+  store,
+  dataDir: DATA_DIR,
+  generate: () => {
+    const claude = registry.instances().find((instance) => instance.driverKind === "claude" && instance.enabled && instance.generateText);
+    return claude ? (prompt, signal) => claude.generateText!(prompt, { signal, timeoutMs: 120_000, ephemeral: true }) : null;
+  },
+  busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
+});
 // Room thread → the instruction id its running turn was dispatched against.
 const roomTurnInstruction = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
@@ -3574,7 +3584,10 @@ bus.subscribe((event: RuntimeEvent) => {
           // settled → idle; a setup failure already marked it dead, keep that
           if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
           clearSendRunning(bot.id);
-          if (!store.groupByThread(event.threadId)) summaryRepair.onSettled(bot.id, event.threadId);
+          if (!store.groupByThread(event.threadId)) {
+            summaryRepair.onSettled(bot.id, event.threadId);
+            memoryPass.onSettled(bot.id, event.threadId);
+          }
         }
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
         const routineReportGroup = routineReportThread ? store.groupByThread(routineReportThread) : undefined;
@@ -10581,6 +10594,7 @@ hostShutdown = () => {
   routines?.stop();
   webhookIngress?.server.close();
   summaryRepair.dispose();
+  memoryPass.dispose();
   void registry.disposeAll().finally(() => process.exit(0));
 };
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
