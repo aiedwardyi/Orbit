@@ -114,7 +114,7 @@ const SECRET_WORDS =
   /\b(?:passwords?|passcodes?|passwd|pins?|otp|2fa|mfa|one[- ]time|verification codes?|security codes?|api[ _-]?keys?|secret|tokens?|private keys?|credentials?|account numbers?|card numbers?|routing numbers?|cvv|ssn|social security)\b/i;
 // No \b here: it never fires between Hangul syllables.
 const SECRET_WORDS_KO =
-  /비밀\s*(?:번호|키)|비번|암호|패스워드|패스코드|인증\s*(?:번호|코드)|보안\s*코드|일회용|(?:api|에이피아이)\s*키|토큰|개인\s*키(?!보드)|계좌\s*번호|카드\s*번호|주민\s*(?:등록\s*)?번호|핀\s*번호|시크릿/i;
+  /비밀\s*(?:번호|키)|비번|암호(?!화|학)|패스워드|패스코드|인증\s*(?:번호|코드)|보안\s*코드|일회용\s*(?:코드|번호)|(?:api|에이피아이)\s*키|토큰|개인\s*키(?!보드)|계좌\s*번호|카드\s*번호|주민\s*(?:등록\s*)?번호|핀\s*번호|시크릿/i;
 const TOKEN_PATTERNS = [
   /«redacted/i,
   /\b(?:sk|pk|rk)-[A-Za-z0-9_-]{8,}/,

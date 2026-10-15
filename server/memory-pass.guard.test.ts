@@ -113,6 +113,20 @@ describe("secretLike in Korean", () => {
     expect(acceptFacts([{ fact: "와이파이 비번: qwer1234", quote: "비번은 qwer1234야" }], "우리집 와이파이 비번은 qwer1234야", "")).toEqual([]);
   });
 
+  it.each(["와이파이 암호는 1234야", "암호 바꿨어", "일회용 코드 482913", "일회용 비밀번호 받았어"])("flags %s", (said) => {
+    expect(secretLike(said)).toBe(true);
+  });
+
+  it.each([
+    "RSA 암호화 방식을 씁니다",
+    "데이터 암호화를 추천해요",
+    "비트코인 같은 암호화폐에 투자해요",
+    "요즘 암호학 공부 중이에요",
+    "일회용 컵을 줄이고 있어요",
+  ])("lets the encryption or disposable fact %s through", (said) => {
+    expect(secretLike(said)).toBe(false);
+  });
+
   it.each(["나이는 38살이야", "서울에 살아요", "좋아하는 음식은 김치찌개", "개인 키보드를 써요", "비밀 정원을 좋아해요"])(
     "lets the plain fact %s through",
     (said) => {
