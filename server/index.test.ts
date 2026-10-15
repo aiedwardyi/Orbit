@@ -3887,7 +3887,7 @@ describe("harness HTTP API", () => {
         }).parse(await grounded.json());
         expect(groundedBody.routines.find((routine) => routine.id === routineId)?.latestRun).toMatchObject({
           status: "failed",
-          startedAt: expect.any(String),
+          startedAt: null,
           finishedAt: expect.any(String),
           error: expect.stringMatching(/provider instance "ghost" is unavailable/i),
           executionThreadId: null,
