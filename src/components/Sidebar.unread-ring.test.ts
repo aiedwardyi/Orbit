@@ -531,18 +531,22 @@ describe("Sidebar arrival glow", () => {
   });
 
   it("plays one 2 s ease-in-out cycle of the needs-you glow, silenced under reduced motion", () => {
-    const glow = css.match(/\.arrival-glow::after \{(.*?)\}/s)?.[1] ?? "";
+    const glow = css.match(/\.arrival-glow::before \{(.*?)\}/s)?.[1] ?? "";
     expect(glow).toContain("1.5px");
     expect(glow).toContain("92%");
     expect(glow).toContain("14px");
     expect(glow).toContain("60%");
     expect(glow).toContain("arrival-glow-once 2s ease-in-out 1");
     expect(glow).not.toContain("infinite");
+    const ringed = css.match(/\.unread-ring\.arrival-glow::before \{(.*?)\}/s)?.[1] ?? "";
+    expect(ringed).toContain("14px");
+    expect(ringed).not.toContain("1.5px");
+    expect(ringed).not.toContain("92%");
     const cycle = css.slice(css.indexOf("@keyframes arrival-glow-once"));
     expect(cycle).toMatch(/opacity:\s*0\b/);
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     const reduced = css.slice(css.lastIndexOf("@media (prefers-reduced-motion: reduce)"));
-    expect(reduced).toContain(".arrival-glow::after");
+    expect(reduced).toContain(".arrival-glow::before");
     expect(reduced).toContain("animation: none");
   });
 });

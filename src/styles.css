@@ -4546,10 +4546,10 @@ button:disabled.bg-danger {
     0 0 0 1.5px color-mix(in oklab, var(--color-accent) 92%, transparent);
 }
 
-/* One in-and-out of the needs-you glow when a live reply lands, then the
-   steady ring stays. Defined after .unread-ring so it wins while playing;
-   removed on animation end. Never combined with .needs-you-glow. */
-.arrival-glow::after {
+/* One in-and-out of the needs-you glow when a live reply lands. It lives
+   on ::before so the steady ring's ::after never fades with it; removed on
+   animation end. Never combined with .needs-you-glow. */
+.arrival-glow::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -4561,11 +4561,19 @@ button:disabled.bg-danger {
   animation: arrival-glow-once 2s ease-in-out 1;
 }
 
+/* On a ringed row only the soft glow fades: the outline stays at full
+   strength from the first frame to the last, so removing the class changes
+   nothing on screen. */
+.unread-ring.arrival-glow::before {
+  box-shadow:
+    0 0 14px 3px color-mix(in oklab, var(--color-accent) 60%, transparent);
+}
+
 @keyframes arrival-glow-once {
   0%, 100% { opacity: 0; }
   50% { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .arrival-glow::after { animation: none; opacity: 0; }
+  .arrival-glow::before { animation: none; opacity: 0; }
 }
