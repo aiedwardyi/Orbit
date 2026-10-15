@@ -351,6 +351,7 @@ function replayUnits(
   startIndex?: number,
 ): ReplayUnit[] {
   const messagesById = new Map(startIndex === undefined ? referenceMessages.map((message) => [message.id, message]) : []);
+  // A lazy stand-in for the full map: get() finds rows on demand, values() yields only speakers (all reactorName reads).
   if (startIndex !== undefined) {
     const get = messagesById.get.bind(messagesById);
     const lookedUp = new Set<string>();

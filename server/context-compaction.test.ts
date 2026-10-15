@@ -314,6 +314,29 @@ describe("provider-neutral context compaction", () => {
     expect(reads).toBe(0);
   });
 
+  it("resolves a tail reply to a covered message", async () => {
+    const covered = Array.from({ length: 10 }, (_, index) => message(`m${index}`, `covered ${index}`));
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: "known good summary",
+      coveredThroughId: "m9",
+      firstKeptId: "tail",
+      contextWindow: 8_192,
+      estimatedTokensBefore: 100,
+      sourceMessageCount: 10,
+    };
+    const result = await prepareModelContext({
+      messages: [...covered, message("tail", "recent work", { replyToId: "m4" }), compactionMessage("c1", "tail", previous)],
+      contextWindow: 8_192,
+      taskRecordText: "Goal: finish",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.transcript).toHaveLength(2);
+    expect(result.transcript[1]?.text).toContain("replying to User: “covered 4”");
+  });
+
   it("does not count tool lines toward the message cap", async () => {
     const tools = Array.from({ length: 150 }, (_, index): Message => message(`t${index}`, "", {
       role: "bot",
