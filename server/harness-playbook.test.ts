@@ -61,6 +61,17 @@ describe("harness playbook", () => {
     expect(prompt).toContain("Landing a verified result in step 9 is part of the job");
   });
 
+  it("has a Clean up section with the junction warning and per-card scratch folder", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("## Clean up");
+    expect(prompt).toContain("delete a junctioned `node_modules` as a link first");
+    expect(prompt).toContain("[System.IO.Directory]::Delete(");
+    expect(prompt).toContain("wipes the shared target");
+    expect(prompt).toContain("wink-<NICKNAME>");
+    expect(prompt).toContain("Never delete by wildcard, age or folder size");
+    expect(prompt).not.toContain("Remove it once the branch has landed");
+  });
+
   it("quotes worktree paths", () => {
     expect(loadHarnessPlaybook(undefined, join("D:", "my wt"))).toContain(`worktree add "${join("D:", "my wt", "<name>")}"`);
   });
