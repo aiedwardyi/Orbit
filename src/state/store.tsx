@@ -852,7 +852,7 @@ export type Action =
   | { type: "renameTask"; botId: string; threadId: string; title: string }
   | { type: "deleteTask"; botId: string; threadId: string }
   | { type: "taskPacket"; threadId: string; packet: TaskResumePacket }
-  | { type: "resumeTask"; botId: string; threadId: string; onSettled?: (error: string | null) => void }
+  | { type: "resumeTask"; botId: string; threadId: string; onSettled?: (error: string | null, pending?: boolean) => void }
   | {
       type: "dismissTaskRecovery";
       botId: string;
@@ -2165,6 +2165,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const refreshGeneration = useRef(0);
   const taskSwitchGeneration = useRef(0);
   const pendingNotificationSwitch = useRef<NotificationTarget | null>(null);
+  const pendingTaskResumes = useRef(new Map<string, (error: string | null, pending?: boolean) => void>());
   // per-frame stream-delta batching (see the "runtime" SSE case); stream
   // state is intentionally OUTSIDE the reducer so token frames re-render
   // only StreamContext consumers
@@ -2852,15 +2853,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "resumeTask": {
-          const done = api(`/api/bots/${action.botId}/tasks/${action.threadId}/resume`, { method: "POST" });
-          if (action.onSettled) {
-            done.then(
-              () => action.onSettled!(null),
-              (error) => action.onSettled!(error instanceof Error ? error.message : String(error)),
-            );
-          } else {
-            done.catch(showError);
-          }
+          const key = `${action.botId}\0${action.threadId}`;
+          const settle = (error: string | null, pending = false) => {
+            if (pendingTaskResumes.current.get(key) !== settle) return;
+            if (!pending) pendingTaskResumes.current.delete(key);
+            action.onSettled?.(error, pending);
+            if (error && !action.onSettled) showError(error);
+          };
+          pendingTaskResumes.current.set(key, settle);
+          api(`/api/bots/${action.botId}/tasks/${action.threadId}/resume`, { method: "POST" }).then(
+            (result) => settle(null, result?.pending === true),
+            (error) => settle(error instanceof Error ? error.message : String(error)),
+          );
           break;
         }
         case "dismissTaskRecovery":
@@ -3211,6 +3215,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "task.packet":
           rawDispatch({ type: "taskPacket", threadId: frame.threadId, packet: frame.packet });
           break;
+        case "task.resume":
+          pendingTaskResumes.current.get(`${frame.botId}\0${frame.threadId}`)?.(frame.error ?? null);
+          break;
         case "bot": {
           const bot = frame.bot as BotAnnouncement;
           // reading the selected chat clears its badge immediately - but only
@@ -3390,6 +3397,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // abandoned generation. Keep the new generation behind hydrate().
         pendingFrames.splice(0);
         settling.current.clear();
+        // a held resume's task.resume frame may be lost in the gap
+        for (const settle of pendingTaskResumes.current.values()) settle(null);
         return hydrate();
       },
       onFrame: (frame) => {

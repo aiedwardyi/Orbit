@@ -1841,11 +1841,13 @@ describe("accepted send chrome", () => {
 });
 
 describe("resumeTask settle", () => {
-  it("uses independent then branches so onSettled cannot run twice", async () => {
+  it("uses independent then branches so callback failure cannot settle twice", async () => {
     const { readFileSync } = await import("node:fs");
     const store = readFileSync(new URL("./store.tsx", import.meta.url), "utf8");
-    expect(store).toMatch(/done\.then\(\s*\(\) => action\.onSettled!\(null\),\s*\(error\) =>/);
-    expect(store).not.toMatch(/onSettled!\(null\)\)\.catch\(/);
+    const resume = store.slice(store.indexOf('case "resumeTask": {'), store.indexOf('case "dismissTaskRecovery":', store.indexOf('case "resumeTask": {')));
+    expect(resume).toMatch(/\.then\(\s*\(result\) => settle\(null, result\?\.pending === true\),\s*\(error\) =>/);
+    expect(resume).not.toContain(".catch(");
+    expect(resume).toContain("if (pendingTaskResumes.current.get(key) !== settle) return;");
   });
 });
 
