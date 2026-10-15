@@ -2988,7 +2988,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         key: "routines",
         request: async () => {
           const { routines, runs } = await api("/api/routines");
-          return () => rawDispatch({ type: "routinesHydrated", routines, runs });
+          return () => rawDispatch({ type: "routinesHydrated", routines: routines ?? [], runs: runs ?? [] });
         },
       },
       {
