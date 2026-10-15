@@ -14,6 +14,7 @@ import {
 } from "@/state/store";
 import { collapsedUnreadCount, formatCollapsedUnreadBadge, unreadConversationCount } from "@/lib/unread";
 import { anyChatNeedsYou } from "@/lib/open-question";
+import { anyRoutineRinging } from "@/lib/routine-ring";
 import { useArrivalGlow } from "@/lib/arrival-glow";
 import { listedGroups, preferredStartupSelectionId } from "@/lib/sidebar-order";
 import { DRAWER_BUTTON_LEFT, DRAWER_BUTTON_RIGHT } from "@/lib/drawer-button";
@@ -92,7 +93,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   }, [state]);
   const unreadCount = unreadConversationCount(state.bots, state.groups) + terminalAttentionCount(state.terminalAttention);
   const menuUnreadBadge = formatCollapsedUnreadBadge(collapsedUnreadCount(state.bots, state.groups, state.selectedId));
-  const menuAsking = anyChatNeedsYou([...state.bots, ...listedGroups(state.groups)], state.selectedId);
+  const menuAsking = anyChatNeedsYou([...state.bots, ...listedGroups(state.groups)], state.selectedId) ||
+    anyRoutineRinging(state.routineRuns, [...state.bots, ...listedGroups(state.groups)], state.selectedId);
   // Mobile-only drawer state. Above md, none of these properties are emitted
   // at all — Sidebar scopes every mobile class with max-md: rather than
   // cancelling them with md:, which would still emit a translate value and

@@ -43,6 +43,19 @@ const approval = (id: string) => ({
 });
 // an undefined section drops out of the JSON the fake server answers with
 const bot = (id: string, messages: unknown[], section?: string) => ({ id, threadId: `${id}-thread`, name: id, messages, section });
+const run = (id: string, sourceThreadId: string, patch: { status?: string; runOn?: string; threadId?: string; seenAt?: number } = {}) => ({
+  id,
+  routineId: `routine-${id}`,
+  routineName: id,
+  botId: id,
+  runOn: "maus",
+  scheduledFor: 1,
+  status: "completed",
+  manual: false,
+  sourceThreadId,
+  createdAt: 1,
+  ...patch,
+});
 
 afterEach(() => {
   window.localStorage.removeItem(SIDEBAR_COLLAPSED_SECTIONS_KEY);
@@ -51,12 +64,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function mountSidebar(payload: { bots: unknown[]; groups: unknown[] }) {
+async function mountSidebar(payload: { bots: unknown[]; groups: unknown[] }, runs: unknown[] = []) {
   vi.stubGlobal("EventSource", FakeEventSource);
-  vi.stubGlobal("fetch", vi.fn(async (path: string) =>
+  const fetchMock = vi.fn(async (path: string, _init?: RequestInit) =>
     path === "/api/bots?messages=200"
       ? new Response(JSON.stringify(payload))
-      : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 })));
+      : path === "/api/routines"
+        ? new Response(JSON.stringify({ routines: [], runs }))
+        : new Response(JSON.stringify({ error: "not in this test" }), { status: 404 }));
+  vi.stubGlobal("fetch", fetchMock);
   vi.spyOn(console, "warn").mockImplementation(() => {});
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
@@ -69,6 +85,7 @@ async function mountSidebar(payload: { bots: unknown[]; groups: unknown[] }) {
   }));
   return {
     host,
+    fetchMock,
     unmount: async () => {
       await act(async () => root.unmount());
       host.remove();
@@ -141,6 +158,75 @@ describe("Sidebar needs-you glow", () => {
     expect(css).toContain("@keyframes needs-you-pulse");
     const pulse = css.slice(css.indexOf("@keyframes needs-you-pulse"));
     expect(pulse).toMatch(/opacity:\s*0\b/);
+  });
+
+  it("pulses while a fired routine is unseen, on rows, rail, collapsed and hidden sections, and settles on open", async () => {
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(["section:Ops"]));
+    const runs = [
+      run("ringer", "ringer-thread"),
+      run("room", "room-thread", { status: "waiting" }),
+      run("hidden", "hidden-ringer-thread", { status: "running" }),
+      run("seen", "seen-thread", { seenAt: 5 }),
+      run("missed", "missed-thread", { status: "missed" }),
+      run("queued", "queued-thread", { status: "queued" }),
+      run("old", "old-thread", { threadId: "old-thread" }),
+      run("cloud", "cloud-thread", { runOn: "cloud" }),
+    ];
+    const payload = {
+      bots: [
+        { ...bot("calm", []), pinned: true },
+        bot("ringer", []),
+        bot("seen", []),
+        bot("missed", []),
+        bot("queued", []),
+        bot("old", []),
+        bot("cloud", []),
+        bot("hidden-ringer", [], "Ops"),
+        bot("other", [], "Ops"),
+      ],
+      groups: [{ id: "room", threadId: "room-thread", name: "War room", memberIds: ["ringer"], messages: [] }],
+    };
+    const { host, fetchMock, unmount } = await mountSidebar(payload, runs);
+    try {
+      await vi.waitFor(() => expect(rowControl(host, "ringer").row?.getAttribute("data-sidebar-needs-you")).toBe("true"));
+      for (const id of ["ringer", "room"]) {
+        const { control } = rowControl(host, id);
+        expect(control?.className).toContain("needs-you-glow");
+        expect(control?.querySelector(".sr-only")?.textContent).toBe(": routine rang");
+      }
+      for (const id of ["calm", "seen", "missed", "queued", "old", "cloud"]) {
+        expect(rowControl(host, id).row?.hasAttribute("data-sidebar-needs-you"), id).toBe(false);
+      }
+      const header = host.querySelector('[data-section="Ops"] button');
+      expect(header?.getAttribute("data-sidebar-needs-you")).toBe("true");
+      expect(header?.className).toContain("needs-you-glow");
+
+      await act(async () => host.querySelector<HTMLElement>('[data-sidebar-row-id="ringer"] [role="button"]')!.click());
+      await vi.waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith("/api/routine-runs/ringer/seen", expect.objectContaining({ method: "POST" })),
+      );
+      expect(fetchMock).not.toHaveBeenCalledWith("/api/routine-runs/room/seen", expect.anything());
+      await act(async () => FakeEventSource.current!.onmessage?.({
+        data: JSON.stringify({ kind: "routine.run", run: { ...runs[0], seenAt: 9 } }),
+        lastEventId: "",
+      }));
+      await vi.waitFor(() => expect(rowControl(host, "ringer").row?.hasAttribute("data-sidebar-needs-you")).toBe(false));
+      expect(rowControl(host, "room").row?.getAttribute("data-sidebar-needs-you")).toBe("true");
+    } finally {
+      await unmount();
+    }
+
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
+    const rail = await mountSidebar(payload, runs);
+    try {
+      await vi.waitFor(() => expect(rowControl(rail.host, "ringer").control?.getAttribute("aria-label")).toBe("ringer: routine rang"));
+      expect(rowControl(rail.host, "ringer").control?.className).toContain("needs-you-glow");
+      const expand = rail.host.querySelector('button[aria-label="Expand sidebar, a bot has a question"]');
+      expect(expand?.className).toContain("needs-you-glow");
+    } finally {
+      await rail.unmount();
+    }
   });
 
   it("names the icon-only row and glows the expand control in a collapsed sidebar", async () => {

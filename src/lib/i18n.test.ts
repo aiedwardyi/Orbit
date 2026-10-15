@@ -1123,3 +1123,23 @@ describe("skin picker taglines", () => {
   });
 });
 
+
+describe("routine alarm copy", () => {
+  it("words the routine card, ringing row and Open in chat in English and Korean", () => {
+    const phrases = [
+      ["routine.card.queued", "Starts when the current reply ends", "지금 답변이 끝나면 시작해요"],
+      ["routine.card.rang", "Rang at 08:00", "08:00에 울렸어요"],
+      ["routine.card.waiting", "Needs your OK below", "아래에서 확인이 필요해요"],
+      ["routine.card.failed", "Couldn't start: No engine", "시작하지 못했어요: No engine"],
+      ["routine.card.missed", "Missed 08:00, this PC was off", "08:00 알람을 놓쳤어요. PC가 꺼져 있었어요"],
+      ["routine.card.cloud", "Ran on Cloud VM", "클라우드 VM에서 실행했어요"],
+      ["routine.rowRang", "Career: routine rang", "Career: 루틴 알람이 울렸어요"],
+      ["routine.openInChat", "Open in chat", "대화에서 보기"],
+    ] as const;
+    const vars = { time: "08:00", error: "No engine", name: "Career" };
+    for (const [key, english, korean] of phrases) {
+      expect(translate("en", key, vars), key).toBe(english);
+      expect(translate("ko", key, vars), key).toBe(korean);
+    }
+  });
+});

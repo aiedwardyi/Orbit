@@ -27,29 +27,50 @@ function message(
   };
 }
 
+const at = (hours: number, minutes: number) => new Date(2026, 9, 15, hours, minutes).getTime();
+
 describe("RoutineRunCard", () => {
-  it("shows a compact completion receipt and a path to the isolated run", () => {
+  it("shows name, time and the instruction in one line with no Open run", () => {
     const markup = renderToStaticMarkup(createElement(RoutineRunCard, {
-      message: message("completed", { summary: "The brief is ready with three follow-ups." }),
+      message: message("completed", {
+        executionThreadId: undefined,
+        runOn: "maus",
+        scheduledFor: at(20, 0),
+        instruction: "Start a 25-minute study session:\npick up from list comprehensions.",
+        summary: "Study time! Last session we stopped at list comprehensions.",
+      }),
+      ringing: true,
       onOpen: vi.fn(),
     }));
 
     expect(markup).toContain("Morning brief");
-    expect(markup).toContain("Completed");
-    expect(markup).toContain("The brief is ready with three follow-ups.");
-    expect(markup).toContain("Open run");
-    expect(markup).toContain('aria-label="Morning brief routine run: Completed"');
+    expect(markup).toContain(">20:00<");
+    expect(markup).toMatch(/class="[^"]*\btruncate\b[^"]*">Start a 25-minute study session: pick up from list comprehensions\.<\/div>/);
+    expect(markup).toContain("Rang at 20:00");
+    expect(markup).toContain("border-accent/40");
+    expect(markup).not.toContain("Study time!");
+    expect(markup).not.toContain("Open run");
   });
 
-  it("drops the visible Completed label but keeps it for screen readers, and keeps Failed", () => {
+  it("shows a compact completion receipt and a path to the isolated run", () => {
+    const markup = renderToStaticMarkup(createElement(RoutineRunCard, {
+      message: message("completed", { scheduledFor: at(8, 0), summary: "The brief is ready with three follow-ups." }),
+      onOpen: vi.fn(),
+    }));
+
+    expect(markup).toContain("Morning brief");
+    expect(markup).toContain("Rang at 08:00");
+    expect(markup).toContain("The brief is ready with three follow-ups.");
+    expect(markup).toContain("Open run");
+    expect(markup).toContain('aria-label="Morning brief: Rang at 08:00"');
+  });
+
+  it("settles a seen card to the answered look and keeps a failure visible", () => {
     const completed = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("completed") }));
-    expect(completed).toContain('aria-label="Morning brief routine run: Completed"');
-    expect(completed).toMatch(/<span aria-live="polite" class="[^"]*\bsr-only\b[^"]*">Completed<\/span>/);
-    expect(
-      completed.replace(/aria-label="[^"]*"/g, "").replace(/<span[^>]*\bsr-only\b[^>]*>[^<]*<\/span>/g, ""),
-    ).not.toContain("Completed");
-    const failed = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("failed") }));
-    expect(failed.replace(/aria-label="[^"]*"/g, "")).toContain("Failed");
+    expect(completed).toContain("border-hairline/30 opacity-70");
+    expect(completed).not.toContain("border-accent/40");
+    const failed = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("failed", { error: "No engine" }) }));
+    expect(failed.replace(/aria-label="[^"]*"/g, "")).toContain("Couldn&#x27;t start: No engine");
   });
 
   it("makes a waiting question or approval an explicit Review action", () => {
@@ -58,7 +79,7 @@ describe("RoutineRunCard", () => {
       onOpen: vi.fn(),
     }));
 
-    expect(markup).toContain("Needs your input");
+    expect(markup).toContain("Needs your OK below");
     expect(markup).toContain("Review");
     expect(markup).toContain('aria-label="Review for Morning brief"');
   });
@@ -70,8 +91,7 @@ describe("RoutineRunCard", () => {
       onOpen: vi.fn(),
     }));
 
-    expect(markup).toContain("Failed");
-    expect(markup).toContain("Provider failed");
+    expect(markup).toContain("Couldn&#x27;t start: Provider failed");
     expect(markup).toContain("…");
     expect(markup).not.toContain(verbose);
   });
