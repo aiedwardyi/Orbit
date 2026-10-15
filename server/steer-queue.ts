@@ -42,6 +42,7 @@ interface SteerItem {
   prompt: string;
   replyToId?: string;
   sendId?: string;
+  after?: boolean;
 }
 
 interface RoomItem {
@@ -155,7 +156,7 @@ export function queueSteeredMessage(
   botId: string,
   threadId: string,
   text: string,
-  options: { prompt?: string; replyToId?: string; sendId?: string } = {},
+  options: { prompt?: string; replyToId?: string; sendId?: string; after?: boolean } = {},
 ): QueuedSteer {
   if (options.sendId && cancelledSendIds.has(options.sendId)) {
     return { id: options.sendId, skipped: true, cancelled: true };
@@ -169,6 +170,7 @@ export function queueSteeredMessage(
     prompt: options.prompt ?? text,
     replyToId: options.replyToId,
     sendId: options.sendId,
+    after: options.after,
   });
   queues.set(entryKey(botId, threadId), entry);
   return { id };
@@ -295,10 +297,7 @@ export function hasQueuedSendBefore(botId: string, order: number): boolean {
   return false;
 }
 
-/** Take this thread's 1:1 sends queued after `since` for a turn about to
- * dispatch, so a send made during its preparation joins it the way steer
- * would have. Nothing is taken while an older send still waits ahead, so
- * drain keeps send order. Room waits stay queued; cancelled sends are dropped. */
+/** Take post-claim steers for preparation; older and after-turn sends stay queued. */
 export function takeQueuedSteers(
   botId: string,
   threadId: string,
@@ -310,11 +309,11 @@ export function takeQueuedSteers(
   const steerItems = entry.items.filter((item): item is SteerItem => !isRoomItem(item));
   if (!steerItems.length) return [];
   if (steerItems.some((item) => item.seq <= since && !isSendCancelled(item.sendId))) return [];
-  const roomItems = entry.items.filter(isRoomItem);
-  if (roomItems.length) queues.set(key, { botId, threadId, items: roomItems });
+  const held = entry.items.filter((item) => isRoomItem(item) || (item.after && !isSendCancelled(item.sendId)));
+  if (held.length) queues.set(key, { botId, threadId, items: held });
   else queues.delete(key);
   return steerItems
-    .filter((item) => !isSendCancelled(item.sendId))
+    .filter((item) => !item.after && !isSendCancelled(item.sendId))
     .map((item) => ({ id: item.messageId, text: item.text, prompt: item.prompt, replyToId: item.replyToId, sendId: item.sendId }));
 }
 

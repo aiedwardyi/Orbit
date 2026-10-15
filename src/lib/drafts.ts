@@ -26,6 +26,7 @@ export interface FailedComposerSend {
   requestText: string;
   replyToId?: string;
   threadId: string;
+  after?: boolean;
 }
 type FailedComposerSendInput = Omit<FailedComposerSend, "id">;
 export interface ComposerSendSnapshot extends FailedComposerSendInput {
@@ -319,6 +320,7 @@ export function recoverFailedComposerSend(sent: ComposerSendSnapshot): "restored
       requestText: sent.requestText,
       replyToId: sent.replyToId,
       threadId: sent.threadId,
+      after: sent.after,
     });
     return "outbox";
   }

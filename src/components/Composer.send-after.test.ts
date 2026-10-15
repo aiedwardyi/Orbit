@@ -33,7 +33,7 @@ afterEach(async () => {
   localStorage.clear();
 });
 
-async function mount(subject: Bot, coarse = false) {
+async function mount(subject: Bot, coarse = false, instancesReady = true) {
   const bodies: Array<{ text?: string; deliver?: string }> = [];
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: coarse && query === "(pointer: coarse)", addEventListener() {}, removeEventListener() {} }));
   vi.stubGlobal("EventSource", FakeEventSource);
@@ -41,6 +41,7 @@ async function mount(subject: Bot, coarse = false) {
     const path = String(url);
     if (path === "/api/bots?messages=200") return Response.json({ bots: [subject], groups: [], computerControl: {} });
     if (path === "/api/instances") {
+      if (!instancesReady) return new Promise<Response>(() => {});
       return Response.json({ instances: [
         { instanceId: "steers", capabilities: { queueing: true } },
         { instanceId: "waits", capabilities: {} },
@@ -54,8 +55,11 @@ async function mount(subject: Bot, coarse = false) {
   }));
   vi.spyOn(console, "warn").mockImplementation(() => {});
   let instances = 0;
+  let hydrated = false;
   function Probe() {
-    instances = useStore().state.instances.length;
+    const { state } = useStore();
+    instances = state.instances.length;
+    hydrated = state.hydrated;
     return createElement(Composer, { bot: subject });
   }
   const host = document.createElement("div");
@@ -69,7 +73,8 @@ async function mount(subject: Bot, coarse = false) {
   await act(async () => {
     FakeEventSource.last!.onmessage!({ data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c1" }), lastEventId: "" });
   });
-  await vi.waitFor(() => expect(instances).toBe(2));
+  await vi.waitFor(() => expect(hydrated).toBe(true));
+  if (instancesReady) await vi.waitFor(() => expect(instances).toBe(2));
   const box = host.querySelector("textarea")!;
   const type = (value: string) =>
     act(async () => {
@@ -90,10 +95,50 @@ async function mount(subject: Bot, coarse = false) {
       Object.defineProperty(event, "touches", { value: kind === "touchend" ? [] : [point] });
       sendButton().dispatchEvent(event);
     });
-  return { bodies, box, type, sendButton, press, touch: touchSend };
+  return { bodies, box, host, type, sendButton, press, touch: touchSend };
 }
 
 describe("send after this turn", () => {
+  it.each([false, true])("sends after-turn intent before capabilities load, coarse=%s", async (coarse) => {
+    const ui = await mount(bot("steers"), coarse, false);
+    if (coarse) {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      await ui.touch("touchstart");
+      await act(async () => vi.advanceTimersByTime(500));
+      vi.useRealTimers();
+      await act(async () => ui.box.dispatchEvent(new Event("touchstart", { bubbles: true })));
+    } else {
+      await ui.press({ ctrlKey: true });
+    }
+    await vi.waitFor(() => expect(ui.bodies).toHaveLength(1));
+    expect(ui.bodies[0]).toMatchObject({ deliver: "after" });
+  });
+
+  it("preserves after-turn intent through repeated retries beside a newer draft", async () => {
+    const ui = await mount(bot("steers"));
+    const served = globalThis.fetch;
+    let finish: (response: Response) => void = () => undefined;
+    let failures = 2;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && String(url).endsWith("/messages") && failures-- > 0) {
+        ui.bodies.push(JSON.parse(String(init.body)));
+        return new Promise<Response>((resolve) => { finish = resolve; });
+      }
+      return served(url, init);
+    }));
+    await ui.press({ ctrlKey: true });
+    await ui.type("newer draft");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await act(async () => finish(Response.json({ error: "offline" }, { status: 500 })));
+      const retry = () => Array.from(ui.host.querySelectorAll("button")).find((button) => button.textContent === "Retry");
+      await vi.waitFor(() => expect(retry()).toBeDefined());
+      await act(async () => retry()!.click());
+      await vi.waitFor(() => expect(ui.bodies).toHaveLength(attempt + 2));
+      expect(ui.bodies[attempt + 1]).toMatchObject({ text: "hello", deliver: "after" });
+      expect(ui.box.value).toBe("newer draft");
+    }
+  });
+
   it("sends Enter into the turn and Ctrl+Enter or Cmd+Enter after it", async () => {
     const ui = await mount(bot("steers"));
     await ui.press({});
@@ -121,7 +166,7 @@ describe("send after this turn", () => {
     const ui = await mount(bot("waits"));
     await ui.press({ ctrlKey: true });
     await vi.waitFor(() => expect(ui.bodies).toHaveLength(1));
-    expect(ui.bodies[0]).not.toHaveProperty("deliver");
+    expect(ui.bodies[0]).toMatchObject({ deliver: "after" });
   });
 
   it("names the choice in the Send title", async () => {

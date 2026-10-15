@@ -591,6 +591,7 @@ export function Composer({
       text: failed.requestText,
       replyToId: failed.replyToId,
       threadId: failed.threadId,
+      after: failed.after,
       onError: () => {
         rememberFailedComposerSend(draftId, {
           sendId: failed.sendId,
@@ -598,6 +599,7 @@ export function Composer({
           requestText: failed.requestText,
           replyToId: failed.replyToId,
           threadId: failed.threadId,
+          after: failed.after,
         });
       },
     };
@@ -637,6 +639,7 @@ export function Composer({
       reply: replyTo ?? null,
       replyToId: replyTo?.id,
       threadId,
+      after,
     };
     // Clear the live box before React re-renders so a second Enter in this
     // tick cannot resend the same line, and the next fill+Enter reads the
@@ -669,7 +672,7 @@ export function Composer({
         sendId: sentDraft.sendId,
         replyToId: replyTo?.id,
         threadId,
-        after: after && canSteer,
+        after,
         onError: () => restoreDraft(sentDraft),
       });
     }

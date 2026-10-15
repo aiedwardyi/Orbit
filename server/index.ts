@@ -9531,6 +9531,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const queued = queueSteeredMessage(current.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
+              after: body.deliver === "after",
               // Reply quote only — startTurn wraps reactions when this drains.
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
@@ -9551,6 +9552,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const held = queueSteeredMessage(bot.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
+              after: body.deliver === "after",
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
             if (held.skipped) return { ok: true as const, cancelled: true as const, threadId };
