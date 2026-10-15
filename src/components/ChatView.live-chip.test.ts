@@ -28,6 +28,7 @@ type Snapshot = { panes: { sessionId: string; main: boolean; exited: boolean }[]
 
 function stubBridge() {
   const resolvers = new Map<string, (snapshot: Snapshot) => void>();
+  const exits: Array<(event: { botId: string; id: string }) => void> = [];
   const readBot = vi.fn((botId: string) => new Promise<Snapshot>((resolve) => { resolvers.set(botId, resolve); }));
   vi.stubGlobal("ogb", {
     platform: "win32",
@@ -35,10 +36,10 @@ function stubBridge() {
       readBot,
       onOpened: vi.fn(() => () => {}),
       onClosed: vi.fn(() => () => {}),
-      onExit: vi.fn(() => () => {}),
+      onExit: vi.fn((cb: (event: { botId: string; id: string }) => void) => { exits.push(cb); return () => {}; }),
     },
   });
-  return { resolvers };
+  return { resolvers, exits };
 }
 
 const answer = async (resolvers: Map<string, (snapshot: Snapshot) => void>, botId: string, ids: string[]) => {
@@ -120,6 +121,24 @@ describe("worker chip liveness", () => {
       await vi.waitFor(() => expect(chipLabel(host)).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers"));
       await act(async () => switchBot(botA));
       expect(chipLabel(host)).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("counts a live pane with no launch in the loaded messages, and drops it on exit", async () => {
+    const { resolvers, exits } = stubBridge();
+    const ids = Array.from({ length: 7 }, (_, index) => `p${index}pppppp-${index}`);
+    const seven = bot("chip-seven", "Seven", ids.slice(0, 6).map((id, index) => launch(`ls${index}`, `S${index}`, id)));
+    const { host, unmount } = await mountChat(seven);
+    try {
+      await answer(resolvers, "chip-seven", ids);
+      await vi.waitFor(() => expect(chipLabel(host)).toBe("7 working, 0 waiting, 0 failed, 0 done. Show workers"));
+      await act(async () => {
+        for (const cb of exits) cb({ botId: "chip-seven", id: ids[6]! });
+        await sleep(10);
+      });
+      await vi.waitFor(() => expect(chipLabel(host)).toBe("6 working, 0 waiting, 0 failed, 0 done. Show workers"));
     } finally {
       await unmount();
     }

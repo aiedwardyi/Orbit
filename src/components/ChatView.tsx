@@ -886,9 +886,16 @@ const paneLabelsKey = (labels: string[] | undefined) => `${labels?.length ?? 0}:
 /** Last answered live set per bot, so a switch back renders it before the fresh answer lands. */
 const lastLive = new Map<string, Set<string>>();
 
+/** Host labels for those panes, for chip rows with no transcript run. */
+const lastLabels = new Map<string, Map<string, string>>();
+
+const rememberLabels = (botId: string, panes: { sessionId: string; label?: string | null }[]) =>
+  lastLabels.set(botId, new Map(panes.flatMap((p) => (p.label ? [[p.sessionId, p.label] as const] : []))));
+
 /** Drops every cached live set. Tests only. */
 export function clearLivePaneCache() {
   lastLive.clear();
+  lastLabels.clear();
 }
 
 /** Bot-spawned pane ids still open, null until the bridge or the host first answers. Exported for tests. */
@@ -907,6 +914,7 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
     };
     void Promise.resolve().then(() => bridge.readBot?.(botId)).then((snapshot) => {
       if (!alive || !snapshot?.panes) return;
+      rememberLabels(botId, snapshot.panes);
       const ids = new Set(snapshot.panes.filter((p) => !p.main && !p.exited && !closed.has(p.sessionId)).map((p) => p.sessionId));
       for (const id of opened) if (!closed.has(id)) ids.add(id);
       save(ids);
@@ -963,6 +971,7 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
           (body) => {
             if (!alive || call !== latest) return;
             if (!Array.isArray(body?.panes)) { retry(); return; }
+            rememberLabels(botId, body.panes);
             save(new Set(body.panes.filter((p: { main?: boolean; exited?: boolean }) => !p.main && !p.exited).map((p: { sessionId: string }) => p.sessionId)));
             delay = 1000;
           },
@@ -2073,7 +2082,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary max-md:hidden" />}
         </div>
         <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 max-md:min-w-0 max-md:shrink max-md:flex-nowrap">
-          <WorkerChip name={bot.name} runs={workers} livePanes={livePanes} waitForLive={livePanes === null && window.ogb?.terminal != null} onOpenTerminalPane={onOpenTerminalPane} />
+          <WorkerChip name={bot.name} runs={workers} livePanes={livePanes} paneLabels={lastLabels.get(bot.id)} waitForLive={livePanes === null && window.ogb?.terminal != null} onOpenTerminalPane={onOpenTerminalPane} />
           {onOpenTerminal && (
             <button
               type="button"
