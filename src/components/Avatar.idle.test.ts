@@ -79,6 +79,19 @@ describe("mascot idle motion mount", () => {
     expect(host.querySelectorAll(".mascot-idle .mascot-blink").length).toBe(3);
   });
 
+  it("moves the eyes out of the SVG onto HTML spans", async () => {
+    const { host } = await renderInto(
+      createElement(MausAvatar, { color: "red", mascotStyle: "peach", size: 44, label: "Peach" }),
+    );
+
+    const idle = host.querySelector(".mascot-idle");
+    expect(idle?.tagName).toBe("SPAN");
+    expect(idle?.closest("svg")).toBeNull();
+    expect(idle?.querySelectorAll(".mascot-blink svg circle")).toHaveLength(6);
+    expect(host.querySelector(".mascot-avatar > svg.mascot-top")).toBeTruthy();
+    expect(host.querySelectorAll("[role=img], [aria-label]")).toHaveLength(1);
+  });
+
   it("renders fixed pack artwork without mascot recoloring", async () => {
     const { host } = await renderInto(
       createElement(BotAvatar, {

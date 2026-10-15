@@ -10,7 +10,7 @@ import {
   MASCOT_STYLES,
 } from "../../shared/bot-avatar";
 import { MAUS_COLORS } from "./mascot";
-import { mascotSvgMarkup, scopeMascotSvgIds } from "./mascot-art";
+import { mascotLayerMarkup, mascotSvgMarkup, scopeMascotSvgIds } from "./mascot-art";
 
 const assetsDir = join(dirname(fileURLToPath(import.meta.url)), "../assets/mascots");
 const botAvatarDir = join(dirname(fileURLToPath(import.meta.url)), "../../public/avatars");
@@ -79,6 +79,21 @@ describe("cute mascot art pack", () => {
         expect(svg.indexOf(mark), `${style} lost ${mark}`).toBeGreaterThan(blink);
       }
     }
+  });
+
+  it("lifts the eyes onto HTML spans sized to their fill box, art unchanged", () => {
+    const marks = /<(circle|ellipse|path|rect)\b/g;
+    for (const style of MASCOT_STYLES) {
+      const svg = mascotSvgMarkup(style, "red").replace(/\r?\n/g, "\r\n");
+      const layered = mascotLayerMarkup(svg);
+      expect(layered, style).not.toContain('<g class="mascot-idle">');
+      expect(layered, style).toMatch(/<\/svg><span class="mascot-idle" style="--mascot-eye-w:[\d.]+%;--mascot-eye-h:[\d.]+%;--mascot-eye-origin:[\d.]+% [\d.]+%"><span class="mascot-blink"><svg [^>]*viewBox="0 0 256 256"/);
+      expect(layered.match(marks)?.length, style).toBe(svg.match(marks)?.length);
+    }
+    const peach = mascotLayerMarkup(mascotSvgMarkup("peach", "red"));
+    expect(peach).toContain('style="--mascot-eye-w:34.3750%;--mascot-eye-h:12.5000%;--mascot-eye-origin:50.0000% 50.7813%"');
+    expect(peach.indexOf('class="mascot-top"')).toBeGreaterThan(peach.indexOf('class="mascot-blink"'));
+    expect(mascotLayerMarkup(mascotSvgMarkup("circle", "red"))).not.toContain("mascot-top");
   });
 
   it("ships two-dot simple shapes without blush, mouth, or limbs", () => {

@@ -286,6 +286,12 @@ describe("Terminal tool rows", () => {
     expect(out).toContain("overflow-wrap: anywhere;");
   });
 
+  it("blinks on opacity so the tick stays off the main thread", () => {
+    const blink = css.match(/@keyframes term-blink\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+    expect(blink).toContain("opacity: 0;");
+    expect(blink).not.toContain("visibility");
+  });
+
   it("wraps the header and clamps it at four lines", () => {
     const head = rule(String.raw`\.term-step-head`);
     expect(head).toContain("-webkit-line-clamp: 4;");
