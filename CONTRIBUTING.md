@@ -55,7 +55,7 @@ New server behavior comes with a test. Driver changes keep the contract tests in
 - **One concern per PR.** Big changes start with an issue that agrees on the approach.
 - **Commits:** `type: half-sentence`, with `feat`, `fix`, `docs`, `test`, `chore`, `refactor`, `perf` or `ci`. No body unless it says something the diff can't.
 - **Prose and comments:** terse plain English, like the README. Plain dashes, no em dashes.
-- **Comments are rare and short.** Write one only where the code surprises: a footgun or a non-obvious why. Half a sentence to one short sentence; a doc comment gets one line, a second only for a real gotcha. Never narrate the next line or restate the signature. Tests get none; the name says it.
+- **Comments are rare and short.** Write one only where the code surprises: a footgun or a non-obvious why. Half a sentence to one short sentence; a doc comment gets one line, a second only for a real gotcha. Never narrate the next line or restate the signature. No process notes either: PR numbers, who asked and notes to tools belong in git history. Tests get none; the name says it.
 - **One voice.** Read a nearby file first and match its naming, structure and terseness. Fix old comments in code you're already changing, nowhere else; a whole-file cleanup gets its own PR.
 
 ## Before you open the PR
