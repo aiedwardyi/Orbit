@@ -2540,6 +2540,8 @@ function queueTaskPacket(packet: TaskResumePacket): void {
 let turnClock = 0;
 const turnDispatchedAt = new Map<string, number>();
 const turnStartedAtMs = new Map<string, number>();
+// A routine fired in a chat is not the user's task: it neither resumes nor settles that record.
+const routineTurnThreads = new Set<string>();
 const turnInterruptedAt = new Map<string, number>();
 const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
@@ -2758,7 +2760,7 @@ const watchdog = new TurnWatchdog({
     repeats.settle(turn.threadId);
     settlePendingToolMessages(turn.threadId);
     const bot = store.bot(turn.botId);
-    const packet = bot && store.taskByThread(bot.id, turn.threadId)
+    const packet = bot && store.taskByThread(bot.id, turn.threadId) && !routineTurnThreads.has(turn.threadId)
       ? taskPacketForWrite(turn.threadId)
       : null;
     if (packet) {
@@ -3581,7 +3583,7 @@ bus.subscribe((event: RuntimeEvent) => {
           if (event.prompt && event.providerInstanceId) {
             store.recordNativePrompt(bot.id, event.threadId, event.providerInstanceId, event.prompt, event.contextWindow);
           }
-          const packet = taskPacketForWrite(event.threadId);
+          const packet = routineTurnThreads.has(event.threadId) ? null : taskPacketForWrite(event.threadId);
           if (packet) {
             persistTaskPacket(recordTaskCompletion(packet, {
               ok: event.ok,
@@ -3810,8 +3812,9 @@ bus.subscribe((event: RuntimeEvent) => {
   providerReload.settled(event.threadId);
   drainQueuedSends();
   paneWake.settled();
-  // after both, so held sends and pane wakes claim the bot before a queued routine
-  void routines?.tick();
+  // after both, so held sends and pane wakes claim the bot before a queued routine;
+  // a drained room turn only claims it a microtask later
+  setTimeout(() => void routines?.tick(), 0);
   followPendingSyncImports();
   const settledBot = store.botByThread(event.threadId);
   if (settledBot) syncMemory(settledBot.id);
@@ -4265,7 +4268,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   }
 
   const priorTaskPacket = taskPacketForWrite(threadId);
-  const recovering = isRecoveringPacket(priorTaskPacket);
+  const routineTurn = Boolean(opts?.cardContinuation && opts?.automationSource);
+  const recovering = !routineTurn && isRecoveringPacket(priorTaskPacket);
   if (!opts?.cardContinuation && text.trim()) {
     const packet = priorTaskPacket
       ? recordTaskInstruction(priorTaskPacket, {
@@ -4584,6 +4588,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   turnUsage.delete(threadId);
   turnDispatchedAt.set(threadId, tickTurnClock());
   turnStartedAtMs.set(threadId, Date.now());
+  if (routineTurn) routineTurnThreads.add(threadId);
+  else routineTurnThreads.delete(threadId);
   const seed = turnSeeds.set(threadId, {
     compactionId: turnSeedCompactionId({
       replayed: replaysTranscript,
@@ -5078,7 +5084,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         kind: "activity",
         tool: { name: `error: ${message.slice(0, 160)}`, ok: false },
       });
-      const packet = taskPacketForWrite(threadId);
+      const packet = routineTurnThreads.has(threadId) ? null : taskPacketForWrite(threadId);
       if (packet) {
         persistTaskPacket(recordTaskCompletion(packet, {
           ok: false,
@@ -5180,9 +5186,9 @@ function syncRoutineRunToSource(run: RoutineRun): { threadId: string; messageId:
 
 routines = new RoutineManager({
   emit: broadcast,
-  botState: (botId) => routineBotState({
+  botState: (botId, threadId) => routineBotState({
     exists: Boolean(store.bot(botId)),
-    activeTurn: botHasActiveTurn(botId),
+    activeTurn: botHasActiveTurn(botId, threadId),
     queuedSends: hasQueuedSends(botId),
   }),
   createTask: (botId, title, activate = false) => {
@@ -5201,9 +5207,24 @@ routines = new RoutineManager({
     if (!source) throw new Error("The routine's chat no longer exists");
     const automationSource = run.triggerSource ?? "schedule";
     if (source.group) {
+      // Wait in the routine queue, never the room's: only this one can cancel the run and keeps its trigger.
+      if (botHasActiveTurn(source.bot.id, source.threadId)) throw busyRejection("the room is busy");
       if (routineTriggerIsUnattended(automationSource)) markUnattended(source.bot.id);
-      const started = await runGroupMemberTurn(source.group.id, source.threadId, source.bot.id, 0, new Set(), line, onDispatchError);
-      if (!started) throw new Error("The routine's room is no longer available");
+      // claimed synchronously; the scheduler must not wait out the turn and its chained replies
+      void runGroupMemberTurn(
+        source.group.id,
+        source.threadId,
+        source.bot.id,
+        0,
+        new Set(),
+        line,
+        onDispatchError,
+        undefined,
+        undefined,
+        run.cardMessageId ? new Set([run.cardMessageId]) : undefined,
+      ).then((started) => {
+        if (!started) onDispatchError("The routine's room is no longer available");
+      }, (error) => onDispatchError(error instanceof Error ? error.message : String(error)));
       return;
     }
     await startTurn(source.bot.id, line, {
@@ -5554,6 +5575,7 @@ async function runGroupMemberTurn(
   onDispatchError?: (message: string) => void,
   isCancelled?: () => boolean,
   instructionId?: string,
+  excludeIds?: ReadonlySet<string>,
 ): Promise<boolean> {
   if (isCancelled?.()) return false;
   const group = store.group(groupId);
@@ -5583,6 +5605,7 @@ async function runGroupMemberTurn(
       isCancelled,
       releaseTurnStart,
       instructionId,
+      excludeIds,
     );
   } finally {
     releaseTurnStart();
@@ -5606,6 +5629,7 @@ async function runClaimedGroupMemberTurn(
   isCancelled?: () => boolean,
   releaseTurnStart?: () => void,
   instructionId?: string,
+  excludeIds?: ReadonlySet<string>,
 ): Promise<boolean> {
   if (isCancelled?.()) return false;
   const group = store.group(groupId);
@@ -5671,6 +5695,7 @@ async function runClaimedGroupMemberTurn(
     messages: store.activePath(threadId),
     referenceMessages: store.messagesFor(threadId),
     contextWindow: modelContextWindow,
+    excludeIds,
     taskRecordText: durableTaskRecordText || `Room: ${group.name}\nBulletin: ${group.bulletin.trim() || "none"}`,
     userName,
     includeSpeakers: true,

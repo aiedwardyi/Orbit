@@ -145,7 +145,8 @@ export interface RoutineManagerOptions {
   /** Keyed frames only: every payload on this bus is `{ kind, … }`, which
    * is what lets the server number and replay them. */
   emit?: (payload: Record<string, unknown>) => void;
-  botState: (botId: string) => "ready" | "busy" | "missing";
+  /** `threadId` is the chat a chat run fires in: another member's turn there holds a room run. */
+  botState: (botId: string, threadId?: string) => "ready" | "busy" | "missing";
   createTask: (botId: string, title: string, activate?: boolean) => { threadId: string } | null;
   startTurn: (
     botId: string,
@@ -271,6 +272,7 @@ export function routineRunCard(run: RoutineRun): RoutineRunCardData {
   };
   if (run.prompt) card.instruction = run.prompt.slice(0, 2_000);
   if (run.startedAt) card.startedAt = run.startedAt;
+  if (run.finishedAt) card.finishedAt = run.finishedAt;
   if (run.threadId) card.executionThreadId = run.threadId;
   if (summary) card.summary = summary;
   if (error) card.error = error;
@@ -724,7 +726,7 @@ export class RoutineManager {
       const queued = this.runs.filter((run) => run.status === "queued").sort((a, b) => a.scheduledFor - b.scheduledFor);
       for (const run of queued) {
         if (run.status !== "queued") continue;
-        const state = this.options.botState(run.botId);
+        const state = this.options.botState(run.botId, firesInChat(run) ? run.sourceThreadId : undefined);
         if (state === "busy") continue;
         if (state === "missing") {
           this.failRun(run, "The assigned bot no longer exists");
@@ -786,6 +788,8 @@ export class RoutineManager {
     const triggerSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
     const fail = (message: string) => {
       if (!["running", "waiting"].includes(run.status)) return;
+      // it never reached the bot, so its card is no delivery boundary
+      run.startedAt = undefined;
       this.failRun(run, message);
       queueMicrotask(() => void this.tick());
     };
@@ -807,7 +811,7 @@ export class RoutineManager {
   }
 
   /** A chat run is matched by its chat and bot: a room thread hosts several members' turns. */
-  handleRuntimeEvent(event: RuntimeEvent, ownerBotId?: string): RoutineRun | null {
+  handleRuntimeEvent(event: RuntimeEvent, ownerBotId: string | undefined): RoutineRun | null {
     const run = this.runs.find(
       (r) =>
         ["running", "waiting"].includes(r.status) &&

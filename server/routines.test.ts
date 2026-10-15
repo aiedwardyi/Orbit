@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -644,13 +645,13 @@ describe("RoutineManager", () => {
     h.manager.handleRuntimeEvent({
       eventId: "done",
       provider: "fake",
-      threadId: "thread-1",
+      threadId: "bot-chat",
       createdAt: new Date().toISOString(),
       type: "turn.completed",
       ok: true,
-    });
+    }, "maus-4");
 
-    expect(h.manager.listRuns()).toHaveLength(1);
+    expect(h.manager.listRuns()).toMatchObject([{ status: "completed" }]);
     expect(h.manager.listRoutines()[0]!.nextRunAt).toBeGreaterThan(routine.nextRunAt!);
   });
 
@@ -943,5 +944,79 @@ describe("RoutineManager", () => {
     expect(h.manager.listRuns()[0]).toMatchObject({ sourceThreadId: "bot-chat", cardMessageId: "card-orphan" });
     h.manager.handleRuntimeEvent({ eventId: "done", provider: "fake", threadId: "bot-chat", createdAt: new Date().toISOString(), type: "turn.completed", ok: true }, "maus-1");
     expect(h.manager.listRuns()[0]).toMatchObject({ status: "completed" });
+  });
+
+  it("holds a room run while another member's turn holds the room", async () => {
+    const h = harness();
+    let roomBusy = true;
+    h.options.botState = (_botId, threadId) => (threadId === "room-thread" && roomBusy ? "busy" : "ready");
+    const routine = h.manager.create({
+      name: "Room report",
+      prompt: "Write the report",
+      botId: "maus-room",
+      schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+    }, {
+      requestId: "request-room-busy",
+      messageId: "message-room-busy",
+      botId: "maus-room",
+      threadId: "room-thread",
+      action: "create",
+      fingerprintVersion: 1,
+      fingerprint: "6".repeat(64),
+    });
+    h.setNow(routine.nextRunAt!);
+    await h.manager.tick();
+    expect(h.started).toEqual([]);
+    expect(h.manager.listRuns()[0]).toMatchObject({ status: "queued" });
+
+    roomBusy = false;
+    await h.manager.tick();
+    expect(h.started).toMatchObject([{ botId: "maus-room", threadId: "room-thread" }]);
+  });
+
+  it("starts no clock on a run that failed before its turn", async () => {
+    for (const dispatch of ["throws", "reports"] as const) {
+      const h = harness();
+      h.options.startChatTurn = async (_run, _line, onDispatchError) => {
+        if (dispatch === "throws") throw new Error("provider unavailable");
+        onDispatchError("provider unavailable");
+      };
+      const routine = h.manager.create({
+        name: "Daily",
+        prompt: "Check it",
+        botId: "maus-1",
+        schedule: { type: "once", at: new Date(2026, 7, 17, 8, 1).getTime() },
+      });
+      h.setNow(routine.nextRunAt!);
+      await h.manager.tick();
+
+      const run = h.manager.listRuns()[0]!;
+      expect(run).toMatchObject({ status: "failed", error: "provider unavailable" });
+      expect(run.startedAt).toBeUndefined();
+      expect(routineRunCard(h.changed.at(-1)).startedAt).toBeUndefined();
+    }
+  });
+});
+
+// startChatTurn and the settle tick are private to index.ts, which these tests must not boot.
+describe("routine server wiring", () => {
+  const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
+  const startChatTurn = index.slice(index.indexOf("startChatTurn: async"), index.indexOf("interruptTurn: async"));
+  const claimedRoomTurn = index.slice(index.indexOf("async function runClaimedGroupMemberTurn("), index.indexOf("const roomContext = ["));
+
+  it("fires a room run without queueing it in the room, awaiting its turn, or replaying its card", () => {
+    expect(index).toContain("botState: (botId, threadId) => routineBotState");
+    const busy = startChatTurn.indexOf("throw busyRejection(");
+    expect(busy).toBeGreaterThan(-1);
+    expect(busy).toBeLessThan(startChatTurn.indexOf("runGroupMemberTurn("));
+    expect(startChatTurn).toContain("void runGroupMemberTurn(");
+    expect(startChatTurn).not.toContain("await runGroupMemberTurn(");
+    expect(startChatTurn).toContain("new Set([run.cardMessageId])");
+    expect(claimedRoomTurn).toMatch(/contextWindow: modelContextWindow,\s+excludeIds,/);
+  });
+
+  it("ticks routines only after a drained room turn claims its bot", () => {
+    expect(index).toContain("setTimeout(() => void routines?.tick(), 0);");
+    expect(index).not.toMatch(/^\s*void routines\?\.tick\(\);\s*$/m);
   });
 });

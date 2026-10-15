@@ -262,23 +262,47 @@ function pendingPaneNotes(messages: Message[], excludeIds: ReadonlySet<string>, 
 }
 
 /** Routine cards that landed without a turn (missed, cloud results) since the last user turn.
- * A fired chat card stops the walk: its own turn carried everything pending before it. */
+ * A fired chat card stops the walk: its own turn carried everything pending before it.
+ * A cloud card sits where it was queued, so one above that turn counts by when it landed. */
 export function routineCardsSinceLastUserTurn(messages: Message[], excludeIds: ReadonlySet<string>, boundId?: string): string[] {
   const lines: string[] = [];
-  for (let index = messages.length - 1; index >= 0; index--) {
+  let since: number | undefined;
+  let index = messages.length - 1;
+  for (; index >= 0; index--) {
     const message = messages[index]!;
-    if (message.id === boundId) break;
+    if (message.id === boundId) {
+      since = message.at;
+      break;
+    }
     if (excludeIds.has(message.id)) continue;
-    if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) break;
+    if (message.role === "user" && message.kind === "text" && message.text?.trim() && !message.steered) {
+      since = message.at;
+      break;
+    }
     const card = message.kind === "routine.run" ? message.routineRun : undefined;
     if (!card) continue;
-    const landed = card.status === "missed" ||
-      (card.runOn === "cloud" && (card.status === "completed" || card.status === "failed"));
-    if (!landed && card.runOn !== "cloud" && card.status !== "queued" && card.status !== "cancelled") break;
+    const landed = routineCardLanded(card);
+    if (!landed && card.runOn !== "cloud" && card.startedAt !== undefined && card.status !== "queued" && card.status !== "cancelled") {
+      since = card.startedAt;
+      break;
+    }
     const text = landed ? routineRunText(card) : null;
     if (text) lines.unshift(text);
   }
-  return lines;
+  if (since === undefined) return lines;
+  const late: string[] = [];
+  for (const message of messages.slice(0, index)) {
+    const card = message.kind === "routine.run" && !excludeIds.has(message.id) ? message.routineRun : undefined;
+    if (!card || !routineCardLanded(card) || (card.finishedAt ?? 0) <= since) continue;
+    const text = routineRunText(card);
+    if (text) late.push(text);
+  }
+  return [...late, ...lines];
+}
+
+function routineCardLanded(card: RoutineRunCardData): boolean {
+  return card.status === "missed" ||
+    (card.runOn === "cloud" && (card.status === "completed" || card.status === "failed"));
 }
 
 /** Oldest first, up to what leaves history room for a summary; a lone oversized note is clipped. */

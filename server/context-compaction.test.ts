@@ -1787,9 +1787,36 @@ describe("routine cards in replay", () => {
     expect(routineCardsSinceLastUserTurn([...path, message("m7", "Here", { role: "bot" }), message("m8", "Thanks")], new Set(["m8"]))).toEqual([]);
 
     // a fire turn carries earlier missed cards; later turns stop at its card
-    const fire = [message("m1", "Start"), routineCard("m2", { status: "missed" }), routineCard("m3", { status: "running" })];
+    const fire = [message("m1", "Start"), routineCard("m2", { status: "missed" }), routineCard("m3", { status: "running", startedAt: 3 })];
     expect(routineCardsSinceLastUserTurn(fire, new Set(["m3"]))).toEqual([missed]);
     expect(routineCardsSinceLastUserTurn([...fire, message("m4", "Try Raycast", { role: "bot" }), message("m5", "ok")], new Set(["m5"]))).toEqual([]);
+  });
+
+  it("delivers a cloud result that landed after a later user turn", () => {
+    const path = [
+      message("m1", "Start"),
+      routineCard("m2", { runOn: "cloud", summary: "Early.", finishedAt: 2 }),
+      routineCard("m3", { runOn: "cloud", summary: "Done.", finishedAt: 7 }),
+      message("m4", "Held line"),
+      message("m5", "Ok", { role: "bot" }),
+      message("m8", "Any news?"),
+    ];
+
+    expect(routineCardsSinceLastUserTurn(path, new Set(["m8"]))).toEqual([`${fired} [result: Done.]`]);
+  });
+
+  it("walks past a chat card that failed before its turn started", () => {
+    const missed = "[Routine card] Daily 20-min tool to try missed 2026-10-15 12:30: Send Eddie one tool to try";
+    const path = (failed: Partial<RoutineRunCardData>) => [
+      message("m1", "Start"),
+      routineCard("m2", { status: "missed" }),
+      routineCard("m3", { status: "failed", error: "provider unavailable", ...failed }),
+      message("m4", "Any news?"),
+    ];
+
+    expect(routineCardsSinceLastUserTurn(path({}), new Set(["m4"]))).toEqual([missed]);
+    // a turn that started and then failed still carried it
+    expect(routineCardsSinceLastUserTurn(path({ startedAt: 3 }), new Set(["m4"]))).toEqual([]);
   });
 });
 

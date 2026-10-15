@@ -11,6 +11,7 @@ export interface RoutineRunCardData {
   runOn?: "maus" | "cloud";
   scheduledFor?: number;
   startedAt?: number;
+  finishedAt?: number;
   instruction?: string;
   executionThreadId?: string;
   summary?: string;

@@ -303,6 +303,17 @@ describe("turn completion disposition after stop", () => {
     expect(indexSource.slice(send, spent)).not.toContain("clearResumeCursors");
   });
 
+  it("keeps a routine turn fired in a chat out of that chat's recovery and completion", () => {
+    expect(indexSource).toContain("const routineTurn = Boolean(opts?.cardContinuation && opts?.automationSource);");
+    expect(indexSource).toContain("const recovering = !routineTurn && isRecoveringPacket(priorTaskPacket);");
+    expect(indexSource).toMatch(/if \(routineTurn\) routineTurnThreads\.add\(threadId\);\s+else routineTurnThreads\.delete\(threadId\);/);
+    const completions = [...indexSource.matchAll(/persistTaskPacket\(recordTaskCompletion\(packet/g)];
+    expect(completions).toHaveLength(3);
+    for (const completion of completions) {
+      expect(indexSource.slice(completion.index - 300, completion.index)).toContain("routineTurnThreads.has(");
+    }
+  });
+
   it("binds each turn seed to its dispatch so a stopped turn cannot drop or consume its replacement's", () => {
     expect(indexSource).toContain("turnSeeds.take(event.threadId, event.turnId)");
     expect(indexSource).toContain("turnSeeds.release(threadId, seed)");
