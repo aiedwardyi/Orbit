@@ -160,6 +160,20 @@ afterEach(() => {
 });
 
 describe("Google sync journeys", () => {
+  it("counts a PC whose only published change is auto notes", async () => {
+    const home = makePC("home", { bots: [bot("Counsel")] });
+    await startOn(home);
+    const record = createSyncOperation({
+      operationId: randomUUID(), deviceId: "notes-only-pc", sequence: 1, recordedAt: 1_800_000_000_001,
+      entity: "bot", entityId: home.bots[0].syncId, changes: { memoryNotes: false },
+    });
+    write(home.folder!, `changes/000000000001-notes-only-pc-${record.operationId}.notes`, JSON.stringify(record));
+    await settle(home);
+    const work = makePC("work");
+    work.account.setSession(A);
+    expect((await work.sync.read()).join).toEqual({ first: false, pcs: 2 });
+  });
+
   it("journey 1: weeks of local data reach Drive and a fresh second PC gets it all", async () => {
     const home = makePC("home", { bots: [bot("Counsel"), bot("Clerk")], pictures: { "scan.png": "scan bytes" } });
     home.account.setSession(A);

@@ -11,6 +11,7 @@ import { z } from "zod";
 import { createDriveClient } from "./drive-client.ts";
 import { createDriveMirror, decodeDrivePath, drivePathHash, drivePathRule, encodeDrivePath, renameDriveFile, DriveMirrorError, type DriveHashes, type DriveOwner } from "./drive-mirror.ts";
 import { DriveIdentityError, readDriveOwnIds, type DriveOwnIds } from "./drive-own-ids.ts";
+import { applySyncOperations, createSyncOperation, emptyProfileSyncState, readSyncOperations, syncOperationFileName, writeSyncOperation } from "./profile-sync.ts";
 import { FakeDrive } from "./testing/fake-drive.ts";
 
 const OWNER: DriveOwner = { issuer: "https://accounts.google.com", sub: "account-a" };
@@ -83,6 +84,7 @@ describe("Drive mirror", () => {
   it.each([
     ["devices/device-home.json", "own"], ["devices/device-work.json", "peer"],
     ["changes/000000000001-device-home-op.json", "own"], ["changes/000000000001-device-work-op.json", "once"],
+    ["changes/000000000001-device-home-op.notes", "own"], ["changes/000000000001-device-work-op.notes", "once"],
     ["memory-v2/bot/aaaaaaaaaaaa.json", "own"], ["memory-v2 (1)/bot/aaaaaaaaaaaa.json", "own"], ["memory-v2 (2)/bot/bbbbbbbbbbbb.json", "peer"],
     ["threads-v2/bot/thread/writer-home/head.json", "own"], ["threads-v2 (1)/bot/thread/writer-home/head.json", "own"], ["threads-v2 (2)/bot/thread/writer-work/head.json", "peer"],
     ["threads-v2/bot/thread/writer-home/seg-1-2.json.gz", "once"], ["assets/a.png", "once"], ["pictures/a.png", "once"], ["workspace.json", "once"],
@@ -90,6 +92,24 @@ describe("Drive mirror", () => {
     ["devices/device-home.json.1.tmp", "ignore"], ["notes.txt", "unknown"], ["memory-v2 (0)/bot/aaaaaaaaaaaa.json", "unknown"],
   ])("classifies %s as %s", (path, rule) => {
     expect(drivePathRule(path, pcs[0].ids)).toBe(rule);
+  });
+
+  it("mirrors auto notes ops across three PCs", async () => {
+    const record = createSyncOperation({
+      operationId: "notes", deviceId: pcs[0].ids.profileDeviceId, sequence: 1, recordedAt: 100,
+      entity: "bot", entityId: "tutor", changes: { memoryNotes: false },
+    });
+    writeSyncOperation(pcs[0].folder, record);
+    const path = `changes/${syncOperationFileName(record)}`;
+    expect(path).toMatch(/\.notes$/);
+    expect((await pcs[0].mirror.syncOnce()).uploaded).toEqual([path]);
+    for (const pc of pcs.slice(1)) {
+      expect((await pc.mirror.syncOnce()).downloaded).toEqual([path]);
+      const read = readSyncOperations(pc.folder);
+      expect(read.invalidFiles).toEqual([]);
+      expect(read.operations).toEqual([record]);
+      expect(applySyncOperations(emptyProfileSyncState(), read.operations).bots.tutor?.memoryNotes).toBe(false);
+    }
   });
 
   it("keeps each PC's own files authoritative across three PCs", async () => {

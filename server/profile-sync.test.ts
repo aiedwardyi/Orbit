@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -34,6 +34,7 @@ import {
   serializeSyncOperation,
   syncAvatarMatches,
   syncOperationFileName,
+  syncOperationsSignature,
   unresolvedSyncConflicts,
   seenCheckpointAfterSave,
   writeSyncAvatarAsset,
@@ -278,6 +279,37 @@ describe("profile sync operations", () => {
     expect(result.operations).toEqual([record]);
     expect(result.invalidFiles).toEqual([]);
     expect(result.truncated).toBe(false);
+  });
+
+  it("detects an arriving auto notes record without another bot edit", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-notes-arrival-"));
+    roots.push(root);
+    writeSyncOperation(root, operation());
+    const signature = syncOperationsSignature(root);
+    const seen = { signature, invalid: false, missingAssets: [] };
+    expect(profileImportDue(seen, signature, root)).toBe(false);
+    const notes = operation({ operationId: "notes", sequence: 2, changes: { memoryNotes: false } });
+    writeFileSync(join(root, "changes", "notes.notes"), serializeSyncOperation(notes));
+    const next = syncOperationsSignature(root);
+    expect(next).not.toBe(signature);
+    expect(profileImportDue(seen, next, root)).toBe(true);
+    const read = readSyncOperations(root);
+    expect(read.invalidFiles).toEqual([]);
+    expect(applySyncOperations(emptyProfileSyncState(), read.operations).bots["bot-1"]?.memoryNotes).toBe(false);
+  });
+
+  it("reports invalid auto notes records and ignores unfinished writes", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-notes-invalid-"));
+    roots.push(root);
+    writeSyncOperation(root, operation());
+    const directory = join(root, "changes");
+    writeFileSync(join(directory, "invalid.notes"), "{");
+    const signature = syncOperationsSignature(root);
+    writeFileSync(join(directory, "pending.notes.tmp"), "{");
+    expect(syncOperationsSignature(root)).toBe(signature);
+    const read = readSyncOperations(root);
+    expect(read.operations).toHaveLength(1);
+    expect(read.invalidFiles).toEqual(["invalid.notes"]);
   });
 
   it("carries a custom avatar asset through a bot operation", () => {
@@ -643,6 +675,33 @@ describe("automatic bot sync", () => {
     tutor.changes.name = "Coach";
     tutor.changes.memoryNotes = false;
     expect(publish(a).map((op) => op.changes)).toEqual([{ name: "Coach" }, { memoryNotes: false }]);
+  });
+
+  it.each([
+    { scenario: "a notes-only flip", fresh: false, changes: { memoryNotes: false } },
+    { scenario: "a flip and rename", fresh: false, changes: { name: "Coach", memoryNotes: false } },
+    { scenario: "a new bot", fresh: true, changes: { name: "Coach", color: "blue", model: "opus", memoryNotes: true } },
+  ])("keeps $scenario out of legacy JSON scans", ({ fresh, changes }) => {
+    const folder = mkdtempSync(join(tmpdir(), "orbit-profile-sync-notes-legacy-"));
+    roots.push(folder);
+    const a = device("a");
+    const tutor = { name: "Tutor", changes: { name: "Tutor", memoryNotes: null } as Record<string, unknown> };
+    a.bots.set("tutor", tutor);
+    if (!fresh) for (const op of publish(a)) writeSyncOperation(folder, op);
+    Object.assign(tutor.changes, changes);
+    for (const op of publish(a)) writeSyncOperation(folder, op);
+    const legacy = readdirSync(join(folder, "changes")).filter((name) => name.endsWith(".json"))
+      .map((name) => parseSyncOperationText(readFileSync(join(folder, "changes", name), "utf8")));
+    expect(legacy.every((op) => !("memoryNotes" in (op.changes ?? {})))).toBe(true);
+    const oldBot = applySyncOperations(emptyProfileSyncState(), legacy).bots["g-a-tutor"]!;
+    const { memoryNotes, ...rest } = tutor.changes;
+    expect(oldBot).toMatchObject(rest);
+    expect(oldBot.memoryNotes).toBeUndefined();
+    const read = readSyncOperations(folder);
+    expect(read.invalidFiles).toEqual([]);
+    expect(read.operations.filter((op) => "memoryNotes" in (op.changes ?? {})).map((op) => op.changes)).toEqual([{ memoryNotes }]);
+    expect(applySyncOperations(emptyProfileSyncState(), read.operations).bots["g-a-tutor"]).toMatchObject(tutor.changes);
+    expect(publish(a)).toEqual([]);
   });
 
   it("applies an auto notes op a 1.0.184 scan skipped once this build reads the same file", () => {

@@ -28,7 +28,7 @@ const PASS_MS = 30_000;
 const REPUBLISH_MS = 1_000;
 const FULL_MS = 5 * 60_000;
 const FULL_MAX_MS = 30 * 60_000;
-const OPERATION_FILE = /^changes\/\d+-(.+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json$/;
+const OPERATION_FILE = /^changes\/\d+-(.+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:json|notes)$/;
 
 export type GoogleSyncState = "unavailable" | "signed-out" | "ready" | "joining" | "syncing" | "up-to-date" | "offline" | "drive-full" | "needs-sign-in" | "blocked" | "other-account" | "folder" | "error";
 export interface GoogleSyncStatus {

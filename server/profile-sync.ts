@@ -413,8 +413,12 @@ export function parseSyncOperationText(text: string): ProfileSyncOperation {
 
 export function syncOperationFileName(operation: ProfileSyncOperation): string {
   const safe = (value: string) => value.replace(/[^A-Za-z0-9._-]/g, "_");
-  return `${String(operation.sequence).padStart(12, "0")}-${safe(operation.deviceId)}-${safe(operation.operationId)}.json`;
+  // Older readers scan only .json.
+  const ext = operation.entity === "bot" && "memoryNotes" in (operation.changes ?? {}) ? "notes" : "json";
+  return `${String(operation.sequence).padStart(12, "0")}-${safe(operation.deviceId)}-${safe(operation.operationId)}.${ext}`;
 }
+
+const isSyncOperationFile = (name: string) => name.endsWith(".json") || name.endsWith(".notes");
 
 export function writeSyncOperation(folder: string, operation: ProfileSyncOperation): string {
   const parsed = parseSyncOperation(operation);
@@ -435,7 +439,7 @@ export function readSyncOperations(folder: string): { operations: ProfileSyncOpe
   }
   const operations: ProfileSyncOperation[] = [];
   const invalidFiles: string[] = [];
-  const jsonNames = names.filter((value) => value.endsWith(".json")).sort();
+  const jsonNames = names.filter(isSyncOperationFile).sort();
   const truncated = jsonNames.length > PROFILE_SYNC_MAX_FILES;
   for (const name of jsonNames.slice(0, PROFILE_SYNC_MAX_FILES)) {
     const path = join(directory, basename(name));
@@ -609,7 +613,7 @@ export function syncOperationsSignature(folder: string): string {
   } catch {
     return "";
   }
-  return createHash("sha256").update(names.filter((name) => name.endsWith(".json")).sort().join("\n")).digest("hex");
+  return createHash("sha256").update(names.filter(isSyncOperationFile).sort().join("\n")).digest("hex");
 }
 
 export interface SyncEntityValues {
