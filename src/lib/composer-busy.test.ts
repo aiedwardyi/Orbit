@@ -308,6 +308,6 @@ describe("modelForNextSend", () => {
   });
 
   it("is wired into the composer's image check", () => {
-    expect(composer).toContain("modelForNextSend(bot, { busy, canSteer })");
+    expect(composer).toContain("modelForNextSend(bot, { busy, canSteer: canSteer && !after })");
   });
 });

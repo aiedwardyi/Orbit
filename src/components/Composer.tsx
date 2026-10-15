@@ -458,11 +458,11 @@ export function Composer({
 
   // Image paste is offered unless a known responder refuses it. A missing
   // instance is still hydrating, so keep the image and validate before send.
-  const imageTargetsSupport = (message: string) => {
+  const imageTargetsSupport = (message: string, after = false) => {
     const responders = group
       ? roomRespondersForComposer(message, members ?? [], group)
       : bot
-        ? [{ modelSelection: modelForNextSend(bot, { busy, canSteer }) }]
+        ? [{ modelSelection: modelForNextSend(bot, { busy, canSteer: canSteer && !after }) }]
         : [];
     return imageSupportForTargets(state.instances, responders);
   };
@@ -579,7 +579,7 @@ export function Composer({
   );
   const retryFailedSend = (failed: FailedComposerSend) => {
     if (failed.requestText.includes("<attached-image ")) {
-      const support = imageTargetsSupport(failed.requestText);
+      const support = imageTargetsSupport(failed.requestText, failed.after);
       if (support !== "supported") {
         showImageSupportNotice(support);
         return;
@@ -620,7 +620,7 @@ export function Composer({
     if (action === "block" || uploading) return;
     const liveText = composerSendSourceText(inputRef.current?.value, text);
     if (attachments.some((attachment) => attachment.kind === "image")) {
-      const support = imageTargetsSupport(liveText);
+      const support = imageTargetsSupport(liveText, after);
       if (support !== "supported") {
         showImageSupportNotice(support);
         return;
@@ -1101,7 +1101,7 @@ export function Composer({
                 setHighlight((h) => (h + delta + candidates.length) % candidates.length);
                 return;
               }
-              if (isComposerEnterKey(e) || e.key === "Tab") {
+              if ((isComposerEnterKey(e) && !e.ctrlKey && !e.metaKey) || e.key === "Tab") {
                 e.preventDefault();
                 pickMention(candidates[highlight]);
                 return;

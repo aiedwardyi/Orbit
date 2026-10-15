@@ -64,8 +64,13 @@ describe("composerEnterIntent", () => {
     expect(composerEnterIntent(enter({ ctrlKey: true, isComposing: true }), idle)).toBe("none");
   });
 
-  it("keeps a touch keyboard's Ctrl+Enter a newline", () => {
-    expect(composerEnterIntent(enter({ ctrlKey: true, keyCode: 13 }), { ...idle, touch: true })).toBe("newline");
+  it.each([{ ctrlKey: true }, { metaKey: true }])("sends after the turn with a touch device's keyboard: %s", (mod) => {
+    const touch = { ...idle, touch: true };
+    expect(composerEnterIntent(enter({ ...mod, keyCode: 13 }), touch)).toBe("send-after");
+    expect(composerEnterIntent(enter({ ...mod, keyCode: 229 }), touch)).toBe("none");
+    expect(composerEnterIntent(enter({ ...mod, keyCode: 13 }), { ...touch, composing: true })).toBe("none");
+    expect(composerEnterIntent(enter({ ...mod, keyCode: 13 }), { ...touch, justEnded: true })).toBe("none");
+    expect(composerEnterIntent(enter({ ...mod, shiftKey: true, keyCode: 13 }), touch)).toBe("newline");
   });
 
   it("does not send while an IME is composing", () => {

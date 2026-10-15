@@ -30,7 +30,7 @@ export function isComposerEnterKey(event: Pick<ComposerEnterEvent, "key" | "code
 
 export function composerEnterIntent(event: ComposerEnterEvent, ime: ComposerImeState): ComposerEnterIntent {
   if (!isComposerEnterKey(event)) return "none";
-  if (event.shiftKey || ime.touch) return "newline";
+  if (event.shiftKey || (ime.touch && !event.ctrlKey && !event.metaKey)) return "newline";
 
   const keyCode = event.keyCode ?? event.nativeEvent?.keyCode;
   const nativeComposing = event.isComposing ?? event.nativeEvent?.isComposing ?? false;

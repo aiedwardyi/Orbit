@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { setDraftAttachments } from "@/lib/drafts";
 import { StoreProvider, useStore, type Bot } from "@/state/store";
 
 import { Composer } from "./Composer";
@@ -34,17 +35,18 @@ afterEach(async () => {
 });
 
 async function mount(subject: Bot, coarse = false, instancesReady = true) {
-  const bodies: Array<{ text?: string; deliver?: string }> = [];
+  const bodies: Array<{ text?: string; deliver?: string; sendId?: string }> = [];
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: coarse && query === "(pointer: coarse)", addEventListener() {}, removeEventListener() {} }));
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url);
-    if (path === "/api/bots?messages=200") return Response.json({ bots: [subject], groups: [], computerControl: {} });
+    if (path === "/api/bots?messages=200") return Response.json({ bots: [subject, { ...bot("peer"), name: "Peer" }], groups: [], computerControl: {} });
     if (path === "/api/instances") {
       if (!instancesReady) return new Promise<Response>(() => {});
       return Response.json({ instances: [
         { instanceId: "steers", capabilities: { queueing: true } },
         { instanceId: "waits", capabilities: {} },
+        { instanceId: "vision", capabilities: { queueing: true, images: true } },
       ] });
     }
     if (init?.method === "POST" && path.endsWith("/messages")) {
@@ -74,7 +76,7 @@ async function mount(subject: Bot, coarse = false, instancesReady = true) {
     FakeEventSource.last!.onmessage!({ data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c1" }), lastEventId: "" });
   });
   await vi.waitFor(() => expect(hydrated).toBe(true));
-  if (instancesReady) await vi.waitFor(() => expect(instances).toBe(2));
+  if (instancesReady) await vi.waitFor(() => expect(instances).toBe(3));
   const box = host.querySelector("textarea")!;
   const type = (value: string) =>
     act(async () => {
@@ -99,6 +101,59 @@ async function mount(subject: Bot, coarse = false, instancesReady = true) {
 }
 
 describe("send after this turn", () => {
+  it.each([{ ctrlKey: true }, { metaKey: true }])("sends after the turn while mentions are open: %s", async (mod) => {
+    const ui = await mount(bot("steers"));
+    await ui.type("@P");
+    await act(async () => {
+      ui.box.setSelectionRange(2, 2);
+      ui.box.dispatchEvent(new KeyboardEvent("keyup", { key: "P", bubbles: true }));
+    });
+    expect(ui.host.textContent).toContain("Peer");
+    await ui.press(mod);
+    expect(ui.bodies).toEqual([expect.objectContaining({ text: "@P", deliver: "after" })]);
+    await ui.type("@P");
+    await act(async () => {
+      ui.box.setSelectionRange(2, 2);
+      ui.box.dispatchEvent(new KeyboardEvent("keyup", { key: "P", bubbles: true }));
+    });
+    await ui.press({});
+    expect(ui.box.value).toBe("@Peer ");
+    expect(ui.bodies).toHaveLength(1);
+  });
+
+  it("keeps a failed after-turn send retryable without a newer draft", async () => {
+    const ui = await mount(bot("steers"));
+    const served = globalThis.fetch;
+    let fail = true;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && String(url).endsWith("/messages") && fail) {
+        fail = false;
+        ui.bodies.push(JSON.parse(String(init.body)));
+        return Promise.resolve(Response.json({ error: "offline" }, { status: 500 }));
+      }
+      return served(url, init);
+    }));
+    await ui.press({ ctrlKey: true });
+    const retry = () => Array.from(ui.host.querySelectorAll("button")).find((button) => button.textContent === "Retry");
+    await vi.waitFor(() => expect(retry()).toBeDefined());
+    await act(async () => retry()!.click());
+    expect(ui.bodies).toHaveLength(2);
+    expect(ui.bodies[1]).toMatchObject({ text: "hello", deliver: "after", sendId: ui.bodies[0]!.sendId });
+  });
+
+  it.each([true, false])("validates after-turn images against the pending model, supported=%s", async (supported) => {
+    const subject = bot(supported ? "steers" : "vision");
+    subject.pendingModelSelection = { instanceId: supported ? "vision" : "steers", model: "next" };
+    setDraftAttachments(localStorage, `bot:${subject.id}:${subject.threadId}`, [{
+      kind: "image", id: "image", path: "/tmp/image.png", name: "image.png", size: 3, mime: "image/png",
+    }]);
+    const ui = await mount(subject);
+    await ui.press({ ctrlKey: true });
+    expect(ui.bodies).toHaveLength(supported ? 1 : 0);
+    if (supported) expect(ui.bodies[0]).toMatchObject({ deliver: "after" });
+    else expect(ui.box.value).toBe("hello");
+  });
+
   it.each([false, true])("sends after-turn intent before capabilities load, coarse=%s", async (coarse) => {
     const ui = await mount(bot("steers"), coarse, false);
     if (coarse) {

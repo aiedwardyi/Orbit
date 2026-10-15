@@ -2,7 +2,7 @@
 // Room waits keep live callbacks; their user lines are already in the transcript.
 // Stop preserves user sends; stopping a group discards its room waits.
 
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -83,12 +83,29 @@ function saveQueuedSends(): void {
   writeFileAtomic(QUEUE_FILE, JSON.stringify(pending), { mode: 0o600 });
 }
 
+function saveQueueAfterAppend(): void {
+  try {
+    saveQueuedSends();
+  } catch (error) {
+    console.warn(`[queue] Could not save queue cleanup: ${error}`.replace(/\s+/g, " "));
+  }
+}
+
 export function initializeSteerQueue(store: Pick<Store, "bot" | "taskByThread" | "messagesFor" | "onChange">): void {
   let pending: z.infer<typeof savedQueueSchema>;
   try {
     pending = savedQueueSchema.parse(parseJson(readFileSync(QUEUE_FILE, "utf8")));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      const badFile = join(DATA_DIR, `queued-sends.bad-${Date.now()}.json`);
+      let recovery = `moved to ${badFile}`;
+      try {
+        renameSync(QUEUE_FILE, badFile);
+      } catch (renameError) {
+        recovery = `quarantine failed: ${renameError}`;
+      }
+      console.warn(`[queue] Could not load waiting sends; ${recovery}; starting empty: ${error}`.replace(/\s+/g, " "));
+    }
     pending = [];
   }
   queues.clear();
@@ -327,7 +344,7 @@ export function drainSteeredMessages(
         throw error;
       }
       // Remove the receipt only after the transcript append is durable.
-      saveQueuedSends();
+      saveQueueAfterAppend();
       void run(entry.botId, entry.threadId, item.prompt, appended, [appended.id]);
       continue;
     }
@@ -401,7 +418,7 @@ export function foldQueuedSends(
       appended.add(item.id);
       return item.prompt;
     });
-    if (entry) saveQueuedSends();
+    if (entry) saveQueueAfterAppend();
     return prompts;
   } catch (error) {
     if (entry) {

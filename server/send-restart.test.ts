@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +34,51 @@ afterEach(() => {
 });
 
 describe("waiting sends across restart", () => {
+  it.each(["garbage", '{"items":[]}'])("quarantines an invalid queue and boots empty: %s", async (contents) => {
+    writeFileSync(join(dir, "queued-sends.json"), contents);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { queue, store } = await boot();
+    const bad = readdirSync(dir).filter((name) => /^queued-sends\.bad-.*\.json$/.test(name));
+    expect(bad).toHaveLength(1);
+    expect(readFileSync(join(dir, bad[0]!), "utf8")).toBe(contents);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const bot = store.createBot();
+    expect(queue.hasQueuedSends(bot.id)).toBe(false);
+    queue.queueSteeredMessage(bot.id, bot.threadId, "new send");
+    expect(savedQueue()[0].items).toHaveLength(1);
+  });
+
+  it("dispatches once when post-append queue cleanup fails", async () => {
+    const { queue, store } = await boot();
+    const bot = store.createBot();
+    queue.queueSteeredMessage(bot.id, bot.threadId, "run anyway", { after: true });
+    const atomic = await import("./atomic.ts");
+    vi.spyOn(atomic, "writeFileAtomic").mockImplementationOnce(() => { throw new Error("disk unavailable"); });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const run = vi.fn();
+    expect(() => queue.drainSteeredMessages(store, run)).not.toThrow();
+    queue.drainSteeredMessages(store, run);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]![2]).toBe("run anyway");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0])).toContain("disk unavailable");
+  });
+
+  it("returns folded prompts when post-append queue cleanup fails", async () => {
+    const { queue, store } = await boot();
+    const bot = store.createBot();
+    const claim = queue.queueMark();
+    queue.queueSteeredMessage(bot.id, bot.threadId, "fold anyway");
+    const atomic = await import("./atomic.ts");
+    vi.spyOn(atomic, "writeFileAtomic").mockImplementationOnce(() => { throw new Error("disk unavailable"); });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(queue.foldQueuedSends(store, bot.id, bot.threadId, claim)).toEqual(["fold anyway"]);
+    expect(queue.foldQueuedSends(store, bot.id, bot.threadId, claim)).toEqual([]);
+    expect(store.messagesFor(bot.threadId).filter((message) => message.role === "user")).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0])).toContain("disk unavailable");
+  });
+
   it.each([false, true])("persists the receipt and delivery mode before returning, after=%s", async (after) => {
     const { queue, store } = await boot();
     const bot = store.createBot();
