@@ -152,7 +152,7 @@ for (const event of ["second-instance", "open-url"]) {
     assert.deepEqual(surfaces, []);
 
     const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
-    const startup = source.match(/const win = createWindow\(\);\n\s*startupWindowCreated = true;/);
+    const startup = source.match(/const win = createWindow\(\);\s*startupWindowCreated = true;/);
     assert.ok(startup);
     vm.runInContext(startup[0], context);
     assert.equal(created.length, 1);
