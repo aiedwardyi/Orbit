@@ -37,7 +37,7 @@ import { stopUtilityChild } from "./utility-child.mjs";
 import { buildDiagnosticsReport, decodeLogTail, diagnosticsFileName, redactSecretsInLine } from "./diagnostics.mjs";
 import { safeExternalUrl } from "./external-open.mjs";
 import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace-credentials.mjs";
-import { activateExistingWindow } from "./single-instance.mjs";
+import { activateExistingWindow, liveMainWindow } from "./single-instance.mjs";
 import {
   handleDesktopNotify,
   parseNotificationTargetFromCommandLine,
@@ -143,6 +143,8 @@ let pendingNotificationTarget = parseNotificationTargetFromCommandLine(process.a
 
 function deliverNotificationTarget(win, target = pendingNotificationTarget) {
   if (!target || !win || win.isDestroyed()) return;
+  if (win !== liveMainWindow(mainWindow)) return;
+  if (app.isPackaged && !shouldDeliverPackageInstall(win.webContents.getURL())) return;
   if (win.webContents.isLoadingMainFrame()) return;
   win.webContents.send("desktop:notification-click", target);
   if (target === pendingNotificationTarget) pendingNotificationTarget = null;
@@ -244,6 +246,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 function deliverPackageInstall(win) {
   if (!pendingPackageInstallUrl || !win || win.isDestroyed()) return;
+  if (win !== liveMainWindow(mainWindow)) return;
   // The connecting data URL is a real document. Delivering here would clear
   // the pending orbit://install before Sidebar's listener exists.
   if (app.isPackaged && !shouldDeliverPackageInstall(win.webContents.getURL())) return;
@@ -252,13 +255,24 @@ function deliverPackageInstall(win) {
   pendingPackageInstallUrl = null;
 }
 
+function activateMainWindow() {
+  const target = liveMainWindow(mainWindow);
+  if (!target) {
+    if (!app.isReady()) return;
+    const next = createWindow();
+    if (!app.isPackaged || packagedBootPhase === BOOT_READY) void startBrowserSurface(next);
+    return;
+  }
+  activateExistingWindow([target]);
+  deliverPackageInstall(target);
+  deliverNotificationTarget(target);
+}
+
 function queuePackageInstall(rawLink) {
   const packageUrl = packageUrlFromDeepLink(rawLink);
   if (!packageUrl) return false;
   pendingPackageInstallUrl = packageUrl;
-  activateExistingWindow(BrowserWindow.getAllWindows());
-  const target = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed());
-  deliverPackageInstall(target);
+  activateMainWindow();
   return true;
 }
 
@@ -272,10 +286,7 @@ app.on("second-instance", (_event, commandLine) => {
   if (packageUrl) pendingPackageInstallUrl = packageUrl;
   const notifyTarget = parseNotificationTargetFromCommandLine(commandLine);
   if (notifyTarget) pendingNotificationTarget = notifyTarget;
-  activateExistingWindow(BrowserWindow.getAllWindows());
-  const target = BrowserWindow.getAllWindows().find((win) => !win.isDestroyed());
-  deliverPackageInstall(target);
-  deliverNotificationTarget(target, notifyTarget ?? pendingNotificationTarget);
+  activateMainWindow();
 });
 
 // Packaged: the harness server ships in Resources (compiled JS, zero deps)
@@ -2366,10 +2377,7 @@ app.whenReady().then(async () => {
   // connecting window does not quit, and a dock click in that interval
   // must be able to open a new one.
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      const next = createWindow();
-      if (!app.isPackaged || packagedBootPhase === BOOT_READY) void startBrowserSurface(next);
-    }
+    activateMainWindow();
   });
   void openSecureCredentialDocument(await credentialsReady);
   const hostedAccount = ensureCompanionAccountService();

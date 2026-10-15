@@ -1,6 +1,10 @@
 // Single-instance policy for the desktop shell, kept Electron-free so the
 // activation rules stay unit-testable with plain object fakes.
 
+export function liveMainWindow(mainWindow) {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+}
+
 // Surface the existing app when a second launch gets absorbed: restore a
 // minimized window, then show and focus. Prefer whatever window currently
 // holds focus so a future multi-window layout lands predictably; otherwise

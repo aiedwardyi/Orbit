@@ -74,7 +74,7 @@ export function suggestEngine(
     const hit = open.find((i) => i.driverKind === kind);
     if (hit) return { instance: hit, substituted: false };
   }
-  const fallback = open[0];
+  const fallback = open.find((i) => !RETIRED_ENGINE_KINDS.includes(i.driverKind));
   return fallback ? { instance: fallback, substituted: true } : null;
 }
 

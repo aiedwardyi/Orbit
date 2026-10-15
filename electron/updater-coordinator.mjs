@@ -35,7 +35,7 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
       installOperation = null;
     }
     if (!manual) {
-      setState({ status: "idle" });
+      setState(downloadedVersion ? { status: "downloaded", version: downloadedVersion } : { status: "idle" });
       return;
     }
     setState({ status: "error", message: String(error?.message ?? error) });
@@ -46,15 +46,16 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     routeError(manual, error);
   }
 
-  function checkOwnsState() {
-    return !rechecks && !downloadOperation && !checkOperation?.supersededByDownload;
+  function checkOwnsState(version) {
+    return !rechecks && !downloadOperation && !installOperation && !checkOperation?.supersededByDownload
+      && (!downloadedVersion || (version && isNewerVersion(version, downloadedVersion)));
   }
 
   updater.on("checking-for-update", () => {
     if (checkOwnsState()) setState({ status: "checking" });
   });
   updater.on("update-available", (info) => {
-    if (checkOwnsState()) {
+    if (checkOwnsState(info?.version)) {
       setState({ status: "available", version: info?.version, message: undefined });
     }
   });
