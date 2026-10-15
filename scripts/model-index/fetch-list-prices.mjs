@@ -51,6 +51,7 @@ export function parseAnthropic(html, names) {
 function googlePrice(line, what, id) {
   const m = line.match(/^\$([\d.]+)(?: through ([A-Z][a-z]+ \d{1,2}, \d{4})\. \$([\d.]+) starting ([A-Z][a-z]+ \d{1,2}, \d{4})\.)?/);
   if (!m) throw new Unverifiable(`Google ${id}: unexpected ${what} price`);
+  if (line.slice(m[0].length).trim() && !(m[2] && m[3] && m[4])) throw new Unverifiable(`Google ${id}: unexpected ${what} price`);
   return { now: Number(m[1]), until: m[2] && isoDate(m[2]), next: m[3] && Number(m[3]), from: m[4] && isoDate(m[4]) };
 }
 
@@ -64,7 +65,7 @@ export function parseGoogle(html, names) {
     const nextModel = text.slice(start + id.length + 2).search(/\n\s*gemini-[\w.-]+\s*\n/);
     const block = text.slice(start, nextModel < 0 ? start + 8000 : start + id.length + 2 + nextModel);
     const standard = block.slice(0, block.search(/\n\s*Batch\s*\n/) < 0 ? undefined : block.search(/\n\s*Batch\s*\n/));
-    const line = (label) => standard.match(new RegExp(`\\n\\s*${label}[^\\n]*?\\n\\s*Free of charge\\s*\\n\\s*([^\\n]+)`))?.[1].trim();
+    const line = (label) => standard.match(new RegExp(`\\n\\s*${label}[^\\n]*?\\n\\s*(?:Free of charge|Not available)\\s*\\n\\s*([^\\n]+)`))?.[1].trim();
     const parts = [["Input price", "input"], ["Context caching price", "cached input"], ["Output price", "output"]].map(([label, what]) => {
       const value = line(label);
       if (!value) throw new Unverifiable(`Google ${id}: ${what} price not found`);
@@ -88,16 +89,44 @@ export function parseGoogle(html, names) {
 export function parseMeta(html, names) {
   const text = pageText(html);
   const prices = {};
-  // A tier ends at the next Models: line, so a broken tier cannot take the next tier's prices.
-  const tiers = [...text.matchAll(/Models:([^\n]*)\n(?:(?!Models:)[\s\S]){0,700}?Usage Price per 1M tokens\s+Cached input \$([\d.]+)\s+Input \$([\d.]+)\s+Output \$([\d.]+)/g)];
+  // A tier ends at the next Models:/Model: line, so a broken tier cannot take the next tier's prices.
+  const cell = String.raw`(?:\$[\d.]+|Not available)`;
+  const tiers = [...text.matchAll(new RegExp(
+    `Models?:([^\\n]*)\\n(?:(?!Models?:)[\\s\\S]){0,700}?` +
+    `Usage Standard mode \\(per 1M tokens\\) Contributor mode \\(per 1M tokens\\)\\s+` +
+    `Cached input (${cell}) (${cell})\\s+Input (${cell}) (${cell})\\s+Output (${cell}) (${cell})`, "g"))];
   if (tiers.length === 0) throw new Unverifiable("Meta pricing tiers not found");
-  const listed = [...text.matchAll(/Models:([^\n]*)/g)].map((m) => m[1]);
+  const listed = [...text.matchAll(/Models?:([^\n]*)/g)].map((m) => m[1]);
+  const num = (value) => (value === "Not available" ? null : Number(value.slice(1)));
   for (const id of names) {
     const onLine = (line) => new RegExp(`(?<![\\w.-])${escape(id)}(?![\\w-]|\\.\\d)`).test(line);
     const found = tiers.filter((t) => onLine(t[1]));
     if (found.length > 1) throw new Unverifiable(`Meta ${id}: listed in more than one tier`);
-    if (found.length) prices[id] = { input: Number(found[0][3]), cachedInput: Number(found[0][2]), output: Number(found[0][4]) };
-    else if (listed.some(onLine)) throw new Unverifiable(`Meta ${id}: row shape changed`);
+    if (found.length) {
+      const tier = found[0];
+      // The Models line names each mode's ids ("A in Standard mode; B in
+      // Contributor mode"); a line with no markers is Standard only.
+      const markStd = tier[1].indexOf("in Standard mode");
+      const markContrib = tier[1].indexOf("in Contributor mode");
+      const listFor = (mark) => {
+        if (mark < 0) return "";
+        const semi = tier[1].lastIndexOf(";", mark);
+        return tier[1].slice(semi < 0 ? 0 : semi + 1, mark);
+      };
+      const standardLine = markStd < 0 && markContrib < 0 ? tier[1] : listFor(markStd);
+      const contribLine = listFor(markContrib);
+      const triple = (cells) => cells.includes(null) ? null : { input: cells[1], cachedInput: cells[0], output: cells[2] };
+      const standard = triple([num(tier[2]), num(tier[4]), num(tier[6])]);
+      const contributor = triple([num(tier[3]), num(tier[5]), num(tier[7])]);
+      if (onLine(standardLine) && onLine(contribLine)) throw new Unverifiable(`Meta ${id}: listed in both modes`);
+      if (onLine(contribLine)) {
+        if (!contributor) throw new Unverifiable(`Meta ${id}: row shape changed`);
+        prices[id] = contributor;
+      } else if (onLine(standardLine)) {
+        if (!standard) throw new Unverifiable(`Meta ${id}: row shape changed`);
+        prices[id] = standard;
+      } else throw new Unverifiable(`Meta ${id}: row shape changed`);
+    } else if (listed.some(onLine)) throw new Unverifiable(`Meta ${id}: row shape changed`);
   }
   return prices;
 }

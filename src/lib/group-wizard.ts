@@ -26,9 +26,9 @@ export function wizardEngineOptions(
   return connected;
 }
 
-/** Antigravity offers only Gemini 3.8/3.7 Flash tiers, mirroring the main
- * picker cells (drops 3.1-pro, 3.6/3.5, legacy customs). */
-const ANTIGRAVITY_MODEL_PATTERN = /^gemini-3\.[87]-flash-(high|medium|low)$/;
+/** Antigravity offers only Gemini 4 Argon and 3.8 Flash tiers,
+ * mirroring the main picker cells (drops 3.1-pro, 3.7/3.6/3.5, legacy customs). */
+const ANTIGRAVITY_MODEL_PATTERN = /^(gemini-4-argon|gemini-3\.8-flash)-(high|medium|low)$/;
 
 export interface WizardModelOption {
   id: string;
@@ -44,12 +44,16 @@ export function wizardModelOptions(instance: InstanceInfo): WizardModelOption[] 
 }
 
 /** Resolve the row model against the offered options so the select never
- * goes blank: a requested model outside the offered set falls back to the
- * first offered option. */
+ * goes blank: a requested model outside the offered set falls back to
+ * 3.8 Flash High for a Gemini engine, else the first offered option. */
 export function resolveWizardModel(instance: InstanceInfo, model: string | null): string {
   const offered = wizardModelOptions(instance);
   const requested = model ?? instance.models.default;
   if (offered.some((option) => option.id === requested)) return requested;
+  if (instance.driverKind === "antigravityAgent") {
+    const flash = offered.find((option) => option.id === "gemini-3.8-flash-high");
+    if (flash) return flash.id;
+  }
   return offered[0]?.id ?? requested;
 }
 

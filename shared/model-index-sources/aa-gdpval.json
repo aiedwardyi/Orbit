@@ -237,33 +237,6 @@
       "kind": "independent"
     },
     {
-      "model": "gemini-3.7-flash",
-      "effort": "low",
-      "value": 1323.6,
-      "source_url": "https://artificialanalysis.ai/models/gemini-3-7-flash-low",
-      "retrieved_at": "2026-10-10T21:08:26.131225+09:00",
-      "kind": "independent"
-    },
-    {
-      "model": "gemini-3.7-flash",
-      "effort": "medium",
-      "value": 1358.49,
-      "source_url": "https://artificialanalysis.ai/models/gemini-3-7-flash-medium",
-      "retrieved_at": "2026-10-10T21:08:29.974854+09:00",
-      "kind": "independent"
-    },
-    {
-      "model": "gemini-3.7-flash",
-      "effort": "high",
-      "value": 1392.3,
-      "cost_per_task": 1.2478190382717331,
-      "cost_benchmark": "aa-gdpval",
-      "cost_source": "https://artificialanalysis.ai/models/gemini-3-7-flash",
-      "source_url": "https://artificialanalysis.ai/models/gemini-3-7-flash",
-      "retrieved_at": "2026-10-10T21:08:22.987313+09:00",
-      "kind": "independent"
-    },
-    {
       "model": "gemini-3.8-flash",
       "effort": "low",
       "value": 1306.55,

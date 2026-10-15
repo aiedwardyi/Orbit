@@ -17,7 +17,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -33,7 +33,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -49,7 +49,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -65,7 +65,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -81,55 +81,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
-      "kind": "independent",
-      "harness": "mini-swe-agent"
-    },
-    {
-      "model": "gemini-3.7-flash",
-      "effort": "low",
-      "value": 53.76106194690266,
-      "interval": {
-        "low": 51.17141286507079,
-        "high": 56.35071102873452
-      },
-      "cost_per_task": 1.8322645629424779,
-      "cost_benchmark": "deepswe",
-      "cost_source": "https://deepswe.datacurve.ai/",
-      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
-      "kind": "independent",
-      "harness": "mini-swe-agent"
-    },
-    {
-      "model": "gemini-3.7-flash",
-      "effort": "medium",
-      "value": 65.48672566371683,
-      "interval": {
-        "low": 62.4001933873013,
-        "high": 68.57325794013234
-      },
-      "cost_per_task": 2.0251351826880533,
-      "cost_benchmark": "deepswe",
-      "cost_source": "https://deepswe.datacurve.ai/",
-      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
-      "kind": "independent",
-      "harness": "mini-swe-agent"
-    },
-    {
-      "model": "gemini-3.7-flash",
-      "effort": "high",
-      "value": 65.2654867256637,
-      "interval": {
-        "low": 63.47762421887939,
-        "high": 67.05334923244803
-      },
-      "cost_per_task": 2.1762860351216813,
-      "cost_benchmark": "deepswe",
-      "cost_source": "https://deepswe.datacurve.ai/",
-      "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -145,7 +97,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -161,7 +113,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -177,7 +129,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -193,7 +145,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -209,7 +161,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -225,7 +177,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -241,7 +193,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -257,7 +209,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -273,7 +225,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -289,7 +241,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -305,7 +257,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -321,7 +273,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -337,7 +289,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -353,7 +305,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -369,7 +321,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     },
@@ -385,7 +337,7 @@
       "cost_benchmark": "deepswe",
       "cost_source": "https://deepswe.datacurve.ai/",
       "source_url": "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
-      "retrieved_at": "2026-10-10T12:11:44.082686+00:00",
+      "retrieved_at": "2026-10-15T01:54:45.581Z",
       "kind": "independent",
       "harness": "mini-swe-agent"
     }

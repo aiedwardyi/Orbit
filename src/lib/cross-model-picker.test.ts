@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pickerModels, movePicker, pickerRows, pickerEfforts, selectPickerModel, withPickerEffort } from "./cross-model-picker";
+import { PICKER_MODEL_IDS, pickerModels, movePicker, pickerRows, pickerEfforts, selectPickerModel, withPickerEffort } from "./cross-model-picker";
 import type { InstanceInfo } from "@/state/store";
 
 describe("picker catalogs", () => {
@@ -320,6 +320,68 @@ describe("picker catalogs", () => {
     expect(movePicker(rows, current, "ArrowDown")).toEqual({
       instanceId: "muse", model: "muse-spark-1.3", mode: "pinned",
     });
+  });
+
+  it("shows a Gemini 4 Argon cell first, then 3.8 Flash", () => {
+    const instance: InstanceInfo = {
+      instanceId: "antigravity", driverKind: "antigravityAgent", displayName: "Gemini (Antigravity)", snapshot: { state: "available" },
+      models: {
+        default: "gemini-3.1-pro-high",
+        options: [
+          "gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low",
+          "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low",
+          "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low",
+          "gemini-3.1-pro-high",
+        ].map((id) => ({ id, label: id })),
+      },
+    };
+    const row = pickerRows([instance], { instanceId: "antigravity", model: "gemini-4-argon-low" })[0]!;
+    expect(row.cells.filter((cell) => !cell.offList).map((cell) => cell.label)).toEqual([
+      "Gemini 4 Argon", "Gemini 3.8 Flash",
+    ]);
+    expect(row.cells.some((cell) => cell.offList)).toBe(false);
+    expect(PICKER_MODEL_IDS).toContain("gemini-4-argon");
+    expect(PICKER_MODEL_IDS).not.toContain("gemini-3.7-flash");
+  });
+
+  it("keeps a 3.7 pin working as one off-list cell with its tiers", () => {
+    const instance: InstanceInfo = {
+      instanceId: "antigravity", driverKind: "antigravityAgent", displayName: "Gemini (Antigravity)", snapshot: { state: "available" },
+      models: {
+        default: "gemini-3.7-flash-medium",
+        options: [
+          "gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low",
+          "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low",
+          "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low",
+        ].map((id) => ({ id, label: id })),
+      },
+    };
+    const row = pickerRows([instance], { instanceId: "antigravity", model: "gemini-3.7-flash-medium" })[0]!;
+    const offList = row.cells.filter((cell) => cell.offList);
+    expect(offList).toHaveLength(1);
+    expect(offList[0]!.options.map((option) => option.id).sort()).toEqual([
+      "gemini-3.7-flash-high", "gemini-3.7-flash-low", "gemini-3.7-flash-medium",
+    ]);
+    expect(pickerEfforts(row, offList[0]!).map((option) => option.model)).toEqual([
+      "gemini-3.7-flash-low", "gemini-3.7-flash-medium", "gemini-3.7-flash-high",
+    ]);
+  });
+
+  it("tiers the Argon cell low to high with no effort field", () => {
+    const instance: InstanceInfo = {
+      instanceId: "antigravity", driverKind: "antigravityAgent", displayName: "Gemini (Antigravity)", snapshot: { state: "available" },
+      models: {
+        default: "gemini-4-argon-high",
+        options: ["gemini-4-argon-high", "gemini-4-argon-medium", "gemini-4-argon-low"].map((id) => ({ id, label: id })),
+      },
+    };
+    const row = pickerRows([instance], { instanceId: "antigravity", model: "gemini-4-argon-low" })[0]!;
+    expect(row.cells).toHaveLength(1);
+    expect(row.cells[0]).toMatchObject({ label: "Gemini 4 Argon" });
+    expect(row.cells[0]!.offList).toBeUndefined();
+    expect(pickerEfforts(row, row.cells[0]!).map((option) => option.model)).toEqual([
+      "gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high",
+    ]);
   });
 
   it("offers Max above Extra High for Meta Muse and Contributor", () => {

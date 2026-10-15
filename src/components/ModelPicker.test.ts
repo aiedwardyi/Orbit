@@ -250,6 +250,44 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain("#aa7bfa");
   });
 
+  it("lists the Argon cell first with its three tiers and no off-list note", () => {
+    const argonTiered: InstanceInfo = {
+      ...antigravityTiered,
+      models: {
+        default: "gemini-4-argon-high",
+        options: [
+          { id: "gemini-4-argon-high", label: "Gemini 4 Argon (High)" },
+          { id: "gemini-4-argon-medium", label: "Gemini 4 Argon (Medium)" },
+          { id: "gemini-4-argon-low", label: "Gemini 4 Argon (Low)" },
+          ...antigravityTiered.models.options,
+        ],
+      },
+    };
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(ModelPickerControl, {
+          bot: { ...bot, modelSelection: { instanceId: "antigravity", model: "gemini-4-argon-low", mode: "pinned" } },
+          store: {
+            state: { instances: [argonTiered], selectedId: "bot-1" },
+            dispatch: () => undefined,
+            refreshInstances: async () => undefined,
+          },
+          defaultOpen: true,
+        }),
+      ),
+    );
+    expect(chipText(html)).toContain("Gemini 4 Argon Low");
+    const list = html.slice(html.indexOf("data-model-picker-content"));
+    expect(list).toContain('model-cross-name">Gemini 4 Argon<');
+    expect(list.indexOf("Gemini 4 Argon")).toBeLessThan(list.indexOf("Gemini 3.8 Flash"));
+    expect(list).not.toContain("model-cross-note");
+    for (const tier of ["low", "medium", "high"]) {
+      expect(list).toContain(`data-model-tier="gemini-4-argon-${tier}"`);
+    }
+  });
+
   it.each([
     ["codex", "codex-default", "Codex default Medium"],
     ["claude", "claude-fable-5-1", "Fable 5.1 Medium"],

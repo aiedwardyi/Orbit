@@ -168,6 +168,17 @@ describe("list price parsers", () => {
     expect(prices["gemini-3.7-flash"]).toBeUndefined();
   });
 
+  it("reads a model with no Free tier from its Standard paid column", () => {
+    const prices = listPrices.parseGoogle(fixture("google-pricing.html"), ["gemini-4-argon"]);
+    expect(prices["gemini-4-argon"]).toEqual({
+      input: 2,
+      cachedInput: 0.1,
+      output: 10,
+      until: "2026-11-30",
+      next: { from: "2026-12-01", input: 4, cachedInput: 0.2, output: 20 },
+    });
+  });
+
   it("fails on a Google price line or heading change", () => {
     const html = fixture("google-pricing.html");
     expect(() => listPrices.parseGoogle(html.replace(/Free of charge/g, "Free"), ["gemini-3.8-flash"])).toThrow(Unverifiable);
@@ -175,10 +186,47 @@ describe("list price parsers", () => {
     expect(() => listPrices.parseGoogle(html.replace("starting January 1, 2027", "from soon"), ["gemini-3.8-flash"])).toThrow(Unverifiable);
   });
 
+  it("fails when a Google promo cell lacks the full shape", () => {
+    const page = (paid) => [
+      "Gemini Developer API pricing",
+      "gemini-9-probe",
+      "Input price", "Free of charge", paid,
+      "Context caching price", "Free of charge", "$0.10",
+      "Output price", "Free of charge", "$1.00",
+    ].join("\n");
+    expect(() => listPrices.parseGoogle(page("$2.00 until November 30, 2026."), ["gemini-9-probe"])).toThrow(Unverifiable);
+    expect(() => listPrices.parseGoogle(page("$2.00 through November 30, 2026; $4.00 starting December 1, 2026."), ["gemini-9-probe"])).toThrow(Unverifiable);
+    expect(() => listPrices.parseGoogle(page("$2.00 through November 30, 2026."), ["gemini-9-probe"])).toThrow(Unverifiable);
+  });
+
+  it("fails when a model with no free tier has an unexpected free cell", () => {
+    const page = [
+      "Gemini Developer API pricing",
+      "gemini-9-probe",
+      "Input price", "Limited", "$2.00 through November 30, 2026. $4.00 starting December 1, 2026.",
+      "Context caching price", "Not available", "$0.10 through November 30, 2026. $0.20 starting December 1, 2026.",
+      "Output price", "Not available", "$10.00 through November 30, 2026. $20.00 starting December 1, 2026.",
+    ].join("\n");
+    expect(() => listPrices.parseGoogle(page, ["gemini-9-probe"])).toThrow(Unverifiable);
+  });
+
+  it("reads a reordered Meta sentence and a contributor-only line", () => {
+    const table = "Usage Standard mode (per 1M tokens) Contributor mode (per 1M tokens) Cached input $0.15 $0.002 Input $1.25 $0.10 Output $4.25 $0.20";
+    const reordered = `<p>Models: muse-spark-1.3-contributor in Contributor mode; muse-spark-1.3 in Standard mode.</p><p>${table}</p>`;
+    expect(listPrices.parseMeta(reordered, ["muse-spark-1.3-contributor"])["muse-spark-1.3-contributor"]).toEqual({ input: 0.1, cachedInput: 0.002, output: 0.2 });
+    expect(listPrices.parseMeta(reordered, ["muse-spark-1.3"])["muse-spark-1.3"]).toEqual({ input: 1.25, cachedInput: 0.15, output: 4.25 });
+    const contribOnly = `<p>Models: muse-spark-1.3-contributor in Contributor mode.</p><p>${table}</p>`;
+    expect(listPrices.parseMeta(contribOnly, ["muse-spark-1.3-contributor"])["muse-spark-1.3-contributor"]).toEqual({ input: 0.1, cachedInput: 0.002, output: 0.2 });
+    expect(listPrices.parseMeta(contribOnly, ["muse-spark-1.3"])["muse-spark-1.3"]).toBeUndefined();
+    const dangling = `<p>Models: muse-spark-1.3-contributor in Contributor mode; muse-spark-1.2.</p><p>${table}</p>`;
+    expect(() => listPrices.parseMeta(dangling, ["muse-spark-1.2"])).toThrow(Unverifiable);
+  });
+
   it("reads Meta tiers by the models each lists", () => {
-    const prices = listPrices.parseMeta(fixture("meta-pricing.html"), ["muse-spark-1.3", "muse-spark-1.3-contributor"]);
+    const prices = listPrices.parseMeta(fixture("meta-pricing.html"), ["muse-spark-1.3", "muse-spark-1.3-contributor", "muse-wonder-1.0"]);
     expect(prices["muse-spark-1.3"]).toEqual({ input: 1.25, cachedInput: 0.15, output: 4.25 });
     expect(prices["muse-spark-1.3-contributor"]).toEqual({ input: 0.1, cachedInput: 0.002, output: 0.2 });
+    expect(prices["muse-wonder-1.0"]).toEqual({ input: 4, cachedInput: 0.2, output: 20 });
   });
 
   it("fails when Meta's price table changes", () => {
@@ -186,9 +234,10 @@ describe("list price parsers", () => {
   });
 
   it("fails when a malformed Meta tier is followed by the next tier's prices", () => {
-    const html = "<p>Models: muse-spark-1.3</p><p>broken tier</p><p>Models: muse-spark-1.3-contributor</p><p>Usage Price per 1M tokens Cached input $0.002 Input $0.10 Output $0.20</p>";
+    const table = "Usage Standard mode (per 1M tokens) Contributor mode (per 1M tokens) Cached input $0.002 $0.001 Input $0.10 $0.05 Output $0.20 $0.10";
+    const html = `<p>Models: muse-spark-1.3 in Standard mode.</p><p>broken tier</p><p>Models: muse-spark-9 in Standard mode.</p><p>${table}</p>`;
     expect(() => listPrices.parseMeta(html, ["muse-spark-1.3"])).toThrow(/Meta muse-spark-1.3: row shape changed/);
-    expect(listPrices.parseMeta(html, ["muse-spark-1.3-contributor"])["muse-spark-1.3-contributor"]).toEqual({ input: 0.1, cachedInput: 0.002, output: 0.2 });
+    expect(listPrices.parseMeta(html, ["muse-spark-9"])["muse-spark-9"]).toEqual({ input: 0.1, cachedInput: 0.002, output: 0.2 });
   });
 
   it("reads OpenAI standard short-context rates", () => {
@@ -242,7 +291,7 @@ describe("listed rows that no longer parse", () => {
     expect(listPrices.parseXai(xai, ["grok-5"])["grok-5"]).toBeUndefined();
     const meta = fixture("meta-pricing.html").replace("$0.002", "n/a");
     expect(() => listPrices.parseMeta(meta, ["muse-spark-1.3-contributor"])).toThrow(Unverifiable);
-    expect(listPrices.parseMeta(meta, ["muse-spark-1.3"])["muse-spark-1.3"]).toEqual({ input: 1.25, cachedInput: 0.15, output: 4.25 });
+    expect(() => listPrices.parseMeta(meta, ["muse-spark-1.3"])).toThrow(Unverifiable);
     expect(listPrices.parseMeta(meta, ["muse-spark-9"])["muse-spark-9"]).toBeUndefined();
   });
 });

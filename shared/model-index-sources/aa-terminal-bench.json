@@ -237,17 +237,6 @@
       "kind": "independent"
     },
     {
-      "model": "gemini-3.7-flash",
-      "effort": "high",
-      "value": 13.6363636363636,
-      "cost_per_task": 4.308547542084213,
-      "cost_benchmark": "aa-terminal-bench",
-      "cost_source": "https://artificialanalysis.ai/models/gemini-3-7-flash",
-      "source_url": "https://artificialanalysis.ai/models/gemini-3-7-flash",
-      "retrieved_at": "2026-10-10T21:08:22.987313+09:00",
-      "kind": "independent"
-    },
-    {
       "model": "gemini-3.8-flash",
       "effort": "low",
       "value": 10.1010101010101,

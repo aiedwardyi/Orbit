@@ -53,18 +53,15 @@
       ]
     }
   },
-  "gemini-3.7-flash": {
+  "gemini-4-argon": {
     "provider": "google",
-    "label": "Gemini 3.7 Flash",
+    "label": "Gemini 4 Argon",
     "sources": {
-      "deepswe": [
-        "gemini-3-7-flash"
-      ],
       "vals": [
-        "google/gemini-3.7-flash"
+        "google/gemini-4-argon"
       ],
       "list-prices": [
-        "gemini-3.7-flash"
+        "gemini-4-argon"
       ]
     }
   },

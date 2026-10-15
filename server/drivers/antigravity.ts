@@ -79,10 +79,13 @@ export interface AntigravityConfig {
   fullAuto: boolean;
 }
 
-// model catalog from `agy models` (agy 1.1.27)
+// model catalog from `agy models` (agy 1.3.5)
 export const STATIC_ANTIGRAVITY_MODELS: ModelCatalog = {
   default: "gemini-3.1-pro-high",
   options: [
+    { id: "gemini-4-argon-high", label: "Gemini 4 Argon (High)", contextWindow: 1_048_576 },
+    { id: "gemini-4-argon-medium", label: "Gemini 4 Argon (Medium)", contextWindow: 1_048_576 },
+    { id: "gemini-4-argon-low", label: "Gemini 4 Argon (Low)", contextWindow: 1_048_576 },
     { id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)", contextWindow: 1_048_576 },
     { id: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)", contextWindow: 1_048_576 },
     // 3.8 ids confirmed against the agy 1.1.26 binary's own model table;

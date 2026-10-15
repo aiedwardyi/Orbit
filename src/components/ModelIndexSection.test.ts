@@ -187,12 +187,28 @@ describe("model filter", () => {
   it("charts only picker models on every tab", () => {
     const named = () => [...host.querySelectorAll('[tabindex="0"]')].map((el) => el.getAttribute("aria-label") ?? el.textContent ?? "").join("|");
     for (let i = 0; i < 5; i++) {
-      expect(named(), tab() ?? "").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Argon|Haiku 4\.5/);
+      expect(named(), tab() ?? "").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Haiku 4\.5/);
       if (tab() === "Coding") {
         pick("Coding benchmark", "DeepSWE");
-        expect(named(), "DeepSWE").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Argon|Haiku 4\.5/);
+        expect(named(), "DeepSWE").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Haiku 4\.5/);
       }
       press(window);
+    }
+  });
+
+  it("charts Argon on Legal and Cost, its only indexes with data", () => {
+    const named = () => [...host.querySelectorAll('[tabindex="0"]')].map((el) => el.getAttribute("aria-label") ?? el.textContent ?? "").join("|");
+    for (const benchmark of ["Intelligence", "Coding", "General work"]) {
+      pick("Benchmark", benchmark);
+      expect(named(), benchmark).not.toMatch(/Argon/);
+      if (benchmark === "Coding") {
+        pick("Coding benchmark", "DeepSWE");
+        expect(named(), "DeepSWE").not.toMatch(/Argon/);
+      }
+    }
+    for (const benchmark of ["Legal", "Cost"]) {
+      pick("Benchmark", benchmark);
+      expect(named(), benchmark).toMatch(/Gemini 4 Argon/);
     }
   });
 });
