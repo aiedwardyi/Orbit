@@ -254,16 +254,18 @@ function PlanUsage() {
       {engines.length === 0 ? (
         <div className="text-[13px] text-ink-secondary">{t("usage.limits.empty")}</div>
       ) : (
-        <div className="flex flex-col gap-5">
-          {engines.map((instance) => (
-            <EnginePlanRow
-              key={instance.instanceId}
-              instance={instance}
-              now={now}
-              error={refreshErrors[instance.instanceId]}
-              limit={limits[instance.instanceId]}
-            />
-          ))}
+        <div className="@container/plan">
+          <div className="flex flex-col gap-5 @xl/plan:grid @xl/plan:grid-cols-2 @xl/plan:items-start">
+            {engines.map((instance) => (
+              <EnginePlanRow
+                key={instance.instanceId}
+                instance={instance}
+                now={now}
+                error={refreshErrors[instance.instanceId]}
+                limit={limits[instance.instanceId]}
+              />
+            ))}
+          </div>
         </div>
       )}
     </Card>
