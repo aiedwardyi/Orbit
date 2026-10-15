@@ -258,6 +258,28 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
   useEffect(() => {
     if (listed.length === 0) setOpen(false);
   }, [listed.length]);
+  useLayoutEffect(() => {
+    if (!open || phone || !rootRef.current) return;
+    const root = rootRef.current;
+    const main = root.closest("main");
+    const place = () => {
+      // The menu hangs left of the chip; the chat column clips its edges.
+      const menuWidth = 300;
+      const row = root.getBoundingClientRect();
+      const bounds = main?.getBoundingClientRect();
+      const [min, max] = bounds ? [bounds.left + 8, bounds.right - 8] : [8, window.innerWidth - 8];
+      setRight(row.right - Math.min(Math.max(row.right, min + menuWidth), max));
+    };
+    place();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+    observer?.observe(root);
+    if (main) observer?.observe(main);
+    window.addEventListener("resize", place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", place);
+    };
+  }, [open, phone]);
   useEffect(() => {
     if (!open || phone) return;
     let byEscape = false;
@@ -298,17 +320,7 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
         ref={buttonRef}
         type="button"
         data-worker-strip=""
-        onClick={(event) => {
-          if (!open) {
-            // The menu hangs left of the chip; past the chat column's edge it is clipped under the sidebar.
-            const menuWidth = 300;
-            const row = rootRef.current!.getBoundingClientRect();
-            const main = event.currentTarget.closest("main")?.getBoundingClientRect();
-            const [min, max] = main ? [main.left + 8, main.right - 8] : [8, window.innerWidth - 8];
-            setRight(row.right - Math.min(Math.max(row.right, min + menuWidth), max));
-          }
-          setOpen((current) => !current);
-        }}
+        onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={t("workers.stripAria", counts)}
