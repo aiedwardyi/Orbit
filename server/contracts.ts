@@ -436,7 +436,8 @@ export interface ProviderInstance {
    * `refresh` = a page refocus: re-check sign-in, never start WSL. */
   snapshot(opts?: { rescan?: boolean; refresh?: boolean }): Promise<ProviderSnapshot>;
   /** Cheap one-shot text call (upstream TextGeneration) — titles, summaries. */
-  generateText?(prompt: string, opts?: { timeoutMs?: number; signal?: AbortSignal }): Promise<string>;
+  /** `ephemeral` asks the CLI not to keep a session transcript, where it can. */
+  generateText?(prompt: string, opts?: { timeoutMs?: number; signal?: AbortSignal; ephemeral?: boolean }): Promise<string>;
   /** the model and default deadline generateText runs on, for telemetry */
   readonly textModel?: string;
   readonly textTimeoutMs?: number;
