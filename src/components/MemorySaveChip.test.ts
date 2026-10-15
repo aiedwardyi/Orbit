@@ -36,6 +36,17 @@ describe("MemorySaveChip", () => {
     }
   });
 
+  it("draws the row flat", async () => {
+    const { host, root } = await renderChip(NOW - 60_000);
+    try {
+      const cls = new Set(host.querySelector("span")!.parentElement!.className.split(/\s+/));
+      expect(cls.has("border-transparent")).toBe(true);
+      expect([...cls].filter((c) => /^(bg-|border-hairline|rounded-)/.test(c))).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   it("flickers Saving to memory for a save that just landed", async () => {
     const { host, root } = await renderChip(NOW);
     try {

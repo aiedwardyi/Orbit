@@ -149,7 +149,7 @@ describe("transcript pills on a phone", () => {
   const memoryChip = readFileSync(join(components, "MemorySaveChip.tsx"), "utf8");
   const classStrings = (source: string, needle: RegExp) =>
     [...source.matchAll(/"([^"\n]*)"/g)].map((m) => m[1]).filter((value) => needle.test(value));
-  const PILL = /rounded-full border border-(?:hairline\/40 bg-panel|warning\/30 bg-warning\/10) px-3 py-1\.5/;
+  const PILL = /border border-(?:transparent|warning\/30 bg-warning\/10) px-3 py-1\.5/;
   const LABEL = /max-w-\[480px\] truncate/;
 
   it("lets the memory row shrink to the screen and keeps its icons whole", () => {
@@ -195,7 +195,6 @@ describe("server status lines in a tool chip", () => {
     ["GroupView", slice(groupView, "export function RoomToolChip", "function ClusterLabel")],
   ])("shows them whole in the UI font in %s and leaves commands as they were", (_name, source) => {
     expect(source).toContain("const status = isServerLine(tool.name);");
-    expect(source).toContain('status && "rounded-2xl"');
     expect(source).toMatch(/status\s*\? "min-w-0 max-w-\[480px\] break-words"\s*: "min-w-0 max-w-\[480px\] truncate font-mono"/);
   });
 });

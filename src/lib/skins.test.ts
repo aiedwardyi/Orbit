@@ -1061,9 +1061,9 @@ describe("dark ink skins", () => {
     },
     {
       file: "src/components/GroupView.tsx",
-      snippet: "rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px]",
+      snippet: "border border-transparent px-3 py-1.5 text-[13px]",
       textToken: "--color-danger",
-      surfaceToken: "--color-panel",
+      surfaceToken: "--color-app",
     },
     {
       file: "src/components/Sidebar.tsx",
@@ -1090,7 +1090,7 @@ describe("dark ink skins", () => {
     const chip = DANGER_PAIRINGS.find((p) => p.file.endsWith("GroupView.tsx"))!;
     const clear = DANGER_PAIRINGS.find((p) => p.file.endsWith("ApiKeys.tsx"))!;
 
-    // Rest surface in gruvbox: EnginesSettings on raised, RoomToolChip on panel
+    // Rest surface in gruvbox: EnginesSettings on raised, RoomToolChip on app
     expect.soft(contrast(cssToken("gruvbox", engines.textToken)!, cssToken("gruvbox", engines.surfaceToken)!)).toBeGreaterThanOrEqual(4.5);
     expect.soft(contrast(cssToken("gruvbox", chip.textToken)!, cssToken("gruvbox", chip.surfaceToken)!)).toBeGreaterThanOrEqual(4.5);
 
