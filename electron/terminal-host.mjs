@@ -12,6 +12,7 @@ const OUTPUT_LIMIT = 256 * 1024;
 const READY_TIMEOUT_MS = 5_000;
 const WINDOWS_READY_TIMEOUT_MS = 15_000;
 const SHUTDOWN_TIMEOUT_MS = 500;
+const QUIT_PANE_MS = 1_000;
 export const TERMINAL_ACTIVITY_COALESCE_MS = 750;
 export const TERMINAL_ACTIVITY_ACK_COOLDOWN_MS = 3_000;
 export const TERMINAL_STALL_MS = 120_000;
@@ -255,6 +256,17 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const closedBotPanes = new Map();
   let reservedPanes = 0;
   let disposed = false;
+  let disposal = null;
+  // conpty.node edits one unlocked process-wide pty list on every shell exit, so panes stop one at a time.
+  let stopTail = null;
+  const stopInTurn = (stop) => {
+    const run = stopTail ? stopTail.then(stop) : stop();
+    const tail = run.catch(() => {}).then(() => {
+      if (stopTail === tail) stopTail = null;
+    });
+    stopTail = tail;
+    return run;
+  };
   let stallTimer = null;
   // Panes that exited on their own with notes still to post; reclaiming them keeps the notes, a close drops them.
   const exitNotes = new Set();
@@ -464,15 +476,20 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
             // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may expose readiness only when worker-backed.
             const ptyReady = session.pty.ready;
             if (ptyReady && typeof ptyReady.then === "function") {
-              try { await timeout(ptyReady, readyTimeoutMs, "Terminal worker did not become ready"); } catch {}
+              try { await timeout(ptyReady, disposed ? QUIT_PANE_MS : readyTimeoutMs, "Terminal worker did not become ready"); } catch {}
             }
             session.workerReady = true;
           }
-          const result = session.pty.kill();
-          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge operations synchronously or asynchronously.
-          if (result && typeof result.then === "function") await timeout(result, SHUTDOWN_TIMEOUT_MS, "Terminal shutdown timed out");
+          await stopInTurn(async () => {
+            const result = session.pty.kill();
+            // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge operations synchronously or asynchronously.
+            if (result && typeof result.then === "function") await timeout(result, disposed ? QUIT_PANE_MS : SHUTDOWN_TIMEOUT_MS, "Terminal shutdown timed out");
+          });
         } catch {
-          try { session.pty.terminate?.(); } catch {}
+          // Quit waits for the worker instead: terminating it under a live ConPTY aborts the process.
+          if (!disposed) {
+            try { session.pty.terminate?.(); } catch {}
+          }
         }
       }
       if (sessions.get(session.id) === session) sessions.delete(session.id);
@@ -1064,15 +1081,21 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       return retire(session, true);
     },
     dispose() {
+      if (disposal) return disposal;
       disposed = true;
       if (stallTimer) clearInterval(stallTimer);
       active.clear();
-      for (const session of sessions.values()) {
+      const stopping = [...sessions.values()];
+      const stops = stopping.map((session) => {
         session.retired = true;
-        if (session.exitCode === null) retireQuietly(session, true);
-      }
+        return retire(session);
+      });
       sessions.clear();
       exitNotes.clear();
+      disposal = Promise.all(stops)
+        .then(() => timeout(Promise.all(stopping.map((session) => session.pty.exited)), QUIT_PANE_MS, "Terminal worker did not exit"))
+        .catch(() => {});
+      return disposal;
     },
   };
 }

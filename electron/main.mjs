@@ -2478,12 +2478,17 @@ app.on("before-quit", (e) => {
   // stop it here so quitting never orphans a recording process
   if (nativeActions.appleSpeech) stopSpeech();
   stopRecorder();
-  terminalHost.dispose();
+  // Panes stop one at a time below, so the windows go now rather than at the final quit.
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) window.hide();
+  }
+  const terminalsStopped = terminalHost.dispose();
   try {
     browserSurface?.closeAll();
   } catch {}
   const cleanup = Promise.race([
     Promise.all([
+      terminalsStopped,
       // Windows utilityProcess.kill() is TerminateProcess: ask the child to
       // run disposeAll/killCliTree first, then force-kill if it ignores us.
       stopUtilityChild(serverProc, { timeoutMs: CUA_STOP_TIMEOUT_MS })
