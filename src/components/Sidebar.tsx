@@ -283,7 +283,7 @@ function GroupListItem({
   const last = group.messages.filter(isShownMessage).at(-1);
   const asking = chatNeedsYou(group.messages);
   const unreadRing = Boolean(group.unread) && !asking;
-  const arrival = useArrivalGlow([group.id], { asking });
+  const arrival = useArrivalGlow([group.id], { enabled: !selected, asking });
   const select = () => {
     if (selected) onReselect?.();
     dispatch({ type: "select", id: group.id });
@@ -882,7 +882,7 @@ function BotListItem({
   const workerPanesTitle = workerPanesLabel && [workerPanesLabel, ...paneLabels.filter(Boolean)].join("\n");
   const asking = chatNeedsYou(bot.messages);
   const unreadRing = Boolean(bot.unread) && !asking;
-  const arrival = useArrivalGlow([bot.id], { asking });
+  const arrival = useArrivalGlow([bot.id], { enabled: !selected, asking });
   const rowClass = cn(
     "flex w-full items-center rounded-xl border text-left",
     iconOnly

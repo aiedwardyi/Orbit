@@ -41,6 +41,7 @@ export function subscribeArrival(chatId: string, notify: () => void): () => void
   set.add(notify);
   return () => {
     set.delete(notify);
+    if (set.size === 0 && chatListeners.get(chatId) === set) chatListeners.delete(chatId);
   };
 }
 
@@ -62,6 +63,8 @@ function arrivalVersion(): number {
 /** Tests only: forget every recorded arrival. */
 export function resetArrivalGlow(): void {
   entries.clear();
+  chatListeners.clear();
+  allListeners.clear();
   nonceCounter = 0;
   version = 0;
 }

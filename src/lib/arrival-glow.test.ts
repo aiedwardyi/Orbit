@@ -64,6 +64,17 @@ describe("noteArrival", () => {
     expect(noteArrival("a", 20_000)).toBe(true);
     expect(a).not.toHaveBeenCalled();
   });
+
+  it("keeps a later subscriber when a stale unsubscribe runs again", () => {
+    const a = vi.fn();
+    const b = vi.fn();
+    const offA = subscribeArrival("a", a);
+    offA();
+    subscribeArrival("a", b);
+    offA();
+    noteArrival("a", 1_000);
+    expect(b).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("arrivalChatForFrame", () => {

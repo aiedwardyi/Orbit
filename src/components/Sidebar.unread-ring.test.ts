@@ -321,6 +321,48 @@ describe("Sidebar arrival glow", () => {
     }
   });
 
+  it("stops a bot row glow at once when its chat opens, without replaying", async () => {
+    const { host, dispatch, unmount } = await mountSidebar({
+      bots: [bot("open"), bot("closed", { unread: true })],
+      groups: [],
+    });
+    try {
+      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
+      await act(async () => dispatch()({ type: "select", id: "open" }));
+      await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
+      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(true);
+      await act(async () => dispatch()({ type: "select", id: "closed" }));
+      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(false);
+      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
+      await act(async () => dispatch()({ type: "select", id: "open" }));
+      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(false);
+      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("stops a room row glow at once when its chat opens, without replaying", async () => {
+    const { host, dispatch, unmount } = await mountSidebar({
+      bots: [bot("open")],
+      groups: [room("room", { unread: true })],
+    });
+    try {
+      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="room"]')).not.toBeNull());
+      await act(async () => dispatch()({ type: "select", id: "open" }));
+      await sendFrame(replyFrame("room-thread", botText("live-r1", 11)));
+      expect(rowControl(host, "room").control?.hasAttribute("data-arrival-glow")).toBe(true);
+      await act(async () => dispatch()({ type: "select", id: "room" }));
+      expect(rowControl(host, "room").control?.hasAttribute("data-arrival-glow")).toBe(false);
+      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
+      await act(async () => dispatch()({ type: "select", id: "open" }));
+      expect(rowControl(host, "room").control?.hasAttribute("data-arrival-glow")).toBe(false);
+      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
   it("glows again for a second reply 20 s later", async () => {
     let now = 1_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
