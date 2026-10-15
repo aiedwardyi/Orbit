@@ -16,7 +16,8 @@ import {
 } from "./steer-queue.ts";
 import type { BotRecord, Message } from "./store.ts";
 
-const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
+// Windows CI checks out CRLF; the slice markers below are written with \n.
+const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8").replace(/\r\n/g, "\n");
 const parsed = ts.createSourceFile("index.ts", source, ts.ScriptTarget.Latest, true);
 
 function load(name: string, deps: Record<string, unknown>) {
