@@ -5,12 +5,12 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { act, createElement } from "react";
+import { act, createElement, useEffect, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SIDEBAR_COLLAPSED_KEY, SIDEBAR_COLLAPSED_SECTIONS_KEY } from "@/lib/sidebar-preferences";
-import { StoreProvider } from "@/state/store";
+import { StoreProvider, useStore } from "@/state/store";
 
 import { Sidebar } from "./Sidebar";
 
@@ -64,7 +64,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function mountSidebar(payload: { bots: unknown[]; groups: unknown[] }, runs: unknown[] = []) {
+function ShowRoutines() {
+  const { dispatch, state } = useStore();
+  useEffect(() => {
+    if (state.hydrated && state.activeView === "chat") dispatch({ type: "showRoutines" });
+  }, [dispatch, state.hydrated, state.activeView]);
+  return null;
+}
+
+async function mountSidebar(payload: { bots: unknown[]; groups: unknown[] }, runs: unknown[] = [], extra: ReactNode = null) {
   vi.stubGlobal("EventSource", FakeEventSource);
   const fetchMock = vi.fn(async (path: string, _init?: RequestInit) =>
     path === "/api/bots?messages=200"
@@ -77,7 +85,7 @@ async function mountSidebar(payload: { bots: unknown[]; groups: unknown[] }, run
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
   await act(async () =>
-    root.render(createElement(StoreProvider, null, createElement(Sidebar, { open: false, onClose: () => {} }))),
+    root.render(createElement(StoreProvider, null, extra, createElement(Sidebar, { open: false, onClose: () => {} }))),
   );
   await act(async () => FakeEventSource.current!.onmessage?.({
     data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
@@ -123,11 +131,12 @@ describe("Sidebar needs-you glow", () => {
         expect(control?.className).toContain("needs-you-glow");
         expect(control?.className).not.toContain("filter");
         expect(control?.querySelector(".sr-only")?.textContent).toBe(", has a question");
+        expect(control?.querySelector(".sr-only")?.getAttribute("aria-live")).toBe("polite");
       }
       const quiet = rowControl(host, "answered");
       expect(quiet.row?.hasAttribute("data-sidebar-needs-you")).toBe(false);
       expect(quiet.control?.className).not.toContain("needs-you-glow");
-      expect(quiet.control?.querySelector(".sr-only")).toBeNull();
+      expect(quiet.control?.querySelector('[aria-live="polite"]')?.textContent).toBe("");
     } finally {
       await unmount();
     }
@@ -193,6 +202,7 @@ describe("Sidebar needs-you glow", () => {
       for (const id of ["ringer", "room"]) {
         const { control } = rowControl(host, id);
         expect(control?.className).toContain("needs-you-glow");
+        expect(control?.querySelector(".sr-only")?.getAttribute("aria-live")).toBe("polite");
         expect(control?.querySelector(".sr-only")?.textContent).toBe(": routine rang");
       }
       for (const id of ["calm", "seen", "missed", "queued", "old", "cloud"]) {
@@ -222,7 +232,7 @@ describe("Sidebar needs-you glow", () => {
     try {
       await vi.waitFor(() => expect(rowControl(rail.host, "ringer").control?.getAttribute("aria-label")).toBe("ringer: routine rang"));
       expect(rowControl(rail.host, "ringer").control?.className).toContain("needs-you-glow");
-      const expand = rail.host.querySelector('button[aria-label="Expand sidebar, a bot has a question"]');
+      const expand = rail.host.querySelector('button[aria-label="Expand sidebar, a routine rang"]');
       expect(expand?.className).toContain("needs-you-glow");
     } finally {
       await rail.unmount();
@@ -240,6 +250,39 @@ describe("Sidebar needs-you glow", () => {
       expect(rowControl(host, "calm").control?.getAttribute("aria-label")).toBe("calm");
       const expand = host.querySelector('button[aria-label="Expand sidebar, a bot has a question"]');
       expect(expand?.className).toContain("needs-you-glow");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("glows a bot row when the ring is on an inactive task and does not settle the current thread", async () => {
+    const { host, fetchMock, unmount } = await mountSidebar({
+      bots: [{
+        ...bot("ringer", []),
+        threadId: "active-thread",
+        tasks: [{ threadId: "old-task", title: "Old", createdAt: 1 }],
+      }],
+      groups: [],
+    }, [run("ringer", "old-task")]);
+    try {
+      await vi.waitFor(() => expect(rowControl(host, "ringer").row?.getAttribute("data-sidebar-needs-you")).toBe("true"));
+      await act(async () => host.querySelector<HTMLElement>('[data-sidebar-row-id="ringer"] [role="button"]')!.click());
+      expect(fetchMock).not.toHaveBeenCalledWith("/api/routine-runs/ringer/seen", expect.anything());
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("glows the collapsed control for a routine on the selected chat while Routines covers it", async () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
+    const { host, unmount } = await mountSidebar(
+      { bots: [bot("ringer", [])], groups: [] },
+      [run("ringer", "ringer-thread")],
+      createElement(ShowRoutines),
+    );
+    try {
+      const expand = () => host.querySelector('button[aria-label="Expand sidebar, a routine rang"]');
+      await vi.waitFor(() => expect(expand()?.className).toContain("needs-you-glow"));
     } finally {
       await unmount();
     }

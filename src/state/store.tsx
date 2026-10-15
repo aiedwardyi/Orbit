@@ -21,7 +21,7 @@ import type { RoutineRequestCardData } from "../../shared/routine-request";
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { ToolDetail } from "../../shared/tool-detail";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
-import { ringingRuns } from "@/lib/routine-ring";
+import { ringingRuns, routineChatOnScreen } from "@/lib/routine-ring";
 import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { currentCall } from "@/lib/call";
 import { showNotification, type NotificationTarget, type TerminalAttentionReason } from "@/lib/notify";
@@ -3493,8 +3493,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [dispatch]);
 
-  // Opening a chat settles its fired routines, on the same honest signal.
-  const shownChat = state.activeView === "chat" && !state.workspaceOpen
+  // Opening a chat settles its fired routines, once that conversation is on screen.
+  const shownChat = routineChatOnScreen(state)
     ? (state.bots.find((b) => b.id === state.selectedId) ?? state.groups.find((g) => g.id === state.selectedId))
     : undefined;
   const ringKey = shownChat ? ringingRuns(state.routineRuns, shownChat.threadId).map((run) => run.id).join(",") : "";

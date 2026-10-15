@@ -56,9 +56,13 @@ function footer(run: RoutineRunCardData, ringing: boolean, t: Translate) {
       return { icon: <CircleAlert size={14} className={cn(className, "text-danger")} />, text: t("routine.card.missed", { time: scheduled }) };
     case "cancelled":
       return { icon: <X size={14} className={className} />, text: t("routine.card.cancelled") };
-    default:
-      if (run.runOn === "cloud" && run.status === "completed") {
-        return { icon: <Cloud size={14} className={cn(className, "text-success")} />, text: t("routine.card.cloud") };
+    default: {
+      if (run.runOn === "cloud" && (run.status === "running" || run.status === "completed")) {
+        const running = run.status === "running";
+        return {
+          icon: <Cloud size={14} className={running ? className : cn(className, "text-success")} />,
+          text: t(running ? "routine.card.cloudRunning" : "routine.card.cloud"),
+        };
       }
       return {
         icon: run.status === "completed" && !ringing
@@ -66,6 +70,7 @@ function footer(run: RoutineRunCardData, ringing: boolean, t: Translate) {
           : <Bell size={14} className={cn(className, "text-accent")} />,
         text: t("routine.card.rang", { time: clock(run.startedAt ?? run.scheduledFor) }),
       };
+    }
   }
 }
 

@@ -26,7 +26,7 @@ const HEADERS = [
   "TerminalWorkspace.tsx",
 ];
 
-const MENU_LABEL = 'aria-label={menuAsking ? t("ask.openBotList") : t("chrome.openBotList")}';
+const MENU_LABEL = 'aria-label={menuQuestion ? t("ask.openBotList") : menuRoutine ? t("routine.openBotList") : t("chrome.openBotList")}';
 const menuButtonSource = () => app.slice(app.indexOf(MENU_LABEL), app.indexOf("</button>", app.indexOf(MENU_LABEL)));
 
 describe("phone drawer menu button", () => {
@@ -59,7 +59,8 @@ describe("phone drawer menu button", () => {
 
   it("glows while another chat has a question or an open approval", () => {
     expect(menuButtonSource()).toContain('${menuAsking ? " needs-you-glow" : ""}');
-    expect(app).toContain("anyChatNeedsYou([...state.bots, ...listedGroups(state.groups)], state.selectedId)");
+    expect(app).toContain("anyChatNeedsYou(menuChats, menuExceptId)");
+    expect(app).toContain("anyRoutineRinging(state.routineRuns, menuChats, menuExceptId)");
   });
 
   it("closes when App settings opens from the drawer and stays closed after", async () => {

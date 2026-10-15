@@ -70,7 +70,7 @@ describe("RoutineRunCard", () => {
     expect(completed).toContain("border-hairline/30 opacity-70");
     expect(completed).not.toContain("border-accent/40");
     const failed = renderToStaticMarkup(createElement(RoutineRunCard, { message: message("failed", { error: "No engine" }) }));
-    expect(failed.replace(/aria-label="[^"]*"/g, "")).toContain("Couldn&#x27;t start: No engine");
+    expect(failed.replace(/aria-label="[^"]*"/g, "")).toContain("Failed: No engine");
   });
 
   it("makes a waiting question or approval an explicit Review action", () => {
@@ -79,7 +79,7 @@ describe("RoutineRunCard", () => {
       onOpen: vi.fn(),
     }));
 
-    expect(markup).toContain("Needs your OK below");
+    expect(markup).toContain("Needs a reply below");
     expect(markup).toContain("Review");
     expect(markup).toContain('aria-label="Review for Morning brief"');
   });
@@ -91,7 +91,7 @@ describe("RoutineRunCard", () => {
       onOpen: vi.fn(),
     }));
 
-    expect(markup).toContain("Couldn&#x27;t start: Provider failed");
+    expect(markup).toContain("Failed: Provider failed");
     expect(markup).toContain("…");
     expect(markup).not.toContain(verbose);
   });
@@ -117,6 +117,15 @@ describe("RoutineRunCard", () => {
 
     expect(markup).toContain("Missed");
     expect(markup).not.toContain("Open run");
+  });
+
+  it("labels a running cloud routine as running", () => {
+    const markup = renderToStaticMarkup(createElement(RoutineRunCard, {
+      message: message("running", { runOn: "cloud", scheduledFor: at(8, 0), startedAt: at(8, 1) }),
+    }));
+
+    expect(markup).toContain("Running on Cloud VM");
+    expect(markup).not.toContain("Rang at");
   });
 
   it("recognizes only an execution thread still present in the owning bot's tasks", () => {
