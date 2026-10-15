@@ -548,6 +548,37 @@ test("a withdrawn release is neither downloaded nor installed", async () => {
   assert.equal(getState().status, "idle");
 });
 
+for (const withdrawnBy of ["download", "install"]) {
+  test(`a release withdrawn during ${withdrawnBy} stays withdrawn through later offline checks`, async () => {
+    let quitCalls = 0;
+    const { updater, coordinator, getState } = harness({
+      quitForInstall: () => {
+        quitCalls += 1;
+      },
+    });
+    const feed = versionedFeed(updater, "1.0.97", "1.0.98");
+    await coordinator.download();
+    assert.deepEqual(getState(), { status: "downloaded", version: "1.0.98" });
+
+    feed.live = "1.0.97";
+    await coordinator[withdrawnBy]();
+    assert.equal(getState().status, "idle");
+
+    const offline = new Error("feed offline");
+    updater.checkForUpdates = () => {
+      updater.emit("error", offline);
+      return Promise.reject(offline);
+    };
+    await coordinator.check();
+    assert.equal(getState().status, "idle");
+    await coordinator.install();
+
+    assert.equal(quitCalls, 0);
+    assert.equal(getState().status, "idle");
+    assert.deepEqual(feed.downloads, ["1.0.98"]);
+  });
+}
+
 test("an older release never replaces the staged one", async () => {
   let quitCalls = 0;
   const { updater, coordinator, getState } = harness({

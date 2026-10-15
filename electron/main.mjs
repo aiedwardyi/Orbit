@@ -144,12 +144,15 @@ let pendingNotificationTarget = parseNotificationTargetFromCommandLine(process.a
 function deliverNotificationTarget(win, target = pendingNotificationTarget) {
   if (!target || !win || win.isDestroyed()) return;
   if (win !== liveMainWindow(mainWindow)) return;
+  // Same URL gate as package installs: never deliver to the connecting or error page.
   if (app.isPackaged && !shouldDeliverPackageInstall(win.webContents.getURL())) return;
   if (win.webContents.isLoadingMainFrame()) return;
   win.webContents.send("desktop:notification-click", target);
   if (target === pendingNotificationTarget) pendingNotificationTarget = null;
 }
 let mainWindow = null;
+// Startup owns the first window; activation before it only queues targets for that window's load.
+let startupWindowCreated = false;
 let unreadCount = 0;
 let unreadOverlayIcon = null;
 
@@ -258,7 +261,7 @@ function deliverPackageInstall(win) {
 function activateMainWindow() {
   const target = liveMainWindow(mainWindow);
   if (!target) {
-    if (!app.isReady()) return;
+    if (!startupWindowCreated) return;
     const next = createWindow();
     if (!app.isPackaged || packagedBootPhase === BOOT_READY) void startBrowserSurface(next);
     return;
@@ -2369,6 +2372,7 @@ app.whenReady().then(async () => {
   // connecting page does not need keys; the child env does.
   const credentialsReady = loadSecureCredentials();
   const win = createWindow();
+  startupWindowCreated = true;
   if (resetFailed) void dialog.showMessageBox(win, { type: "info", message: nativeText("settings.startFresh.error") });
   slog(`window shown packaged=${app.isPackaged} serverReady=${serverReady} uptime=${process.uptime().toFixed(2)}s`);
   startUpdater(win);

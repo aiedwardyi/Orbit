@@ -65,10 +65,12 @@ test("reports failure when no window can be activated", () => {
   assert.deepEqual(dead.calls, []);
 });
 
-function activationHarness(mainWindow, windows) {
+function activationHarness(mainWindow, windows, { startupWindowCreated = true } = {}) {
   const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
   const notification = source.slice(source.indexOf("function deliverNotificationTarget("), source.indexOf("let mainWindow = null;"));
+  assert.ok(notification.includes("desktop:notification-click"));
   const handlers = source.slice(source.indexOf("function deliverPackageInstall("), source.indexOf("// Packaged: the harness server"));
+  assert.ok(handlers.includes('app.on("second-instance"'));
   const activate = source.match(/app\.on\("activate", \(\) => \{[\s\S]*?\n  \}\);/);
   assert.ok(activate);
   const events = new Map();
@@ -77,6 +79,7 @@ function activationHarness(mainWindow, windows) {
   const context = vm.createContext({
     ...singleInstance,
     mainWindow,
+    startupWindowCreated,
     pendingPackageInstallUrl: null,
     pendingNotificationTarget: null,
     app: { isPackaged: true, isReady: () => true, on: (event, handler) => events.set(event, handler) },
@@ -139,6 +142,33 @@ test("cold-boot notification stays pending through the connecting page until the
   assert.deepEqual(win.calls, [["send", "desktop:notification-click", notificationTarget]]);
   assert.equal(context.pendingNotificationTarget, null);
 });
+
+for (const event of ["second-instance", "open-url"]) {
+  test(`${event} during startup leaves the first window to startup and delivers there`, () => {
+    const harness = activationHarness(null, [], { startupWindowCreated: false });
+    activate(harness, event);
+    const { context, created, surfaces } = harness;
+    assert.equal(created.length, 0);
+    assert.deepEqual(surfaces, []);
+
+    const source = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+    const startup = source.match(/const win = createWindow\(\);\n\s*startupWindowCreated = true;/);
+    assert.ok(startup);
+    vm.runInContext(startup[0], context);
+    assert.equal(created.length, 1);
+    const win = created[0];
+    assert.strictEqual(context.mainWindow, win);
+
+    activate(harness, event);
+    assert.equal(created.length, 1);
+    win.loading = false;
+    vm.runInContext("deliverPackageInstall(mainWindow); deliverNotificationTarget(mainWindow);", context);
+    assert.deepEqual(win.calls.filter((call) => Array.isArray(call)), [
+      ["send", "package:install", packageUrl],
+      ["send", "desktop:notification-click", notificationTarget],
+    ]);
+  });
+}
 
 for (const event of ["second-instance", "open-url", "activate"]) {
   test(`${event} recreates a missing or destroyed main without consuming pending targets in aux`, () => {
