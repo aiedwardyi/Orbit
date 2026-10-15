@@ -1,31 +1,16 @@
-// Queue-and-steer for busy 1:1 bots, and queue-and-speak for busy room members.
-//
-// A message sent to a bot mid-turn used to bounce with a 409. Now it waits
-// here until the bot settles, then lands in the thread and runs as its own
-// follow-up turn. Several short sends stay separate queued turns — joining
-// them into one prompt made forever-chat feel like a coalesced task dump.
-//
-// A room member who is busy elsewhere used to get a permanent "skipped this
-// round" activity line. Their participation now waits here and runs as ONE
-// room turn once they are idle. The user's room line is already on the
-// thread — drain must not append another, or in-flight tool events of the
-// other conversation can hang off the wrong leaf.
-//
-// The queue is memory-only and is NOT in `messages[]` while the current
-// turn is running: appending immediately would make the queued line the
-// active leaf, so remaining tool/assistant events of *this* turn would
-// hang off a user line the model has not seen. Restart loses the queue
-// (same as delegations / approvals). The composer shows a pending chip
-// until drain appends 1:1 words; a queued room member just speaks later.
-//
-// Unlike the delegation drain, a normal interrupted or failed 1:1 turn does
-// NOT discard queued sends: delegations are a bot's fan-out (dropping them on
-// Stop is a safety property), but these are the user's own words -
-// stop-then-steer (queue a correction, hit Stop, the correction runs) is the
-// feature. Group Stop removes queued room participations explicitly.
+// Waiting user sends stay off the active transcript until the bot is idle.
+// Room waits keep live callbacks; their user lines are already in the transcript.
+// Stop preserves user sends; stopping a group discards its room waits.
 
+import { mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { z } from "zod";
+
+import { writeFileAtomic } from "./atomic.ts";
+import { DATA_DIR } from "./config.ts";
 import { newId } from "./contracts.ts";
-import type { BotRecord, Message } from "./store.ts";
+import { parseJson } from "./schema.ts";
+import type { BotRecord, Message, Store } from "./store.ts";
 
 /** The slice of Store this module needs — narrow so tests can fake it. */
 export interface SteerStore {
@@ -74,6 +59,60 @@ let queueSeq = 0;
 /** Same shape as parseSendId — client sendIds are UUIDs, not a `send_` prefix. */
 const SEND_ID_SHAPE = /^[A-Za-z0-9_-]{16,80}$/;
 
+const QUEUE_FILE = join(DATA_DIR, "queued-sends.json");
+const savedQueueSchema = z.array(z.object({
+  botId: z.string(),
+  threadId: z.string(),
+  items: z.array(z.object({
+    messageId: z.string(),
+    seq: z.number().int().nonnegative(),
+    text: z.string(),
+    prompt: z.string(),
+    replyToId: z.string().optional(),
+    sendId: z.string().optional(),
+    after: z.boolean().optional(),
+  })),
+}));
+
+function saveQueuedSends(): void {
+  const pending = [...queues.values()].flatMap((entry) => {
+    const items = entry.items.filter((item) => !isRoomItem(item) && !isSendCancelled(item.sendId));
+    return items.length ? [{ botId: entry.botId, threadId: entry.threadId, items }] : [];
+  });
+  mkdirSync(DATA_DIR, { recursive: true });
+  writeFileAtomic(QUEUE_FILE, JSON.stringify(pending), { mode: 0o600 });
+}
+
+export function initializeSteerQueue(store: Pick<Store, "bot" | "taskByThread" | "messagesFor" | "onChange">): void {
+  let pending: z.infer<typeof savedQueueSchema>;
+  try {
+    pending = savedQueueSchema.parse(parseJson(readFileSync(QUEUE_FILE, "utf8")));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    pending = [];
+  }
+  queues.clear();
+  for (const entry of pending) {
+    for (const item of entry.items) queueSeq = Math.max(queueSeq, item.seq);
+    if (!store.bot(entry.botId) || !store.taskByThread(entry.botId, entry.threadId)) continue;
+    const messages = store.messagesFor(entry.threadId);
+    const items = entry.items.filter((item) => !messages.some((message) =>
+      (item.sendId && message.sendId === item.sendId) || message.queueId === item.messageId));
+    if (items.length) queues.set(entryKey(entry.botId, entry.threadId), { ...entry, items });
+  }
+  if (pending.length) saveQueuedSends();
+  store.onChange((change) => {
+    if (change.type !== "bot.deleted" && change.type !== "thread.deleted") return;
+    let changed = false;
+    for (const [key, entry] of queues) {
+      if (change.type === "bot.deleted" ? entry.botId !== change.botId : entry.threadId !== change.threadId) continue;
+      queues.delete(key);
+      changed = true;
+    }
+    if (changed) saveQueuedSends();
+  });
+}
+
 function rememberCancelledSend(id: string): void {
   if (!id) return;
   cancelledSendIds.add(id);
@@ -102,6 +141,7 @@ export type CancelSteerResult =
 
 export function markSendCancelled(sendId: string): void {
   rememberCancelledSend(sendId);
+  saveQueuedSends();
 }
 
 export function isSendCancelled(sendId: string | undefined): boolean {
@@ -162,8 +202,10 @@ export function queueSteeredMessage(
     return { id: options.sendId, skipped: true, cancelled: true };
   }
   const id = newId();
+  const key = entryKey(botId, threadId);
+  const previous = queues.get(key);
   const entry = entryFor(botId, threadId);
-  entry.items.push({
+  const item: SteerItem = {
     messageId: id,
     seq: (queueSeq += 1),
     text,
@@ -171,8 +213,15 @@ export function queueSteeredMessage(
     replyToId: options.replyToId,
     sendId: options.sendId,
     after: options.after,
-  });
-  queues.set(entryKey(botId, threadId), entry);
+  };
+  queues.set(key, { ...entry, items: [...entry.items, item] });
+  try {
+    saveQueuedSends();
+  } catch (error) {
+    if (previous) queues.set(key, previous);
+    else queues.delete(key);
+    throw error;
+  }
   return { id };
 }
 
@@ -241,6 +290,7 @@ export function drainSteeredMessages(
     if (!bot) {
       // the bot was deleted while messages waited — nothing left to steer
       queues.delete(key);
+      saveQueuedSends();
       continue;
     }
     // busy, or startTurn has claimed this bot but has not flipped busy yet
@@ -262,18 +312,27 @@ export function drainSteeredMessages(
       }
       // queueId is the pending-chip identity from the 202; append still
       // assigns a fresh transcript id so replay/exclude keep using message.id.
-      const appended = store.appendMessage(entry.threadId, {
-        role: "user",
-        kind: "text",
-        text: item.text,
-        replyToId: item.replyToId,
-        sendId: item.sendId,
-        queueId: item.messageId,
-      });
+      let appended: Message;
+      try {
+        appended = store.appendMessage(entry.threadId, {
+          role: "user",
+          kind: "text",
+          text: item.text,
+          replyToId: item.replyToId,
+          sendId: item.sendId,
+          queueId: item.messageId,
+        });
+      } catch (error) {
+        queues.set(key, entry);
+        throw error;
+      }
+      // Remove the receipt only after the transcript append is durable.
+      saveQueuedSends();
       void run(entry.botId, entry.threadId, item.prompt, appended, [appended.id]);
       continue;
     }
 
+    saveQueuedSends();
     const room = roomItems[0];
     if (!room) continue;
     const roomDrain: RoomDrain = { groupId: room.groupId, hop: room.hop };
@@ -325,18 +384,32 @@ export function foldQueuedSends(
   threadId: string,
   since: number,
 ): string[] {
-  return takeQueuedSteers(botId, threadId, since).map((item) => {
-    store.appendMessage(threadId, {
-      role: "user",
-      kind: "text",
-      text: item.text,
-      replyToId: item.replyToId,
-      sendId: item.sendId,
-      queueId: item.id,
-      steered: true,
+  const key = entryKey(botId, threadId);
+  const entry = queues.get(key);
+  const appended = new Set<string>();
+  try {
+    const prompts = takeQueuedSteers(botId, threadId, since).map((item) => {
+      store.appendMessage(threadId, {
+        role: "user",
+        kind: "text",
+        text: item.text,
+        replyToId: item.replyToId,
+        sendId: item.sendId,
+        queueId: item.id,
+        steered: true,
+      });
+      appended.add(item.id);
+      return item.prompt;
     });
-    return item.prompt;
-  });
+    if (entry) saveQueuedSends();
+    return prompts;
+  } catch (error) {
+    if (entry) {
+      const items = entry.items.filter((item) => !appended.has(item.messageId));
+      if (items.length) queues.set(key, { ...entry, items });
+    }
+    throw error;
+  }
 }
 
 /** Find the receipt for a retry whose message is still waiting to drain. */
@@ -381,6 +454,7 @@ export function cancelSteeredMessage(botId: string, messageId: string): CancelSt
     rememberCancelledSend(messageId);
     if (items.length === 0) queues.delete(key);
     else queues.set(key, { botId: entry.botId, threadId: entry.threadId, items });
+    saveQueuedSends();
     return { cancelled: true };
   }
   for (const entry of queues.values()) {

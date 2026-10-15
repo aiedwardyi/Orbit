@@ -164,6 +164,7 @@ import {
   foldQueuedSends,
   hasQueuedSendBefore,
   hasQueuedSends,
+  initializeSteerQueue,
   isSendCancelled,
   markSendRunning,
   queuedSteeredMessage,
@@ -967,6 +968,7 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
 }
 let bootSelection = { instanceId: "", model: "" };
 const store = new Store(() => bootSelection);
+initializeSteerQueue(store);
 if (store.botsFile === "unreadable") console.warn("bot sync: bots.json is there but did not load; not syncing bots until it does");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-sonnet-5", "claude-sonnet-5-5");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-haiku-4-5", "claude-haiku-5-5");
@@ -10656,6 +10658,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 };
 
 syncAllThreads();
+setImmediate(drainQueuedSends);
 googleSync.resume();
 uploads.sweep();
 setInterval(() => uploads.sweep(), 60 * 60 * 1000).unref();
