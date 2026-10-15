@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChartScatter, ChevronDown, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Settings, Smartphone, Terminal, User, Users, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
-import { builtInBrowserEnabled, detailedRepliesEnabled, memoryNotesEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
+import { builtInBrowserEnabled, detailedRepliesEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
   showSettingsAdvancedSection,
   showSettingsEnginesNav,
@@ -233,55 +233,6 @@ function DetailedRepliesRow() {
           role="switch"
           aria-checked={enabled}
           aria-label={t("settings.detailedReplies.aria")}
-          disabled={saving}
-          onClick={() => void toggle()}
-          className={`${cnSwitch(enabled)} disabled:cursor-wait disabled:opacity-50`}
-        >
-          <span className={cnKnob(enabled)} />
-        </button>
-      </div>
-      {error ? <p role="alert" className="mt-2 text-[12px] text-danger">{error}</p> : null}
-    </Card>
-  );
-}
-
-function MemoryNotesRow() {
-  const { t } = useI18n();
-  const { state, dispatch } = useStore();
-  const enabled = memoryNotesEnabled(state.config);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const toggle = async () => {
-    if (saving) return;
-    setSaving(true);
-    setError("");
-    try {
-      const config: ConfigStatus = await api("/api/config", {
-        method: "PATCH",
-        body: JSON.stringify({ features: { memoryNotes: !enabled } }),
-      });
-      dispatch({ type: "configStatus", config });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("settings.memoryNotes.saveError"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Card title={t("settings.memoryNotes.title")}>
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-[14px] font-medium text-ink">{t("settings.memoryNotes.toggle")}</div>
-          <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
-            {t("settings.memoryNotes.help")}
-          </div>
-        </div>
-        <button
-          role="switch"
-          aria-checked={enabled}
-          aria-label={t("settings.memoryNotes.toggle")}
           disabled={saving}
           onClick={() => void toggle()}
           className={`${cnSwitch(enabled)} disabled:cursor-wait disabled:opacity-50`}
@@ -757,7 +708,6 @@ export function SettingsModal({
                 <TerminalAppearanceRow />
                 <ToolCallsRow />
                 <DetailedRepliesRow />
-                <MemoryNotesRow />
                 <NotificationsRow />
                 <VibrationRow />
                 <UpdatesRow />
