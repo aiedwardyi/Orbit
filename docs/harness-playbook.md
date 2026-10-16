@@ -67,6 +67,9 @@ expensive the longer it runs.
   the same task; anything more goes to a FRESH worker in the same worktree
   that starts from the card and its progress file.
 - Claude workers compact at about 500k and get their card and progress file back.
+- Match the model to the job: the strongest for architecture, audits and hard
+  bugs; a mid model for routine builds; the cheapest for searches and mechanical
+  edits. Spread jobs across engines so no single plan runs out.
 - Default workers to high effort. Save max for a hard bug or an audit: its
   longer thinking stays in context and is re-read on every later step.
 - Save Gemini 4 Argon for big jobs that gain from a second model family's view,
