@@ -4830,3 +4830,187 @@ button:disabled.bg-danger {
 [data-phone-menu].arrival-glow::before {
   inset: 5px;
 }
+
+/* Timeline rail: only transforms, opacity and the lens canvas change per frame. Below the Jump to latest pill (z-10). */
+.turn-rail-host {
+  --turn-shade: rgb(0 0 0 / 0.62);
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 9;
+  pointer-events: none;
+}
+:is([data-skin="terminal"], [data-skin="terminal-dracula"], [data-skin="terminal-ice"], [data-skin="paper-tape"], [data-skin="logfile"], [data-skin="multiplexer"], [data-skin="modal"]) .turn-rail-host {
+  --turn-shade: rgb(0 0 0 / 0.7);
+}
+:is([data-skin="atelier"], [data-skin="lagoon"], [data-skin="ledger"], [data-skin="community-light"], [data-skin="notebook"], [data-skin="messenger"], [data-skin="code-review"], [data-skin="blueprint"], [data-skin="wink-day"], [data-skin="paper-tape"]) .turn-rail-host {
+  --turn-shade: color-mix(in srgb, var(--color-ink) 42%, transparent);
+}
+.turn-rail-host[hidden] {
+  display: none;
+}
+.turn-rail-hit {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.turn-rail-hit:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.turn-rail {
+  position: absolute;
+  pointer-events: none;
+}
+.turn-rail-lens {
+  position: absolute;
+  inset: 0;
+  opacity: 0.3;
+  transform-origin: 100% 50%;
+  will-change: transform, opacity;
+}
+.turn-rail-lens canvas {
+  display: block;
+}
+.turn-rail-here {
+  position: absolute;
+  top: -6px;
+  right: -5px;
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--color-accent);
+  opacity: 0.55;
+  visibility: hidden;
+}
+.turn-rail-cur {
+  position: absolute;
+  top: -1px;
+  right: 0;
+  width: 24px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-ink);
+  opacity: 0;
+}
+.turn-card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 4px 0;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  will-change: transform, opacity;
+  color: var(--color-ink);
+  background: color-mix(in srgb, var(--color-panel) 86%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  border: 1px solid color-mix(in srgb, var(--color-hairline) 80%, transparent);
+  box-shadow: 0 22px 48px -22px var(--turn-shade), 0 2px 10px -4px var(--turn-shade);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .turn-card {
+    background: var(--color-panel);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .turn-card {
+    background: var(--color-panel);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+.turn-card.live {
+  pointer-events: auto;
+}
+.turn-card-win {
+  position: relative;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent calc(var(--hh) - 1px), #000 calc(var(--hh) + 7px), #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to bottom, transparent calc(var(--hh) - 1px), #000 calc(var(--hh) + 7px), #000 calc(100% - 14px), transparent);
+}
+.turn-card-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--rh);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 18px;
+  cursor: pointer;
+  will-change: transform;
+}
+.turn-card-time {
+  flex: none;
+  width: var(--tw);
+  font-size: 11.5px;
+  line-height: 16px;
+  color: var(--color-ink-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.turn-card-words {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  word-break: keep-all;
+  overflow-wrap: normal;
+}
+.turn-card-band {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: 0;
+  height: var(--rh);
+  border-radius: max(0px, calc(var(--radius-xl) - 3px));
+  background: color-mix(in srgb, var(--color-ink) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 34%, transparent);
+  will-change: transform;
+}
+.turn-card-band::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--color-accent);
+}
+.turn-card-heads {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.turn-card-head {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: var(--hh);
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--color-ink-secondary);
+  white-space: nowrap;
+  will-change: transform;
+}

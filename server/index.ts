@@ -153,6 +153,7 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
 import { getOrCreateChannel, mirrorExchange, mirrorReply, postPeerReply, type CommsBus } from "./comms-visibility.ts";
 import { searchHaystack, searchMessages, searchSnippet } from "./message-db.ts";
+import { turnIndex } from "./turn-index.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript, userTurnReactionKeys } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, finishDelegatedTurn, pendingDelegationSnapshot, pollDelegation, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
@@ -7985,6 +7986,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 404, { error: "no such message" });
       }
       return json(res, 200, messagePage(threadId, limit ?? DEFAULT_PAGE, before));
+    }
+
+    // the timeline rail's turns, fetched once per chat on the first approach
+    m = path.match(/^\/api\/threads\/([\w-]+)\/turns$/);
+    if (m && method === "GET") {
+      const threadId = m[1];
+      if (!store.botByThread(threadId)) return json(res, 404, { error: "no such conversation" });
+      if (threadSyncGate.enabled) await pullSyncedThread(threadId);
+      else pullSyncedThread(threadId);
+      return json(res, 200, turnIndex(store.activePath(threadId)));
     }
 
     // the pixels of one screen message, fetched only when something shows it

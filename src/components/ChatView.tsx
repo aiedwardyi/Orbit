@@ -64,6 +64,7 @@ import { ChatPlanMeters } from "./ChatPlanMeters";
 import { TermStatusLine } from "./TermStatusLine";
 import { useNow } from "./PlanUsageBar";
 import { ChatFindBar } from "./ChatFindBar";
+import { TurnRail } from "./TurnRail";
 import { ReconnectingCue } from "./ReconnectingCue";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConnectorCard } from "./ConnectorCard";
@@ -2046,11 +2047,13 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   // Late layout, images and viewport changes fire no scroll event, so the pill and fill read geometry here too.
   const [newestBelow, setNewestBelow] = useState(false);
   const [underfilled, setUnderfilled] = useState(false);
+  const [tall, setTall] = useState(false);
   const measure = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     setNewestBelow(newestBelowView(el, contentRef.current ? spaceAfterNewestRow(contentRef.current) : 0));
     setUnderfilled(transcriptUnderfilled(el));
+    setTall(el.scrollHeight > el.clientHeight * 3);
   }, []);
   useEffect(() => {
     const content = contentRef.current;
@@ -2149,6 +2152,16 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
     });
   };
+  const followWheel = (deltaY: number) => {
+    if (deltaY < 0) breakFollow();
+    else {
+      advanceLater(deltaY > 0);
+      if (!jump.messages && laterCount === 0 && atEnd()) setBottomFollow(true);
+    }
+  };
+  const latestShown = Boolean(jump.messages || laterCount > 0 || (!follow && newestBelow));
+  // Long enough to need the timeline: three screens, or rows outside the mounted window.
+  const railShown = tall || hiddenCount > 0 || Boolean(bot.hasMore) || Boolean(jump.messages);
 
   return (
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
@@ -2369,13 +2382,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         data-orbit-transcript
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
         style={{ overflowAnchor: follow ? "none" : "auto" }}
-        onWheel={(e) => {
-          if (e.deltaY < 0) breakFollow();
-          else {
-            advanceLater(e.deltaY > 0);
-            if (!jump.messages && laterCount === 0 && atEnd()) setBottomFollow(true);
-          }
-        }}
+        onWheel={(e) => followWheel(e.deltaY)}
         onTouchStart={(e) => (touchY.current = e.touches[0]?.clientY ?? 0)}
         onTouchMove={(e) => {
           const y = e.touches[0]?.clientY ?? 0;
@@ -2512,6 +2519,19 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         </div>
       </div>
 
+      <TurnRail
+        threadId={bot.threadId}
+        messages={canonicalMessages}
+        scrollRef={scrollRef}
+        following={follow}
+        enabled={railShown}
+        mirror={sidebarOnRight}
+        latestShown={latestShown}
+        onJump={(messageId) => dispatch({ type: "focusMessage", threadId: bot.threadId, messageId })}
+        onLatest={jumpToLatest}
+        onWheel={followWheel}
+      />
+
       {menu?.kind === "message" ? (
         <MessageMenu x={menu.x} y={menu.y} opener={menu.opener} target={menu.target} onReply={selectReply} onPin={togglePin} onClose={() => setMenu(null)} />
       ) : menu ? (
@@ -2519,8 +2539,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
       ) : null}
 
       {/* Reading scrollback — one tap back to the end, streaming or not */}
-      {(jump.messages || laterCount > 0 || (!follow && newestBelow)) && (
+      {latestShown && (
         <button
+          data-jump-latest
           onClick={jumpToLatest}
           aria-label={t("chat.jumpToLatest")}
           className="animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg hover:bg-raised-hover"

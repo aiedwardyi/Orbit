@@ -904,6 +904,26 @@ describe("open window and jump pill", () => {
     expect(host.querySelector('[data-mid="m399"]')).not.toBeNull();
   });
 
+  it.each(["chat", "room"] as const)("lands a far %s jump before the browser can scroll the window it mounts", async (view) => {
+    const thread = Array.from({ length: 1000 }, (_, i) => say(`m${i}`, i ? `m${i - 1}` : null, "user", `row ${i};`));
+    const threadId = view === "chat" ? "thread-a" : "thread-g";
+    pagedServer(threadId, thread, view === "chat" ? { bots: [bot(thread.slice(-200), true)], groups: [] } : { bots: [], groups: [room(thread.slice(-200), true)] });
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.textContent).toContain("row 999;"));
+    const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
+    const target = () => scroller.querySelector('[data-mid="m30"]');
+    let landed = false;
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, get: () => 0, set: () => (landed ||= Boolean(target())) });
+    const atMount: boolean[] = [];
+    new MutationObserver(() => target() && atMount.push(landed)).observe(scroller, { childList: true, subtree: true });
+    // outside act, React commits and runs passive effects in separate tasks, as in a browser
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", false);
+    store.dispatch({ type: "focusMessage", threadId, messageId: "m30" });
+    await vi.waitFor(() => expect(flashed(host, "m30")).toBe(true));
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    expect(atMount[0]).toBe(true);
+  });
+
   it("shows the active task's pinned folder in the Terminal footer", async () => {
     applySkin("terminal");
     const thread = rows(0, 2);
