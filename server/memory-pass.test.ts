@@ -280,6 +280,31 @@ describe("memory pass", () => {
     expect(console.info).toHaveBeenCalledWith(expect.stringContaining("too-large"));
   });
 
+  it("records notes a full file turned away until a later save lands", async () => {
+    const full = `# Memory\n${"- note\n".repeat(198)}`;
+    writeMemoryFile("bot-t1", full);
+    generate.mockResolvedValueOnce(facts(["38 years old", "i'm 38"], ["Can't read Korean", "can't read korean"]));
+    say("t1", "i'm 38, can't read korean");
+    await settle("t1", 3 * MINUTE);
+    generate.mockResolvedValueOnce(facts(["Likes tea", "i like tea"]));
+    say("t1", "i like tea");
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await settle("t1", 3 * MINUTE);
+    expect(pass.droppedNotes("bot-t1")).toEqual({ dropped: 3, since: NOW + 3 * MINUTE });
+    expect(stored()).toEqual({ threads: {}, dropped: { "bot-t1": { dropped: 3, since: NOW + 3 * MINUTE } } });
+    pass.dispose();
+    pass = start();
+    expect(pass.droppedNotes("bot-t1")).toEqual({ dropped: 3, since: NOW + 3 * MINUTE });
+
+    writeMemoryFile("bot-t1", "# Memory\n");
+    generate.mockResolvedValueOnce(facts(["Uses pnpm", "i use pnpm"]));
+    say("t1", "i use pnpm");
+    await settle("t1", 3 * MINUTE);
+    expect(chips("t1")).toHaveLength(1);
+    expect(pass.droppedNotes("bot-t1")).toBeUndefined();
+    expect(stored()).toEqual({ threads: {} });
+  });
+
   it("holds a batch that lands while the bot is busy and saves it at the next settle without a second call", async () => {
     generate.mockImplementationOnce(async () => {
       busy.add("bot-t1");

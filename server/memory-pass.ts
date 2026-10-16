@@ -21,11 +21,16 @@ const SUMMARY_MAX = 120;
 const STATE_FILE = "memory-pass.json";
 
 const factsSchema = z.array(z.object({ fact: z.string(), quote: z.string(), replaces: z.string().nullish() })).max(20);
-const stateSchema = z.object({ threads: z.record(z.string(), z.array(z.string())) });
+const droppedSchema = z.object({ dropped: z.number(), since: z.number() });
+const stateSchema = z.object({
+  threads: z.record(z.string(), z.array(z.string())),
+  dropped: z.record(z.string(), droppedSchema).optional(),
+});
 
 export type NoteGenerator = (prompt: string, signal: AbortSignal) => Promise<string>;
 export type Fact = z.infer<typeof factsSchema>[number];
 export type Note = { line: string; replaces?: string };
+export type DroppedNotes = z.infer<typeof droppedSchema>;
 
 export interface MemoryPassDeps {
   store: Pick<Store, "onChange" | "messagesFor" | "groupByThread" | "botByThread" | "appendMessage">;
@@ -43,6 +48,8 @@ export interface MemoryPass {
   onSettled(botId: string, threadId: string): void;
   /** Call after a config change: bots switched off drop pending ids and any running pass. */
   onConfigChanged(): void;
+  /** Notes turned away because MEMORY.md was full, since the last save. */
+  droppedNotes(botId: string): DroppedNotes | undefined;
   /** Resolves once no pass is running. */
   idle(): Promise<void>;
   dispose(): void;
@@ -242,6 +249,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
   const now = deps.now ?? Date.now;
   const statePath = join(deps.dataDir, STATE_FILE);
   const pending = new Map<string, string[]>();
+  const dropped = new Map<string, DroppedNotes>();
   // generated but unsaved, so a busy turn or a moved revision never pays for the same batch twice
   const held = new Map<string, Batch>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -252,9 +260,11 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
   let disposed = false;
 
   try {
-    for (const [threadId, ids] of Object.entries(stateSchema.parse(JSON.parse(readFileSync(statePath, "utf8"))).threads)) {
+    const state = stateSchema.parse(JSON.parse(readFileSync(statePath, "utf8")));
+    for (const [threadId, ids] of Object.entries(state.threads)) {
       if (ids.length) pending.set(threadId, ids);
     }
+    for (const [botId, record] of Object.entries(state.dropped ?? {})) dropped.set(botId, record);
   } catch {
     // first run or unreadable: start empty
   }
@@ -263,7 +273,9 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
     clearTimeout(saveTimer);
     saveTimer = undefined;
     try {
-      writeFileAtomic(statePath, `${JSON.stringify({ threads: Object.fromEntries(pending) })}\n`, { mode: 0o600 });
+      const state: z.infer<typeof stateSchema> = { threads: Object.fromEntries(pending) };
+      if (dropped.size) state.dropped = Object.fromEntries(dropped);
+      writeFileAtomic(statePath, `${JSON.stringify(state)}\n`, { mode: 0o600 });
     } catch (error) {
       console.warn(`[memory-pass] state save failed (${error instanceof Error ? error.name : "error"})`);
     }
@@ -324,6 +336,8 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
     const text = appendNotes(raw, facts, now());
     if (!text) {
       log({ botId, threadId, facts: facts.length, ms, result: "too-large" });
+      const last = dropped.get(botId);
+      dropped.set(botId, { dropped: (last?.dropped ?? 0) + facts.length, since: last?.since ?? now() });
       return done(threadId, batch.ids);
     }
     if (saveMemoryFile(botId, text, memory.revision).conflict) {
@@ -337,6 +351,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
       tool: { name: MEMORY_SAVE_TOOL, ok: true, spoken: noteSummary(facts.map((note) => note.line)) },
     });
     log({ botId, threadId, lines: batch.lines, facts: facts.length, replaced: facts.filter((note) => note.replaces).length, ms, result: "saved" });
+    dropped.delete(botId);
     done(threadId, batch.ids);
   };
 
@@ -454,6 +469,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
     onConfigChanged() {
       if (!disposed) stop();
     },
+    droppedNotes: (botId) => dropped.get(botId),
     async idle() {
       while (running.size) await Promise.all([...running.values()].map((pass) => pass.done));
     },
