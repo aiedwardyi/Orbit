@@ -100,16 +100,26 @@ export function execCli(
   });
 }
 
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** Human wording for a failed CLI spawn.
  *
  * Node reports these as bare errno strings — "spawn grok ENOENT" — which
- * reads as a crash. On a CLI spawn the common codes mean exactly one thing
- * each, and both are setup problems the user can fix, so say which. The
- * `setup` flag lets the UI offer "Install" instead of a "Retry" that is
- * guaranteed to fail the same way. */
+ * reads as a crash. On a CLI spawn the common codes usually mean one thing
+ * each (ENOENT also fires for a missing cwd), and both are setup problems the
+ * user can fix, so say which. The `setup` flag lets the UI offer "Install"
+ * instead of a "Retry" that is guaranteed to fail the same way. */
 type SpawnFailure = { message: string; setup: boolean };
 
-export function describeSpawnFailure(err: NodeJS.ErrnoException, cli: string): SpawnFailure {
+export function describeSpawnFailure(err: NodeJS.ErrnoException, cli: string, cwd?: string): SpawnFailure {
+  if (err.code === "ENOENT" && cwd && !isDirectory(cwd))
+    return { message: `Project folder not found: \`${cwd}\`. Choose a folder that exists, then press Retry.`, setup: false };
   if (err.code === "ENOENT")
     return { message: `\`${cli}\` isn't installed, or isn't on this app's PATH`, setup: true };
   if (err.code === "EACCES" || err.code === "EPERM")

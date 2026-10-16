@@ -1222,7 +1222,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         connection.onNotification = handleNotification;
         connection.onError = (e) => {
           if (state.settled) return;
-          emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, effectiveCli()) });
+          emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, effectiveCli(), cwd) });
           settle(false, "spawn_error");
         };
         connection.onClose = (code, stderr) => {

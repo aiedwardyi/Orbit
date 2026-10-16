@@ -1980,6 +1980,18 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(await instance.snapshot()).toMatchObject({ state: "unavailable" });
   });
 
+  it("a missing project folder is named in the spawn error", async () => {
+    await create();
+    const missing = join(scratch, "moved-away");
+    await instance.adapter.sendTurn({ threadId: "t-no-cwd", text: "go", cwd: missing });
+    const done = await recorder.until((e) => e.type === "turn.completed");
+    expect(done).toMatchObject({ ok: false, stopReason: "spawn_error" });
+    expect(recorder.events.find((e) => e.type === "runtime.error")).toMatchObject({
+      message: expect.stringContaining(`Project folder not found: \`${missing}\``),
+      setup: false,
+    });
+  });
+
   it("brokers a permission ask into request.opened and answers over the socket", async () => {
     await create("hang");
     await instance.adapter.sendTurn({
