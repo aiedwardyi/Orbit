@@ -122,6 +122,26 @@ describe("summary build after settle", () => {
     expect(appended).toEqual([]);
   });
 
+  it("leaves a fallback chain to the repair", async () => {
+    const generateText = vi.fn(async () => "SUMMARY\nbuilt");
+    const { threads, appended, build, sendPrepares } = setup(generateText);
+    threads.set("t", overBudgetThread("a"));
+    threads.get("t")!.push(message("send", "next question"));
+    const { prepared } = await sendPrepares("t", "send", { summarize: undefined });
+    expect(prepared.status === "ready" && isFallbackSummary(prepared.compaction!.summary)).toBe(true);
+    if (prepared.status !== "ready") return;
+    threads.get("t")!.push(
+      { id: "fallback", at: 2_000, role: "bot", kind: "compaction", compaction: prepared.compaction! },
+      ...overBudgetThread("b"),
+    );
+
+    build.onSettled("bot", "t");
+    await build.idle();
+
+    expect(generateText).not.toHaveBeenCalled();
+    expect(appended).toEqual([]);
+  });
+
   it("lands nothing when the leaf moved", async () => {
     const { calls, generateText } = deferred();
     const { threads, appended, build } = setup(generateText);

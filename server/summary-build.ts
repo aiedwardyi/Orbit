@@ -1,4 +1,4 @@
-import { applicableCompaction, buildCompaction, planCompaction } from "./context-compaction.ts";
+import { applicableCompaction, buildCompaction, planCompaction, repairTarget } from "./context-compaction.ts";
 import type { ProviderInstance } from "./contracts.ts";
 import type { Message, Store } from "./store.ts";
 import { abortable, logSummaryCall, type SummaryCallContext } from "./summary-repair.ts";
@@ -128,7 +128,8 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
     if (deps.busy(botId, threadId)) return;
     const messages = deps.store.activePath(threadId);
     const leafId = deps.store.activeLeaf(threadId);
-    if (!leafId || !eligible(leafId)) return;
+    // a build would chain from the fallback and void its repair
+    if (!leafId || !eligible(leafId) || repairTarget(messages)) return;
     const inputs = await deps.sendInputs(botId, threadId, messages);
     if (disposed || controller.signal.aborted || !inputs?.instance.generateText) return;
     const { instance } = inputs;
