@@ -21,7 +21,7 @@ type RepairInstance = Pick<ProviderInstance, "driverKind" | "generateText" | "te
 export interface SummaryCallContext {
   botId: string;
   threadId: string;
-  phase: "compact" | "repair";
+  phase: "compact" | "repair" | "build";
   engine: string;
   model: string | null;
   run: number;
@@ -73,9 +73,9 @@ interface ActiveRun {
   controller?: AbortController;
 }
 
-function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+export function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
-    const onAbort = () => reject(new Error("summary repair aborted"));
+    const onAbort = () => reject(new Error("summary call aborted"));
     if (signal.aborted) return onAbort();
     signal.addEventListener("abort", onAbort, { once: true });
     promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
