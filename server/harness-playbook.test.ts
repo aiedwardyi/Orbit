@@ -85,7 +85,7 @@ describe("harness playbook", () => {
   });
 
   it("has workers ask through BLOCKED instead of guessing", () => {
-    expect(harnessPlaybookPrompt(true)).toContain("report BLOCKED with the question instead of guessing");
+    expect(harnessPlaybookPrompt(true)).toContain("- If a choice this card does not cover would change the result, stop and report BLOCKED with the question.");
   });
 
   it("tells parallel cards to split shared names and to end with an INTEGRATE card", () => {
@@ -113,7 +113,7 @@ describe("harness playbook", () => {
 
   it("respawns workers after an app restart and leaves other bots' processes alone", () => {
     const prompt = harnessPlaybookPrompt(true);
-    expect(prompt).toContain("An app update or restart closes every pane mid-run.");
+    expect(prompt).toContain("An app update or restart closes every pane mid-run:");
     expect(prompt).toContain("tell the user which of your workers it would stop");
     expect(prompt).toContain("close only the ones you can prove it started");
   });
@@ -131,7 +131,20 @@ describe("harness playbook", () => {
   });
 
   it("keeps worker processes off the user's screen", () => {
-    expect(harnessPlaybookPrompt(true)).toContain("keep its processes off the user's screen");
+    expect(harnessPlaybookPrompt(true)).toContain("- Keep processes off the user's screen: run in the pane, start background work hidden.");
+  });
+
+  it("carries the four house rules", () => {
+    const prompt = harnessPlaybookPrompt(true);
+    expect(prompt).toContain("- Launch only cards that serve the current goal or that the user asked for. A new idea is a one-line proposal that waits for a yes.");
+    expect(prompt).toContain("- Before a fan-out, check each engine's remaining usage; never put several workers on a low engine.");
+    expect(prompt).toContain("10. After a merge, deploy or release, check the live result yourself before you call it done.");
+    expect(prompt).toContain("- Never stop a running worker or process unless the user names it.");
+  });
+
+  it("stays within the size it had before the house rules", () => {
+    const prompt = loadHarnessPlaybook(undefined, join("D:", "wt"), "win32").replace(/\r\n/g, "\n");
+    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(11660);
   });
 
   it("fills the worktree path from the configured root", () => {
