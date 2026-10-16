@@ -10,6 +10,8 @@ import {
   isMemoryTopicName,
   listMemoryTopics,
   loadMemory,
+  memoryHealth,
+  memoryHealthOf,
   memoryRevision,
   memorySystemPrompt,
   readMemoryFile,
@@ -296,6 +298,34 @@ describe("workspace", () => {
     const prompt = memorySystemPrompt(BOT);
     expect(prompt).toContain("memory/deploy.conflict-ed364e8a.md");
     expect(prompt).not.toContain("Your memory (MEMORY.md):");
+  });
+
+  it("memoryHealth counts loaded lines over 300 bytes and side files with no pointer", () => {
+    const dir = ensureWorkspace(BOT);
+    writeFileSync(join(dir, "MEMORY.md"), `# Memory\n- ${"x".repeat(298)}\n- ${"y".repeat(299)}\n- deploys: read memory/deploys.md first\n- see auth\n`);
+    for (const name of ["deploys.md", "auth.md", "billing.md", "MEMORY.conflict-e059d14f.md"]) {
+      writeFileSync(join(dir, "memory", name), "notes\n");
+    }
+    expect(memoryHealth(BOT)).toEqual({ longLines: 1, orphans: ["billing.md"] });
+  });
+
+  it("memoryHealth is clean for a healthy or empty memory", () => {
+    expect(memoryHealth(BOT)).toEqual({ longLines: 0, orphans: [] });
+    const dir = ensureWorkspace(BOT);
+    writeFileSync(join(dir, "MEMORY.md"), "# Memory\n- the user prefers pnpm\n- deploys: read memory/deploys.md first\n");
+    writeFileSync(join(dir, "memory", "deploys.md"), "notes\n");
+    expect(memoryHealth(BOT)).toEqual({ longLines: 0, orphans: [] });
+  });
+
+  it("memoryHealthOf over a full file with 40 side files averages under 0.2 ms", () => {
+    const names = Array.from({ length: 40 }, (_, i) => `topic-${i}.md`);
+    const line = (i: number) => `- note ${i} ${names[i % 40]} ${"z".repeat(119)}`.slice(0, 119);
+    const text = Array.from({ length: MEMORY_MAX_LINES }, (_, i) => line(i)).join("\n");
+    expect(Buffer.byteLength(`${text}\n`)).toBe(MEMORY_MAX_BYTES);
+    expect(memoryHealthOf(text, names)).toEqual({ longLines: 0, orphans: [] });
+    const started = performance.now();
+    for (let i = 0; i < 500; i += 1) memoryHealthOf(text, names);
+    expect((performance.now() - started) / 500).toBeLessThan(0.2);
   });
 
   it("only sends file-backed memory to engines with local workspace files", () => {
