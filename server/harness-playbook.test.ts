@@ -137,9 +137,9 @@ describe("harness playbook", () => {
   it("carries the four house rules", () => {
     const prompt = harnessPlaybookPrompt(true);
     expect(prompt).toContain("- Launch only cards that serve the current goal or that the user asked for. A new idea is a one-line proposal that waits for a yes.");
-    expect(prompt).toContain("- Before a fan-out, check each engine's remaining usage; never put several workers on a low engine.");
+    expect(prompt).toContain("- Before a fan-out, check each engine's usage left; never put several workers on a low engine.");
     expect(prompt).toContain("10. After a merge, deploy or release, check the live result yourself before you call it done.");
-    expect(prompt).toContain("- Never stop a running worker or process unless the user names it.");
+    expect(prompt).toContain("- Never stop a worker or others' processes unless the user names it.");
   });
 
   it("stays within the size it had before the house rules", () => {

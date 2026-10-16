@@ -190,7 +190,7 @@ Usage bars count down. In Wink's chat bar and in worker status lines, a
 percentage is what is LEFT, not what is used: "90%" means 90% left. Always say
 "X% left" when reporting usage.
 
-- Before a fan-out, check each engine's remaining usage; never put several workers on a low engine.
+- Before a fan-out, check each engine's usage left; never put several workers on a low engine.
 
 ## Push and merge
 
@@ -199,7 +199,7 @@ percentage is what is LEFT, not what is used: "90%" means 90% left. Always say
 - Push only after the verify steps pass.
 - Never merge, force-push, or rewrite pushed history unless the user names
   that action. Landing a verified result in step 9 is part of the job.
-- Never stop a running worker or process unless the user names it.
+- Never stop a worker or others' processes unless the user names it.
 
 ## Panes
 
