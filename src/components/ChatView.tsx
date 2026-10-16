@@ -41,7 +41,7 @@ import {
 } from "@/state/store";
 import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
 import { BotAvatar } from "./Avatar";
-import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
+import { DockedPresence, MessageBoundary, TurnPresence, replySlot, useDockFade, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { logLine } from "@/lib/terminal-skin";
@@ -487,6 +487,7 @@ const Bubble = memo(function Bubble({
   const quoted = useThreadMessage(bot.threadId, bot.hasMore ? message.replyToId : undefined, replyTarget);
   const user = message.role === "user";
   const [expanded, setExpanded] = useState(false);
+  const dockShown = useDockFade(dock?.live ?? false) && Boolean(dock);
   const text = message.text ?? "";
   // the folder this task's turns run in: pinned once a turn ran, else the bot's own
   const pinnedFolder = bot.tasks?.find((task) => task.threadId === bot.threadId)?.cwd;
@@ -565,6 +566,7 @@ const Bubble = memo(function Bubble({
           keeps out of the timestamp and reaction chips that follow it */}
       <div
         data-orbit-message-body
+        data-strip={hasReactions || dockShown ? "" : undefined}
         className={cn("relative w-fit max-w-[min(42rem,78%)]", hasReactions ? "pb-11" : "pb-8")}
       >
         <div className="orbit-message-speaker hidden">{user ? t("chat.you") : bot.name}</div>
@@ -682,7 +684,7 @@ const Bubble = memo(function Bubble({
             </MessageBoundary>
           ) : null}
         </div>
-        {dock && <DockedPresence avatar={dock.avatar} label={dock.label} live={dock.live} since={dock.since} className="absolute bottom-0 left-0 h-[26px]" />}
+        {dock && dockShown && <DockedPresence avatar={dock.avatar} label={dock.label} live={dock.live} since={dock.since} className="absolute bottom-0 left-0 h-[26px]" />}
         {!user && !streaming && !dock?.live && (
           <div
             data-message-hover-actions
