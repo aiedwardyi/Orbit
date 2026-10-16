@@ -111,6 +111,7 @@ import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
 import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
+import { createSummaryBuild, inlineSummarizer } from "./summary-build.ts";
 import { createSummaryRepair, logSummaryCall } from "./summary-repair.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
@@ -2574,6 +2575,33 @@ const summaryRepair = createSummaryRepair({
   },
   userName: () => cfg.profile?.name?.trim() || "User",
 });
+const summaryBuild = createSummaryBuild({
+  store,
+  sendInputs: async (botId, threadId, messages) => {
+    const bot = store.bot(botId);
+    const task = store.taskByThread(botId, threadId);
+    if (!bot || !task) return null;
+    const selection = await resolvedBotSelection(bot, task);
+    const instance = registry.get(selection.instanceId);
+    if (!instance) return null;
+    const contextWindow = contextWindowFor(instance.models, selection.model);
+    const record = taskPacketForWrite(threadId);
+    // The send's inline-note rule, so the plan's budget and history match its prepareModelContext.
+    const inlineNotes = instance.adapter.capabilities.transcriptReplay !== true
+      ? paneNotesForTurn(messages, new Set(), task.paneNotesDeliveredId ?? undefined, true, true, contextWindow)
+      : null;
+    return {
+      instance,
+      contextWindow,
+      taskRecordText: (record ? taskRecordBlock(record, Math.max(512, Math.floor(contextWindow * 0.15) * 3)) : "") ||
+        "No durable task record is available.",
+      excludeIds: inlineNotes?.ids?.length ? new Set(inlineNotes.ids) : undefined,
+      reserveTokens: inlineNotes?.tokens,
+    };
+  },
+  busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
+  userName: () => cfg.profile?.name?.trim() || "User",
+});
 const memoryPass = createMemoryPass({
   store,
   dataDir: DATA_DIR,
@@ -3605,6 +3633,7 @@ bus.subscribe((event: RuntimeEvent) => {
           if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
           clearSendRunning(bot.id);
           if (!store.groupByThread(event.threadId)) {
+            summaryBuild.onSettled(bot.id, event.threadId);
             summaryRepair.onSettled(bot.id, event.threadId);
             memoryPass.onSettled(bot.id, event.threadId);
           }
@@ -4341,6 +4370,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // Model context follows the active branch only. The durable transcript is
   // never pruned; only this provider-facing projection is bounded.
   const skipTranscript = new Set<string>([userMessage.id, ...(opts?.excludeMessageIds ?? [])]);
+  // A summary built since the last settle lands here, before the path is read, so prepare reuses it.
+  const summaryWaitMs = await summaryBuild.settle(threadId, 90_000);
   const activeMessages = store.activePath(threadId);
   const rewound = threadId === bot.threadId && Boolean(bot.rewound);
   let taskRecord = taskPacketForWrite(threadId);
@@ -4381,7 +4412,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     reserveTokens: inlineNotes?.tokens,
     userName: cfg.profile?.name?.trim() || "User",
     referenceMessages: store.messagesFor(threadId),
-    summarize: instance.generateText ? (prompt) => instance.generateText!(prompt) : undefined,
+    summarize: inlineSummarizer(instance, summaryWaitMs),
     onSummaryCall: (record) => logSummaryCall({
       botId: bot.id,
       threadId,
@@ -10728,6 +10759,7 @@ hostShutdown = () => {
   watchdog.stop();
   routines?.stop();
   webhookIngress?.server.close();
+  summaryBuild.dispose();
   summaryRepair.dispose();
   memoryPass.dispose();
   void registry.disposeAll().finally(() => process.exit(0));

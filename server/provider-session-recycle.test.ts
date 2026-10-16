@@ -609,3 +609,84 @@ describe("summary repair across native recycles", () => {
     }
   });
 });
+
+describe("background summary before the next send", () => {
+  beforeEach(async () => {
+    closeMessageDb();
+    await removeTempDir(DATA_DIR);
+    mkdirSync(DATA_DIR, { recursive: true });
+  });
+
+  it("first send after a background row recycles as unseeded", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const store = new Store(() => ({ instanceId: "claude", model: "claude-opus-5-5" }));
+      const bot = store.createBot({}, { seedMessages: false });
+      const threadId = bot.threadId;
+      const say = (index: number, role: "user" | "bot") =>
+        store.appendMessage(threadId, { role, kind: "text", text: `${role === "user" ? "request" : "outcome"} ${index}: ${"shop detail ".repeat(8)}` });
+      for (let index = 0; index < 70; index++) {
+        say(index, "user");
+        say(index, "bot");
+      }
+      // the turn that just settled ran on session-1, seeded without a summary
+      store.markTaskDispatched(bot.id, threadId, "claude", "claude-opus-5-5");
+      store.setResumeCursor(bot.id, "claude", "session-1", threadId);
+      store.markResumeSeeded(bot.id, threadId, { instanceId: "claude", cursor: "session-1", compactionId: null });
+
+      const { createSummaryBuild } = await import("./summary-build.ts");
+      const build = createSummaryBuild({
+        store,
+        sendInputs: async () => ({
+          instance: {
+            driverKind: "claude",
+            textModel: "claude-haiku-5-5",
+            textTimeoutMs: 90_000,
+            generateText: async () => "SUMMARY\nbuilt in the background",
+          },
+          contextWindow: 200_000,
+          taskRecordText: "Goal: ship the shop",
+        }),
+        busy: () => false,
+        userName: () => "User",
+      });
+      build.onSettled(bot.id, threadId);
+      await build.idle();
+      const row = store.activePath(threadId).findLast((item) => item.kind === "compaction");
+      if (!row) throw new Error("expected a background summary row");
+
+      const send = say(300, "user");
+      const messages = store.activePath(threadId);
+      const excludeIds = new Set([send.id]);
+      const summarize = vi.fn(async () => "SUMMARY\nnever");
+      const prepared = await prepareModelContext({ messages, contextWindow: 200_000, taskRecordText: "Goal: ship the shop", excludeIds, summarize });
+      if (prepared.status !== "ready") throw new Error(prepared.status);
+      expect(summarize).not.toHaveBeenCalled();
+      expect(prepared.compaction).toBeUndefined();
+      expect(prepared.compactionId).toBe(row.id);
+
+      const task = store.taskByThread(bot.id, threadId)!;
+      const unseeded = resumeSessionUnseeded({
+        instanceId: "claude",
+        cursor: task.resumeCursors.claude,
+        seed: task.resumeSeed,
+        latestCompactionId: row.id,
+        supersededIds: supersededCompactionIds(messages, row.id),
+      });
+      expect(unseeded).toBe(true);
+      expect(shouldRecycleProviderSession({
+        compacted: unseeded,
+        lastTurnToolRounds: countLastTurnToolRounds(messages, excludeIds, task.providerSessionBoundId),
+        sessionToolRounds: countSessionToolRounds(messages, excludeIds, task.providerSessionBoundId),
+        sessionPrompt: sessionPromptFor({
+          report: task.nativePrompt,
+          cursor: task.resumeCursors.claude,
+          model: "claude-opus-5-5",
+          catalogWindow: knownCatalogContextWindow(STATIC_CLAUDE_MODELS, "claude-opus-5-5"),
+        }),
+      })).toBe(true);
+    } finally {
+      info.mockRestore();
+    }
+  });
+});
