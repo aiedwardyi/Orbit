@@ -13,5 +13,6 @@ export interface SearchHit {
   snippet: string;
   matchStart: number;
   matchLength: number;
+  matches?: number;
   onActivePath: boolean;
 }

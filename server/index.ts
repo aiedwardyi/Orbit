@@ -8064,6 +8064,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const rawLimit = url.searchParams.get("limit");
       const limit = rawLimit ? Math.min(Math.max(Number(rawLimit) || 0, 1), 100) : 40;
       const threadId = url.searchParams.get("threadId")?.trim() || undefined;
+      // in-chat find: the page after `before`, matched against what the chat's skin draws
+      const before = threadId ? url.searchParams.get("before") || undefined : undefined;
+      const chips = url.searchParams.get("view") === "chips";
       if (threadId && !store.botByThread(threadId) && !store.groupByThread(threadId)) {
         return json(res, 404, { error: "no such conversation" });
       }
@@ -8075,17 +8078,22 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!ids) activePaths.set(threadId, (ids = new Set(store.activePath(threadId).map((m) => m.id))));
         return ids.has(messageId);
       };
+      const threadRows = new Map<string, Map<string, Message>>();
+      const messageIn = (threadId: string, messageId: string) => {
+        let rows = threadRows.get(threadId);
+        if (!rows) threadRows.set(threadId, (rows = new Map(store.messagesFor(threadId).map((m) => [m.id, m]))));
+        return rows.get(messageId);
+      };
       const needle = q.trim().toLowerCase();
-      const hits = searchMessages(q, limit, threadId)
+      const found = searchMessages(q, limit + 1, threadId, { before, chips });
+      const hits = found.slice(0, limit)
         .map((hit) => {
           const bot = store.botByThread(hit.threadId);
           const group = bot ? undefined : store.groupByThread(hit.threadId);
           if (!bot && !group) return null;
           const active = onActivePath(hit.threadId, hit.messageId);
-          const message = store.messagesFor(hit.threadId).find((row) => row.id === hit.messageId);
-          let haystack = hit.snippet;
-          if (message) haystack = searchHaystack(clientMessage(message));
-          const snippet = searchSnippet(haystack, needle);
+          const message = messageIn(hit.threadId, hit.messageId);
+          const snippet = message ? searchSnippet(searchHaystack(clientMessage(message), chips), needle) : {};
           if (bot) {
             const task = store.taskByThread(bot.id, hit.threadId);
             return { ...hit, ...snippet, botId: bot.id, name: bot.name, task: task?.title, onActivePath: active };
@@ -8097,7 +8105,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return null;
         })
         .filter((hit): hit is NonNullable<typeof hit> => hit !== null);
-      return json(res, 200, { hits });
+      return json(res, 200, { hits, more: found.length > limit });
     }
 
     // ── transcript export (the visible branch, human-readable) ──────────
