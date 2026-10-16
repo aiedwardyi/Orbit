@@ -2,7 +2,7 @@
 // flash it. Rows are wrapped in `display: contents` (no box of their own),
 // so the wrapper carries data-mid and its last child — the bubble/chip,
 // after any day separator — is what gets scrolled and highlighted.
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import { api, useStore, type Action } from "@/state/store";
 import { findCurrentId, findRowSelector, revealFindMatch, subscribeFindCurrent } from "@/lib/chat-find";
 import type { SearchHit } from "@/lib/search-hit";
@@ -95,7 +95,8 @@ export async function landOnSearchHit(
 export function useFocusMessage(threadId: string, ready: boolean) {
   const { state, dispatch } = useStore();
   const focus = state.focusMessage;
-  useEffect(() => {
+  // Before paint: a scroll event fired between the window's commit and the landing slides the window back over it.
+  useLayoutEffect(() => {
     if (!focus || focus.consumed || focus.threadId !== threadId || !ready) return;
     // messages may land a tick after the task switch; try briefly
     let tries = 0;
