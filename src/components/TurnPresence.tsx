@@ -88,7 +88,7 @@ export function TurnPresence({
   if (docked || (!visible && !fading)) return null;
   return (
     <div className="turn-presence flex flex-col items-start">
-      <div data-turn-mascot className={cn("flex items-center gap-2", visible ? "turn-mascot-in" : "turn-mascot-out")}>
+      <div data-turn-mascot className={cn("flex max-w-full items-center gap-2", visible ? "turn-mascot-in" : "turn-mascot-out")}>
         {terminal ? <TermGlyph ring={visible} /> : ringFace(avatar, visible)}
         {visible ? <WorkingLabel label={label} /> : null}
         {visible && terminal && since ? <Elapsed since={since} /> : null}
@@ -120,7 +120,7 @@ export function DockedPresence({ avatar, label, live, since, className }: { avat
     <div
       data-turn-mascot
       aria-hidden={!live}
-      className={cn("turn-mascot-docked pointer-events-none flex items-center gap-1.5", live ? "turn-mascot-in" : "turn-mascot-out", className)}
+      className={cn("turn-mascot-docked pointer-events-none flex w-max max-w-[min(20rem,calc(100vw-4rem))] items-center gap-1.5", live ? "turn-mascot-in" : "turn-mascot-out", className)}
     >
       {terminal ? <TermGlyph ring={live} /> : ringFace(avatar, live)}
       {live ? <WorkingLabel label={label} /> : null}
@@ -153,15 +153,15 @@ function Elapsed({ since }: { since: number }) {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
-  return <span className="text-[13px] leading-none text-ink-secondary tabular-nums">({termElapsed(now - since)})</span>;
+  return <span className="shrink-0 text-[13px] leading-none whitespace-nowrap text-ink-secondary tabular-nums">({termElapsed(now - since)})</span>;
 }
 
 function WorkingLabel({ label }: { label: string }) {
   return (
-    <span className="thinking-shimmer text-[13px] leading-none" aria-live="polite">
+    <span className="thinking-shimmer min-w-0 text-[13px] leading-none whitespace-nowrap text-ellipsis" aria-live="polite">
       {label}
       <span className="thinking-sheen" aria-hidden="true">
-        <span>{label}</span>
+        <span className="overflow-x-clip text-ellipsis">{label}</span>
       </span>
     </span>
   );
