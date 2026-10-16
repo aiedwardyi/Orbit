@@ -5,7 +5,7 @@
 // SAID. Consecutive finished steps fold into a single row that names them;
 // text between two stretches breaks the run, so the bot's words always
 // separate one run from the next.
-import type { MessageKey, Translate } from "@/lib/i18n";
+import { t as translate, type MessageKey, type Translate } from "@/lib/i18n";
 import type { Message } from "@/state/store";
 import { termVerb } from "@/lib/terminal-skin";
 
@@ -304,7 +304,7 @@ const EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 
 /** The one line a folded run has to earn its place with: how much work it
  * was and how many files it touched. Status is the icon beside it. */
-export function describeRun(messages: Message[]): string {
+export function describeRun(messages: Message[], t: Translate = translate): string {
   const steps = messages.filter((message) => !isApprovalNotice(message));
   const edited = new Set<string>();
   for (const message of steps) {
@@ -312,8 +312,8 @@ export function describeRun(messages: Message[]): string {
     // the summary leads with the path; "+N -M" trails it
     if (tool && EDIT_TOOLS.has(tool.name) && tool.summary) edited.add(tool.summary.replace(/ \+\d+( -\d+)?$/, ""));
   }
-  const files = edited.size ? ` · ${edited.size} ${edited.size === 1 ? "file" : "files"} edited` : "";
-  return `${steps.length} steps${files}`;
+  const files = edited.size ? ` · ${t(edited.size === 1 ? "chat.runEditedOne" : "chat.runEditedMany", { count: edited.size })}` : "";
+  return `${t("chat.runSteps", { count: steps.length })}${files}`;
 }
 
 /** Default skins drop approval rows from an opened run. A find hit still shows. */
@@ -339,14 +339,12 @@ export function itemMatchesFind(item: TranscriptItem, findId: string | null): bo
 }
 
 /** Claude Code's one line for a stretch of reads and searches. */
-export function describeSearch(messages: Message[]): string {
-  if (!messages.length) return "Searched";
+export function describeSearch(messages: Message[], t: Translate = translate): string {
+  if (!messages.length) return t("term.search.none");
   const patterns = messages.filter((message) => termVerb(message.tool?.verb ?? message.tool?.name ?? "") !== "Read").length;
   const files = messages.length - patterns;
-  return [
-    patterns && `Searched for ${patterns} ${patterns === 1 ? "pattern" : "patterns"}`,
-    files && `${patterns ? "read" : "Read"} ${files} ${files === 1 ? "file" : "files"}`,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  const searched = patterns ? t("term.search.patterns", { items: t(patterns === 1 ? "term.search.patternOne" : "term.search.patternMany", { count: patterns }) }) : "";
+  const read = files ? t(files === 1 ? "term.search.fileOne" : "term.search.fileMany", { count: files }) : "";
+  if (searched && read) return t("term.search.both", { patterns: searched, files: read });
+  return searched || t("term.search.read", { items: read });
 }

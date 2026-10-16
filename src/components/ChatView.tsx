@@ -2427,7 +2427,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                 onClick={showEarlier}
                 className="rounded-full border border-hairline/40 bg-panel px-3 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
               >
-                Show earlier messages{hiddenCount > 0 && ` (${hiddenCount} more)`}
+                {hiddenCount > 0 ? t("room.showEarlier", { count: hiddenCount }) : t("room.showOlder")}
               </button>
             </div>
           )}

@@ -130,7 +130,7 @@ export function ActivityRun({
     return (
       <div className="flex flex-col">
         <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="term-search self-start text-left">
-          {describeSearch(messages)}
+          {describeSearch(messages, t)}
           {running && <span> · {t("task.running")}</span>}
           {failed && <span> · {t("workers.failed")}</span>}
         </button>
@@ -149,7 +149,7 @@ export function ActivityRun({
             className="flex items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control focus-visible:bg-control"
           >
             <ChevronRight size={13} className="rotate-90" />
-            <span>{describeRun(messages)} ·</span>
+            <span>{describeRun(messages, t)} ·</span>
             <StepStatus ok={running ? undefined : !failed} />
           </button>
         </div>
@@ -166,7 +166,7 @@ export function ActivityRun({
         title="Show every step"
         className="flex items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control focus-visible:bg-control"
       >
-        <span className="max-w-[480px] truncate">{describeRun(messages)} ·</span>
+        <span className="max-w-[480px] truncate">{describeRun(messages, t)} ·</span>
         <StepStatus ok={running ? undefined : !failed} />
         <ChevronRight size={13} />
       </button>

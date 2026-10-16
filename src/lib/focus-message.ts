@@ -18,6 +18,8 @@ interface SearchLandingState {
 }
 
 const FLASH_CLASSES = ["ring-2", "ring-accent/70", "rounded-2xl", "transition-shadow"];
+// Widens the ring past a bot row's bare text without moving the text.
+const BOT_ROW_ROOM = ["box-content", "px-3", "-mx-3"];
 const TALL_TARGET_MARGIN = 16;
 
 /** Scroll a message into the transcript pane without moving the window.
@@ -104,6 +106,7 @@ export function useFocusMessage(threadId: string, ready: boolean) {
     let flashTimer: ReturnType<typeof setTimeout> | null = null;
     let unsubscribe: (() => void) | null = null;
     let target: HTMLElement | null = null;
+    let flash = FLASH_CLASSES;
     const attempt = () => {
       if (cancelled) return;
       const wrapper = document.querySelector<HTMLElement>(findRowSelector(focus.messageId));
@@ -120,12 +123,13 @@ export function useFocusMessage(threadId: string, ready: boolean) {
         target.scrollIntoView({ block: "nearest", behavior: reducedMotion ? "auto" : "smooth" });
       }
       restoreChatChrome();
-      target.classList.add(...FLASH_CLASSES);
+      if (target.dataset.orbitMessage === "bot") flash = [...FLASH_CLASSES, ...BOT_ROW_ROOM];
+      target.classList.add(...flash);
       // Consume only after the target is mounted and the flash has begun.
       // `consumed` is intentionally not an effect dependency, so this active
       // flash survives the bookkeeping update while future remounts ignore it.
       dispatch({ type: "focusMessageConsumed", nonce: focus.nonce });
-      const unflash = () => target?.classList.remove(...FLASH_CLASSES);
+      const unflash = () => target?.classList.remove(...flash);
       // a find hit with nothing to mark keeps its ring until find moves on
       if (!match && findCurrentId() === focus.messageId) {
         unsubscribe = subscribeFindCurrent(() => {
@@ -139,7 +143,7 @@ export function useFocusMessage(threadId: string, ready: boolean) {
       if (retryTimer) clearTimeout(retryTimer);
       if (flashTimer) clearTimeout(flashTimer);
       unsubscribe?.();
-      target?.classList.remove(...FLASH_CLASSES);
+      target?.classList.remove(...flash);
     };
   }, [dispatch, focus?.nonce, focus?.threadId, focus?.messageId, threadId, ready]);
 }

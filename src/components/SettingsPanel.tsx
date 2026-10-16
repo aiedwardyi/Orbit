@@ -727,12 +727,12 @@ export function SettingsPanel({
 
           <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
-              <div className="text-[15px] font-medium text-ink">Notifications</div>
+              <div className="text-[15px] font-medium text-ink">{t("bot.notifications")}</div>
             </div>
             <button
               role="switch"
               aria-checked={bot.notifications}
-              aria-label="Bot notifications"
+              aria-label={t("bot.notificationsAria")}
               onClick={() => {
                 const enabled = !bot.notifications;
                 if (enabled && !window.ogb?.showNotification) void requestNotificationPermission();
@@ -754,12 +754,12 @@ export function SettingsPanel({
 
           <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div>
-              <div className="text-[15px] font-medium text-ink">Share terminal with chat</div>
+              <div className="text-[15px] font-medium text-ink">{t("bot.shareTerminal")}</div>
             </div>
             <button
               role="switch"
               aria-checked={terminalShared}
-              aria-label="Share terminal with chat"
+              aria-label={t("bot.shareTerminal")}
               disabled={!terminalShared && !desktopTerminal && !serverHasTerminal}
               onClick={() => patch({ shareTerminalWithChat: !terminalShared })}
               className={cn(

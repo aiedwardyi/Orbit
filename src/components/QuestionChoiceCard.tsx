@@ -81,7 +81,7 @@ export function QuestionChoiceCard({
             {question}
           </h2>
         ) : null}
-        {subtitle ? <p className="mt-0.5 text-[13px] text-ink-secondary">{subtitle}</p> : null}
+        {subtitle ? <p className="mt-0.5 text-[13px] break-keep text-ink-secondary">{subtitle}</p> : null}
       </div>
 
       <div className="grid gap-0.5 px-1.5 pb-1.5">
