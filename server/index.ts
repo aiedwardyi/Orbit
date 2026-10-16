@@ -46,7 +46,9 @@ import { validateBotCwd } from "./bot-cwd.ts";
 import { resolveBotTerminalFolder } from "./terminal-cwd.ts";
 import {
   applyResolvedProjectFolder,
+  opensHostFiles,
   projectFolderPrompt,
+  projectNotesPrompt,
   projectPathsFromRecords,
   userProjectTexts,
 } from "./project-folder.ts";
@@ -279,6 +281,7 @@ import {
 } from "./workspace.ts";
 import { MEMORY_SAVE_TOOL, peekMemory, rememberMemoryWrite } from "./memory-save.ts";
 import { createMemoryPass } from "./memory-pass.ts";
+import { createProjectNotesCheck, validateProjectNotes, workerReportTimes } from "./project-notes.ts";
 import {
   readSectionContext,
   sectionContextKey,
@@ -1317,6 +1320,7 @@ function portableSyncChanges(bot: BotRecord, folder: string): Record<string, unk
     modelMode: bot.modelSelection.mode ?? null,
     approvePeerComms: Boolean(bot.approvePeerComms),
     memoryNotes: bot.memoryNotes ?? null,
+    projectNotes: bot.projectNotes ?? null,
   };
 }
 
@@ -1447,6 +1451,10 @@ function applySyncedBotFields(
   if ("chiefOfStaff" in apply) patch.chiefOfStaff = apply.chiefOfStaff === true;
   if ("approvePeerComms" in apply) patch.approvePeerComms = apply.approvePeerComms === true;
   if ("memoryNotes" in apply) patch.memoryNotes = typeof apply.memoryNotes === "boolean" ? apply.memoryNotes : undefined;
+  if ("projectNotes" in apply) {
+    const notes = validateProjectNotes(apply.projectNotes);
+    patch.projectNotes = notes.ok ? notes.path ?? undefined : undefined;
+  }
   if (["instanceId", "model", "effort", "modelMode"].some((field) => field in apply)) {
     patch.modelSelection = mergeSyncedModelSelection(bot.modelSelection, apply, instanceOffersModel);
   }
@@ -2584,6 +2592,14 @@ const memoryPass = createMemoryPass({
   enabled: (botId) => memoryNotesEnabled(cfg, store.bot(botId)),
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
 });
+const projectNotesCheck = createProjectNotesCheck({
+  notesPath: (botId) => store.bot(botId)?.projectNotes,
+  reportTimes: (botId) => {
+    const bot = store.bot(botId);
+    return bot ? workerReportTimes(store.messagesFor(bot.threadId)) : [];
+  },
+});
+for (const bot of store.bots) if (bot.projectNotes) void projectNotesCheck.refresh(bot.id);
 // Room thread → the instruction id its running turn was dispatched against.
 const roomTurnInstruction = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
@@ -3607,6 +3623,8 @@ bus.subscribe((event: RuntimeEvent) => {
           if (!store.groupByThread(event.threadId)) {
             summaryRepair.onSettled(bot.id, event.threadId);
             memoryPass.onSettled(bot.id, event.threadId);
+            const cursor = event.providerInstanceId ? store.taskByThread(bot.id, event.threadId)?.resumeCursors[event.providerInstanceId] : undefined;
+            void projectNotesCheck.settled(bot.id, event.threadId, cursor);
           }
         }
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
@@ -5001,7 +5019,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           resumePaneWakes(bot.id);
           takeOverPeerTurn(threadId);
         }
-        const withLate = (base: string) => [base, ...late].join("\n\n");
+        const notesPath = opensHostFiles(privateWorkspace, instance.driverKind) ? bot.projectNotes : undefined;
+        const notesNotice = notesPath ? projectNotesCheck.take(bot.id, threadId, resume ? task.resumeCursors[instanceId] : undefined) : "";
+        const withLate = (base: string) => [base, ...late, ...(notesNotice ? [notesNotice] : [])].join("\n\n");
         const system =
           persona +
           // The folder is already this turn's cwd, but nothing told the model
@@ -5011,6 +5031,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           // each change to this text, so anything that moved between turns
           // would cost a reminder on every send.
           projectFolderPrompt(cwd, privateWorkspace, instance.driverKind) +
+          projectNotesPrompt(notesPath) +
           (computerKind === "vm"
             ? localVmMode(cfg) === "per-bot"
               ? " You have your own isolated Cua sandbox: a Linux desktop in a container reserved for this bot. Only /home/cua/workspace is durable; save downloads, repositories, working files, and browser profiles there because everything else inside the VM is disposable. No other host folder is mounted. Use the computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
@@ -9022,6 +9043,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (typeof body.memoryNotes !== "boolean") return json(res, 400, { error: "memoryNotes must be true or false" });
         patch.memoryNotes = body.memoryNotes;
       }
+      if (body.projectNotes !== undefined) {
+        const notes = validateProjectNotes(body.projectNotes);
+        if (!notes.ok) return json(res, 400, { error: notes.error });
+        patch.projectNotes = notes.path ?? undefined;
+      }
       if (
         body.computer !== undefined &&
         !["cloud", "vm", "local", "off"].includes(String(body.computer))
@@ -9114,6 +9140,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.cwd !== undefined && cwdBefore !== (bot.cwd ?? undefined)) {
         store.resetTasksForCwdChange(bot.id);
       }
+      if (body.projectNotes !== undefined) void projectNotesCheck.refresh(bot.id);
       const chiefChanges =
         body.chiefOfStaff === true || chiefMovedSections
           ? store.setChiefOfStaff(bot.id)

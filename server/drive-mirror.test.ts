@@ -85,6 +85,7 @@ describe("Drive mirror", () => {
     ["devices/device-home.json", "own"], ["devices/device-work.json", "peer"],
     ["changes/000000000001-device-home-op.json", "own"], ["changes/000000000001-device-work-op.json", "once"],
     ["changes/000000000001-device-home-op.notes", "own"], ["changes/000000000001-device-work-op.notes", "once"],
+    ["changes/000000000001-device-home-op.paths", "own"], ["changes/000000000001-device-work-op.paths", "once"],
     ["memory-v2/bot/aaaaaaaaaaaa.json", "own"], ["memory-v2 (1)/bot/aaaaaaaaaaaa.json", "own"], ["memory-v2 (2)/bot/bbbbbbbbbbbb.json", "peer"],
     ["threads-v2/bot/thread/writer-home/head.json", "own"], ["threads-v2 (1)/bot/thread/writer-home/head.json", "own"], ["threads-v2 (2)/bot/thread/writer-work/head.json", "peer"],
     ["threads-v2/bot/thread/writer-home/seg-1-2.json.gz", "once"], ["assets/a.png", "once"], ["pictures/a.png", "once"], ["workspace.json", "once"],
