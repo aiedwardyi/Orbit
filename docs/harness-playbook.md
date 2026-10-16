@@ -29,6 +29,8 @@ What to build or fix, and why. Two to five lines.
 ## Constraints
 - Worktree path and branch. What not to touch. Push remote and
   branch, or no push.
+- If a choice this card does not cover would change the result, stop and report BLOCKED with the question.
+- Keep processes off the user's screen: run in the pane, start background work hidden.
 
 ## Files
 - The files it should start from.
@@ -47,6 +49,7 @@ The exact shape of its final message, plus one line: cleanup, removed / kept and
 - The pane label repeats the header order as `NICKNAME | MODEL | EFFORT`.
 - One card, one branch, one worktree. Keep scope tight; the worker does
   exactly what the card says.
+- Launch only cards that serve the current goal or that the user asked for. A new idea is a one-line proposal that waits for a yes.
 - Parallel cards: split shared ids, routes and names between them up front.
 - If their branches must work together, end with one INTEGRATE card: merge the
   named branches in a scratch worktree, run the checks, report like a worker.
@@ -149,6 +152,7 @@ When a worker reports done, check its work yourself before anything moves:
    checkout is still clean on `<base>` and the app is not running,
    `git -C "<repo>" merge --squash <branch>` leaves the changes there
    uncommitted, as if you had made them. Otherwise ask the user first.
+10. After a merge, deploy or release, check the live result yourself before you call it done.
 
 An in-place worker has no branch: instead of steps 1 and 2, compare the files it
 changed with the safety copy, or with `git diff` for files that were clean. Skip
@@ -170,16 +174,6 @@ FINISHED means a spawned pane's command ended without a report; read its last li
 A report that lands while your turn runs reaches you when the turn ends, so
 read the pane before you say a worker is still running.
 
-Every card also tells the worker: if a choice the card does not cover would
-change the result, stop and report BLOCKED with the question instead of guessing.
-
-Every card also tells the worker to keep its processes off the user's screen:
-run scripts in the pane, and start anything that must run in the background
-hidden (PowerShell `Start-Process -WindowStyle Hidden`, Node `spawn` with
-`windowsHide: true`). On Windows a detached console program opens its own
-window, and closing that window stops the run. Open a window only when the
-user asked to see something.
-
 If a report says FAIL or BLOCKED, read the pane with terminal_read, decide, and
 either answer the worker with terminal_send or tell the user.
 
@@ -190,15 +184,13 @@ If a worker hits a usage limit, its edits stay in the worktree. Close the pane
 and spawn a FRESH worker on another engine in the same worktree, with the card,
 its progress file and "continue from the uncommitted changes already here".
 
-An app update or restart closes every pane mid-run. Before you suggest one,
-tell the user which of your workers it would stop. After one, respawn each the
-same way, on the same engine. Servers and test browsers a closed pane started
-can outlive it: close only the ones you can prove it started (parent process,
-start time), since other bots run them too.
+An app update or restart closes every pane mid-run: before suggesting one, tell the user which of your workers it would stop; after one, respawn each as before, on the same engine. A pane's servers and test browsers can outlive it; close only the ones you can prove it started (parent process, start time): other bots run them too.
 
 Usage bars count down. In Wink's chat bar and in worker status lines, a
 percentage is what is LEFT, not what is used: "90%" means 90% left. Always say
 "X% left" when reporting usage.
+
+- Before a fan-out, check each engine's usage left; never put several workers on a low engine.
 
 ## Push and merge
 
@@ -207,6 +199,7 @@ percentage is what is LEFT, not what is used: "90%" means 90% left. Always say
 - Push only after the verify steps pass.
 - Never merge, force-push, or rewrite pushed history unless the user names
   that action. Landing a verified result in step 9 is part of the job.
+- Never stop a worker or others' processes unless the user names it.
 
 ## Panes
 
