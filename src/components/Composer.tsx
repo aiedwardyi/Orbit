@@ -990,7 +990,7 @@ export function Composer({
           onNotice={setAttachmentNotice}
         />
         </div>
-        <div className="relative shrink-0">
+        <div data-orbit-composer-host className="relative shrink-0">
           {/* App-ground from the pill's bottom radius down, full-bleed.
               Bubbles may tuck into the pill; they must not paint under it. */}
           <div

@@ -46,7 +46,9 @@ import { validateBotCwd } from "./bot-cwd.ts";
 import { resolveBotTerminalFolder } from "./terminal-cwd.ts";
 import {
   applyResolvedProjectFolder,
+  opensHostFiles,
   projectFolderPrompt,
+  projectNotesPrompt,
   projectPathsFromRecords,
   userProjectTexts,
 } from "./project-folder.ts";
@@ -110,7 +112,8 @@ import {
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
+import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, planCompaction, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
+import { createSummaryBuild, inlineSummarizer } from "./summary-build.ts";
 import { createSummaryRepair, logSummaryCall } from "./summary-repair.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
@@ -279,6 +282,7 @@ import {
 } from "./workspace.ts";
 import { MEMORY_SAVE_TOOL, peekMemory, rememberMemoryWrite } from "./memory-save.ts";
 import { createMemoryPass, noteGenerator } from "./memory-pass.ts";
+import { createProjectNotesCheck, validateProjectNotes, workerReportTimes } from "./project-notes.ts";
 import {
   readSectionContext,
   sectionContextKey,
@@ -1317,6 +1321,7 @@ function portableSyncChanges(bot: BotRecord, folder: string): Record<string, unk
     modelMode: bot.modelSelection.mode ?? null,
     approvePeerComms: Boolean(bot.approvePeerComms),
     memoryNotes: bot.memoryNotes ?? null,
+    projectNotes: bot.projectNotes ?? null,
   };
 }
 
@@ -1447,6 +1452,10 @@ function applySyncedBotFields(
   if ("chiefOfStaff" in apply) patch.chiefOfStaff = apply.chiefOfStaff === true;
   if ("approvePeerComms" in apply) patch.approvePeerComms = apply.approvePeerComms === true;
   if ("memoryNotes" in apply) patch.memoryNotes = typeof apply.memoryNotes === "boolean" ? apply.memoryNotes : undefined;
+  if ("projectNotes" in apply) {
+    const notes = validateProjectNotes(apply.projectNotes);
+    patch.projectNotes = notes.ok ? notes.path ?? undefined : undefined;
+  }
   if (["instanceId", "model", "effort", "modelMode"].some((field) => field in apply)) {
     patch.modelSelection = mergeSyncedModelSelection(bot.modelSelection, apply, instanceOffersModel);
   }
@@ -2574,6 +2583,33 @@ const summaryRepair = createSummaryRepair({
   },
   userName: () => cfg.profile?.name?.trim() || "User",
 });
+const summaryBuild = createSummaryBuild({
+  store,
+  sendInputs: async (botId, threadId, messages) => {
+    const bot = store.bot(botId);
+    const task = store.taskByThread(botId, threadId);
+    if (!bot || !task) return null;
+    const selection = await resolvedBotSelection(bot, task);
+    const instance = registry.get(selection.instanceId);
+    if (!instance) return null;
+    const contextWindow = contextWindowFor(instance.models, selection.model);
+    const record = taskPacketForWrite(threadId);
+    // The send's inline-note rule, so the plan's budget and history match its prepareModelContext.
+    const inlineNotes = instance.adapter.capabilities.transcriptReplay !== true
+      ? paneNotesForTurn(messages, new Set(), task.paneNotesDeliveredId ?? undefined, true, true, contextWindow)
+      : null;
+    return {
+      instance,
+      contextWindow,
+      taskRecordText: (record ? taskRecordBlock(record, Math.max(512, Math.floor(contextWindow * 0.15) * 3)) : "") ||
+        "No durable task record is available.",
+      excludeIds: inlineNotes?.ids?.length ? new Set(inlineNotes.ids) : undefined,
+      reserveTokens: inlineNotes?.tokens,
+    };
+  },
+  busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
+  userName: () => cfg.profile?.name?.trim() || "User",
+});
 const memoryPass = createMemoryPass({
   store,
   dataDir: DATA_DIR,
@@ -2585,6 +2621,14 @@ const memoryPass = createMemoryPass({
   },
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
 });
+const projectNotesCheck = createProjectNotesCheck({
+  notesPath: (botId) => store.bot(botId)?.projectNotes,
+  reportTimes: (botId) => {
+    const bot = store.bot(botId);
+    return bot ? workerReportTimes(store.messagesFor(bot.threadId)) : [];
+  },
+});
+for (const bot of store.bots) if (bot.projectNotes) void projectNotesCheck.refresh(bot.id);
 // Room thread → the instruction id its running turn was dispatched against.
 const roomTurnInstruction = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
@@ -3606,8 +3650,11 @@ bus.subscribe((event: RuntimeEvent) => {
           if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
           clearSendRunning(bot.id);
           if (!store.groupByThread(event.threadId)) {
+            summaryBuild.onSettled(bot.id, event.threadId);
             summaryRepair.onSettled(bot.id, event.threadId);
             memoryPass.onSettled(bot.id, event.threadId);
+            const cursor = event.providerInstanceId ? store.taskByThread(bot.id, event.threadId)?.resumeCursors[event.providerInstanceId] : undefined;
+            void projectNotesCheck.settled(bot.id, event.threadId, cursor);
           }
         }
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
@@ -4087,7 +4134,7 @@ const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. For a video, audio or other file, link its absolute path in markdown, like [clip.mp4](C:\\path\\clip.mp4) or, when the path contains spaces, in angle brackets like [clip.mp4](<C:\\My Files\\clip.mp4>), so the user can open it with one click. Never end with only a file path. To create a new image, call generate_image.";
 
 const ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS =
-  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. If that line answered it, your final message does not return to it: no recap, no 'On your question' part, no expanded take, unless your later work changed the answer or a Wink note says the user never saw that line, in which case the answer goes out again, exactly once. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you. Clean up after yourself: once a task's result is verified, remove the temporary files, folders and worktrees you created for it, by exact path only; never delete by wildcard or age, or anything you did not create, and ask when unsure.";
+  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. If that line answered it, your final message does not return to it: no recap, no 'On your question' part, no expanded take, unless your later work changed the answer or a Wink note says the user never saw that line, in which case the answer goes out again, exactly once. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you. Clean up after yourself: once a task's result is verified, remove the temporary files, folders and worktrees you created for it, by exact path only; never delete by wildcard or age, or anything you did not create, and ask when unsure. Say what you verified yourself and what you assume or were told.";
 const REPLY_STYLE_INSTRUCTIONS =
   " Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. After tool work, close with a short standalone summary of what you did and found. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
 const ALWAYS_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS + REPLY_STYLE_INSTRUCTIONS;
@@ -4342,6 +4389,22 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // Model context follows the active branch only. The durable transcript is
   // never pruned; only this provider-facing projection is bounded.
   const skipTranscript = new Set<string>([userMessage.id, ...(opts?.excludeMessageIds ?? [])]);
+  const modelContextWindow = contextWindowFor(instance.models, model);
+  // A summary built since the last settle lands here, before the path is read, so prepare reuses it.
+  const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => {
+    const messages = store.activePath(threadId);
+    const notes = instance.adapter.capabilities.transcriptReplay !== true
+      ? paneNotesForTurn(messages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
+      : null;
+    return planCompaction({
+      messages,
+      contextWindow: modelContextWindow,
+      excludeIds: notes?.ids?.length ? new Set([...skipTranscript, ...notes.ids]) : skipTranscript,
+      reserveTokens: notes?.tokens,
+      userName: cfg.profile?.name?.trim() || "User",
+      referenceMessages: store.messagesFor(threadId),
+    }).needed;
+  });
   const activeMessages = store.activePath(threadId);
   const rewound = threadId === bot.threadId && Boolean(bot.rewound);
   let taskRecord = taskPacketForWrite(threadId);
@@ -4356,7 +4419,6 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     })) ?? taskRecord;
   }
   const taskRecordToFlush = taskRecord;
-  const modelContextWindow = contextWindowFor(instance.models, model);
   const latestUser = lastUserInstruction(activeMessages.filter((message) => !skipTranscript.has(message.id)));
   // Recovery Current request must be this send's text. skipTranscript excludes
   // userMessage.id, so transcript lookup alone would show a prior user turn.
@@ -4382,7 +4444,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     reserveTokens: inlineNotes?.tokens,
     userName: cfg.profile?.name?.trim() || "User",
     referenceMessages: store.messagesFor(threadId),
-    summarize: instance.generateText ? (prompt) => instance.generateText!(prompt) : undefined,
+    summarize: inlineSummarizer(instance, summaryWaitMs),
     onSummaryCall: (record) => logSummaryCall({
       botId: bot.id,
       threadId,
@@ -5002,7 +5064,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           resumePaneWakes(bot.id);
           takeOverPeerTurn(threadId);
         }
-        const withLate = (base: string) => [base, ...late].join("\n\n");
+        const notesPath = opensHostFiles(privateWorkspace, instance.driverKind) ? bot.projectNotes : undefined;
+        const notesNotice = notesPath ? projectNotesCheck.take(bot.id, threadId, resume ? task.resumeCursors[instanceId] : undefined) : "";
+        const withLate = (base: string) => [base, ...late, ...(notesNotice ? [notesNotice] : [])].join("\n\n");
         const system =
           persona +
           // The folder is already this turn's cwd, but nothing told the model
@@ -5012,6 +5076,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           // each change to this text, so anything that moved between turns
           // would cost a reminder on every send.
           projectFolderPrompt(cwd, privateWorkspace, instance.driverKind) +
+          projectNotesPrompt(notesPath) +
           (computerKind === "vm"
             ? localVmMode(cfg) === "per-bot"
               ? " You have your own isolated Cua sandbox: a Linux desktop in a container reserved for this bot. Only /home/cua/workspace is durable; save downloads, repositories, working files, and browser profiles there because everything else inside the VM is disposable. No other host folder is mounted. Use the computer tools for desktop, accessibility, window, and shell work. Inspect the desktop state before acting, prefer accessibility targets over raw coordinates, and work carefully."
@@ -8000,6 +8065,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const rawLimit = url.searchParams.get("limit");
       const limit = rawLimit ? Math.min(Math.max(Number(rawLimit) || 0, 1), 100) : 40;
       const threadId = url.searchParams.get("threadId")?.trim() || undefined;
+      // in-chat find: the page after `before`, matched against what the chat's skin draws
+      const before = threadId ? url.searchParams.get("before") || undefined : undefined;
+      const chips = url.searchParams.get("view") === "chips";
       if (threadId && !store.botByThread(threadId) && !store.groupByThread(threadId)) {
         return json(res, 404, { error: "no such conversation" });
       }
@@ -8011,17 +8079,22 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!ids) activePaths.set(threadId, (ids = new Set(store.activePath(threadId).map((m) => m.id))));
         return ids.has(messageId);
       };
+      const threadRows = new Map<string, Map<string, Message>>();
+      const messageIn = (threadId: string, messageId: string) => {
+        let rows = threadRows.get(threadId);
+        if (!rows) threadRows.set(threadId, (rows = new Map(store.messagesFor(threadId).map((m) => [m.id, m]))));
+        return rows.get(messageId);
+      };
       const needle = q.trim().toLowerCase();
-      const hits = searchMessages(q, limit, threadId)
+      const found = searchMessages(q, limit + 1, threadId, { before, chips });
+      const hits = found.slice(0, limit)
         .map((hit) => {
           const bot = store.botByThread(hit.threadId);
           const group = bot ? undefined : store.groupByThread(hit.threadId);
           if (!bot && !group) return null;
           const active = onActivePath(hit.threadId, hit.messageId);
-          const message = store.messagesFor(hit.threadId).find((row) => row.id === hit.messageId);
-          let haystack = hit.snippet;
-          if (message) haystack = searchHaystack(clientMessage(message));
-          const snippet = searchSnippet(haystack, needle);
+          const message = messageIn(hit.threadId, hit.messageId);
+          const snippet = message ? searchSnippet(searchHaystack(clientMessage(message), chips), needle) : {};
           if (bot) {
             const task = store.taskByThread(bot.id, hit.threadId);
             return { ...hit, ...snippet, botId: bot.id, name: bot.name, task: task?.title, onActivePath: active };
@@ -8033,7 +8106,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return null;
         })
         .filter((hit): hit is NonNullable<typeof hit> => hit !== null);
-      return json(res, 200, { hits });
+      return json(res, 200, { hits, more: found.length > limit });
     }
 
     // ── transcript export (the visible branch, human-readable) ──────────
@@ -9023,6 +9096,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (typeof body.memoryNotes !== "boolean") return json(res, 400, { error: "memoryNotes must be true or false" });
         patch.memoryNotes = body.memoryNotes;
       }
+      if (body.projectNotes !== undefined) {
+        const notes = validateProjectNotes(body.projectNotes);
+        if (!notes.ok) return json(res, 400, { error: notes.error });
+        patch.projectNotes = notes.path ?? undefined;
+      }
       if (
         body.computer !== undefined &&
         !["cloud", "vm", "local", "off"].includes(String(body.computer))
@@ -9115,6 +9193,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (body.cwd !== undefined && cwdBefore !== (bot.cwd ?? undefined)) {
         store.resetTasksForCwdChange(bot.id);
       }
+      if (body.projectNotes !== undefined) void projectNotesCheck.refresh(bot.id);
       const chiefChanges =
         body.chiefOfStaff === true || chiefMovedSections
           ? store.setChiefOfStaff(bot.id)
@@ -10729,6 +10808,7 @@ hostShutdown = () => {
   watchdog.stop();
   routines?.stop();
   webhookIngress?.server.close();
+  summaryBuild.dispose();
   summaryRepair.dispose();
   memoryPass.dispose();
   void registry.disposeAll().finally(() => process.exit(0));

@@ -1919,6 +1919,19 @@ describe("formatTime", () => {
     expect(formatTime(at, "ko")).toMatch(/ \d{1,2}:\d{2}$/);
     expect(formatTime(at, "ko")).not.toBe(formatTime(at, "en"));
   });
+
+  it("follows a time zone change while the app is open", () => {
+    const tz = process.env.TZ;
+    try {
+      process.env.TZ = "UTC";
+      expect(formatTime(at, "en-GB")).toBe("7:05");
+      process.env.TZ = "Asia/Seoul";
+      expect(formatTime(at, "en-GB")).toBe("16:05");
+    } finally {
+      if (tz === undefined) delete process.env.TZ;
+      else process.env.TZ = tz;
+    }
+  });
 });
 
 describe("hydrate screen frames", () => {
@@ -2017,6 +2030,18 @@ describe("paged transcripts", () => {
   it("shows no branch, rather than another one, while a paged leaf is unloaded", () => {
     expect(visibleMessages({ messages: rows(300, 302), activeLeafId: "m99", hasMore: true })).toEqual([]);
     expect(visibleMessages({ messages: rows(0, 2), activeLeafId: "m99" }).map((m) => m.id)).toEqual(["m0", "m1"]);
+  });
+
+  it("returns the same visible branch until the messages or the leaf change", () => {
+    const chain = rows(0, 3).map((m, i) => (i ? { ...m, parentId: `m${i - 1}` } : m));
+    const branch = visibleMessages({ messages: chain, activeLeafId: "m2" });
+    expect(branch.map((m) => m.id)).toEqual(["m0", "m1", "m2"]);
+    expect(visibleMessages({ messages: chain, activeLeafId: "m2" })).toBe(branch);
+    expect(visibleMessages({ messages: chain, activeLeafId: "m1" }).map((m) => m.id)).toEqual(["m0", "m1"]);
+    const appended = [...chain, { ...row(3), parentId: "m2" }];
+    const longer = visibleMessages({ messages: appended, activeLeafId: "m3" });
+    expect(longer.map((m) => m.id)).toEqual(["m0", "m1", "m2", "m3"]);
+    expect(visibleMessages({ messages: appended, activeLeafId: "m3" })).toBe(longer);
   });
 
   it("drops the old thread's hasMore when a task switch frame carries the full transcript", () => {

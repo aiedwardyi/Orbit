@@ -12,6 +12,7 @@ describe("wire clears", () => {
       mascotStyle: null,
       browserProfile: null,
       rememberedProjectCwd: null,
+      projectNotes: null,
     });
   });
 

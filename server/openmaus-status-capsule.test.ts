@@ -185,6 +185,7 @@ posixOnly("readOpenMausStatus", () => {
       ["container", "network", "persistence", "readiness", "security", "slot"],
     );
     const prompt = openMausStatusSystemPrompt({ cachePath: path, now: new Date(NOW.getTime() + 1_000) });
+    expect(prompt.startsWith("TRUSTED WINK STATUS")).toBe(true);
     expect(prompt).toContain("freshness=fresh");
     expect(prompt).toContain("ui.two_up=true");
     expect(prompt).toContain(`source_sha256=${DUAL_VIEW_SHA}`);
@@ -274,6 +275,7 @@ posixOnly("readOpenMausStatus", () => {
     extra.viewer_url = "http://127.0.0.1:62001/private";
     const extraPath = cachePath(sign(extra));
     expect(readOpenMausStatus({ cachePath: extraPath, now: NOW }).reason).toBe("invalid");
+    expect(openMausStatusSystemPrompt({ cachePath: extraPath, now: NOW })).toBe("");
 
     const insecurePath = cachePath(successCapsule());
     chmodSync(insecurePath, 0o644);
@@ -319,8 +321,13 @@ it.skipIf(process.getuid !== undefined)(
         defaultWatchOnly: false,
       },
     });
-    expect(openMausStatusSystemPrompt({ cachePath: path, now: NOW })).toContain(
-      "runtime_state=unknown",
-    );
+    expect(openMausStatusSystemPrompt({ cachePath: path, now: NOW })).toBe("");
   },
 );
+
+it("leaves the status block out when the cache file is missing", () => {
+  const root = mkdtempSync(join(tmpdir(), "openmaus-status-"));
+  roots.push(root);
+
+  expect(openMausStatusSystemPrompt({ cachePath: join(root, "latest.json"), now: NOW })).toBe("");
+});

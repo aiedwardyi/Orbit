@@ -40,14 +40,36 @@ export function highlightParts(text: string, query: string): Array<{ text: strin
   return parts;
 }
 
-/** Index of the clicked message. Null when that row is not in this result set. */
+export interface FindStop<T extends { messageId: string; matches?: number }> {
+  hit: T;
+  /** which copy inside the row, top to bottom */
+  occurrence: number;
+}
+
+/** One stop per copy, newest first, so each message runs bottom copy to top. */
+export function findStops<T extends { messageId: string; matches?: number }>(hits: readonly T[]): FindStop<T>[] {
+  return hits.flatMap((hit) => {
+    const count = Math.max(1, hit.matches ?? 1);
+    return Array.from({ length: count }, (_, i) => ({ hit, occurrence: count - 1 - i }));
+  });
+}
+
+/** Older is +1, up the page; newer is -1. No wrap: null at an end, "more" when an older page is left. */
+export function stepFind(index: number, delta: 1 | -1, total: number, more: boolean): number | "more" | null {
+  const next = index + delta;
+  if (next < 0) return null;
+  if (next >= total) return more ? "more" : null;
+  return next;
+}
+
+/** The newest stop, or the clicked message's first copy. Null when that row is not in this result set. */
 export function findHitIndex(
-  hits: readonly { messageId: string }[],
+  stops: readonly FindStop<{ messageId: string; matches?: number }>[],
   messageId: string | null | undefined,
 ): number | null {
-  if (!hits.length) return null;
+  if (!stops.length) return null;
   if (!messageId) return 0;
-  const index = hits.findIndex((hit) => hit.messageId === messageId);
+  const index = stops.findIndex((stop) => stop.hit.messageId === messageId && stop.occurrence === 0);
   return index < 0 ? null : index;
 }
 
@@ -60,8 +82,8 @@ export function findSeedFor(
   return { query: focus.query, messageId: focus.messageId, nonce: focus.nonce };
 }
 
-// The hit find last landed on. Transcripts reveal its row; paints mark it strong.
-let current: { messageId: string; query: string } | null = null;
+// The hit find last landed on. Transcripts reveal its row; paints mark its copy strong.
+let current: { messageId: string; query: string; occurrence?: number } | null = null;
 let unclamped: Element[] = [];
 const currentListeners = new Set<() => void>();
 
@@ -69,8 +91,12 @@ function sameQuery(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
-export function setFindCurrent(next: { messageId: string; query: string } | null): void {
-  if (current?.messageId === next?.messageId && sameQuery(current?.query ?? "", next?.query ?? "")) return;
+export function setFindCurrent(next: { messageId: string; query: string; occurrence?: number } | null): void {
+  if (
+    current?.messageId === next?.messageId &&
+    current?.occurrence === next?.occurrence &&
+    sameQuery(current?.query ?? "", next?.query ?? "")
+  ) return;
   current = next;
   for (const element of unclamped) element.removeAttribute(UNCLAMP);
   unclamped = [];
@@ -90,10 +116,10 @@ export function useFindCurrentId(): string | null {
   return useSyncExternalStore(subscribeFindCurrent, findCurrentId, findCurrentId);
 }
 
-/** First match inside the row, else a link whose href holds the phrase. */
-function currentRange(wrapper: Element, query: string, ranges: readonly Range[]): Range | null {
-  const inRow = ranges.find((range) => wrapper.contains(range.startContainer));
-  if (inRow) return inRow;
+/** The landed copy inside the row, else a link whose href holds the phrase. */
+function currentRange(wrapper: Element, query: string, ranges: readonly Range[], occurrence = 0): Range | null {
+  const inRow = ranges.filter((range) => wrapper.contains(range.startContainer));
+  if (inRow.length) return inRow[Math.min(occurrence, inRow.length - 1)];
   const phrase = query.trim().toLowerCase();
   const link = [...wrapper.querySelectorAll("a[href]")].find((anchor) =>
     (anchor.getAttribute("href") ?? "").toLowerCase().includes(phrase),
@@ -142,7 +168,7 @@ export function paintChatFindHighlight(root: ParentNode, query: string): Range |
   const wrapper = current && sameQuery(current.query, query)
     ? root.querySelector(findRowSelector(current.messageId))
     : null;
-  const strong = wrapper ? currentRange(wrapper, query, ranges) : null;
+  const strong = wrapper ? currentRange(wrapper, query, ranges, current?.occurrence) : null;
   const soft = ranges.filter((range) => range !== strong);
   if (soft.length) registry.set(FIND_HIGHLIGHT, new HighlightCtor(...soft));
   if (strong) registry.set(CURRENT_HIGHLIGHT, new HighlightCtor(strong));

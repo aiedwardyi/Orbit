@@ -58,7 +58,7 @@ interface TailSelection {
   tail: ReplayUnit[];
 }
 
-interface ApplicableCompaction {
+export interface ApplicableCompaction {
   messageId: string;
   pathIndex: number;
   coveredIndex: number;
@@ -546,7 +546,7 @@ function compactionAt(
   return { messageId: message.id, pathIndex, coveredIndex, value: parsed.value };
 }
 
-function applicableCompaction(
+export function applicableCompaction(
   messages: Message[],
 ): ApplicableCompaction | { unsupported: true; messageId: string; version: number } | null {
   for (let pathIndex = messages.length - 1; pathIndex >= 0; pathIndex--) {
@@ -834,26 +834,49 @@ function failedContext(error: string, previous: ApplicableCompaction | null = nu
   return result;
 }
 
-export async function prepareModelContext(input: {
+export type CompactionPlan =
+  | {
+      needed: true;
+      previous: ApplicableCompaction | null;
+      previousSummary: string;
+      old: ReplayUnit[];
+      tail: ReplayUnit[];
+      coveredThrough: Message;
+      budgetTokens: number;
+      summaryBudget: number;
+      contextWindow: number;
+      estimatedTokensBefore: number;
+    }
+  | {
+      needed: false;
+      status: "fits";
+      previous: ApplicableCompaction | null;
+      transcript: ModelContextMessage[];
+      budgetTokens: number;
+      estimatedTokens: number;
+    }
+  | { needed: false; status: "unsupported"; messageId: string; version: number }
+  | { needed: false; status: "failed"; error: string };
+
+export type CompactionNeeded = Extract<CompactionPlan, { needed: true }>;
+
+/** The boundary a send would summarize at, with no provider call; pure on its inputs. */
+export function planCompaction(input: {
   messages: Message[];
   contextWindow: number;
-  taskRecordText: string;
-  summarize?: (prompt: string) => Promise<string>;
-  beforeSummarize?: () => void | Promise<void>;
   excludeIds?: ReadonlySet<string>;
   userName?: string;
   referenceMessages?: Message[];
   includeSpeakers?: boolean;
   reserveTokens?: number;
-  onSummaryCall?: (record: SummaryCallRecord) => void;
-}): Promise<PreparedModelContext> {
+}): CompactionPlan {
   const contextWindow = Number.isSafeInteger(input.contextWindow) && input.contextWindow > 0
     ? input.contextWindow
     : MODEL_CONTEXT_FALLBACK;
   const budgetTokens = Math.max(1, contextBudget(contextWindow) - (input.reserveTokens ?? 0));
   const found = applicableCompaction(input.messages);
   if (found && "unsupported" in found) {
-    return { status: "unsupported", messageId: found.messageId, version: found.version };
+    return { needed: false, status: "unsupported", messageId: found.messageId, version: found.version };
   }
   const previous = found;
   const previousSummary = previous ? redactSecretsInText(previous.value.summary) : "";
@@ -881,14 +904,7 @@ export async function prepareModelContext(input: {
   // ack-first doubled it overnight.
   const currentTurns = units.filter((unit) => unit.turn).length;
   if (currentTokens <= budgetTokens && currentTurns <= MAX_CONTEXT_MESSAGES) {
-    return {
-      status: "ready",
-      transcript: currentTranscript,
-      budgetTokens,
-      estimatedTokens: currentTokens,
-      compacted: Boolean(previous),
-      ...(previous ? { compactionId: previous.messageId } : {}),
-    };
+    return { needed: false, status: "fits", previous, transcript: currentTranscript, budgetTokens, estimatedTokens: currentTokens };
   }
   const summaryBudget = Math.max(
     1,
@@ -902,9 +918,63 @@ export async function prepareModelContext(input: {
   }
   const coveredThroughIndex = old.at(-1)?.pathIndex ?? previous?.coveredIndex;
   if (coveredThroughIndex === undefined) {
-    return { status: "failed", error: "Context summarization found no durable message boundary." };
+    return { needed: false, status: "failed", error: "Context summarization found no durable message boundary." };
   }
-  const coveredThrough = input.messages[coveredThroughIndex]!;
+  return {
+    needed: true,
+    previous,
+    previousSummary,
+    old,
+    tail,
+    coveredThrough: input.messages[coveredThroughIndex]!,
+    budgetTokens,
+    summaryBudget,
+    contextWindow,
+    estimatedTokensBefore: Math.max(1, currentTokens),
+  };
+}
+
+function compactionRecord(plan: CompactionNeeded, summary: string): ContextCompactionV1 {
+  const compaction: ContextCompactionV1 = {
+    v: CONTEXT_COMPACTION_VERSION,
+    summary,
+    coveredThroughId: plan.coveredThrough.id,
+    firstKeptId: plan.tail[0]?.id ?? null,
+    contextWindow: plan.contextWindow,
+    estimatedTokensBefore: plan.estimatedTokensBefore,
+    sourceMessageCount: (plan.previous?.value.sourceMessageCount ?? 0) + plan.old.length,
+  };
+  if (plan.previous) compaction.previousCompactionId = plan.previous.messageId;
+  return compaction;
+}
+
+export async function prepareModelContext(input: {
+  messages: Message[];
+  contextWindow: number;
+  taskRecordText: string;
+  summarize?: (prompt: string) => Promise<string>;
+  beforeSummarize?: () => void | Promise<void>;
+  excludeIds?: ReadonlySet<string>;
+  userName?: string;
+  referenceMessages?: Message[];
+  includeSpeakers?: boolean;
+  reserveTokens?: number;
+  onSummaryCall?: (record: SummaryCallRecord) => void;
+}): Promise<PreparedModelContext> {
+  const plan = planCompaction(input);
+  if (!plan.needed) {
+    if (plan.status === "unsupported") return { status: "unsupported", messageId: plan.messageId, version: plan.version };
+    if (plan.status === "failed") return { status: "failed", error: plan.error };
+    return {
+      status: "ready",
+      transcript: plan.transcript,
+      budgetTokens: plan.budgetTokens,
+      estimatedTokens: plan.estimatedTokens,
+      compacted: Boolean(plan.previous),
+      ...(plan.previous ? { compactionId: plan.previous.messageId } : {}),
+    };
+  }
+  const { previous, previousSummary, old, tail, coveredThrough, budgetTokens, summaryBudget, contextWindow } = plan;
   let summary = previousSummary;
   try {
     await input.beforeSummarize?.();
@@ -969,17 +1039,7 @@ export async function prepareModelContext(input: {
   if (estimatedTokens > budgetTokens) {
     return failedContext("Context summarization could not fit the selected model window.", previous);
   }
-  const compaction: ContextCompactionV1 = {
-    v: CONTEXT_COMPACTION_VERSION,
-    summary,
-    coveredThroughId: coveredThrough.id,
-    firstKeptId: tail[0]?.id ?? null,
-    contextWindow,
-    estimatedTokensBefore: Math.max(1, currentTokens),
-    sourceMessageCount: (previous?.value.sourceMessageCount ?? 0) + old.length,
-  };
-  if (previous) compaction.previousCompactionId = previous.messageId;
-  const validated = readContextCompaction({ value: compaction });
+  const validated = readContextCompaction({ value: compactionRecord(plan, summary) });
   if (validated.status !== "valid") {
     return failedContext("Context summarization produced invalid durable state.", previous);
   }
@@ -991,6 +1051,41 @@ export async function prepareModelContext(input: {
     compacted: true,
     compaction: validated.value,
   };
+}
+
+export type BuiltModelContext =
+  | { status: "ready"; compaction: ContextCompactionV1 }
+  | { status: "failed"; result: SummaryCallResult };
+
+/** The row a send would land for this plan; a failed summarizer lands nothing, no fallback digest off the send path. */
+export async function buildCompaction(input: {
+  plan: CompactionNeeded;
+  messages: Message[];
+  taskRecordText: string;
+  summarize: (prompt: string) => Promise<string>;
+  signal?: AbortSignal;
+  onSummaryCall?: (record: SummaryCallRecord) => void;
+}): Promise<BuiltModelContext> {
+  const { plan } = input;
+  const segment = await summarizeSegment({
+    messages: input.messages,
+    previous: plan.previous,
+    previousSummary: plan.previousSummary,
+    history: plan.old,
+    taskRecordText: input.taskRecordText,
+    contextWindow: plan.contextWindow,
+    summaryBudget: plan.summaryBudget,
+    summarize: input.summarize,
+    signal: input.signal,
+    onSummaryCall: input.onSummaryCall,
+  });
+  if (segment.status === "too-large") return { status: "failed", result: "error" };
+  if (segment.status === "over-budget") return { status: "failed", result: "over-budget" };
+  if (segment.status === "error") return { status: "failed", result: segment.result };
+  const transcript = [summaryMessage(segment.summary, plan.coveredThrough.at), ...plan.tail.map(({ role, text }) => ({ role, text }))];
+  if (estimateContextTokens(transcript) > plan.budgetTokens) return { status: "failed", result: "over-budget" };
+  const validated = readContextCompaction({ value: compactionRecord(plan, segment.summary) });
+  return validated.status === "valid" ? { status: "ready", compaction: validated.value } : { status: "failed", result: "error" };
 }
 
 /** Rebuilds the target from the last model summary and the original messages, never the fallback text. */

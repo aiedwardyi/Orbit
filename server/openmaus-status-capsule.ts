@@ -348,6 +348,7 @@ export function readOpenMausStatus(
 
 export function openMausStatusSystemPrompt(options: OpenMausStatusReadOptions = {}): string {
   const status = readOpenMausStatus(options);
+  if (status.reason === "missing_or_insecure" || status.reason === "invalid") return "";
   const receipt = [
     status.observedAt ? `observed_at=${status.observedAt}` : null,
     status.receiptSha256 ? `receipt_sha256=${status.receiptSha256}` : null,

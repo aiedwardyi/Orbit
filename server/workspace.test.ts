@@ -249,6 +249,12 @@ describe("workspace", () => {
     expect(prompt).not.toContain(" bytes in ");
   });
 
+  it("tells the bot to keep one rule per line and replace a corrected line", () => {
+    const dir = ensureWorkspace(BOT);
+    writeFileSync(join(dir, "MEMORY.md"), "# Memory\n- one fact\n");
+    expect(memorySystemPrompt(BOT)).toContain("for anything longer. One rule per line, about 300 bytes at most. A side file is read only when a line here says when to read it. A newer correction replaces the old line; never keep two lines that disagree. When you learn");
+  });
+
   it("puts the file's real size above the notes from 80% of either budget", () => {
     const dir = ensureWorkspace(BOT);
     const nearBytes = `# Memory\n${"- long note ".repeat(1700)}`;

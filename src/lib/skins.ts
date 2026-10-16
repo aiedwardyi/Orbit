@@ -4,6 +4,7 @@
 // that keeps the two halves from drifting apart, and it means adding a skin is
 // one CSS block plus one line in SKINS.
 import { useSyncExternalStore } from "react";
+import toolSkinsCss from "@/skins/tool-skins.css?inline";
 
 export const SKIN_IDS = [
   "wink",
@@ -153,6 +154,8 @@ const TERMINAL_SKIN_IDS: ReadonlySet<SkinId> = new Set<SkinId>(["terminal", "ter
 
 export const isTerminalSkin = (id: SkinId): boolean => TERMINAL_SKIN_IDS.has(id);
 
+const TOOL_SKIN_IDS: ReadonlySet<SkinId> = new Set<SkinId>(["logfile", "multiplexer", "modal"]);
+
 export const DEFAULT_SKIN: SkinId = "precision";
 
 // Fired after applySkin() so anything showing the current skin elsewhere
@@ -211,6 +214,14 @@ export function readSkin(): SkinId {
  */
 export function applySkin(id: SkinId): void {
   document.documentElement.dataset.skin = id;
+  const extra = document.head.querySelector("style[data-skin-extra]");
+  if (!TOOL_SKIN_IDS.has(id)) extra?.remove();
+  else if (!extra) {
+    const style = document.createElement("style");
+    style.dataset.skinExtra = "";
+    style.textContent = toolSkinsCss;
+    document.head.append(style);
+  }
   try {
     getStore()?.setItem(KEY, id);
   } catch {

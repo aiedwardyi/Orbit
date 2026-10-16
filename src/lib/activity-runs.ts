@@ -22,6 +22,13 @@ export interface LinkedApproval {
   summary: string;
 }
 
+/** Grouping rebuilds notices on every pass; they match when they link the same rows. */
+export function sameNotices(a: LinkedApproval[] | undefined, b: LinkedApproval[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((notice, i) => notice.message === b[i].message);
+}
+
 export type TranscriptItem =
   | { kind: "message"; message: Message; notices?: LinkedApproval[] }
   | { kind: "run"; id: string; messages: Message[]; notices?: Map<string, LinkedApproval[]> };

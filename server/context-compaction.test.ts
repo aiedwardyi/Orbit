@@ -9,6 +9,7 @@ import {
   knownCatalogContextWindow,
   paneNotesForTurn,
   paneNotesSinceLastUserTurn,
+  planCompaction,
   prepareModelContext,
   repairModelContext,
   routineCardsSinceLastUserTurn,
@@ -2110,5 +2111,46 @@ describe("summary repair", () => {
       summarize: async () => "SUMMARY\nnormal",
     });
     expect(chained.status === "ready" && Object.keys(chained.compaction!).sort()).toEqual(Object.keys(repairedRow).sort());
+  });
+});
+
+describe("planCompaction", () => {
+  it("picks the boundary prepareModelContext picks", async () => {
+    const first = await prepareModelContext({
+      messages: longHistory(120),
+      contextWindow: 1_024,
+      taskRecordText: "Goal: finish",
+      summarize: async () => "SUMMARY\nsummary one",
+    });
+    if (first.status !== "ready" || !first.compaction) throw new Error("expected a summary");
+    const settled = [...longHistory(120), compactionMessage("c1", "m119", first.compaction), ...longHistory(90, 120)];
+    const note = message("n1", "[pane 1] worker output", { kind: "note" });
+    const input = { contextWindow: 1_024, excludeIds: new Set(["n1"]), reserveTokens: 40 };
+
+    const plan = planCompaction({ ...input, messages: [...settled, note] });
+    expect(plan.needed).toBe(true);
+    if (!plan.needed) return;
+    expect(plan.previous?.messageId).toBe("c1");
+    expect(plan.old.length).toBeGreaterThan(0);
+    expect(plan.tail[0]?.turn).toBe(true);
+    expect(plan.coveredThrough.id).toBe(plan.old.at(-1)!.id);
+
+    const prepared = await prepareModelContext({
+      ...input,
+      messages: [...settled, note, message("send", "next question")],
+      excludeIds: new Set(["n1", "send"]),
+      taskRecordText: "Goal: finish",
+      summarize: async () => "SUMMARY\nsummary two",
+    });
+    if (prepared.status !== "ready" || !prepared.compaction) throw new Error("expected a summary");
+    expect(prepared.compaction.coveredThroughId).toBe(plan.coveredThrough.id);
+    expect(prepared.compaction.firstKeptId).toBe(plan.tail[0]?.id ?? null);
+    expect(prepared.budgetTokens).toBe(plan.budgetTokens);
+    expect(prepared.compaction.estimatedTokensBefore).toBe(plan.estimatedTokensBefore);
+
+    const fits = planCompaction({ messages: longHistory(6), contextWindow: 200_000 });
+    expect(fits.needed).toBe(false);
+    if (fits.needed || fits.status !== "fits") throw new Error("expected a fitting plan");
+    expect(fits.transcript).toHaveLength(6);
   });
 });

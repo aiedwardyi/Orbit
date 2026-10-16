@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { chiefOfStaffSystemPrompt, peerAgentsSystemPrompt } from "./chief-of-staff.ts";
+import { openMausStatusSystemPrompt } from "./openmaus-status-capsule.ts";
 
 // Two describe blocks below assert on index.ts SOURCE rather than behaviour.
 // runClaimedGroupMemberTurn and automaticRequirements are both private, and the
@@ -200,6 +201,12 @@ describe("chiefOfStaffSystemPrompt", () => {
 
     expect(chiefPrompt).toContain(status);
     expect(ordinaryPrompt).not.toContain("TRUSTED OPENMAUSBOT STATUS");
+  });
+
+  it("drops the status line when no status cache exists", () => {
+    const status = openMausStatusSystemPrompt({ cachePath: join(here, "missing-openmaus-status.json") });
+
+    expect(chiefOfStaffSystemPrompt("chief", bots, true, status)).not.toContain("TRUSTED WINK STATUS");
   });
 });
 

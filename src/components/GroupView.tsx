@@ -545,6 +545,7 @@ export const Transcript = memo(function Transcript({
             >
               <div
                 data-orbit-message-body
+                data-strip={m.reactions?.length ? "" : undefined}
                 className={cn("relative w-fit max-w-[min(42rem,78%)]", Boolean(m.reactions?.length) && "pb-3.5")}
               >
                 {user && (

@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { SmilePlus, X } from "lucide-react";
 import { EXTENDED_REACTIONS } from "../../shared/reactions";
-import { useStore, type Bot, type Message } from "@/state/store";
+import { useStoreDispatch, type Bot, type Message } from "@/state/store";
 import { useI18n, type Translate } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 
@@ -20,7 +20,7 @@ function reactLabel(t: Translate, emoji: string, pressed: boolean) {
 
 export function ReactionBar({ threadId, message }: { threadId: string; message: Message }) {
   const { t } = useI18n();
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [pickerOpen, setPickerOpen] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -219,12 +219,12 @@ export function ReactionChips({
 }: {
   threadId: string;
   message: Message;
-  members?: Bot[];
+  members?: Pick<Bot, "id" | "name">[];
   corner: "left" | "right";
   className?: string;
 }) {
   const { t } = useI18n();
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const reactions = message.reactions ?? [];
   if (!reactions.length) return null;
   // group identical emoji into one chip with a count

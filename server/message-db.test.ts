@@ -295,6 +295,56 @@ describe("message-db", () => {
     expect(searchMessages("최세훈", 40, "t-rank").map((hit) => hit.messageId)).toEqual(["tool-hit", "text-hit"]);
   });
 
+  it("counts every copy in a chat hit, newest first", () => {
+    insertMessage("t-find", msg("a", "reset, then Reset again", { at: 10 }));
+    insertMessage("t-find", msg("b", "one reset", { at: 20 }));
+    insertMessage("t-find", msg("c", "a later reset", { at: 20 }));
+
+    const hits = searchMessages("reset", 40, "t-find");
+    expect(hits.map((hit) => `${hit.messageId}:${hit.matches}`)).toEqual(["c:1", "b:1", "a:2"]);
+  });
+
+  it("pages past a chat hit until every match is reached", () => {
+    for (let i = 0; i < 7; i++) insertMessage("t-page", msg(`m${i}`, `reset ${i}`, { at: 100 + Math.floor(i / 2) }));
+    const ids: string[] = [];
+    let page = searchMessages("reset", 3, "t-page");
+    for (let pages = 0; page.length && pages < 5; pages++) {
+      ids.push(...page.map((hit) => hit.messageId));
+      page = searchMessages("reset", 3, "t-page", { before: ids.at(-1) });
+    }
+    expect(ids).toEqual(["m6", "m5", "m4", "m3", "m2", "m1", "m0"]);
+    expect(searchMessages("reset", 3, "t-page", { before: "missing" })).toEqual([]);
+  });
+
+  it("matches only a tool row's name where the skin draws only the name", () => {
+    insertMessage("t-chips", {
+      ...msg("bash", "", { role: "bot", kind: "activity", at: 1 }),
+      tool: { name: "Bash", ok: true, detail: { input: "cat usage.json", output: ['"resets_at": 1'] } },
+    });
+    insertMessage("t-chips", { ...msg("named", "", { role: "bot", kind: "activity", at: 2 }), tool: { name: "reset_cache", ok: true } });
+
+    expect(searchMessages("reset", 40, "t-chips").map((hit) => hit.messageId)).toEqual(["named", "bash"]);
+    expect(searchMessages("reset", 40, "t-chips", { chips: true }).map((hit) => hit.messageId)).toEqual(["named"]);
+    expect(searchHaystack({ kind: "activity", tool: { name: "Bash", ok: true, detail: { input: "ls", output: ["reset"] } } }, true)).toBe("Bash");
+  });
+
+  it("matches the summary a chip draws, and still skips hidden output", () => {
+    insertMessage("t-summary", {
+      ...msg("write", "", { role: "bot", kind: "activity", at: 1 }),
+      tool: { name: "Write", ok: true, summary: "결과.md" },
+    });
+    insertMessage("t-summary", {
+      ...msg("hidden", "", { role: "bot", kind: "activity", at: 2 }),
+      tool: { name: "Bash", ok: true, summary: "ls", detail: { input: "ls", output: ["only-in-output-token"] } },
+    });
+
+    for (const chips of [true, false]) {
+      expect(searchMessages("결과.md", 40, "t-summary", { chips }).map((hit) => hit.messageId)).toEqual(["write"]);
+    }
+    expect(searchMessages("only-in-output-token", 40, "t-summary", { chips: true })).toEqual([]);
+    expect(searchHaystack({ kind: "activity", tool: { name: "Write", summary: "결과.md" } }, true)).toBe("Write\n결과.md");
+  });
+
   it("finds a failed command result in captured output and skips hidden text", () => {
     const threadId = "t-detail";
     insertMessage(threadId, {

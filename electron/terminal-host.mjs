@@ -42,7 +42,7 @@ const stallSignature = (screenText) => AGENT_BUSY_RE.test(screenText) ? screenTe
 const agentJobsRunning = (screenText) => screenText.split("\n").filter((line) => line.trim()).slice(-JOBS_FOOTER_LINES).some((line) => AGENT_JOBS_RE.test(line));
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
-const BOT_PANE_LIMIT = 16;
+export const BOT_PANE_LIMIT = 16;
 const SESSION_LIMIT = 32;
 const MIN_FREE_MEMORY = 2 * 1024 ** 3;
 const LABEL_LIMIT = 40;

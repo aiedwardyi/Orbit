@@ -3,10 +3,10 @@
 // Collapsed by default. A run stays open once you open it, and search can
 // force it open so a hit is not stuck behind the fold. A failure shows as a
 // quiet cross beside the summary; the row itself never goes red.
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { Bot, ChevronRight, Check, FileText, Globe, Loader2, Pencil, Search, SquareTerminal, Wrench, X } from "lucide-react";
 import type { Message } from "@/state/store";
-import { classifyServerNotice, describeRun, describeSearch, localizeServerLine, type LinkedApproval } from "@/lib/activity-runs";
+import { classifyServerNotice, describeRun, describeSearch, localizeServerLine, sameNotices, type LinkedApproval } from "@/lib/activity-runs";
 import { useI18n, type Translate } from "@/lib/i18n";
 import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { APPROVAL_WORD, TERM_STEP_WORD, termBlock, termHeaderArgs, termResultLine, termStepAria, termStepState, termUpdatedLine, termVerb } from "@/lib/terminal-skin";
@@ -41,7 +41,7 @@ function TermNotice({ text, failed }: { text: string; failed: boolean }) {
 
 /** One step inside an open run. A running step ticks its elapsed time, then
  * settles in the same row: same key, same element, only the status swaps. */
-export function ActivityStep({ message, notices }: { message: Message; notices?: LinkedApproval[] }) {
+export const ActivityStep = memo(function ActivityStep({ message, notices }: { message: Message; notices?: LinkedApproval[] }) {
   const { t } = useI18n();
   const terminal = isTerminalSkin(useSkin());
   const tool = message.tool;
@@ -71,7 +71,7 @@ export function ActivityStep({ message, notices }: { message: Message; notices?:
       <span className="ml-auto shrink-0 pl-3 text-[12px] tabular-nums">{elapsed === undefined ? "" : formatDuration(elapsed)}</span>
     </div>
   );
-}
+}, (a, b) => a.message === b.message && sameNotices(a.notices, b.notices));
 
 type ToolDetail = NonNullable<Message["tool"]>["detail"];
 

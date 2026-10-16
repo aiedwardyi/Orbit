@@ -44,6 +44,32 @@ describe("turn presence", () => {
     }
   });
 
+  it.each([
+    ["wait", "max-w-full", () => createElement(TurnPresence, { avatar: null, visible: true, label: "답변 쓰는 중" })],
+    ["docked", "w-max", () => createElement(DockedPresence, { avatar: null, label: "답변 쓰는 중", live: true })],
+  ])("keeps the %s label on one line and ends it with an ellipsis", (_name, boxClass, view) => {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(view());
+    const label = host.querySelector(".thinking-shimmer");
+    expect(host.querySelector("[data-turn-mascot]")?.className).toContain(boxClass);
+    expect(label?.className).toContain("whitespace-nowrap");
+    expect(label?.className).toContain("text-ellipsis");
+    expect(label?.className).toContain("min-w-0");
+    expect(host.querySelector(".thinking-sheen > span")?.className).toContain("text-ellipsis");
+  });
+
+  it("keeps the terminal timer from shrinking beside the label", () => {
+    document.documentElement.dataset.skin = "terminal";
+    try {
+      const host = document.createElement("div");
+      host.innerHTML = renderToStaticMarkup(createElement(DockedPresence, { avatar: null, label: "Responding", live: true, since: Date.now() }));
+      const timer = [...host.querySelectorAll("span")].find((el) => /^\(\d+s\)$/.test(el.textContent ?? ""));
+      expect(timer?.className).toContain("shrink-0");
+    } finally {
+      delete document.documentElement.dataset.skin;
+    }
+  });
+
   it("fades out in place at turn end, then leaves", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const host = document.createElement("div");
