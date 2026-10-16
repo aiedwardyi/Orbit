@@ -211,7 +211,13 @@ describe("SettingsPanel Korean bot details", () => {
     expect(html).toContain(">메모리<");
     expect(html).not.toContain(">Name<");
     expect(html).not.toContain(">Memory<");
-    expect(html).toContain(">Notifications<");
+    expect(html).toContain(">알림<");
+    expect(html).toContain("aria-label=\"봇 알림\"");
+    expect(html).toContain(">터미널을 대화와 공유<");
+    expect(html).toContain("aria-label=\"터미널을 대화와 공유\"");
+    expect(html).not.toContain(">Notifications<");
+    expect(html).not.toContain("Share terminal with chat");
+    expect(html).not.toContain("Bot notifications");
     expect(html).not.toContain(">연결 앱<");
     expect(html).not.toContain("Allow this bot to use connected apps");
     expect(html).not.toContain("Stays on the active engine by default");

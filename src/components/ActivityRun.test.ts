@@ -25,6 +25,7 @@ function render(skin: string, element: ReturnType<typeof createElement>) {
 
 afterEach(() => {
   delete document.documentElement.dataset.skin;
+  applyLocale("en");
 });
 
 describe("ActivityStep in the Terminal skin", () => {
@@ -299,5 +300,38 @@ describe("ActivityRun pill", () => {
     expect(cls.has("border-transparent")).toBe(true);
     expect([...cls].filter((c) => /^(bg-|border-hairline|rounded-(full|2xl))/.test(c))).toEqual([]);
     for (const c of ["rounded-lg", "hover:bg-control", "focus-visible:bg-control"]) expect(cls.has(c)).toBe(true);
+  });
+});
+
+describe("ActivityRun in Korean", () => {
+  const korean = (skin: string, element: ReturnType<typeof createElement>) => {
+    document.documentElement.dataset.skin = skin;
+    applyLocale("ko");
+    return renderToStaticMarkup(element);
+  };
+
+  it.each([false, true])("counts steps and edited files in Korean (open %s)", (forceOpen) => {
+    const html = korean("steel-gray", createElement(ActivityRun, {
+      messages: [step("Edit", "a.ts +1 -0", true, 100), step("Edit", "b.ts +1 -0", true, 100), step("Grep", "x", true, 100)],
+      forceOpen,
+      children: null,
+    }));
+    expect(html).toContain("3단계 · 파일 2개 수정됨");
+    expect(html).not.toMatch(/steps|edited/);
+  });
+
+  it("counts a plain run in Korean", () => {
+    const html = korean("steel-gray", createElement(ActivityRun, { messages: [step("Grep", "x", true, 100), step("Grep", "y", true, 100)], children: null }));
+    expect(html).toContain("2단계");
+  });
+
+  it.each([
+    [[step("Grep", "x", true, 100), step("Read", "a.ts", true, 100)], "패턴 1개 검색, 파일 1개 읽음"],
+    [[step("Grep", "x", true, 100), step("Glob", "y", true, 100)], "패턴 2개 검색"],
+    [[step("Read", "a.ts", true, 100), step("Read", "b.ts", true, 100)], "파일 2개 읽음"],
+  ])("names a Terminal search stretch in Korean: %#", (messages, line) => {
+    const html = korean("terminal", createElement(ActivityRun, { messages, children: null }));
+    expect(html).toContain(line);
+    expect(html).not.toMatch(/Searched|Read \d|read \d/);
   });
 });

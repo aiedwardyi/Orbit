@@ -55,3 +55,14 @@ describe("QuestionChoiceCard", () => {
     expect(html).not.toContain("border-accent-text");
   });
 });
+
+describe("QuestionChoiceCard subtitle", () => {
+  it("keeps Korean words whole at the line end", () => {
+    applyLocale("ko");
+    const html = renderToStaticMarkup(
+      createElement(QuestionChoiceCard, { question: "질문", subtitle: "나중에 다른 일에도 활용할 수 있습니다.", options: ["하나"], onPick: () => {} }),
+    );
+    applyLocale("en");
+    expect(html).toMatch(/<p class="[^"]*break-keep[^"]*">나중에/);
+  });
+});

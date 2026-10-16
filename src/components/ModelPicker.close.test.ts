@@ -31,3 +31,22 @@ describe("ModelPicker close button", () => {
     expect(closeTop({ caption: "32px", win32: false })).toBe(20);
   });
 });
+
+describe("ModelPicker off-list card", () => {
+  const card = (note: boolean) => {
+    document.head.innerHTML = `<style>${css}</style>`;
+    document.body.innerHTML = `<button class="model-cross-cell"><svg></svg><span>Engine</span><span>Name</span>${note ? '<span class="model-cross-note">Current</span>' : ""}</button>`;
+    const cell = document.querySelector(".model-cross-cell")!;
+    const icon = getComputedStyle(cell.querySelector("svg")!);
+    return { gap: parseFloat(getComputedStyle(cell).gap), icon: parseFloat(icon.width), iconMargin: parseFloat(icon.marginBottom) };
+  };
+
+  it("tightens the stack so the note clears the card's bottom border", () => {
+    const plain = card(false);
+    const noted = card(true);
+    expect(noted.gap).toBeLessThan(plain.gap);
+    expect(noted.icon).toBeLessThan(30);
+    expect(noted.iconMargin).toBe(0);
+    expect(plain.iconMargin).toBe(3);
+  });
+});

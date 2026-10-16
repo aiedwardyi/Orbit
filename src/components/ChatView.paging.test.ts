@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { StoreProvider, useStore, type Bot, type Group, type Message } from "@/state/store";
 import type { TurnStreamState } from "@/lib/turn-stage";
+import { applyLocale } from "@/lib/i18n";
 import { applySkin } from "@/lib/skins";
 
 import { ChatView, clearLivePaneCache } from "./ChatView";
@@ -120,6 +121,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   localStorage.clear();
   applySkin("precision");
+  applyLocale("en");
   vi.useRealTimers();
 });
 
@@ -274,6 +276,20 @@ describe("paged transcripts", () => {
       "/api/threads/thread-a/messages?limit=200&before=m400",
       "/api/threads/thread-a/messages?limit=200&before=m200",
     ]);
+  });
+
+  it("says Show earlier in Korean", async () => {
+    applyLocale("ko");
+    const thread = rows(0, 500);
+    pagedServer("thread-a", thread, { bots: [bot(thread.slice(-100), true)], groups: [] });
+    const host = await mount("chat");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 499;"));
+    expect(button(host, "이전 메시지 더 보기")).toBeDefined();
+    expect(host.textContent).not.toContain("Show earlier");
+    await act(async () => button(host, "이전 메시지 더 보기")!.click());
+    await vi.waitFor(() => expect(host.textContent).toContain("row 280;"));
+    expect(button(host, "이전 메시지 더 보기 (80개)")).toBeDefined();
+    expect(host.textContent).not.toContain("Show earlier");
   });
 
   it("pages a room back the same way", async () => {
@@ -847,6 +863,21 @@ describe("open window and jump pill", () => {
     await vi.waitFor(() => expect(flashed(host, "m290")).toBe(true));
     expect(host.querySelector('[data-mid="m399"]')).not.toBeNull();
     expect(button(host, "Show later messages")).toBeUndefined();
+  });
+
+  it.each([["chat"], ["room"]] as const)("gives a flashed %s bot row room around its text, a user row none", async (view) => {
+    const thread = [say("m0", null, "user", "ask;"), say("b1", "m0", "bot", "bot reply;"), say("m2", "b1", "user", "thanks;")];
+    serveReplyThread(view, thread);
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.textContent).toContain("bot reply;"));
+    const threadId = view === "chat" ? "thread-a" : "thread-g";
+    const flashClasses = async (id: string) => {
+      await act(async () => store.dispatch({ type: "focusMessage", threadId, messageId: id }));
+      await vi.waitFor(() => expect(flashed(host, id)).toBe(true));
+      return [...host.querySelector(`[data-mid="${id}"]`)!.lastElementChild!.classList];
+    };
+    expect(await flashClasses("b1")).toEqual(expect.arrayContaining(["box-content", "px-3", "-mx-3"]));
+    expect(await flashClasses("m2")).not.toContain("px-3");
   });
 
   it.each([
