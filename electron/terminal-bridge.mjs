@@ -1,6 +1,8 @@
 import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 
+import { BOT_PANE_LIMIT } from "./terminal-host.mjs";
+
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 const GRANT_PREFIX = "orbit-terminal-read-v1";
 const SEND_GRANT_PREFIX = "orbit-terminal-send-v1";
@@ -46,7 +48,7 @@ export function paneCountBody(labels) {
   const panes = {};
   if (!plainRecord(labels)) return { counts, panes };
   for (const [botId, names] of Object.entries(labels)) {
-    if (!BOT_ID_RE.test(botId) || !Array.isArray(names) || names.length < 1 || names.length > 8) continue;
+    if (!BOT_ID_RE.test(botId) || !Array.isArray(names) || names.length < 1 || names.length > BOT_PANE_LIMIT) continue;
     const list = [];
     for (const name of names) {
       if (Object.prototype.toString.call(name) !== "[object String]") continue;

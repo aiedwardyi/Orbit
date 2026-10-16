@@ -3,7 +3,7 @@ import test from "node:test";
 import { subscribe, unsubscribe } from "node:diagnostics_channel";
 import os from "node:os";
 import { createTerminalBridge, paneCountBody, terminalPaneCountsGrant, terminalReadGrant, terminalSendGrant, updateGrant } from "./terminal-bridge.mjs";
-import { createTerminalHost } from "./terminal-host.mjs";
+import { BOT_PANE_LIMIT, createTerminalHost } from "./terminal-host.mjs";
 import { closeBotPanes } from "../server/terminal-cleanup.ts";
 import { terminalPaneCountsGrant as serverTerminalPaneCountsGrant, terminalSendGrant as serverTerminalSendGrant, updateGrant as serverUpdateGrant } from "../server/terminal-grant.ts";
 
@@ -175,6 +175,13 @@ test("GET /v1/terminal/pane-counts returns worker counts for that grant only", a
   assert.equal((await fetch(`${connection.url}/v1/terminal/pane-counts`, { method: "POST", headers })).status, 405);
   assert.deepEqual(paneCountBody(null), { counts: {}, panes: {} });
   await bridge.close();
+});
+
+test("pane counts keep a bot with more than 8 workers, up to the pane limit", () => {
+  const labels = (n) => Array.from({ length: n }, (_, i) => `w${i}`);
+  assert.equal(paneCountBody({ "bot-1": labels(9) }).counts["bot-1"], 9);
+  assert.equal(paneCountBody({ "bot-1": labels(BOT_PANE_LIMIT) }).counts["bot-1"], BOT_PANE_LIMIT);
+  assert.deepEqual(paneCountBody({ "bot-1": labels(BOT_PANE_LIMIT + 1) }), { counts: {}, panes: {} });
 });
 
 test("opens a pane only for the grant's own bot", async () => {
