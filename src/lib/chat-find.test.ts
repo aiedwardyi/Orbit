@@ -4,11 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   findHitIndex,
   findSeedFor,
+  findStops,
   highlightParts,
   paintChatFindHighlight,
   findRowSelector,
   revealFindMatch,
   setFindCurrent,
+  stepFind,
 } from "./chat-find";
 
 describe("highlightParts", () => {
@@ -32,19 +34,52 @@ describe("highlightParts", () => {
   });
 });
 
-describe("findHitIndex", () => {
-  const hits = [{ messageId: "a" }, { messageId: "b" }];
+describe("findStops", () => {
+  const hits = [{ messageId: "new", matches: 2 }, { messageId: "old", matches: 3 }];
 
-  it("starts at the clicked message", () => {
-    expect(findHitIndex(hits, "b")).toBe(1);
+  it("counts every copy, not every message", () => {
+    expect(findStops(hits)).toHaveLength(5);
   });
 
-  it("starts at the first hit when find was opened on its own", () => {
-    expect(findHitIndex(hits, null)).toBe(0);
+  it("leads with the newest copy and runs up the page", () => {
+    expect(findStops(hits).map((stop) => `${stop.hit.messageId}:${stop.occurrence}`)).toEqual(["new:1", "new:0", "old:2", "old:1", "old:0"]);
+  });
+
+  it("keeps a hit with no count as one stop", () => {
+    expect(findStops([{ messageId: "a" }])).toEqual([{ hit: { messageId: "a" }, occurrence: 0 }]);
+  });
+});
+
+describe("stepFind", () => {
+  it("goes older on +1 and newer on -1", () => {
+    expect(stepFind(0, 1, 3, false)).toBe(1);
+    expect(stepFind(2, -1, 3, false)).toBe(1);
+  });
+
+  it("does not wrap at either end", () => {
+    expect(stepFind(0, -1, 3, false)).toBeNull();
+    expect(stepFind(2, 1, 3, false)).toBeNull();
+  });
+
+  it("asks for an older page past the last loaded copy", () => {
+    expect(stepFind(2, 1, 3, true)).toBe("more");
+    expect(stepFind(0, -1, 3, true)).toBeNull();
+  });
+});
+
+describe("findHitIndex", () => {
+  const stops = findStops([{ messageId: "a", matches: 1 }, { messageId: "b", matches: 2 }]);
+
+  it("starts at the clicked message's first copy", () => {
+    expect(findHitIndex(stops, "b")).toBe(2);
+  });
+
+  it("starts at the newest copy when find was opened on its own", () => {
+    expect(findHitIndex(stops, null)).toBe(0);
   });
 
   it("does not jump away when the clicked row is missing", () => {
-    expect(findHitIndex(hits, "missing")).toBeNull();
+    expect(findHitIndex(stops, "missing")).toBeNull();
   });
 });
 
@@ -97,6 +132,17 @@ describe("current find match", () => {
     paintChatFindHighlight(root, "post");
     expect(marked("orbit-find-current")).toEqual(["b:6"]);
     expect(marked("orbit-find")).toEqual(["a:4", "b:19"]);
+  });
+
+  it("moves the strong mark between copies in one row", () => {
+    const root = mount('<div data-mid="a"><p id="a">post one, post two</p></div>');
+    setFindCurrent({ messageId: "a", query: "post", occurrence: 1 });
+    paintChatFindHighlight(root, "post");
+    expect(marked("orbit-find-current")).toEqual(["a:10"]);
+    setFindCurrent({ messageId: "a", query: "post", occurrence: 0 });
+    paintChatFindHighlight(root, "post");
+    expect(marked("orbit-find-current")).toEqual(["a:0"]);
+    expect(marked("orbit-find")).toEqual(["a:10"]);
   });
 
   it("lands an approval notice on its step", () => {
