@@ -17,6 +17,7 @@ import { workspaceDir } from "./workspace.ts";
 import { newId, type CloudBackend, type ModelSelection, type ThreadId } from "./contracts.ts";
 import { pickBotName } from "./names.ts";
 import { applyPendingModel } from "./pending-model.ts";
+import { validateProjectNotes } from "./project-notes.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { redactToolMessage } from "./tool-detail.ts";
 import type { NativePrompt, ResumeSeed } from "./turn-context.ts";
@@ -492,6 +493,8 @@ export interface BotRecord {
    * on its first turn (TaskRecord.cwd). Absent = resolve from chat, then
    * last remembered project, then the private bot workspace. */
   cwd?: string;
+  /** The notes file a teacher bot keeps current; adds one prompt line when set. */
+  projectNotes?: string;
   /** Soft last project resolved from chat when this bot had no pin.
    * Not a pin and not Settings — an explicit `cwd` still wins.
    * Cleared when chat rules that folder out, and when Settings Clear
@@ -772,6 +775,14 @@ export class Store {
       if (b.mascotStyle !== undefined && !botAvatarChoiceSchema.safeParse(b.mascotStyle).success) {
         delete b.mascotStyle;
         botsMigrated = true;
+      }
+      if (b.projectNotes !== undefined) {
+        const notes = validateProjectNotes(b.projectNotes);
+        if (!notes.ok || notes.path !== b.projectNotes) {
+          if (notes.ok && notes.path) b.projectNotes = notes.path;
+          else delete b.projectNotes;
+          botsMigrated = true;
+        }
       }
     }
     for (const b of this.bots) {

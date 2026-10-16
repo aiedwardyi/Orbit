@@ -730,6 +730,42 @@ describe("automatic bot sync", () => {
     expect(publish(b)).toEqual([]);
   });
 
+  it.each([
+    { scenario: "a notes path set later", fresh: false },
+    { scenario: "a new bot with a notes path", fresh: true },
+  ])("keeps $scenario from a 1.0.185 reader, whose re-publish keeps it", ({ fresh }) => {
+    const folder = mkdtempSync(join(tmpdir(), "orbit-profile-sync-paths-"));
+    roots.push(folder);
+    const a = device("a");
+    const notes = "C:\\vault\\Orbit\\BRAIN.md";
+    const tutor = { name: "Tutor", changes: { name: "Tutor", memoryNotes: null, projectNotes: fresh ? notes : null } as Record<string, unknown> };
+    a.bots.set("tutor", tutor);
+    for (const op of publish(a)) writeSyncOperation(folder, op);
+    tutor.changes.projectNotes = notes;
+    for (const op of publish(a)) writeSyncOperation(folder, op);
+    const names = readdirSync(join(folder, "changes"));
+    expect(names.filter((name) => name.endsWith(".paths"))).toHaveLength(1);
+    // 1.0.185 scans .json and .notes, and its strict bot schema has no projectNotes
+    const base = names.filter((name) => /\.(?:json|notes)$/.test(name))
+      .map((name) => parseSyncOperationText(readFileSync(join(folder, "changes", name), "utf8")));
+    expect(base.every((op) => !("projectNotes" in (op.changes ?? {})))).toBe(true);
+    const baseState = applySyncOperations(emptyProfileSyncState(), base);
+    expect(baseState.bots["g-a-tutor"]).toMatchObject({ name: "Tutor" });
+    expect(baseState.bots["g-a-tutor"]?.projectNotes).toBeUndefined();
+    expect(baseState.conflicts).toEqual([]);
+    // the base PC renames the bot and re-publishes the only fields it knows
+    writeSyncOperation(folder, createSyncOperation({
+      operationId: "base-rename", deviceId: "b", sequence: 1, recordedAt: clock++, baseCheckpoint: baseState.checkpoint,
+      entity: "bot", entityId: "g-a-tutor", changes: { name: "Coach", memoryNotes: null },
+    }));
+    const read = readSyncOperations(folder);
+    expect(read.invalidFiles).toEqual([]);
+    const state = applySyncOperations(emptyProfileSyncState(), read.operations);
+    expect(state.bots["g-a-tutor"]).toMatchObject({ name: "Coach", projectNotes: notes });
+    expect(state.conflicts).toEqual([]);
+    expect(publish(a)).toEqual([]);
+  });
+
   it("retries an avatar whose asset lands after its op and keeps the local base until then", () => {
     const folder = mkdtempSync(join(tmpdir(), "orbit-profile-sync-avatar-late-"));
     roots.push(folder);

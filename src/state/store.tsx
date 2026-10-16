@@ -332,6 +332,8 @@ export interface Bot {
   pendingModelSelection?: ModelSelection | null;
   /** Skip user skills, plugins and plugin MCP servers at startup. */
   leanStartup?: boolean;
+  /** Notes file the bot keeps current; null once cleared. */
+  projectNotes?: string | null;
   /** Where this bot's computer runs; unset = auto (cloud box if one exists, else local). */
   computer?: "cloud" | "vm" | "local" | "off";
   /** Which cloud computer backs `computer: "cloud"`; absent means Box. */

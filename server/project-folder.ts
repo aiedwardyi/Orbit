@@ -479,10 +479,20 @@ export function userProjectTexts(
 // Chat-completions drivers forward only the system text and never open turn.cwd.
 const CHAT_ONLY_DRIVERS: ReadonlySet<string> = new Set(["openai-compat", "minimax"]);
 
-/** Off-host engines have no private workspace and chat-only ones cannot open a folder, so neither gets the line. */
+/** Off-host engines have no private workspace and chat-only ones cannot open a folder. */
+export function opensHostFiles(privateWorkspace: string | undefined, driverKind: string): boolean {
+  return Boolean(privateWorkspace) && !CHAT_ONLY_DRIVERS.has(driverKind);
+}
+
 export function projectFolderPrompt(cwd: string | undefined, privateWorkspace: string | undefined, driverKind: string): string {
-  return privateWorkspace && cwd && cwd !== privateWorkspace && !CHAT_ONLY_DRIVERS.has(driverKind)
+  return opensHostFiles(privateWorkspace, driverKind) && cwd && cwd !== privateWorkspace
     ? ` Your project folder is ${cwd}. Look there first for the files, folders, and repositories the user mentions, before searching anywhere else.`
+    : "";
+}
+
+export function projectNotesPrompt(path: string | undefined): string {
+  return path
+    ? ` Your project notes live at ${path}. Read them before the first project task of a session, after a PC switch, and when the user says refresh. When a milestone lands or a decision is made, update the current state in place and add one dated line to the log the notes point to, without being asked. If a file is missing, say which one; never invent its contents. Dated status is a snapshot: verify it before you rely on it.`
     : "";
 }
 

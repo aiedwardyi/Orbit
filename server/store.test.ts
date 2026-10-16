@@ -442,6 +442,26 @@ describe("Store", () => {
     expect(saved.find((bot) => bot.id === absent.id)).not.toHaveProperty("cloudBackend");
   });
 
+  it("saves, patches and clears a bot's project notes, dropping a bad value on load", () => {
+    const notes = join(tmpdir(), "vault", "BRAIN.md");
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const relative = store.createBot();
+    store.patchBot(bot.id, { projectNotes: notes });
+    expect(new Store(selection).bot(bot.id)?.projectNotes).toBe(notes);
+
+    store.patchBot(bot.id, { projectNotes: join(tmpdir(), "vault", "NOTES.md") });
+    expect(new Store(selection).bot(bot.id)?.projectNotes).toBe(join(tmpdir(), "vault", "NOTES.md"));
+
+    store.patchBot(bot.id, { projectNotes: undefined });
+    store.patchBot(relative.id, { projectNotes: "notes/BRAIN.md" });
+    const reloaded = new Store(selection);
+    expect(reloaded.bot(bot.id)).not.toHaveProperty("projectNotes");
+    expect(reloaded.bot(relative.id)).not.toHaveProperty("projectNotes");
+    const saved: BotRecord[] = JSON.parse(readFileSync(join(DATA_DIR, "bots.json"), "utf8"));
+    expect(saved.find((row) => row.id === relative.id)).not.toHaveProperty("projectNotes");
+  });
+
   it("migrates unambiguous legacy peer grants without guessing duplicate names", () => {
     const store = new Store(selection);
     const requester = store.createBot();

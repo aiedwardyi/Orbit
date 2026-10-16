@@ -9,6 +9,7 @@ import {
   applyResolvedProjectFolder,
   pathContainedBy,
   projectFolderPrompt,
+  projectNotesPrompt,
   projectPathsFromRecords,
   projectSearchRoots,
   resolveProjectFolder,
@@ -731,5 +732,15 @@ describe("projectFolderPrompt", () => {
       expect(projectFolderPrompt("/tmp/desk", "/tmp/workspace", driverKind)).toBe("");
     }
     expect(projectFolderPrompt("/tmp/desk", "/tmp/workspace", "claudeAgent")).toContain("/tmp/desk");
+  });
+});
+
+describe("projectNotesPrompt", () => {
+  it("points at the notes file only when one is set", () => {
+    expect(projectNotesPrompt("/vault/Orbit/BRAIN.md")).toBe(
+      " Your project notes live at /vault/Orbit/BRAIN.md. Read them before the first project task of a session, after a PC switch, and when the user says refresh. When a milestone lands or a decision is made, update the current state in place and add one dated line to the log the notes point to, without being asked. If a file is missing, say which one; never invent its contents. Dated status is a snapshot: verify it before you rely on it.",
+    );
+    expect(projectNotesPrompt(undefined)).toBe("");
+    expect(projectNotesPrompt("")).toBe("");
   });
 });
