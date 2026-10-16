@@ -62,14 +62,16 @@ export function eligibleRow(message: Message | undefined): message is Message & 
   );
 }
 
-/** The user's own typing: pastes, attachments, code, quotes and long blocks cut, secrets masked. */
+/** The user's own typing: pastes, attachments, code, quotes and long blocks cut; empty when it looks sensitive. */
 export function userTyping(text: string): string {
-  const unwrapped = text
+  const typed = text
     .replace(/<pasted-text\b[^>]*>[\s\S]*?<\/pasted-text>/gi, "")
     .replace(/<pasted_content\b[^>]*>[\s\S]*?<\/pasted_content>/gi, "")
     .replace(/<attached-(?:image|file)\b[^>]*\/>/gi, "")
-    .replace(/(^|\n)(```|~~~)[\s\S]*?(\n\2[^\n]*|$)/g, "$1")
-    .replace(/"[^"\n]{81,}"|“[^”\n]{81,}”|'[^'\n]{81,}'/g, "");
+    .replace(/(^|\n)(```|~~~)[\s\S]*?(\n\2[^\n]*|$)/g, "$1");
+  // the whole message: a label and its value can sit in different paragraphs
+  if (secretLike(typed)) return "";
+  const unwrapped = typed.replace(/"[^"\n]{81,}"|“[^”\n]{81,}”|'[^'\n]{81,}'/g, "");
   const kept = unwrapped
     .split(/\n\s*\n/)
     .filter((paragraph) => paragraph.length <= 400 && paragraph.split("\n").length <= 6)
@@ -154,9 +156,9 @@ function replaceable(target: string | null | undefined, lines: string[], claims:
   );
 }
 
-/** Facts that quote the user verbatim, carry no secret, and are not already noted. */
+/** Facts that quote one non-sensitive user paragraph verbatim, carry no secret, and are not already noted. */
 export function acceptFacts(facts: Fact[], userText: string, notes: string): Note[] {
-  const source = squash(userText);
+  const paragraphs = userText.split(/\n\s*\n/).filter((paragraph) => !secretLike(paragraph)).map(squash);
   const lines = notes.split("\n");
   const claims = new Map<string, number>();
   for (const { replaces } of facts) if (replaces) claims.set(replaces, (claims.get(replaces) ?? 0) + 1);
@@ -165,7 +167,7 @@ export function acceptFacts(facts: Fact[], userText: string, notes: string): Not
     const line = fact.replace(/^[-*]\s+/, "").replace(/\s+/g, " ").trim();
     const said = quote.trim();
     if (!line || line.length > FACT_MAX || !said || said.length > QUOTE_MAX) return [];
-    if (!source.includes(squash(said))) return [];
+    if (!paragraphs.some((paragraph) => paragraph.includes(squash(said)))) return [];
     if (secretLike(line) || secretLike(said)) return [];
     const target = replaceable(replaces, lines, claims) ? replaces : undefined;
     const noted = lines.filter((note) => !target || !sameLine(note, target)).map(words);
@@ -228,11 +230,20 @@ interface PassLog {
   result: "saved" | "none" | "busy" | "too-large" | "conflict" | "error";
 }
 
+interface Batch {
+  ids: string[];
+  facts: Fact[];
+  source: string;
+  lines: number;
+}
+
 /** Notes passing facts from new user lines into MEMORY.md once a 1:1 chat goes quiet. Never on the reply path. */
 export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
   const now = deps.now ?? Date.now;
   const statePath = join(deps.dataDir, STATE_FILE);
   const pending = new Map<string, string[]>();
+  // generated but unsaved, so a busy turn or a moved revision never pays for the same batch twice
+  const held = new Map<string, Batch>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   const queue: Array<{ botId: string; threadId: string }> = [];
   const running = new Map<string, { botId: string; done: Promise<void>; controller: AbortController }>();
@@ -290,6 +301,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
   const log = (fields: PassLog) => console.info(`[memory-pass] ${JSON.stringify(fields)}`);
 
   const done = (threadId: string, ids: string[]) => {
+    held.delete(threadId);
     const taken = new Set(ids);
     const rest = (pending.get(threadId) ?? []).filter((id) => !taken.has(id));
     if (rest.length) pending.set(threadId, rest);
@@ -297,9 +309,46 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
     save();
   };
 
+  const land = (botId: string, threadId: string, batch: Batch, memory: { text: string; revision: string }, raw: string, ms: number) => {
+    const facts = acceptFacts(batch.facts, batch.source, memory.text);
+    if (!facts.length) {
+      log({ botId, threadId, lines: batch.lines, facts: 0, ms, result: "none" });
+      return done(threadId, batch.ids);
+    }
+    // a turn may be writing MEMORY.md and its own save chip; retry after it
+    if (deps.busy(botId, threadId)) {
+      held.set(threadId, batch);
+      log({ botId, threadId, facts: facts.length, ms, result: "busy" });
+      return arm(botId, threadId);
+    }
+    const text = appendNotes(raw, facts, now());
+    if (!text) {
+      log({ botId, threadId, facts: facts.length, ms, result: "too-large" });
+      return done(threadId, batch.ids);
+    }
+    if (saveMemoryFile(botId, text, memory.revision).conflict) {
+      held.set(threadId, batch);
+      log({ botId, threadId, facts: facts.length, ms, result: "conflict" });
+      return arm(botId, threadId);
+    }
+    deps.store.appendMessage(threadId, {
+      role: "bot",
+      kind: "activity",
+      tool: { name: MEMORY_SAVE_TOOL, ok: true, spoken: noteSummary(facts.map((note) => note.line)) },
+    });
+    log({ botId, threadId, lines: batch.lines, facts: facts.length, replaced: facts.filter((note) => note.replaces).length, ms, result: "saved" });
+    done(threadId, batch.ids);
+  };
+
   const run = async (botId: string, threadId: string, signal: AbortSignal) => {
     const ids = [...(pending.get(threadId) ?? [])];
     if (!ids.length || !deps.enabled(botId)) return;
+    const kept = held.get(threadId);
+    if (kept) {
+      land(botId, threadId, kept, readMemoryFile(botId), memoryFileRaw(botId), 0);
+      if (pending.has(threadId) && !held.has(threadId)) arm(botId, threadId);
+      return;
+    }
     const generate = deps.generate();
     if (!generate) return warnOnce("no Claude CLI instance");
     const rows = pendingRows(deps.store.messagesFor(threadId), ids);
@@ -325,33 +374,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
     }
     // switched off mid-pass: write nothing, and the dropped ids stay dropped
     if (disposed || signal.aborted || !deps.enabled(botId)) return;
-    const ms = now() - started;
-    const facts = acceptFacts(parseFacts(output), lines.join("\n\n"), memory.text);
-    if (!facts.length) {
-      log({ botId, threadId, lines: lines.length, facts: 0, ms, result: "none" });
-      return done(threadId, ids);
-    }
-    // a turn may be writing MEMORY.md and its own save chip; retry after it
-    if (deps.busy(botId, threadId)) {
-      log({ botId, threadId, facts: facts.length, ms, result: "busy" });
-      return arm(botId, threadId);
-    }
-    const text = appendNotes(raw, facts, now());
-    if (!text) {
-      log({ botId, threadId, facts: facts.length, ms, result: "too-large" });
-      return done(threadId, ids);
-    }
-    if (saveMemoryFile(botId, text, memory.revision).conflict) {
-      log({ botId, threadId, facts: facts.length, ms, result: "conflict" });
-      return arm(botId, threadId);
-    }
-    deps.store.appendMessage(threadId, {
-      role: "bot",
-      kind: "activity",
-      tool: { name: MEMORY_SAVE_TOOL, ok: true, spoken: noteSummary(facts.map((note) => note.line)) },
-    });
-    log({ botId, threadId, lines: lines.length, facts: facts.length, replaced: facts.filter((note) => note.replaces).length, ms, result: "saved" });
-    done(threadId, ids);
+    land(botId, threadId, { ids, facts: parseFacts(output), source: lines.join("\n\n"), lines: lines.length }, memory, raw, now() - started);
   };
 
   const pump = () => {
@@ -409,6 +432,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
     }
     for (let i = queue.length - 1; i >= 0; i -= 1) if (off(queue[i]!.threadId)) queue.splice(i, 1);
     for (const [threadId, pass] of running) if (off(threadId)) pass.controller.abort();
+    for (const threadId of held.keys()) if (off(threadId)) held.delete(threadId);
     const before = pending.size;
     for (const threadId of pending.keys()) if (off(threadId)) pending.delete(threadId);
     if (pending.size !== before) save();
@@ -424,7 +448,7 @@ export function createMemoryPass(deps: MemoryPassDeps): MemoryPass {
     onSettled(botId, threadId) {
       const count = pending.get(threadId)?.length ?? 0;
       if (disposed || !count || !deps.enabled(botId)) return;
-      if (count >= BATCH_MESSAGES) enqueue(botId, threadId);
+      if (count >= BATCH_MESSAGES || held.has(threadId)) enqueue(botId, threadId);
       else arm(botId, threadId);
     },
     onConfigChanged() {

@@ -2578,7 +2578,11 @@ const memoryPass = createMemoryPass({
   store,
   dataDir: DATA_DIR,
   generate: () => noteGenerator(registry.instances()),
-  enabled: (botId) => memoryNotesEnabled(cfg, store.bot(botId)),
+  enabled: (botId) => {
+    const bot = store.bot(botId);
+    const instance = bot && registry.get(bot.modelSelection.instanceId);
+    return Boolean(instance && supportsWorkspaceFiles(instance.driverKind)) && memoryNotesEnabled(cfg, bot);
+  },
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
 });
 // Room thread → the instruction id its running turn was dispatched against.
