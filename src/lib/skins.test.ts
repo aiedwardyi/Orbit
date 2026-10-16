@@ -336,7 +336,8 @@ describe("Terminal palettes", () => {
 });
 
 describe("Logfile, Multiplexer and Modal", () => {
-  const scope = (id: string) => css.split(`@scope ([data-skin="${id}"]) to ([data-skin]) {`)[1]?.split("\n}\n")[0] ?? "";
+  const toolCss = () => readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../skins/tool-skins.css"), "utf8").replace(/\r\n/g, "\n");
+  const scope = (id: string) => toolCss().split(`@scope ([data-skin="${id}"]) to ([data-skin]) {`)[1]?.split("\n}\n")[0] ?? "";
   const source = (file: string) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../components", file), "utf8");
 
   it("follow Paper Tape in the list as dark skins on Terminal's chrome", () => {
@@ -349,6 +350,14 @@ describe("Logfile, Multiplexer and Modal", () => {
       expect(LIGHT_SKIN_IDS.has(id)).toBe(false);
       expect(scope(id)).not.toBe("");
     }
+  });
+
+  it("stay out of the always-loaded stylesheet and use no :has()", () => {
+    for (const id of ["logfile", "multiplexer", "modal"]) {
+      expect(css).not.toContain(`@scope ([data-skin="${id}"])`);
+      expect(scope(id)).not.toBe("");
+    }
+    expect(toolCss()).not.toContain(":has(");
   });
 
   it("prints Logfile's gutter from the rows' data-log attributes", () => {
@@ -1368,11 +1377,22 @@ describe("skin persistence", () => {
     removeItem: (k: string) => void store.delete(k),
   };
 
+  const extras: { dataset: Record<string, string>; textContent: string; remove: () => void }[] = [];
+  const head = {
+    querySelector: (selector: string) => (selector === "style[data-skin-extra]" && extras.find((el) => "skinExtra" in el.dataset)) || null,
+    append: (el: (typeof extras)[number]) => void extras.push(el),
+  };
+  const createElement = () => {
+    const el = { dataset: {}, textContent: "", remove: () => void extras.splice(extras.indexOf(el), 1) };
+    return el;
+  };
+
   beforeEach(() => {
     store.clear();
     dataset.skin = "";
+    extras.length = 0;
     vi.stubGlobal("localStorage", storage);
-    vi.stubGlobal("document", { documentElement: { dataset } });
+    vi.stubGlobal("document", { documentElement: { dataset }, head, createElement });
     vi.stubGlobal("window", {});
   });
 
@@ -1416,6 +1436,21 @@ describe("skin persistence", () => {
     applySkin(readSkin());
     await Promise.resolve();
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("adds the tool skins' style tag only while one of them is on", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({})));
+    applySkin("ledger");
+    expect(extras).toHaveLength(0);
+    for (const id of ["logfile", "multiplexer", "modal"] as const) {
+      applySkin(id);
+      expect(extras).toHaveLength(1);
+    }
+    applySkin("terminal");
+    expect(extras).toHaveLength(0);
+    applySkin("modal");
+    applySkin("precision");
+    expect(extras).toHaveLength(0);
   });
 
   it("stamps data-skin and remembers the choice under omb-skin", () => {

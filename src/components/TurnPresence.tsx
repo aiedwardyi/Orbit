@@ -97,10 +97,8 @@ export function TurnPresence({
   );
 }
 
-/** The mascot docked in a live reply's action strip. It fades out in place
- * when the turn ends, so the reply's own actions take the strip unmoved. */
-export function DockedPresence({ avatar, label, live, since, className }: { avatar: ReactNode; label: string; live: boolean; since?: number; className?: string }) {
-  const terminal = isTerminalSkin(useSkin());
+/** True while the docked mascot is live or still fading out. */
+export function useDockFade(live: boolean): boolean {
   const [gone, setGone] = useState(!live);
   if (live && gone) setGone(false);
 
@@ -110,7 +108,14 @@ export function DockedPresence({ avatar, label, live, since, className }: { avat
     return () => clearTimeout(timer);
   }, [live]);
 
-  if (gone) return null;
+  return !gone;
+}
+
+/** The mascot docked in a live reply's action strip. It fades out in place
+ * when the turn ends, so the reply's own actions take the strip unmoved. */
+export function DockedPresence({ avatar, label, live, since, className }: { avatar: ReactNode; label: string; live: boolean; since?: number; className?: string }) {
+  const terminal = isTerminalSkin(useSkin());
+  if (!useDockFade(live)) return null;
   return (
     <div
       data-turn-mascot
