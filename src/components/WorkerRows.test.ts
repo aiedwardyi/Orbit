@@ -241,6 +241,20 @@ describe("WorkerChip", () => {
     }
   });
 
+  it("closes the desktop menu when the app asks for it on a view switch", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const { host, chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)], { livePanes: new Set(["work-1"]) });
+    try {
+      await act(async () => chip()!.click());
+      expect(host.querySelector("[data-worker-list]")).not.toBeNull();
+      await act(async () => { window.dispatchEvent(new Event("orbit:close-worker-menu")); });
+      expect(host.querySelector("[data-worker-list]")).toBeNull();
+      expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      await unmount();
+    }
+  });
+
   it("lists nothing while waiting for the live set, then lists as usual", async () => {
     vi.stubGlobal("matchMedia", () => ({ matches: false }));
     const runs = [shown("WORK", "working", "work-1", 1), shown("WAIT", "waiting", "wait-1", 2)];
