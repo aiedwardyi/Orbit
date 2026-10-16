@@ -317,6 +317,19 @@ describe("workspace", () => {
     expect(memoryHealth(BOT)).toEqual({ longLines: 0, orphans: [] });
   });
 
+  it("memoryHealthOf counts a topic as named only by its whole name", () => {
+    const named = ["- see ui.md", "- see memory/ui.md", "- the `ui` notes", "- notes (ui)", "- ui: colors", "- ui를 먼저 읽기", "ui", "- Builds, then ui"];
+    for (const text of named) expect(memoryHealthOf(text, ["ui.md"]).orphans, text).toEqual([]);
+    const unnamed = ["- Builds TypeScript interfaces", "- read the guide", "- see ui-kit", "- see my_ui", "- ui2 notes", "- UI notes"];
+    for (const text of unnamed) expect(memoryHealthOf(text, ["ui.md"]).orphans, text).toEqual(["ui.md"]);
+  });
+
+  it("memoryHealthOf keeps looking past a partial hit and still skips parked copies", () => {
+    const health = memoryHealthOf("- Builds and ui-kit\n- ui.md\n", ["ui.md", "MEMORY.conflict-e059d14f.md"]);
+    expect(health.orphans).toEqual([]);
+    expect(memoryHealthOf("- Builds\n", ["ui.md", "MEMORY.conflict-e059d14f.md"]).orphans).toEqual(["ui.md"]);
+  });
+
   it("memoryHealthOf over a full file with 40 side files averages under 0.2 ms", () => {
     const names = Array.from({ length: 40 }, (_, i) => `topic-${i}.md`);
     const line = (i: number) => `- note ${i} ${names[i % 40]} ${"z".repeat(119)}`.slice(0, 119);

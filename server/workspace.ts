@@ -177,11 +177,21 @@ export const MEMORY_LINE_MAX_BYTES = 300;
 
 export type MemoryHealth = { longLines: number; orphans: string[] };
 
+const NAME_CHAR = /[A-Za-z0-9_-]/;
+
+// indexOf, not a regex per name: this runs for every side file after each reply
+function namesStem(text: string, stem: string): boolean {
+  for (let at = text.indexOf(stem); at !== -1; at = text.indexOf(stem, at + 1)) {
+    if (!NAME_CHAR.test(text[at - 1] ?? "") && !NAME_CHAR.test(text[at + stem.length] ?? "")) return true;
+  }
+  return false;
+}
+
 /** Loaded lines over the one-rule size, and side files no loaded line names. */
 export function memoryHealthOf(text: string, names: string[]): MemoryHealth {
   const longLines = text.split("\n").filter((line) => Buffer.byteLength(line, "utf8") > MEMORY_LINE_MAX_BYTES).length;
   // a parked copy already gets its own notice
-  const orphans = names.filter((name) => !PARKED_COPY.test(name) && !text.includes(name.slice(0, -".md".length)));
+  const orphans = names.filter((name) => !PARKED_COPY.test(name) && !namesStem(text, name.slice(0, -".md".length)));
   return { longLines, orphans };
 }
 
