@@ -729,7 +729,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         emit({
           ...base(threadId, turnId),
           type: "runtime.error",
-          ...describeSpawnFailure(error instanceof Error ? error : new Error(String(error)), config.cli),
+          ...describeSpawnFailure(error instanceof Error ? error : new Error(String(error)), config.cli, cwd),
         });
         settle(false, "spawn_error");
         return { turnId };
@@ -939,7 +939,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       });
 
       child.on("error", (e) => {
-        emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli) });
+        emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli, cwd) });
         settle(false, "spawn_error");
       });
 

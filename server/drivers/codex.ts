@@ -659,7 +659,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       });
       child.on("error", (e) => {
         if (abandoned) return;
-        emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli) });
+        emit({ ...base(threadId, turnId), type: "runtime.error", ...describeSpawnFailure(e, config.cli, turn.cwd ?? homedir()) });
         settle(false, "spawn_error");
       });
       child.on("close", (code) => {

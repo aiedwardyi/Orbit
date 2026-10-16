@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { clearVersionCache, execCli } from "./procs.ts";
+import { clearVersionCache, describeSpawnFailure, execCli } from "./procs.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
 let dir: string;
@@ -110,5 +110,23 @@ describe("execCli --version cache", () => {
     expect(await run(["--version"])).toBeNull();
     expect(await run(["--version"])).toBeNull();
     expect(launches()).toEqual(["--version", "--version"]);
+  });
+});
+
+describe("describeSpawnFailure cwd", () => {
+  const enoent = Object.assign(new Error("spawn claude ENOENT"), { code: "ENOENT" });
+
+  it("names a missing project folder and offers no install", () => {
+    const missing = join(tmpdir(), "omb-no-such-folder");
+    expect(describeSpawnFailure(enoent, "claude", missing)).toEqual({
+      message: `Project folder not found: \`${missing}\`. Choose a folder that exists, then press Retry.`,
+      setup: false,
+    });
+  });
+
+  it("keeps the install message when the folder exists or no cwd is given", () => {
+    const install = { message: "`claude` isn't installed, or isn't on this app's PATH", setup: true };
+    expect(describeSpawnFailure(enoent, "claude", tmpdir())).toEqual(install);
+    expect(describeSpawnFailure(enoent, "claude")).toEqual(install);
   });
 });
