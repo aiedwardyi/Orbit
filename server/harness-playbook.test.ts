@@ -104,6 +104,10 @@ describe("harness playbook", () => {
     expect(prompt.replace(/\s+/g, " ")).toContain("Save Gemini 4 Argon for big jobs that gain from a second model family's view, like a whole-codebase audit or 3D and graphic design. Routine work goes to the other engines.");
   });
 
+  it("matches the model to the job", () => {
+    expect(harnessPlaybookPrompt(true).replace(/\s+/g, " ")).toContain("Match the model to the job: the strongest for architecture, audits and hard bugs; a mid model for routine builds; the cheapest for searches and mechanical edits. Spread jobs across engines so no single plan runs out.");
+  });
+
   it("keeps a progress file beside the card and hands it on", () => {
     const prompt = harnessPlaybookPrompt(true).replace(/\r\n/g, "\n");
     expect(prompt).toContain("## Progress\nKeep <card path minus .md>.progress.md current at each milestone:");
@@ -142,9 +146,9 @@ describe("harness playbook", () => {
     expect(prompt).toContain("- Never stop a worker or others' processes unless the user names it.");
   });
 
-  it("stays within the size it had before the house rules", () => {
+  it("stays within its size budget", () => {
     const prompt = loadHarnessPlaybook(undefined, join("D:", "wt"), "win32").replace(/\r\n/g, "\n");
-    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(11660);
+    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(11879);
   });
 
   it("fills the worktree path from the configured root", () => {
