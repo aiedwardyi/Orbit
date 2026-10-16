@@ -43,7 +43,8 @@ type Fiber = { type: unknown; memoizedProps: { message?: Message } | null; memoi
 
 /** Each mounted Bubble's first hook by message id: a new object means that row rendered again. */
 function bubbleHooks(host: Element): Map<string, unknown> {
-  const key = Object.keys(host).find((k) => k.startsWith("__reactContainer$"))!;
+  const key = Object.keys(host).find((k) => k.startsWith("__reactContainer$"));
+  if (!key) throw new Error("React root key not found");
   const container = (host as unknown as Record<string, { stateNode: { current: Fiber } }>)[key];
   const hooks = new Map<string, unknown>();
   const stack = [container.stateNode.current];

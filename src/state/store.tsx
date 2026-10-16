@@ -3609,8 +3609,16 @@ export function useStoreDispatch() {
 }
 
 const timeFormats = new Map<string, Intl.DateTimeFormat>();
+const zoneProbes = [new Date(Date.UTC(2026, 0, 15)), new Date(Date.UTC(2026, 6, 15))];
+let timeFormatsZone = "";
 
 export function formatTime(at: number, locale?: string) {
+  // a formatter keeps the time zone it was built in
+  const zone = zoneProbes.map((d) => d.getTimezoneOffset()).join();
+  if (zone !== timeFormatsZone) {
+    timeFormats.clear();
+    timeFormatsZone = zone;
+  }
   const key = locale || "";
   let format = timeFormats.get(key);
   if (!format) {

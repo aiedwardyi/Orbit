@@ -1919,6 +1919,19 @@ describe("formatTime", () => {
     expect(formatTime(at, "ko")).toMatch(/ \d{1,2}:\d{2}$/);
     expect(formatTime(at, "ko")).not.toBe(formatTime(at, "en"));
   });
+
+  it("follows a time zone change while the app is open", () => {
+    const tz = process.env.TZ;
+    try {
+      process.env.TZ = "UTC";
+      expect(formatTime(at, "en-GB")).toBe("7:05");
+      process.env.TZ = "Asia/Seoul";
+      expect(formatTime(at, "en-GB")).toBe("16:05");
+    } finally {
+      if (tz === undefined) delete process.env.TZ;
+      else process.env.TZ = tz;
+    }
+  });
 });
 
 describe("hydrate screen frames", () => {
