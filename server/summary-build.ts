@@ -31,8 +31,13 @@ export interface SummaryBuild {
   /** Call when a 1:1 turn settles; a path under budget returns without a provider call. */
   onSettled(botId: string, threadId: string): void;
   inflight(threadId: string): boolean;
-  /** Waits up to capMs for this thread's build and lands it; resolves to the ms waited, which comes out of the send's own summary deadline. */
-  settle(threadId: string, capMs: number): Promise<number>;
+  /** Waits up to capMs for this thread's build and lands it, or drops it when the send's engine would not summarize with it; resolves to the ms waited, which comes out of the send's own summary deadline. */
+  settle(
+    threadId: string,
+    instance: Pick<ProviderInstance, "generateText" | "textTimeoutMs">,
+    capMs: number,
+    summarizes: () => boolean,
+  ): Promise<number>;
   /** Resolves once the queue is empty. */
   idle(): Promise<void>;
   dispose(): void;
@@ -59,8 +64,8 @@ export function inlineSummarizer(
   waitedMs: number,
 ): ((prompt: string) => Promise<string>) | undefined {
   if (!instance.generateText) return undefined;
-  if (waitedMs <= 0 || instance.textTimeoutMs === undefined) return (prompt) => instance.generateText!(prompt);
-  const remaining = instance.textTimeoutMs - waitedMs;
+  if (waitedMs <= 0) return (prompt) => instance.generateText!(prompt);
+  const remaining = (instance.textTimeoutMs ?? 0) - waitedMs;
   if (remaining <= 0) return undefined;
   return (prompt) => instance.generateText!(prompt, { timeoutMs: remaining });
 }
@@ -196,10 +201,16 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
   return {
     onSettled,
     inflight: (threadId) => active?.threadId === threadId || queue.some((item) => item.threadId === threadId),
-    async settle(threadId, capMs) {
+    async settle(threadId, instance, capMs, summarizes) {
       const queued = queue.findIndex((item) => item.threadId === threadId);
       if (queued >= 0) queue.splice(queued, 1);
       const current = active?.threadId === threadId ? active : null;
+      if (!current && !held.has(threadId)) return 0;
+      if (!instance.generateText || instance.textTimeoutMs === undefined || !summarizes()) {
+        current?.controller.abort();
+        held.delete(threadId);
+        return 0;
+      }
       let waited = 0;
       if (current) {
         const started = Date.now();

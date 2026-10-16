@@ -76,6 +76,7 @@ function deferred() {
 }
 
 const tick = () => vi.advanceTimersByTimeAsync(0);
+const claudeSend = { generateText: async () => "SUMMARY\ninline", textTimeoutMs: 90_000 };
 
 describe("summary build after settle", () => {
   beforeEach(() => {
@@ -178,7 +179,7 @@ describe("summary build after settle", () => {
     state.busy = true;
     threads.get("t")!.push(message("send", "next question"));
     let waited = false;
-    const settled = build.settle("t", 90_000).then(() => {
+    const settled = build.settle("t", claudeSend, 90_000, () => true).then(() => {
       waited = true;
     });
     await tick();
@@ -193,6 +194,60 @@ describe("summary build after settle", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("a switch to an engine without generateText mid-build waits 0", async () => {
+    const { calls, generateText } = deferred();
+    const { threads, appended, state, build } = setup(generateText);
+    threads.set("t", overBudgetThread("a"));
+
+    build.onSettled("bot", "t");
+    await tick();
+    state.busy = true;
+    threads.get("t")!.push(message("send", "next on Codex"));
+    const summarizes = vi.fn(() => true);
+    const settled = build.settle("t", { generateText: undefined, textTimeoutMs: undefined }, 90_000, summarizes);
+
+    expect(calls[0]!.signal?.aborted).toBe(true);
+    expect(await settled).toBe(0);
+    expect(summarizes).not.toHaveBeenCalled();
+    calls[0]!.resolve("SUMMARY\nlate");
+    await build.idle();
+    expect(appended).toEqual([]);
+  });
+
+  it("an engine without textTimeoutMs waits 0", async () => {
+    const { calls, generateText } = deferred();
+    const { threads, appended, state, build } = setup(generateText);
+    threads.set("t", overBudgetThread("a"));
+
+    build.onSettled("bot", "t");
+    await tick();
+    state.busy = true;
+    threads.get("t")!.push(message("send", "next on agy"));
+    const settled = build.settle("t", { generateText: async () => "SUMMARY\nagy", textTimeoutMs: undefined }, 90_000, () => true);
+
+    expect(calls[0]!.signal?.aborted).toBe(true);
+    expect(await settled).toBe(0);
+    await build.idle();
+    expect(appended).toEqual([]);
+  });
+
+  it("a send whose context fits waits 0 and lands nothing", async () => {
+    const { calls, generateText } = deferred();
+    const { threads, appended, state, build } = setup(generateText);
+    threads.set("t", overBudgetThread("a"));
+
+    build.onSettled("bot", "t");
+    await tick();
+    state.busy = true;
+    threads.get("t")!.push(message("send", "next on a bigger window"));
+    const settled = build.settle("t", claudeSend, 90_000, () => false);
+
+    expect(calls[0]!.signal?.aborted).toBe(true);
+    expect(await settled).toBe(0);
+    await build.idle();
+    expect(appended).toEqual([]);
+  });
+
   it("cap aborts the build and the send falls back inline", async () => {
     const { calls, generateText } = deferred();
     const { threads, appended, state, build, sendPrepares } = setup(generateText);
@@ -202,7 +257,7 @@ describe("summary build after settle", () => {
     await tick();
     state.busy = true;
     threads.get("t")!.push(message("send", "next question"));
-    const settled = build.settle("t", 90_000);
+    const settled = build.settle("t", claudeSend, 90_000, () => true);
     await vi.advanceTimersByTimeAsync(90_000);
     const waited = await settled;
 
@@ -282,7 +337,7 @@ describe("summary build after settle", () => {
     const drained = message("drained", "DRAINED-LINE ".repeat(25_000));
     threads.get("t")!.push(drained);
     state.busy = true;
-    const settled = build.settle("t", 90_000);
+    const settled = build.settle("t", claudeSend, 90_000, () => true);
     await tick();
 
     expect(calls).toHaveLength(1);
@@ -314,19 +369,19 @@ describe("inline summarizer after a build wait", () => {
     const { calls, generateText } = deferred();
     const { threads, appended, state, build } = setup(generateText);
     threads.set("t", overBudgetThread("a"));
-    expect(await build.settle("t", 90_000)).toBe(0);
+    expect(await build.settle("t", claudeSend, 90_000, () => true)).toBe(0);
 
     build.onSettled("bot", "t");
     await tick();
     state.busy = true;
     threads.get("t")!.push(message("send", "next question"));
-    const settled = build.settle("t", 90_000);
+    const settled = build.settle("t", claudeSend, 90_000, () => true);
     await vi.advanceTimersByTimeAsync(5_000);
     calls[0]!.resolve("SUMMARY\nbuilt");
 
     expect(await settled).toBe(5_000);
     expect(appended).toHaveLength(1);
-    expect(await build.settle("t", 90_000)).toBe(0);
+    expect(await build.settle("t", claudeSend, 90_000, () => true)).toBe(0);
   });
 
   it("budget used up means no summarize call and the fallback path", async () => {
@@ -354,7 +409,7 @@ describe("inline summarizer after a build wait", () => {
     await tick();
     state.busy = true;
     threads.get("t")!.push(message("send", "next question"));
-    const settled = build.settle("t", 90_000);
+    const settled = build.settle("t", claudeSend, 90_000, () => true);
     await vi.advanceTimersByTimeAsync(30_000);
     calls[0]!.reject(new Error("provider unavailable"));
     const waited = await settled;
@@ -373,9 +428,10 @@ describe("inline summarizer after a build wait", () => {
     expect(inlineSummarizer({ generateText: undefined, textTimeoutMs: 90_000 }, 0)).toBeUndefined();
   });
 
-  it("engines without textTimeoutMs keep today's call after a wait", async () => {
+  it("an undeclared deadline leaves nothing to debit after a wait", async () => {
     const instance = { generateText: vi.fn(async () => "SUMMARY\nsecond"), textTimeoutMs: undefined };
-    await inlineSummarizer(instance, 50_000)!("prompt");
+    expect(inlineSummarizer(instance, 50_000)).toBeUndefined();
+    await inlineSummarizer(instance, 0)!("prompt");
     expect(instance.generateText).toHaveBeenCalledWith("prompt");
   });
 });
@@ -385,15 +441,15 @@ describe("summary build wiring", () => {
 
   it("builds first in the main fold, settles before prepare, and disposes on shutdown", () => {
     expect(index).toMatch(/summaryBuild\.onSettled\(bot\.id, event\.threadId\);\s*summaryRepair\.onSettled\(bot\.id, event\.threadId\);/);
-    expect(index).toMatch(/const summaryWaitMs = await summaryBuild\.settle\(threadId, 90_000\);\s*const activeMessages = store\.activePath\(threadId\);/);
-    expect(index.indexOf("const summaryWaitMs = await summaryBuild.settle(threadId, 90_000);")).toBeLessThan(index.indexOf("  const prepared = await prepareModelContext({"));
+    expect(index).toMatch(/const summaryWaitMs = await summaryBuild\.settle\(threadId, instance, 90_000, \(\) => \{[\s\S]*?\}\)\.needed;\s*\}\);\s*const activeMessages = store\.activePath\(threadId\);/);
+    expect(index.indexOf("const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => {")).toBeLessThan(index.indexOf("  const prepared = await prepareModelContext({"));
     expect(index).toMatch(/summaryBuild\.dispose\(\);\s*summaryRepair\.dispose\(\);/);
   });
 
   it("the 1:1 send's inline call runs on the deadline left after the wait; the room path is unchanged", () => {
     const sends = index.split("summarize: inlineSummarizer(instance, summaryWaitMs),");
     expect(sends).toHaveLength(2);
-    expect(sends[0]!.lastIndexOf("const summaryWaitMs = await summaryBuild.settle(threadId, 90_000);")).toBeGreaterThan(sends[0]!.lastIndexOf("async function startClaimedTurn("));
+    expect(sends[0]!.lastIndexOf("const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => {")).toBeGreaterThan(sends[0]!.lastIndexOf("async function startClaimedTurn("));
     expect(index).toContain("summarize: instance.generateText ? (prompt) => instance.generateText!(prompt) : undefined,");
   });
 });

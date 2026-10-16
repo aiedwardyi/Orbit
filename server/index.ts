@@ -110,7 +110,7 @@ import {
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
+import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, planCompaction, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
 import { createSummaryBuild, inlineSummarizer } from "./summary-build.ts";
 import { createSummaryRepair, logSummaryCall } from "./summary-repair.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
@@ -4370,8 +4370,22 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // Model context follows the active branch only. The durable transcript is
   // never pruned; only this provider-facing projection is bounded.
   const skipTranscript = new Set<string>([userMessage.id, ...(opts?.excludeMessageIds ?? [])]);
+  const modelContextWindow = contextWindowFor(instance.models, model);
   // A summary built since the last settle lands here, before the path is read, so prepare reuses it.
-  const summaryWaitMs = await summaryBuild.settle(threadId, 90_000);
+  const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => {
+    const messages = store.activePath(threadId);
+    const notes = instance.adapter.capabilities.transcriptReplay !== true
+      ? paneNotesForTurn(messages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
+      : null;
+    return planCompaction({
+      messages,
+      contextWindow: modelContextWindow,
+      excludeIds: notes?.ids?.length ? new Set([...skipTranscript, ...notes.ids]) : skipTranscript,
+      reserveTokens: notes?.tokens,
+      userName: cfg.profile?.name?.trim() || "User",
+      referenceMessages: store.messagesFor(threadId),
+    }).needed;
+  });
   const activeMessages = store.activePath(threadId);
   const rewound = threadId === bot.threadId && Boolean(bot.rewound);
   let taskRecord = taskPacketForWrite(threadId);
@@ -4386,7 +4400,6 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     })) ?? taskRecord;
   }
   const taskRecordToFlush = taskRecord;
-  const modelContextWindow = contextWindowFor(instance.models, model);
   const latestUser = lastUserInstruction(activeMessages.filter((message) => !skipTranscript.has(message.id)));
   // Recovery Current request must be this send's text. skipTranscript excludes
   // userMessage.id, so transcript lookup alone would show a prior user turn.
