@@ -281,7 +281,7 @@ import {
   MEMORY_FILE_MAX_BYTES,
 } from "./workspace.ts";
 import { MEMORY_SAVE_TOOL, peekMemory, rememberMemoryWrite } from "./memory-save.ts";
-import { createMemoryPass } from "./memory-pass.ts";
+import { createMemoryPass, noteGenerator } from "./memory-pass.ts";
 import { createProjectNotesCheck, validateProjectNotes, workerReportTimes } from "./project-notes.ts";
 import {
   readSectionContext,
@@ -2613,11 +2613,12 @@ const summaryBuild = createSummaryBuild({
 const memoryPass = createMemoryPass({
   store,
   dataDir: DATA_DIR,
-  generate: () => {
-    const claude = registry.instances().find((instance) => instance.driverKind === "claude" && instance.enabled && instance.generateText);
-    return claude ? (prompt, signal) => claude.generateText!(prompt, { signal, timeoutMs: 120_000, ephemeral: true }) : null;
+  generate: () => noteGenerator(registry.instances()),
+  enabled: (botId) => {
+    const bot = store.bot(botId);
+    const instance = bot && registry.get(bot.modelSelection.instanceId);
+    return Boolean(instance && supportsWorkspaceFiles(instance.driverKind)) && memoryNotesEnabled(cfg, bot);
   },
-  enabled: (botId) => memoryNotesEnabled(cfg, store.bot(botId)),
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
 });
 const projectNotesCheck = createProjectNotesCheck({

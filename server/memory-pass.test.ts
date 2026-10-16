@@ -9,6 +9,7 @@ import {
   appendNotes,
   createMemoryPass,
   eligibleRow,
+  noteGenerator,
   noteSummary,
   parseFacts,
   pendingRows,
@@ -249,20 +250,23 @@ describe("memory pass", () => {
     expect(memoryFileRaw("bot-t1")).toBe(`${MEMORY_SEED}- 38 years old (noted 2026-10-15)\n`);
   });
 
-  it("drops the batch on a revision conflict and retries at the next pass", async () => {
+  it("holds the batch on a revision conflict and saves it at the next settle without a second call", async () => {
     writeMemoryFile("bot-t1", "# Memory\n");
     generate.mockImplementationOnce(async () => {
       writeMemoryFile("bot-t1", "# Memory\n- edited meanwhile\n");
-      return facts(["38 years old", "i'm 38"]);
+      return facts(["38 years old", "i'm 38"], ["Likes tea", "i like tea"]);
     });
     say("t1", "i'm 38");
+    say("t1", "i like tea");
     await settle("t1", 3 * MINUTE);
     expect(memoryFileRaw("bot-t1")).toBe("# Memory\n- edited meanwhile\n");
     expect(chips("t1")).toHaveLength(0);
-    generate.mockResolvedValue(facts(["38 years old", "i'm 38"]));
-    await settle("t1", 3 * MINUTE);
-    expect(memoryFileRaw("bot-t1")).toBe("# Memory\n- edited meanwhile\n- 38 years old (noted 2026-10-15)\n");
+    writeMemoryFile("bot-t1", "# Memory\n- edited meanwhile\n- Likes tea\n");
+    await settle("t1");
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(memoryFileRaw("bot-t1")).toBe("# Memory\n- edited meanwhile\n- Likes tea\n- 38 years old (noted 2026-10-15)\n");
     expect(chips("t1")).toHaveLength(1);
+    expect(stored()).toEqual({ threads: {} });
   });
 
   it("skips an append that would pass the memory budget", async () => {
@@ -276,18 +280,69 @@ describe("memory pass", () => {
     expect(console.info).toHaveBeenCalledWith(expect.stringContaining("too-large"));
   });
 
-  it("holds a batch that lands while the bot is busy", async () => {
+  it("holds a batch that lands while the bot is busy and saves it at the next settle without a second call", async () => {
     generate.mockImplementationOnce(async () => {
       busy.add("bot-t1");
+      say("t1", "i like tea");
       return facts(["38 years old", "i'm 38"]);
     });
     say("t1", "i'm 38");
     await settle("t1", 3 * MINUTE);
     expect(chips("t1")).toHaveLength(0);
     busy.delete("bot-t1");
-    generate.mockResolvedValue(facts(["38 years old", "i'm 38"]));
-    await settle("t1", 3 * MINUTE);
+    await settle("t1");
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(memoryFileRaw("bot-t1")).toBe(`${MEMORY_SEED}- 38 years old (noted 2026-10-15)\n`);
     expect(chips("t1")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(3 * MINUTE);
+    await pass.idle();
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate.mock.calls[1]![0]).toContain("i like tea");
+    expect(generate.mock.calls[1]![0]).not.toContain("i'm 38");
+  });
+
+  it("revalidates a held batch against the latest notes", async () => {
+    generate.mockImplementationOnce(async () => {
+      busy.add("bot-t1");
+      return facts(["38 years old", "i'm 38"]);
+    });
+    say("t1", "i'm 38");
+    await settle("t1", 3 * MINUTE);
+    writeMemoryFile("bot-t1", "# Memory\n- 38 years old\n");
+    busy.delete("bot-t1");
+    await settle("t1");
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(memoryFileRaw("bot-t1")).toBe("# Memory\n- 38 years old\n");
+    expect(chips("t1")).toHaveLength(0);
+    expect(stored()).toEqual({ threads: {} });
+  });
+
+  it("drops a held batch when switched off", async () => {
+    generate.mockImplementationOnce(async () => {
+      busy.add("bot-t1");
+      return facts(["38 years old", "i'm 38"]);
+    });
+    say("t1", "i'm 38");
+    await settle("t1", 3 * MINUTE);
+    busy.delete("bot-t1");
+    switchTo(false);
+    switchTo(true);
+    say("t1", "i like tea");
+    await settle("t1", 3 * MINUTE);
+    expect(memoryFileRaw("bot-t1")).toBe("");
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate.mock.calls[1]![0]).not.toContain("i'm 38");
+  });
+
+  it("keeps a credential out of the prompt and the notes when the quote drops its label", async () => {
+    generate.mockResolvedValue(facts(["Wi-Fi: qwer1234", "qwer1234"], ["Wi-Fi: hunter22", "hunter22"], ["38 years old", "i'm 38"]));
+    say("t1", "우리집 와이파이 비번은 qwer1234야");
+    say("t1", "i'm 38\n\nmy wifi password is hunter22");
+    say("t1", "i'm 38");
+    await settle("t1", 3 * MINUTE);
+    const prompt = generate.mock.calls[0]![0];
+    for (const text of ["qwer1234", "hunter22", "비번", "wifi"]) expect(prompt).not.toContain(text);
+    expect(memoryFileRaw("bot-t1")).toBe(`${MEMORY_SEED}- 38 years old (noted 2026-10-15)\n`);
   });
 
   it("skips quietly when Claude is missing or signed out", async () => {
@@ -559,6 +614,15 @@ describe("memory pass filters", () => {
     expect(acceptFacts([{ fact: "Has wifi at home", quote: "my wifi password is Tr0ub4dor" }], text, "")).toEqual([]);
   });
 
+  it("rejects a quote whose own paragraph is sensitive", () => {
+    for (const [said, value] of [["우리집 와이파이 비번은 qwer1234야", "qwer1234"], ["my wifi password is hunter22", "hunter22"]] as const) {
+      expect(userTyping(said)).toBe("");
+      expect(acceptFacts([{ fact: `Wi-Fi: ${value}`, quote: value }], said, "")).toEqual([]);
+      expect(acceptFacts([{ fact: `Wi-Fi: ${value}`, quote: value }, { fact: "38", quote: "i'm 38" }], `i'm 38\n\n${said}`, "")).toEqual([{ line: "38" }]);
+    }
+    expect(acceptFacts([{ fact: "38 and likes tea", quote: "i'm 38 i like tea" }], "i'm 38\n\ni like tea", "")).toEqual([]);
+  });
+
   it("dedupes against MEMORY.md and within the batch", () => {
     const text = "i can't read korean. i'm 38";
     const notes = "# Memory\n- Can't read Korean; translate for dad\n";
@@ -640,18 +704,42 @@ describe("memory pass filters", () => {
   });
 });
 
+describe("note generator", () => {
+  const instance = (driverKind: string, patch: { enabled?: boolean; text?: string | null } = {}) => ({
+    driverKind,
+    enabled: patch.enabled ?? true,
+    generateText: patch.text === null ? undefined : vi.fn(async () => patch.text ?? driverKind),
+  });
+
+  it("calls the Claude instance, never another engine, without a session transcript", async () => {
+    const codex = instance("codex");
+    const claude = instance("claudeAgent");
+    const signal = new AbortController().signal;
+    await expect(noteGenerator([codex, claude])?.("prompt", signal)).resolves.toBe("claudeAgent");
+    expect(claude.generateText).toHaveBeenCalledWith("prompt", { signal, timeoutMs: 120_000, ephemeral: true });
+    expect(codex.generateText).not.toHaveBeenCalled();
+  });
+
+  it("finds none when Claude is off, has no one-shot call, or is missing", () => {
+    expect(noteGenerator([instance("claudeAgent", { enabled: false })])).toBeNull();
+    expect(noteGenerator([instance("claudeAgent", { text: null })])).toBeNull();
+    expect(noteGenerator([instance("codex")])).toBeNull();
+    expect(noteGenerator([])).toBeNull();
+  });
+});
+
 describe("memory pass wiring", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const index = readFileSync(join(here, "index.ts"), "utf8");
 
   it("runs every bot's pass on Claude, after 1:1 turns, without a session transcript", () => {
-    expect(index).toMatch(/createMemoryPass\(\{[\s\S]*?driverKind === "claude"[\s\S]*?ephemeral: true[\s\S]*?botHasActiveTurn/);
+    expect(index).toMatch(/createMemoryPass\(\{[\s\S]*?generate: \(\) => noteGenerator\(registry\.instances\(\)\),[\s\S]*?botHasActiveTurn/);
     expect(index).toMatch(/summaryRepair\.onSettled\(bot\.id, event\.threadId\);\s*memoryPass\.onSettled\(bot\.id, event\.threadId\);/);
     expect(index).toContain("memoryPass.dispose();");
   });
 
   it("reads the Settings switch live and drops pending notes on a config change", () => {
-    expect(index).toMatch(/createMemoryPass\(\{[\s\S]*?enabled: \(botId\) => memoryNotesEnabled\(cfg, store\.bot\(botId\)\),[\s\S]*?\}\);/);
+    expect(index).toMatch(/createMemoryPass\(\{[\s\S]*?enabled: \(botId\) => \{[\s\S]*?memoryNotesEnabled\(cfg, bot\);[\s\S]*?\}\);/);
     expect(index).toMatch(/saveConfig\(patch\);[\s\S]*?Object\.assign\(cfg, loadConfig\(\)\);\s*\}\s*if \(\(cfg\.profile[^\n]*\n\s*memoryPass\.onConfigChanged\(\);/);
     expect(index).toContain("memoryNotes: memoryNotesEnabled(cfg),");
   });
@@ -661,6 +749,12 @@ describe("memory pass wiring", () => {
     expect(index).toContain("memoryNotes: bot.memoryNotes ?? null,");
     expect(index).toContain('if ("memoryNotes" in apply) patch.memoryNotes = typeof apply.memoryNotes === "boolean" ? apply.memoryNotes : undefined;');
     expect(index).toContain("ownOpSyncChanges(compatibleSyncChanges(synced, unsynced))");
+  });
+
+  it("takes notes only for engines that load MEMORY.md", () => {
+    expect(index).toMatch(
+      /enabled: \(botId\) => \{\s*const bot = store\.bot\(botId\);\s*const instance = bot && registry\.get\(bot\.modelSelection\.instanceId\);\s*return Boolean\(instance && supportsWorkspaceFiles\(instance\.driverKind\)\) && memoryNotesEnabled\(cfg, bot\);/,
+    );
   });
 
   it("loads only the pending rows, never a Map of the whole thread", () => {
