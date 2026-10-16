@@ -278,7 +278,7 @@ import {
   MEMORY_FILE_MAX_BYTES,
 } from "./workspace.ts";
 import { MEMORY_SAVE_TOOL, peekMemory, rememberMemoryWrite } from "./memory-save.ts";
-import { createMemoryPass } from "./memory-pass.ts";
+import { createMemoryPass, noteGenerator } from "./memory-pass.ts";
 import {
   readSectionContext,
   sectionContextKey,
@@ -2577,10 +2577,7 @@ const summaryRepair = createSummaryRepair({
 const memoryPass = createMemoryPass({
   store,
   dataDir: DATA_DIR,
-  generate: () => {
-    const claude = registry.instances().find((instance) => instance.driverKind === "claude" && instance.enabled && instance.generateText);
-    return claude ? (prompt, signal) => claude.generateText!(prompt, { signal, timeoutMs: 120_000, ephemeral: true }) : null;
-  },
+  generate: () => noteGenerator(registry.instances()),
   enabled: (botId) => memoryNotesEnabled(cfg, store.bot(botId)),
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
 });

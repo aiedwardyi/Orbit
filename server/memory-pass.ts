@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
+import type { ProviderInstance } from "./contracts.ts";
 import { MEMORY_SAVE_TOOL } from "./memory-save.ts";
 import { redactSecretsInText } from "./redact.ts";
 import type { Message, Store, StoreChange } from "./store.ts";
@@ -45,6 +46,12 @@ export interface MemoryPass {
   /** Resolves once no pass is running. */
   idle(): Promise<void>;
   dispose(): void;
+}
+
+/** The first enabled Claude instance's one-shot call, or null when there is none. */
+export function noteGenerator(instances: readonly Pick<ProviderInstance, "driverKind" | "enabled" | "generateText">[]): NoteGenerator | null {
+  const claude = instances.find((instance) => instance.driverKind === "claudeAgent" && instance.enabled && instance.generateText);
+  return claude ? (prompt, signal) => claude.generateText!(prompt, { signal, timeoutMs: PASS_TIMEOUT_MS, ephemeral: true }) : null;
 }
 
 /** A user row typed on this PC into the chat, not a bot, routine, peer, draft or attachment. */

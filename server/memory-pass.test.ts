@@ -9,6 +9,7 @@ import {
   appendNotes,
   createMemoryPass,
   eligibleRow,
+  noteGenerator,
   noteSummary,
   parseFacts,
   pendingRows,
@@ -640,12 +641,36 @@ describe("memory pass filters", () => {
   });
 });
 
+describe("note generator", () => {
+  const instance = (driverKind: string, patch: { enabled?: boolean; text?: string | null } = {}) => ({
+    driverKind,
+    enabled: patch.enabled ?? true,
+    generateText: patch.text === null ? undefined : vi.fn(async () => patch.text ?? driverKind),
+  });
+
+  it("calls the Claude instance, never another engine, without a session transcript", async () => {
+    const codex = instance("codex");
+    const claude = instance("claudeAgent");
+    const signal = new AbortController().signal;
+    await expect(noteGenerator([codex, claude])?.("prompt", signal)).resolves.toBe("claudeAgent");
+    expect(claude.generateText).toHaveBeenCalledWith("prompt", { signal, timeoutMs: 120_000, ephemeral: true });
+    expect(codex.generateText).not.toHaveBeenCalled();
+  });
+
+  it("finds none when Claude is off, has no one-shot call, or is missing", () => {
+    expect(noteGenerator([instance("claudeAgent", { enabled: false })])).toBeNull();
+    expect(noteGenerator([instance("claudeAgent", { text: null })])).toBeNull();
+    expect(noteGenerator([instance("codex")])).toBeNull();
+    expect(noteGenerator([])).toBeNull();
+  });
+});
+
 describe("memory pass wiring", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const index = readFileSync(join(here, "index.ts"), "utf8");
 
   it("runs every bot's pass on Claude, after 1:1 turns, without a session transcript", () => {
-    expect(index).toMatch(/createMemoryPass\(\{[\s\S]*?driverKind === "claude"[\s\S]*?ephemeral: true[\s\S]*?botHasActiveTurn/);
+    expect(index).toMatch(/createMemoryPass\(\{[\s\S]*?generate: \(\) => noteGenerator\(registry\.instances\(\)\),[\s\S]*?botHasActiveTurn/);
     expect(index).toMatch(/summaryRepair\.onSettled\(bot\.id, event\.threadId\);\s*memoryPass\.onSettled\(bot\.id, event\.threadId\);/);
     expect(index).toContain("memoryPass.dispose();");
   });
