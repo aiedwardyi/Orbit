@@ -24,10 +24,15 @@ describe("validateProjectNotes", () => {
     expect(validateProjectNotes("  ")).toEqual({ ok: true, path: null });
   });
 
+  it("takes a path at the synced 1,024-character cap", () => {
+    const path = join(tmpdir(), "x".repeat(1_024)).slice(0, 1_024);
+    expect(validateProjectNotes(path)).toEqual({ ok: true, path });
+  });
+
   it("refuses a non-string, a relative path or a long one", () => {
     expect(validateProjectNotes(42)).toEqual({ ok: false, error: "project notes must be a file path" });
     expect(validateProjectNotes("notes/BRAIN.md")).toEqual({ ok: false, error: "project notes must be an absolute path" });
-    expect(validateProjectNotes(join(tmpdir(), "x".repeat(1_024)))).toEqual({ ok: false, error: "project notes path must be under 1,024 characters" });
+    expect(validateProjectNotes(join(tmpdir(), "x".repeat(1_024)))).toEqual({ ok: false, error: "project notes path must not exceed 1,024 characters" });
   });
 });
 

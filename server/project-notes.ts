@@ -22,7 +22,7 @@ export function validateProjectNotes(input: unknown): ProjectNotesValidation {
   // Explorer's Copy as path wraps it in quotes
   const path = parsed.data.trim().replace(/^"(.*)"$/, "$1").trim();
   if (!path) return { ok: true, path: null };
-  if (path.length >= PROJECT_NOTES_MAX_CHARS) return { ok: false, error: "project notes path must be under 1,024 characters" };
+  if (path.length > PROJECT_NOTES_MAX_CHARS) return { ok: false, error: "project notes path must not exceed 1,024 characters" };
   if (!isAbsolute(path)) return { ok: false, error: "project notes must be an absolute path" };
   return { ok: true, path };
 }
