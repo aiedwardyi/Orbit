@@ -32,7 +32,7 @@ export function memoryNotice(health: MemoryHealth, dropped?: DroppedNotes): stri
       : "",
   ].filter(Boolean);
   if (!parts.length) return "";
-  const fix = longLines || dropped?.dropped ? "Trim it this session." : "Add the pointer lines this session.";
+  const fix = [longLines || dropped?.dropped ? "Trim it this session." : "", orphans.length ? "Add the pointer lines this session." : ""].filter(Boolean).join(" ");
   return `[Memory check: ${parts.join("; ")}. ${fix}]`;
 }
 

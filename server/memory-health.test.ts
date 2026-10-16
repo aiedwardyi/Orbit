@@ -10,7 +10,7 @@ const HEALTHY: MemoryHealth = { longLines: 0, orphans: [] };
 describe("memoryNotice", () => {
   it("names every problem in one line", () => {
     expect(memoryNotice({ longLines: 26, orphans: ["x.md"] }, { dropped: 4, since: SINCE })).toBe(
-      "[Memory check: 26 lines are over 300 bytes; memory/x.md has no pointer line here; 4 auto notes since 10-14 were not saved because the file is full. Trim it this session.]",
+      "[Memory check: 26 lines are over 300 bytes; memory/x.md has no pointer line here; 4 auto notes since 10-14 were not saved because the file is full. Trim it this session. Add the pointer lines this session.]",
     );
   });
 
