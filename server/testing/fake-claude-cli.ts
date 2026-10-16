@@ -62,6 +62,8 @@
 //   FAKE_CLAUDE_PROMPT_LOG  path; every stdin message is appended as a JSON
 //                      line {pid, argv, systemPrompt, text}, so a test sees
 //                      what each turn of a retained process was sent
+//   FAKE_CLAUDE_REJECT_FLAG  a flag the text helper rejects the way an older
+//                      CLI's Commander does: unknown option, exit 1
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
 import { randomUUID } from "node:crypto";
@@ -112,6 +114,11 @@ if (argv[0] === "auth" && argv[1] === "status") {
 // deliberately read from stdin so sensitive review text never appears in
 // argv or process listings.
 if (argAfter("--output-format") === "text") {
+  const rejected = process.env.FAKE_CLAUDE_REJECT_FLAG;
+  if (rejected && argv.includes(rejected)) {
+    process.stderr.write(`error: unknown option '${rejected}'\n`);
+    process.exit(1);
+  }
   const prompt = await new Promise<string>((resolve) => {
     let input = "";
     process.stdin.setEncoding("utf8");
