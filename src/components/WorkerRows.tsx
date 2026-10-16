@@ -295,17 +295,20 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
       byEscape = true;
       setOpen(false);
     };
-    const onClose = () => setOpen(false);
     window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey, true);
-    window.addEventListener("orbit:close-worker-menu", onClose);
     return () => {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("orbit:close-worker-menu", onClose);
       if (byEscape) buttonRef.current?.focus();
     };
   }, [open, phone]);
+  useEffect(() => {
+    if (!open) return;
+    const onClose = () => setOpen(false);
+    window.addEventListener("orbit:close-worker-menu", onClose);
+    return () => window.removeEventListener("orbit:close-worker-menu", onClose);
+  }, [open]);
   const first = listed[0];
   if (!first) return null;
   const counts = {
