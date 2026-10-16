@@ -594,6 +594,12 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     return () => window.removeEventListener("keydown", toggleTerminal, true);
   }, [bot?.id, group?.id, state.activeView, nativeViewOverlayOpen, browserWorkspaceBotId, localVmWorkspaceBotId, terminalOpen]);
 
+  // ChatView stays mounted under the terminal and across bot switches, so its header menus are told to close.
+  useEffect(() => {
+    window.dispatchEvent(new Event("orbit:close-worker-menu"));
+    window.dispatchEvent(new Event("orbit:close-model-picker"));
+  }, [terminalOpen, state.activeView, state.selectedId]);
+
   // The viewer outlives ComputerPanel and can target any bot, so release control
   // here (always mounted) when a bot's viewer closes. release() is idempotent.
   useEffect(() => {
