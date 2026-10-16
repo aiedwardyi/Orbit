@@ -2019,6 +2019,18 @@ describe("paged transcripts", () => {
     expect(visibleMessages({ messages: rows(0, 2), activeLeafId: "m99" }).map((m) => m.id)).toEqual(["m0", "m1"]);
   });
 
+  it("returns the same visible branch until the messages or the leaf change", () => {
+    const chain = rows(0, 3).map((m, i) => (i ? { ...m, parentId: `m${i - 1}` } : m));
+    const branch = visibleMessages({ messages: chain, activeLeafId: "m2" });
+    expect(branch.map((m) => m.id)).toEqual(["m0", "m1", "m2"]);
+    expect(visibleMessages({ messages: chain, activeLeafId: "m2" })).toBe(branch);
+    expect(visibleMessages({ messages: chain, activeLeafId: "m1" }).map((m) => m.id)).toEqual(["m0", "m1"]);
+    const appended = [...chain, { ...row(3), parentId: "m2" }];
+    const longer = visibleMessages({ messages: appended, activeLeafId: "m3" });
+    expect(longer.map((m) => m.id)).toEqual(["m0", "m1", "m2", "m3"]);
+    expect(visibleMessages({ messages: appended, activeLeafId: "m3" })).toBe(longer);
+  });
+
   it("drops the old thread's hasMore when a task switch frame carries the full transcript", () => {
     const state = hydrate(initialState, [bot(rows(4, 6), true)]);
     const { hasMore: _hasMore, ...full } = bot(rows(0, 2), false);

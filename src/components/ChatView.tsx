@@ -27,10 +27,10 @@ import {
 import {
   api,
   useStore,
+  useStoreDispatch,
   useStreaming,
   formatDateTime,
   formatTime,
-  messageVersions,
   openNotificationTarget,
   shownModelSelection,
   visibleMessages,
@@ -84,10 +84,10 @@ import { usageLimitReset } from "@/lib/usage";
 import { useFindCurrentId, useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useForwardWindow, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
-import { activityVisibleInChat, groupActivityRuns, isServerLine, itemMatchesFind, localizeServerLine, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
+import { activityVisibleInChat, groupActivityRuns, isServerLine, itemMatchesFind, localizeServerLine, sameNotices, shownRunStep, type LinkedApproval, type TranscriptItem } from "@/lib/activity-runs";
 import { chatTranscriptRows, messageVisible } from "@/lib/chat-transcript";
 import { isShownMessage } from "@/lib/shown-message";
-import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
+import { detectChatOptions } from "@/lib/chat-options";
 import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from "@/lib/focus-composer";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { MemorySaveChip } from "./MemorySaveChip";
@@ -447,10 +447,59 @@ function TimestampLabel({ at, hidden = false }: { at: number; hidden?: boolean }
   );
 }
 
+/** Bubble's bot fields, as primitives so a settled row's memo holds across appends. */
+function bubbleBot(bot: Bot) {
+  // the folder this task's turns run in: pinned once a turn ran, else the bot's own
+  const pinnedFolder = bot.tasks?.find((task) => task.threadId === bot.threadId)?.cwd;
+  return {
+    botId: bot.id,
+    threadId: bot.threadId,
+    botName: bot.name,
+    botFolder: pinnedFolder === undefined ? bot.cwd : pinnedFolder,
+    busy: Boolean(bot.busy),
+    hasMore: Boolean(bot.hasMore),
+  };
+}
+
+const userVersions = new WeakMap<Message[], Map<string | null, Message[]>>();
+
+/** Every fork a user message belongs to, oldest first, as primitives. */
+function versionProps(messages: Message[], message: Message) {
+  let byParent = userVersions.get(messages);
+  if (!byParent) {
+    byParent = new Map();
+    for (const m of messages) {
+      if (m.role !== "user" || m.kind !== "text") continue;
+      const parent = m.parentId ?? null;
+      byParent.set(parent, [...(byParent.get(parent) ?? []), m]);
+    }
+    for (const list of byParent.values()) list.sort((a, b) => a.at - b.at);
+    userVersions.set(messages, byParent);
+  }
+  const versions = message.role === "user" && message.kind === "text" ? (byParent.get(message.parentId ?? null) ?? []) : [message];
+  const index = versions.findIndex((v) => v.id === message.id);
+  return {
+    versionIndex: index,
+    versionCount: versions.length,
+    prevVersionId: versions[index - 1]?.id,
+    nextVersionId: versions[index + 1]?.id,
+  };
+}
+
 const Bubble = memo(function Bubble({
-  bot,
+  botId,
+  threadId,
+  botName,
+  botFolder,
+  busy,
+  hasMore,
+  pinned,
   message,
-  transcript,
+  laterAnswer = null,
+  versionIndex,
+  versionCount,
+  prevVersionId,
+  nextVersionId,
   editing,
   isLastBotText,
   streaming = false,
@@ -464,10 +513,11 @@ const Bubble = memo(function Bubble({
   onReply,
   onFocusComposer,
   onMessageMenu,
-}: {
-  bot: Bot;
+}: ReturnType<typeof bubbleBot> & ReturnType<typeof versionProps> & {
+  pinned: boolean;
   message: Message;
-  transcript: Message[];
+  /** the first user text after this message, for an options reply */
+  laterAnswer?: string | null;
   editing: boolean;
   isLastBotText: boolean;
   streaming?: boolean;
@@ -483,16 +533,14 @@ const Bubble = memo(function Bubble({
   onMessageMenu: (menu: MessageMenuRequest) => void;
 }) {
   const { t } = useI18n();
-  const { dispatch } = useStore();
-  const quoted = useThreadMessage(bot.threadId, bot.hasMore ? message.replyToId : undefined, replyTarget);
+  const dispatch = useStoreDispatch();
+  const quoted = useThreadMessage(threadId, hasMore ? message.replyToId : undefined, replyTarget);
+  const members = useMemo(() => [{ id: botId, name: botName }], [botId, botName]);
   const user = message.role === "user";
   const [expanded, setExpanded] = useState(false);
   const text = message.text ?? "";
-  // the folder this task's turns run in: pinned once a turn ran, else the bot's own
-  const pinnedFolder = bot.tasks?.find((task) => task.threadId === bot.threadId)?.cwd;
-  const botFolder = pinnedFolder === undefined ? bot.cwd : pinnedFolder;
   const detectedOptions = !user && !streaming && message.kind === "text" ? detectChatOptions(text) : null;
-  const answeredChoice = detectedOptions ? laterUserAnswer(transcript, message.id) : null;
+  const answeredChoice = detectedOptions ? laterAnswer : null;
   const optionChoices =
     detectedOptions && (answeredChoice != null || isLastBotText) ? detectedOptions : null;
   const markdownText =
@@ -511,22 +559,20 @@ const Bubble = memo(function Bubble({
     );
   }
 
-  // "‹ 2/3 ›" under an edited message — every fork it belongs to
-  const versions = user ? messageVersions(bot, message) : [message];
-  const versionIndex = versions.findIndex((v) => v.id === message.id);
   const hasReactions = !message.placeholder && Boolean(message.reactions?.length);
-  const switchTo = (v: Message | undefined) => {
-    if (v && !bot.busy) dispatch({ type: "switchBranch", botId: bot.id, messageId: v.id });
+  // "‹ 2/3 ›" under an edited message
+  const switchTo = (messageId: string | undefined) => {
+    if (messageId && !busy) dispatch({ type: "switchBranch", botId, messageId });
   };
 
   const menuTarget =
     message.kind === "text" && !message.placeholder
       ? {
-        threadId: bot.threadId,
+        threadId,
         message,
         copyText: user ? visibleText : text,
         user,
-        pinned: bot.pinnedMessageId === message.id,
+        pinned,
         canPin: user || (!streaming && !dock?.live),
       }
       : null;
@@ -567,7 +613,7 @@ const Bubble = memo(function Bubble({
         data-orbit-message-body
         className={cn("relative w-fit max-w-[min(42rem,78%)]", hasReactions ? "pb-11" : "pb-8")}
       >
-        <div className="orbit-message-speaker hidden">{user ? t("chat.you") : bot.name}</div>
+        <div className="orbit-message-speaker hidden">{user ? t("chat.you") : botName}</div>
         {user && !message.placeholder && (
           <div
             data-message-hover-actions
@@ -575,7 +621,7 @@ const Bubble = memo(function Bubble({
           >
             {/* editing rewinds the thread, so it waits for the turn to end —
                 same rule as the version switcher below */}
-            {message.kind === "text" && !webhookView && !bot.busy && (
+            {message.kind === "text" && !webhookView && !busy && (
               <button
                 onClick={() => onStartEdit(message.id)}
                 aria-label={t("chat.editMessage")}
@@ -599,16 +645,16 @@ const Bubble = memo(function Bubble({
               onClick={() =>
                 dispatch({
                   type: "updateBot",
-                  botId: bot.id,
-                  patch: { pinnedMessageId: bot.pinnedMessageId === message.id ? "" : message.id },
+                  botId,
+                  patch: { pinnedMessageId: pinned ? "" : message.id },
                 })
               }
-              aria-label={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
-              aria-pressed={bot.pinnedMessageId === message.id}
+              aria-label={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
+              aria-pressed={pinned}
               className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
-              title={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
+              title={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
             >
-              {bot.pinnedMessageId === message.id ? <PinOff size={14} /> : <Pin size={14} />}
+              {pinned ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
           </div>
         )}
@@ -627,10 +673,10 @@ const Bubble = memo(function Bubble({
             <div className="mb-2">
               <ReplyQuote
                 message={quoted}
-                fallbackName={bot.name}
+                fallbackName={botName}
                 compact
                 onJump={() =>
-                  dispatch({ type: "focusMessage", threadId: bot.threadId, messageId: quoted.id })
+                  dispatch({ type: "focusMessage", threadId, messageId: quoted.id })
                 }
               />
             </div>
@@ -678,7 +724,7 @@ const Bubble = memo(function Bubble({
             </>
           ) : markdownText.trim() ? (
             <MessageBoundary fallbackText={markdownText}>
-              <ChatMarkdown text={markdownText} streaming={streaming} whole={message.streamWhole} baseDir={botFolder} threadId={bot.threadId} />
+              <ChatMarkdown text={markdownText} streaming={streaming} whole={message.streamWhole} baseDir={botFolder} threadId={threadId} />
             </MessageBoundary>
           ) : null}
         </div>
@@ -690,9 +736,9 @@ const Bubble = memo(function Bubble({
             // the wrapper is w-fit, so right-0 would grow it off the left edge
             className="pointer-events-none absolute bottom-0 left-0 z-20 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100"
           >
-            {message.kind === "text" && <ReactionBar threadId={bot.threadId} message={message} />}
+            {message.kind === "text" && <ReactionBar threadId={threadId} message={message} />}
             <CopyButton text={text} className="opacity-100" />
-            {isLastBotText && !bot.busy && onRegenerate && (
+            {isLastBotText && !busy && onRegenerate && (
               <button
                 onClick={onRegenerate}
                 aria-label={t("chat.regenerate")}
@@ -715,24 +761,24 @@ const Bubble = memo(function Bubble({
               onClick={() =>
                 dispatch({
                   type: "updateBot",
-                  botId: bot.id,
-                  patch: { pinnedMessageId: bot.pinnedMessageId === message.id ? "" : message.id },
+                  botId,
+                  patch: { pinnedMessageId: pinned ? "" : message.id },
                 })
               }
-              aria-label={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
-              aria-pressed={bot.pinnedMessageId === message.id}
+              aria-label={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
+              aria-pressed={pinned}
               className="rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink"
-              title={bot.pinnedMessageId === message.id ? t("chat.unpinMessage") : t("chat.pinMessage")}
+              title={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
             >
-              {bot.pinnedMessageId === message.id ? <PinOff size={14} /> : <Pin size={14} />}
+              {pinned ? <PinOff size={14} /> : <Pin size={14} />}
             </button>
           </div>
         )}
         {!message.placeholder && (
           <ReactionChips
-            threadId={bot.threadId}
+            threadId={threadId}
             message={message}
-            members={[bot]}
+            members={members}
             corner={user ? "left" : "right"}
             className="bottom-11"
           />
@@ -743,8 +789,8 @@ const Bubble = memo(function Bubble({
           options={optionChoices.options}
           question={optionChoices.question}
           answeredText={answeredChoice}
-          disabled={!answeredChoice && bot.busy}
-          onPick={(option) => dispatch({ type: "send", botId: bot.id, text: option })}
+          disabled={!answeredChoice && busy}
+          onPick={(option) => dispatch({ type: "send", botId, text: option })}
           onWriteOwn={onFocusComposer}
         />
       )}
@@ -755,22 +801,22 @@ const Bubble = memo(function Bubble({
           <span>{t("chat.queuedSendsNext")}</span>
         </div>
       )}
-      {!message.placeholder && versions.length > 1 && (
+      {!message.placeholder && versionCount > 1 && (
         <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
           <button
-            onClick={() => switchTo(versions[versionIndex - 1])}
-            disabled={versionIndex <= 0 || bot.busy}
+            onClick={() => switchTo(prevVersionId)}
+            disabled={versionIndex <= 0 || busy}
             className="rounded p-0.5 hover:bg-raised hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent"
             title={t("chat.previousVersion")}
           >
             <ChevronLeft size={14} />
           </button>
           <span className="tabular-nums">
-            {versionIndex + 1}/{versions.length}
+            {versionIndex + 1}/{versionCount}
           </span>
           <button
-            onClick={() => switchTo(versions[versionIndex + 1])}
-            disabled={versionIndex >= versions.length - 1 || bot.busy}
+            onClick={() => switchTo(nextVersionId)}
+            disabled={versionIndex >= versionCount - 1 || busy}
             className="rounded p-0.5 hover:bg-raised hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent"
             title={t("chat.nextVersion")}
           >
@@ -784,38 +830,13 @@ const Bubble = memo(function Bubble({
 
 /** A tool run: spinner while live, check/cross once settled. A failed step
  * stays neutral; only turn-level `error:` rows go red. */
-function ActivityChip({ message, notices }: { message: Message; notices?: LinkedApproval[] }) {
-  const { dispatch, state } = useStore();
+const ActivityChip = memo(function ActivityChip({ message, notices }: { message: Message; notices?: LinkedApproval[] }) {
   const { t } = useI18n();
   const terminal = isTerminalSkin(useSkin());
   const tool = message.tool;
   if (!tool) return null;
   if (tool.name === "memory.save") return <MemorySaveChip summary={tool.spoken ?? ""} at={message.at} />;
-  // bot⇄bot comm chip: opens the channel where the exchange lives
-  const comm = message.comm;
-  if (comm) {
-    const peer = state.bots.find((bot) => bot.id === comm.withBotId);
-    const chip = (
-      <div className="flex justify-start">
-        <button
-          onClick={() => dispatch({ type: "select", id: comm.groupId })}
-          title={t("chat.openConversation", { name: comm.withName })}
-          className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink focus-visible:bg-control focus-visible:text-ink"
-        >
-          <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} />
-          <span className="min-w-0 max-w-[480px] truncate">{commLabel(message, t)}</span>
-          <ChevronRight size={13} className="shrink-0" />
-        </button>
-      </div>
-    );
-    if (!message.text) return chip;
-    return (
-      <div>
-        {chip}
-        <PeerMessageBody text={message.text} />
-      </div>
-    );
-  }
+  if (message.comm) return <CommChip message={message} comm={message.comm} />;
   if (terminal) return <ActivityStep message={message} notices={notices} />;
   const failed = tool.ok === false;
   const status = isServerLine(tool.name);
@@ -837,6 +858,33 @@ function ActivityChip({ message, notices }: { message: Message; notices?: Linked
           {tool.summary && ` ${tool.summary}`}
         </span>
       </div>
+    </div>
+  );
+}, (a, b) => a.message === b.message && sameNotices(a.notices, b.notices));
+
+/** bot⇄bot comm chip: opens the channel where the exchange lives. */
+function CommChip({ message, comm }: { message: Message; comm: NonNullable<Message["comm"]> }) {
+  const { dispatch, state } = useStore();
+  const { t } = useI18n();
+  const peer = state.bots.find((bot) => bot.id === comm.withBotId);
+  const chip = (
+    <div className="flex justify-start">
+      <button
+        onClick={() => dispatch({ type: "select", id: comm.groupId })}
+        title={t("chat.openConversation", { name: comm.withName })}
+        className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink focus-visible:bg-control focus-visible:text-ink"
+      >
+        <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} />
+        <span className="min-w-0 max-w-[480px] truncate">{commLabel(message, t)}</span>
+        <ChevronRight size={13} className="shrink-0" />
+      </button>
+    </div>
+  );
+  if (!message.text) return chip;
+  return (
+    <div>
+      {chip}
+      <PeerMessageBody text={message.text} />
     </div>
   );
 }
@@ -864,7 +912,7 @@ function NoteReport({ note }: { note: PaneNote }) {
   );
 }
 
-function NoteMessage({ message }: { message: Message }) {
+const NoteMessage = memo(function NoteMessage({ message }: { message: Message }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const note = parsePaneNote(message.text ?? "");
@@ -888,7 +936,7 @@ function NoteMessage({ message }: { message: Message }) {
       )}
     </div>
   );
-}
+});
 
 /** One comparable string for a bot's pane labels; a blank slot still counts. */
 const paneLabelsKey = (labels: string[] | undefined) => `${labels?.length ?? 0}:${labels?.join("\n") ?? ""}`;
@@ -1024,6 +1072,38 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
 }
 
 // Keep the live reply in its transcript slot when the canonical message arrives.
+type RunItem = Extract<TranscriptItem, { kind: "run" }>;
+
+function sameRun(a: RunItem, b: RunItem): boolean {
+  if (a.id !== b.id || a.messages.length !== b.messages.length || a.messages.some((m, i) => m !== b.messages[i])) return false;
+  if ((a.notices?.size ?? 0) !== (b.notices?.size ?? 0)) return false;
+  for (const [id, list] of a.notices ?? []) if (!sameNotices(list, b.notices?.get(id))) return false;
+  return true;
+}
+
+/** A folded run of tool steps. Grouping rebuilds the run each pass, so it compares the steps. */
+const ChatRun = memo(function ChatRun({ run, forceOpen, terminal, showActivities, findCurrent }: {
+  run: RunItem;
+  forceOpen: boolean;
+  terminal: boolean;
+  showActivities: boolean;
+  findCurrent: string | null;
+}) {
+  return (
+    <ActivityRun messages={run.messages} forceOpen={forceOpen}>
+      {run.messages
+        .filter((step) => shownRunStep(step, { terminal, showActivities, findId: findCurrent, notices: run.notices?.get(step.id) }))
+        .map((step) => (
+        <div key={step.id} className="contents" data-mid={step.id} data-find-for={run.notices?.get(step.id)?.map((notice) => notice.message.id).join(" ") || undefined}>
+          <ActivityStep message={step} notices={run.notices?.get(step.id)} />
+        </div>
+      ))}
+    </ActivityRun>
+  );
+}, (a, b) =>
+  a.forceOpen === b.forceOpen && a.terminal === b.terminal && a.showActivities === b.showActivities &&
+  a.findCurrent === b.findCurrent && sameRun(a.run, b.run));
+
 const MessagesList = memo(function MessagesList({
   bot,
   messages,
@@ -1098,6 +1178,19 @@ const MessagesList = memo(function MessagesList({
     }
     return replies;
   }, [transcript, streamingMessage]);
+  // the first user text after each bot reply, for its option chips
+  const laterAnswers = useMemo(() => {
+    const answers = new Map<string, string>();
+    let next: string | null = null;
+    for (let i = transcript.length - 1; i >= 0; i--) {
+      const message = transcript[i];
+      if (message.role === "user") {
+        if (!message.kind || message.kind === "text") next = message.text?.trim() || next;
+      } else if (next && message.kind === "text") answers.set(message.id, next);
+    }
+    return answers;
+  }, [transcript]);
+  const bubble = bubbleBot(bot);
   // A search hit inside a folded run has to open it: the fold keeps the
   // row out of the DOM, and there is nothing for the scroll to land on.
   const focus = state.focusMessage;
@@ -1131,15 +1224,13 @@ const MessagesList = memo(function MessagesList({
           return (
             <div key={item.id} className="contents" data-run={item.id} {...logLine(skin === "logfile", first.at, item.messages)}>
               {newDay && <DaySeparator at={first.at} />}
-              <ActivityRun messages={item.messages} forceOpen={found || item.messages.some((step) => step.id === focusedId)}>
-                {item.messages
-                  .filter((step) => shownRunStep(step, { terminal, showActivities, findId: findCurrent, notices: item.notices?.get(step.id) }))
-                  .map((step) => (
-                  <div key={step.id} className="contents" data-mid={step.id} data-find-for={item.notices?.get(step.id)?.map((notice) => notice.message.id).join(" ") || undefined}>
-                    <ActivityStep message={step} notices={item.notices?.get(step.id)} />
-                  </div>
-                ))}
-              </ActivityRun>
+              <ChatRun
+                run={item}
+                forceOpen={found || item.messages.some((step) => step.id === focusedId)}
+                terminal={terminal}
+                showActivities={showActivities}
+                findCurrent={findCurrent}
+              />
             </div>
           );
         }
@@ -1215,9 +1306,11 @@ const MessagesList = memo(function MessagesList({
             default:
               return (
                 <Bubble
-                  bot={bot}
+                  {...bubble}
+                  {...versionProps(bot.messages, m)}
+                  pinned={bot.pinnedMessageId === m.id}
                   message={m}
-                  transcript={transcript}
+                  laterAnswer={laterAnswers.get(m.id)}
                   editing={editingId === m.id}
                   isLastBotText={m.id === lastBotTextId}
                   streaming={m === streamingMessage}
@@ -1624,7 +1717,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   // only the active branch is rendered; forks stay reachable via ‹ › nav
   const accepted = state.acceptedSends[bot.threadId];
   const pending = state.pendingQueued[bot.threadId];
-  const canonicalMessages = useMemo(() => visibleMessages(bot), [bot]);
+  const canonicalMessages = visibleMessages(bot);
   const messages = useMemo(() => withAcceptedMessages(canonicalMessages, accepted, pending), [canonicalMessages, accepted, pending]);
 
   // Windowed transcript: only a tail of the thread mounts (screenshots make
@@ -1758,23 +1851,23 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const joinFails = useRef(0);
   const [joinRetry, setJoinRetry] = useState(0);
   const { close: closeJump } = jump;
-  const submitEdit = useCallback(
-    (messageId: string, text: string) => {
-      setEditingId(null); // closes the editor first — a double Enter can't fork twice
-      const edited = jump.messages?.find((message) => message.id === messageId);
-      if (edited) {
-        closeJump();
-        setBottomFollow(true);
-        setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
-        if (edited.parentId) {
-          joinFails.current = 0;
-          setEditJoin({ key: transcriptKey, parentId: edited.parentId });
-        }
+  // latest closure behind a stable identity: every row would re-render on each append otherwise
+  const submitEditLatest = useRef((_messageId: string, _text: string) => {});
+  submitEditLatest.current = (messageId: string, text: string) => {
+    setEditingId(null); // closes the editor first - a double Enter can't fork twice
+    const edited = jump.messages?.find((message) => message.id === messageId);
+    if (edited) {
+      closeJump();
+      setBottomFollow(true);
+      setTranscriptWindow({ key: transcriptKey, start: tailWindowStart(messages.length, TRANSCRIPT_WINDOW_SIZE, renders), end: null });
+      if (edited.parentId) {
+        joinFails.current = 0;
+        setEditJoin({ key: transcriptKey, parentId: edited.parentId });
       }
-      dispatch({ type: "editMessage", botId: bot.id, messageId, text });
-    },
-    [bot.id, closeJump, dispatch, jump.messages, messages.length, renders, setBottomFollow, transcriptKey],
-  );
+    }
+    dispatch({ type: "editMessage", botId: bot.id, messageId, text });
+  };
+  const submitEdit = useCallback((messageId: string, text: string) => submitEditLatest.current(messageId, text), []);
   const lastUserMessage = useMemo(
     () => [...canonicalMessages].reverse().find((m) => m.role === "user" && m.kind === "text"),
     [canonicalMessages],
@@ -2398,9 +2491,10 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           {queued.map((m, index) => (
             <div key={m.id} className="contents" data-mid={m.id}>
               <Bubble
-                bot={bot}
+                {...bubbleBot(bot)}
+                {...versionProps(bot.messages, m)}
+                pinned={bot.pinnedMessageId === m.id}
                 message={m}
-                transcript={shown}
                 editing={false}
                 isLastBotText={false}
                 sendsNext={sendsNext && index === 0}

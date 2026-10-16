@@ -10,6 +10,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   return {
     ...actual,
     useStore: () => ({ state: { bots: [], instances: [], config: {} }, dispatch: () => undefined }),
+    useStoreDispatch: () => () => undefined,
   };
 });
 
