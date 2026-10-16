@@ -106,6 +106,8 @@ function claudeEnvironment(
   delete env.CLAUDE_CODE_ENTRYPOINT;
   // Undocumented CLI switch: the silent-turn nudge makes bots post progress lines; Wink shows live activity instead.
   env.CLAUDE_CODE_SILENT_TURN_REMINDER ??= "0";
+  // Wink's synced memory is the bot memory; the CLI's per-folder auto memory never leaves this PC.
+  env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "1";
   // Inject first, allowlist after: the local host reads its key out of this
   // env, and the tokens it writes are the only credentials the CLI is granted.
   // Everything else the harness holds — every other provider's key, the

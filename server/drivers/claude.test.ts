@@ -408,6 +408,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.CLAUDE_CODE_SILENT_TURN_REMINDER;
+    delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
     delete process.env.XAI_API_KEY;
     delete process.env.COMPOSIO_API_KEY;
     delete process.env.BOX_TOKEN;
@@ -822,6 +823,18 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed");
 
     expect(JSON.parse(readFileSync(dump, "utf8")).env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("1");
+  });
+
+  it("turns Claude Code auto memory off on every turn", async () => {
+    await create();
+    const dump = join(scratch, "auto-memory.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = "0";
+
+    await instance.adapter.sendTurn({ threadId: "t-auto-memory", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(JSON.parse(readFileSync(dump, "utf8")).env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe("1");
   });
 
   it("loads an oversized system prompt without putting it on argv", async () => {
