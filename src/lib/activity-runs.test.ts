@@ -163,6 +163,7 @@ describe("memory save stays out of a folded run", () => {
 describe("describeRun", () => {
   it("heads a run with its step count and distinct edited files", () => {
     const step = (name: string, summary: string): Message => ({ ...tool(name), tool: { name, ok: true, summary } });
+    expect(describeRun([step("Grep", "xterm")])).toBe("1 step");
     expect(describeRun([step("Read", "package.json"), step("Grep", "xterm")])).toBe("2 steps");
     expect(
       describeRun([

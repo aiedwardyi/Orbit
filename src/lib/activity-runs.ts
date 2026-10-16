@@ -313,7 +313,7 @@ export function describeRun(messages: Message[], t: Translate = translate): stri
     if (tool && EDIT_TOOLS.has(tool.name) && tool.summary) edited.add(tool.summary.replace(/ \+\d+( -\d+)?$/, ""));
   }
   const files = edited.size ? ` · ${t(edited.size === 1 ? "chat.runEditedOne" : "chat.runEditedMany", { count: edited.size })}` : "";
-  return `${t("chat.runSteps", { count: steps.length })}${files}`;
+  return `${t(steps.length === 1 ? "chat.runStep" : "chat.runSteps", { count: steps.length })}${files}`;
 }
 
 /** Default skins drop approval rows from an opened run. A find hit still shows. */
