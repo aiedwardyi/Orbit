@@ -8,7 +8,7 @@ import { Bot, ChevronRight, Check, FileText, Globe, Loader2, Pencil, Search, Squ
 import type { Message } from "@/state/store";
 import { classifyServerNotice, describeRun, describeSearch, localizeServerLine, type LinkedApproval } from "@/lib/activity-runs";
 import { useI18n, type Translate } from "@/lib/i18n";
-import { useSkin } from "@/lib/skins";
+import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { APPROVAL_WORD, TERM_STEP_WORD, termBlock, termHeaderArgs, termResultLine, termStepAria, termStepState, termUpdatedLine, termVerb } from "@/lib/terminal-skin";
 
 function StepStatus({ ok }: { ok: boolean | undefined }) {
@@ -43,7 +43,7 @@ function TermNotice({ text, failed }: { text: string; failed: boolean }) {
  * settles in the same row: same key, same element, only the status swaps. */
 export function ActivityStep({ message, notices }: { message: Message; notices?: LinkedApproval[] }) {
   const { t } = useI18n();
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const tool = message.tool;
   const running = tool?.ok === undefined;
   const [now, setNow] = useState(() => Date.now());
@@ -119,7 +119,7 @@ export function ActivityRun({
   children: React.ReactNode;
 }) {
   const { t } = useI18n();
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const failed = messages.some((message) => message.tool?.ok === false);
   const running = messages.some((message) => message.tool?.ok === undefined);
   const [open, setOpen] = useState(forceOpen);

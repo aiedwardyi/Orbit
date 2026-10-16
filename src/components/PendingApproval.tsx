@@ -10,7 +10,7 @@
 import { memo } from "react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
-import { useSkin } from "@/lib/skins";
+import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { t } from "@/lib/i18n";
 
 interface ApprovalLabels {
@@ -134,7 +134,7 @@ export function PendingApprovalActions({
   onCancelTurn: () => void;
 }) {
   const { dispatch } = useStore();
-  const terminal = useSkin() === "terminal";
+  const terminal = isTerminalSkin(useSkin());
   const isRoutineRequest = isRoutineApproval(pending);
   const decide = (behavior: "allow" | "deny", always = false) =>
     dispatch({

@@ -98,3 +98,15 @@ export function termMeter(window: RateLimitWindow, now: number, mode: UsageMode)
   const filled = percent === null ? 0 : Math.min(5, Math.round(percent / 20));
   return { id: window.id, kind: windowKind(window.id, window.windowMinutes), percent, bar: "▰".repeat(filled) + "▱".repeat(5 - filled) };
 }
+
+type LogRow = { role: "bot" | "user"; kind: string; tool?: { name: string; ok?: boolean } };
+
+/** Logfile's gutter as data-* its CSS prints: `[14:02:11]` and INFO or WARN. Empty on every other skin. */
+export function logLine(on: boolean, at: number, rows: LogRow[]): { "data-log-time"?: string; "data-log-level"?: "info" | "warn" } {
+  if (!on) return {};
+  const d = new Date(at);
+  const time = [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, "0")).join(":");
+  const warn = rows.some((row) => row.tool?.ok === false || row.tool?.name.startsWith("error:"));
+  const info = rows.some((row) => row.role === "bot" && row.kind === "text");
+  return { "data-log-time": time, "data-log-level": warn ? "warn" : info ? "info" : undefined };
+}
