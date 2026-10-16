@@ -51,7 +51,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function mount() {
+async function mount({ width = 1000, height = 800, touch = false } = {}) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   applyLocale("en");
   const calls: string[] = [];
@@ -70,10 +70,11 @@ async function mount() {
     if (init?.method === "POST" && path.endsWith("/messages")) return Response.json({ ok: true, queued: true, queueId: "q1", threadId: "thread-b" }, { status: 202 });
     return new Promise<Response>(() => {});
   }));
+  if (touch) vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(hover: none)", media: query, addEventListener() {}, removeEventListener() {} }));
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(1000);
-  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(992);
-  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(800);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(width);
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(width - 8);
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(height);
   function Live() {
     store = useStore();
     const shown = store.state.bots.find((candidate) => candidate.id === store.state.selectedId) ?? store.state.bots[0];
@@ -93,7 +94,7 @@ async function mount() {
   await vi.waitFor(() => expect(host.textContent).toContain("a turn 4"));
   const strip = () => host.querySelector<HTMLElement>("[data-turn-rail-strip]")!;
   // the rail measures itself a frame after it shows
-  await vi.waitFor(() => expect(strip().style.height).toBe("784px"));
+  await vi.waitFor(() => expect(strip().style.height).toBe(`${height - (width < 640 ? 8 : 16)}px`));
   const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
   const turnCalls = () => calls.filter((call) => call.includes("/turns"));
   const select = (id: string) => act(async () => store.dispatch({ type: "select", id }));
@@ -142,6 +143,17 @@ describe("timeline rail", () => {
     expect(ui.turnCalls()).toHaveLength(1);
   });
 
+  it("asks again when another PC moves the chat back to an earlier branch", async () => {
+    const ui = await mount();
+    await ui.near();
+    await act(async () => store.dispatch({ type: "messageAdded", threadId: "thread-a", message: { id: "a-phone", parentId: "a4-reply", at: start + 5_000_000, role: "user", kind: "text", text: "sent from the phone" } }));
+    await vi.waitFor(() => expect(ui.strip().getAttribute("aria-valuemax")).toBe("6"));
+    await act(async () => store.dispatch({ type: "threadActive", threadId: "thread-a", activeLeafId: "a4-reply" }));
+    await ui.near();
+    await vi.waitFor(() => expect(ui.strip().getAttribute("aria-valuemax")).toBe("5"));
+    expect(ui.turnCalls()).toHaveLength(2);
+  });
+
   it("jumps through focusMessage, and its ends land on the first and the latest message", async () => {
     const ui = await mount();
     await ui.near();
@@ -182,6 +194,17 @@ describe("timeline rail", () => {
       target.dispatchEvent(touch);
       expect(touch.defaultPrevented).toBe(true);
     }
+  });
+
+  it.each(["left", "right"])("opens no card over the composer when a phone transcript is too short for it, drawer on the %s", async (side) => {
+    localStorage.setItem(SIDEBAR_SIDE_KEY, side);
+    const ui = await mount({ width: 390, height: 200, touch: true });
+    const card = ui.host.querySelector<HTMLElement>("[data-turn-card]")!;
+    await act(async () => ui.strip().dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch", pointerId: 1, clientY: 100, bubbles: true, cancelable: true })));
+    await vi.waitFor(() => expect(ui.strip().getAttribute("aria-valuemax")).toBe("5"));
+    expect(card.classList.contains("live")).toBe(false);
+    await act(async () => ui.strip().dispatchEvent(new PointerEvent("pointerup", { pointerType: "touch", pointerId: 1, clientY: 100, bubbles: true })));
+    expect(card.classList.contains("live")).toBe(false);
   });
 
   it("sits on the right edge, clear of the scrollbar, while the drawer is on the left", async () => {

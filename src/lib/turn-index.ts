@@ -87,9 +87,9 @@ export function catchUpTurns(turns: Turns, messages: readonly Message[]): boolea
     const known = last ? messages.findLastIndex((message) => message.id === last) : -1;
     if (known >= 0) from = known + 1;
     // every loaded row is newer than the index: an older page holds its last turn
-    else if (!last || (messages[0]?.at ?? 0) > lastAt + 999) from = 0;
-    // the server answered with a turn this list has not received yet
-    else if (!end || end.at < lastAt + 1000) return false;
+    else if (!last || (messages[0]?.at ?? 0) >= lastAt + 1000) from = 0;
+    // the server answered with a turn this list has not received yet; a caught-up index only grows from the list
+    else if (!end || (!count && end.at < lastAt + 1000 && newestTurnKnown(turns, messages))) return false;
     else {
       turns.stale = true;
       return false;
@@ -107,4 +107,9 @@ export function catchUpTurns(turns: Turns, messages: readonly Message[]): boolea
   }
   if (grew) turns.version++;
   return grew;
+}
+
+function newestTurnKnown(turns: Turns, messages: readonly Message[]): boolean {
+  const newest = messages.findLast((message) => isTurn(message) && !message.placeholder);
+  return !newest || turns.ids.includes(newest.id);
 }

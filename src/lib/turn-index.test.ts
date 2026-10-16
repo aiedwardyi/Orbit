@@ -100,4 +100,25 @@ describe("catching up with the live list", () => {
     expect(catchUpTurns(turns, [typed("a", 100_000), typed("b2", 300_000, "edited")])).toBe(false);
     expect(turns.stale).toBe(true);
   });
+
+  describe("goes stale when the chat moves back to a branch that ends earlier", () => {
+    const three = () => decodeTurns({ ids: ["a", "b", "c"], at: [100, 60, 60], words: ["a", "b", "c"], first: "a" });
+    const shown = [typed("a", 100_000), typed("b", 160_000), typed("c", 220_000)];
+    it.each([
+      ["an older branch", [typed("a", 100_000), typed("b-old", 150_000), reply("old-reply", 151_000)]],
+      ["a shorter branch", [typed("a", 100_000), reply("a-reply", 101_000)]],
+      ["an edit of the last turn in the same second", [typed("a", 100_000), typed("b", 160_000), typed("c-new", 220_500)]],
+    ])("%s", (_, branch) => {
+      const turns = three();
+      catchUpTurns(turns, shown);
+      expect(catchUpTurns(turns, branch)).toBe(false);
+      expect(turns.stale).toBe(true);
+    });
+
+    it("an edit of the last turn in the same second, before the index caught up", () => {
+      const turns = three();
+      expect(catchUpTurns(turns, [typed("a", 100_000), typed("b", 160_000), typed("c-new", 220_500)])).toBe(false);
+      expect(turns.stale).toBe(true);
+    });
+  });
 });

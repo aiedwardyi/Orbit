@@ -481,6 +481,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     }
   }
   function cardOpen(m: "follow" | "touch") {
+    if (!cardFits()) return;
     if (m === "follow") {
       fling = null;
       tp = null;
@@ -524,9 +525,12 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     }
     return pill ?? Infinity;
   }
+  // a short transcript (phone keyboard up, landscape) has no room for the card, which would cover the composer
+  const cardFits = () => Math.min(G.height, pillTop() - 2) - CH - 6 >= 6;
   // Follow: the card sits beside the pointer and the picked turn sits in the band next to it.
   function cardAim(y: number) {
     aimY = y;
+    if (live && !cardFits()) return closeAll();
     cy.to = clamp(y - PAD - HH - (VISIBLE * RH) / 2, 6, Math.max(6, Math.min(G.height, pillTop() - 2) - CH - 6));
     bs.to = clamp(y - cy.to - PAD - RH / 2, HH, lastSlot());
     if (op.x < 0.03 || RM) {
@@ -894,6 +898,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     hit.style.cssText = `${G.mirror ? "left:0" : `right:${G.scrollbar}px`};top:${G.top - 8}px;height:${G.h + 16}px;width:${G.hitWidth}px`;
     layoutLens();
     layoutCard();
+    if (live) cardAim(aimY);
     kick();
   }
   function restyle() {
@@ -987,7 +992,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   const onHitUp = (e: PointerEvent) => {
     if (e.pointerId !== dragId) return;
     dragId = null;
-    if (!n) {
+    if (!n || !live) {
       closeAll();
       return;
     }
