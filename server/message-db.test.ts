@@ -328,6 +328,23 @@ describe("message-db", () => {
     expect(searchHaystack({ kind: "activity", tool: { name: "Bash", ok: true, detail: { input: "ls", output: ["reset"] } } }, true)).toBe("Bash");
   });
 
+  it("matches the summary a chip draws, and still skips hidden output", () => {
+    insertMessage("t-summary", {
+      ...msg("write", "", { role: "bot", kind: "activity", at: 1 }),
+      tool: { name: "Write", ok: true, summary: "결과.md" },
+    });
+    insertMessage("t-summary", {
+      ...msg("hidden", "", { role: "bot", kind: "activity", at: 2 }),
+      tool: { name: "Bash", ok: true, summary: "ls", detail: { input: "ls", output: ["only-in-output-token"] } },
+    });
+
+    for (const chips of [true, false]) {
+      expect(searchMessages("결과.md", 40, "t-summary", { chips }).map((hit) => hit.messageId)).toEqual(["write"]);
+    }
+    expect(searchMessages("only-in-output-token", 40, "t-summary", { chips: true })).toEqual([]);
+    expect(searchHaystack({ kind: "activity", tool: { name: "Write", summary: "결과.md" } }, true)).toBe("Write\n결과.md");
+  });
+
   it("finds a failed command result in captured output and skips hidden text", () => {
     const threadId = "t-detail";
     insertMessage(threadId, {

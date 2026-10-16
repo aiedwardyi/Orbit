@@ -281,11 +281,10 @@ function shownArgs(verb: string, summary: string | undefined, detail: ToolDetail
 /** Detail text the terminal row draws: header input, then the visible output or diff lines. */
 function shownDetailLines(tool: ToolBody): string[] {
   const detail = tool.detail;
-  if (!detail) return [];
   const lines: string[] = [];
   const args = shownArgs(termVerb(tool.verb ?? tool.name), tool.summary, detail, tool.verb ? tool.name : undefined);
-  if (detail.input && args === detail.input) lines.push(detail.input);
-  if (detail.outputHidden) return lines;
+  if (args && (args === detail?.input || args === tool.summary)) lines.push(args);
+  if (!detail || detail.outputHidden) return lines;
   const diff = tool.ok !== false && detail.diff?.length ? detail.diff : undefined;
   const body = diff ?? detail.output;
   if (!body?.length) return lines;
@@ -296,12 +295,12 @@ function shownDetailLines(tool: ToolBody): string[] {
   return lines;
 }
 
-/** Text a find hit may quote. Activity rows include only detail the terminal row draws; `chips` rows draw only the name. */
+/** Text a find hit may quote. Activity rows include only detail the terminal row draws; `chips` rows draw the name and summary. */
 export function searchHaystack(message: Pick<Message, "kind" | "text" | "tool" | "comm">, chips = false): string {
   if (message.kind !== "activity") return message.text ?? "";
   const tool = message.tool;
   if (!tool?.name) return "";
-  const lines = chips ? [] : shownDetailLines(tool);
+  const lines = chips ? (tool.summary ? [tool.summary] : []) : shownDetailLines(tool);
   // a comm chip draws its message body under the label
   const detail = message.comm && message.text ? [...lines, message.text] : lines;
   return detail.length ? `${tool.name}\n${detail.join("\n")}` : tool.name;
@@ -360,6 +359,7 @@ export function searchMessages(
   // A fragment that can match JSON syntax also needs the decoded check, or every row reaches the visible check.
   const decoded = !fragment || /[[\],]/.test(fragment) || "null".includes(fragment)
     ? " AND (lower(ifnull(json_extract(json, '$.tool.name'), '')) LIKE ?1 ESCAPE '\\' " +
+      "   OR lower(ifnull(json_extract(json, '$.tool.summary'), '')) LIKE ?1 ESCAPE '\\' " +
       "   OR lower(ifnull(json_extract(json, '$.tool.detail.input'), '')) LIKE ?1 ESCAPE '\\' " +
       "   OR EXISTS (SELECT 1 FROM json_each(messages.json, '$.tool.detail.output') WHERE lower(value) LIKE ?1 ESCAPE '\\') " +
       // diff lines draw as "+ line", so match them the way they show
@@ -374,11 +374,11 @@ export function searchMessages(
   const scope = threadId ? `thread_id = ?3 AND ${cursor ? "(at < ?4 OR (at = ?4 AND rowid < ?5)) AND " : ""}` : "";
   const order = threadId ? "" : "CASE WHEN kind = 'text' THEN 0 ELSE 1 END, ";
   // Text matches its text. Activity matches the fields a row can draw, then
-  // the visible detail only; a default-skin chip draws only its name. Engine
+  // the visible detail only; a default-skin chip draws its name and summary. Engine
   // summaries never match. The raw json check first spares most rows a parse.
   const gate = chips
-    ? "lower(json_extract(json, '$.tool.name')) LIKE ?1 ESCAPE '\\'"
-    : `lower(json_extract(json, '$.tool.name', '$.tool.detail.input', '$.tool.detail.output', '$.tool.detail.diff')) LIKE ?2 ESCAPE '\\'${decoded}`;
+    ? "(lower(ifnull(json_extract(json, '$.tool.name'), '')) LIKE ?1 ESCAPE '\\' OR lower(ifnull(json_extract(json, '$.tool.summary'), '')) LIKE ?1 ESCAPE '\\')"
+    : `lower(json_extract(json, '$.tool.name', '$.tool.summary', '$.tool.detail.input', '$.tool.detail.output', '$.tool.detail.diff')) LIKE ?2 ESCAPE '\\'${decoded}`;
   // Sorts row ids only; the hit loop reads each row once it needs it.
   const ordered = db().prepare(
     "SELECT rowid AS row FROM messages " +

@@ -85,7 +85,10 @@ export function ChatFindBar({
           if (request === requestRef.current) setLoading(false);
         });
     }, 180);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      requestRef.current++;
+    };
     // searchPath reads threadId and view, both listed
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch, query, threadId, view]);
