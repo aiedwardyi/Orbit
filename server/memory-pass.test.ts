@@ -736,12 +736,12 @@ describe("note generator", () => {
     generateText: patch.text === null ? undefined : vi.fn(async () => patch.text ?? driverKind),
   });
 
-  it("calls the Claude instance, never another engine, without a session transcript", async () => {
+  it("calls the Claude instance lean, never another engine, without a session transcript", async () => {
     const codex = instance("codex");
     const claude = instance("claudeAgent");
     const signal = new AbortController().signal;
     await expect(noteGenerator([codex, claude])?.("prompt", signal)).resolves.toBe("claudeAgent");
-    expect(claude.generateText).toHaveBeenCalledWith("prompt", { signal, timeoutMs: 120_000, ephemeral: true });
+    expect(claude.generateText).toHaveBeenCalledWith("prompt", { signal, timeoutMs: 120_000, ephemeral: true, lean: true });
     expect(codex.generateText).not.toHaveBeenCalled();
   });
 

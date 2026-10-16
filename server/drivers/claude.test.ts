@@ -18,6 +18,7 @@ import { saveImage } from "../attachments.ts";
 import { autoVerdict } from "../auto-approve.ts";
 import { ensureDirs, PROVIDER_CREDENTIAL_ENV, saveConfig, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
+import * as procs from "../procs.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
 import { ClaudeDriver, claudeToolSummary, claudeUserContent, permissionSocketPath, type ClaudeConfig } from "./claude.ts";
 import { inputDigest } from "../repeat-detector.ts";
@@ -404,6 +405,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_STEER_LOG;
     delete process.env.FAKE_CLAUDE_NARRATION_TEXT;
     delete process.env.FAKE_CLAUDE_PROMPT_LOG;
+    delete process.env.FAKE_CLAUDE_REJECT_FLAG;
     delete process.env.OMB_CLAUDE_REVIEW_TIMEOUT_MS;
     delete process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS;
     delete process.env.ANTHROPIC_API_KEY;
@@ -2489,6 +2491,108 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv).not.toContain("summarize safely");
     expect(seen.env.CLAUDE_CONFIG_DIR).toBe(instanceConfigDir);
     for (const name of names) expect(seen.env[name]).toBeUndefined();
+  });
+
+  it.each(["summary", "notes", "review"] as const)("runs the %s helper with its own argv and cwd", async (kind) => {
+    await create();
+    const spawn = vi.spyOn(procs, "spawnCli");
+    try {
+      const prompt = "private helper prompt";
+      if (kind === "review") await instance.reviewPermission?.(prompt);
+      else if (kind === "notes") await instance.generateText?.(prompt, { ephemeral: true, lean: true });
+      else await instance.generateText?.(prompt);
+
+      expect(spawn).toHaveBeenCalledOnce();
+      const [cli, argv, options] = spawn.mock.calls[0]!;
+      expect(cli).toBe(FAKE_CLI);
+      expect(argv).toEqual([
+        "-p", "--model", "claude-haiku-5-5", "--output-format", "text",
+        ...(kind === "summary" ? [] : ["--safe-mode", "--tools", "", "--strict-mcp-config"]),
+        ...(kind === "review" ? [] : ["--effort", "low"]),
+        ...(kind === "summary" ? [] : ["--no-session-persistence"]),
+      ]);
+      if (kind === "summary") expect(options).not.toHaveProperty("cwd");
+      else expect(options.cwd).toBe(tmpdir());
+    } finally {
+      spawn.mockRestore();
+    }
+  });
+
+  it("retries lean helpers once without lean flags on a CLI that rejects them, and remembers", async () => {
+    await create();
+    process.env.FAKE_CLAUDE_REJECT_FLAG = "--safe-mode";
+    const spawn = vi.spyOn(procs, "spawnCli");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(instance.reviewPermission?.("review prompt")).resolves.toBe("fake generated text");
+      await expect(instance.generateText?.("notes prompt", { ephemeral: true, lean: true })).resolves.toBe("fake generated text");
+      await expect(instance.reviewPermission?.("review prompt")).resolves.toBe("fake generated text");
+
+      const base = ["-p", "--model", "claude-haiku-5-5", "--output-format", "text"];
+      expect(spawn.mock.calls.map(([, argv]) => argv)).toEqual([
+        [...base, "--safe-mode", "--tools", "", "--strict-mcp-config", "--no-session-persistence"],
+        [...base, "--no-session-persistence"],
+        [...base, "--effort", "low", "--no-session-persistence"],
+        [...base, "--no-session-persistence"],
+      ]);
+      expect(spawn.mock.calls[0]![2].cwd).toBe(tmpdir());
+      for (const [, , options] of spawn.mock.calls.slice(1)) expect(options).not.toHaveProperty("cwd");
+      expect(warning).toHaveBeenCalledOnce();
+      expect(String(warning.mock.calls[0]![0])).toContain("--safe-mode");
+    } finally {
+      spawn.mockRestore();
+      warning.mockRestore();
+    }
+  });
+
+  it("keeps a lean helper's retry inside its original timeout", async () => {
+    await create(undefined, { FAKE_CLAUDE_GENERATE_DELAY_MS: "10000" });
+    process.env.FAKE_CLAUDE_REJECT_FLAG = "--safe-mode";
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const started = Date.now();
+      await expect(instance.generateText?.("notes prompt", { lean: true, timeoutMs: 2000 })).rejects.toThrow("timed out");
+      expect(Date.now() - started).toBeLessThan(3000);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("does not retry a lean helper on any other error", async () => {
+    await create();
+    process.env.FAKE_CLAUDE_REJECT_FLAG = "--model";
+    const spawn = vi.spyOn(procs, "spawnCli");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(instance.reviewPermission?.("review prompt")).rejects.toThrow("unknown option '--model'");
+      expect(spawn).toHaveBeenCalledOnce();
+      expect(warning).not.toHaveBeenCalled();
+    } finally {
+      spawn.mockRestore();
+      warning.mockRestore();
+    }
+  });
+
+  it("keeps the main chat argv unchanged by lean helpers", async () => {
+    await create();
+    const spawn = vi.spyOn(procs, "spawnCli");
+    const dump = join(scratch, "main-chat-argv.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-main-chat-argv", text: "hi", cwd: scratch });
+    await recorder.until((event) => event.type === "turn.completed");
+
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(spawn.mock.calls[0]![2].cwd).toBe(scratch);
+    spawn.mockRestore();
+    expect(seen.argv).toEqual([
+      "-p", "--output-format", "stream-json", "--input-format", "stream-json",
+      "--verbose", "--include-partial-messages", "--permission-mode", "acceptEdits",
+      "--permission-prompt-tool", "mcp__ogb__approve", "--mcp-config",
+      expect.stringMatching(/[\\/]omb-mcp-[^\\/]+[\\/]mcp\.json$/),
+      "--allowedTools", "mcp__ogb", "--session-id",
+      expect.any(String),
+    ]);
   });
 
   it("runs one-shot generateText on Haiku 5.5", async () => {

@@ -58,7 +58,7 @@ export interface MemoryPass {
 /** The first enabled Claude instance's one-shot call, or null when there is none. */
 export function noteGenerator(instances: readonly Pick<ProviderInstance, "driverKind" | "enabled" | "generateText">[]): NoteGenerator | null {
   const claude = instances.find((instance) => instance.driverKind === "claudeAgent" && instance.enabled && instance.generateText);
-  return claude ? (prompt, signal) => claude.generateText!(prompt, { signal, timeoutMs: PASS_TIMEOUT_MS, ephemeral: true }) : null;
+  return claude ? (prompt, signal) => claude.generateText!(prompt, { signal, timeoutMs: PASS_TIMEOUT_MS, ephemeral: true, lean: true }) : null;
 }
 
 /** A user row typed on this PC into the chat, not a bot, routine, peer, draft or attachment. */

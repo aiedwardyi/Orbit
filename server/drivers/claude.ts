@@ -1738,26 +1738,27 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       return { state: "available", version, authenticated, billing: "subscription" };
     };
 
-    /** One-shot Claude call with the prompt on stdin, never argv. Approval
-     * summaries can contain paths, commands, or secrets, so the generic
-     * `claude -p "prompt"` shape is not safe for review. No tools or MCP
-     * servers are mounted in this isolated process. */
-    const generateReview = (
+    /** Prompts go on stdin, never argv, since they can hold secrets.
+     * `lean` drops customizations, tools, MCP and the repo cwd but keeps subscription auth. */
+    const runHelper = (
       prompt: string,
       signal?: AbortSignal,
       timeoutMs = REVIEW_TIMEOUT_MS,
       effort?: "low",
       ephemeral = false,
+      lean = false,
     ): Promise<string> =>
       new Promise((resolve, reject) => {
         const child = spawnCli(
           config.cli,
           [
             "-p", "--model", "claude-haiku-5-5", "--output-format", "text",
+            ...(lean ? ["--safe-mode", "--tools", "", "--strict-mcp-config"] : []),
             ...(effort ? ["--effort", effort] : []),
             ...(ephemeral ? ["--no-session-persistence"] : []),
           ],
           {
+            ...(lean ? { cwd: tmpdir() } : {}),
             stdio: ["pipe", "pipe", "pipe"],
             env: claudeEnvironment("claude-haiku-5-5", { ...process.env, ...input.environment }),
           },
@@ -1805,6 +1806,27 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           child.stdin.end(prompt);
         }
       });
+
+    // a CLI before 2.1.169 has no --safe-mode: helpers then run as they did before lean
+    let leanRejected = false;
+    const generateReview = (
+      prompt: string,
+      signal?: AbortSignal,
+      timeoutMs = REVIEW_TIMEOUT_MS,
+      effort?: "low",
+      ephemeral = false,
+      lean = false,
+    ): Promise<string> => {
+      if (!lean || leanRejected) return runHelper(prompt, signal, timeoutMs, effort, ephemeral, false);
+      const deadline = Date.now() + timeoutMs;
+      return runHelper(prompt, signal, timeoutMs, effort, ephemeral, true).catch((error: unknown) => {
+        const flag = error instanceof Error ? /unknown option '(--safe-mode|--tools|--strict-mcp-config)'/.exec(error.message)?.[1] : undefined;
+        if (!flag) throw error;
+        if (!leanRejected) console.warn(`${config.cli} rejects ${flag}; running notes and approval reviews without lean flags`);
+        leanRejected = true;
+        return runHelper(prompt, signal, Math.max(0, deadline - Date.now()), effort, ephemeral, false);
+      });
+    };
 
     return {
       instanceId,
@@ -1867,10 +1889,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         },
       },
       generateText: (prompt, opts) =>
-        generateReview(prompt, opts?.signal, opts?.timeoutMs ?? SUMMARY_TIMEOUT_MS, "low", opts?.ephemeral),
+        generateReview(prompt, opts?.signal, opts?.timeoutMs ?? SUMMARY_TIMEOUT_MS, "low", opts?.ephemeral, opts?.lean),
       textModel: "claude-haiku-5-5",
       textTimeoutMs: SUMMARY_TIMEOUT_MS,
-      reviewPermission: (prompt, signal) => generateReview(prompt, signal),
+      reviewPermission: (prompt, signal) => generateReview(prompt, signal, undefined, undefined, true, true),
       dispose: async () => {
         for (const { stop } of active.values()) stop();
         for (const threadId of [...sessions.keys()]) closeSession(threadId, "dispose");
