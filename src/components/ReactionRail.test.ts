@@ -24,8 +24,8 @@ describe("reaction rail", () => {
   });
 
   it("keeps the picker on bot messages in ChatView", () => {
-    expect(sources["ChatView.tsx"]).toContain("<ReactionBar threadId={bot.threadId} message={message} />");
-    expect(sources["ChatView.tsx"]).toMatch(/<ReactionChips\s+threadId=\{bot\.threadId\}/);
+    expect(sources["ChatView.tsx"]).toContain("<ReactionBar threadId={threadId} message={message} />");
+    expect(sources["ChatView.tsx"]).toMatch(/<ReactionChips\s+threadId=\{threadId\}/);
   });
 
   it("drops the picker from user messages in GroupView", () => {

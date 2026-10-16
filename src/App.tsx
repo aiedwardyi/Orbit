@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, Menu } from "lucide-react";
 import {
   StoreProvider,
@@ -133,17 +133,19 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? fallbackStartupBot(state.bots, state.groups));
   const terminalOpen = Boolean(bot && terminalViews[bot.id] && state.activeView === "chat" && !browserWorkspaceBotId && !localVmWorkspaceBotId);
-  const openTerminal = () => { if (bot) setTerminalViews((views) => ({ ...views, [bot.id]: true })); };
-  const closeWorkspaces = () => {
+  // stable: a fresh one re-renders the whole transcript on every chat and terminal switch
+  const botId = bot?.id;
+  const openTerminal = useCallback(() => { if (botId) setTerminalViews((views) => ({ ...views, [botId]: true })); }, [botId]);
+  const closeWorkspaces = useCallback(() => {
     setBrowserWorkspaceBotId(null);
     setLocalVmWorkspaceBotId(null);
     dispatch({ type: "toggleComputer", open: false });
-  };
-  const openTerminalPane = (sessionId: string) => {
+  }, [dispatch]);
+  const openTerminalPane = useCallback((sessionId: string) => {
     closeWorkspaces();
     openTerminal();
     setPaneFocus({ sessionId });
-  };
+  }, [closeWorkspaces, openTerminal]);
   const clearTerminalAttention = (attention: Pick<TerminalAttention, "botId" | "sessionId">) => {
     const key = terminalAttentionKey(attention.botId, attention.sessionId);
     const sessions = pendingTerminalAcknowledgements.current.get(attention.botId);

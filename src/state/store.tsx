@@ -413,9 +413,21 @@ export function terminalAttentionCount(attention: TerminalAttentionMap): number 
 export function visibleMessages(bot: Pick<Bot, "messages" | "activeLeafId" | "hasMore">): Message[] {
   const leafId = bot.activeLeafId;
   if (!leafId) return bot.messages;
-  const byId = new Map(bot.messages.map((m) => [m.id, m]));
+  const hasMore = Boolean(bot.hasMore);
+  const cached = visibleCache.get(bot.messages);
+  if (cached?.leafId === leafId && cached.hasMore === hasMore) return cached.visible;
+  const visible = walkVisible(bot.messages, leafId, hasMore);
+  visibleCache.set(bot.messages, { leafId, hasMore, visible });
+  return visible;
+}
+
+// Shared across callers, so nobody may mutate the returned array.
+const visibleCache = new WeakMap<Message[], { leafId: string; hasMore: boolean; visible: Message[] }>();
+
+function walkVisible(messages: Message[], leafId: string, hasMore: boolean): Message[] {
+  const byId = new Map(messages.map((m) => [m.id, m]));
   // a paged leaf lives on an older page; the loaded rows may be another branch
-  if (!byId.has(leafId)) return bot.hasMore ? [] : bot.messages;
+  if (!byId.has(leafId)) return hasMore ? [] : messages;
   const path: Message[] = [];
   const seen = new Set<string>();
   let cur = byId.get(leafId);
@@ -443,17 +455,6 @@ function messageIsAncestor(messages: readonly Message[], childId: string, ancest
     current = byId.get(current.parentId);
   }
   return false;
-}
-
-/** All versions of a user message (itself + the forks that replaced it),
- * oldest first. Length 1 = never edited. */
-export function messageVersions(bot: Bot, message: Message): Message[] {
-  if (message.role !== "user" || message.kind !== "text") return [message];
-  return bot.messages
-    .filter(
-      (m) => m.role === "user" && m.kind === "text" && (m.parentId ?? null) === (message.parentId ?? null),
-    )
-    .sort((a, b) => a.at - b.at);
 }
 
 /** GET /api/config — configured flags only; secrets are never echoed. */
@@ -2144,6 +2145,8 @@ export function useStreaming() {
   return useContext(StreamContext);
 }
 
+const DispatchContext = createContext<React.Dispatch<Action> | null>(null);
+
 const StoreContext = createContext<{
   state: AppState;
   dispatch: React.Dispatch<Action>;
@@ -3585,7 +3588,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
   return (
     <StoreContext.Provider value={value}>
-      <StreamContext.Provider value={stream}>{children}</StreamContext.Provider>
+      <DispatchContext.Provider value={dispatch}>
+        <StreamContext.Provider value={stream}>{children}</StreamContext.Provider>
+      </DispatchContext.Provider>
     </StoreContext.Provider>
   );
 }
@@ -3596,11 +3601,31 @@ export function useStore() {
   return ctx;
 }
 
+/** dispatch alone: unlike useStore, it does not re-render on every state change. */
+export function useStoreDispatch() {
+  const dispatch = useContext(DispatchContext);
+  if (!dispatch) throw new Error("useStoreDispatch outside provider");
+  return dispatch;
+}
+
+const timeFormats = new Map<string, Intl.DateTimeFormat>();
+const zoneProbes = [new Date(Date.UTC(2026, 0, 15)), new Date(Date.UTC(2026, 6, 15))];
+let timeFormatsZone = "";
+
 export function formatTime(at: number, locale?: string) {
-  return new Date(at).toLocaleTimeString(locale || [], {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  // a formatter keeps the time zone it was built in
+  const zone = zoneProbes.map((d) => d.getTimezoneOffset()).join();
+  if (zone !== timeFormatsZone) {
+    timeFormats.clear();
+    timeFormatsZone = zone;
+  }
+  const key = locale || "";
+  let format = timeFormats.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale || [], { hour: "numeric", minute: "2-digit" });
+    timeFormats.set(key, format);
+  }
+  return format.format(at);
 }
 
 export function formatDateTime(at: number, locale?: string) {
