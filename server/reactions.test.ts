@@ -39,6 +39,13 @@ describe("reaction tone map", () => {
     expect(EXTENDED_REACTIONS).toEqual(expect.arrayContaining(["👍", "👎", "❤️", "😂", "🎉", "👀"]));
   });
 
+  it("offers OK hand instead of salute, which Windows 10 draws as a box", () => {
+    expect(EXTENDED_REACTIONS).toContain("👌");
+    expect(EXTENDED_REACTIONS).not.toContain("🫡");
+    expect(reactionTone("👌")).toBe("okay / sounds good");
+    expect(reactionTone("🫡")).toBe("respectful acknowledgment");
+  });
+
   it("maps the product tones and falls back for unknown emoticons", () => {
     expect(reactionTone("👍")).toBe("approve/proceed/positive");
     expect(reactionTone("👎")).toBe("reject/negative");

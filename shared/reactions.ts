@@ -4,7 +4,7 @@ export const PRIMARY_REACTIONS = ["👍", "👎", "❤️"] as const;
 
 export const EXTENDED_REACTIONS = [
   "👍", "👎", "❤️", "🔥", "🚀", "🧠",
-  "💡", "🫡", "💯", "❓", "‼️", "😂",
+  "💡", "👌", "💯", "❓", "‼️", "😂",
   "🤖", "🎯", "👀", "🤝", "⚡", "💎",
   "💀", "✨", "🎉", "☕",
 ] as const;
@@ -36,6 +36,8 @@ const TONE: Record<string, string> = {
   "💯": "strong agreement",
   "❓": "needs clarification",
   "‼️": "urgent / emphasize this",
+  "👌": "okay / sounds good",
+  // not offered (Windows 10 draws it as a box); older marks keep their tone
   "🫡": "respectful acknowledgment",
   "🤝": "agreement / let's collaborate",
   "⚡": "fast / high energy",
