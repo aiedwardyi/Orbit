@@ -29,7 +29,7 @@ import { effectiveDefaultResponder, groupResponseHint, responderControlLabel } f
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatOptionChips } from "./ChatOptionChips";
 import { AskUserRecord } from "./AskUserRecord";
-import { MemorySaveChip } from "./MemorySaveChip";
+import { MemorySaveChip, MemorySaveRun } from "./MemorySaveChip";
 import { PeerMessageBody, commLabel } from "./PeerMessage";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
 import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from "@/lib/focus-composer";
@@ -350,11 +350,15 @@ export const Transcript = memo(function Transcript({
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   // Several bots working at once turn a room into a wall of chips; fold the
   // finished ones the same way a 1:1 chat does.
-  const items = useMemo(
-    () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages, terminal),
-    [messages, streamingMessage, terminal],
-  );
   const { workerAt, open, toggle } = useWorkerRows(workers, messages);
+  const items = useMemo(
+    () => groupActivityRuns(
+      streamingMessage ? [...messages, streamingMessage] : messages,
+      terminal,
+      (m) => messageVisible(m, showToolCalls, showActivities) || Boolean(workerAt.get(m.id)),
+    ),
+    [messages, streamingMessage, terminal, showToolCalls, showActivities, workerAt],
+  );
   const rows = useMemo(
     () => roomTranscriptRows(items, { showToolCalls, showActivities, workerRows: new Set([...workerAt].filter(([, shown]) => shown).map(([id]) => id)) }),
     [items, showToolCalls, showActivities, workerAt],
@@ -383,7 +387,7 @@ export const Transcript = memo(function Transcript({
   const dockTargetId = dock
     ? items.reduce<string | null>(
         (target, item, i) =>
-          rows[i].visible && item.kind !== "run" && item.message.role === "bot" && item.message.kind === "text" ? item.message.id : target,
+          rows[i].visible && item.kind === "message" && item.message.role === "bot" && item.message.kind === "text" ? item.message.id : target,
         null,
       )
     : null;
@@ -391,12 +395,13 @@ export const Transcript = memo(function Transcript({
     <>
       {items.map((item, i) => {
         const { visible, newDay, cluster } = rows[i];
-        const found = item.kind === "run"
-          ? itemMatchesFind(item, findCurrent)
-          : item.message.kind === "activity" && itemMatchesFind(item, findCurrent);
+        const found = item.kind === "message"
+          ? item.message.kind === "activity" && itemMatchesFind(item, findCurrent)
+          : itemMatchesFind(item, findCurrent);
         if (!visible && !found) return null;
-        if (item.kind === "run") {
+        if (item.kind !== "message") {
           const first = item.messages[0];
+          const forceOpen = found || item.messages.some((step) => step.id === focusedId);
           return (
             <div key={item.id} className="contents" data-run={item.id} {...logLine(skin === "logfile", first.at, item.messages)}>
               {newDay && (
@@ -407,19 +412,29 @@ export const Transcript = memo(function Transcript({
               {first.from && cluster && (
                 <ClusterLabel bot={memberOf(first.from.botId)} name={first.from.name} color={first.from.color} />
               )}
-              <ActivityRun messages={item.messages} forceOpen={found || item.messages.some((step) => step.id === focusedId)}>
-                {item.messages
-                  .filter((step) => shownRunStep(step, { terminal, showActivities, findId: findCurrent, notices: item.notices?.get(step.id) }))
-                  .map((step) => (
-                  <div key={step.id} className="contents" data-mid={step.id} data-find-for={item.notices?.get(step.id)?.map((notice) => notice.message.id).join(" ") || undefined}>
-                    <RoomToolChip
-                      message={step}
-                      notices={item.notices?.get(step.id)}
-                      onRetry={onRetryFor(step.id)}
-                    />
-                  </div>
-                ))}
-              </ActivityRun>
+              {item.kind === "memory" ? (
+                <MemorySaveRun messages={item.messages} forceOpen={forceOpen}>
+                  {item.messages.map((step) => (
+                    <div key={step.id} className="contents" data-mid={step.id}>
+                      <RoomToolChip message={step} />
+                    </div>
+                  ))}
+                </MemorySaveRun>
+              ) : (
+                <ActivityRun messages={item.messages} forceOpen={forceOpen}>
+                  {item.messages
+                    .filter((step) => shownRunStep(step, { terminal, showActivities, findId: findCurrent, notices: item.notices?.get(step.id) }))
+                    .map((step) => (
+                    <div key={step.id} className="contents" data-mid={step.id} data-find-for={item.notices?.get(step.id)?.map((notice) => notice.message.id).join(" ") || undefined}>
+                      <RoomToolChip
+                        message={step}
+                        notices={item.notices?.get(step.id)}
+                        onRetry={onRetryFor(step.id)}
+                      />
+                    </div>
+                  ))}
+                </ActivityRun>
+              )}
             </div>
           );
         }

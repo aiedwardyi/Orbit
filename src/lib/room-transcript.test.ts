@@ -74,6 +74,17 @@ describe("roomTranscriptRows", () => {
     expect(result[2].cluster).toBe(true);
   });
 
+  it("shows a folded memory run as one row under its bot's label", () => {
+    const result = rows([
+      say("defense", "Here is the argument."),
+      step("challenge", "memory.save"),
+      step("challenge", "memory.save"),
+      say("challenge", "That misses the point."),
+    ]);
+    expect(result.map((row) => row.visible)).toEqual([true, true, true]);
+    expect(result.map((row) => row.cluster)).toEqual([true, true, false]);
+  });
+
   it("hides a failed webfetch storm while tool calls are hidden", () => {
     const messages = [
       say("challenge", "Searching."),

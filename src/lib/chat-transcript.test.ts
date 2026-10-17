@@ -76,6 +76,17 @@ describe("chatTranscriptRows", () => {
     expect(result.map((row) => row.newDay)).toEqual([true, true, false]);
   });
 
+  it("shows a folded memory run as one row, dated by its first save", () => {
+    const result = rows([
+      say("Late.", at(1, 23)),
+      step("memory.save", true, at(2, 0)),
+      step("memory.save", true, at(2, 0)),
+      say("Early.", at(2, 0)),
+    ]);
+    expect(result.map((row) => row.visible)).toEqual([true, true, true]);
+    expect(result.map((row) => row.newDay)).toEqual([true, true, false]);
+  });
+
   it("hides a failed webfetch storm while tool calls are hidden", () => {
     const messages = [
       say("Searching."),
