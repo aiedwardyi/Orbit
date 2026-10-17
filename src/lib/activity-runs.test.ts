@@ -209,6 +209,13 @@ describe("consecutive memory saves", () => {
     expect(items.map((item) => (item.kind === "memory" ? `memory:${item.messages.length}` : item.kind))).toEqual(["memory:2", "message", "memory:3"]);
   });
 
+  it("never folds a failed save, which splits the run as its own row", () => {
+    const failed = tool("memory.save", false);
+    const items = groupActivityRuns([save(), save(), failed, save(), save()]);
+    expect(items.map((item) => (item.kind === "memory" ? `memory:${item.messages.length}` : item.kind))).toEqual(["memory:2", "message", "memory:2"]);
+    expect(items[1].kind === "message" && items[1].message).toBe(failed);
+  });
+
   it("does not fold saves the chat shows as nothing", () => {
     expect(kinds(groupActivityRuns([save(), save(), save()], false, () => false))).toEqual(["message", "message", "message"]);
   });
