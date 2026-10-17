@@ -204,6 +204,18 @@ describe("file link menu", () => {
     assert.deepEqual(asked, [path.join(dir, "report.pdf"), path.join(dir, "report.pdf")]);
   });
 
+  it("copies nothing onto the file itself under another spelling", async () => {
+    const p = file("same.pdf");
+    const copies = [];
+    const fsp = { ...fs.promises, copyFile: async (...args) => copies.push(args) };
+    for (const dest of [p, process.platform === "win32" ? p.toUpperCase() : p]) {
+      const { calls, menu } = menuFor(p, { fsp, dialog: { showSaveDialog: async () => ({ canceled: false, filePath: dest }) } });
+      await click(await menu, "native.saveCopy");
+      assert.deepEqual(calls, []);
+    }
+    assert.deepEqual(copies, []);
+  });
+
   it("reports a failed copy instead of throwing", async () => {
     const p = file("locked.pdf");
     const dest = path.join(dir, "no-such-folder", "locked.pdf");

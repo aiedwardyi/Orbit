@@ -547,6 +547,7 @@ describe("relative file links", () => {
     it("says why when the file is rejected", async () => {
       const fileMenu = vi.fn().mockRejectedValue(new Error("That file no longer exists"));
       const result = await rightClick({ fileMenu }, "[gone](gone.py)", "/p");
+      expect(result.prevented).toBe(true);
       expect(result.text).toContain("That file no longer exists");
     });
   });

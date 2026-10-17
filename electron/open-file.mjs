@@ -50,10 +50,11 @@ export async function openLocalFile(rawPath, { shell, ...options }) {
   return action;
 }
 
-// The save dialog confirms before overwriting. Picking the file itself copies nothing.
+// The save dialog confirms before overwriting. Picking the file itself copies
+// nothing; realpath catches it under another case or a short 8.3 name too.
 export async function saveFileCopy(filePath, { dialog, downloads, window, fsp = fs.promises }) {
   const { canceled, filePath: dest } = await dialog.showSaveDialog(window, { defaultPath: path.join(downloads, path.basename(filePath)) });
-  if (canceled || !dest || path.resolve(dest) === filePath) return false;
+  if (canceled || !dest || (await fsp.realpath(dest).catch(() => null)) === filePath) return false;
   await fsp.copyFile(filePath, dest);
   return true;
 }
