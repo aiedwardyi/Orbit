@@ -383,13 +383,12 @@ describe("task state clipping", () => {
     const result = submit({
       goal: "g".repeat(501),
       blockers: [{ kind: "input", note: "b".repeat(301) }],
-      artifacts: [{ ref: "r".repeat(501), label: "l".repeat(201) }],
+      artifacts: [{ ref: "brief.md", label: "l".repeat(201) }],
     });
     expect(result).not.toHaveProperty("error");
     expect(result.clipped).toEqual([
       "goal (501 > 500)",
       "blockers.0.note (301 > 300)",
-      "artifacts.0.ref (501 > 500)",
       "artifacts.0.label (201 > 200)",
     ]);
   });
@@ -404,6 +403,59 @@ describe("task state clipping", () => {
     expect(exact.saved?.goal).toBe("g".repeat(500));
     expect(exact.clipped).toEqual([]);
     expect(submit({ goal: `${"a".repeat(498)}😀😀` }).saved?.goal).toBe(`${"a".repeat(498)}…`);
+  });
+
+  it("cuts before a drive path instead of inside it", () => {
+    const step = "Read C:\\work\\" + "release\\".repeat(23) + "report.md";
+    expect(step.length).toBe(206);
+    const result = submit({ plan: [{ step, status: "active" }] });
+    expect(result.saved?.plan?.[0]?.step).toBe("Read…");
+    expect(result.clipped).toEqual(["plan.0.step (206 > 200)"]);
+  });
+
+  it("keeps no part of a spaced Windows path cut anywhere inside", () => {
+    const path = "C:\\Program Files\\Wink\\resources\\app.asar";
+    for (const prefixLen of [160, 170, 180]) {
+      const prefix = "p".repeat(prefixLen);
+      const result = submit({ plan: [{ step: `${prefix} Open ${path} now`, status: "pending" }] });
+      expect(result.saved?.plan?.[0]?.step).toBe(`${prefix} Open…`);
+    }
+  });
+
+  it("keeps no part of a forward-slash path cut inside", () => {
+    const path = "./src/components/" + "sub/".repeat(10) + "ChatView.tsx";
+    const prefix = "q".repeat(150);
+    const result = submit({ plan: [{ step: `${prefix} see ${path}`, status: "pending" }] });
+    expect(result.saved?.plan?.[0]?.step).toBe(`${prefix} see…`);
+  });
+
+  it("keeps a path that fits whole before the cut", () => {
+    const path = "C:\\Program Files\\Wink\\resources\\app.asar";
+    const result = submit({ plan: [{ step: `Open ${path} ${"word ".repeat(50)}`, status: "pending" }] });
+    const saved = result.saved?.plan?.[0]?.step ?? "";
+    expect(saved).toContain(path);
+    expect(saved.endsWith("…")).toBe(true);
+  });
+
+  it("clips Korean with no path at a word boundary", () => {
+    const result = submit({ next_action: "확인 ".repeat(120) });
+    const saved = result.saved?.next_action ?? "";
+    expect(saved.length).toBeLessThanOrEqual(300);
+    expect(saved.endsWith("…")).toBe(true);
+    expect(saved).toContain("확인");
+    expect(saved).not.toContain("  ");
+  });
+
+  it("drops an over-limit artifact ref whole", () => {
+    const ref = "r".repeat(501);
+    const result = submit({ artifacts: [{ ref, label: "Brief" }] });
+    expect(result).not.toHaveProperty("error");
+    expect(result.clipped).toEqual([]);
+    expect(result.kept).toEqual([]);
+    expect(result.dropped).toEqual([ref]);
+    expect(taskStateNotice(result.clipped, result.dropped, cwd)).toBe(
+      `Dropped artifacts that are not files inside ${cwd}: ${ref}.`,
+    );
   });
 
   it("still rejects what clipping does not cover", () => {
