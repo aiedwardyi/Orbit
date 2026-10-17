@@ -57,6 +57,44 @@ describe("WorkerRow", () => {
     expect(markup).not.toContain("lucide-scroll-text");
   });
 
+  it("shows the effort next to the model", async () => {
+    applyLocale("en");
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(WorkerRow, { run: run("SETTINGS-LIST | Muse 1.3 | max"), state: "working", live: null })));
+    expect(host.textContent).toContain("Muse 1.3 · Max");
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("shows no effort for a script run", async () => {
+    applyLocale("en");
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(WorkerRow, { run: run("LANE-189A | script | -"), state: "working", live: null })));
+    expect(host.textContent).toContain("LANE-189A");
+    expect(host.textContent).not.toContain("·");
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it("shows the effort in Korean", async () => {
+    applyLocale("ko");
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(WorkerRow, { run: run("SETTINGS-LIST | Muse 1.3 | max"), state: "working", live: null })));
+      expect(host.textContent).toContain("Muse 1.3 · 최대");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      applyLocale("en");
+    }
+  });
+
   it.each([
     ["done", true, "Ran in C:\\repo"],
     ["failed", true, "Ran in C:\\repo"],
@@ -213,7 +251,7 @@ describe("WorkerChip", () => {
       expect(list.getAttribute("aria-labelledby")).toBe(list.querySelector("h2")?.id);
       expect(list.querySelector("h2")?.textContent).toBe("Ada's workers");
       expect([...list.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
-        "WAITOpus 5.5‖Waiting", "SHIPOpus 5.5!Failed", "COPYOpus 5.5✓Done",
+        "WAITOpus 5.5 · High‖Waiting", "SHIPOpus 5.5 · High!Failed", "COPYOpus 5.5 · High✓Done",
       ]);
       const entry = [...list.querySelectorAll("button")].find((button) => button.textContent?.includes("COPY"))!;
       await act(async () => entry.click());
@@ -236,8 +274,19 @@ describe("WorkerChip", () => {
       expect([...host.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")].map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "working"]);
       await act(async () => chip()!.click());
       expect([...host.querySelectorAll("[data-worker-list] li")].map((li) => li.textContent)).toEqual([
-        "WAITOpus 5.5‖Waiting", "WORKOpus 5.5●Working",
+        "WAITOpus 5.5 · High‖Waiting", "WORKOpus 5.5 · High●Working",
       ]);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("shows the effort next to the model in the list", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const { host, chip, unmount } = await mount([{ run: run("SETTINGS-LIST | Muse 1.3 | max"), state: "working" }], { livePanes: null });
+    try {
+      await act(async () => chip()!.click());
+      expect(host.querySelector("[data-worker-list] li")!.textContent).toContain("Muse 1.3 · Max");
     } finally {
       await unmount();
     }
@@ -305,7 +354,7 @@ describe("WorkerChip", () => {
       await act(async () => chip()!.click());
       const list = host.querySelector("[data-worker-list]")!;
       expect([...list.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
-        "REL-CHAIN-166script‖Waiting", "AGrok 4.7●Working",
+        "REL-CHAIN-166script‖Waiting", "AGrok 4.7 · High●Working",
       ]);
       const marks = [...list.querySelectorAll("svg")];
       expect(marks.map((svg) => svg.classList.contains("lucide-scroll-text"))).toEqual([true, false]);
@@ -330,7 +379,7 @@ describe("WorkerChip", () => {
       await act(async () => chip()!.click());
       const list = document.body.querySelector("[data-worker-list]")!;
       expect(list.querySelectorAll("li")).toHaveLength(1);
-      expect(list.querySelector("li")!.textContent).toBe("CHAIN-GP2Opus 5.5‖Waiting");
+      expect(list.querySelector("li")!.textContent).toBe("CHAIN-GP2Opus 5.5 · High‖Waiting");
       await act(async () => list.querySelector<HTMLButtonElement>("li > button")!.click());
       expect(onOpen).toHaveBeenCalledExactlyOnceWith("aaaaaaaa-1");
       await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: null })));

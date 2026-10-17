@@ -4,6 +4,7 @@ import { Bot, ChevronRight, ScrollText, X } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
+import { chipEffortLabel, chipEffortShortLabel } from "@/lib/model-chip";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
 import { isPhone, PHONE_QUERY } from "@/lib/phone-swipe";
 import type { Message } from "@/state/store";
@@ -60,12 +61,20 @@ function WorkerStatus({ state }: { state: WorkerShownState }) {
 }
 
 function WorkerLine({ run, state }: ShownRun) {
+  const { t } = useI18n();
+  const effort = run.model && run.effort ? chipEffortLabel(run.effort, t) : "";
+  const short = run.model && run.effort ? chipEffortShortLabel(run.effort, t) : "";
   return (
     <>
       <WorkerMark provider={run.provider} />
       <span className="flex min-w-0 flex-1 items-baseline gap-2">
         <span className="truncate font-medium text-ink">{run.nick}</span>
-        {run.model && <span className="shrink-0 text-ink-secondary">{run.model}</span>}
+        {run.model && (
+          <span className="shrink-0 whitespace-nowrap text-ink-secondary">
+            {run.model}
+            {effort && <> · {short === effort ? effort : (<><span className="max-md:hidden">{effort}</span><span className="md:hidden">{short}</span></>)}</>}
+          </span>
+        )}
       </span>
       <WorkerStatus state={state} />
     </>

@@ -12,6 +12,8 @@ export type WorkerRun = {
   nick: string;
   /** The MODEL part of a `NICK | MODEL | EFFORT` label. */
   model: string | null;
+  /** The EFFORT part, lowercased; null when the label names no known effort. */
+  effort: string | null;
   /** A ProviderMark driver kind, "script", or null when the model names no known provider. */
   provider: string | null;
   state: WorkerState;
@@ -43,9 +45,19 @@ export function workerProvider(model: string | null): string | null {
   return PROVIDERS.find(([pattern]) => pattern.test(model))?.[1] ?? null;
 }
 
+const EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
+
+/** Third label part, lowercased; `extra high` in any spelling reads as `xhigh`. */
+function normalizeEffort(part: string | undefined): string | null {
+  const cleaned = (part ?? "").trim().toLowerCase();
+  const compact = cleaned.replace(/[\s-]+/g, "");
+  const id = compact === "extrahigh" || compact === "xhigh" ? "xhigh" : cleaned;
+  return EFFORTS.has(id) ? id : null;
+}
+
 export function parseWorkerLabel(label: string | null | undefined) {
-  const [nick, model] = (label ?? "").split("|").map((part) => part.trim());
-  return { nick: nick || null, model: model || null };
+  const [nick, model, effort] = (label ?? "").split("|").map((part) => part.trim());
+  return { nick: nick || null, model: model || null, effort: normalizeEffort(effort) };
 }
 
 const URGENCY = { waiting: 0, failed: 1, working: 2, done: 3, ended: 4 } satisfies Record<WorkerShownState, number>;
@@ -88,10 +100,10 @@ export function listedRuns(runs: readonly ShownLike[], livePanes: ReadonlySet<st
   for (const sessionId of livePanes) {
     if (claimed.has(sessionId)) continue;
     const pane8 = sessionId.slice(0, 8);
-    const { nick, model } = parseWorkerLabel(labels?.get(sessionId));
+    const { nick, model, effort } = parseWorkerLabel(labels?.get(sessionId));
     listed.push({
       state: "working",
-      run: { id: `pane:${sessionId}`, nick: nick ?? pane8, model, provider: workerProvider(model), state: "working", at: Number.MAX_SAFE_INTEGER, latest: { at: 0, index: 0 }, pane8, sessionId, folder: null, botId: null, messageIds: [], notes: [] },
+      run: { id: `pane:${sessionId}`, nick: nick ?? pane8, model, effort, provider: workerProvider(model), state: "working", at: Number.MAX_SAFE_INTEGER, latest: { at: 0, index: 0 }, pane8, sessionId, folder: null, botId: null, messageIds: [], notes: [] },
     });
   }
   return listed.sort(byUrgency);
@@ -162,12 +174,12 @@ export function workerRuns(messages: readonly WorkerMessage[], older: readonly W
       const field = (name: string) => details.find((line) => line.startsWith(`${name}: `))?.slice(name.length + 2).trim() || null;
       const resumed = header.startsWith("Resumed ");
       const label = field("Label") ?? header.replace(/^(?:Launched|Resumed) /, "");
-      const { nick, model } = parseWorkerLabel(label);
+      const { nick, model, effort } = parseWorkerLabel(label);
       const sessionId = field("Session");
       const pane8 = sessionId?.slice(0, 8) ?? null;
       const name = nick ?? pane8 ?? "pane";
       const key = pane8 ? `${botId ?? ""}:${pane8}:${name.toLowerCase()}` : message.id;
-      const run = add(key, { nick: name, model, provider: workerProvider(model), at: message.at, pane8, sessionId, folder: field("Working folder"), botId }, index);
+      const run = add(key, { nick: name, model, effort, provider: workerProvider(model), at: message.at, pane8, sessionId, folder: field("Working folder"), botId }, index);
       run.sessionId ??= sessionId;
       run.folder ??= field("Working folder");
       // A follow-up is not a leading launch, so the row stays where it is.
@@ -194,7 +206,7 @@ export function workerRuns(messages: readonly WorkerMessage[], older: readonly W
     // A restart note lists several dead panes, so it is Wink's own row, not its first pane's.
     const nick = note.alert?.kind === "restarted" ? "Wink" : note.nick ?? (paneRun.get(`${botId ?? ""}:${note.pane8}`)?.nick || labelled.nick || note.pane8);
     const key = `${botId ?? ""}:${note.pane8}:${nick.toLowerCase()}`;
-    const run = add(key, { nick, model: labelled.model, provider: workerProvider(labelled.model), at: message.at, pane8: note.pane8, sessionId: null, folder: null, botId }, index);
+    const run = add(key, { nick, model: labelled.model, effort: labelled.effort, provider: workerProvider(labelled.model), at: message.at, pane8: note.pane8, sessionId: null, folder: null, botId }, index);
     run.messageIds.push(message.id);
     run.notes.push({ id: message.id, at: message.at, note });
     events.get(run)!.push({ at: message.at, index, state: noteState(note) });
