@@ -257,9 +257,34 @@ describe("workerRuns", () => {
 
 describe("parseWorkerLabel", () => {
   it("splits nickname and model", () => {
-    expect(parseWorkerLabel("NICK | Fable 5.1 | high")).toEqual({ nick: "NICK", model: "Fable 5.1" });
-    expect(parseWorkerLabel("NICK")).toEqual({ nick: "NICK", model: null });
-    expect(parseWorkerLabel(null)).toEqual({ nick: null, model: null });
+    expect(parseWorkerLabel("NICK | Fable 5.1 | high")).toEqual({ nick: "NICK", model: "Fable 5.1", effort: "high" });
+    expect(parseWorkerLabel("NICK")).toEqual({ nick: "NICK", model: null, effort: null });
+    expect(parseWorkerLabel(null)).toEqual({ nick: null, model: null, effort: null });
+  });
+
+  it.each([
+    ["SETTINGS-LIST | Muse 1.3 | max", "max"],
+    ["A | Opus 5.5 | high", "high"],
+    ["A | Opus 5.5 | HIGH", "high"],
+    ["A | Opus 5.5 | Max", "max"],
+    ["A | Opus 5.5 | minimal", "minimal"],
+    ["A | Opus 5.5 | low", "low"],
+    ["A | Opus 5.5 | medium", "medium"],
+    ["A | Opus 5.5 | Extra High", "xhigh"],
+    ["A | Opus 5.5 | extra-high", "xhigh"],
+    ["A | Opus 5.5 | x-high", "xhigh"],
+  ])("reads the effort of %s as %s", (label, effort) => {
+    expect(parseWorkerLabel(label).effort).toBe(effort);
+  });
+
+  it.each([
+    "LANE-189A | script | -",
+    "A | Opus 5.5 | ",
+    "A | Opus 5.5",
+    "A | Opus 5.5 | turbo",
+    "NICK",
+  ])("reads no effort from %s", (label) => {
+    expect(parseWorkerLabel(label).effort).toBeNull();
   });
 });
 
