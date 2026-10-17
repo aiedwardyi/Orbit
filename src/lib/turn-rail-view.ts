@@ -32,8 +32,9 @@ export interface TurnRail {
 }
 
 type Spring = { x: number; v: number; to: number };
-type Mode = "idle" | "rail" | "card" | "drag" | "open" | "key";
+type Mode = "idle" | "rail" | "card" | "drag" | "open" | "key" | "grab";
 type Touch = { id: number; x0: number; y0: number; s0: number; t0: number; axis: "" | "x" | "y"; stop: boolean; pts: [number, number, number][] };
+type Grip = { y0: number; ly: number; st0: number; wrote: number; shift: number; speed: number; th: number; top0: number; top: number; mark0: number; done: boolean };
 
 const clamp = (x: number, a: number, b: number) => (x < a ? a : x > b ? b : x);
 const spring = (x = 0): Spring => ({ x, v: 0, to: x });
@@ -62,6 +63,8 @@ const RETRY_MS = 10_000;
 const INTENT_MS = 80;
 const INTENT_PX = 6;
 const GUARD_MS = 300;
+const GRAB_PX = 12;
+const THUMB_MIN = 18;
 const KEY_STEP = new Map([["ArrowUp", -1], ["ArrowDown", 1], ["PageUp", -VISIBLE], ["PageDown", VISIBLE]]);
 const WARM_FRAMES = 9;
 let warmed = false;
@@ -95,13 +98,14 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   const canvas = document.createElement("canvas");
   const hereEl = div("turn-rail-here");
   const curEl = div("turn-rail-cur");
+  const thumbEl = div("turn-rail-thumb");
   const card = div("turn-card rounded-xl");
   const win = div("turn-card-win");
   const band = div("turn-card-band rounded");
   const strip = div("turn-card-strip");
   const heads = div("turn-card-heads");
   lensEl.append(canvas);
-  vis.append(lensEl, hereEl, curEl);
+  vis.append(lensEl, hereEl, curEl, thumbEl);
   win.append(band, strip);
   card.append(win, heads);
   host.append(hit, vis, card);
@@ -189,7 +193,13 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   let here = -1;
   let rest: HTMLCanvasElement | null = null;
   let drawn = "";
+  const gz = spring();
+  let grip: Grip | null = null;
+  let zy: Float32Array | null = null;
+  let zin: Uint8Array | null = null;
+  let zmaps = 0;
   const disp = (p: number) => lensOut(p, center, R, zoom);
+  const onMark = (y: number) => n > 0 && here >= 0 && Math.abs(y - disp(hereY.x)) <= GRAB_PX;
 
   function pick() {
     const t = railPick(py, G.h, pos, center, R, zoom);
@@ -283,6 +293,23 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   function drawLens() {
     if (!ctx || !rest) return;
     const dpr = window.devicePixelRatio || 1;
+    if (grip && zy && zin) {
+      const z = gz.x;
+      const key = `grab:${zmaps}:${z.toFixed(4)}`;
+      if (key === drawn) return;
+      drawn = key;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = ink;
+      for (let t = 0; t < n; t++) {
+        if (!zin[t] && t % stride) continue;
+        const y = Math.round((pos[t]! + (zy[t]! - pos[t]!) * z) * dpr) / dpr;
+        const w = TICK_W * REST * (1 + (zin[t] ? 0.6 : -1) * z);
+        if (w > 0.05 && y >= 0 && y <= G.h) ctx.fillRect(LENS_W - w, y, w, 1);
+      }
+      return;
+    }
     const zoomed = zoom >= 0.002 && n > 0;
     const lo = center - R;
     const hi = center + R;
@@ -323,6 +350,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     busy = step(amp, 18, dt) || busy;
     busy = step(hereY, 18, dt, 0.05) || busy;
     busy = step(curY, 40, dt, 0.05) || busy;
+    busy = step(gz, 28, dt) || busy;
     if (now - lastMove > 45) speed *= Math.exp(-dt / 0.07);
     let glide = false;
     if (on && ext >= 0 && n) {
@@ -357,9 +385,21 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     const w = Math.max(wake.x, amp.x);
     lensEl.style.opacity = (0.3 + 0.55 * w).toFixed(3);
     lensEl.style.transform = `scaleX(${(1 + 0.6 * w).toFixed(3)})`;
+    if (grip?.done && gz.x < 0.001) dropGrip();
     drawLens();
-    hereEl.style.opacity = (0.55 + 0.45 * w).toFixed(3);
+    const markOp = 0.55 + 0.45 * w;
+    hereEl.style.opacity = grip ? "0" : markOp.toFixed(3);
     hereEl.style.transform = `translate3d(0,${disp(hereY.x).toFixed(2)}px,0)`;
+    if (grip) {
+      const z = gz.x;
+      // held, the mark rides with the thumb; let go, the thumb shrinks back onto the mark
+      const m = grip.done ? disp(hereY.x) : grip.mark0 + grip.top - grip.top0;
+      const top = m - 6 + (grip.top - m + 6) * z;
+      const h = 12 + (grip.th - 12) * z;
+      thumbEl.style.visibility = "visible";
+      thumbEl.style.opacity = (markOp + (0.95 - markOp) * z).toFixed(3);
+      thumbEl.style.transform = `translate3d(0,${top.toFixed(2)}px,0) scale(${(0.6 + 0.4 * z).toFixed(3)},${(h / 100).toFixed(4)})`;
+    }
     curEl.style.opacity = (n ? amp.x : 0).toFixed(3);
     curEl.style.transform = `translate3d(0,${disp(curY.x).toFixed(2)}px,0)`;
     const settling = Math.abs(zoom - z0) > 1e-4 || (on && ext < 0 && !locked && n > 0) || speed > 0.002 || glide;
@@ -938,6 +978,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     clearTimeout(leaveTimer);
     clearTimeout(intentTimer);
     intentTimer = 0;
+    if (grip) dropGrip();
     mode = "idle";
     dragId = null;
     cardClose();
@@ -972,17 +1013,107 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     clearTimeout(intentTimer);
     intentTimer = window.setTimeout(railIntent, INTENT_MS);
   }
+  // Zoom grab: held, the rail maps the mounted rows as the scrollbar would, so the chat moves at the bar's pace.
+  function grab(e: PointerEvent) {
+    try {
+      hit.setPointerCapture(e.pointerId);
+    } catch {
+      /* the pointer is already gone */
+    }
+    clearTimeout(leaveTimer);
+    clearTimeout(intentTimer);
+    intentTimer = 0;
+    cardClose();
+    lensLeave();
+    dragId = e.pointerId;
+    mode = "grab";
+    hit.classList.add("grabbing");
+    const sH = scroller.scrollHeight;
+    const ch = scroller.clientHeight;
+    const st = scroller.scrollTop;
+    const th = clamp((G.h * ch) / Math.max(1, sH), THUMB_MIN, G.h);
+    const mark0 = disp(hereY.x);
+    const top0 = clamp(mark0 - th / 2, 0, G.h - th);
+    grip = { y0: e.clientY, ly: e.clientY, st0: st, wrote: st, shift: 0, speed: Math.max(0, sH - ch) / Math.max(1, G.h - th), th, top0, top: top0, mark0, done: false };
+    zoomMap();
+    gz.to = 1;
+    kick();
+  }
+  // Mounted turns at their scroll offsets, the chat's top level with the thumb's; the rest slide off the ends.
+  function zoomMap() {
+    const g = grip!;
+    if (!idIndex) idIndex = new Map(turns!.ids.map((id, t) => [id, t]));
+    const k = G.h / Math.max(1, scroller.scrollHeight);
+    const origin = scroller.getBoundingClientRect().top - scroller.scrollTop;
+    const t0 = g.top - scroller.scrollTop * k;
+    const y = new Float32Array(n);
+    const inside = new Uint8Array(n);
+    let first = n;
+    for (const row of scroller.querySelectorAll<HTMLElement>("[data-mid]")) {
+      const t = idIndex.get(row.dataset.mid!) ?? -1;
+      if (t < 0) continue;
+      y[t] = t0 + ((row.firstElementChild ?? row).getBoundingClientRect().top - origin) * k;
+      inside[t] = 1;
+      first = Math.min(first, t);
+    }
+    for (let t = 0; t < n; t++) if (!inside[t]) y[t] = t < first ? t0 - 8 : t0 + G.h + 8;
+    zy = y;
+    zin = inside;
+    zmaps++;
+  }
+  function grabMove(clientY: number) {
+    const g = grip!;
+    // a page landed above or the wheel moved the chat: fold it into the drag's base so the thumb stays under the pointer
+    if (Math.abs(scroller.scrollTop - g.wrote) > 1) {
+      g.shift = scroller.scrollTop - (g.st0 + (g.ly - g.y0) * g.speed);
+      zoomMap();
+    }
+    g.ly = clientY;
+    const dy = clientY - g.y0;
+    g.top = clamp(g.top0 + dy, 0, G.h - g.th);
+    const from = scroller.scrollTop;
+    const st = clamp(g.st0 + dy * g.speed + g.shift, 0, scroller.scrollHeight - scroller.clientHeight);
+    if (st !== from) {
+      scroller.scrollTop = st;
+      hooks.wheel(st - from);
+    }
+    g.wrote = scroller.scrollTop;
+    kick();
+  }
+  function letGo() {
+    grip!.done = true;
+    mode = "idle";
+    dragId = null;
+    hit.classList.remove("grabbing");
+    gz.to = 0;
+    kick();
+  }
+  function dropGrip() {
+    grip = null;
+    zy = zin = null;
+    drawn = "";
+    snap(gz, 0);
+    thumbEl.style.visibility = "hidden";
+    hit.classList.remove("grabbing");
+  }
+
   const onHitEnter = (e: PointerEvent) => {
-    if (e.pointerType !== "mouse") return;
+    if (e.pointerType !== "mouse" || mode === "grab") return;
     refreshBox();
     py = clamp(pointY(e), 0, G.h);
+    hit.classList.toggle("grab", onMark(pointY(e)));
     if (!live) return aim(e);
     mode = "rail";
     if (approach()) railOpen(pointY(e), e.timeStamp);
   };
   const onHitMove = (e: PointerEvent) => {
+    if (mode === "grab") {
+      if (e.pointerId === dragId) grabMove(e.clientY);
+      return;
+    }
     if (e.pointerType === "mouse") {
       py = clamp(pointY(e), 0, G.h);
+      hit.classList.toggle("grab", onMark(pointY(e)));
       if (mode !== "rail" && !live) return aim(e);
       if (!n) return;
       if (mode === "rail") railMove(pointY(e), e.timeStamp);
@@ -1003,7 +1134,10 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   };
   const onHitDown = (e: PointerEvent) => {
     lastPT = e.pointerType;
-    if (e.pointerType === "mouse") return;
+    if (e.pointerType === "mouse") {
+      if (e.button === 0 && mode !== "grab" && onMark(pointY(e))) grab(e);
+      return;
+    }
     e.preventDefault();
     refreshBox();
     try {
@@ -1019,6 +1153,13 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   // Lift: the card stays open on that turn and the chat does not move yet.
   const onHitUp = (e: PointerEvent) => {
     if (e.pointerId !== dragId) return;
+    if (mode === "grab") {
+      letGo();
+      hit.classList.toggle("grab", onMark(pointY(e)));
+      // the release's click neither opens the card nor jumps
+      swallowAt = e.timeStamp;
+      return;
+    }
     dragId = null;
     if (!n || !live) {
       closeAll();
@@ -1032,7 +1173,9 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     kick();
   };
   const onHitCancel = (e: PointerEvent) => {
-    if (e.pointerId === dragId) closeAll();
+    if (e.pointerId !== dragId) return;
+    if (mode === "grab") letGo();
+    else closeAll();
   };
   // A click just after the card opens was likely meant for what lay under it.
   const onHitClick = () => {

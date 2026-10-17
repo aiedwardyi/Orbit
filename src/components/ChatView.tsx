@@ -2399,6 +2399,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
       <div
         ref={scrollRef}
         data-orbit-transcript
+        data-rail-bar={railShown || undefined}
         className="isolate min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
         style={{ overflowAnchor: follow ? "none" : "auto" }}
         onWheel={(e) => followWheel(e.deltaY)}

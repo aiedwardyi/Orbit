@@ -169,3 +169,118 @@ describe("hover intent", () => {
     ui.rail.destroy();
   });
 });
+
+describe("zoom grab", () => {
+  async function mount() {
+    vi.useFakeTimers();
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(1000);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(800);
+    const zone = document.createElement("div");
+    const scroller = document.createElement("div");
+    const host = document.createElement("div");
+    zone.append(scroller, host);
+    document.body.append(zone);
+    const chat = { top: 12_000, height: 20_000 };
+    Object.defineProperty(scroller, "scrollHeight", { get: () => chat.height });
+    Object.defineProperty(scroller, "scrollTop", { get: () => chat.top, set: (v: number) => (chat.top = v) });
+    const times = Array.from({ length: 40 }, (_, t) => at(16, 0) + t * 600_000);
+    const turns: Turns = { ids: times.map((_, t) => `m${t}`), at: times, words: times.map((_, t) => `turn ${t}`), first: "m0", version: 1, stale: false, seen: { count: 0 } };
+    const jumps: string[] = [];
+    const rail = createTurnRail(host, scroller, {
+      turns: async () => turns,
+      catchUp: () => false,
+      jump: (id) => jumps.push(id),
+      latest: () => jumps.push("latest"),
+      wheel() {},
+      day: () => "day",
+      time: () => "00:00",
+      label: () => "",
+      valueText: () => "",
+    });
+    rail.setThread("t");
+    rail.setEnabled(true);
+    await vi.advanceTimersByTimeAsync(50);
+    const strip = host.querySelector<HTMLElement>("[data-turn-rail-strip]")!;
+    const card = host.querySelector<HTMLElement>("[data-turn-card]")!;
+    zone.dispatchEvent(new PointerEvent("pointermove", { pointerType: "mouse", clientX: 980, clientY: 400 }));
+    await vi.advanceTimersByTimeAsync(50);
+    expect(strip.getAttribute("aria-valuemax")).toBe("40");
+    const mouse = (type: string, clientY: number) => strip.dispatchEvent(new PointerEvent(type, { pointerType: "mouse", pointerId: 1, clientX: 985, clientY }));
+    // following, the mark sits on the latest turn at the rail's foot: rail y 768, client y 784
+    return { rail, strip, card, chat, jumps, mouse };
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it("grabs on a press within 12 px of the mark, with a grab cursor, and not elsewhere", async () => {
+    const ui = await mount();
+    ui.mouse("pointerenter", 784 - 11);
+    expect(ui.strip.classList.contains("grab")).toBe(true);
+    ui.mouse("pointermove", 784 - 14);
+    expect(ui.strip.classList.contains("grab")).toBe(false);
+    ui.mouse("pointerdown", 784 - 14);
+    expect(ui.strip.classList.contains("grabbing")).toBe(false);
+    ui.mouse("pointerup", 784 - 14);
+
+    ui.mouse("pointermove", 784 - 11);
+    ui.mouse("pointerdown", 784 - 11);
+    expect(ui.strip.classList.contains("grabbing")).toBe(true);
+    expect(ui.chat.top).toBe(12_000);
+    ui.mouse("pointerup", 784 - 11);
+    expect(ui.strip.classList.contains("grabbing")).toBe(false);
+    ui.rail.destroy();
+  });
+
+  it("moves the chat at the scrollbar's pace over the mounted rows while held", async () => {
+    const ui = await mount();
+    ui.mouse("pointerenter", 784);
+    ui.mouse("pointerdown", 784);
+    // thumb 768 * 800 / 20000 = 30.72 px, so 19200 px of chat over 737.28 px of track
+    const pace = 19_200 / (768 - 30.72);
+    ui.mouse("pointermove", 734);
+    expect(ui.chat.top).toBeCloseTo(12_000 - 50 * pace, 3);
+    ui.mouse("pointermove", 584);
+    expect(ui.chat.top).toBeCloseTo(12_000 - 200 * pace, 3);
+    ui.mouse("pointerup", 584);
+    ui.rail.destroy();
+  });
+
+  it("folds a page that lands mid-drag into the drag's base", async () => {
+    const ui = await mount();
+    ui.mouse("pointerenter", 784);
+    ui.mouse("pointerdown", 784);
+    const pace = 19_200 / (768 - 30.72);
+    ui.mouse("pointermove", 684);
+    const before = ui.chat.top;
+    // an older page lands above and anchoring keeps the rows in view
+    ui.chat.height += 6_000;
+    ui.chat.top += 6_000;
+    ui.mouse("pointermove", 634);
+    expect(ui.chat.top).toBeCloseTo(before + 6_000 - 50 * pace, 3);
+    ui.mouse("pointerup", 634);
+    ui.rail.destroy();
+  });
+
+  it("moves nothing on the press or the release, and the release neither opens the card nor jumps", async () => {
+    const ui = await mount();
+    ui.mouse("pointerenter", 784);
+    ui.mouse("pointerdown", 784);
+    expect(ui.chat.top).toBe(12_000);
+    ui.mouse("pointermove", 700);
+    const held = ui.chat.top;
+    expect(held).toBeLessThan(12_000);
+    ui.mouse("pointerup", 700);
+    ui.strip.click();
+    expect(ui.chat.top).toBe(held);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(ui.chat.top).toBe(held);
+    expect(ui.card.classList.contains("live")).toBe(false);
+    expect(ui.jumps).toEqual([]);
+    ui.rail.destroy();
+  });
+});
