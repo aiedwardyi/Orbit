@@ -157,7 +157,7 @@ import { turnIndex } from "./turn-index.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript, userTurnReactionKeys } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, finishDelegatedTurn, pendingDelegationSnapshot, pollDelegation, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
-import { onPeerTakeover, takeOverPeerTurn } from "./peer-takeover.ts";
+import { onPeerTakeover, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
 import { waitForPeerReply, type AskReply } from "./ask-bot.ts";
 import {
   cancelQueuedRoomParticipations,
@@ -694,6 +694,9 @@ function controlIntegration(botId: string) {
  * person is sitting in the conversation that asked — which shows "Messaged
  * @X" and nothing else until it gives up four minutes later. */
 const peerTurnSource = new Map<string, string>();
+
+/** The running turn's teammate comm per thread, for the stamp on its first reply row. */
+const peerReplyComm = new Map<string, NonNullable<Message["comm"]>>();
 
 /** The markers a peer's inbound message carries into the target's 1:1, so
  * the transcript names the sender instead of leaving it in the user's voice. */
@@ -3125,6 +3128,7 @@ bus.subscribe((event: RuntimeEvent) => {
   // speaker takes the same thread.
   if (event.type === "turn.completed") {
     if (turnOwnerId && dispatchedThreads.get(turnOwnerId) === event.threadId) dispatchedThreads.delete(turnOwnerId);
+    peerReplyComm.delete(event.threadId);
   }
 
   const pushMessage = (m: Omit<Message, "id" | "at">) => {
@@ -3148,10 +3152,12 @@ bus.subscribe((event: RuntimeEvent) => {
       break;
     case "item.completed":
       if (event.itemType === "assistant_text") {
+        // a peer turn's first shown text keeps its channel, so the Reply-to label survives a user row between ask and answer
+        const stamp = takePeerReplyStamp(peerReplyComm, event.threadId, { text: event.text, summarized: event.summarized });
         const message = pushMessage(
           event.summarized
             ? { role: "bot", kind: "text", text: event.text, summarized: true }
-            : { role: "bot", kind: "text", text: event.text },
+            : { role: "bot", kind: "text", text: event.text, ...(stamp ? { comm: stamp } : {}) },
         );
         markChatLatency({ threadId: event.threadId, turnId: event.turnId }, "assistant.persisted", {
           turnId: event.turnId,
@@ -4350,6 +4356,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           origin: opts?.automationSource ? profileSyncSettings.deviceId : undefined,
         });
   }
+  // the running turn's stamp source; an ordinary turn clears a failed peer start's leftover
+  if (opts?.peerComm) peerReplyComm.set(threadId, opts.peerComm);
+  else peerReplyComm.delete(threadId);
 
   const priorTaskPacket = taskPacketForWrite(threadId);
   const routineTurn = Boolean(opts?.cardContinuation && opts?.automationSource);

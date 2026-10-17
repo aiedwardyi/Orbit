@@ -1,3 +1,5 @@
+import type { Message } from "./store.ts";
+
 // A turn a teammate started (delegate_bot, ask_bot) becomes the user's the
 // moment the user's own message joins it. From then on nothing that turn says
 // is the teammate's answer: an ask settles with what came before, and a
@@ -8,6 +10,25 @@
 // control-plane steers never call takeOverPeerTurn.
 
 const peerTurns = new Map<string, Set<() => void>>(); // target threadId → takeovers
+
+/** True while a teammate's turn on `threadId` still waits for its reply. */
+export function hasPeerWatch(threadId: string): boolean {
+  return peerTurns.has(threadId);
+}
+
+/** The stamp for a peer turn's assistant text row: its pending comm, once,
+ * while the watch is live. Blank and summarized rows stay bare. */
+export function takePeerReplyStamp(
+  pending: Map<string, NonNullable<Message["comm"]>>,
+  threadId: string,
+  message: { text?: string; summarized?: boolean },
+): NonNullable<Message["comm"]> | undefined {
+  const comm = pending.get(threadId);
+  if (!comm || message.summarized || !message.text?.trim()) return undefined;
+  if (!hasPeerWatch(threadId)) return undefined;
+  pending.delete(threadId);
+  return comm;
+}
 
 /** Watch one peer-started turn on `threadId` for a user takeover. Call the
  * returned function when that turn ends; other watches on the thread stay. */
