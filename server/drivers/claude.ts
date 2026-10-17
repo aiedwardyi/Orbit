@@ -1535,6 +1535,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
               // the reply finished before the CLI read the interrupt
               if (o.is_error !== true) for (const line of held) dispatch(line);
+              // otherwise the run aborted: its held events stay dropped and the turn settles below
             }
             if (session.turn) session.turn.narrationNotice = undefined;
             // a local host's window is the catalog's; the CLI only guesses it
@@ -1801,7 +1802,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (turn.requested && !turn.shown && !turn.toolStarted && !turn.merging) {
           // A running reply never sees a line written after its request; the CLI reads the interrupt first.
           turn.merging = { held: [] };
-          void writeControl(s, threadId, { type: "control_request", request_id: newId(), request: { subtype: "interrupt" } });
+          void writeControl(s, threadId, { type: "control_request", request_id: newId(), request: { subtype: "interrupt" } }).then((written) => {
+            if (!written) console.warn(`claude steer interrupt for ${threadId} failed to send; keeping the steer as a follow-up`);
+          });
         } else if (turn.shown) text = `${SHOWN_STEER_NOTE}\n\n${text}`;
       }
       return deliverSteer(s, threadId, text, true, consumed);

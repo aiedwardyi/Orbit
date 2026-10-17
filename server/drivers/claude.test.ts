@@ -1330,6 +1330,23 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       expect(consumed.mock.calls).toEqual([[true]]);
     });
 
+    it("restarts once for two steers in a row", async () => {
+      const { turnId } = await start("t-merge-two");
+      await recorder.until(thought);
+      const first = vi.fn();
+      const second = vi.fn();
+      await expect(instance.adapter.steer!("t-merge-two", "and also this", first, { fromUser: true })).resolves.toBe(true);
+      await expect(instance.adapter.steer!("t-merge-two", "and more", second, { fromUser: true })).resolves.toBe(true);
+      const done = await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "interrupt", "user", "user"]);
+      expect(replies()).toEqual(["reply to: first + steered: and also this | and more"]);
+      expect(done).toMatchObject({ turnId, ok: true });
+      expect(turnCount("turn.started")).toBe(1);
+      expect(turnCount("turn.completed")).toBe(1);
+      expect(first.mock.calls).toEqual([[true]]);
+      expect(second.mock.calls).toEqual([[true]]);
+    });
+
     it("drops output that raced the interrupt", async () => {
       await start("t-merge-lag", "lag");
       await recorder.until(thought);
