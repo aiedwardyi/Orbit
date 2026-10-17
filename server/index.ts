@@ -273,6 +273,7 @@ import {
   workspaceDir,
   listMemoryTopics,
   isMemoryTopicName,
+  memoryHealth,
   memorySystemPrompt,
   supportsWorkspaceFiles,
 } from "./workspace.ts";
@@ -284,6 +285,7 @@ import {
 } from "./workspace.ts";
 import { MEMORY_SAVE_TOOL, peekMemory, rememberMemoryWrite } from "./memory-save.ts";
 import { createMemoryPass, noteGenerator } from "./memory-pass.ts";
+import { createMemoryHealthCheck } from "./memory-health.ts";
 import { createProjectNotesCheck, validateProjectNotes, workerReportTimes } from "./project-notes.ts";
 import {
   readSectionContext,
@@ -2085,7 +2087,9 @@ function syncMemory(botId: string): void {
   const botSyncId = chatSyncBotId(profileSyncSettings, botId);
   if (!folder || !botSyncId || !existsSync(folder)) return;
   try {
-    syncBotMemory(folder, botSyncId, workspaceDir(botId), memorySyncLedger, { legacy: legacyMemoryLedger });
+    const results = syncBotMemory(folder, botSyncId, workspaceDir(botId), memorySyncLedger, { legacy: legacyMemoryLedger });
+    // the poll runs for every idle bot, so only changed files refresh the check
+    if (Object.values(results).some((result) => result === "pulled" || result === "conflict")) memoryHealthCheck.refresh(botId);
   } catch (error) {
     console.warn("memory sync: failed", error);
   }
@@ -2621,6 +2625,8 @@ const projectNotesCheck = createProjectNotesCheck({
   },
 });
 for (const bot of store.bots) if (bot.projectNotes) void projectNotesCheck.refresh(bot.id);
+const memoryHealthCheck = createMemoryHealthCheck({ health: memoryHealth, dropped: (botId) => memoryPass.droppedNotes(botId) });
+void memoryHealthCheck.refreshAll(store.bots.map((bot) => bot.id));
 // Room thread → the instruction id its running turn was dispatched against.
 const roomTurnInstruction = new Map<string, string>();
 const interruptedTurnIds = new Set<string>();
@@ -3652,6 +3658,7 @@ bus.subscribe((event: RuntimeEvent) => {
             memoryPass.onSettled(bot.id, event.threadId);
             const cursor = event.providerInstanceId ? store.taskByThread(bot.id, event.threadId)?.resumeCursors[event.providerInstanceId] : undefined;
             void projectNotesCheck.settled(bot.id, event.threadId, cursor);
+            memoryHealthCheck.settled(bot.id, event.threadId, cursor);
           }
         }
         const routineReportThread = routineRun ? routineSourceThread(routineRun) : null;
@@ -5077,7 +5084,9 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         }
         const notesPath = opensHostFiles(privateWorkspace, instance.driverKind) ? bot.projectNotes : undefined;
         const notesNotice = notesPath ? projectNotesCheck.take(bot.id, threadId, resume ? task.resumeCursors[instanceId] : undefined) : "";
-        const withLate = (base: string) => [base, ...late, ...(notesNotice ? [notesNotice] : [])].join("\n\n");
+        const memoryNotice = privateWorkspace ? memoryHealthCheck.take(bot.id, threadId, resume ? task.resumeCursors[instanceId] : undefined) : "";
+        const withLate = (base: string) =>
+          [base, ...late, ...(notesNotice ? [notesNotice] : []), ...(memoryNotice ? [memoryNotice] : [])].join("\n\n");
         const system =
           persona +
           // The folder is already this turn's cwd, but nothing told the model
@@ -9396,6 +9405,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const saved = saveMemoryFile(m[1], parsed.data.text, parsed.data.baseRevision);
       if (saved.conflict) return json(res, 409, { error: "conflict", text: saved.text, revision: saved.revision });
+      memoryHealthCheck.refresh(m[1]);
       // truncated echoes back so the editor can warn about the load budget
       return json(res, 200, { ok: true, truncated: saved.truncated, revision: saved.revision });
     }
