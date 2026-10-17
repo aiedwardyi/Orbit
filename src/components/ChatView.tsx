@@ -1107,6 +1107,13 @@ const ChatRun = memo(function ChatRun({ run, forceOpen, terminal, showActivities
   a.forceOpen === b.forceOpen && a.terminal === b.terminal && a.showActivities === b.showActivities &&
   a.findCurrent === b.findCurrent && sameRun(a.run, b.run));
 
+/** A stamped peer reply carries its own label; inference covers the rest. */
+export function stampedReplyComm(message: Message): Message["comm"] {
+  return message.role === "bot" && message.kind === "text" && isShownMessage(message) && message.text?.trim()
+    ? message.comm
+    : undefined;
+}
+
 const MessagesList = memo(function MessagesList({
   bot,
   messages,
@@ -1174,8 +1181,9 @@ const MessagesList = memo(function MessagesList({
     let comm: Message["comm"];
     for (const message of streamingMessage ? [...transcript, streamingMessage] : transcript) {
       if (message.role === "user") comm = message.from ? message.comm : undefined;
-      else if (comm && message.kind === "text" && isShownMessage(message) && message.text?.trim()) {
-        replies.set(message.id, comm);
+      else if (message.kind === "text" && isShownMessage(message) && message.text?.trim()) {
+        // a stamped reply labels itself; either way the ask is answered once
+        if (comm && !stampedReplyComm(message)) replies.set(message.id, comm);
         comm = undefined;
       }
     }
@@ -1331,7 +1339,7 @@ const MessagesList = memo(function MessagesList({
           }
         })();
         if (!row) return null;
-        const replyComm = peerReplies.get(m.id);
+        const replyComm = stampedReplyComm(m) ?? peerReplies.get(m.id);
         const key = m.role === "bot" && m.kind === "text" ? replySlot(bot.threadId, m, transcript) : m.sendId ?? m.id;
         return (
           <div key={key} className="contents" data-mid={m.id} data-find-for={item.notices?.map((notice) => notice.message.id).join(" ") || undefined} {...logLine(skin === "logfile", m.at, [m])}>

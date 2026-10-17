@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { onPeerTakeover, peerAnswer, takeOverPeerTurn } from "./peer-takeover.ts";
+import { hasPeerWatch, onPeerTakeover, peerAnswer, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
+import type { Message } from "./store.ts";
 
 function ask(threadId: string) {
   const answers: string[] = [];
@@ -118,6 +119,18 @@ describe("peer turn registry", () => {
     expect(takeOverPeerTurn("t-reg-4")).toBe(false);
   });
 
+  it("reports a live peer watch until it ends or is taken over", () => {
+    expect(hasPeerWatch("t-watch-1")).toBe(false);
+    const endAsk = onPeerTakeover("t-watch-1", () => {});
+    expect(hasPeerWatch("t-watch-1")).toBe(true);
+    endAsk();
+    expect(hasPeerWatch("t-watch-1")).toBe(false);
+    onPeerTakeover("t-watch-2", () => {});
+    expect(hasPeerWatch("t-watch-2")).toBe(true);
+    takeOverPeerTurn("t-watch-2");
+    expect(hasPeerWatch("t-watch-2")).toBe(false);
+  });
+
   it("a control-plane steer doesn't take over", () => {
     const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
     const calls = index.match(/takeOverPeerTurn\(/g) ?? [];
@@ -132,5 +145,68 @@ describe("peer turn registry", () => {
     for (const driver of ["./drivers/claude.ts", "./drivers/codex.ts", "./drivers/acp/core.ts"]) {
       expect(readFileSync(new URL(driver, import.meta.url), "utf8")).not.toContain("takeOverPeerTurn");
     }
+  });
+});
+
+describe("peer reply stamp", () => {
+  const comm: NonNullable<Message["comm"]> = { groupId: "pair", withBotId: "atlas", withName: "Atlas", withColor: "pink" };
+  const pending = () => new Map<string, NonNullable<Message["comm"]>>([["t-stamp", { ...comm }]]);
+
+  it("stamps the first shown text while the watch is live, copied as is", () => {
+    const end = onPeerTakeover("t-stamp", () => {});
+    try {
+      const stamped = takePeerReplyStamp(pending(), "t-stamp", { text: "Two bullets were reworded." });
+      expect(stamped).toEqual(comm);
+      expect(stamped).not.toHaveProperty("peer");
+    } finally {
+      end();
+    }
+  });
+
+  it.each([
+    ["summarized", { text: "An engine summary.", summarized: true }],
+    ["blank", { text: "  \n " }],
+    ["missing", {}],
+  ])("skips a %s row", (_kind, message) => {
+    const end = onPeerTakeover("t-stamp", () => {});
+    try {
+      expect(takePeerReplyStamp(pending(), "t-stamp", message)).toBeUndefined();
+    } finally {
+      end();
+    }
+  });
+
+  it("skips an ordinary turn with no pending comm", () => {
+    const end = onPeerTakeover("t-stamp", () => {});
+    try {
+      expect(takePeerReplyStamp(new Map(), "t-stamp", { text: "Hello." })).toBeUndefined();
+    } finally {
+      end();
+    }
+  });
+
+  it("stamps once per turn", () => {
+    const end = onPeerTakeover("t-stamp", () => {});
+    try {
+      const live = pending();
+      expect(takePeerReplyStamp(live, "t-stamp", { text: "First." })).toEqual(comm);
+      expect(takePeerReplyStamp(live, "t-stamp", { text: "Second." })).toBeUndefined();
+    } finally {
+      end();
+    }
+  });
+
+  it("stays bare once the user takes the turn over", () => {
+    const end = onPeerTakeover("t-stamp", () => {});
+    takeOverPeerTurn("t-stamp");
+    end();
+    expect(takePeerReplyStamp(pending(), "t-stamp", { text: "Late text." })).toBeUndefined();
+  });
+
+  it("index.ts keeps the pending comm per thread and clears it on settle and on stamp", () => {
+    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    expect(index).toMatch(/peerReplyComm\.set\(threadId, opts\??\.peerComm\)/);
+    expect(index).toMatch(/peerReplyComm\.delete\(event\.threadId\)/);
+    expect(index).toMatch(/takePeerReplyStamp\(peerReplyComm, event\.threadId/);
   });
 });

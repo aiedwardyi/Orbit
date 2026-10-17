@@ -7,7 +7,7 @@ import { StoreProvider, useStore, type Bot, type Message } from "@/state/store";
 import { I18nProvider } from "@/lib/i18n";
 import { applySkin } from "@/lib/skins";
 
-import { ChatView } from "./ChatView";
+import { ChatView, stampedReplyComm } from "./ChatView";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -149,6 +149,33 @@ describe("ChatView peer reply labels", () => {
   it("skips blank bot text and labels the real reply", async () => {
     const { host } = await mount(bot([inbound, { ...text("blank"), text: " \n" }, text("answer")]));
     expect(chips(host).map((chip) => chip.closest("[data-mid]")?.getAttribute("data-mid"))).toEqual(["answer"]);
+  });
+
+  it("labels a stamped reply past a user row between ask and answer", async () => {
+    const stamped = { ...text("first reply"), comm: { ...comm } };
+    expect(stampedReplyComm(stamped)).toEqual(comm);
+    const { host } = await mount(bot([inbound, text("Edward's question", "user"), stamped, text("second reply")]));
+    expect(chips(host)).toHaveLength(1);
+    expect(label(chips(host)[0])).toBe("Reply to @Atlas");
+    expect(chips(host)[0].closest("[data-mid]")?.getAttribute("data-mid")).toBe("first reply");
+    expect(host.querySelector('[data-mid="second reply"]')?.textContent).not.toContain("Reply to @");
+  });
+
+  it("labels an unstamped reply by inference and leaves the stamp path empty", async () => {
+    const reply = text("first reply");
+    expect(stampedReplyComm(reply)).toBeUndefined();
+    const { host } = await mount(bot([inbound, reply]));
+    expect(chips(host)).toHaveLength(1);
+    expect(chips(host)[0].closest("[data-mid]")?.getAttribute("data-mid")).toBe("first reply");
+  });
+
+  it("gives a stamped reply with a matching ask exactly one chip", async () => {
+    const stamped = { ...text("first reply"), comm: { ...comm } };
+    expect(stampedReplyComm(stamped)).toEqual(comm);
+    const { host } = await mount(bot([inbound, stamped, text("second reply")]));
+    expect(chips(host)).toHaveLength(1);
+    expect(chips(host)[0].closest("[data-mid]")?.getAttribute("data-mid")).toBe("first reply");
+    expect(host.querySelector('[data-mid="second reply"]')?.textContent).not.toContain("Reply to @");
   });
 
   it("keeps the label and bubble when a streamed peer reply settles", async () => {
