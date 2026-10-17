@@ -1,4 +1,5 @@
 // Provider marks, keyed by driver kind.
+import { useId } from "react";
 import { Monitor } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { HermesMark } from "./HermesMark";
@@ -77,17 +78,19 @@ export function CodexMark({ size = 16, className }: IconProps) {
 }
 
 export function GeminiMark({ size = 16, className }: IconProps) {
+  // A fixed id resolves to the first copy in the DOM, which paints nothing when that copy is display: none.
+  const grad = `orbit-gemini-mark${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" className={cn("shrink-0", className)} aria-hidden>
       <defs>
-        <linearGradient id="orbit-gemini-mark" x1="2" y1="22" x2="22" y2="2" gradientUnits="userSpaceOnUse">
+        <linearGradient id={grad} x1="2" y1="22" x2="22" y2="2" gradientUnits="userSpaceOnUse">
           <stop stopColor="#1C7DFF" />
           <stop offset="0.48" stopColor="#8B5CF6" />
           <stop offset="1" stopColor="#F050AE" />
         </linearGradient>
       </defs>
       <path
-        fill="url(#orbit-gemini-mark)"
+        fill={`url(#${grad})`}
         d="M12 0c0 6.627 5.373 12 12 12-6.627 0-12 5.373-12 12 0-6.627-5.373-12-12-12 6.627 0 12-5.373 12-12Z"
       />
     </svg>
@@ -153,7 +156,7 @@ export function MuseMark({ size = 16, className }: IconProps) {
 
 /** Official Qwen mark. */
 export function QwenMark({ size = 16, className }: IconProps) {
-  const grad = "omb-qwen-mark";
+  const grad = `omb-qwen-mark${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" className={cn("shrink-0", className)} aria-hidden>
       <path

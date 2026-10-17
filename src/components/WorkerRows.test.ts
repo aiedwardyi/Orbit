@@ -33,8 +33,10 @@ describe("WorkerRow", () => {
   it.each([
     ["Opus 5.5", "claudeAgent"], ["GPT-6 Astra", "codex"], ["Gemini 3.8", "geminiAgent"], ["Grok 4.7", "grokAgent"], ["Muse 1.3", "museAgent"],
   ])("draws the %s mark exactly as the model picker does", (model, driverKind) => {
+    // gradient ids carry the useId of each tree position
+    const plain = (markup: string) => markup.replace(/(mark)R\w+/g, "$1");
     const markup = renderToStaticMarkup(createElement(WorkerRow, { run: run(`A | ${model} | high`), state: "waiting", live: null }));
-    expect(markup).toContain(renderToStaticMarkup(createElement(ProviderMark, { driverKind, size: 14 })));
+    expect(plain(markup)).toContain(plain(renderToStaticMarkup(createElement(ProviderMark, { driverKind, size: 14 }))));
   });
 
   it("spans the whole transcript column like a message", () => {

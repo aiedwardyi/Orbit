@@ -1,8 +1,8 @@
-import { createElement } from "react";
+import { createElement, Fragment } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { ClaudeMark, MuseMark, ProviderMark } from "./ProviderIcons";
+import { ClaudeMark, GeminiMark, MuseMark, ProviderMark, QwenMark } from "./ProviderIcons";
 
 describe("ProviderMark", () => {
   it.each(["grok", "grokAgent"])("renders the Grok mark as an SVG for %s", (driverKind) => {
@@ -90,5 +90,18 @@ describe("ClaudeMark", () => {
     expect(h).toBe(17);
     expect(x + w / 2).toBe(9.5);
     expect(y + h / 2).toBe(5);
+  });
+});
+
+describe.each([
+  ["GeminiMark", GeminiMark],
+  ["QwenMark", QwenMark],
+])("%s", (_name, Mark) => {
+  it("gives each rendered copy its own gradient, so a hidden first copy cannot blank the second", () => {
+    const markup = renderToStaticMarkup(createElement(Fragment, null, createElement(Mark, {}), createElement(Mark, {})));
+    const svgs = markup.split("</svg>").slice(0, 2);
+    const ids = svgs.map((svg) => svg.match(/<linearGradient id="([^"]+)"/)![1]);
+    expect(ids[0]).not.toBe(ids[1]);
+    svgs.forEach((svg, i) => expect(svg).toContain(`fill="url(#${ids[i]})"`));
   });
 });
