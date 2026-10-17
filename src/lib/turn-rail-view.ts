@@ -59,6 +59,9 @@ const FLING_MS = 360;
 const POOL_ROWS = 16;
 const POOL_HEADS = 6;
 const RETRY_MS = 10_000;
+const INTENT_MS = 80;
+const INTENT_PX = 6;
+const GUARD_MS = 300;
 const KEY_STEP = new Map([["ArrowUp", -1], ["ArrowDown", 1], ["PageUp", -VISIBLE], ["PageDown", VISIBLE]]);
 const WARM_FRAMES = 9;
 let warmed = false;
@@ -147,6 +150,10 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   let lastPT = "mouse";
   let leaveTimer = 0;
   let sleepTimer = 0;
+  let intentTimer = 0;
+  let ax = 0;
+  let ay = 0;
+  let openedAt = -Infinity;
   let swallowAt = -1;
   let ink = "";
   let inkAlpha = 1;
@@ -479,6 +486,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     }
   }
   function cardOpen(m: "follow" | "touch") {
+    if (!live) openedAt = performance.now();
     if (!cardFits()) return;
     if (m === "follow") {
       fling = null;
@@ -928,6 +936,8 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   };
   function closeAll() {
     clearTimeout(leaveTimer);
+    clearTimeout(intentTimer);
+    intentTimer = 0;
     mode = "idle";
     dragId = null;
     cardClose();
@@ -947,16 +957,33 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     else hooks.jump(t === 0 ? (target.first ?? target.ids[0]!) : target.ids[t]!);
   }
 
+  const railIntent = () => {
+    clearTimeout(intentTimer);
+    intentTimer = 0;
+    mode = "rail";
+    if (approach()) railOpen(py, performance.now());
+  };
+  // A mouse crossing the strip for the chat opens nothing: sideways travel restarts the wait, up or down does not.
+  function aim(e: PointerEvent) {
+    const dx = Math.abs(e.clientX - ax);
+    if (intentTimer && (dx <= INTENT_PX || dx * 2 <= Math.abs(e.clientY - ay))) return;
+    ax = e.clientX;
+    ay = e.clientY;
+    clearTimeout(intentTimer);
+    intentTimer = window.setTimeout(railIntent, INTENT_MS);
+  }
   const onHitEnter = (e: PointerEvent) => {
     if (e.pointerType !== "mouse") return;
     refreshBox();
-    mode = "rail";
     py = clamp(pointY(e), 0, G.h);
+    if (!live) return aim(e);
+    mode = "rail";
     if (approach()) railOpen(pointY(e), e.timeStamp);
   };
   const onHitMove = (e: PointerEvent) => {
     if (e.pointerType === "mouse") {
       py = clamp(pointY(e), 0, G.h);
+      if (mode !== "rail" && !live) return aim(e);
       if (!n) return;
       if (mode === "rail") railMove(pointY(e), e.timeStamp);
       else {
@@ -969,7 +996,10 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     }
   };
   const onHitLeave = (e: PointerEvent) => {
-    if (e.pointerType === "mouse" && mode === "rail") closeSoon();
+    if (e.pointerType !== "mouse") return;
+    clearTimeout(intentTimer);
+    intentTimer = 0;
+    if (mode === "rail") closeSoon();
   };
   const onHitDown = (e: PointerEvent) => {
     lastPT = e.pointerType;
@@ -1004,8 +1034,11 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   const onHitCancel = (e: PointerEvent) => {
     if (e.pointerId === dragId) closeAll();
   };
+  // A click just after the card opens was likely meant for what lay under it.
   const onHitClick = () => {
-    if (lastPT === "mouse" && mode === "rail" && sel >= 0) go(sel);
+    if (lastPT !== "mouse") return;
+    if (mode === "idle") railIntent();
+    else if (mode === "rail" && sel >= 0 && performance.now() - openedAt >= GUARD_MS) go(sel);
   };
   // Wheel over the rail scrolls the chat, as wheel over the transcript does.
   const onHitWheel = (e: WheelEvent) => {
@@ -1063,7 +1096,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     kick();
   };
   const onCardClick = () => {
-    if (lastPT === "mouse" && mode === "card" && csel >= 0) go(csel);
+    if (lastPT === "mouse" && mode === "card" && csel >= 0 && performance.now() - openedAt >= GUARD_MS) go(csel);
   };
   // A click on the rail or the card leaves focus where it was, so the composer keeps it.
   const keepFocus = (e: MouseEvent) => e.preventDefault();
@@ -1271,6 +1304,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
       cancelAnimationFrame(resizeRaf);
       clearTimeout(leaveTimer);
       clearTimeout(sleepTimer);
+      clearTimeout(intentTimer);
       resize.disconnect();
       reducedQuery.removeEventListener?.("change", onReduced);
       hoverless.removeEventListener?.("change", onHover);

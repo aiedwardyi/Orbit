@@ -99,8 +99,11 @@ async function mount({ width = 1000, height = 800, touch = false } = {}) {
   const turnCalls = () => calls.filter((call) => call.includes("/turns"));
   const select = (id: string) => act(async () => store.dispatch({ type: "select", id }));
   const near = () => act(async () => scroller.dispatchEvent(new PointerEvent("pointermove", { pointerType: "mouse", clientX: 990, clientY: 400, bubbles: true })));
-  // the rail's own box starts 16 px down, so a rail y is clientY - 16
-  const hover = (clientY: number) => act(async () => strip().dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", clientX: 985, clientY })));
+  // the rail's own box starts 16 px down, so a rail y is clientY - 16; the card opens on a rest and takes clicks a moment later
+  const hover = async (clientY: number) => {
+    await act(async () => strip().dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", clientX: 985, clientY })));
+    await act(() => new Promise((done) => setTimeout(done, 400)));
+  };
   return { host, calls, turnCalls, strip, scroller, select, near, hover };
 }
 
