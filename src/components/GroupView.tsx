@@ -1355,7 +1355,7 @@ export function GroupView({ group }: { group: Group }) {
 
   useEffect(() => setBottomFollow(true), [transcriptKey, setBottomFollow]);
 
-  // Docks like a 1:1 chat: under the live reply, kept until a row lands below it.
+  // Docks like a 1:1 chat: under the reply while its text is streaming.
   const liveTail = laterCount === 0 && !jump.messages;
   const listedStreaming = liveTail ? streamingMessage : null;
   let tail: Message | null = listedStreaming;
