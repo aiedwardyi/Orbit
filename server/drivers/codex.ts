@@ -416,7 +416,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           params?._meta?.codex_approval_kind === "mcp_tool_call";
         const isQuestion = method === "item/tool/requestUserInput";
         const mcpTool = isMcpElicitation
-          ? String(params.message ?? "").match(/tool \"([^\"]+)\"/)?.[1]
+          ? String(params.message ?? "").match(/tool "([^"]+)"/)?.[1]
           : undefined;
         const tool =
           isMcpElicitation

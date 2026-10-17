@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 const require = createRequire(import.meta.url);
-const { GUEST_PROFILE, VIEWPORT, createBrowserSurfaceManager, hiddenBrowserViewBounds } = require("./browser-surface.cjs");
+const { GUEST_PROFILE, createBrowserSurfaceManager, hiddenBrowserViewBounds } = require("./browser-surface.cjs");
 
 const AX_NODES = [
   { role: { value: "link" }, name: { value: "Docs" }, backendDOMNodeId: 11 },
