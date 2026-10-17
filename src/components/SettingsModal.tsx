@@ -25,6 +25,7 @@ import { LocalComputerSection } from "./LocalComputerSection";
 import { ProfileFields } from "./ProfileFields";
 import { Card } from "./SettingsPrimitives";
 import { UsageSection } from "./UsageSection";
+import { QuorumRow } from "./QuorumRow";
 import { TeamSection, type TeamView } from "./TeamSection";
 import { ModelIndexSection } from "./ModelIndexSection";
 import { SkinPicker } from "./SkinPicker";
@@ -830,7 +831,12 @@ export function SettingsModal({
             {showSettingsAdvancedSection() && section === "computer" && <LocalComputerSection />}
 
             {section === "usage" && <UsageSection />}
-            {section === "team" && teamStats && <TeamSection stats={teamStats} />}
+            {section === "team" && teamStats && (
+              <>
+                <TeamSection stats={teamStats} />
+                <QuorumRow />
+              </>
+            )}
             {section === "models-index" && <ModelIndexSection />}
             {section === "shortcuts" && <KeyboardShortcuts />}
           </div>

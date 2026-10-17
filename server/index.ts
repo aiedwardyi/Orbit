@@ -331,6 +331,7 @@ import { PhoneAccess } from "./phone-access.ts";
 import { postPhoneKeepAwake, type PhoneKeepAwakeMessage } from "./phone-keep-awake.ts";
 import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
 import { GoogleAccount, applyGoogleAccountMessage, googleAccountRoute, takeGoogleEnv } from "./google-account.ts";
+import { quorumRoute } from "./quorum-route.ts";
 import { teamRoute } from "./team-route.ts";
 import { createGoogleSync, GOOGLE_MIRROR_DIR, googleSyncRoute } from "./google-sync.ts";
 import type { PublicPhone } from "./phone-devices.ts";
@@ -10310,6 +10311,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && path === "/api/team") {
       const reply = await teamRoute(phoneAccess.base(), googleEnv.teamRelay, googleEnv.teamOwner, googleAccount.owner()?.email ?? null, googleAccount);
       return json(res, reply.status, reply.body);
+    }
+    if (method === "GET" && path === "/api/quorum") {
+      return json(res, 200, await quorumRoute());
     }
     const googleSyncReply = await googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk, phoneSession: credentials.phoneSession, remoteCookie: apiRequestAuthorized(false, req.headers.cookie, credentials.remoteKey, path) }, googleSync, () => readBody(req));
     if (googleSyncReply) return json(res, googleSyncReply.status, googleSyncReply.body);

@@ -43,7 +43,7 @@ function withVisit(day: { count: number; minutes: number }) {
   return day.count === 0 && day.minutes > 0 ? { ...day, count: 1 } : day;
 }
 
-function dayLabel(iso: string, locale: string) {
+export function dayLabel(iso: string, locale: string) {
   const [year, month, day] = iso.split("-").map(Number);
   const date = new Date(Date.UTC(year || 1970, (month || 1) - 1, day || 1));
   const weekday = locale === "ko" ? WEEKDAYS_KO[date.getUTCDay()] : WEEKDAYS[date.getUTCDay()];
