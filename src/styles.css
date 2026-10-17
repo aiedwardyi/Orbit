@@ -3972,6 +3972,14 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   ::-webkit-scrollbar-corner {
     background: transparent;
   }
+  /* the bar's width, so the transcript holds still when the rail takes over */
+  [data-rail-bar] {
+    padding-right: 8px;
+  }
+}
+/* A long chat's timeline rail is its scrollbar. */
+[data-rail-bar] {
+  scrollbar-width: none;
 }
 
 @keyframes panel-in {
@@ -4855,6 +4863,12 @@ button:disabled.bg-danger {
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
 }
+.turn-rail-hit.grab {
+  cursor: grab;
+}
+.turn-rail-hit.grabbing {
+  cursor: grabbing;
+}
 .turn-rail-hit:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: -2px;
@@ -4882,6 +4896,18 @@ button:disabled.bg-danger {
   border-radius: 2px;
   background: var(--color-accent);
   opacity: 0.55;
+  visibility: hidden;
+}
+/* The mark while held: 100 px tall, scaled to the thumb's height. */
+.turn-rail-thumb {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  width: 5px;
+  height: 100px;
+  border-radius: 2px;
+  background: var(--color-accent);
+  transform-origin: 100% 0;
   visibility: hidden;
 }
 .turn-rail-cur {

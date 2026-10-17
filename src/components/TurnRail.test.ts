@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +24,7 @@ class FakeEventSource {
   }
 }
 
+const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
 const start = new Date(2026, 9, 16, 9).getTime();
 const chat = (p: string): Message[] => [
   { id: `${p}-hello`, at: start, role: "bot", kind: "text", text: "Hi" },
@@ -28,9 +33,9 @@ const chat = (p: string): Message[] => [
     { id: `${p}${t}-reply`, parentId: `${p}${t}`, at: start + (t + 1) * 600_000 + 1000, role: "bot", kind: "text", text: "ok" },
   ]).flat(),
 ];
-const bot = (p: string): Bot => ({
+const bot = (p: string, hasMore = true): Bot => ({
   id: p, threadId: `thread-${p}`, name: p.toUpperCase(), title: "", description: "", notifications: false,
-  color: "blue", unread: false, modelSelection: { instanceId: "inst", model: "m" }, messages: chat(p), hasMore: true,
+  color: "blue", unread: false, modelSelection: { instanceId: "inst", model: "m" }, messages: chat(p), hasMore,
 });
 const index = (p: string) => ({
   ids: Array.from({ length: 5 }, (_, t) => `${p}${t}`),
@@ -51,7 +56,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function mount({ width = 1000, height = 800, touch = false } = {}) {
+async function mount({ width = 1000, height = 800, touch = false, hasMore = true } = {}) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   applyLocale("en");
   const calls: string[] = [];
@@ -64,7 +69,7 @@ async function mount({ width = 1000, height = 800, touch = false } = {}) {
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     const path = String(url);
     calls.push(`${init?.method ?? "GET"} ${path}`);
-    if (path === "/api/bots?messages=200") return Response.json({ bots: [bot("a"), bot("b")], groups: [], computerControl: {} });
+    if (path === "/api/bots?messages=200") return Response.json({ bots: [bot("a", hasMore), bot("b", hasMore)], groups: [], computerControl: {} });
     const turns = path.match(/^\/api\/threads\/thread-(\w)\/turns$/);
     if (turns) return Response.json(index(turns[1]!));
     if (init?.method === "POST" && path.endsWith("/messages")) return Response.json({ ok: true, queued: true, queueId: "q1", threadId: "thread-b" }, { status: 202 });
@@ -94,7 +99,7 @@ async function mount({ width = 1000, height = 800, touch = false } = {}) {
   await vi.waitFor(() => expect(host.textContent).toContain("a turn 4"));
   const strip = () => host.querySelector<HTMLElement>("[data-turn-rail-strip]")!;
   // the rail measures itself a frame after it shows
-  await vi.waitFor(() => expect(strip().style.height).toBe(`${height - (width < 640 ? 8 : 16)}px`));
+  if (hasMore) await vi.waitFor(() => expect(strip().style.height).toBe(`${height - (width < 640 ? 8 : 16)}px`));
   const scroller = host.querySelector<HTMLElement>("[data-orbit-transcript]")!;
   const turnCalls = () => calls.filter((call) => call.includes("/turns"));
   const select = (id: string) => act(async () => store.dispatch({ type: "select", id }));
@@ -222,5 +227,15 @@ describe("timeline rail", () => {
     expect(ui.strip().style.right).toBe("8px");
     expect(ui.strip().style.left).toBe("");
     expect(ui.host.querySelector<HTMLElement>(".turn-rail")!.style.transform).toBe("");
+  });
+
+  it("takes the scrollbar's place while it shows, and leaves a short chat its bar", async () => {
+    const long = await mount();
+    expect(long.scroller.hasAttribute("data-rail-bar")).toBe(true);
+    expect(css).toMatch(/\[data-rail-bar\] \{\s*scrollbar-width: none;/);
+    await unmount?.();
+    const short = await mount({ hasMore: false });
+    expect(short.host.querySelector<HTMLElement>(".turn-rail-host")!.hidden).toBe(true);
+    expect(short.scroller.hasAttribute("data-rail-bar")).toBe(false);
   });
 });
