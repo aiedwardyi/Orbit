@@ -1311,8 +1311,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       recorder.events.flatMap((e) => (e.type === "item.completed" && e.itemType === "assistant_text" ? [e.text] : []));
     const turnCount = (type: "turn.started" | "turn.completed") => recorder.events.filter((e) => e.type === type).length;
     const thought = (e: (typeof recorder.events)[number]) => e.type === "content.delta" && e.streamKind === "reasoning_text";
-    const start = async (threadId: string, interrupt = "") => {
-      await create("think-steer", { FAKE_CLAUDE_INTERRUPT: interrupt, FAKE_CLAUDE_STDIN_LOG: join(scratch, "stdin.log") });
+    const start = async (threadId: string, interrupt = "", environment: Record<string, string> = {}) => {
+      await create("think-steer", { FAKE_CLAUDE_INTERRUPT: interrupt, FAKE_CLAUDE_STDIN_LOG: join(scratch, "stdin.log"), ...environment });
       return instance.adapter.sendTurn({ threadId, text: "first" });
     };
     const stalledRestart = async (interrupt: "result" | "hold", resultDelay = 0, rejectResume = false) => {
@@ -1525,7 +1525,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     });
 
     it("restarts it so one reply answers both", async () => {
-      const { turnId } = await start("t-merge");
+      const { turnId } = await start("t-merge", "", { FAKE_CLAUDE_THINK_MS: "10000", FAKE_CLAUDE_FOLD_MS: "300" });
       await recorder.until(thought);
       const consumed = vi.fn();
       await expect(instance.adapter.steer!("t-merge", "and also this", consumed, { fromUser: true })).resolves.toBe(true);
@@ -1539,7 +1539,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     });
 
     it("restarts once for two steers in a row", async () => {
-      const { turnId } = await start("t-merge-two");
+      const { turnId } = await start("t-merge-two", "", { FAKE_CLAUDE_THINK_MS: "10000", FAKE_CLAUDE_FOLD_MS: "300" });
       await recorder.until(thought);
       const first = vi.fn();
       const second = vi.fn();
@@ -1556,7 +1556,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     });
 
     it("drops output that raced the interrupt", async () => {
-      await start("t-merge-lag", "lag");
+      await start("t-merge-lag", "lag", { FAKE_CLAUDE_THINK_MS: "10000", FAKE_CLAUDE_FOLD_MS: "300" });
       await recorder.until(thought);
       await instance.adapter.steer!("t-merge-lag", "and also this", undefined, { fromUser: true });
       await recorder.until((e) => e.type === "turn.completed");
@@ -1566,7 +1566,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     });
 
     it("shows the reply when it finished before the interrupt", async () => {
-      const { turnId } = await start("t-merge-late", "late");
+      const { turnId } = await start("t-merge-late", "late", { FAKE_CLAUDE_THINK_MS: "10000" });
       await recorder.until(thought);
       await instance.adapter.steer!("t-merge-late", "and also this", undefined, { fromUser: true });
       const done = await recorder.until((e) => e.type === "turn.completed");
@@ -1578,7 +1578,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 
     it("resumes the follow-up if the CLI drops it after a restart", async () => {
       process.env.OMB_CLAUDE_MERGE_GUARD_MS = "300";
-      await start("t-merge-drops", "drops");
+      await start("t-merge-drops", "drops", { FAKE_CLAUDE_THINK_MS: "10000", FAKE_CLAUDE_FOLD_MS: "300" });
       await recorder.until(thought);
       const consumed = vi.fn();
       await instance.adapter.steer!("t-merge-drops", "and also this", consumed, { fromUser: true });
@@ -1604,7 +1604,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     });
 
     it("settles once when Stop lands during a restart", async () => {
-      await start("t-merge-stop", "hold");
+      await start("t-merge-stop", "hold", { FAKE_CLAUDE_THINK_MS: "10000" });
       await recorder.until(thought);
       const consumed = vi.fn();
       await instance.adapter.steer!("t-merge-stop", "and also this", consumed, { fromUser: true });
