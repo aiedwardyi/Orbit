@@ -772,8 +772,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         toolStarted?: boolean;
         /** an interrupt is out for a user steer; main-agent output that raced it waits here */
         merging?: { held: unknown[] };
-        /** settles the turn if the CLI never starts the steer's query after the interrupt */
+        /** one deadline from the interrupt to the steer's next request */
         mergeGuard?: ReturnType<typeof setTimeout>;
+        restartSteers?: string[];
         timer: ReturnType<typeof startTurnTimer>;
       } | null;
       idleTimer: ReturnType<typeof setTimeout> | null;
@@ -791,6 +792,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       stderr: string;
       /** settle the current turn; set once the spawn handlers exist */
       settleTurn?: (ok: boolean, stopReason: string | null) => void;
+      restartTurn?: () => void;
     }
     const sessions = new Map<string, Session>();
     const brokerGeneration = new Map<string, number>();
@@ -922,15 +924,19 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
 
     // A relaunch (resume fallback, transient retry) is the same logical turn:
     // the harness holds the first id as live and drops events from any other.
-    const sendTurn = async (turn: SendTurnInput, relaunchOf?: string) => {
+    const sendTurn = async (
+      turn: SendTurnInput,
+      relaunchOf?: string,
+      restart?: { turn: NonNullable<Session["turn"]>; steerAcks: Session["steerAcks"] },
+    ) => {
       const { threadId } = turn;
-      if (active.has(threadId)) throw new Error("a turn is already running on this thread");
+      if (active.has(threadId) && !(restart && active.get(threadId)?.turnId === relaunchOf)) throw new Error("a turn is already running on this thread");
       const controlsHost = turn.integrations?.localComputer?.scope === "local-computer";
       if (controlsHost && config.permissionMode === "bypassPermissions") {
         throw new Error("local computer control requires the interactive approval broker");
       }
       const turnId = relaunchOf ?? newId();
-    const turnTimer = startTurnTimer({
+    const turnTimer = restart?.turn.timer ?? startTurnTimer({
       engine: "claude",
       model: turn.model,
       effort: turn.effort ?? null,
@@ -969,6 +975,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       const turnEnvironment: NodeJS.ProcessEnv = { ...process.env, ...input.environment };
       const turnModel = await resolveClaudeTurnModel(turn.model, turnEnvironment);
+      if (restart?.turn.settled) return { turnId };
       const injected = applyClaudeInject({ ...turnEnvironment }, turnModel);
       if (injected.model) args.push("--model", injected.model);
       if (turn.effort) args.push("--effort", turn.effort);
@@ -1105,7 +1112,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           turnId,
           broker: live.broker,
         });
-        emit({ ...base(threadId, turnId), type: "turn.started" });
+        if (!relaunchOf) emit({ ...base(threadId, turnId), type: "turn.started" });
         const written = await writeUser(live, threadId, turn.text);
         if (!written) {
           active.delete(threadId);
@@ -1220,14 +1227,25 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         mcpConfigPath,
         argsKey,
         sessionId: sessionId ?? newSessionId,
-        turn: { turnId, settled: false, sawStreamDelta: false, timer: turnTimer, launch: { request: turn, retry, abort: retryAbort } },
+        turn: {
+          ...restart?.turn,
+          merging: undefined,
+          mergeGuard: undefined,
+          restartSteers: undefined,
+          requested: false,
+          turnId,
+          settled: false,
+          sawStreamDelta: false,
+          timer: turnTimer,
+          launch: { request: turn, retry, abort: retryAbort },
+        },
         idleTimer: null,
         autoAttended,
         background: new Map(),
         closing: false,
         wakeDeadline: null,
         stderr: "",
-        steerAcks: [],
+        steerAcks: restart?.steerAcks ?? [],
       };
       sessions.set(threadId, session);
 
@@ -1238,8 +1256,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         stopReason: string | null,
         cost: number | null = null,
         usage?: TurnUsage,
+        t = session.turn,
       ) => {
-        const t = session.turn;
         if (!t || t.settled) return;
         t.narrationNotice = undefined;
         clearTimeout(t.mergeGuard);
@@ -1286,6 +1304,44 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (session.child.exitCode === null && !session.closing) armIdle(threadId);
       };
       session.settleTurn = settle;
+      session.restartTurn = () => {
+        const t = session.turn;
+        if (!t || t.settled || session.closing || !t.restartSteers) return;
+        const request = t.launch?.request ?? turn;
+        const text = t.restartSteers.join("\n\n");
+        const steerAcks = session.steerAcks.splice(0);
+        closeSession(threadId, "steer restart timed out");
+        killCliTree(session.child);
+        clearTimeout(t.mergeGuard);
+        if (!t.restartSteers.length) {
+          ackSteers({ ...session, steerAcks }, false);
+          settle(false, "interrupted");
+          return;
+        }
+        session.turn = null;
+        // Keep Stop available while sendTurn prepares the replacement.
+        active.set(threadId, {
+          turnId: t.turnId,
+          stop: () => {
+            if (t.settled) return;
+            ackSteers({ ...session, steerAcks }, false);
+            settle(false, "interrupted", null, undefined, t);
+          },
+        });
+        emit({ ...base(threadId, t.turnId), type: "turn.retrying", attempt: 1, delayMs: 0, reason: "timeout" });
+        if (t.settled) return;
+        void sendTurn({
+          ...request,
+          text,
+          resumeCursor: session.sessionId ?? undefined,
+          resumeFallback: { text: `${request.resumeFallback?.text ?? request.text}\n\n${text}` },
+        }, t.turnId, { turn: t, steerAcks }).catch((error) => {
+          if (t.settled) return;
+          ackSteers({ ...session, steerAcks }, false);
+          emit({ ...base(threadId, t.turnId), type: "runtime.error", message: error instanceof Error ? error.message : String(error) });
+          settle(false, "exit_before_result", null, undefined, t);
+        });
+      };
       // A retained process can wake after `result` on its own: a background
       // Bash task's notification restarts the agent loop. That is real work,
       // so it gets a turn of its own instead of every ask being denied.
@@ -1331,7 +1387,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
 
       const dispatch = (o: any) => {
         // a closed or replaced process outlives its turns; its output belongs to none
-        if (!session.turn && (session.closing || sessions.get(threadId) !== session)) {
+        if (session.closing || sessions.get(threadId) !== session) {
           if (!droppedLate) console.warn(`claude session for ${threadId} closed; dropping its late output`);
           droppedLate = true;
           return;
@@ -1356,6 +1412,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 session.turn.unsentSteers = 0;
                 session.turn.requested = true;
                 clearTimeout(session.turn.mergeGuard);
+                session.turn.mergeGuard = undefined;
+                session.turn.restartSteers = undefined;
               }
               ackSteers(session, true);
             } else if (o.subtype === "task_started" && o.is_backgrounded === true && typeof o.task_id === "string") {
@@ -1529,11 +1587,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                   cost: (t.carried?.cost ?? 0) + (o.total_cost_usd ?? 0),
                   usage: t.carried?.usage ? addUsage(t.carried.usage, usage) : usage,
                 };
-                t.mergeGuard = setTimeout(() => {
-                  ackSteers(session, false);
-                  settle(false, "interrupted");
-                }, MERGE_GUARD_MS);
-                t.mergeGuard.unref?.();
                 break;
               }
               // the reply finished before the CLI read the interrupt
@@ -1757,7 +1810,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (active.get(threadId)?.turnId === turnId) active.delete(threadId);
       };
       active.set(threadId, { stop, turnId, broker });
-      emit({ ...base(threadId, turnId), type: "turn.started" });
+      if (!relaunchOf) emit({ ...base(threadId, turnId), type: "turn.started" });
 
       // prompt over stdin as a stream-json message — never argv (ARG_MAX).
       // stdin stays OPEN: that is what keeps the session alive for a
@@ -1805,10 +1858,21 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (turn.requested && !turn.shown && !turn.toolStarted && !turn.merging) {
           // A running reply never sees a line written after its request; the CLI reads the interrupt first.
           turn.merging = { held: [] };
+          turn.restartSteers = [];
           void writeControl(s, threadId, { type: "control_request", request_id: newId(), request: { subtype: "interrupt" } }).then((written) => {
             if (!written) console.warn(`claude steer interrupt for ${threadId} failed to send; keeping the steer as a follow-up`);
           });
+          turn.mergeGuard = setTimeout(() => s.restartTurn?.(), MERGE_GUARD_MS);
+          turn.mergeGuard.unref?.();
         } else if (turn.shown) text = `${SHOWN_STEER_NOTE}\n\n${text}`;
+      }
+      const restartSteers = turn?.restartSteers;
+      if (restartSteers) {
+        restartSteers.push(text);
+        return deliverSteer(s, threadId, text, true, consumed).then((written) => {
+          if (!written) restartSteers.splice(restartSteers.lastIndexOf(text), 1);
+          return written;
+        });
       }
       return deliverSteer(s, threadId, text, true, consumed);
     };
