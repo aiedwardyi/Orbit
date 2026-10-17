@@ -222,7 +222,7 @@ export function deleteTaskResumePacket(
   return true;
 }
 
-/** Over-limit text is clipped to fit instead of rejected; `clipped` collects what was cut. */
+/** Over-limit text is clipped to fit instead of rejected, except artifact refs which drop whole; `clipped` collects what was cut. */
 export function taskStateUpdateSchema(clipped: string[]) {
   const clip = (path: string, text: string, max: number): string => {
     if (text.length <= max) return text;
@@ -252,10 +252,10 @@ export function taskStateUpdateSchema(clipped: string[]) {
     ref: z.string().trim().min(1),
     label: z.string().trim().min(1),
   }).strict()).max(20).transform((items) =>
-    items.map((item, index) => ({
-      ref: clip(`artifacts.${index}.ref`, item.ref, LIMITS.ref),
-      label: clip(`artifacts.${index}.label`, item.label, LIMITS.label),
-    })),
+    items.map((item, index) => {
+      if (item.ref.length > LIMITS.ref) return item;
+      return { ref: item.ref, label: clip(`artifacts.${index}.label`, item.label, LIMITS.label) };
+    }),
   );
   return z.object({
     fromBotId: z.string().min(1).max(128),
@@ -320,11 +320,62 @@ export function taskStateUpdateError(error: z.ZodError, body?: unknown): string 
 
 const CLIP_WORD_WINDOW = 40;
 
+function pathSpanAt(text: string, index: number): { start: number; end: number } | null {
+  const c = text[index];
+  if (c === undefined) return null;
+  let windows = false;
+  let start: number | null = null;
+  if (/[A-Za-z]/.test(c) && text[index + 1] === ":" && (text[index + 2] === "\\" || text[index + 2] === "/")) {
+    start = index;
+    windows = true;
+  } else if (c === "\\" && text[index + 1] === "\\") {
+    start = index;
+    windows = true;
+  } else if (c === "~" && text[index + 1] === "/") start = index;
+  else if (c === "." && text[index + 1] === "/") start = index;
+  else if (c === "." && text[index + 1] === "." && text[index + 2] === "/") start = index;
+  else if ((c === "/" || c === "\\") && (index === 0 || /\s/.test(text[index - 1] ?? ""))) {
+    start = index;
+    windows = c === "\\";
+  }
+  if (start === null) return null;
+  let end = start;
+  while (end < text.length && !/\s/.test(text[end] ?? "")) end++;
+  while (windows && end < text.length) {
+    let next = end;
+    let crossedLine = false;
+    while (next < text.length && /\s/.test(text[next] ?? "")) {
+      if (text[next] === "\n" || text[next] === "\r") { crossedLine = true; break; }
+      next++;
+    }
+    if (crossedLine || next >= text.length) break;
+    let tokenEnd = next;
+    while (tokenEnd < text.length && !/\s/.test(text[tokenEnd] ?? "")) tokenEnd++;
+    const token = text.slice(next, tokenEnd);
+    if (!token.includes("/") && !token.includes("\\")) break;
+    end = tokenEnd;
+  }
+  return { start, end };
+}
+
+function pathCutStart(text: string, cut: number): number | null {
+  let index = 0;
+  while (index < cut) {
+    const span = pathSpanAt(text, index);
+    if (!span) { index++; continue; }
+    if (cut > span.start && cut < span.end) return span.start;
+    index = span.end;
+  }
+  return null;
+}
+
 function clipText(text: string, max: number): string {
   let cut = text.slice(0, max - 1);
   const boundary = cut.search(/\s+\S*$/);
   if (boundary > 0 && cut.length - boundary <= CLIP_WORD_WINDOW) cut = cut.slice(0, boundary);
   else if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  const pathStart = pathCutStart(text, cut.length);
+  if (pathStart !== null) return `${text.slice(0, pathStart).trimEnd()}…`;
   return `${cut.trimEnd()}…`;
 }
 
@@ -345,6 +396,7 @@ export function groundTaskArtifacts(artifacts: TaskArtifact[], cwd: string) {
   const kept: TaskArtifact[] = [];
   const dropped: string[] = [];
   for (const artifact of artifacts) {
+    if (artifact.ref.length > LIMITS.ref) { dropped.push(artifact.ref); continue; }
     const ref = groundedTaskArtifact(cwd, artifact.ref);
     if (ref) kept.push({ ref, label: artifact.label });
     else dropped.push(artifact.ref);
