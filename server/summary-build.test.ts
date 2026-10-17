@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isFallbackSummary, prepareModelContext } from "./context-compaction.ts";
 import type { Message } from "./store.ts";
-import { createSummaryBuild, inlineSummarizer } from "./summary-build.ts";
+import { createSummaryBuild, inlineDeadlineMs, inlineSummarizer } from "./summary-build.ts";
 import type { ContextCompactionV1 } from "../shared/context-compaction.ts";
 
 const MINUTE = 60_000;
@@ -108,6 +108,20 @@ describe("summary build after settle", () => {
     const { prepared, summarize } = await sendPrepares("t", "next");
     expect(summarize).not.toHaveBeenCalled();
     expect(prepared).toMatchObject({ status: "ready", compactionId: appended[0]!.id });
+  });
+
+  it("lands an oversized build trimmed to fit", async () => {
+    const generateText = vi.fn(async () => `SUMMARY\n${Array.from({ length: 2_500 }, (_, index) => `built line ${index}`).join("\n")}`);
+    const { threads, appended, build } = setup(generateText);
+    threads.set("t", overBudgetThread("a"));
+
+    build.onSettled("bot", "t");
+    await build.idle();
+
+    expect(appended).toHaveLength(1);
+    expect(appended[0]!.compaction.summary).toMatch(/^built line 0\n[\s\S]*\nbuilt line \d+\n\[summary trimmed to fit\]$/);
+    const lines = vi.mocked(console.warn).mock.calls.map((call) => String(call[0])).filter((line) => line.startsWith("[summary] "));
+    expect(JSON.parse(lines[0]!.slice("[summary] ".length))).toMatchObject({ phase: "build", result: "trimmed" });
   });
 
   it("no call under budget", async () => {
@@ -441,6 +455,20 @@ describe("inline summarizer after a build wait", () => {
     expect(instance.generateText).toHaveBeenCalledWith("prompt", { timeoutMs: 60_000 });
   });
 
+  it("under 60 s left after a build wait makes no call and lands the fallback", async () => {
+    const { threads, sendPrepares } = setup();
+    threads.set("t", overBudgetThread("a"));
+    threads.get("t")!.push(message("send", "next question"));
+    const instance = { generateText: vi.fn(async () => "SUMMARY\nsecond"), textTimeoutMs: 90_000 };
+
+    const summarize = inlineSummarizer(instance, 30_001);
+    expect(summarize).toBeUndefined();
+    const { prepared } = await sendPrepares("t", "send", { summarize });
+
+    expect(instance.generateText).not.toHaveBeenCalled();
+    expect(prepared.status === "ready" && isFallbackSummary(prepared.compaction!.summary)).toBe(true);
+  });
+
   it("no wait means today's call with no timeout override", async () => {
     const instance = { generateText: vi.fn(async () => "SUMMARY\nsecond"), textTimeoutMs: 90_000 };
     await inlineSummarizer(instance, 0)!("prompt");
@@ -471,5 +499,13 @@ describe("summary build wiring", () => {
     expect(sends).toHaveLength(2);
     expect(sends[0]!.lastIndexOf("const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => {")).toBeGreaterThan(sends[0]!.lastIndexOf("async function startClaimedTurn("));
     expect(index).toContain("summarize: instance.generateText ? (prompt) => instance.generateText!(prompt) : undefined,");
+  });
+
+  it("the 1:1 compact log reports the deadline the inline call gets", () => {
+    const send = index.split("summarize: inlineSummarizer(instance, summaryWaitMs),")[1]!;
+    expect(send.slice(0, send.indexOf("}, record),"))).toContain("deadlineMs: inlineDeadlineMs(instance, summaryWaitMs),");
+    expect(inlineDeadlineMs({ textTimeoutMs: 90_000 }, 30_000)).toBe(60_000);
+    expect(inlineDeadlineMs({ textTimeoutMs: 90_000 }, 0)).toBe(90_000);
+    expect(inlineDeadlineMs({ textTimeoutMs: undefined }, 30_000)).toBeNull();
   });
 });

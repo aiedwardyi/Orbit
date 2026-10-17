@@ -540,7 +540,9 @@ describe("provider-neutral context compaction", () => {
     expect(second.status).toBe("ready");
     if (second.status !== "ready") return;
     expect(second.compaction?.previousCompactionId).toBe("c1");
-    expect(second.compaction?.summary).toContain("[Previous durable summary]");
+    expect(second.compaction?.summary.split("Model summary unavailable")).toHaveLength(2);
+    expect(second.compaction?.summary).not.toContain("[Previous durable summary]");
+    expect(second.compaction?.summary).toContain("work item 0:");
     expect(second.compaction?.summary).toContain("second.json");
     expect(second.transcript.at(-1)?.text).toContain("work item 209");
   });
@@ -728,18 +730,112 @@ describe("provider-neutral context compaction", () => {
     expect(prompts.join("\n")).not.toContain("shortened for model context");
   });
 
-  it("fails instead of truncating an oversized generated summary", async () => {
+  it("trims an oversized summary after its last whole line and lands it", async () => {
+    const records: SummaryCallRecord[] = [];
+    const reply = Array.from({ length: 1_000 }, (_, index) => `line ${index}: alpha beta gamma`).join("\n");
     const result = await prepareModelContext({
-      messages: longHistory(120),
-      contextWindow: 1_024,
+      messages: longHistory(130),
+      contextWindow: 128_000,
       taskRecordText: "Goal: preserve valid state",
-      summarize: async () => `SUMMARY\n${"oversized ".repeat(2_000)}`,
+      summarize: async () => `SUMMARY\n${reply}`,
+      onSummaryCall: (record) => records.push(record),
     });
 
-    expect(result).toMatchObject({
-      status: "failed",
-      error: expect.stringContaining("exceeded the durable summary budget"),
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    const lines = result.compaction!.summary.split("\n");
+    expect(lines.at(-1)).toBe("[summary trimmed to fit]");
+    expect(lines.length).toBeGreaterThan(100);
+    expect(reply.startsWith(`${lines.slice(0, -1).join("\n")}\n`)).toBe(true);
+    expect(records.map((record) => record.result)).toEqual(["trimmed"]);
+    expect(estimateContextTokens(result.transcript.slice(0, 1))).toBeLessThanOrEqual(records[0]!.outBudget);
+  });
+
+  it("trims a single oversized line at its last whitespace, else at a character", async () => {
+    for (const [reply, kept] of [["word ".repeat(9_000), /^(word )*word$/], ["x".repeat(30_000), /^x+$/]] as const) {
+      const records: SummaryCallRecord[] = [];
+      const result = await prepareModelContext({
+        messages: longHistory(130),
+        contextWindow: 128_000,
+        taskRecordText: "Goal: preserve valid state",
+        summarize: async () => `SUMMARY\n${reply}`,
+        onSummaryCall: (record) => records.push(record),
+      });
+
+      expect(result.status).toBe("ready");
+      if (result.status !== "ready") return;
+      const [head, marker, ...rest] = result.compaction!.summary.split("\n");
+      expect(head).toMatch(kept);
+      expect(marker).toBe("[summary trimmed to fit]");
+      expect(rest).toEqual([]);
+      expect(estimateContextTokens(result.transcript.slice(0, 1))).toBeLessThanOrEqual(records[0]!.outBudget);
+    }
+  });
+
+  it("asks for the summary size in words under the token budget", async () => {
+    const records: SummaryCallRecord[] = [];
+    const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary");
+    await prepareModelContext({
+      messages: longHistory(130),
+      contextWindow: 128_000,
+      taskRecordText: "Goal: fit",
+      summarize,
+      onSummaryCall: (record) => records.push(record),
     });
+
+    const ask = /^Start with the line SUMMARY, then plain text only, and keep it under (\d+) words\.$/m.exec(summarize.mock.calls[0]![0]);
+    expect(Number(ask?.[1])).toBeGreaterThan(0);
+    expect(Number(ask?.[1])).toBeLessThan(records[0]!.outBudget);
+    expect(summarize.mock.calls[0]![0]).not.toContain("estimated tokens");
+  });
+
+  it("cuts fallback sections at whole lines", async () => {
+    const result = await prepareModelContext({
+      messages: longHistory(120),
+      contextWindow: 2_048,
+      taskRecordText: "Goal: finish the release",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    const items = result.compaction!.summary.split("\n").filter((line) => line.includes("work item"));
+    expect(items.length).toBeGreaterThan(0);
+    for (const line of items) expect(line).toMatch(/^(Assistant: )?work item \d+: (detail ){17}detail ?$/);
+  });
+
+  it("cuts a first line longer than its section at a word instead of emptying the section", async () => {
+    const result = await prepareModelContext({
+      messages: [message("m0", `first request: ${"alpha beta ".repeat(400)}end`, { role: "user" }), ...longHistory(119, 1)],
+      contextWindow: 2_048,
+      taskRecordText: "Goal: finish the release",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    const requests = result.compaction!.summary.split("[User requests in this segment]\n")[1]!;
+    expect(requests).toMatch(/^first request: (alpha beta )*alpha( beta)?\n\[shortened for model context; full transcript remains available\]/);
+  });
+
+  it("trims the previous summary in a fallback at a line start", async () => {
+    const previous: ContextCompactionV1 = {
+      v: 1,
+      summary: Array.from({ length: 400 }, (_, index) => `fact ${index + 1}: alpha beta gamma delta`).join("\n"),
+      coveredThroughId: "m9",
+      firstKeptId: "m10",
+      contextWindow: 8_192,
+      estimatedTokensBefore: 900,
+      sourceMessageCount: 5,
+    };
+    const result = await prepareModelContext({
+      messages: [...longHistory(12), compactionMessage("c1", "m11", previous), ...longHistory(128, 12)],
+      contextWindow: 8_192,
+      taskRecordText: "Goal: preserve state",
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.compaction!.summary).toMatch(/\[earlier summary trimmed\]\nfact \d+: alpha beta gamma delta\n/);
+    expect(result.compaction!.summary).toContain("fact 400: alpha beta gamma delta");
   });
 
   it("keeps the previous summary when the summarizer answers the chat instead", async () => {
@@ -896,7 +992,7 @@ describe("provider-neutral context compaction", () => {
     const beforeSummarize = vi.fn();
     const result = await prepareModelContext({
       messages: longHistory(120),
-      contextWindow: 1_024,
+      contextWindow: 2_048,
       taskRecordText: "Goal: preserve state\nEvidence: reports/green.json\nArtifact: dist/orbit.exe",
       beforeSummarize,
       summarize: async () => "   ",
@@ -1911,6 +2007,50 @@ describe("summary repair", () => {
     expect(prompts[0]).not.toContain("work item 15:");
     expect(prompts[0]).not.toContain(NOTICE);
     expect(prompts[0]).not.toContain("fallback digest");
+  });
+
+  it("repairs with an oversized reply trimmed to fit", async () => {
+    const path = fallbackPath();
+    const records: SummaryCallRecord[] = [];
+    const result = await repairModelContext({
+      messages: path,
+      target: repairTarget(path)!,
+      taskRecordText: "Goal: repair",
+      summarize: async () => `SUMMARY\n${Array.from({ length: 400 }, (_, index) => `repaired line ${index}`).join("\n")}`,
+      onSummaryCall: (record) => records.push(record),
+    });
+
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    expect(result.compaction.summary).toMatch(/^repaired line 0\n[\s\S]*\nrepaired line \d+\n\[summary trimmed to fit\]$/);
+    expect(records.map((record) => record.result)).toEqual(["trimmed"]);
+    expect(estimateContextTokens([{ text: result.compaction.summary }])).toBeLessThan(records[0]!.outBudget);
+  });
+
+  it("starts a fallback on a fallback from the last model summary, with one notice and no nesting", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const result = await prepareModelContext({
+        messages: [...fallbackPath(), ...longHistory(100, 24)],
+        contextWindow: 8_192,
+        taskRecordText: "Goal: continue",
+        summarize: async () => {
+          throw new Error("Claude review timed out");
+        },
+      });
+
+      expect(result.status).toBe("ready");
+      if (result.status !== "ready") return;
+      const summary = result.compaction!.summary;
+      expect(isFallbackSummary(summary)).toBe(true);
+      expect(summary.split(NOTICE)).toHaveLength(2);
+      expect(summary.split("[Previous durable summary]")).toHaveLength(2);
+      expect(summary).toContain("[Previous durable summary]\ngood summary G\n");
+      expect(summary).not.toContain("fallback digest");
+      expect(summary).toContain("work item 6:");
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("keeps the fallback's coverage ids and window in the repaired compaction", async () => {

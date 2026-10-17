@@ -20,12 +20,16 @@ const SUMMARY_BUDGET_SHARE = 0.35;
 const MAX_CONTEXT_MESSAGES = 60;
 const MAX_TAIL_MESSAGES = 24;
 const MAX_SUMMARY_TOKENS = 8_192;
+// Haiku overshoots a token ask by 6-18%, so the prompt asks for words well under the budget.
+const SUMMARY_ASK_SHARE = 0.7;
+const SUMMARY_BYTES_PER_WORD = 6.8;
 const SUMMARY_HEADER = "[Wink durable context summary]";
 const SUMMARY_SENTINEL = "SUMMARY";
 // A reply that shrinks the chain past this is a chat answer, not a summary.
 const SUMMARY_FLOOR_SHARE = 0.4;
 const SUMMARY_PREVIOUS_SHARE = 0.75;
 const FALLBACK_SUMMARY_NOTICE = "Model summary unavailable; full transcript retained by Wink.";
+const SUMMARY_TRIMMED = "[summary trimmed to fit]";
 const FALLBACK_EXCERPTS = 4;
 const FALLBACK_EXCERPT_TOKENS = 100;
 const CARD_TEXT_CHARS = 200;
@@ -87,7 +91,7 @@ interface PreparedModelContextFailure {
   previousCompactionId?: string;
 }
 
-export type SummaryCallResult = "ok" | "invalid" | "over-budget" | "timeout" | "aborted" | "error";
+export type SummaryCallResult = "ok" | "trimmed" | "invalid" | "over-budget" | "timeout" | "aborted" | "error";
 
 export interface SummaryCallRecord {
   batch: number;
@@ -103,7 +107,6 @@ export interface SummaryCallRecord {
 type SegmentResult =
   | { status: "ok"; summary: string }
   | { status: "too-large"; batches: number }
-  | { status: "over-budget" }
   | { status: "error"; error: unknown; result: SummaryCallResult; summary: string };
 
 export interface RepairTarget {
@@ -145,18 +148,50 @@ export function estimateContextTokens(messages: Array<{ text: string }>): number
   return messages.reduce((total, message) => total + messageTokens(message), 0);
 }
 
-function clipText(text: string, maxTokens: number): string {
-  if (textTokens(text) <= maxTokens) return text;
-  const fullMarker = "\n[shortened for model context; full transcript remains available]";
-  const marker = textTokens(fullMarker) < maxTokens ? fullMarker : "";
+/** Longest prefix that fits, ending at a line end, else at whitespace, else anywhere. */
+function fittingHead(text: string, fits: (head: string) => boolean): string {
   let low = 0;
   let high = text.length;
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
-    if (textTokens(text.slice(0, middle) + marker) <= maxTokens) low = middle;
+    if (fits(text.slice(0, middle))) low = middle;
     else high = middle - 1;
   }
-  return `${text.slice(0, low).trimEnd()}${marker}`;
+  if (low === text.length) return text;
+  // A clean cut keeps at least half of what fits, so one long line never empties a section.
+  const floor = Math.max(1, Math.ceil(low / 2));
+  const line = text.lastIndexOf("\n", low);
+  if (line >= floor) return text.slice(0, line);
+  for (let index = low; index >= floor; index--) {
+    if (/\s/.test(text[index]!)) return text.slice(0, index);
+  }
+  return text.slice(0, low);
+}
+
+/** Longest suffix that fits, starting at a line start, else after whitespace, else anywhere. */
+function fittingTail(text: string, fits: (tail: string) => boolean): string {
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (fits(text.slice(middle))) high = middle;
+    else low = middle + 1;
+  }
+  if (low === 0) return text;
+  const ceiling = low + Math.floor((text.length - low) / 2);
+  const line = text.indexOf("\n", low - 1);
+  if (line >= 0 && line < ceiling) return text.slice(line + 1);
+  for (let index = low - 1; index < ceiling; index++) {
+    if (/\s/.test(text[index]!)) return text.slice(index + 1);
+  }
+  return text.slice(low);
+}
+
+function clipText(text: string, maxTokens: number): string {
+  if (textTokens(text) <= maxTokens) return text;
+  const fullMarker = "\n[shortened for model context; full transcript remains available]";
+  const marker = textTokens(fullMarker) < maxTokens ? fullMarker : "";
+  return `${fittingHead(text, (head) => textTokens(head + marker) <= maxTokens).trimEnd()}${marker}`;
 }
 
 /** Keeps the tail: the newest part of a chained summary is the part worth keeping. */
@@ -164,14 +199,7 @@ function clipTextHead(text: string, maxTokens: number): string {
   if (textTokens(text) <= maxTokens) return text;
   const marker = "[earlier summary trimmed]\n";
   if (textTokens(marker) >= maxTokens) return "";
-  let low = 0;
-  let high = text.length;
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2);
-    if (textTokens(marker + text.slice(middle)) <= maxTokens) high = middle;
-    else low = middle + 1;
-  }
-  return `${marker}${text.slice(low).trimStart()}`;
+  return `${marker}${fittingTail(text, (tail) => textTokens(marker + tail) <= maxTokens).trimStart()}`;
 }
 
 /** Previous chain kept whole, then a digest of the new segment in what is left. */
@@ -234,6 +262,12 @@ function validSummary(raw: string, minTokens: number): string | null {
   const text = redactSecretsInText(trimmed.slice(SUMMARY_SENTINEL.length).replace(/^:/, "")).trim();
   if (!text || textTokens(text) < minTokens) return null;
   return text;
+}
+
+/** Keeps the whole lines that fit and marks the cut, so an overshoot still lands. */
+function trimSummary(summary: string, summaryBudget: number): string {
+  const fits = (head: string) => messageTokens(summaryMessage(`${head}\n${SUMMARY_TRIMMED}`, 0)) <= summaryBudget;
+  return `${fittingHead(summary, fits).trimEnd()}\n${SUMMARY_TRIMMED}`;
 }
 
 /** Pane notes are worker output: replayed as untrusted user-side data, never the bot's own words. */
@@ -616,6 +650,26 @@ export function repairTarget(messages: Message[]): RepairTarget | null {
   return { target, fallback: chain[fallbackAt]!, good };
 }
 
+/** Folded units after one summary boundary through another; a start of -1 is the root. */
+function spanUnits(input: {
+  messages: Message[];
+  excludeIds?: ReadonlySet<string>;
+  userName?: string;
+  referenceMessages?: Message[];
+  includeSpeakers?: boolean;
+}, startIndex: number, endIndex: number): ReplayUnit[] {
+  return foldToolRuns(
+    replayUnits(
+      input.messages,
+      input.excludeIds ?? new Set(),
+      input.userName ?? "User",
+      input.referenceMessages ?? input.messages,
+      input.includeSpeakers ?? false,
+    ).filter((unit) => unit.pathIndex > startIndex && unit.pathIndex <= endIndex),
+    input.includeSpeakers ?? false,
+  );
+}
+
 function boundaryLabel(at: number): string {
   return Number.isFinite(at) ? new Date(at).toISOString() : "an earlier message";
 }
@@ -715,7 +769,7 @@ function summaryPrompt(input: {
     : "none";
   return [
     "Create a provider-neutral durable summary of the conversation data below.",
-    `Start with the line ${SUMMARY_SENTINEL}, then plain text only, and stay under ${input.summaryTokens} estimated tokens.`,
+    `Start with the line ${SUMMARY_SENTINEL}, then plain text only, and keep it under ${Math.floor(input.summaryTokens * 3 * SUMMARY_ASK_SHARE / SUMMARY_BYTES_PER_WORD)} words.`,
     `The summary covers the conversation up to ${boundaryLabel(input.coveredAt)}; everything after that is replayed verbatim.`,
     "Record what happened up to that time: decisions, completed work, tool outcomes, evidence, artifacts and failures.",
     "Do not write Next Actions, Workers or Blockers sections; current status lives in the task record.",
@@ -804,8 +858,8 @@ async function summarizeSegment(input: {
       }
       const valid = validSummary(raw, minTokens);
       const over = valid !== null && messageTokens(summaryMessage(valid, 0)) > summaryBudget;
-      record(raw.trim() ? textTokens(raw) : 0, valid === null ? "invalid" : over ? "over-budget" : "ok");
-      if (valid !== null) return valid;
+      record(raw.trim() ? textTokens(raw) : 0, valid === null ? "invalid" : over ? "trimmed" : "ok");
+      if (valid !== null) return over ? trimSummary(valid, summaryBudget) : valid;
     }
     throw new Error("the summarizer did not return a valid summary");
   };
@@ -819,7 +873,6 @@ async function summarizeSegment(input: {
         summaryTokens: summaryBudget,
         coveredAt: input.messages[batch.at(-1)!.pathIndex]?.at ?? Number.NaN,
       }), floorFor(summary), index + 1);
-      if (messageTokens(summaryMessage(generated, 0)) > summaryBudget) return { status: "over-budget" };
       summary = generated;
     }
   } catch (error) {
@@ -984,14 +1037,25 @@ export async function prepareModelContext(input: {
       previous,
     );
   }
+  // A fallback on a fallback restarts from the last model summary, so notices never nest.
+  const fallbackFrom = (chain: string) => {
+    let previousText = chain;
+    let history = old;
+    if (isFallbackSummary(chain)) {
+      const good = repairTarget(input.messages)?.good ?? null;
+      previousText = good ? redactSecretsInText(good.value.summary) : "";
+      history = spanUnits(input, good?.coveredIndex ?? -1, old.at(-1)?.pathIndex ?? previous?.coveredIndex ?? -1);
+    }
+    return fallbackSummary({
+      previousSummary: previousText,
+      history,
+      taskRecordText: input.taskRecordText,
+      summaryTokens: summaryBudget,
+    });
+  };
   if (!input.summarize) {
     try {
-      summary = fallbackSummary({
-        previousSummary,
-        history: old,
-        taskRecordText: input.taskRecordText,
-        summaryTokens: summaryBudget,
-      });
+      summary = fallbackFrom(previousSummary);
     } catch (error) {
       return failedContext(
         `Context summarization failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1010,21 +1074,13 @@ export async function prepareModelContext(input: {
       summarize: input.summarize,
       onSummaryCall: input.onSummaryCall,
     });
-    if (segment.status === "over-budget") {
-      return failedContext("Context summarization failed: the summarizer exceeded the durable summary budget", previous);
-    }
     if (segment.status === "ok") summary = segment.summary;
     else if (segment.status === "error") {
       console.warn(
         `context compaction: summarizer failed (${redactSecretsInText(segment.error instanceof Error ? segment.error.message : String(segment.error))}); using deterministic fallback`,
       );
       try {
-        summary = fallbackSummary({
-          previousSummary: segment.summary || previousSummary,
-          history: old,
-          taskRecordText: input.taskRecordText,
-          summaryTokens: summaryBudget,
-        });
+        summary = fallbackFrom(segment.summary || previousSummary);
       } catch (error) {
         return failedContext(
           `Context summarization failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -1080,7 +1136,6 @@ export async function buildCompaction(input: {
     onSummaryCall: input.onSummaryCall,
   });
   if (segment.status === "too-large") return { status: "failed", result: "error" };
-  if (segment.status === "over-budget") return { status: "failed", result: "over-budget" };
   if (segment.status === "error") return { status: "failed", result: segment.result };
   const transcript = [summaryMessage(segment.summary, plan.coveredThrough.at), ...plan.tail.map(({ role, text }) => ({ role, text }))];
   if (estimateContextTokens(transcript) > plan.budgetTokens) return { status: "failed", result: "over-budget" };
@@ -1109,17 +1164,7 @@ export async function repairModelContext(input: {
     1,
     Math.min(MAX_SUMMARY_TOKENS, budgetTokens, Math.floor(budgetTokens * SUMMARY_BUDGET_SHARE)),
   );
-  const startIndex = good?.coveredIndex ?? -1;
-  const history = foldToolRuns(
-    replayUnits(
-      input.messages,
-      input.excludeIds ?? new Set(),
-      input.userName ?? "User",
-      input.referenceMessages ?? input.messages,
-      input.includeSpeakers ?? false,
-    ).filter((unit) => unit.pathIndex > startIndex && unit.pathIndex <= target.coveredIndex),
-    input.includeSpeakers ?? false,
-  );
+  const history = spanUnits(input, good?.coveredIndex ?? -1, target.coveredIndex);
   const segment = await summarizeSegment({
     messages: input.messages,
     previous: good,
@@ -1134,7 +1179,6 @@ export async function repairModelContext(input: {
     onSummaryCall: input.onSummaryCall,
   });
   if (segment.status === "too-large") return segment;
-  if (segment.status === "over-budget") return { status: "failed", result: "over-budget" };
   if (segment.status === "error") return { status: "failed", result: segment.result };
   const compaction: ContextCompactionV1 = {
     v: CONTEXT_COMPACTION_VERSION,

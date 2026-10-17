@@ -113,7 +113,7 @@ import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
 import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, planCompaction, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
-import { createSummaryBuild, inlineSummarizer } from "./summary-build.ts";
+import { createSummaryBuild, inlineDeadlineMs, inlineSummarizer } from "./summary-build.ts";
 import { createSummaryRepair, logSummaryCall } from "./summary-repair.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
@@ -4454,7 +4454,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       engine: instance.driverKind,
       model: instance.textModel ?? null,
       run: 0,
-      deadlineMs: instance.textTimeoutMs ?? null,
+      deadlineMs: inlineDeadlineMs(instance, summaryWaitMs),
     }, record),
     beforeSummarize: taskRecordToFlush ? () => {
       const saved = persistTaskPacket(stampTaskResumePacket(taskRecordToFlush, "pre-compaction", {
