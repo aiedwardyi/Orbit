@@ -1,5 +1,5 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 import { z } from "zod";
 
@@ -89,6 +89,7 @@ const taskResumePacketSchema = z.object({
 }).strict();
 
 export type TaskResumePacket = z.output<typeof taskResumePacketSchema>;
+type TaskArtifact = z.output<typeof artifactItemSchema>;
 
 export interface TaskStateOptions {
   dir?: string;
@@ -221,39 +222,57 @@ export function deleteTaskResumePacket(
   return true;
 }
 
-const taskStatePlanSchema = z.array(z.object({
-  step: z.string().trim().min(1).max(200),
-  status: z.enum(["pending", "active", "done", "skipped"]),
-}).strict()).max(20).refine(
-  (plan) => plan.filter((item) => item.status === "active").length <= 1,
-  "at most one plan step may be active",
-);
-// Empty string clears. Whitespace-only is rejected before trim.
-const taskStateNextActionSchema = z.string().refine(
-  (value) => value === "" || /\S/.test(value),
-).trim().max(300);
-
-export const taskStateUpdateEnvelopeSchema = z.object({
-  fromBotId: z.string().min(1).max(128),
-  fromThreadId: z.string().min(1).max(128),
-  goal: z.string().trim().min(1).max(500).optional(),
-  plan: taskStatePlanSchema.optional(),
-  completed_note: z.string().trim().min(1).max(300).optional(),
-  pause_automatic_wakes: z.literal(true).optional(),
-  next_action: taskStateNextActionSchema.optional(),
-  blockers: z.array(z.object({
+/** Over-limit text is clipped to fit instead of rejected; `clipped` collects what was cut. */
+export function taskStateUpdateSchema(clipped: string[]) {
+  const clip = (path: string, text: string, max: number): string => {
+    if (text.length <= max) return text;
+    clipped.push(`${path} (${text.length} > ${max})`);
+    return clipText(text, max);
+  };
+  const plan = z.array(z.object({
+    step: z.string().trim().min(1),
+    status: z.enum(["pending", "active", "done", "skipped"]),
+  }).strict()).max(20).transform((items) =>
+    items.map((item, index) => ({ ...item, step: clip(`plan.${index}.step`, item.step, LIMITS.step) })),
+  ).refine(
+    (items) => items.filter((item) => item.status === "active").length <= 1,
+    "at most one plan step may be active",
+  );
+  // Empty string clears. Whitespace-only is rejected before trim.
+  const nextAction = z.string().refine(
+    (value) => value === "" || /\S/.test(value),
+  ).trim().transform((text) => clip("next_action", text, LIMITS.nextAction));
+  const blockers = z.array(z.object({
     kind: z.enum(["login", "input", "engine"]),
-    note: z.string().trim().min(1).max(300),
-  }).strict()).max(10).optional(),
-  artifacts: z.array(z.object({
-    ref: z.string().trim().min(1).max(500),
-    label: z.string().trim().min(1).max(200),
-  }).strict()).max(20).optional(),
-}).strict().refine(
-  (body) => body.goal !== undefined || body.plan !== undefined || body.completed_note !== undefined ||
-    body.next_action !== undefined || body.blockers !== undefined || body.artifacts !== undefined || body.pause_automatic_wakes === true,
-  "at least one task field is required",
-);
+    note: z.string().trim().min(1),
+  }).strict()).max(10).transform((items) =>
+    items.map((item, index) => ({ ...item, note: clip(`blockers.${index}.note`, item.note, LIMITS.note) })),
+  );
+  const artifacts = z.array(z.object({
+    ref: z.string().trim().min(1),
+    label: z.string().trim().min(1),
+  }).strict()).max(20).transform((items) =>
+    items.map((item, index) => ({
+      ref: clip(`artifacts.${index}.ref`, item.ref, LIMITS.ref),
+      label: clip(`artifacts.${index}.label`, item.label, LIMITS.label),
+    })),
+  );
+  return z.object({
+    fromBotId: z.string().min(1).max(128),
+    fromThreadId: z.string().min(1).max(128),
+    goal: z.string().trim().min(1).transform((text) => clip("goal", text, LIMITS.goal)).optional(),
+    plan: plan.optional(),
+    completed_note: z.string().trim().min(1).transform((text) => clip("completed_note", text, LIMITS.completed)).optional(),
+    pause_automatic_wakes: z.literal(true).optional(),
+    next_action: nextAction.optional(),
+    blockers: blockers.optional(),
+    artifacts: artifacts.optional(),
+  }).strict().refine(
+    (body) => body.goal !== undefined || body.plan !== undefined || body.completed_note !== undefined ||
+      body.next_action !== undefined || body.blockers !== undefined || body.artifacts !== undefined || body.pause_automatic_wakes === true,
+    "at least one task field is required",
+  );
+}
 
 /** Empty next_action clears the action. A real one is stamped to this instruction. */
 export function assignTaskNextAction(packet: TaskResumePacket, nextAction: string): void {
@@ -299,6 +318,44 @@ export function taskStateUpdateError(error: z.ZodError, body?: unknown): string 
   return `invalid task state update: ${detail.slice(0, 200)}; allowed: ${TASK_STATE_UPDATE_FIELDS}.`;
 }
 
-export function taskArtifactError(rejected: string[], cwd: string): string {
-  return `artifacts must be files inside this task's working folder ${cwd}; rejected: ${rejected.join(", ")}`;
+const CLIP_WORD_WINDOW = 40;
+
+function clipText(text: string, max: number): string {
+  let cut = text.slice(0, max - 1);
+  const boundary = cut.search(/\s+\S*$/);
+  if (boundary > 0 && cut.length - boundary <= CLIP_WORD_WINDOW) cut = cut.slice(0, boundary);
+  else if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return `${cut.trimEnd()}…`;
+}
+
+function groundedTaskArtifact(cwd: string, ref: string): string | null {
+  try {
+    const root = realpathSync(cwd);
+    const candidate = realpathSync(resolve(root, ref));
+    const fromRoot = relative(root, candidate);
+    if (fromRoot.startsWith("..") || isAbsolute(fromRoot) || !statSync(candidate).isFile()) return null;
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+/** Keeps the artifacts that are files inside the task folder, resolved to their real path. */
+export function groundTaskArtifacts(artifacts: TaskArtifact[], cwd: string) {
+  const kept: TaskArtifact[] = [];
+  const dropped: string[] = [];
+  for (const artifact of artifacts) {
+    const ref = groundedTaskArtifact(cwd, artifact.ref);
+    if (ref) kept.push({ ref, label: artifact.label });
+    else dropped.push(artifact.ref);
+  }
+  return { kept, dropped };
+}
+
+/** One line for the bot when an update saved with something clipped or dropped. Empty on a clean save. */
+export function taskStateNotice(clipped: string[], dropped: string[], cwd: string): string {
+  const parts: string[] = [];
+  if (clipped.length) parts.push(`Clipped to fit: ${clipped.join(", ")}.`);
+  if (dropped.length) parts.push(`Dropped artifacts that are not files inside ${cwd}: ${dropped.join(", ")}.`);
+  return parts.join(" ");
 }

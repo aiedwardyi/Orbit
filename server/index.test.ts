@@ -2708,7 +2708,11 @@ describe("harness HTTP API", () => {
           artifacts: [{ ref: outsidePath, label: "Outside" }],
         }),
       });
-      expect(outside.status).toBe(400);
+      expect(outside.status).toBe(200);
+      const { notice: outsideNotice } = (await outside.json()) as { notice: string };
+      expect(outsideNotice).toMatch(/^Dropped artifacts that are not files inside /);
+      expect(outsideNotice).toContain(outsidePath);
+      expect(storedTaskPacket(bot.threadId).artifacts).toEqual([{ ref: groundedArtifactPath, label: "Weekly brief" }]);
       const foreign = await fetch(`${BASE}/api/internal/task-state`, {
         method: "POST",
         headers: { authorization: `Bearer ${commsToken}`, "content-type": "application/json" },
