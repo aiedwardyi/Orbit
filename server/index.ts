@@ -2,12 +2,12 @@
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { currentEarlyListen } from "./early-listen.ts";
 import { isIP } from "node:net";
 import { hostname as osHostname } from "node:os";
-import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, extname, join } from "node:path";
 
 import { z } from "zod";
 import {
@@ -228,9 +228,10 @@ import {
 import { isCompletedTaskRecord } from "../shared/task-resume.ts";
 import {
   assignTaskNextAction,
-  taskArtifactError,
-  taskStateUpdateEnvelopeSchema,
+  groundTaskArtifacts,
+  taskStateNotice,
   taskStateUpdateError,
+  taskStateUpdateSchema,
   type TaskResumePacket,
 } from "./task-state.ts";
 import * as tts from "./tts/index.ts";
@@ -679,18 +680,6 @@ const routineRequestEnvelopeSchema = z.discriminatedUnion("action", [
     z.object({ ...routineRequestSourceSchema, action: z.literal(action), routineId: z.unknown() }).strict()
   ),
 ]);
-function groundedTaskArtifact(cwd: string | null | undefined, ref: string): string | null {
-  if (!cwd) return null;
-  try {
-    const root = realpathSync(cwd);
-    const candidate = realpathSync(resolve(root, ref));
-    const fromRoot = relative(root, candidate);
-    if (fromRoot.startsWith("..") || isAbsolute(fromRoot) || !statSync(candidate).isFile()) return null;
-    return candidate;
-  } catch {
-    return null;
-  }
-}
 
 /** The loopback endpoint a bot's computer proxy polls before acting. */
 function controlIntegration(botId: string) {
@@ -6916,7 +6905,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && path === "/api/internal/task-state") {
         const raw = await readBody(req);
-        const parsed = taskStateUpdateEnvelopeSchema.safeParse(raw);
+        const clipped: string[] = [];
+        const parsed = taskStateUpdateSchema(clipped).safeParse(raw);
         if (!parsed.success) return json(res, 400, { error: taskStateUpdateError(parsed.error, raw) });
         const body = parsed.data;
         const bot = store.bot(body.fromBotId);
@@ -6933,12 +6923,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (body.artifacts?.length && !taskCwd) {
           return json(res, 400, { error: "this task has no working folder for artifacts" });
         }
-        const artifacts = body.artifacts?.map((artifact) => ({
-          ref: groundedTaskArtifact(taskCwd, artifact.ref),
-          label: artifact.label,
-        }));
-        const rejected = body.artifacts?.filter((_, index) => artifacts![index]!.ref === null).map((artifact) => artifact.ref) ?? [];
-        if (rejected.length) return json(res, 400, { error: taskArtifactError(rejected, taskCwd!) });
+        const folder = taskCwd ?? "";
+        const { kept: artifacts, dropped } = groundTaskArtifacts(body.artifacts ?? [], folder);
 
         const next = structuredClone(current);
         // Dropping the anchor is how the bot claims a field: a later instruction
@@ -6965,10 +6951,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             ...body.blockers,
           ];
         }
-        for (const artifact of artifacts ?? []) {
-          if (artifact.ref && !next.artifacts.some((existing) => existing.ref === artifact.ref)) {
-            next.artifacts.push({ ref: artifact.ref, label: artifact.label });
-          }
+        for (const artifact of artifacts) {
+          if (!next.artifacts.some((existing) => existing.ref === artifact.ref)) next.artifacts.push(artifact);
         }
         next.updatedAt = Date.now();
         next.updatedBy = "bot";
@@ -6977,7 +6961,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const saved = persistTaskPacket(next);
         if (saved && body.pause_automatic_wakes) store.patchBot(bot.id, { paneWakePaused: true });
         return saved
-          ? json(res, 200, { ok: true, updatedAt: saved.updatedAt, nextAction: saved.nextAction, automaticWakesPaused: bot.paneWakePaused === true })
+          ? json(res, 200, { ok: true, updatedAt: saved.updatedAt, nextAction: saved.nextAction, automaticWakesPaused: bot.paneWakePaused === true, notice: taskStateNotice(clipped, dropped, folder) })
           : json(res, 409, { error: "task record could not be saved" });
       }
       if (method === "GET" && path === "/api/internal/agents") {

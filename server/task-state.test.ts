@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -19,11 +20,12 @@ import { isCompletedTaskRecord } from "../shared/task-resume.ts";
 import {
   assignTaskNextAction,
   deleteTaskResumePacket,
+  groundTaskArtifacts,
   readTaskResumePacket,
   TASK_STATE_MAX_BYTES,
-  taskArtifactError,
-  taskStateUpdateEnvelopeSchema,
+  taskStateNotice,
   taskStateUpdateError,
+  taskStateUpdateSchema,
   writeTaskResumePacket,
   type TaskResumePacket,
 } from "./task-state.ts";
@@ -191,7 +193,7 @@ describe("task resume packets", () => {
 
 describe("task state update", () => {
   it("clears a next action when the update sends an empty string", () => {
-    const empty = taskStateUpdateEnvelopeSchema.safeParse({
+    const empty = taskStateUpdateSchema([]).safeParse({
       fromBotId: "bot-1",
       fromThreadId: "thread-1",
       next_action: "",
@@ -210,14 +212,14 @@ describe("task state update", () => {
     expect(settled.nextActionInstructionId).toBeUndefined();
     expect(isCompletedTaskRecord(settled)).toBe(true);
 
-    const spaces = taskStateUpdateEnvelopeSchema.safeParse({
+    const spaces = taskStateUpdateSchema([]).safeParse({
       fromBotId: "bot-1",
       fromThreadId: "thread-1",
       next_action: "   ",
     });
     expect(spaces.success).toBe(false);
 
-    const padded = taskStateUpdateEnvelopeSchema.safeParse({
+    const padded = taskStateUpdateSchema([]).safeParse({
       fromBotId: "bot-1",
       fromThreadId: "thread-1",
       next_action: "  Verify citations  ",
@@ -289,10 +291,131 @@ describe("taskStateUpdateError", () => {
   });
 });
 
-describe("taskArtifactError", () => {
-  it("names the rejected refs and the working folder", () => {
-    const text = taskArtifactError(["../out.md", "/tmp/b.png"], "/work/demo");
-    expect(text).toContain("working folder /work/demo");
-    expect(text).toContain("rejected: ../out.md, /tmp/b.png");
+describe("task state clipping", () => {
+  let cwd: string;
+  let outside: string;
+
+  beforeEach(() => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-task-clip-"));
+    cwd = join(root, "task");
+    outside = join(root, "outside");
+    mkdirSync(join(cwd, "repro"), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(cwd, "brief.md"), "x");
+    writeFileSync(join(outside, "notes.md"), "x");
+  });
+
+  afterEach(() => {
+    rmSync(join(cwd, ".."), { recursive: true, force: true });
+  });
+
+  type Fields = Omit<z.input<ReturnType<typeof taskStateUpdateSchema>>, "fromBotId" | "fromThreadId">;
+  const sized = (length: number) => `${Array.from({ length }, (_, index) => `word${index}`).join(" ").slice(0, length - 1)}x`;
+
+  const submit = (fields: Fields) => {
+    const clipped: string[] = [];
+    const parsed = taskStateUpdateSchema(clipped).safeParse({ fromBotId: "bot-1", fromThreadId: "thread-1", ...fields });
+    if (!parsed.success) return { error: taskStateUpdateError(parsed.error), saved: undefined, clipped, kept: [], dropped: [] };
+    return { saved: parsed.data, clipped, ...groundTaskArtifacts(parsed.data.artifacts ?? [], cwd) };
+  };
+  const rejection = (parsed: z.ZodSafeParseResult<unknown>) => (parsed.success ? "saved" : taskStateUpdateError(parsed.error));
+
+  it("saves a plan step over 200 characters, clipped", () => {
+    const plan = Array.from({ length: 13 }, (_, index) => ({ step: index === 12 ? sized(228) : `step ${index}`, status: "pending" as const }));
+    const result = submit({ plan });
+    expect(result).not.toHaveProperty("error");
+    const step = result.saved?.plan?.[12]?.step ?? "";
+    expect(step.length).toBeLessThanOrEqual(200);
+    expect(step.endsWith("…")).toBe(true);
+    expect(result.clipped).toEqual(["plan.12.step (228 > 200)"]);
+  });
+
+  it("saves a next action over 300 characters, clipped", () => {
+    const result = submit({ next_action: sized(303) });
+    expect(result).not.toHaveProperty("error");
+    expect(result.saved?.next_action?.length).toBeLessThanOrEqual(300);
+    expect(result.saved?.next_action?.endsWith("…")).toBe(true);
+    expect(result.clipped).toEqual(["next_action (303 > 300)"]);
+  });
+
+  it("saves a completed note over 300 characters, clipped", () => {
+    const result = submit({ completed_note: sized(354) });
+    expect(result).not.toHaveProperty("error");
+    expect(result.saved?.completed_note?.length).toBeLessThanOrEqual(300);
+    expect(result.saved?.completed_note?.endsWith("…")).toBe(true);
+    expect(result.clipped).toEqual(["completed_note (354 > 300)"]);
+  });
+
+  it("drops an artifact outside the task folder and keeps the rest", () => {
+    const outsideFile = join(outside, "notes.md");
+    const result = submit({
+      artifacts: [
+        { ref: "brief.md", label: "Brief" },
+        { ref: outsideFile, label: "Notes" },
+        { ref: join(cwd, "repro"), label: "Repro folder" },
+      ],
+    });
+    expect(result).not.toHaveProperty("error");
+    expect(result.kept).toEqual([{ ref: realpathSync(join(cwd, "brief.md")), label: "Brief" }]);
+    expect(result.dropped).toEqual([outsideFile, join(cwd, "repro")]);
+  });
+
+  it("saves a mixed update and reports the clip and the drop in one line", () => {
+    const outsideFile = join(outside, "notes.md");
+    const result = submit({
+      completed_note: "n".repeat(354),
+      plan: [{ step: "a", status: "done" }, { step: "b".repeat(228), status: "active" }],
+      artifacts: [{ ref: "brief.md", label: "Brief" }, { ref: outsideFile, label: "Notes" }],
+    });
+    expect(result).not.toHaveProperty("error");
+    expect(result.kept).toHaveLength(1);
+    expect(taskStateNotice(result.clipped, result.dropped, cwd)).toBe(
+      `Clipped to fit: plan.1.step (228 > 200), completed_note (354 > 300). Dropped artifacts that are not files inside ${cwd}: ${outsideFile}.`,
+    );
+  });
+
+  it("gives a clean save no notice", () => {
+    const result = submit({ goal: "Ship", artifacts: [{ ref: "brief.md", label: "Brief" }] });
+    expect(taskStateNotice(result.clipped, result.dropped, cwd)).toBe("");
+  });
+
+  it("clips every length-limited string", () => {
+    const result = submit({
+      goal: "g".repeat(501),
+      blockers: [{ kind: "input", note: "b".repeat(301) }],
+      artifacts: [{ ref: "r".repeat(501), label: "l".repeat(201) }],
+    });
+    expect(result).not.toHaveProperty("error");
+    expect(result.clipped).toEqual([
+      "goal (501 > 500)",
+      "blockers.0.note (301 > 300)",
+      "artifacts.0.ref (501 > 500)",
+      "artifacts.0.label (201 > 200)",
+    ]);
+  });
+
+  it("cuts at a word boundary when one is near and hard when not", () => {
+    expect(submit({ goal: `${"a".repeat(480)} ${"b".repeat(60)}` }).saved?.goal).toBe(`${"a".repeat(480)}…`);
+    expect(submit({ goal: "c".repeat(900) }).saved?.goal).toBe(`${"c".repeat(499)}…`);
+  });
+
+  it("leaves a string at its limit alone and never splits a surrogate pair", () => {
+    const exact = submit({ goal: "g".repeat(500) });
+    expect(exact.saved?.goal).toBe("g".repeat(500));
+    expect(exact.clipped).toEqual([]);
+    expect(submit({ goal: `${"a".repeat(498)}😀😀` }).saved?.goal).toBe(`${"a".repeat(498)}…`);
+  });
+
+  it("still rejects what clipping does not cover", () => {
+    const schema = taskStateUpdateSchema([]);
+    const ids = { fromBotId: "bot-1", fromThreadId: "thread-1" };
+    expect(rejection(schema.safeParse({ ...ids, notes: "x" }))).toContain("unknown field notes");
+    expect(rejection(schema.safeParse({ ...ids, plan: [{ step: "a", status: "active" }, { step: "b", status: "active" }] }))).toContain("at most one plan step may be active");
+    expect(rejection(schema.safeParse({ ...ids, goal: "   " }))).toContain("goal");
+    expect(rejection(schema.safeParse({ ...ids, plan: [{ step: "", status: "pending" }] }))).toContain("plan.0.step");
+    expect(rejection(schema.safeParse({ ...ids, goal: 5 }))).toContain("goal");
+    expect(rejection(schema.safeParse({ ...ids, plan: "step one" }))).toContain("plan");
+    expect(rejection(schema.safeParse(ids))).toContain("at least one task field is required");
+    expect(rejection(schema.safeParse({ ...ids, plan: Array.from({ length: 21 }, () => ({ step: "a", status: "pending" })) }))).toContain("limit 20");
   });
 });

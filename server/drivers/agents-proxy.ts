@@ -632,10 +632,11 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
       pause_automatic_wakes: args.pause_automatic_wakes,
     };
     const r = await api("/api/internal/task-state", { method: "POST", body: JSON.stringify(body) });
+    const notice = r.notice ? `\n${r.notice}` : "";
     if (args.pause_automatic_wakes === true && r.automaticWakesPaused === true) {
-      return { text: "Task record saved. Worker-report wake-ups are paused until the next user message. Reports remain saved. End this turn now with a brief reply; it is still running until you finish." };
+      return { text: `Task record saved. Worker-report wake-ups are paused until the next user message. Reports remain saved. End this turn now with a brief reply; it is still running until you finish.${notice}` };
     }
-    return { text: `Task record saved. Next action: ${String(r.nextAction ?? "continue the current plan")}` };
+    return { text: `Task record saved. Next action: ${String(r.nextAction ?? "continue the current plan")}${notice}` };
   }
   if (name === "ask_bot") {
     const toBotId = String(args.bot_id ?? "").trim();

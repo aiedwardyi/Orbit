@@ -59,6 +59,7 @@ interface TaskStateRequestBody {
 }
 let lastTaskStateBody: TaskStateRequestBody | null = null;
 let botWakesPaused = false;
+let taskStateNotice: string | undefined;
 
 let child: ChildProcess;
 const pending = new Map<number, (msg: any) => void>();
@@ -249,7 +250,7 @@ beforeAll(async () => {
         const body: TaskStateRequestBody = JSON.parse(data);
         lastTaskStateBody = body;
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true, nextAction: body.next_action, automaticWakesPaused: botWakesPaused || body.pause_automatic_wakes === true }));
+        res.end(JSON.stringify({ ok: true, nextAction: body.next_action, automaticWakesPaused: botWakesPaused || body.pause_automatic_wakes === true, notice: taskStateNotice }));
       });
       return;
     }
@@ -437,6 +438,15 @@ describe("agents-proxy MCP surface", () => {
       artifacts: [{ ref: "brief.md", label: "Weekly brief" }],
     });
     expect(res.result.content[0].text).toContain("Next action: Verify citations");
+  });
+
+  it("appends the server's clip notice to the saved result", async () => {
+    taskStateNotice = "Clipped to fit: completed_note (354 > 300).";
+    const res = await callTool("update_task_state", { next_action: "Verify citations" });
+    taskStateNotice = undefined;
+    expect(res.result.content[0].text).toBe("Task record saved. Next action: Verify citations\nClipped to fit: completed_note (354 > 300).");
+    const clean = await callTool("update_task_state", { next_action: "Verify citations" });
+    expect(clean.result.content[0].text).toBe("Task record saved. Next action: Verify citations");
   });
 
   it("forwards an explicit wake pause without claiming the current turn ended", async () => {
