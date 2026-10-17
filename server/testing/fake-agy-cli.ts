@@ -9,6 +9,7 @@
 // While FAKE_AGY_CHECKPOINT_FILE exists, agy's checkpoint step precedes the response;
 // while FAKE_AGY_RESUME_FAIL_FILE exists, `--conversation` launches fail.
 // FAKE_AGY_RESULT_ERROR, when set, is the result.error of a status ERROR turn.
+// FAKE_AGY_RESULT_RESPONSE, with it, is that turn's result.response (else "").
 // Deterministic, no network.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
@@ -154,7 +155,7 @@ out({
     conversation_id: CONV,
     status: process.env.FAKE_AGY_RESULT_ERROR ? "ERROR" : "SUCCESS",
     response: process.env.FAKE_AGY_RESULT_ERROR
-      ? ""
+      ? (process.env.FAKE_AGY_RESULT_RESPONSE ?? "")
       : process.env.FAKE_AGY_SYSTEM_NOTICE === "1"
         ? systemNotice
         : process.env.FAKE_AGY_NO_FINAL === "1"

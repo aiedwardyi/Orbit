@@ -186,6 +186,8 @@ describe("Antigravity decodeConfig", () => {
 const AGY_AUTH_FAILED = "authentication failed or timed out";
 const AGY_API_DISABLED =
   "Agent Platform API has not been used in project my-personal-agy-vertex before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/aiplatform.googleapis.com/overview?project=my-personal-agy-vertex then retry. If you enabled this API recently, wait a few minutes for the action to propagate to our systems and retry.";
+const AGY_RETRIED_429 =
+  "API error (attempt 1): RESOURCE_EXHAUSTED (code 429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.";
 
 describe("isAgyAccountError", () => {
   it("matches auth and permission wording", () => {
@@ -467,6 +469,83 @@ describe("Antigravity turns (fake CLI)", () => {
       expect(recorder.events.some((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toBe(false);
     } finally {
       delete process.env.FAKE_AGY_RESULT_ERROR;
+    }
+  });
+
+  it("shows only the reply when a retried 429 comes with a real response", async () => {
+    process.env.FAKE_AGY_RESULT_ERROR = AGY_RETRIED_429;
+    process.env.FAKE_AGY_RESULT_RESPONSE = "done from fake agy";
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-agy-retried-429", text: "hi" });
+      await recorder.until((event) => event.type === "turn.completed");
+
+      expect(recorder.events.some((event) => event.type === "runtime.error")).toBe(false);
+      expect(recorder.events.some((event) => event.type === "content.delta")).toBe(true);
+      expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
+        text: "done from fake agy",
+      });
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "recovered_transient_error" });
+    } finally {
+      delete process.env.FAKE_AGY_RESULT_ERROR;
+      delete process.env.FAKE_AGY_RESULT_RESPONSE;
+    }
+  });
+
+  it("still surfaces the retried 429 when the turn has no reply", async () => {
+    process.env.FAKE_AGY_RESULT_ERROR = AGY_RETRIED_429;
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-agy-429-no-reply", text: "hi" });
+      await recorder.until((event) => event.type === "turn.completed");
+
+      const err = recorder.events.find((event) => event.type === "runtime.error");
+      expect(recorder.events.filter((event) => event.type === "runtime.error")).toHaveLength(1);
+      expect(err).toMatchObject({ type: "runtime.error", message: AGY_RETRIED_429 });
+      expect(err && "signIn" in err ? err.signIn : undefined).toBeUndefined();
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "no_final_text" });
+    } finally {
+      delete process.env.FAKE_AGY_RESULT_ERROR;
+    }
+  });
+
+  it("still surfaces an account error when the reply came through", async () => {
+    process.env.FAKE_AGY_RESULT_ERROR = AGY_AUTH_FAILED;
+    process.env.FAKE_AGY_RESULT_RESPONSE = "done from fake agy";
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-agy-auth-with-reply", text: "hi" });
+      await recorder.until((event) => event.type === "turn.completed");
+
+      expect(recorder.events.filter((event) => event.type === "runtime.error")).toEqual([
+        expect.objectContaining({ type: "runtime.error", message: AGY_AUTH_FAILED, signIn: true }),
+      ]);
+      expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
+        text: "done from fake agy",
+      });
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "ERROR" });
+    } finally {
+      delete process.env.FAKE_AGY_RESULT_ERROR;
+      delete process.env.FAKE_AGY_RESULT_RESPONSE;
+    }
+  });
+
+  it("shows only the reply when a 503 comes with a real response", async () => {
+    process.env.FAKE_AGY_RESULT_ERROR = "API error (attempt 2): UNAVAILABLE (code 503): The service is currently unavailable.";
+    process.env.FAKE_AGY_RESULT_RESPONSE = "done from fake agy";
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-agy-503-with-reply", text: "hi" });
+      await recorder.until((event) => event.type === "turn.completed");
+
+      expect(recorder.events.some((event) => event.type === "runtime.error")).toBe(false);
+      expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
+        text: "done from fake agy",
+      });
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "recovered_transient_error" });
+    } finally {
+      delete process.env.FAKE_AGY_RESULT_ERROR;
+      delete process.env.FAKE_AGY_RESULT_RESPONSE;
     }
   });
 });
