@@ -143,7 +143,7 @@ describe("hover intent", () => {
     ui.rail.destroy();
   });
 
-  it("jumps on no click in the first moments of the card, and opens it on a click with none open", async () => {
+  it("does not jump on a click in the card's first moments, and opens it on a click with none open", async () => {
     const ui = await mount();
     ui.path([992, 300], [976, 300], 1);
     expect(ui.wait(200)).toBeLessThan(200);
