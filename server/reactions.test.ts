@@ -39,6 +39,33 @@ describe("reaction tone map", () => {
     expect(EXTENDED_REACTIONS).toEqual(expect.arrayContaining(["👍", "👎", "❤️", "😂", "🎉", "👀"]));
   });
 
+  it("offers fourteen reactions in picker order", () => {
+    expect([...EXTENDED_REACTIONS]).toEqual([
+      "👍", "👎", "❤️", "🔥", "🚀", "💡",
+      "👌", "❓", "😂", "😮", "👀", "🤝",
+      "💀", "🎉",
+    ]);
+  });
+
+  it("names the surprised face and keeps retired tones for old marks", () => {
+    expect(reactionTone("😮")).toBe("surprised / amazed");
+    const retired: Record<string, string> = {
+      "💎": "especially valuable",
+      "🎯": "on target",
+      "🤖": "playfully robotic",
+      "‼️": "urgent / emphasize this",
+      "💯": "strong agreement",
+      "🧠": "thoughtful / smart",
+      "⚡": "fast / high energy",
+      "☕": "calm / keep it grounded",
+      "✨": "delight / polish this",
+    };
+    for (const [emoji, tone] of Object.entries(retired)) {
+      expect(EXTENDED_REACTIONS).not.toContain(emoji);
+      expect(reactionTone(emoji)).toBe(tone);
+    }
+  });
+
   it("offers OK hand instead of salute, which Windows 10 draws as a box", () => {
     expect(EXTENDED_REACTIONS).toContain("👌");
     expect(EXTENDED_REACTIONS).not.toContain("🫡");

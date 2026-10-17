@@ -3,10 +3,9 @@
 export const PRIMARY_REACTIONS = ["👍", "👎", "❤️"] as const;
 
 export const EXTENDED_REACTIONS = [
-  "👍", "👎", "❤️", "🔥", "🚀", "🧠",
-  "💡", "👌", "💯", "❓", "‼️", "😂",
-  "🤖", "🎯", "👀", "🤝", "⚡", "💎",
-  "💀", "✨", "🎉", "☕",
+  "👍", "👎", "❤️", "🔥", "🚀", "💡",
+  "👌", "❓", "😂", "😮", "👀", "🤝",
+  "💀", "🎉",
 ] as const;
 
 export interface ReactionMark {
@@ -28,6 +27,7 @@ const TONE: Record<string, string> = {
   "👎": "reject/negative",
   "❤️": "strong affection/love-it",
   "😂": "playful/amused",
+  "😮": "surprised / amazed",
   "🎉": "celebratory",
   "👀": "attentive/watching closely",
   "🔥": "enthusiastic/impressed",

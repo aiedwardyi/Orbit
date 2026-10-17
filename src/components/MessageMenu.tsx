@@ -18,7 +18,7 @@ declare global {
 }
 
 /** Quick row on the bot menu, in Grok's order. */
-export const QUICK_REACTIONS = ["👍", "👎", "❤️", "😂", "🎉", "🔥"] as const;
+export const QUICK_REACTIONS = ["👍", "👎", "❤️", "😂", "😮", "🔥"] as const;
 
 /** Gutter the menu keeps off every window edge. */
 const EDGE = 8;
