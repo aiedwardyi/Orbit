@@ -104,7 +104,16 @@ export function mirrorExchange(
     sourceActivity.from = { botId: from.id, name: from.name, color: from.color };
   }
   const sourceChipId = sourceChip ? note(sourceThreadId, sourceActivity).id : undefined;
-  note(target.threadId, {
+  noteMessageFrom(bus, from, target, channel);
+  if (channel) {
+    bus.store.patchGroup(channel.id, { unread: true });
+  }
+  return sourceChipId;
+}
+
+/** The chip in `target`'s own chat that names who the next peer message is from. */
+export function noteMessageFrom(bus: CommsBus, from: BotRecord, target: BotRecord, channel: GroupRecord | undefined): void {
+  bus.store.appendMessage(target.threadId, {
     role: "bot",
     kind: "activity",
     tool: { name: `Message from @${from.name}` },
@@ -112,10 +121,6 @@ export function mirrorExchange(
       ? { groupId: channel.id, withBotId: from.id, withName: from.name, withColor: from.color, peer: "from" }
       : undefined,
   });
-  if (channel) {
-    bus.store.patchGroup(channel.id, { unread: true });
-  }
-  return sourceChipId;
 }
 
 /** Show `target`'s reply under the sender's message in the thread it was asked

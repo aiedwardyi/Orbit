@@ -22,6 +22,7 @@ import {
   mirrorActivity,
   mirrorExchange,
   mirrorReply,
+  noteMessageFrom,
   patchDelegationChip,
   postPeerReply,
   settleDelegationChip,
@@ -727,6 +728,7 @@ async function processOne(
   if (rerun) {
     const channel = getOrCreateChannel(bus.store, sender, target);
     const prompt = `${delegatedPrompt(sender, item)}\n\nYour earlier reply went to ${item.takenOverBy} because they messaged you mid-turn, so answer @${sender.name} now.`;
+    noteMessageFrom(bus, sender, target, channel);
     runningDelegations.set(item.id, { sourceThreadId, item });
     await runTarget(item.toBotId, prompt, item.depth + 1, sourceThreadId, channel, item.id, sender.id, `Answering ${sender.name}'s earlier request`);
     return "settled";
