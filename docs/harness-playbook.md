@@ -117,9 +117,10 @@ you create it.
   copy; `git status --short` prints nothing (worktree); the branch is pushed or
   merged, or its commits are saved on a branch. If any fails, keep it and list
   it in your report.
-- Windows worktree: delete a junctioned `node_modules` as a link first,
-  `[System.IO.Directory]::Delete("<wt>\node_modules")`, and check it is gone.
-  Removing the worktree with the junction in place wipes the shared target.
+- Windows worktree: `git worktree remove` follows every junction inside it,
+  nested ones too (like in `.next\node_modules`), and wipes their targets.
+  Delete them as links first, then list again and check none are left:
+  `Get-ChildItem "<wt>" -Recurse -Force -Directory -Attributes ReparsePoint | % { [System.IO.Directory]::Delete($_.FullName) }`.
   Then run `git -C "<repo>" worktree remove "<path>"`. If the folder is still
   there, confirm `git worktree list` no longer shows it before deleting it.
 - Never delete by wildcard, age or folder size, never clean a shared folder

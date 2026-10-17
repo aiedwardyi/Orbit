@@ -64,9 +64,9 @@ describe("harness playbook", () => {
   it("has a Clean up section with the junction warning and per-card scratch folder", () => {
     const prompt = harnessPlaybookPrompt(true);
     expect(prompt).toContain("## Clean up");
-    expect(prompt).toContain("delete a junctioned `node_modules` as a link first");
-    expect(prompt).toContain("[System.IO.Directory]::Delete(");
-    expect(prompt).toContain("wipes the shared target");
+    expect(prompt).toContain("follows every junction inside it");
+    expect(prompt).toContain("-Attributes ReparsePoint | % { [System.IO.Directory]::Delete(");
+    expect(prompt).toContain("wipes their targets");
     expect(prompt).toContain("wink-<NICKNAME>");
     expect(prompt).toContain("Never delete by wildcard, age or folder size");
     expect(prompt).not.toContain("Remove it once the branch has landed");
@@ -148,7 +148,7 @@ describe("harness playbook", () => {
 
   it("stays within its size budget", () => {
     const prompt = loadHarnessPlaybook(undefined, join("D:", "wt"), "win32").replace(/\r\n/g, "\n");
-    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(11879);
+    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(12004);
   });
 
   it("fills the worktree path from the configured root", () => {
