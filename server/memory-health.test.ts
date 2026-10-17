@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import { createMemoryHealthCheck, memoryNotice } from "./memory-health.ts";
@@ -78,5 +79,19 @@ describe("createMemoryHealthCheck", () => {
     expect(check.take("bot", "t1", { sessionId: "s1" })).toBe("");
     expect(health).not.toHaveBeenCalled();
     expect(dropped).not.toHaveBeenCalled();
+  });
+});
+
+describe("memory check refresh sites", () => {
+  it("refreshes the check after a Memory box save", () => {
+    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    expect(index).toMatch(/const saved = saveMemoryFile\(m\[1\], parsed\.data\.text, parsed\.data\.baseRevision\);\r?\n\s*if \(saved\.conflict\) return json\(res, 409[^;]*;\r?\n\s*memoryHealthCheck\.refresh\(m\[1\]\);/);
+  });
+
+  it("refreshes the check only when sync pulled or conflicted", () => {
+    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const sync = index.slice(index.indexOf("function syncMemory("), index.indexOf("function noteTalked("));
+    expect(sync).toContain("const results = syncBotMemory(");
+    expect(sync).toMatch(/if \(Object\.values\(results\)\.some\(\(result\) => result === "pulled" \|\| result === "conflict"\)\) memoryHealthCheck\.refresh\(botId\);/);
   });
 });

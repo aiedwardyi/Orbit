@@ -2087,7 +2087,9 @@ function syncMemory(botId: string): void {
   const botSyncId = chatSyncBotId(profileSyncSettings, botId);
   if (!folder || !botSyncId || !existsSync(folder)) return;
   try {
-    syncBotMemory(folder, botSyncId, workspaceDir(botId), memorySyncLedger, { legacy: legacyMemoryLedger });
+    const results = syncBotMemory(folder, botSyncId, workspaceDir(botId), memorySyncLedger, { legacy: legacyMemoryLedger });
+    // the poll runs for every idle bot, so only changed files refresh the check
+    if (Object.values(results).some((result) => result === "pulled" || result === "conflict")) memoryHealthCheck.refresh(botId);
   } catch (error) {
     console.warn("memory sync: failed", error);
   }
@@ -9388,6 +9390,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const saved = saveMemoryFile(m[1], parsed.data.text, parsed.data.baseRevision);
       if (saved.conflict) return json(res, 409, { error: "conflict", text: saved.text, revision: saved.revision });
+      memoryHealthCheck.refresh(m[1]);
       // truncated echoes back so the editor can warn about the load budget
       return json(res, 200, { ok: true, truncated: saved.truncated, revision: saved.revision });
     }
