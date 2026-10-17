@@ -20,7 +20,6 @@ export interface TurnRailHooks {
 
 export interface TurnRail {
   setThread(threadId: string): void;
-  setMirror(mirror: boolean): void;
   setFollowing(following: boolean): void;
   setEnabled(enabled: boolean): void;
   /** The Jump to latest pill showed or hid; the card keeps clear of it. */
@@ -138,10 +137,9 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   let loading = false;
   let failedAt = -Infinity;
   let enabled = false;
-  let mirror = false;
   let following = true;
   let touch = hoverless.matches;
-  let G: RailFrame = railFrame(0, 0, 0, false);
+  let G: RailFrame = railFrame(0, 0, 0);
   let unmeasured = true;
   let box = { left: 0, top: 0 };
   let mode: Mode = "idle";
@@ -243,7 +241,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   function layoutLens() {
     R = G.narrow ? 96 : 120;
     pos = railPositions(days, G.h, G.narrow ? 4 : 5);
-    vis.style.cssText = `${G.mirror ? `left:${G.edge}px;transform:scaleX(-1)` : `right:${G.scrollbar + G.edge}px`};top:${G.top}px;height:${G.h}px;width:${LENS_W}px`;
+    vis.style.cssText = `right:${G.scrollbar + G.edge}px;top:${G.top}px;height:${G.h}px;width:${LENS_W}px`;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(LENS_W * dpr);
     canvas.height = Math.max(1, Math.round((G.h + 1) * dpr));
@@ -447,7 +445,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     WH = HH + VISIBLE * RH + HH;
     CH = WH + PAD * 2;
     const gap = touch ? 56 : 28;
-    cx = G.mirror ? G.railX + gap : G.railX - gap - PW;
+    cx = G.railX - gap - PW;
     pill = latestUp ? undefined : null;
     measureCtx ??= document.createElement("canvas").getContext("2d");
     widths.clear();
@@ -456,7 +454,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     widths.clear();
     if (measureCtx) measureCtx.font = `400 13px ${font}`;
     wordsW = PW - 18 - 14 - 10 - timeW - 2;
-    card.style.cssText = `width:${PW}px;--rh:${RH}px;--hh:${HH}px;--tw:${timeW}px;transform-origin:${G.mirror ? "0%" : "100%"} 50%`;
+    card.style.cssText = `width:${PW}px;--rh:${RH}px;--hh:${HH}px;--tw:${timeW}px;transform-origin:100% 50%`;
     win.style.height = `${WH}px`;
     heads.style.height = `${WH}px`;
     cl = cardLayout(days, RH, HH);
@@ -604,7 +602,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
       snap(so, s);
       pickBand();
     } else {
-      const d = (e.clientX - tp.x0) * (G.mirror ? -1 : 1);
+      const d = e.clientX - tp.x0;
       snap(sx, d > 0 ? d : -0.3 * rubber(-d));
     }
   }
@@ -618,7 +616,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     const fresh = span > 6 && e.timeStamp - z[0] < 70;
     tp = null;
     if (p.axis === "x") {
-      const vx = fresh ? ((z[1] - a[1]) / span) * (G.mirror ? -1 : 1) : 0;
+      const vx = fresh ? (z[1] - a[1]) / span : 0;
       if (!cancel && (sx.x > 64 || (vx > 0.45 && sx.x > 16))) {
         sx.to = PW * 0.55;
         return "close";
@@ -681,10 +679,9 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     const shown = o > 0.005 || live;
     put("vis", shown ? "visible" : "hidden", (v) => (card.style.visibility = v));
     if (!shown || !n) return busy;
-    const side = G.mirror ? -1 : 1;
     const fade = 1 - clamp(sx.x / 240, 0, 0.75);
     put("op", (o * fade).toFixed(3), (v) => (card.style.opacity = v));
-    put("tf", `translate3d(${(cx + side * (sx.x + (1 - o) * 10)).toFixed(1)}px,${cy.x.toFixed(1)}px,0) scale(${(0.97 + 0.03 * o).toFixed(4)})`, (v) => (card.style.transform = v));
+    put("tf", `translate3d(${(cx + sx.x + (1 - o) * 10).toFixed(1)}px,${cy.x.toFixed(1)}px,0) scale(${(0.97 + 0.03 * o).toFixed(4)})`, (v) => (card.style.transform = v));
     put("bs", bs.x.toFixed(1), (v) => (band.style.transform = `translate3d(0,${v}px,0)`));
     const top = so.x;
     // pooled rows: only the turns in view hold one
@@ -714,7 +711,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
         row.el.style.transform = `translate3d(0,${y}px,0)`;
       }
     }
-    // A day header once per day: the top day's header stays pinned until the next one pushes it out.
+    // A header only for a day with a row in view: the top day's stays pinned while its rows show below the slot.
     let k = -1;
     let lo = 0;
     let hi = cl.headY.length - 1;
@@ -726,8 +723,9 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
       } else hi = mid - 1;
     }
     const want = new Map<number, number>();
-    if (k >= 0) want.set(k, k + 1 < cl.headY.length ? Math.min(0, cl.headY[k + 1]! - top - HH) : 0);
-    for (let i = k + 1; i < cl.headY.length && cl.headY[i]! - top < WH; i++) want.set(i, cl.headY[i]! - top);
+    const end = k + 1 < cl.headY.length ? cl.headY[k + 1]! : cl.length;
+    if (k >= 0 && end - top - RH / 2 >= HH) want.set(k, 0);
+    for (let i = k + 1; i < cl.headY.length && cl.headY[i]! - top + HH + RH / 2 < WH; i++) want.set(i, cl.headY[i]! - top);
     for (const head of headRows) {
       if (head.day >= 0 && !want.has(head.day)) {
         head.day = -1;
@@ -890,12 +888,12 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     const wasTouch = touch;
     touch = hoverless.matches;
     const sb = scroller.offsetWidth - scroller.clientWidth;
-    const next = railFrame(scroller.offsetWidth, scroller.clientHeight, sb, mirror);
-    if (!force && touch === wasTouch && next.width === G.width && next.height === G.height && next.scrollbar === G.scrollbar && next.mirror === G.mirror) return;
+    const next = railFrame(scroller.offsetWidth, scroller.clientHeight, sb);
+    if (!force && touch === wasTouch && next.width === G.width && next.height === G.height && next.scrollbar === G.scrollbar) return;
     G = next;
     host.style.height = `${G.height}px`;
     refreshBox();
-    hit.style.cssText = `${G.mirror ? "left:0" : `right:${G.scrollbar}px`};top:${G.top - 8}px;height:${G.h + 16}px;width:${G.hitWidth}px`;
+    hit.style.cssText = `right:${G.scrollbar}px;top:${G.top - 8}px;height:${G.h + 16}px;width:${G.hitWidth}px`;
     layoutLens();
     layoutCard();
     if (live) cardAim(aimY);
@@ -1096,7 +1094,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     if (e.pointerType !== "mouse" || !enabled) return;
     const x = pointX(e);
     const y = e.clientY - box.top;
-    const dx = G.mirror ? x - G.railX - 10 : G.railX - 10 - x;
+    const dx = G.railX - 10 - x;
     // the composer below shares this box
     const w = y < 0 || y > G.height ? 0 : 1 - clamp((dx - 8) / 150, 0, 1);
     if (w > 0) {
@@ -1232,12 +1230,6 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
         layoutCard();
         kick();
       }
-    },
-    setMirror(next) {
-      if (next === mirror) return;
-      mirror = next;
-      closeAll();
-      if (G.height) measureFrame(true);
     },
     setLatestShown(shown) {
       latestUp = shown;

@@ -213,11 +213,11 @@ describe("timeline rail", () => {
     expect(ui.strip().style.left).toBe("");
   });
 
-  it("moves to the left edge when the drawer is on the right", async () => {
+  it("stays on the right edge when the drawer is on the right", async () => {
     localStorage.setItem(SIDEBAR_SIDE_KEY, "right");
     const ui = await mount();
-    expect(ui.strip().style.left).toBe("0px");
-    expect(ui.strip().style.right).toBe("");
-    expect(ui.host.querySelector<HTMLElement>(".turn-rail")!.style.transform).toBe("scaleX(-1)");
+    expect(ui.strip().style.right).toBe("8px");
+    expect(ui.strip().style.left).toBe("");
+    expect(ui.host.querySelector<HTMLElement>(".turn-rail")!.style.transform).toBe("");
   });
 });

@@ -21,7 +21,6 @@ export const TurnRail = memo(function TurnRail({
   scrollRef,
   following,
   enabled,
-  mirror,
   latestShown,
   onJump,
   onLatest,
@@ -33,7 +32,6 @@ export const TurnRail = memo(function TurnRail({
   scrollRef: RefObject<HTMLDivElement | null>;
   following: boolean;
   enabled: boolean;
-  mirror: boolean;
   /** The Jump to latest pill is up; the card keeps clear of it. */
   latestShown: boolean;
   onJump: (messageId: string) => void;
@@ -86,7 +84,6 @@ export const TurnRail = memo(function TurnRail({
   }, [scrollRef]);
 
   useEffect(() => rail.current?.setThread(threadId), [threadId]);
-  useEffect(() => rail.current?.setMirror(mirror), [mirror]);
   useEffect(() => rail.current?.setFollowing(following), [following]);
   useEffect(() => rail.current?.restyle(), [skin, locale]);
   useEffect(() => rail.current?.setEnabled(enabled), [enabled]);

@@ -22,8 +22,6 @@ export interface RailFrame {
   height: number;
   scrollbar: number;
   narrow: boolean;
-  /** The rail sits on the left edge, away from a drawer on the right. */
-  mirror: boolean;
   edge: number;
   top: number;
   /** Rail length. */
@@ -34,15 +32,15 @@ export interface RailFrame {
 }
 
 /** Rail box for a transcript of this size; the column is 960 px at most with 20 px padding. */
-export function railFrame(width: number, height: number, scrollbar: number, mirror: boolean): RailFrame {
+export function railFrame(width: number, height: number, scrollbar: number): RailFrame {
   const narrow = width < 640;
   const edge = narrow ? 4 : 6;
   const top = narrow ? 12 : 16;
   const free = (width - scrollbar - Math.min(960, width - scrollbar)) / 2 + 20;
   return {
-    width, height, scrollbar, narrow, mirror, edge, top,
+    width, height, scrollbar, narrow, edge, top,
     h: Math.max(0, height - top * 2),
-    railX: mirror ? edge : width - scrollbar - edge,
+    railX: width - scrollbar - edge,
     hitWidth: narrow ? 30 : Math.min(34, Math.max(18, free - 6)),
   };
 }
