@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { contextMenuTemplate } from "./context-menu.mjs";
+import { contextMenuTemplate, fileMenuTemplate } from "./context-menu.mjs";
 
 const text = (key) => key;
 const actions = { replaceMisspelling: vi.fn(), copyLink: vi.fn() };
@@ -49,5 +49,19 @@ describe("native context menu", () => {
     expect(template[2]).toMatchObject({ type: "separator" });
     template[0].click();
     expect(actions.replaceMisspelling).toHaveBeenCalledWith("the");
+  });
+});
+
+describe("file link menu", () => {
+  const labels = (items) => items.map((item) => item.label);
+
+  it("lists show, save and copy for a file", () => {
+    const template = fileMenuTemplate({ directory: false }, text, { show: vi.fn(), save: vi.fn(), copyPath: vi.fn() });
+    expect(labels(template)).toEqual(["native.showInFolder", "native.saveCopy", "native.copyPath"]);
+  });
+
+  it("leaves Save out for a folder", () => {
+    const template = fileMenuTemplate({ directory: true }, text, { show: vi.fn(), save: vi.fn(), copyPath: vi.fn() });
+    expect(labels(template)).toEqual(["native.showInFolder", "native.copyPath"]);
   });
 });

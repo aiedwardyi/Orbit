@@ -38,6 +38,12 @@ describe("packaged locale", () => {
   it("includes Malgun Gothic in the packaged fallback stack", () => {
     expect(uiFontStack()).toContain("Malgun Gothic");
   });
+
+  it("has Korean file link menu labels", () => {
+    expect(ko["native.showInFolder"]).toBe("폴더에서 보기");
+    expect(ko["native.saveCopy"]).toBe("사본 저장…");
+    expect(ko["native.copyPath"]).toBe("경로 복사");
+  });
 });
 
 describe("desktop viewer copy", () => {

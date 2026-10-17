@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { fileMenuTemplate } from "./context-menu.mjs";
+
 // Types the OS default app may launch. Anything else (executables, scripts,
 // shortcuts, html, no extension) is only revealed in its folder, never run.
 export const OPENABLE_EXTENSIONS = new Set([
@@ -31,10 +33,10 @@ export async function resolveOpenTarget(rawPath, { base, fsp = fs.promises, plat
     if (!root || !isInside(root, filePath)) throw new Error("That file is outside the bot's folder");
   }
   const stat = await fsp.stat(filePath);
-  if (stat.isDirectory()) return { filePath, action: platform === "win32" && SHELL_VIEW_NAME.test(path.basename(filePath)) ? "reveal" : "folder" };
+  if (stat.isDirectory()) return { filePath, directory: true, action: platform === "win32" && SHELL_VIEW_NAME.test(path.basename(filePath)) ? "reveal" : "folder" };
   if (!stat.isFile()) throw new Error("That path is not a file");
   const ext = path.extname(filePath).slice(1).toLowerCase();
-  return { filePath, action: OPENABLE_EXTENSIONS.has(ext) ? "open" : "reveal" };
+  return { filePath, directory: false, action: OPENABLE_EXTENSIONS.has(ext) ? "open" : "reveal" };
 }
 
 export async function openLocalFile(rawPath, { shell, ...options }) {
@@ -46,4 +48,22 @@ export async function openLocalFile(rawPath, { shell, ...options }) {
   // openPath resolves an error string rather than rejecting
   if (await shell.openPath(filePath)) throw new Error(action === "folder" ? "That folder could not be opened" : "That file could not be opened");
   return action;
+}
+
+// The save dialog confirms before overwriting. Picking the file itself copies nothing.
+export async function saveFileCopy(filePath, { dialog, downloads, window, fsp = fs.promises }) {
+  const { canceled, filePath: dest } = await dialog.showSaveDialog(window, { defaultPath: path.join(downloads, path.basename(filePath)) });
+  if (canceled || !dest || path.resolve(dest) === filePath) return false;
+  await fsp.copyFile(filePath, dest);
+  return true;
+}
+
+// Resolves first, so a rejected path never gets a menu.
+export async function fileMenuFor(rawPath, { text, shell, clipboard, dialog, downloads, window, onSaveError, ...options }) {
+  const { filePath, directory } = await resolveOpenTarget(rawPath, options);
+  return fileMenuTemplate({ directory }, text, {
+    show: () => shell.showItemInFolder(filePath),
+    save: () => saveFileCopy(filePath, { dialog, downloads, window, fsp: options.fsp }).catch(onSaveError),
+    copyPath: () => clipboard.writeText(filePath),
+  });
 }

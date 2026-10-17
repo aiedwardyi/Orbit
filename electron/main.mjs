@@ -62,7 +62,7 @@ import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLi
 import { WINDOWS_CAPTION_HEIGHT, applyWindowsTitleBarOverlay, windowChromeOptions } from "./window-chrome.mjs";
 import { restoreWindowZoom, routeZoomShortcut, setImageZoomOwned } from "./window-zoom.mjs";
 import { contextMenuTemplate } from "./context-menu.mjs";
-import { openLocalFile } from "./open-file.mjs";
+import { fileMenuFor, openLocalFile } from "./open-file.mjs";
 import {
   ensureManagedComposioCredentials,
   managedComposioAccess,
@@ -1964,6 +1964,22 @@ ipcMain.handle("desktop:export-diagnostics", async (event) => {
 // open-file.mjs resolves and checks it first.
 ipcMain.handle("desktop:open-file", async (_event, rawPath, rawBase) => {
   await openLocalFile(rawPath, { base: rawBase, shell });
+});
+
+// Right-click on a file link. open-file.mjs resolves the path before any menu exists.
+ipcMain.handle("desktop:file-menu", async (event, rawPath, rawBase) => {
+  const window = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+  const template = await fileMenuFor(rawPath, {
+    base: rawBase,
+    text: nativeText,
+    shell,
+    clipboard,
+    dialog,
+    downloads: app.getPath("downloads"),
+    window,
+    onSaveError: (error) => dialog.showErrorBox(nativeText("native.saveCopyFailed"), error?.message ?? String(error)),
+  });
+  Menu.buildFromTemplate(template).popup({ window });
 });
 
 ipcMain.on("desktop:os-locale", (event) => {

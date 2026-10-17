@@ -39,3 +39,12 @@ export function contextMenuTemplate(params, text, actions) {
   );
   return menuItems;
 }
+
+// Right-click on a local file link. A folder has nothing to copy, so no Save.
+export function fileMenuTemplate({ directory }, text, actions) {
+  return [
+    { label: text("native.showInFolder"), click: actions.show },
+    ...(directory ? [] : [{ label: text("native.saveCopy"), click: actions.save }]),
+    { label: text("native.copyPath"), click: actions.copyPath },
+  ];
+}
