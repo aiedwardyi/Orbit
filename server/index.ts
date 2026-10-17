@@ -306,7 +306,7 @@ import { readCuaConnection } from "./local-computer.ts";
 import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { RepeatDetector, repeatCall } from "./repeat-detector.ts";
-import { endsContentStream, redactSecrets, redactSecretsInText, StreamSecretMasker } from "./redact.ts";
+import { flushEndedMaskers, redactSecrets, redactSecretsInText, StreamSecretMasker } from "./redact.ts";
 import {
   apiRequestAuthorized,
   autoRemoteHost,
@@ -2324,23 +2324,19 @@ function maskRuntimePayload(payload: Record<string, unknown>): Record<string, un
   return { ...payload, event: { ...event, delta: masker.push(event.delta) } };
 }
 
-function flushSseDeltaMaskers(threadId: string, eventType: string | undefined): Array<{ streamKind: string; tail: string }> {
-  if (!endsContentStream(eventType)) return [];
+function flushSseDeltaMaskers(threadId: string, eventType: string | undefined, itemType?: string): Array<{ streamKind: string; tail: string }> {
   const byKind = sseDeltaMaskers.get(threadId);
-  if (!byKind) return [];
-  sseDeltaMaskers.delete(threadId);
-  return [...byKind].flatMap(([streamKind, masker]) => {
-    const tail = masker.flush();
-    return tail ? [{ streamKind, tail }] : [];
-  });
+  const tails = flushEndedMaskers(byKind, eventType, itemType);
+  if (byKind && byKind.size === 0) sseDeltaMaskers.delete(threadId);
+  return tails;
 }
 
 function broadcast(payload: Record<string, unknown>) {
   const kind = String(payload.kind ?? "");
   if (kind === "runtime") {
-    const event = payload.event as { type?: string; threadId?: string } | undefined;
+    const event = payload.event as { type?: string; threadId?: string; itemType?: string } | undefined;
     if (event?.threadId && event.type !== "content.delta") {
-      for (const { streamKind, tail } of flushSseDeltaMaskers(event.threadId, event.type)) {
+      for (const { streamKind, tail } of flushSseDeltaMaskers(event.threadId, event.type, event.itemType)) {
         writeBroadcastFrame({
           kind: "runtime",
           event: { ...event, type: "content.delta", streamKind, delta: tail },

@@ -300,12 +300,31 @@ function safeCut(text: string): number {
   return cut;
 }
 
-/** A held tail belongs to the turn that opened it. Claude emits item.updated
- * mid-stream, so tearing the maskers down on every non-delta event strands an
- * open block: the prefix flushes, the state goes, and the rest of the body
- * reaches a fresh masker with no BEGIN left to match. */
+/** Only a real stream end tears a masker down: an assistant_text item.completed
+ * ends its text block, a turn boundary ends every stream. Mid-stream events
+ * must not, or an open block's body reaches a fresh masker with no BEGIN to match. */
 const STREAM_BOUNDARIES = new Set(["turn.completed", "turn.retrying", "session.exited"]);
-export const endsContentStream = (type: string | undefined): boolean => !!type && STREAM_BOUNDARIES.has(type);
+export const endsContentStream = (type: string | undefined, itemType?: string): boolean =>
+  !!type && (STREAM_BOUNDARIES.has(type) || (type === "item.completed" && itemType === "assistant_text"));
+
+/** Flushes and drops the maskers this event ends. */
+export function flushEndedMaskers(
+  byKind: Map<string, StreamSecretMasker> | undefined,
+  type: string | undefined,
+  itemType?: string,
+): Array<{ streamKind: string; tail: string }> {
+  if (!byKind || !endsContentStream(type, itemType)) return [];
+  const kinds = type === "item.completed" ? ["assistant_text"] : [...byKind.keys()];
+  const tails: Array<{ streamKind: string; tail: string }> = [];
+  for (const streamKind of kinds) {
+    const masker = byKind.get(streamKind);
+    if (!masker) continue;
+    byKind.delete(streamKind);
+    const tail = masker.flush();
+    if (tail) tails.push({ streamKind, tail });
+  }
+  return tails;
+}
 
 /** Length of a body after trim(), accumulated over chunks nobody keeps. */
 class TrimmedLength {
