@@ -36,6 +36,15 @@
 //                        summary, then a tool_use)
 //                      | usage-calls (two main calls and a subagent's, each
 //                        with its own usage; modelUsage names the windows)
+//                      | think-steer (thinks with no tool; a line written
+//                        after `requesting` misses the reply unless an
+//                        interrupt aborts it first)
+//   FAKE_CLAUDE_INTERRUPT  think-steer only: late (finish the reply before
+//                      reading the interrupt) | lag (one text delta after the
+//                      ack) | hold (ack, never end) | drops (end, run nothing)
+//                      | tool (start a tool block; a steer rides the next request)
+//   FAKE_CLAUDE_STDIN_LOG  path; each stdin line's type is appended, a
+//                      control request as its subtype
 //   FAKE_CLAUDE_USAGE  path; once it exists, usage-calls reads {first, last,
 //                      window} from it each turn: the two main calls' prompts
 //                      and the main model's window
@@ -209,6 +218,7 @@ if (lateRole === "speaker") {
 // exits only when stdin ends. `slow` leaves a gap between the tool result
 // and the reply so a test can steer into it.
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+type StdinLine = { type?: string; request_id?: string; request?: { subtype?: string } };
 const sessionId = argAfter("--resume") ?? argAfter("--session-id") ?? "fake-session";
 const model = argAfter("--model") ?? "claude-fake";
 let dumped = false;
@@ -481,6 +491,88 @@ const watchTaskGate = () => {
   }, 10);
 };
 
+// `think-steer`, after the steer-merge probe's real runs. A line that lands
+// before `requesting` rides that request; a later one misses the reply and
+// runs as its own query after `result` (r1). An interrupt instead acks,
+// ends the reply with an error `result` and answers every queued line in one
+// query, the first message still in its history (r3-r5).
+let onInterrupt: ((requestId: string) => void) | null = null;
+const ackInterrupt = (requestId: string) =>
+  out({ type: "control_response", response: { subtype: "success", request_id: requestId, response: { still_queued: [] } } });
+const playThinkSteer = (prompt: JsonValue) => {
+  const how = process.env.FAKE_CLAUDE_INTERRUPT;
+  const first = promptText(prompt);
+  let folded: string[] = [];
+  let thinking: ReturnType<typeof setInterval> | undefined;
+  let replyTimer: ReturnType<typeof setTimeout> | undefined;
+  const answer = (lines: string[], cost: number) => {
+    const tail = lines.length ? ` + steered: ${lines.join(" | ")}` : "";
+    out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${first}${tail}` }] } });
+    out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: cost, usage: { input_tokens: 10, output_tokens: 5 } });
+  };
+  const reply = () => {
+    clearInterval(thinking);
+    onInterrupt = null;
+    answer(folded, 0.01);
+    const late = steered;
+    turnRunning = false;
+    if (late.length) playTurn({ type: "user", message: { role: "user", content: late.join(" | ") } });
+    else finishIfDone();
+  };
+  setTimeout(() => {
+    folded = steered.splice(0);
+    out({ type: "system", subtype: "status", status: "requesting" });
+    if (how === "tool") {
+      out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tu-think", name: "Bash", input: {} } } });
+      out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu-think", name: "Bash", input: { command: "echo hi" } }] } });
+      const close = () => {
+        onSteer = null;
+        clearTimeout(cap);
+        out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-think", is_error: false }] } });
+        out({ type: "system", subtype: "status", status: "requesting" });
+        answer([...folded, ...steered.splice(0)], 0.01);
+        turnRunning = false;
+        finishIfDone();
+      };
+      const cap = setTimeout(close, 10_000);
+      onSteer = close;
+      return;
+    }
+    let step = 0;
+    thinking = setInterval(() => {
+      out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: `step ${++step} ` } } });
+    }, 50);
+    replyTimer = setTimeout(reply, 400);
+    onInterrupt = (requestId) => {
+      clearTimeout(replyTimer);
+      if (how === "late") {
+        reply();
+        return ackInterrupt(requestId);
+      }
+      onInterrupt = null;
+      clearInterval(thinking);
+      ackInterrupt(requestId);
+      if (how === "lag" || how === "hold") {
+        out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "partial" } } });
+      }
+      if (how === "hold") return;
+      out({ type: "user", message: { role: "user", content: [{ type: "text", text: "[Request interrupted by user]" }] } });
+      out({ type: "result", subtype: "error_during_execution", is_error: true, stop_reason: null, total_cost_usd: 0, usage: { input_tokens: 0, output_tokens: 0 } });
+      // the follow-up is the next stdin line
+      setTimeout(() => {
+        const lines = [...folded, ...steered.splice(0)];
+        if (how !== "drops") {
+          out({ type: "system", subtype: "init", session_id: sessionId, model });
+          out({ type: "system", subtype: "status", status: "requesting" });
+          answer(lines, 0.02);
+        }
+        turnRunning = false;
+        finishIfDone();
+      }, 20);
+    };
+  }, 100);
+};
+
 const playTurn = (prompt: JsonValue) => {
   turnRunning = true;
   steered = [];
@@ -574,6 +666,11 @@ const playTurn = (prompt: JsonValue) => {
 
   if (mode === "edit") {
     void playEdits();
+    return;
+  }
+
+  if (mode === "think-steer") {
+    playThinkSteer(prompt);
     return;
   }
 
@@ -806,9 +903,20 @@ process.stdin.on("data", (c) => {
     buf = buf.slice(nl + 1);
     if (!line.trim()) continue;
     let prompt: JsonValue = null;
+    let control: StdinLine = {};
     try {
       prompt = JSON.parse(line);
+      control = JSON.parse(line);
     } catch {
+      continue;
+    }
+    if (process.env.FAKE_CLAUDE_STDIN_LOG) {
+      appendFileSync(process.env.FAKE_CLAUDE_STDIN_LOG, `${control.type === "control_request" ? control.request?.subtype : "user"}\n`);
+    }
+    if (control.type === "control_request") {
+      const requestId = String(control.request_id ?? "");
+      if (control.request?.subtype === "interrupt" && onInterrupt) onInterrupt(requestId);
+      else ackInterrupt(requestId);
       continue;
     }
     if (process.env.FAKE_CLAUDE_PROMPT_LOG) {

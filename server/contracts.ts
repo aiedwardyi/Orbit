@@ -344,8 +344,9 @@ export interface ProviderAdapter {
    * false when there is no live turn to steer (the caller then sends it as
    * a normal turn). Only drivers with `capabilities.queueing` implement it.
    * After a true, `consumed` (with `capabilities.steerConsumed`) is called
-   * once: true when the model took the message in, false when it never will. */
-  steer?(threadId: ThreadId, text: string, consumed?: (taken: boolean) => void): Promise<boolean>;
+   * once: true when the model took the message in, false when it never will.
+   * `fromUser` marks the user's own words, which a Claude turn that has shown nothing may restart on. */
+  steer?(threadId: ThreadId, text: string, consumed?: (taken: boolean) => void, opts?: { fromUser?: boolean }): Promise<boolean>;
   /** True while this driver still owns the thread — the same `active` entry
    * sendTurn throws "a turn is already running on this thread" on. It
    * outlives the harness's own busy flag: a cancelled turn keeps the entry

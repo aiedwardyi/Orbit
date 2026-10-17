@@ -408,6 +408,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_REJECT_FLAG;
     delete process.env.OMB_CLAUDE_REVIEW_TIMEOUT_MS;
     delete process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS;
+    delete process.env.OMB_CLAUDE_MERGE_GUARD_MS;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.CLAUDE_CODE_SILENT_TURN_REMINDER;
     delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
@@ -1302,6 +1303,121 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await vi.waitFor(() => expect(consumed).toHaveBeenCalled());
     await vi.waitFor(() => expect(instance.adapter.hasSession("t-taken")).toBe(false));
     expect(consumed.mock.calls).toEqual([[taken]]);
+  });
+
+  describe("a user steer into a turn that showed nothing", () => {
+    const stdinLog = () => readFileSync(join(scratch, "stdin.log"), "utf8").trim().split("\n");
+    const replies = () =>
+      recorder.events.flatMap((e) => (e.type === "item.completed" && e.itemType === "assistant_text" ? [e.text] : []));
+    const turnCount = (type: "turn.started" | "turn.completed") => recorder.events.filter((e) => e.type === type).length;
+    const thought = (e: (typeof recorder.events)[number]) => e.type === "content.delta" && e.streamKind === "reasoning_text";
+    const start = async (threadId: string, interrupt = "") => {
+      await create("think-steer", { FAKE_CLAUDE_INTERRUPT: interrupt, FAKE_CLAUDE_STDIN_LOG: join(scratch, "stdin.log") });
+      return instance.adapter.sendTurn({ threadId, text: "first" });
+    };
+
+    it("restarts it so one reply answers both", async () => {
+      const { turnId } = await start("t-merge");
+      await recorder.until(thought);
+      const consumed = vi.fn();
+      await expect(instance.adapter.steer!("t-merge", "and also this", consumed, { fromUser: true })).resolves.toBe(true);
+      const done = await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "interrupt", "user"]);
+      expect(replies()).toEqual(["reply to: first + steered: and also this"]);
+      expect(done).toMatchObject({ turnId, ok: true, cost: 0.02, usage: { input: 10, output: 5 } });
+      expect(turnCount("turn.started")).toBe(1);
+      expect(turnCount("turn.completed")).toBe(1);
+      expect(consumed.mock.calls).toEqual([[true]]);
+    });
+
+    it("drops output that raced the interrupt", async () => {
+      await start("t-merge-lag", "lag");
+      await recorder.until(thought);
+      await instance.adapter.steer!("t-merge-lag", "and also this", undefined, { fromUser: true });
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "interrupt", "user"]);
+      expect(recorder.events.some((e) => e.type === "content.delta" && e.delta === "partial")).toBe(false);
+      expect(replies()).toEqual(["reply to: first + steered: and also this"]);
+    });
+
+    it("shows the reply when it finished before the interrupt", async () => {
+      const { turnId } = await start("t-merge-late", "late");
+      await recorder.until(thought);
+      await instance.adapter.steer!("t-merge-late", "and also this", undefined, { fromUser: true });
+      const done = await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "interrupt", "user"]);
+      expect(replies()).toEqual(["reply to: first", "reply to: and also this"]);
+      expect(done).toMatchObject({ turnId, ok: true, cost: 0.02 });
+      expect(turnCount("turn.completed")).toBe(1);
+    });
+
+    it("settles if the CLI never answers the follow-up after a restart", async () => {
+      process.env.OMB_CLAUDE_MERGE_GUARD_MS = "300";
+      await start("t-merge-drops", "drops");
+      await recorder.until(thought);
+      const consumed = vi.fn();
+      await instance.adapter.steer!("t-merge-drops", "and also this", consumed, { fromUser: true });
+      const done = await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "interrupt", "user"]);
+      expect(done).toMatchObject({ ok: false, stopReason: "interrupted" });
+      expect(replies()).toEqual([]);
+      expect(turnCount("turn.completed")).toBe(1);
+      expect(consumed.mock.calls).toEqual([[false]]);
+    });
+
+    it("notes a follow-up the user can already see", async () => {
+      await create("late-steer", { FAKE_CLAUDE_STDIN_LOG: join(scratch, "stdin.log") });
+      await instance.adapter.sendTurn({ threadId: "t-merge-note", text: "first" });
+      await recorder.until((e) => e.type === "content.delta" && e.delta === "reply");
+      await instance.adapter.steer!("t-merge-note", "and also this", undefined, { fromUser: true });
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "user"]);
+      expect(replies()).toContain(
+        "reply to: [Wink note: the user sent this while you were replying and saw what you showed so far; don't repeat it.]\n\nand also this",
+      );
+    });
+
+    it("settles once when Stop lands during a restart", async () => {
+      await start("t-merge-stop", "hold");
+      await recorder.until(thought);
+      const consumed = vi.fn();
+      await instance.adapter.steer!("t-merge-stop", "and also this", consumed, { fromUser: true });
+      await vi.waitFor(() => expect(stdinLog()).toEqual(["user", "interrupt", "user"]));
+      await instance.adapter.interruptTurn("t-merge-stop");
+      const done = await recorder.until((e) => e.type === "turn.completed");
+      expect(done).toMatchObject({ ok: false, stopReason: "exit_before_result" });
+      await vi.waitFor(() => expect(instance.adapter.hasSession("t-merge-stop")).toBe(false));
+      expect(turnCount("turn.completed")).toBe(1);
+      expect(consumed.mock.calls).toEqual([[false]]);
+      expect(recorder.events.some((e) => e.type === "content.delta" && e.delta === "partial")).toBe(false);
+    });
+
+    it("never restarts once a tool started", async () => {
+      await start("t-merge-tool", "tool");
+      await recorder.until((e) => e.type === "item.started" && e.itemType === "tool");
+      await instance.adapter.steer!("t-merge-tool", "and also this", undefined, { fromUser: true });
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "user"]);
+      expect(replies()).toEqual(["reply to: first + steered: and also this"]);
+    });
+
+    it("never restarts for a pane note", async () => {
+      await start("t-merge-pane");
+      await recorder.until(thought);
+      await instance.adapter.steer!("t-merge-pane", "and also this");
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "user"]);
+      expect(replies()).toEqual(["reply to: first", "reply to: and also this"]);
+    });
+
+    it("never restarts before the model request", async () => {
+      await start("t-merge-early");
+      await recorder.until((e) => e.type === "session.started");
+      await instance.adapter.steer!("t-merge-early", "and also this", undefined, { fromUser: true });
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "user"]);
+      expect(replies()).toEqual(["reply to: first + steered: and also this"]);
+    });
   });
 
   it("reuses the live process for the next compatible turn", async () => {
