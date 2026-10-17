@@ -2958,6 +2958,8 @@ bus.subscribe((event: RuntimeEvent) => {
       turnDispatchedAt.set(threadId, tickTurnClock());
       turnStartedAtMs.set(threadId, Date.now());
       watchdog.watch(threadId, botId);
+      // a continuation is not the note turn
+      paneNoteTurnThreads.delete(threadId);
     },
     disown: (turnId) => disownedTurnIds.add(turnId),
   });
@@ -4699,7 +4701,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   turnStartedAtMs.set(threadId, Date.now());
   if (routineTurn) routineTurnThreads.add(threadId);
   else routineTurnThreads.delete(threadId);
-  if (opts?.paneNoteWake === true) paneNoteTurnThreads.add(threadId);
+  if (opts?.paneNoteWake === true && folded.length === 0) paneNoteTurnThreads.add(threadId);
   else paneNoteTurnThreads.delete(threadId);
   const seed = turnSeeds.set(threadId, {
     compactionId: turnSeedCompactionId({
@@ -5062,6 +5064,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           clearUnattended(bot.id);
           resumePaneWakes(bot.id);
           takeOverPeerTurn(threadId);
+          // the user joined this turn, so its finish alerts
+          paneNoteTurnThreads.delete(threadId);
         }
         const notesPath = opensHostFiles(privateWorkspace, instance.driverKind) ? bot.projectNotes : undefined;
         const notesNotice = notesPath ? projectNotesCheck.take(bot.id, threadId, resume ? task.resumeCursors[instanceId] : undefined) : "";

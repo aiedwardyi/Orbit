@@ -43,6 +43,9 @@ describe("buildNotification", () => {
     expect(buildNotification("done", bot, "thread-1", "acted on the report", { paneNoteTurn: false })).not.toBeNull();
     expect(buildNotification("done", bot, "thread-1", "acted on the report")).not.toBeNull();
     expect(buildNotification("question", bot, "thread-1", "which branch?", { paneNoteTurn: true })).not.toBeNull();
+  });
+
+  it("pings a worker FAIL card", () => {
     expect(pingForMailbox("Scout", "FAIL CARD branch=x sha=y dirty=no\nbroke", "/notify-icons/peach-white.png")).not.toBeNull();
   });
 
