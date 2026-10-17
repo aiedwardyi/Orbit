@@ -778,6 +778,13 @@ export function takeOverDelegatedTurn(bus: CommsBus, turn: DelegatedTurn, userNa
   mirrorActivity(bus, target, turn.channelId ? bus.store.group(turn.channelId) : undefined, line, true, ownChat(target));
 }
 
+/** A delegation the user's message joined: with its finished reply when the
+ * model read the message after it, else today's takeover (rerun, or fail an adopted ask). */
+export function settleTakenOverDelegation(bus: CommsBus, turn: DelegatedTurn, userName: string, finishedReply?: string): void {
+  if (finishedReply !== undefined) finishDelegatedTurn(bus, turn, true, finishedReply);
+  else takeOverDelegatedTurn(bus, turn, userName);
+}
+
 // A channel hides plain activity rows unless Show tool calls is on; a link row always shows.
 const ownChat = (target: BotRecord) => ({ groupId: target.id, withBotId: target.id, withName: target.name, withColor: target.color });
 

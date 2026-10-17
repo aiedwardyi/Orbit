@@ -156,8 +156,8 @@ import { searchHaystack, searchMessages, searchSnippet } from "./message-db.ts";
 import { turnIndex } from "./turn-index.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript, userTurnReactionKeys } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
-import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, finishDelegatedTurn, pendingDelegationSnapshot, pollDelegation, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
-import { onPeerTakeover, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
+import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, finishDelegatedTurn, pendingDelegationSnapshot, pollDelegation, queueDelegation, resolveDelegationId, settleTakenOverDelegation, type DelegatedTurn, type QueueResult } from "./delegations.ts";
+import { hasPeerWatch, onPeerTakeover, steerTakeover, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
 import { waitForPeerReply, type AskReply } from "./ask-bot.ts";
 import {
   cancelQueuedRoomParticipations,
@@ -3741,9 +3741,12 @@ function finalizeDelegationWatch(
 function watchDelegatedTurn(targetThreadId: string, watched: DelegatedTurn & { sourceThreadId: string; endTakeover?: () => void }): void {
   delegationWatch.set(targetThreadId, watched);
   peerTurnSource.set(targetThreadId, watched.sourceThreadId);
-  watched.endTakeover = onPeerTakeover(targetThreadId, () => {
+  watched.endTakeover = onPeerTakeover(targetThreadId, (afterReply) => {
     peerTurnSource.delete(targetThreadId);
-    takeOverDelegatedTurn(commsBus, watched, cfg.profile?.name?.trim() || "User");
+    // a reply that finished before the read settles now; the turn's later end finds no watch
+    const finished = afterReply ? lastReply.get(targetThreadId)?.text : undefined;
+    if (finished !== undefined) delegationWatch.delete(targetThreadId);
+    settleTakenOverDelegation(commsBus, watched, cfg.profile?.name?.trim() || "User", finished);
   });
 }
 
@@ -9569,6 +9572,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (currentAtStart.busy || botHasActiveTurn(bot.id, threadId)) {
             const adapter = registry.get(currentAtStart.modelSelection.instanceId)?.adapter;
             let steered = false;
+            // a steered message takes a peer turn over when the model reads
+            // it; without a read signal, when the route accepts the steer
+            const takeover = steerTakeover(threadId, adapter?.capabilities.steerConsumed === true);
             if (steersSend(adapter, currentAtStart.busy, body.deliver === "after")) {
               const turnOpts = {
                 replyTo,
@@ -9582,9 +9588,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               const prompt = consumable ? composeUserTurnPrompt(text, turnOpts) : promptWithReply(text, replyTo, turnOpts.userName);
               const reactions = consumable ? userTurnReactionKeys(turnOpts) : [];
               steered = await adapter
-                .steer(threadId, prompt, (taken) => {
+                .steer(threadId, prompt, (taken, afterReply) => {
                   if (taken) store.addReactionsDelivered(bot.id, threadId, reactions);
-                }, { fromUser: true })
+                  takeover.consumed(taken, afterReply);
+                }, { fromUser: true, peerTurn: hasPeerWatch(threadId) })
                 .catch(() => false);
             }
             // steer() is awaited adapter work. The turn can settle, the task can
@@ -9612,7 +9619,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               }
               clearUnattended(current.id);
               resumePaneWakes(current.id);
-              takeOverPeerTurn(threadId);
+              takeover.accepted();
               // the user joined this turn, so its finish alerts
               paneNoteTurnThreads.delete(threadId);
               const message = store.appendMessage(threadId, {

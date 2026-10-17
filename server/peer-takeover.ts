@@ -9,7 +9,7 @@ import type { Message } from "./store.ts";
 // sends a starting turn folds in. Pane notes, narration notices and other
 // control-plane steers never call takeOverPeerTurn.
 
-const peerTurns = new Map<string, Set<() => void>>(); // target threadId → takeovers
+const peerTurns = new Map<string, Set<(afterReply: boolean) => void>>(); // target threadId → takeovers
 
 /** True while a teammate's turn on `threadId` still waits for its reply. */
 export function hasPeerWatch(threadId: string): boolean {
@@ -32,7 +32,7 @@ export function takePeerReplyStamp(
 
 /** Watch one peer-started turn on `threadId` for a user takeover. Call the
  * returned function when that turn ends; other watches on the thread stay. */
-export function onPeerTakeover(threadId: string, handler: () => void): () => void {
+export function onPeerTakeover(threadId: string, handler: (afterReply: boolean) => void): () => void {
   const handlers = peerTurns.get(threadId) ?? new Set();
   handlers.add(handler);
   peerTurns.set(threadId, handlers);
@@ -43,13 +43,40 @@ export function onPeerTakeover(threadId: string, handler: () => void): () => voi
 }
 
 /** The user's message joined the running turn on `threadId`. True when that
- * turn was a teammate's. */
-export function takeOverPeerTurn(threadId: string): boolean {
+ * turn was a teammate's. `afterReply` means its reply had already finished. */
+export function takeOverPeerTurn(threadId: string, afterReply = false): boolean {
   const handlers = peerTurns.get(threadId);
   if (!handlers) return false;
   peerTurns.delete(threadId);
-  for (const handler of handlers) handler();
+  for (const handler of handlers) handler(afterReply);
   return true;
+}
+
+/** One mid-turn steer's takeover: when the model reads it and the route
+ * accepts it, in either order. Without a read signal it takes over at accept. */
+export function steerTakeover(threadId: string, signaled: boolean): {
+  consumed: (taken: boolean, afterReply?: boolean) => void;
+  accepted: () => void;
+} {
+  let signal: { taken: boolean; afterReply: boolean } | null = null;
+  let accepted = false;
+  let fired = false;
+  const fire = () => {
+    if (fired || !accepted) return;
+    if (signaled && !signal) return;
+    fired = true;
+    takeOverPeerTurn(threadId, signal?.taken ? signal.afterReply : false);
+  };
+  return {
+    consumed: (taken, afterReply) => {
+      signal = { taken, afterReply: afterReply === true };
+      fire();
+    },
+    accepted: () => {
+      accepted = true;
+      fire();
+    },
+  };
 }
 
 export const askSwitchedText = (botName: string, userName: string) =>

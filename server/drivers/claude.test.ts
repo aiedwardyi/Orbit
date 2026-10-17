@@ -1435,6 +1435,56 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       expect(stdinLog()).toEqual(["user", "user"]);
       expect(replies()).toEqual(["reply to: first + steered: and also this"]);
     });
+
+    it("reports a steer the reply finished before as read after it", async () => {
+      const { turnId } = await start("t-after-reply");
+      await recorder.until(thought);
+      const consumed = vi.fn();
+      await expect(instance.adapter.steer!("t-after-reply", "and also this", consumed)).resolves.toBe(true);
+      expect(consumed).not.toHaveBeenCalled();
+      const done = await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "user"]);
+      expect(replies()).toEqual(["reply to: first", "reply to: and also this"]);
+      expect(done).toMatchObject({ turnId, ok: true });
+      expect(turnCount("turn.started")).toBe(1);
+      expect(turnCount("turn.completed")).toBe(1);
+      expect(consumed.mock.calls).toEqual([[true, true]]);
+    });
+
+    it("reports a steer read mid-reply without afterReply", async () => {
+      const { turnId } = await start("t-mid-reply");
+      await recorder.until((e) => e.type === "session.started");
+      const consumed = vi.fn();
+      await expect(instance.adapter.steer!("t-mid-reply", "and also this", consumed)).resolves.toBe(true);
+      const done = await recorder.until((e) => e.type === "turn.completed");
+      expect(replies()).toEqual(["reply to: first + steered: and also this"]);
+      expect(done).toMatchObject({ turnId, ok: true });
+      expect(consumed.mock.calls).toEqual([[true]]);
+    });
+
+    it("skips the restart for a peer turn's steer", async () => {
+      const { turnId } = await start("t-peer-turn");
+      await recorder.until(thought);
+      const consumed = vi.fn();
+      await expect(instance.adapter.steer!("t-peer-turn", "and also this", consumed, { fromUser: true, peerTurn: true })).resolves.toBe(true);
+      const done = await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "user"]);
+      expect(replies()).toEqual(["reply to: first", "reply to: and also this"]);
+      expect(done).toMatchObject({ turnId, ok: true });
+      expect(consumed.mock.calls).toEqual([[true, true]]);
+    });
+
+    it("still notes a peer turn's follow-up the user can already see", async () => {
+      await create("late-steer", { FAKE_CLAUDE_STDIN_LOG: join(scratch, "stdin.log") });
+      await instance.adapter.sendTurn({ threadId: "t-peer-note", text: "first" });
+      await recorder.until((e) => e.type === "content.delta" && e.delta === "reply");
+      await instance.adapter.steer!("t-peer-note", "and also this", undefined, { fromUser: true, peerTurn: true });
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "user"]);
+      expect(replies()).toContain(
+        "reply to: [Wink note: the user sent this while you were replying and saw what you showed so far; don't repeat it.]\n\nand also this",
+      );
+    });
   });
 
   it("reuses the live process for the next compatible turn", async () => {
