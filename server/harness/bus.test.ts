@@ -223,6 +223,79 @@ describe("EventBus", () => {
     expect(logged.filter((e) => String(e.eventId).includes("delta-flush-assistant_text"))).toHaveLength(0);
   });
 
+  it("flushes a text block's held tail before its item.completed", () => {
+    const bus = new EventBus();
+    const delta = (eventId: string, text: string) =>
+      testEvent({ eventId, threadId: "ghost-tail", type: "content.delta", streamKind: "assistant_text", delta: text });
+    bus.publish(delta("ev-1", "the bot writes this."));
+    bus.publish(delta("ev-2", '"'));
+    bus.publish(testEvent({
+      eventId: "ev-item",
+      threadId: "ghost-tail",
+      type: "item.completed",
+      itemType: "assistant_text",
+      text: 'the bot writes this."',
+    }));
+    bus.publish(testEvent({ eventId: "ev-done", threadId: "ghost-tail", type: "turn.completed", ok: true }));
+
+    const logged = readFileSync(join(EVENTS_DIR, "ghost-tail.ndjson"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    const ids = logged.map((e) => e.eventId);
+    expect(ids).toContain("ev-item-delta-flush-assistant_text");
+    expect(ids.indexOf("ev-item-delta-flush-assistant_text")).toBeLessThan(ids.indexOf("ev-item"));
+    expect(logged.filter((e) => e.type === "content.delta").map((e) => e.delta).join("")).toBe('the bot writes this."');
+  });
+
+  it("still masks a secret split across deltas when its block ends", () => {
+    const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    const bus = new EventBus();
+    bus.publish(testEvent({ eventId: "ev-1", threadId: "split-secret", type: "content.delta", streamKind: "assistant_text", delta: key.slice(0, 10) }));
+    bus.publish(testEvent({ eventId: "ev-2", threadId: "split-secret", type: "content.delta", streamKind: "assistant_text", delta: key.slice(10) }));
+    bus.publish(testEvent({ eventId: "ev-item", threadId: "split-secret", type: "item.completed", itemType: "assistant_text", text: `leaked ${key}` }));
+    bus.publish(testEvent({ eventId: "ev-done", threadId: "split-secret", type: "turn.completed", ok: true }));
+
+    const logged = readFileSync(join(EVENTS_DIR, "split-secret.ndjson"), "utf8");
+    expect(logged).not.toContain(key);
+    expect(logged).not.toContain(key.slice(0, 20));
+    expect(logged).toContain("«redacted");
+    const ids = logged.trim().split("\n").map((l) => JSON.parse(l).eventId);
+    expect(ids).toContain("ev-item-delta-flush-assistant_text");
+    expect(ids.indexOf("ev-item-delta-flush-assistant_text")).toBeLessThan(ids.indexOf("ev-item"));
+  });
+
+  it("keeps the reasoning stream held while a text block ends", () => {
+    const key = `sk-ant-api03-${"abcdefghijklmnopqrstuvwxyz0123456789"}`;
+    const bus = new EventBus();
+    bus.publish(testEvent({ threadId: "reasoning-held", type: "content.delta", streamKind: "reasoning_text", delta: `mulling over ${key.slice(0, 10)}` }));
+    bus.publish(testEvent({ threadId: "reasoning-held", type: "content.delta", streamKind: "assistant_text", delta: "the bot writes this." }));
+    bus.publish(testEvent({ eventId: "ev-item", threadId: "reasoning-held", type: "item.completed", itemType: "assistant_text", text: "the bot writes this." }));
+    bus.publish(testEvent({ threadId: "reasoning-held", type: "content.delta", streamKind: "reasoning_text", delta: `${key.slice(10)} done` }));
+    bus.publish(testEvent({ eventId: "ev-done", threadId: "reasoning-held", type: "turn.completed", ok: true }));
+
+    const logged = readFileSync(join(EVENTS_DIR, "reasoning-held.ndjson"), "utf8");
+    expect(logged).not.toContain(key);
+    const entries = logged.trim().split("\n").map((l) => JSON.parse(l));
+    expect(entries.map((e) => e.eventId)).not.toContain("ev-item-delta-flush-reasoning_text");
+    expect(entries.filter((e) => e.streamKind === "reasoning_text").map((e) => e.delta).join(""))
+      .toMatch(/mulling over «redacted \d+ chars» done/);
+  });
+
+  it("does not flush held text for a non-text item.completed", () => {
+    const bus = new EventBus();
+    bus.publish(testEvent({ threadId: "tool-no-flush", type: "content.delta", streamKind: "assistant_text", delta: '"' }));
+    bus.publish(testEvent({ eventId: "ev-tool", threadId: "tool-no-flush", type: "item.completed", itemType: "tool", ok: true }));
+    bus.publish(testEvent({ eventId: "ev-done", threadId: "tool-no-flush", type: "turn.completed", ok: true }));
+
+    const ids = readFileSync(join(EVENTS_DIR, "tool-no-flush.ndjson"), "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l).eventId);
+    expect(ids).not.toContain("ev-tool-delta-flush-assistant_text");
+    expect(ids).toContain("ev-done-delta-flush-assistant_text");
+  });
+
   it("keeps a streamed PEM private key out of the canonical log", () => {
     const line = "AbCd0123+/".repeat(10);
     const pem = `-----BEGIN PRIVATE KEY-----\n${Array(8).fill(line).join("\n")}\n-----END PRIVATE KEY-----`;

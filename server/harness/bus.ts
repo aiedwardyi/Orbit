@@ -8,7 +8,7 @@ import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { EVENTS_DIR } from "../config.ts";
-import { endsContentStream, redactSecrets, StreamSecretMasker } from "../redact.ts";
+import { flushEndedMaskers, redactSecrets, StreamSecretMasker } from "../redact.ts";
 import { newId, type ProviderInstance, type RuntimeEvent, type RuntimeEventListener } from "../contracts.ts";
 
 // Reasoning and assistant text interleave on one thread, so a shared masker
@@ -29,25 +29,22 @@ function persistCopies(event: RuntimeEvent): RuntimeEvent[] {
     }
     return [redactSecrets({ ...event, delta: masker.push(event.delta) }) as RuntimeEvent];
   }
-  const byKind = endsContentStream(event.type) ? persistDeltaMaskers.get(event.threadId) : undefined;
+  const byKind = persistDeltaMaskers.get(event.threadId);
   if (!byKind) return [redactSecrets(event) as RuntimeEvent];
-  persistDeltaMaskers.delete(event.threadId);
-  const flushed: RuntimeEvent[] = [];
-  for (const [streamKind, masker] of byKind) {
-    const tail = masker.flush();
-    if (!tail) continue;
-    flushed.push(redactSecrets({
-      eventId: `${event.eventId}-delta-flush-${streamKind}`,
-      provider: event.provider,
-      providerInstanceId: event.providerInstanceId,
-      threadId: event.threadId,
-      createdAt: event.createdAt,
-      turnId: event.turnId,
-      type: "content.delta",
-      streamKind,
-      delta: tail,
-    }) as RuntimeEvent);
-  }
+  const tails = flushEndedMaskers(byKind, event.type, event.type === "item.completed" ? event.itemType : undefined);
+  if (byKind.size === 0) persistDeltaMaskers.delete(event.threadId);
+  if (tails.length === 0) return [redactSecrets(event) as RuntimeEvent];
+  const flushed = tails.map(({ streamKind, tail }) => redactSecrets({
+    eventId: `${event.eventId}-delta-flush-${streamKind}`,
+    provider: event.provider,
+    providerInstanceId: event.providerInstanceId,
+    threadId: event.threadId,
+    createdAt: event.createdAt,
+    turnId: event.turnId,
+    type: "content.delta",
+    streamKind,
+    delta: tail,
+  }) as RuntimeEvent);
   return [...flushed, redactSecrets(event) as RuntimeEvent];
 }
 

@@ -168,7 +168,7 @@ describe("redactSecrets", () => {
   });
 });
 
-import { endsContentStream, redactSecretsInText } from "./redact.ts";
+import { endsContentStream, flushEndedMaskers, redactSecretsInText } from "./redact.ts";
 import { mailboxGrant } from "./mailbox.ts";
 
 // Content-shaped secrets: what a bot's own reply, a tool title, or a
@@ -464,6 +464,52 @@ describe("redactSecretsInText", () => {
     out += masker.flush();
     expect(out).not.toContain(PEM_LINE);
     expect(out).toBe(`-----BEGIN PRIVATE KEY-----\n«redacted ${PEM_BODY.length} chars»\n-----END PRIVATE KEY-----`);
+  });
+
+  it("ends a text block at its item.completed, nothing mid-stream", () => {
+    expect(endsContentStream("item.completed", "assistant_text")).toBe(true);
+    expect(endsContentStream("item.completed", "tool")).toBe(false);
+    expect(endsContentStream("item.completed")).toBe(false);
+    expect(endsContentStream("item.updated")).toBe(false);
+    expect(endsContentStream("turn.completed")).toBe(true);
+  });
+
+  it("flushes only the ended text block, keeping the reasoning stream held", () => {
+    const alpha = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const key = `sk-ant-api03-${alpha}`;
+    const text = new StreamSecretMasker();
+    const reasoning = new StreamSecretMasker();
+    const byKind = new Map([["assistant_text", text], ["reasoning_text", reasoning]]);
+    expect(text.push("the bot writes this.")).toBe("the bot writes this.");
+    expect(text.push('"')).toBe("");
+    const first = reasoning.push(`mulling over ${key.slice(0, 10)}`);
+    expect(first).not.toContain("sk-ant");
+
+    expect(flushEndedMaskers(byKind, "item.completed", "assistant_text")).toEqual([
+      { streamKind: "assistant_text", tail: '"' },
+    ]);
+    expect([...byKind.keys()]).toEqual(["reasoning_text"]);
+
+    const rest = reasoning.push(`${key.slice(10)} done`);
+    const end = flushEndedMaskers(byKind, "turn.completed");
+    expect(byKind.size).toBe(0);
+    const out = first + rest + end.map((t) => t.tail).join("");
+    expect(out).not.toContain(key);
+    expect(out).toMatch(/mulling over «redacted \d+ chars» done/);
+  });
+
+  it("flushes nothing mid-stream or for a non-text item", () => {
+    const text = new StreamSecretMasker();
+    const byKind = new Map([["assistant_text", text]]);
+    text.push('"');
+    expect(flushEndedMaskers(byKind, "item.updated")).toEqual([]);
+    expect(flushEndedMaskers(byKind, "item.completed", "tool")).toEqual([]);
+    expect(flushEndedMaskers(byKind, "thread.token-usage.updated")).toEqual([]);
+    expect(byKind.size).toBe(1);
+    expect(flushEndedMaskers(byKind, "turn.completed")).toEqual([
+      { streamKind: "assistant_text", tail: '"' },
+    ]);
+    expect(byKind.size).toBe(0);
   });
 
   it("is applied to string values inside redactSecrets too", () => {
