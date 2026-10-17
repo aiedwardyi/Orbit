@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { hasPeerWatch, onPeerTakeover, peerAnswer, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
+import { hasPeerWatch, onPeerTakeover, peerAnswer, steerTakeover, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
 import type { Message } from "./store.ts";
 
 function ask(threadId: string) {
@@ -62,6 +62,16 @@ describe("ask_bot takeover", () => {
     expect(answers).toEqual(["The build is green."]);
   });
 
+  it("keeps the full answer when the user's message was read after the reply", () => {
+    const answers: Array<{ text: string; replied: boolean }> = [];
+    const answer = peerAnswer("t-ask-after", "Wink", () => "Edward", (text, replied) => answers.push({ text, replied }));
+    answer.add("The build is green.");
+    expect(takeOverPeerTurn("t-ask-after", true)).toBe(true);
+    answer.add("Edward, 1.0.157 is out.");
+    answer.end("(the bot finished without a text reply)");
+    expect(answers).toEqual([{ text: "The build is green.", replied: true }]);
+  });
+
   it("says the bot switched when the user cut in before any text", () => {
     const { answer, answers } = ask("t-ask-2");
     takeOverPeerTurn("t-ask-2");
@@ -119,6 +129,13 @@ describe("peer turn registry", () => {
     expect(takeOverPeerTurn("t-reg-4")).toBe(false);
   });
 
+  it("hands the read state to every watch", () => {
+    const seen: boolean[] = [];
+    onPeerTakeover("t-reg-after", (afterReply) => seen.push(afterReply));
+    takeOverPeerTurn("t-reg-after", true);
+    expect(seen).toEqual([true]);
+  });
+
   it("reports a live peer watch until it ends or is taken over", () => {
     expect(hasPeerWatch("t-watch-1")).toBe(false);
     const endAsk = onPeerTakeover("t-watch-1", () => {});
@@ -134,17 +151,77 @@ describe("peer turn registry", () => {
   it("a control-plane steer doesn't take over", () => {
     const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
     const calls = index.match(/takeOverPeerTurn\(/g) ?? [];
-    // the send route's steer and the two folds of queued user sends, nothing else
+    // the two folds of queued user sends; the send route's steer defers to the read
     const userJoins = index.match(/resumePaneWakes\((?:bot|current)\.id\);\r?\n\s*takeOverPeerTurn\(threadId\);/g) ?? [];
-    expect(calls).toHaveLength(3);
-    expect(userJoins).toHaveLength(3);
+    expect(calls).toHaveLength(2);
+    expect(userJoins).toHaveLength(2);
     expect(index).toMatch(/const prompt = consumable \? composeUserTurnPrompt\(text, turnOpts\)/);
-    expect(index).toMatch(/\.steer\(threadId, prompt, \(taken\) =>/);
+    expect(index).toMatch(/\.steer\(threadId, prompt, \(taken, afterReply\) =>/);
+    expect(index).toMatch(/peerTurn: hasPeerWatch\(threadId\)/);
+    expect(index).toMatch(/takeover\.accepted\(\);/);
     const paneWake = index.slice(index.indexOf("const paneWake = new PaneWakeScheduler("));
     expect(paneWake.slice(0, paneWake.indexOf("\n});"))).not.toContain("takeOverPeerTurn");
     for (const driver of ["./drivers/claude.ts", "./drivers/codex.ts", "./drivers/acp/core.ts"]) {
       expect(readFileSync(new URL(driver, import.meta.url), "utf8")).not.toContain("takeOverPeerTurn");
     }
+  });
+});
+
+describe("steered takeover", () => {
+  it("takes over at the read once the route accepts it", () => {
+    const seen: boolean[] = [];
+    onPeerTakeover("t-steer-1", (afterReply) => seen.push(afterReply));
+    const takeover = steerTakeover("t-steer-1", true);
+    takeover.accepted();
+    expect(seen).toEqual([]);
+    takeover.consumed(true, true);
+    expect(seen).toEqual([true]);
+    takeover.consumed(true, true);
+    takeover.accepted();
+    expect(seen).toEqual([true]);
+  });
+
+  it("takes over at accept when the signal arrived first", () => {
+    const seen: boolean[] = [];
+    onPeerTakeover("t-steer-2", (afterReply) => seen.push(afterReply));
+    const takeover = steerTakeover("t-steer-2", true);
+    takeover.consumed(true, true);
+    expect(seen).toEqual([]);
+    takeover.accepted();
+    expect(seen).toEqual([true]);
+  });
+
+  it("takes over at once when the read reports the message never landed", () => {
+    const answers: Array<{ text: string; replied: boolean }> = [];
+    peerAnswer("t-steer-false", "Wink", () => "Edward", (text, replied) => answers.push({ text, replied }));
+    const takeover = steerTakeover("t-steer-false", true);
+    takeover.accepted();
+    takeover.consumed(false);
+    takeover.consumed(false);
+    takeover.accepted();
+    expect(answers).toEqual([{ text: "Wink switched to Edward's message before answering. Ask again later.", replied: false }]);
+  });
+
+  it("never takes over a steer the route rejected", () => {
+    const answers: Array<{ text: string; replied: boolean }> = [];
+    const answer = peerAnswer("t-steer-reject", "Wink", () => "Edward", (text, replied) => answers.push({ text, replied }));
+    const takeover = steerTakeover("t-steer-reject", true);
+    takeover.consumed(true, true);
+    answer.add("Partial.");
+    answer.add("Rest.");
+    answer.end("(the bot finished without a text reply)");
+    expect(answers).toEqual([{ text: "Partial.\nRest.", replied: true }]);
+  });
+
+  it("takes over at accept without a read signal", () => {
+    const answers: Array<{ text: string; replied: boolean }> = [];
+    const answer = peerAnswer("t-steer-nosignal", "Wink", () => "Edward", (text, replied) => answers.push({ text, replied }));
+    answer.add("Partial.");
+    const takeover = steerTakeover("t-steer-nosignal", false);
+    takeover.accepted();
+    answer.add("Rest.");
+    answer.end("(the bot finished without a text reply)");
+    expect(answers).toEqual([{ text: "Partial.", replied: true }]);
   });
 });
 

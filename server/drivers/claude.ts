@@ -786,8 +786,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       /** a task_notification landed between turns; the CLI's wake is due by then */
       wakeDeadline: number | null;
       /** `consumed` of steers no model request has carried yet; an error
-       * `result` keeps them, since the CLI then runs them as their own query */
-      steerAcks: Array<(taken: boolean) => void>;
+       * `result` keeps them, since the CLI then runs them as their own query.
+       * `afterReply` marks ones a finished reply overtook. */
+      steerAcks: Array<{ ack: (taken: boolean, afterReply?: boolean) => void; afterReply?: boolean }>;
       stderr: string;
       /** settle the current turn; set once the spawn handlers exist */
       settleTurn?: (ok: boolean, stopReason: string | null) => void;
@@ -818,7 +819,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     };
 
     const ackSteers = (s: Session, taken: boolean) => {
-      for (const ack of s.steerAcks.splice(0)) ack(taken);
+      for (const pending of s.steerAcks.splice(0)) {
+        if (taken && pending.afterReply) pending.ack(true, true);
+        else pending.ack(taken);
+      }
     };
 
     /** Mark the session unusable for reuse and start process teardown.
@@ -1552,6 +1556,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             if (o.is_error !== true && session.turn?.unsentSteers) {
               const t = session.turn;
               t.unsentSteers = 0;
+              // the reply overtook them; the next request reports that
+              for (const pending of session.steerAcks) pending.afterReply = true;
               const usage = claudeUsage(o.usage);
               t.carried = {
                 cost: (t.carried?.cost ?? 0) + (o.total_cost_usd ?? 0),
@@ -1776,15 +1782,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       threadId: string,
       text: string,
       attachImages = true,
-      consumed?: (taken: boolean) => void,
+      consumed?: (taken: boolean, afterReply?: boolean) => void,
     ): Promise<boolean> => {
       const turn = s.turn;
       if (!turn || turn.settled || s.closing || s.child.exitCode !== null) return Promise.resolve(false);
       turn.unsentSteers = (turn.unsentSteers ?? 0) + 1;
-      if (consumed) s.steerAcks.push(consumed);
+      if (consumed) s.steerAcks.push({ ack: consumed });
       return writeUser(s, threadId, text, attachImages).then((written) => {
         if (!written && turn.unsentSteers) turn.unsentSteers -= 1;
-        if (!written && consumed) s.steerAcks = s.steerAcks.filter((ack) => ack !== consumed);
+        if (!written && consumed) s.steerAcks = s.steerAcks.filter((pending) => pending.ack !== consumed);
         return written;
       });
     };
@@ -1794,15 +1800,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     const steer = (
       threadId: string,
       text: string,
-      consumed?: (taken: boolean) => void,
-      opts?: { fromUser?: boolean },
+      consumed?: (taken: boolean, afterReply?: boolean) => void,
+      opts?: { fromUser?: boolean; peerTurn?: boolean },
     ): Promise<boolean> => {
       const s = sessions.get(threadId);
       if (!s) return Promise.resolve(false);
       const turn = s.turn;
       if (turn) turn.narrationNoticeSent = false;
       if (opts?.fromUser && turn && !turn.settled && !s.closing && s.child.exitCode === null) {
-        if (turn.requested && !turn.shown && !turn.toolStarted && !turn.merging) {
+        // a peer turn keeps its in-flight reply; the steer follows it
+        if (turn.requested && !turn.shown && !turn.toolStarted && !turn.merging && !opts?.peerTurn) {
           // A running reply never sees a line written after its request; the CLI reads the interrupt first.
           turn.merging = { held: [] };
           void writeControl(s, threadId, { type: "control_request", request_id: newId(), request: { subtype: "interrupt" } }).then((written) => {

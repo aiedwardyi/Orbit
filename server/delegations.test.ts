@@ -24,6 +24,7 @@ import {
   queueDelegation,
   recordDelegationReceipt,
   resolveDelegationId,
+  settleTakenOverDelegation,
   takeOverDelegatedTurn,
   threadsWaitingOn,
   _pendingCount,
@@ -1121,6 +1122,42 @@ describe("user takeover of a delegated turn", () => {
     finishDelegatedTurn(commsBus, turn, true, "Edward, 1.0.157 is out.");
     return { taskId: queued.id!, channel: dispatched[0]!.channel! };
   }
+
+  it("completes with the finished reply when the read came after it, without a rerun", async () => {
+    const queued = queueDelegation(commsBus, career, { toBotId: wink.id, message: "What changed in the resume?", depth: 0 }, 1);
+    drain();
+    await waitFor(() => dispatched.length === 1 && _pendingCount(career.threadId) === 0);
+    settleTakenOverDelegation(commsBus, turnOf(dispatched[0]!), "Edward", "Two bullets were reworded.");
+    expect(channelTexts(dispatched[0]!.channel!)).toEqual(["What changed in the resume?", "Two bullets were reworded."]);
+    expect(findDelegationReceipt(queued.id!)).toMatchObject({ status: "done", result: "Two bullets were reworded." });
+    expect(chip()).toMatchObject({ name: "@Wink replied", ok: true });
+    drain();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(dispatched).toHaveLength(1);
+    expect(pendingDelegationInfo(queued.id!)).toBeNull();
+  });
+
+  it("reruns when the read came mid-reply", async () => {
+    const queued = queueDelegation(commsBus, career, { toBotId: wink.id, message: "What changed in the resume?", depth: 0 }, 1);
+    drain();
+    await waitFor(() => dispatched.length === 1 && _pendingCount(career.threadId) === 0);
+    const turn = turnOf(dispatched[0]!);
+    settleTakenOverDelegation(commsBus, turn, "Edward");
+    finishDelegatedTurn(commsBus, turn, true, "Edward, 1.0.157 is out.");
+    expect(findDelegationReceipt(queued.id!)).toBeNull();
+    expect(chip()).toEqual({ name: paused });
+    drain();
+    await waitFor(() => dispatched.length === 2 && _pendingCount(career.threadId) === 0);
+    expect(dispatched[1]!.message).toContain("Your earlier reply went to Edward");
+  });
+
+  it("completes an adopted ask with the finished reply when the read came after it", () => {
+    const channel = getOrCreateChannel(store, career, wink);
+    const turn: DelegatedTurn = { channelId: channel.id, toBotId: wink.id, taskId: "ask-after", sourceThreadId: career.threadId, sourceBotId: career.id, ask: true };
+    settleTakenOverDelegation(commsBus, turn, "Edward", "Two bullets were reworded.");
+    expect(findDelegationReceipt("ask-after")).toMatchObject({ status: "done", result: "Two bullets were reworded." });
+    expect(channelTexts(channel)).toEqual(["Two bullets were reworded."]);
+  });
 
   it("keeps a taken-over turn's text out of the channel and requeues the same handoff", async () => {
     const { taskId, channel } = await takenOverOnce();
