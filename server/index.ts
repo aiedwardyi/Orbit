@@ -2549,6 +2549,8 @@ const turnDispatchedAt = new Map<string, number>();
 const turnStartedAtMs = new Map<string, number>();
 // A routine fired in a chat is not the user's task: it neither resumes nor settles that record.
 const routineTurnThreads = new Set<string>();
+// Threads whose running turn a pane note woke: its finish stays quiet.
+const paneNoteTurnThreads = new Set<string>();
 const turnInterruptedAt = new Map<string, number>();
 const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
@@ -2955,6 +2957,8 @@ bus.subscribe((event: RuntimeEvent) => {
       turnDispatchedAt.set(threadId, tickTurnClock());
       turnStartedAtMs.set(threadId, Date.now());
       watchdog.watch(threadId, botId);
+      // a continuation is not the note turn
+      paneNoteTurnThreads.delete(threadId);
     },
     disown: (turnId) => disownedTurnIds.add(turnId),
   });
@@ -3663,7 +3667,9 @@ bus.subscribe((event: RuntimeEvent) => {
             : reply;
           const startedAt = turnStartedAtMs.get(event.threadId);
           notify(
-            buildNotification("done", bot, routineReportThread ?? event.threadId, completionDetail),
+            buildNotification("done", bot, routineReportThread ?? event.threadId, completionDetail, {
+              paneNoteTurn: paneNoteTurnThreads.has(event.threadId),
+            }),
             startedAt === undefined ? undefined : Date.now() - startedAt,
             routineRun,
           );
@@ -3892,7 +3898,7 @@ const paneWake = new PaneWakeScheduler({
     if (newest) store.markPaneNotesSkipped(botId, threadId, newest.id);
   },
   wake: (botId, threadId) => {
-    startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true }).then(() => undefined).catch((err) => {
+    startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true, paneNoteWake: true }).then(() => undefined).catch((err) => {
       if (isBusyRejection(err)) paneWake.noteArrived(botId, threadId);
       else console.warn("pane wake failed:", err instanceof Error ? err.message : String(err));
     });
@@ -4107,6 +4113,8 @@ type StartTurnOptions = {
    * The prompt is control-plane context: it reaches the provider without
    * masquerading as another message authored by the user. */
   cardContinuation?: boolean;
+  /** A pane note woke this turn; its finish stays quiet. */
+  paneNoteWake?: boolean;
   /** Earlier text message this user turn is replying to. */
   replyTo?: Message;
   /** Stable identity supplied by the composer so a network retry cannot
@@ -4698,6 +4706,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   turnStartedAtMs.set(threadId, Date.now());
   if (routineTurn) routineTurnThreads.add(threadId);
   else routineTurnThreads.delete(threadId);
+  if (opts?.paneNoteWake === true && folded.length === 0) paneNoteTurnThreads.add(threadId);
+  else paneNoteTurnThreads.delete(threadId);
   const seed = turnSeeds.set(threadId, {
     compactionId: turnSeedCompactionId({
       replayed: replaysTranscript,
@@ -5059,6 +5069,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           clearUnattended(bot.id);
           resumePaneWakes(bot.id);
           takeOverPeerTurn(threadId);
+          // the user joined this turn, so its finish alerts
+          paneNoteTurnThreads.delete(threadId);
         }
         const notesPath = opensHostFiles(privateWorkspace, instance.driverKind) ? bot.projectNotes : undefined;
         const notesNotice = notesPath ? projectNotesCheck.take(bot.id, threadId, resume ? task.resumeCursors[instanceId] : undefined) : "";
@@ -9601,6 +9613,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               clearUnattended(current.id);
               resumePaneWakes(current.id);
               takeOverPeerTurn(threadId);
+              // the user joined this turn, so its finish alerts
+              paneNoteTurnThreads.delete(threadId);
               const message = store.appendMessage(threadId, {
                 role: "user",
                 kind: "text",

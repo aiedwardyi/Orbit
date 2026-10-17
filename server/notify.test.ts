@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildNotification, summarize } from "./notify.ts";
+import { pingForMailbox } from "./phone-ping.ts";
 
 const bot = { id: "bot-1", name: "Scout", threadId: "thread-1" };
 
@@ -35,6 +36,17 @@ describe("buildNotification", () => {
     expect(buildNotification("done", bot, "thread-1", "")).toBeNull();
     // ...but a blocked bot is worth knowing about even with a thin summary
     expect(buildNotification("approval", bot, "thread-1", "")).not.toBeNull();
+  });
+
+  it("stays quiet for a pane-note turn's finish, nothing else", () => {
+    expect(buildNotification("done", bot, "thread-1", "acted on the report", { paneNoteTurn: true })).toBeNull();
+    expect(buildNotification("done", bot, "thread-1", "acted on the report", { paneNoteTurn: false })).not.toBeNull();
+    expect(buildNotification("done", bot, "thread-1", "acted on the report")).not.toBeNull();
+    expect(buildNotification("question", bot, "thread-1", "which branch?", { paneNoteTurn: true })).not.toBeNull();
+  });
+
+  it("pings a worker FAIL card", () => {
+    expect(pingForMailbox("Scout", "FAIL CARD branch=x sha=y dirty=no\nbroke", "/notify-icons/peach-white.png")).not.toBeNull();
   });
 
   it("uses the thread it was raised on, not the bot's current one", () => {
