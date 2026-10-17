@@ -491,7 +491,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     Boolean(bot && (state.settingsOpen || state.inspectorOpen || (showComputerPanelChrome() && state.computerOpen)));
   useStaleBuildReload(state.connected, secondaryViewOpen);
 
-  const swipeStageRef = usePhoneSwipe(bot?.id, !terminalOpen && !nativeViewOverlayOpen, (id) => dispatch({ type: "select", id }));
+  const swipeStageRef = usePhoneSwipe(bot?.id, !terminalOpen && !nativeViewOverlayOpen, (id) => dispatch({ type: "select", id }), menuButtonRef);
   const closeDrawer = () => {
     setDrawerOpen(false);
     menuButtonRef.current?.focus();

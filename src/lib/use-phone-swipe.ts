@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import type { SidebarSide } from "./sidebar-preferences";
 import {
   PHONE_QUERY,
@@ -30,20 +30,24 @@ type Drag = {
 
 const TAP_ENTER_PX = 32;
 
-function settle(stage: HTMLElement, from: number, to: number, opacity = 1) {
-  stage.style.transform = "";
-  if (reducedMotion() || typeof stage.animate !== "function") return;
-  stage.animate(
-    [{ transform: `translateX(${from}px)`, opacity }, { transform: `translateX(${to}px)`, opacity: 1 }],
-    { duration: SWIPE_MOTION_MS, easing: SWIPE_SPRING },
-  );
+function settle(stages: (HTMLElement | null | undefined)[], from: number, to: number, opacity = 1) {
+  for (const stage of stages) {
+    if (!stage) continue;
+    stage.style.transform = "";
+    if (reducedMotion() || typeof stage.animate !== "function") continue;
+    stage.animate(
+      [{ transform: `translateX(${from}px)`, opacity }, { transform: `translateX(${to}px)`, opacity: 1 }],
+      { duration: SWIPE_MOTION_MS, easing: SWIPE_SPRING },
+    );
+  }
 }
 
-/** Phone-only horizontal swipe on the returned stage ref to move between sidebar bots, plus the enter motion and haptic on any bot switch. */
+/** Phone-only horizontal swipe on the returned stage ref to move between sidebar bots, plus the enter motion and haptic on any bot switch. `rider` moves with the stage. */
 export function usePhoneSwipe(
   botId: string | undefined,
   enabled: boolean,
   select: (id: string) => void,
+  rider?: RefObject<HTMLElement | null>,
 ): (node: HTMLElement | null) => void {
   const [el, setEl] = useState<HTMLElement | null>(null);
   const stage = useCallback((node: HTMLElement | null) => setEl(node), []);
@@ -61,25 +65,29 @@ export function usePhoneSwipe(
     if (!from || !botId || from === botId || !el || !isPhone()) return;
     hapticTick();
     if (enterFrom.current !== null) {
-      settle(el, enterFrom.current, 0);
+      settle([el, rider?.current], enterFrom.current, 0);
       enterFrom.current = null;
       return;
     }
     const ids = sidebarBotIds();
     const dir = Math.sign(ids.indexOf(botId) - ids.indexOf(from));
-    settle(el, ids.includes(from) && ids.includes(botId) ? dir * TAP_ENTER_PX : 0, 0, 0);
-  }, [botId, el]);
+    settle([el, rider?.current], ids.includes(from) && ids.includes(botId) ? dir * TAP_ENTER_PX : 0, 0, 0);
+  }, [botId, el, rider]);
 
   const hasBot = Boolean(botId);
   useEffect(() => {
     if (!el || !hasBot || !enabled) return;
     let drag: Drag | null = null;
+    const stages = () => [el, rider?.current];
+    const move = (transform: string) => {
+      for (const stage of stages()) if (stage) stage.style.transform = transform;
+    };
     const onStart = (e: TouchEvent) => {
-      if (drag?.axis === "x") el.style.transform = "";
+      if (drag?.axis === "x") move("");
       drag = null;
       const touch = e.touches[0];
       if (e.touches.length !== 1 || !touch || !isPhone() || swipeBlocked(e.target, touch.clientX)) return;
-      el.getAnimations?.().forEach((animation) => animation.cancel());
+      stages().forEach((stage) => stage?.getAnimations?.().forEach((animation) => animation.cancel()));
       drag = { x: touch.clientX, y: touch.clientY, lastX: touch.clientX, lastT: e.timeStamp, velocity: 0, axis: null, ids: sidebarBotIds() };
     };
     const onMove = (e: TouchEvent) => {
@@ -97,7 +105,7 @@ export function usePhoneSwipe(
       drag.lastX = touch.clientX;
       drag.lastT = e.timeStamp;
       const canMove = neighborId(drag.ids, latest.current.botId ?? "", dx < 0 ? 1 : -1) !== null;
-      el.style.transform = `translateX(${dragOffset(dx, canMove)}px)`;
+      move(`translateX(${dragOffset(dx, canMove)}px)`);
     };
     const finish = (commit: boolean) => {
       if (drag?.axis !== "x") {
@@ -112,11 +120,11 @@ export function usePhoneSwipe(
       const canMove = neighborId(drag.ids, current, dx < 0 ? 1 : -1) !== null;
       drag = null;
       if (!target) {
-        settle(el, dragOffset(dx, canMove), 0);
+        settle(stages(), dragOffset(dx, canMove), 0);
         return;
       }
       enterFrom.current = dx + step * width;
-      el.style.transform = "";
+      move("");
       go(target);
     };
     const onEnd = () => finish(true);
@@ -130,9 +138,9 @@ export function usePhoneSwipe(
       el.removeEventListener("touchmove", onMove);
       el.removeEventListener("touchend", onEnd);
       el.removeEventListener("touchcancel", onCancel);
-      el.style.transform = "";
+      move("");
     };
-  }, [el, hasBot, enabled]);
+  }, [el, hasBot, enabled, rider]);
 
   return stage;
 }

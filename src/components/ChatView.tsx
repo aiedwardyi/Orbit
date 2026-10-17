@@ -2377,10 +2377,11 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
 
       {/* Overlay chrome + composer stack in-flow so 600x480 cannot cover chat. */}
       <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* isolate: the rows' own z-indices (action bars are z-20) stay under the timeline card */}
       <div
         ref={scrollRef}
         data-orbit-transcript
-        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+        className="isolate min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
         style={{ overflowAnchor: follow ? "none" : "auto" }}
         onWheel={(e) => followWheel(e.deltaY)}
         onTouchStart={(e) => (touchY.current = e.touches[0]?.clientY ?? 0)}
@@ -2525,7 +2526,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         scrollRef={scrollRef}
         following={follow}
         enabled={railShown}
-        mirror={sidebarOnRight}
         latestShown={latestShown}
         onJump={(messageId) => dispatch({ type: "focusMessage", threadId: bot.threadId, messageId })}
         onLatest={jumpToLatest}

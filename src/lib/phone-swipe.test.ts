@@ -362,6 +362,26 @@ describe("usePhoneSwipe", () => {
     expect((document.querySelector("#stage") as HTMLElement).style.transform).toBe("");
   });
 
+  it("moves the menu button with the chat through a drag and its snap back", () => {
+    const menu = document.createElement("button");
+    document.body.append(menu);
+    const rider = { current: menu };
+    function Ridden() {
+      const stage = usePhoneSwipe("a", true, select, rider);
+      return createElement("div", { ref: stage, id: "stage" }, createElement("p", { id: "msg" }, "hello"));
+    }
+    act(() => root.render(createElement(Ridden)));
+    const stage = document.querySelector<HTMLElement>("#stage")!;
+    [[300, 200], [280, 200], [240, 200]].forEach(([x, y], index) => touch(index ? "touchmove" : "touchstart", x!, y!, index * 16));
+    expect(stage.style.transform).toMatch(/^translateX\(-\d/);
+    expect(menu.style.transform).toBe(stage.style.transform);
+    touch("touchcancel", 0, 0, 48);
+    expect(stage.style.transform).toBe("");
+    expect(menu.style.transform).toBe("");
+    const app = readFileSync(join(here, "../App.tsx"), "utf8");
+    expect(app).toContain('dispatch({ type: "select", id }), menuButtonRef);');
+  });
+
   it("stops at the last bot", () => {
     render("c");
     swipe([[300, 200], [260, 200], [200, 200], [150, 200]]);

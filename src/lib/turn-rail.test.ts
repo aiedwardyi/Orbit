@@ -104,18 +104,13 @@ describe("row words", () => {
 
 describe("rail frame", () => {
   it("sits at the right edge, clear of the scrollbar", () => {
-    const frame = railFrame(1440, 900, 8, false);
-    expect(frame).toMatchObject({ narrow: false, mirror: false, edge: 6, top: 16, h: 868, railX: 1426, hitWidth: 34 });
-  });
-
-  it("mirrors to the left edge, away from a drawer on the right", () => {
-    expect(railFrame(1440, 900, 8, true)).toMatchObject({ mirror: true, railX: 6 });
-    expect(railFrame(390, 700, 0, true)).toMatchObject({ narrow: true, edge: 4, top: 12, railX: 4, hitWidth: 30 });
-    expect(railFrame(390, 700, 0, false)).toMatchObject({ railX: 386, hitWidth: 30 });
+    const frame = railFrame(1440, 900, 8);
+    expect(frame).toMatchObject({ narrow: false, edge: 6, top: 16, h: 868, railX: 1426, hitWidth: 34 });
+    expect(railFrame(390, 700, 0)).toMatchObject({ narrow: true, edge: 4, top: 12, railX: 386, hitWidth: 30 });
   });
 
   it("narrows the hit strip to the room beside the column", () => {
-    expect(railFrame(1000, 800, 8, false).hitWidth).toBe(30);
-    expect(railFrame(900, 800, 8, false).hitWidth).toBe(18);
+    expect(railFrame(1000, 800, 8).hitWidth).toBe(30);
+    expect(railFrame(900, 800, 8).hitWidth).toBe(18);
   });
 });
