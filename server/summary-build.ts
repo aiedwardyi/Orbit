@@ -8,6 +8,8 @@ const MAX_BUILD_RUNS = 2;
 const BUILD_RETRY_MS = 10 * 60_000;
 const BUILD_CALL_TIMEOUT_MS = 240_000;
 const BUILD_RUN_TIMEOUT_MS = 8 * 60_000;
+// Good summaries take 23-81 s, so a shorter call only delays the fallback the repair replaces later.
+const INLINE_FLOOR_MS = 60_000;
 
 type BuildInstance = Pick<ProviderInstance, "driverKind" | "generateText" | "textModel" | "textTimeoutMs">;
 
@@ -58,15 +60,21 @@ interface ActiveRun {
   controller: AbortController;
 }
 
-/** The send's inline summarizer after waiting on a build: the wait comes out of the engine's deadline, and none left means today's deterministic fallback with no call. */
+/** The deadline the send's summary call gets after waiting on a build. */
+export function inlineDeadlineMs(instance: Pick<ProviderInstance, "textTimeoutMs">, waitedMs: number): number | null {
+  if (instance.textTimeoutMs === undefined) return null;
+  return waitedMs > 0 ? instance.textTimeoutMs - waitedMs : instance.textTimeoutMs;
+}
+
+/** The send's inline summarizer after waiting on a build: the wait comes out of the engine's deadline, and too little left means the deterministic fallback with no call. */
 export function inlineSummarizer(
   instance: Pick<ProviderInstance, "generateText" | "textTimeoutMs">,
   waitedMs: number,
 ): ((prompt: string) => Promise<string>) | undefined {
   if (!instance.generateText) return undefined;
   if (waitedMs <= 0) return (prompt) => instance.generateText!(prompt);
-  const remaining = (instance.textTimeoutMs ?? 0) - waitedMs;
-  if (remaining <= 0) return undefined;
+  const remaining = inlineDeadlineMs(instance, waitedMs) ?? 0;
+  if (remaining < INLINE_FLOOR_MS) return undefined;
   return (prompt) => instance.generateText!(prompt, { timeoutMs: remaining });
 }
 
