@@ -95,7 +95,7 @@ describe("a bot's resent request in the target's chat", () => {
   let turn: Parameters<typeof takeOverDelegatedTurn>[1];
   const drain = () => drainDelegations(commsBus, { store, broadcast: () => {} }, career.threadId, runTarget);
 
-  it("leads with the sender's chip, as the original does", async () => {
+  it("leads with the sender's chip and name, as the original does", async () => {
     queueDelegation(commsBus, career, { toBotId: wink.id, message: "What changed in the resume?", depth: 0 }, 1);
     drain();
     await vi.waitFor(() => expect(turn && _pendingCount(career.threadId)).toBe(0));
@@ -115,5 +115,8 @@ describe("a bot's resent request in the target's chat", () => {
     const host = await mount(toBot(wink, stored as Message[]));
     const bubble = [...host.querySelectorAll("[data-mid]")].find((row) => row.textContent?.includes("Answering Career's earlier request"));
     expect(bubble?.previousElementSibling?.textContent).toContain("Message from @Career");
+    const speaker = (text: string) => [...host.querySelectorAll("[data-mid]")]
+      .find((row) => row.textContent?.includes(text))?.querySelector(".orbit-message-speaker")?.textContent;
+    expect(["What changed in the resume?", "Hey Wink", "Answering Career's earlier request"].map(speaker)).toEqual(["Career", "You", "Career"]);
   });
 });

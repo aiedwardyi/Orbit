@@ -616,7 +616,7 @@ const Bubble = memo(function Bubble({
         data-strip={hasReactions || dockShown ? "" : undefined}
         className={cn("relative w-fit max-w-[min(42rem,78%)]", hasReactions ? "pb-11" : "pb-8")}
       >
-        <div className="orbit-message-speaker hidden">{user ? t("chat.you") : botName}</div>
+        <div className="orbit-message-speaker hidden">{user ? (message.from?.name ?? t("chat.you")) : botName}</div>
         {user && !message.placeholder && (
           <div
             data-message-hover-actions
@@ -1370,7 +1370,7 @@ export function PinnedBanner({
   );
   if (!pinned || pinned.kind !== "text") return null;
   const sender =
-    pinned.role === "user" ? t("chat.you") : (pinned.from?.name ?? bot.name);
+    pinned.from?.name ?? (pinned.role === "user" ? t("chat.you") : bot.name);
   const text = pinPreview(pinned.role === "user" ? "user" : "bot", pinned.text ?? "");
   if (!text) return null;
   return (

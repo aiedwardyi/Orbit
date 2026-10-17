@@ -10,5 +10,5 @@ export function replySnippet(text: string, limit = 160): string {
   return `${clean.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 export function replyAuthor(message: Message, fallback = "Assistant"): string {
-  return message.role === "user" ? "You" : (message.from?.name ?? fallback);
+  return message.from?.name ?? (message.role === "user" ? "You" : fallback);
 }
