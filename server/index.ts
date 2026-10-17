@@ -9567,7 +9567,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               steered = await adapter
                 .steer(threadId, prompt, (taken) => {
                   if (taken) store.addReactionsDelivered(bot.id, threadId, reactions);
-                })
+                }, { fromUser: true })
                 .catch(() => false);
             }
             // steer() is awaited adapter work. The turn can settle, the task can

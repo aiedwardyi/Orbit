@@ -520,6 +520,8 @@ function narrationNotice(summary: string): string {
   return `[Wink note, not from the user] Your last message between tool calls was long, so the user never saw it; the engine kept only this summary: "${quoted}". If it answered the user, send that answer again now in one short line. If it held anything else they need (links, numbers, commands, steps), send just that now in one short line, or put it in your final reply. Otherwise ignore this note and don't mention it.`;
 }
 
+const SHOWN_STEER_NOTE = "[Wink note: the user sent this while you were replying and saw what you showed so far; don't repeat it.]";
+
 type TurnUsage = { input: number; output: number; cachedInput?: number };
 
 // cache reads count as input: billed (at the cache rate) and they fill the
@@ -763,6 +765,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         model?: string;
         /** that model's window, from the CLI's `result.modelUsage` */
         contextWindow?: number;
+        /** the CLI sent this turn's model request */
+        requested?: boolean;
+        /** reply text or a mid-turn line reached the user */
+        shown?: boolean;
+        toolStarted?: boolean;
+        /** an interrupt is out for a user steer; main-agent output that raced it waits here */
+        merging?: { held: unknown[] };
+        /** settles the turn if the CLI never starts the steer's query after the interrupt */
+        mergeGuard?: ReturnType<typeof setTimeout>;
         timer: ReturnType<typeof startTurnTimer>;
       } | null;
       idleTimer: ReturnType<typeof setTimeout> | null;
@@ -791,6 +802,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     const REVIEW_TIMEOUT_MS = Number(process.env.OMB_CLAUDE_REVIEW_TIMEOUT_MS) || 60_000;
     // A summary runs inside the user's send, so this is how long a reply can wait to start.
     const SUMMARY_TIMEOUT_MS = Number(process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS) || 90_000;
+    const MERGE_GUARD_MS = Number(process.env.OMB_CLAUDE_MERGE_GUARD_MS) || 15_000;
     // a lost task_notification must not pin a session forever
     const BACKGROUND_TASK_TTL_MS = 2 * 60 * 60_000;
     const liveBackground = (s: Session) =>
@@ -867,6 +879,24 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             if (error) return resolve(false);
             const logged = { ...promptMsg, message: { ...promptMsg.message, content: elideImageData(content) } };
             appendNative(threadId, { dir: "out", source: "claude.sdk.message", msg: logged });
+            resolve(true);
+          });
+        } catch {
+          resolve(false);
+        }
+      });
+    };
+    const writeControl = (
+      s: Session,
+      threadId: string,
+      msg: { type: "control_request"; request_id: string; request: { subtype: "interrupt" } },
+    ): Promise<boolean> => {
+      if (!s.child.stdin.writable || s.child.stdin.destroyed) return Promise.resolve(false);
+      return new Promise((resolve) => {
+        try {
+          s.child.stdin.write(JSON.stringify(msg) + "\n", (error) => {
+            if (error) return resolve(false);
+            appendNative(threadId, { dir: "out", source: "claude.sdk.message", msg });
             resolve(true);
           });
         } catch {
@@ -1212,6 +1242,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         const t = session.turn;
         if (!t || t.settled) return;
         t.narrationNotice = undefined;
+        clearTimeout(t.mergeGuard);
         t.settled = true;
         // a held `result` already spent; keep it even when this turn ends
         // without one (interrupt, exit)
@@ -1290,6 +1321,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return;
         }
         appendNative(threadId, { dir: "in", source: "claude.sdk.message", msg: o });
+        const merging = session.turn?.merging;
+        if (merging && !o.parent_tool_use_id && (o.type === "stream_event" || o.type === "assistant")) {
+          merging.held.push(o);
+          return;
+        }
+        dispatch(o);
+      };
+
+      const dispatch = (o: any) => {
         // a closed or replaced process outlives its turns; its output belongs to none
         if (!session.turn && (session.closing || sessions.get(threadId) !== session)) {
           if (!droppedLate) console.warn(`claude session for ${threadId} closed; dropping its late output`);
@@ -1312,7 +1352,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             } else if (o.subtype === "thinking_tokens") {
               emit({ ...base(threadId, currentTurnId()), type: "item.updated", itemType: "reasoning", tokens: o.estimated_tokens });
             } else if (o.subtype === "status" && o.status === "requesting") {
-              if (session.turn) session.turn.unsentSteers = 0;
+              if (session.turn) {
+                session.turn.unsentSteers = 0;
+                session.turn.requested = true;
+                clearTimeout(session.turn.mergeGuard);
+              }
               ackSteers(session, true);
             } else if (o.subtype === "task_started" && o.is_backgrounded === true && typeof o.task_id === "string") {
               // between turns only background work starts tasks; inherit from it
@@ -1334,10 +1378,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             // interleave their prose into one bubble (upstream-verified bug)
             if (o.parent_tool_use_id) break;
             const ev = o.event ?? {};
+            if (ev.type === "content_block_start" && String(ev.content_block?.type ?? "").endsWith("tool_use") && session.turn) {
+              session.turn.toolStarted = true;
+            }
             if (ev.type !== "content_block_delta") break;
             const d = ev.delta ?? {};
             if (d.type === "text_delta" && typeof d.text === "string" && d.text) {
-              if (session.turn) session.turn.sawStreamDelta = true;
+              if (session.turn) {
+                session.turn.sawStreamDelta = true;
+                session.turn.shown = true;
+              }
               session.turn?.timer.mark("firstVisible");
               emit({ ...base(threadId, currentTurnId()), type: "content.delta", streamKind: "assistant_text", delta: d.text });
             } else if (d.type === "thinking_delta" && typeof d.thinking === "string" && d.thinking) {
@@ -1359,6 +1409,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               const streamed = Boolean(turn?.sawStreamDelta);
               let sawPlain = false;
               for (const segment of replySegments(msg.content, o.narration_block_indexes)) {
+                if (turn) turn.shown = true;
                 if (segment.summarized) {
                   // no delta: a summary must not flash as an unlabeled reply
                   turn?.timer.mark("firstVisible");
@@ -1390,6 +1441,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               for (const block of blocks) {
                 if (block?.type === "tool_use") callsTool = true;
               }
+              if (turn && callsTool) turn.toolStarted = true;
               if (turn && !turn.settled && callsTool && turn.narrationNotice?.parts.length) {
                 const summary = turn.narrationNotice.parts.join(" / ");
                 turn.narrationNotice = undefined;
@@ -1465,6 +1517,29 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             break;
           }
           case "result":
+            if (session.turn?.merging) {
+              const t = session.turn;
+              const { held } = t.merging!;
+              t.merging = undefined;
+              if (o.is_error === true && t.unsentSteers) {
+                // the interrupt landed; the CLI answers the steer next, the first message still in its history
+                t.requested = false;
+                const usage = claudeUsage(o.usage);
+                t.carried = {
+                  cost: (t.carried?.cost ?? 0) + (o.total_cost_usd ?? 0),
+                  usage: t.carried?.usage ? addUsage(t.carried.usage, usage) : usage,
+                };
+                t.mergeGuard = setTimeout(() => {
+                  ackSteers(session, false);
+                  settle(false, "interrupted");
+                }, MERGE_GUARD_MS);
+                t.mergeGuard.unref?.();
+                break;
+              }
+              // the reply finished before the CLI read the interrupt
+              if (o.is_error !== true) for (const line of held) dispatch(line);
+              // otherwise the run aborted: its held events stay dropped and the turn settles below
+            }
             if (session.turn) session.turn.narrationNotice = undefined;
             // a local host's window is the catalog's; the CLI only guesses it
             if (session.turn && !injected.injected) {
@@ -1716,10 +1791,25 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
 
     /** A user message into the running turn: the CLI delivers it before its
      * next model call. False when nothing is running here to steer. */
-    const steer = (threadId: string, text: string, consumed?: (taken: boolean) => void): Promise<boolean> => {
+    const steer = (
+      threadId: string,
+      text: string,
+      consumed?: (taken: boolean) => void,
+      opts?: { fromUser?: boolean },
+    ): Promise<boolean> => {
       const s = sessions.get(threadId);
       if (!s) return Promise.resolve(false);
-      if (s.turn) s.turn.narrationNoticeSent = false;
+      const turn = s.turn;
+      if (turn) turn.narrationNoticeSent = false;
+      if (opts?.fromUser && turn && !turn.settled && !s.closing && s.child.exitCode === null) {
+        if (turn.requested && !turn.shown && !turn.toolStarted && !turn.merging) {
+          // A running reply never sees a line written after its request; the CLI reads the interrupt first.
+          turn.merging = { held: [] };
+          void writeControl(s, threadId, { type: "control_request", request_id: newId(), request: { subtype: "interrupt" } }).then((written) => {
+            if (!written) console.warn(`claude steer interrupt for ${threadId} failed to send; keeping the steer as a follow-up`);
+          });
+        } else if (turn.shown) text = `${SHOWN_STEER_NOTE}\n\n${text}`;
+      }
       return deliverSteer(s, threadId, text, true, consumed);
     };
 
