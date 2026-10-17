@@ -511,6 +511,47 @@ describe("relative file links", () => {
     }
   });
 
+  describe("file link right-click", () => {
+    const rightClick = async (ogb: object | undefined, text: string, baseDir?: string) => {
+      if (ogb) Object.defineProperty(window, "ogb", { configurable: true, value: ogb });
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = createRoot(host);
+      try {
+        await act(async () => root.render(createElement(ChatMarkdown, { text, baseDir })));
+        const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+        await act(async () => void host.querySelector("button")!.dispatchEvent(event));
+        return { prevented: event.defaultPrevented, text: host.textContent };
+      } finally {
+        await act(async () => root.unmount());
+        host.remove();
+        Reflect.deleteProperty(window, "ogb");
+      }
+    };
+
+    it("opens the native menu and keeps the browser menu away", async () => {
+      const fileMenu = vi.fn().mockResolvedValue(undefined);
+      const openFile = vi.fn();
+      const result = await rightClick({ fileMenu, openFile }, "[1080p](clip.mp4)", "/p");
+      expect(fileMenu).toHaveBeenCalledWith("/p/clip.mp4", "/p");
+      expect(openFile).not.toHaveBeenCalled();
+      expect(result.prevented).toBe(true);
+    });
+
+    it("leaves the default menu alone without the bridge", async () => {
+      expect((await rightClick(undefined, "[notes](C:/My%20Drive/notes.md)")).prevented).toBe(false);
+      const older = await rightClick({ openFile: vi.fn() }, "[notes](C:/My%20Drive/notes.md)");
+      expect(older.prevented).toBe(false);
+    });
+
+    it("says why when the file is rejected", async () => {
+      const fileMenu = vi.fn().mockRejectedValue(new Error("That file no longer exists"));
+      const result = await rightClick({ fileMenu }, "[gone](gone.py)", "/p");
+      expect(result.prevented).toBe(true);
+      expect(result.text).toContain("That file no longer exists");
+    });
+  });
+
   it("waits to play a video and opens a pdf in a new tab", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([0]), { status: 206 })));
     const host = document.createElement("div");

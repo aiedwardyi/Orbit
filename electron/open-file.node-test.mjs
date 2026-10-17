@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 
-import { openLocalFile } from "./open-file.mjs";
+import { fileMenuFor, openLocalFile } from "./open-file.mjs";
 
 // Creating a symlink on Windows needs elevation or developer mode, so the
 // symlink case only runs where the runner can actually make one.
@@ -152,5 +152,84 @@ describe("open-file policy", () => {
   it("says so when File Explorer cannot open the folder", async () => {
     const shell = { openPath: async () => "Access is denied", showItemInFolder: () => {} };
     await assert.rejects(openLocalFile(dir, { shell }), { message: "That folder could not be opened" });
+  });
+});
+
+describe("file link menu", () => {
+  const menuFor = (p, overrides = {}) => {
+    const calls = [];
+    const options = {
+      text: (key) => key,
+      shell: { showItemInFolder: (target) => calls.push(["reveal", target]) },
+      clipboard: { writeText: (value) => calls.push(["clip", value]) },
+      dialog: { showSaveDialog: async () => ({ canceled: true }) },
+      downloads: dir,
+      onSaveError: (error) => calls.push(["error", error.message]),
+      ...overrides,
+    };
+    return { calls, menu: fileMenuFor(p, options) };
+  };
+  const click = (items, label) => items.find((item) => item.label === label).click();
+
+  it("offers show, save and copy for a file", async () => {
+    const p = file("clip.mp4");
+    const real = await fs.promises.realpath(p);
+    const { calls, menu } = menuFor(p);
+    const items = await menu;
+    assert.deepEqual(items.map((item) => item.label), ["native.showInFolder", "native.saveCopy", "native.copyPath"]);
+    click(items, "native.showInFolder");
+    click(items, "native.copyPath");
+    assert.deepEqual(calls, [["reveal", real], ["clip", real]]);
+  });
+
+  it("leaves Save out for a folder", async () => {
+    const { menu } = menuFor(dir);
+    assert.deepEqual((await menu).map((item) => item.label), ["native.showInFolder", "native.copyPath"]);
+  });
+
+  it("copies to the chosen path and nothing on cancel", async () => {
+    const p = file("report.pdf");
+    const dest = path.join(dir, "copy-of-report.pdf");
+    const asked = [];
+    const pick = (result) => async (_window, options) => {
+      asked.push(options.defaultPath);
+      return result;
+    };
+    let items = await menuFor(p, { dialog: { showSaveDialog: pick({ canceled: true }) } }).menu;
+    await click(items, "native.saveCopy");
+    assert.equal(fs.existsSync(dest), false);
+    items = await menuFor(p, { dialog: { showSaveDialog: pick({ canceled: false, filePath: dest }) } }).menu;
+    await click(items, "native.saveCopy");
+    assert.equal(fs.readFileSync(dest, "utf8"), "x");
+    assert.deepEqual(asked, [path.join(dir, "report.pdf"), path.join(dir, "report.pdf")]);
+  });
+
+  it("copies nothing onto the file itself under another spelling", async () => {
+    const p = file("same.pdf");
+    const copies = [];
+    const fsp = { ...fs.promises, copyFile: async (...args) => copies.push(args) };
+    for (const dest of [p, process.platform === "win32" ? p.toUpperCase() : p]) {
+      const { calls, menu } = menuFor(p, { fsp, dialog: { showSaveDialog: async () => ({ canceled: false, filePath: dest }) } });
+      await click(await menu, "native.saveCopy");
+      assert.deepEqual(calls, []);
+    }
+    assert.deepEqual(copies, []);
+  });
+
+  it("reports a failed copy instead of throwing", async () => {
+    const p = file("locked.pdf");
+    const dest = path.join(dir, "no-such-folder", "locked.pdf");
+    const { calls, menu } = menuFor(p, { dialog: { showSaveDialog: async () => ({ canceled: false, filePath: dest }) } });
+    await click(await menu, "native.saveCopy");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], "error");
+  });
+
+  it("never builds a menu for a rejected path", async () => {
+    const dialog = { showSaveDialog: async () => assert.fail("no dialog") };
+    await assert.rejects(menuFor(path.join(dir, "gone.mp4"), { dialog }).menu, { message: "That file no longer exists" });
+    await assert.rejects(menuFor("clip.mp4", { dialog }).menu, { message: "That file path is invalid" });
+    await assert.rejects(menuFor("//evil/share/a.mp4", { dialog, platform: "win32" }).menu, { message: "That file path is invalid" });
+    await assert.rejects(menuFor(file("other.mp4"), { dialog, base: path.join(dir, "bot") }).menu, { message: "That file is outside the bot's folder" });
   });
 });

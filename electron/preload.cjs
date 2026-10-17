@@ -266,6 +266,13 @@ contextBridge.exposeInMainWorld("ogb", {
       const message = String(error?.message ?? error);
       throw new Error(message.replace(/^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/, ""));
     }),
+  /** Pops the native right-click menu for a local file link. Rejects with
+   *  the same readable reason as openFile. */
+  fileMenu: (filePath, base) =>
+    ipcRenderer.invoke("desktop:file-menu", filePath, base).catch((error) => {
+      const message = String(error?.message ?? error);
+      throw new Error(message.replace(/^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/, ""));
+    }),
   /** Store a provider credential with OS-backed encryption. */
   setCredential: (name, value) => ipcRenderer.invoke("credential:set", name, value),
 

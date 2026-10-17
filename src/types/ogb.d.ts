@@ -357,6 +357,9 @@ type SkillRecordingPayload = {
        * type could run. A relative link passes its bot folder as `base`,
        * and the file must stay inside it. */
       openFile?(filePath: string, base?: string): Promise<void>;
+      /** Pops the native right-click menu (show in folder, save a copy, copy
+       * path) for a local file link. Rejects like `openFile`. */
+      fileMenu?(filePath: string, base?: string): Promise<void>;
       /** Save a provider credential through Electron's OS-backed store. */
       setCredential?(
         name: "composioApiKey" | "xaiApiKey" | "geminiApiKey" | "openaiCompatKey" | "boxToken" | "ttsKey" | "openaiImageApiKey" | "anthropicApiKey" | "vertexApiKey" | `custom:${string}`,

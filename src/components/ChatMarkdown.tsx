@@ -5,7 +5,7 @@
 // generator-escaped. While a message is still streaming, a code block renders
 // as plain <pre> until its content has held still for STREAM_SETTLE_MS (the
 // fence is very likely complete), then highlights and caches.
-import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import Markdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
@@ -413,12 +413,21 @@ function DesktopFileLink({ filePath, base, children }: { filePath: string; base?
     }
   };
 
+  const menu = (event: MouseEvent) => {
+    const fileMenu = window.ogb?.fileMenu;
+    if (!fileMenu) return;
+    event.preventDefault();
+    setReason("");
+    fileMenu(filePath, base).catch((error) => setReason(error instanceof Error ? error.message : "That file could not be opened"));
+  };
+
   return (
     <>
       <button
         ref={ref}
         type="button"
         onClick={() => void open()}
+        onContextMenu={menu}
         title={filePath}
         data-file-link
         className="break-words text-left text-accent underline decoration-accent/40 hover:decoration-accent"
