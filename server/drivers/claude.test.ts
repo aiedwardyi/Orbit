@@ -7,7 +7,7 @@
 // cannot exec, and the broker is a unix socket. Both now go through
 // resolveCliSpawn / permissionSocketPath, so they run everywhere.
 import { spawn as spawnChild } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { saveImage } from "../attachments.ts";
 import { autoVerdict } from "../auto-approve.ts";
-import { ensureDirs, PROVIDER_CREDENTIAL_ENV, saveConfig, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
+import { DATA_DIR, ensureDirs, PROVIDER_CREDENTIAL_ENV, saveConfig, WORKSPACE_CREDENTIAL_ENV } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import * as procs from "../procs.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
@@ -2512,10 +2512,20 @@ describe("ClaudeDriver turns (fake CLI)", () => {
         ...(kind === "summary" ? [] : ["--no-session-persistence"]),
       ]);
       if (kind === "summary") expect(options).not.toHaveProperty("cwd");
-      else expect(options.cwd).toBe(tmpdir());
+      else {
+        expect(options.cwd).toBe(join(DATA_DIR, "helper"));
+        expect(readdirSync(options.cwd!)).toEqual([]);
+      }
     } finally {
       spawn.mockRestore();
     }
+  });
+
+  it("creates the lean helper folder when it is missing", async () => {
+    await create();
+    rmSync(join(DATA_DIR, "helper"), { recursive: true, force: true });
+    await instance.generateText?.("notes prompt", { ephemeral: true, lean: true });
+    expect(readdirSync(join(DATA_DIR, "helper"))).toEqual([]);
   });
 
   it("retries lean helpers once without lean flags on a CLI that rejects them, and remembers", async () => {
@@ -2535,7 +2545,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
         [...base, "--effort", "low", "--no-session-persistence"],
         [...base, "--no-session-persistence"],
       ]);
-      expect(spawn.mock.calls[0]![2].cwd).toBe(tmpdir());
+      expect(spawn.mock.calls[0]![2].cwd).toBe(join(DATA_DIR, "helper"));
       for (const [, , options] of spawn.mock.calls.slice(1)) expect(options).not.toHaveProperty("cwd");
       expect(warning).toHaveBeenCalledOnce();
       expect(String(warning.mock.calls[0]![0])).toContain("--safe-mode");
