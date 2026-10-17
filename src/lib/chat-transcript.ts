@@ -65,14 +65,14 @@ export function chatTranscriptRows(
 ): ChatTranscriptRow[] {
   let prev: Message | undefined;
   return items.map((item) => {
-    const first = item.kind === "run" ? item.messages[0] : item.message;
+    const first = item.kind === "message" ? item.message : item.messages[0];
     const visible =
       item.kind === "run"
         ? activityRunVisible(item.messages, options.showActivities ?? options.showToolCalls)
         : messageVisible(first, options);
     if (!visible) return { visible, newDay: false };
     const newDay = !prev || new Date(prev.at).toDateString() !== new Date(first.at).toDateString();
-    prev = item.kind === "run" ? item.messages.at(-1) : item.message;
+    prev = item.kind === "message" ? item.message : item.messages.at(-1);
     return { visible, newDay };
   });
 }

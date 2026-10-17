@@ -31,7 +31,8 @@ export function sameNotices(a: LinkedApproval[] | undefined, b: LinkedApproval[]
 
 export type TranscriptItem =
   | { kind: "message"; message: Message; notices?: LinkedApproval[] }
-  | { kind: "run"; id: string; messages: Message[]; notices?: Map<string, LinkedApproval[]> };
+  | { kind: "run"; id: string; messages: Message[]; notices?: Map<string, LinkedApproval[]> }
+  | { kind: "memory"; id: string; messages: Message[] };
 
 /** Default-off hides named tool pills, success or fail: the bot usually
  * retries past a miss. Bot⇄bot chips, `error:` turn failures, and
@@ -182,6 +183,19 @@ function isWorkStep(message: Message): boolean {
   return true;
 }
 
+function isMemorySave(message: Message): boolean {
+  return message.kind === "activity" && message.tool?.name === "memory.save";
+}
+
+/** One bot's stretch within one day; a fold never spans two. */
+function startsNewStretch(first: Message, message: Message): boolean {
+  return (
+    first.role !== message.role ||
+    first.from?.botId !== message.from?.botId ||
+    new Date(first.at).toDateString() !== new Date(message.at).toDateString()
+  );
+}
+
 function sameBot(a: Message, b: Message): boolean {
   return (a.from?.botId ?? "") === (b.from?.botId ?? "");
 }
@@ -264,39 +278,54 @@ export function activityRunVisible(_messages: Message[], showToolCalls: boolean)
 const SEARCH_TOOLS = new Set(["Read", "Grep", "Glob"]);
 
 /** `terminal` folds only Read/Grep/Glob stretches, even a single read, the
- * way Claude Code does; every other step stays unfolded. */
-export function groupActivityRuns(messages: Message[], terminal = false): TranscriptItem[] {
+ * way Claude Code does. Rows `shown` calls hidden do not break a run of saves; they follow the fold. */
+export function groupActivityRuns(messages: Message[], terminal = false, shown: (message: Message) => boolean = () => true): TranscriptItem[] {
   const linked = linkApprovals(messages);
   const items: TranscriptItem[] = [];
   let run: Message[] = [];
+  let saves: Message[] = [];
+  let held: TranscriptItem[] = [];
+  const flushSaves = () => {
+    if (saves.length > 1) items.push({ kind: "memory", id: `memory:${saves[0].id}`, messages: saves });
+    else for (const message of saves) items.push({ kind: "message", message });
+    items.push(...held);
+    saves = [];
+    held = [];
+  };
+  const emit = (item: TranscriptItem, visible: boolean) => {
+    if (saves.length && !visible) {
+      held.push(item);
+      return;
+    }
+    flushSaves();
+    items.push(item);
+  };
   const flush = () => {
     const notices = noticesFor(run, linked.byStep);
     // one step on its own is cheaper to read than a fold that hides it
     if (run.length > (terminal ? 0 : 1)) {
       const id = `run:${run[0].id}`;
-      items.push(notices ? { kind: "run", id, messages: run, notices } : { kind: "run", id, messages: run });
-    } else for (const message of run) items.push(messageItem(message, linked.byStep.get(message.id)));
+      emit(notices ? { kind: "run", id, messages: run, notices } : { kind: "run", id, messages: run }, shown(run[0]));
+    } else for (const message of run) emit(messageItem(message, linked.byStep.get(message.id)), shown(message));
     run = [];
   };
   for (const message of messages) {
     if (linked.consumed.has(message.id)) continue;
     if (foldable(message) && (!terminal || SEARCH_TOOLS.has(termVerb(message.tool?.verb ?? message.tool?.name ?? "")))) {
-      const first = run[0];
-      if (
-        first &&
-        (first.role !== message.role ||
-          first.from?.botId !== message.from?.botId ||
-          new Date(first.at).toDateString() !== new Date(message.at).toDateString())
-      ) {
-        flush();
-      }
+      if (run[0] && startsNewStretch(run[0], message)) flush();
       run.push(message);
       continue;
     }
     flush();
-    items.push(messageItem(message, linked.byStep.get(message.id)));
+    if (isMemorySave(message) && shown(message)) {
+      if (saves[0] && startsNewStretch(saves[0], message)) flushSaves();
+      saves.push(message);
+      continue;
+    }
+    emit(messageItem(message, linked.byStep.get(message.id)), shown(message));
   }
   flush();
+  flushSaves();
   return items;
 }
 
@@ -328,6 +357,7 @@ export function shownRunStep(
 
 export function itemMatchesFind(item: TranscriptItem, findId: string | null): boolean {
   if (!findId) return false;
+  if (item.kind === "memory") return item.messages.some((message) => message.id === findId);
   if (item.kind === "run") {
     if (item.messages.some((message) => message.id === findId)) return true;
     for (const list of item.notices?.values() ?? []) {

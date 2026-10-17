@@ -91,7 +91,7 @@ import { isShownMessage } from "@/lib/shown-message";
 import { detectChatOptions } from "@/lib/chat-options";
 import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from "@/lib/focus-composer";
 import { ChatOptionChips } from "./ChatOptionChips";
-import { MemorySaveChip } from "./MemorySaveChip";
+import { MemorySaveChip, MemorySaveRun } from "./MemorySaveChip";
 import { PeerMessageBody, commLabel } from "./PeerMessage";
 import { ActivityRun, ActivityStep, approvalHover } from "./ActivityRun";
 import { webhookMessageView } from "@/lib/webhook-message";
@@ -1161,10 +1161,17 @@ const MessagesList = memo(function MessagesList({
   const { workerAt, open, toggle } = useWorkerRows(workers, messages);
   // Fold finished tool chips into runs, so a stretch of them cannot bury
   // what the bot actually said. Hidden unless Settings → Tool calls is on.
-  const items = useMemo(
-    () => groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages, terminal),
-    [messages, streamingMessage, terminal],
-  );
+  const items = useMemo(() => {
+    const options = { showToolCalls, showActivities, transcript };
+    // a launch with no worker row, or a hidden worker, draws nothing
+    const shown = (m: Message) => {
+      if (!messageVisible(m, options)) return false;
+      if (m.kind !== "note" && m.kind !== "launch") return true;
+      const worker = workerAt.get(m.id);
+      return worker === undefined ? m.kind === "note" : Boolean(worker);
+    };
+    return groupActivityRuns(streamingMessage ? [...messages, streamingMessage] : messages, terminal, shown);
+  }, [messages, streamingMessage, terminal, showToolCalls, showActivities, transcript, workerAt]);
   const rows = useMemo(
     () => chatTranscriptRows(items, { showToolCalls, showActivities, transcript }),
     [items, showToolCalls, showActivities, transcript],
@@ -1218,22 +1225,33 @@ const MessagesList = memo(function MessagesList({
       )}
       {items.map((item, i) => {
         const { visible, newDay } = rows[i];
-        const found = item.kind === "run"
-          ? itemMatchesFind(item, findCurrent)
-          : item.message.kind === "activity" && itemMatchesFind(item, findCurrent);
+        const found = item.kind === "message"
+          ? item.message.kind === "activity" && itemMatchesFind(item, findCurrent)
+          : itemMatchesFind(item, findCurrent);
         if (!visible && !found) return null;
-        if (item.kind === "run") {
+        if (item.kind !== "message") {
           const first = item.messages[0];
+          const forceOpen = found || item.messages.some((step) => step.id === focusedId);
           return (
             <div key={item.id} className="contents" data-run={item.id} {...logLine(skin === "logfile", first.at, item.messages)}>
               {newDay && <DaySeparator at={first.at} />}
-              <ChatRun
-                run={item}
-                forceOpen={found || item.messages.some((step) => step.id === focusedId)}
-                terminal={terminal}
-                showActivities={showActivities}
-                findCurrent={findCurrent}
-              />
+              {item.kind === "memory" ? (
+                <MemorySaveRun messages={item.messages} forceOpen={forceOpen}>
+                  {item.messages.map((step) => (
+                    <div key={step.id} className="contents" data-mid={step.id}>
+                      <ActivityChip message={step} />
+                    </div>
+                  ))}
+                </MemorySaveRun>
+              ) : (
+                <ChatRun
+                  run={item}
+                  forceOpen={forceOpen}
+                  terminal={terminal}
+                  showActivities={showActivities}
+                  findCurrent={findCurrent}
+                />
+              )}
             </div>
           );
         }

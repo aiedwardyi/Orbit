@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { activityRunVisible, activityVisibleInChat, classifyServerNotice, describeRun, describeSearch, groupActivityRuns, isServerLine, localizeServerLine, SERVER_LINES, shownRunStep } from "./activity-runs";
+import { activityRunVisible, activityVisibleInChat, classifyServerNotice, describeRun, describeSearch, groupActivityRuns, isServerLine, itemMatchesFind, localizeServerLine, SERVER_LINES, shownRunStep } from "./activity-runs";
 import { translate, type Translate } from "@/lib/i18n";
 import type { Message } from "@/state/store";
 
@@ -160,6 +160,77 @@ describe("memory save stays out of a folded run", () => {
   });
 });
 
+describe("consecutive memory saves", () => {
+  const save = (botId?: string, when?: number): Message => {
+    const message = tool("memory.save");
+    if (when !== undefined) message.at = when;
+    if (botId) message.from = { botId, name: botId, color: "blue" };
+    return message;
+  };
+  type Items = ReturnType<typeof groupActivityRuns>;
+  const kinds = (items: Items) => items.map((item) => item.kind);
+  const memory = (item: Items[number]) => (item.kind === "memory" ? item.messages : []);
+
+  it("folds a run of two or more into one item", () => {
+    const saves = [save(), save(), save()];
+    const items = groupActivityRuns([text("hi"), ...saves, text("done")]);
+    expect(kinds(items)).toEqual(["message", "memory", "message"]);
+    expect(memory(items[1])).toEqual(saves);
+    expect(items[1].kind === "memory" && items[1].id).toBe(`memory:${saves[0].id}`);
+  });
+
+  it("leaves a lone save as an ordinary message", () => {
+    expect(kinds(groupActivityRuns([text("hi"), save(), text("done")]))).toEqual(["message", "message", "message"]);
+  });
+
+  it("is not broken by rows the chat hides", () => {
+    const [a, b, c] = [save(), save(), save()];
+    const read = tool("Read");
+    const hidden = (message: Message) => message.id === read.id || message.tool?.name === "Edit";
+    const items = groupActivityRuns([a, read, b, tool("Edit"), tool("Edit"), c], false, (message) => !hidden(message));
+    expect(items.filter((item) => item.kind === "memory").map(memory)).toEqual([[a, b, c]]);
+    expect(items.filter((item) => item.kind === "message").map((item) => item.kind === "message" && item.message.id)).toEqual([read.id]);
+    expect(items).toHaveLength(3);
+  });
+
+  it("is broken by anything the chat shows between two saves", () => {
+    const comm = { ...tool("Message to @Atlas"), comm: { groupId: "pair", withBotId: "b2", withName: "Atlas", withColor: "pink" as const, peer: "message" as const } };
+    const breaks: Message[][] = [
+      [text("Noted.")],
+      [{ ...text("hi"), role: "user" }],
+      [tool("Read"), tool("Read")],
+      [comm],
+      [tool("error: boom", false)],
+    ];
+    for (const between of breaks) {
+      expect(kinds(groupActivityRuns([save(), ...between, save()]))).not.toContain("memory");
+    }
+    const items = groupActivityRuns([save(), save(), text("Noted."), save(), save(), save()]);
+    expect(items.map((item) => (item.kind === "memory" ? `memory:${item.messages.length}` : item.kind))).toEqual(["memory:2", "message", "memory:3"]);
+  });
+
+  it("does not fold saves the chat shows as nothing", () => {
+    expect(kinds(groupActivityRuns([save(), save(), save()], false, () => false))).toEqual(["message", "message", "message"]);
+  });
+
+  it("starts a new run for another bot or another day", () => {
+    const day = (n: number) => new Date(2026, 0, n, 12).getTime();
+    expect(kinds(groupActivityRuns([save("a"), save("a"), save("b"), save("b")]))).toEqual(["memory", "memory"]);
+    expect(kinds(groupActivityRuns([save("a", day(1)), save("a", day(1)), save("a", day(2)), save("a", day(2))]))).toEqual(["memory", "memory"]);
+  });
+
+  it("keeps saves out of a tool run", () => {
+    expect(kinds(groupActivityRuns([tool("Edit"), tool("Edit"), save(), save(), tool("Write"), tool("Write")]))).toEqual(["run", "memory", "run"]);
+  });
+
+  it("matches a find hit on any note in the run", () => {
+    const [a, b] = [save(), save()];
+    const [item] = groupActivityRuns([a, b]);
+    expect(itemMatchesFind(item, b.id)).toBe(true);
+    expect(itemMatchesFind(item, "other")).toBe(false);
+  });
+});
+
 describe("describeRun", () => {
   it("heads a run with its step count and distinct edited files", () => {
     const step = (name: string, summary: string): Message => ({ ...tool(name), tool: { name, ok: true, summary } });
@@ -186,7 +257,7 @@ describe("terminal grouping", () => {
       named("git status", "Bash"),
       named("notes.md", "Read"),
     ], true);
-    expect(items.map((item) => (item.kind === "run" ? `run:${item.messages.length}` : item.message.tool?.name))).toEqual([
+    expect(items.map((item) => (item.kind === "message" ? item.message.tool?.name : `run:${item.messages.length}`))).toEqual([
       "run:2",
       "git status",
       "run:1",
@@ -196,7 +267,7 @@ describe("terminal grouping", () => {
 
   it("folds only read and search stretches and unfolds Bash, Edit and Write", () => {
     const items = groupActivityRuns([tool("Grep"), tool("Read"), tool("Edit"), tool("Bash"), tool("Read"), tool("Write")], true);
-    expect(items.map((i) => (i.kind === "run" ? `run:${i.messages.length}` : i.message.tool?.name))).toEqual([
+    expect(items.map((i) => (i.kind === "message" ? i.message.tool?.name : `run:${i.messages.length}`))).toEqual([
       "run:2",
       "Edit",
       "Bash",
@@ -207,7 +278,7 @@ describe("terminal grouping", () => {
 
   it("groups other engines' reads and searches by their Claude Code verb", () => {
     const items = groupActivityRuns([tool("read"), tool("grep_search"), tool("bash"), tool("view_file"), tool("find")], true);
-    expect(items.map((i) => (i.kind === "run" ? `run:${i.messages.length}` : i.message.tool?.name))).toEqual(["run:2", "bash", "run:2"]);
+    expect(items.map((i) => (i.kind === "message" ? i.message.tool?.name : `run:${i.messages.length}`))).toEqual(["run:2", "bash", "run:2"]);
     expect(describeSearch([tool("view_file"), tool("grep")])).toBe("Searched for 1 pattern, read 1 file");
   });
 
