@@ -1143,7 +1143,7 @@ describe("user takeover of a delegated turn", () => {
     expect(rerun.message).toContain("What changed in the resume?");
     expect(rerun.message).toContain("Your earlier reply went to Edward because they messaged you mid-turn, so answer @Career now.");
     expect(rerun.transcriptText).toBe("Answering Career's earlier request");
-    expect(store.messagesFor(wink.threadId).filter((m) => m.tool?.name === "Message from @Career")).toHaveLength(1);
+    expect(store.messagesFor(wink.threadId).filter((m) => m.tool?.name === "Message from @Career")).toHaveLength(2);
     expect(pendingDelegationInfo(taskId)).toBeNull();
 
     finishDelegatedTurn(commsBus, turnOf(rerun), true, "Two bullets were reworded.");

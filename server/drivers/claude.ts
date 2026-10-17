@@ -16,7 +16,7 @@
 //   - the bot's cloud computer (box.ascii.dev) via server/computer-proxy.ts
 //     — screenshot/exec/open_url, the CUA-on-the-box bridge
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer as createNetServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
@@ -118,6 +118,9 @@ function claudeEnvironment(
 }
 
 const DRIVER_KIND = "claudeAgent";
+
+// Stays empty: the CLI lists its start folder, so a lean helper must not start in a busy one.
+const HELPER_DIR = join(DATA_DIR, "helper");
 
 export interface ClaudeConfig {
   cli: string;
@@ -1749,6 +1752,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       lean = false,
     ): Promise<string> =>
       new Promise((resolve, reject) => {
+        if (lean) mkdirSync(HELPER_DIR, { recursive: true });
         const child = spawnCli(
           config.cli,
           [
@@ -1758,7 +1762,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             ...(ephemeral ? ["--no-session-persistence"] : []),
           ],
           {
-            ...(lean ? { cwd: tmpdir() } : {}),
+            ...(lean ? { cwd: HELPER_DIR } : {}),
             stdio: ["pipe", "pipe", "pipe"],
             env: claudeEnvironment("claude-haiku-5-5", { ...process.env, ...input.environment }),
           },
