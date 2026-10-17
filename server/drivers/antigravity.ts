@@ -881,7 +881,11 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             const parsedError = z.string().safeParse(payload.error);
             const agyError = parsedError.success ? parsedError.data : "";
             const agyResultError = payload.status === "ERROR" && agyError.length > 0;
-            if (agyResultError) {
+            // agy leaves a retried attempt's 429/5xx on the result even when the reply came through
+            const recoveredTransient = agyResultError && realResponse && AGY_NOT_ACCOUNT_ERROR.test(agyError);
+            if (recoveredTransient) {
+              console.warn(`agy turn for ${threadId} recovered with a full reply; dropping retried error: ${agyError}`);
+            } else if (agyResultError) {
               if (isAgyAccountError(agyError)) {
                 emit({ ...base(threadId, turnId), type: "runtime.error", message: agyError, signIn: true });
               } else {
@@ -905,8 +909,14 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             // result.usage is the turn total (the per-step agent_response
             // figures above are its parts, not additions to it)
             settle(
-              payload.status === "SUCCESS" && Boolean(realResponse),
-              cancelledTool ? "cancelled_tool" : realResponse ? payload.status ?? null : "no_final_text",
+              (payload.status === "SUCCESS" && Boolean(realResponse)) || recoveredTransient,
+              cancelledTool
+                ? "cancelled_tool"
+                : recoveredTransient
+                  ? "recovered_transient_error"
+                  : realResponse
+                    ? payload.status ?? null
+                    : "no_final_text",
               null,
               payload.usage
                 ? {
