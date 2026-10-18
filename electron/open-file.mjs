@@ -59,11 +59,19 @@ export async function saveFileCopy(filePath, { dialog, downloads, window, fsp = 
   return true;
 }
 
-// File name the Save dialog offers for an image menu target. A data: URL or
-// a name-less path falls back to image.png; the query never becomes the name.
+// File name the Save dialog offers for an image menu target. A data: URL
+// takes its extension from the media type; a name-less path falls back to
+// image.png; the query never becomes the name.
 export function imageSaveName(srcURL) {
   try {
-    if (typeof srcURL !== "string" || srcURL.startsWith("data:")) return "image.png";
+    if (typeof srcURL !== "string") return "image.png";
+    if (srcURL.startsWith("data:")) {
+      const media = srcURL.slice(5, srcURL.indexOf(",")).split(";")[0].trim().toLowerCase();
+      if (media === "image/jpeg") return "image.jpg";
+      if (media === "image/gif") return "image.gif";
+      if (media === "image/webp") return "image.webp";
+      return "image.png";
+    }
     const name = path.basename(new URL(srcURL).pathname);
     return name || "image.png";
   } catch {

@@ -484,8 +484,8 @@ export function AttachmentPreviewDialog({
               }}
               onError={retry.onError}
               className={metrics
-                ? "pointer-events-none absolute left-0 top-0 max-w-none rounded-lg shadow-2xl"
-                : "pointer-events-none block max-h-full max-w-full rounded-lg object-contain shadow-2xl"}
+                ? "absolute left-0 top-0 max-w-none rounded-lg shadow-2xl"
+                : "block max-h-full max-w-full rounded-lg object-contain shadow-2xl"}
               style={metrics ? {
                 width: natural.w,
                 height: natural.h,

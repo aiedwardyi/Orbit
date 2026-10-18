@@ -259,6 +259,15 @@ describe("image save", () => {
     assert.equal(imageSaveName("not a url"), "image.png");
   });
 
+  it("names data URL saves from their media type", () => {
+    assert.equal(imageSaveName("data:image/jpeg;base64,/9j/4AAQ"), "image.jpg");
+    assert.equal(imageSaveName("data:image/png;base64,iVBORw0KGgo="), "image.png");
+    assert.equal(imageSaveName("data:image/gif;base64,R0lGODdh"), "image.gif");
+    assert.equal(imageSaveName("data:image/webp;base64,UklGRg=="), "image.webp");
+    assert.equal(imageSaveName("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="), "image.png");
+    assert.equal(imageSaveName("data:;base64,aGk="), "image.png");
+  });
+
   it("decodes data URLs without fetching", async () => {
     const raw = await imageBytes(`data:image/png;base64,${bytes.toString("base64")}`, async () => assert.fail("no fetch"));
     assert.deepEqual(Buffer.from(raw), bytes);

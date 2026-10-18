@@ -3,7 +3,11 @@
 export function contextMenuTemplate(params, text, actions) {
   // chat and viewer images carry no selection or link, so they need their
   // own menu before the nothing-actionable gate below
-  if (params.mediaType === "image") return imageMenuTemplate(text, actions);
+  if (params.mediaType === "image") {
+    const items = imageMenuTemplate(text, actions);
+    if (params.linkURL) items.unshift({ label: text("native.copyLink"), click: () => actions.copyLink(params.linkURL) });
+    return items;
+  }
   // nothing actionable here: no menu at all, rather than a wall of
   // disabled items
   if (!params.isEditable && !params.linkURL && !params.misspelledWord && !params.selectionText) return null;

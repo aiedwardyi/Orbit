@@ -67,11 +67,16 @@ describe("image menu", () => {
     expect(template.map((item) => item.label)).toEqual(["native.copyImage", "native.saveImage"]);
   });
 
-  it("keeps the image menu when a selection or link rides along", () => {
-    for (const extra of [{ selectionText: "caption words" }, { linkURL: "https://example.com/shot.png" }]) {
-      const template = contextMenuTemplate(imageParams(extra), text, actions);
-      expect(template.map((item) => item.label)).toEqual(["native.copyImage", "native.saveImage"]);
-    }
+  it("keeps the image menu when a selection rides along", () => {
+    const template = contextMenuTemplate(imageParams({ selectionText: "caption words" }), text, actions);
+    expect(template.map((item) => item.label)).toEqual(["native.copyImage", "native.saveImage"]);
+  });
+
+  it("adds Copy Link for a linked image", () => {
+    const template = contextMenuTemplate(imageParams({ linkURL: "https://example.com/shot.png" }), text, actions);
+    expect(template.map((item) => item.label)).toEqual(["native.copyLink", "native.copyImage", "native.saveImage"]);
+    template[0].click();
+    expect(actions.copyLink).toHaveBeenCalledWith("https://example.com/shot.png");
   });
 
   it("copies and saves through the image actions", () => {
