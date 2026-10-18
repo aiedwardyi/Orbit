@@ -356,7 +356,7 @@ const TOOLS = [
       type: "object",
       additionalProperties: false,
       properties: {
-        emoji: { type: "string", enum: [...EXTENDED_REACTIONS], description: "One emoji from Wink's reaction set." },
+        emoji: { type: "string", description: `One emoji from Wink's reaction set: ${EXTENDED_REACTIONS.join(" ")}. An older emoji is accepted only to remove your own existing reaction.` },
       },
       required: ["emoji"],
     },

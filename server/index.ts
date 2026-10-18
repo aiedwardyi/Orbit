@@ -7155,9 +7155,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const fromBotId = String(body.fromBotId ?? "");
         const fromThreadId = String(body.fromThreadId ?? "");
         const emoji = String(body.emoji ?? "").trim();
-        if (!(EXTENDED_REACTIONS as readonly string[]).includes(emoji)) {
-          return json(res, 400, { error: "unsupported emoji" });
-        }
         const from = store.bot(fromBotId);
         if (!from) return json(res, 403, { error: "unknown sender" });
         if (!connectorThread(from.id, fromThreadId)) {
@@ -7165,6 +7162,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const target = store.activePath(fromThreadId).findLast((m) => m.role === "user" && m.kind === "text");
         if (!target) return json(res, 200, { error: "no user message to react to yet" });
+        if (!(EXTENDED_REACTIONS as readonly string[]).includes(emoji) && !target.reactions?.some((reaction) => reaction.emoji === emoji && reaction.by === fromBotId)) {
+          return json(res, 400, { error: "unsupported emoji" });
+        }
         const patched = store.toggleReaction(fromThreadId, target.id, emoji, fromBotId);
         if (!patched) return json(res, 404, { error: "message not found" });
         return json(res, 200, { ok: true });
