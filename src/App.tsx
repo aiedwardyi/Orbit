@@ -23,6 +23,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { GlobalTooltip } from "@/components/GlobalTooltip";
 import { LazyView } from "@/components/LazyView";
 import { DesktopCapabilitiesProvider } from "@/components/DesktopCapabilities";
 import { isEmptyEngineLaunch } from "@/lib/engine-rail";
@@ -630,6 +631,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       {typeof window !== "undefined" && window.ogb?.platform === "win32" ? (
         <div className="orbit-windows-caption" aria-hidden />
       ) : null}
+      {/* the one tip layer for every title in the app */}
+      <GlobalTooltip />
       {/* fixed-position popup, bottom-left — outside the layout flow */}
       <UpdateBanner />
       {themeToast && (
