@@ -1,6 +1,13 @@
 // Native context menu template for the Electron window. Pure shape, so the
 // read-only Copy case is pinned by a test without booting the app.
 export function contextMenuTemplate(params, text, actions) {
+  // chat and viewer images carry no selection or link, so they need their
+  // own menu before the nothing-actionable gate below
+  if (params.mediaType === "image") {
+    const items = imageMenuTemplate(text, actions);
+    if (params.linkURL) items.unshift({ label: text("native.copyLink"), click: () => actions.copyLink(params.linkURL) });
+    return items;
+  }
   // nothing actionable here: no menu at all, rather than a wall of
   // disabled items
   if (!params.isEditable && !params.linkURL && !params.misspelledWord && !params.selectionText) return null;
@@ -38,6 +45,15 @@ export function contextMenuTemplate(params, text, actions) {
     { label: text("native.selectAll"), role: "selectAll", enabled: params.editFlags.canSelectAll },
   );
   return menuItems;
+}
+
+// Right-click on a chat or viewer image. Copy puts the pixels on the
+// clipboard; Save writes the same bytes the viewer downloads.
+export function imageMenuTemplate(text, actions) {
+  return [
+    { label: text("native.copyImage"), click: () => actions.copyImage() },
+    { label: text("native.saveImage"), click: () => actions.saveImage() },
+  ];
 }
 
 // Right-click on a local file link. A folder has nothing to copy, so no Save.

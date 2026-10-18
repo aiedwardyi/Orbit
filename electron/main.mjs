@@ -63,7 +63,7 @@ import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLi
 import { WINDOWS_CAPTION_HEIGHT, applyWindowsTitleBarOverlay, windowChromeOptions } from "./window-chrome.mjs";
 import { restoreWindowZoom, routeZoomShortcut, setImageZoomOwned } from "./window-zoom.mjs";
 import { contextMenuTemplate } from "./context-menu.mjs";
-import { fileMenuFor, openLocalFile } from "./open-file.mjs";
+import { fileMenuFor, imageFetchFor, openLocalFile, saveImageCopy } from "./open-file.mjs";
 import {
   ensureManagedComposioCredentials,
   managedComposioAccess,
@@ -1692,6 +1692,13 @@ function createWindow() {
     const menuItems = contextMenuTemplate(params, nativeText, {
       replaceMisspelling: (suggestion) => win.webContents.replaceMisspelling(suggestion),
       copyLink: (url) => clipboard.writeText(url),
+      copyImage: () => win.webContents.copyImageAt(params.x, params.y),
+      saveImage: () => saveImageCopy(params.srcURL, {
+        dialog,
+        downloads: app.getPath("downloads"),
+        window: win,
+        fetchImpl: imageFetchFor(params.srcURL, { origin: `http://127.0.0.1:${SERVER_PORT}`, token: serverToken }),
+      }).catch((error) => dialog.showErrorBox(nativeText("native.saveCopyFailed"), error?.message ?? String(error))),
     });
     if (!menuItems) return;
     Menu.buildFromTemplate(menuItems).popup({ window: win, frame: params.frame });
