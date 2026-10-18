@@ -35,9 +35,9 @@ export function isTouchPrimary(win: Window = window): boolean {
   return win.matchMedia?.("(pointer: coarse)").matches ?? false;
 }
 
-/** Links and editable fields keep today's native menu. */
+/** Links, images and editable fields keep today's native menu. */
 export function keepsNativeMenu(target: Element): boolean {
-  return target.closest("a[href], [data-file-link], input, textarea, select, [contenteditable=\"true\"]") !== null;
+  return target.closest("a[href], [data-file-link], img, input, textarea, select, [contenteditable=\"true\"]") !== null;
 }
 
 function holdsNative(target: Element): boolean {

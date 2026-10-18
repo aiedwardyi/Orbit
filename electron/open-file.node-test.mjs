@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 
-import { fileMenuFor, openLocalFile } from "./open-file.mjs";
+import { fileMenuFor, imageBytes, imageSaveName, openLocalFile, saveImageCopy } from "./open-file.mjs";
 
 // Creating a symlink on Windows needs elevation or developer mode, so the
 // symlink case only runs where the runner can actually make one.
@@ -231,5 +231,50 @@ describe("file link menu", () => {
     await assert.rejects(menuFor("clip.mp4", { dialog }).menu, { message: "That file path is invalid" });
     await assert.rejects(menuFor("//evil/share/a.mp4", { dialog, platform: "win32" }).menu, { message: "That file path is invalid" });
     await assert.rejects(menuFor(file("other.mp4"), { dialog, base: path.join(dir, "bot") }).menu, { message: "That file is outside the bot's folder" });
+  });
+});
+
+describe("image save", () => {
+  const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const fetchImpl = async (url) => {
+    assert.equal(url, "http://127.0.0.1:8799/api/attachments/shot.png?retry=1");
+    return { ok: true, arrayBuffer: async () => bytes };
+  };
+  const saveWith = (result, asked) => saveImageCopy("http://127.0.0.1:8799/api/attachments/shot.png?retry=1", {
+    dialog: {
+      showSaveDialog: async (_window, options) => {
+        asked.push(options.defaultPath);
+        return result;
+      },
+    },
+    downloads: dir,
+    window: {},
+    fetchImpl,
+  });
+
+  it("names the dialog after the image file", () => {
+    assert.equal(imageSaveName("http://127.0.0.1:8799/api/attachments/shot.png?retry=1"), "shot.png");
+    assert.equal(imageSaveName("http://127.0.0.1:8799/"), "image.png");
+    assert.equal(imageSaveName("data:image/png;base64,iVBORw0KGgo="), "image.png");
+    assert.equal(imageSaveName("not a url"), "image.png");
+  });
+
+  it("decodes data URLs without fetching", async () => {
+    const raw = await imageBytes(`data:image/png;base64,${bytes.toString("base64")}`, async () => assert.fail("no fetch"));
+    assert.deepEqual(Buffer.from(raw), bytes);
+  });
+
+  it("rejects when the fetch fails", async () => {
+    await assert.rejects(imageBytes("http://127.0.0.1:8799/api/attachments/gone.png", async () => ({ ok: false, status: 404 })));
+  });
+
+  it("writes the fetched bytes to the chosen path and nothing on cancel", async () => {
+    const asked = [];
+    const dest = path.join(dir, "saved-shot.png");
+    assert.equal(await saveWith({ canceled: true }, asked), false);
+    assert.equal(fs.existsSync(dest), false);
+    assert.equal(await saveWith({ canceled: false, filePath: dest }, asked), true);
+    assert.deepEqual(fs.readFileSync(dest), bytes);
+    assert.deepEqual(asked, [path.join(dir, "shot.png"), path.join(dir, "shot.png")]);
   });
 });

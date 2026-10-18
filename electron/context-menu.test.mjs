@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { contextMenuTemplate, fileMenuTemplate } from "./context-menu.mjs";
+import { contextMenuTemplate, fileMenuTemplate, imageMenuTemplate } from "./context-menu.mjs";
 
 const text = (key) => key;
-const actions = { replaceMisspelling: vi.fn(), copyLink: vi.fn() };
+const actions = { replaceMisspelling: vi.fn(), copyLink: vi.fn(), copyImage: vi.fn(), saveImage: vi.fn() };
 const editable = (overrides = {}) => ({
   isEditable: false, linkURL: "", misspelledWord: "", selectionText: "",
   dictionarySuggestions: [], editFlags: { canUndo: false, canRedo: false, canCut: false, canCopy: true, canPaste: false, canSelectAll: true },
@@ -49,6 +49,37 @@ describe("native context menu", () => {
     expect(template[2]).toMatchObject({ type: "separator" });
     template[0].click();
     expect(actions.replaceMisspelling).toHaveBeenCalledWith("the");
+  });
+});
+
+describe("image menu", () => {
+  const imageParams = (overrides = {}) => ({
+    ...editable(),
+    mediaType: "image",
+    srcURL: "http://127.0.0.1:8799/api/attachments/shot.png",
+    x: 30,
+    y: 40,
+    ...overrides,
+  });
+
+  it("offers copy and save for an image with nothing else actionable", () => {
+    const template = contextMenuTemplate(imageParams(), text, actions);
+    expect(template.map((item) => item.label)).toEqual(["native.copyImage", "native.saveImage"]);
+  });
+
+  it("keeps the image menu when a selection or link rides along", () => {
+    for (const extra of [{ selectionText: "caption words" }, { linkURL: "https://example.com/shot.png" }]) {
+      const template = contextMenuTemplate(imageParams(extra), text, actions);
+      expect(template.map((item) => item.label)).toEqual(["native.copyImage", "native.saveImage"]);
+    }
+  });
+
+  it("copies and saves through the image actions", () => {
+    const template = imageMenuTemplate(text, actions);
+    template[0].click();
+    template[1].click();
+    expect(actions.copyImage).toHaveBeenCalledTimes(1);
+    expect(actions.saveImage).toHaveBeenCalledTimes(1);
   });
 });
 
