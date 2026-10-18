@@ -37,7 +37,7 @@ export function isTouchPrimary(win: Window = window): boolean {
 
 /** Links and editable fields keep today's native menu. */
 export function keepsNativeMenu(target: Element): boolean {
-  return target.closest("a[href], input, textarea, select, [contenteditable=\"true\"]") !== null;
+  return target.closest("a[href], [data-file-link], input, textarea, select, [contenteditable=\"true\"]") !== null;
 }
 
 function holdsNative(target: Element): boolean {
