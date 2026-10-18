@@ -78,7 +78,7 @@ import { DeviceTag } from "./DeviceSwitcher";
 import { RenameTitle } from "./RenameTitle";
 import { TaskPicker } from "./TaskPicker";
 import { ReactionBar, ReactionChips } from "./Reactions";
-import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
+import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest, type MessageMenuTarget } from "./MessageMenu";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
@@ -506,6 +506,7 @@ const Bubble = memo(function Bubble({
   streaming = false,
   dock,
   sendsNext = false,
+  queuedActions,
   onStartEdit,
   onCancelEdit,
   onSubmitEdit,
@@ -524,6 +525,7 @@ const Bubble = memo(function Bubble({
   streaming?: boolean;
   dock?: ReplyDock;
   sendsNext?: boolean;
+  queuedActions?: MessageMenuTarget["queued"];
   onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
   onSubmitEdit: (id: string, text: string) => void;
@@ -568,7 +570,7 @@ const Bubble = memo(function Bubble({
   };
 
   const menuTarget =
-    message.kind === "text" && !message.placeholder
+    message.kind === "text" && (!message.placeholder || queuedActions)
       ? {
         threadId,
         message,
@@ -576,6 +578,7 @@ const Bubble = memo(function Bubble({
         user,
         pinned,
         canPin: user || (!streaming && !dock?.live),
+        queued: queuedActions,
       }
       : null;
 
@@ -2535,6 +2538,12 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                 editing={false}
                 isLastBotText={false}
                 sendsNext={sendsNext && index === 0}
+                queuedActions={{
+                  sendNow: engine?.capabilities?.queueing === true && pending?.some((entry) => entry.queueId === m.id && entry.sendId)
+                    ? () => dispatch({ type: "sendQueuedNow", botId: bot.id, threadId: bot.threadId, queueId: m.id })
+                    : undefined,
+                  cancel: () => dispatch({ type: "cancelQueued", botId: bot.id, threadId: bot.threadId, queueId: m.id }),
+                }}
                 onStartEdit={startEdit}
                 onCancelEdit={cancelEdit}
                 onSubmitEdit={submitEdit}

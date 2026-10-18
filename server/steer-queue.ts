@@ -54,6 +54,7 @@ interface QueueEntry {
 const queues = new Map<string, QueueEntry>(); // botId + threadId → waiting work
 const cancelledSendIds = new Set<string>();
 const runningSendIds = new Map<string, string>(); // botId → sendId
+const promoting = new Map<string, string>();
 let queueSeq = 0;
 
 /** Same shape as parseSendId — client sendIds are UUIDs, not a `send_` prefix. */
@@ -301,6 +302,7 @@ export function drainSteeredMessages(
   hasActiveTurn?: HasActiveTurn,
 ): void {
   const draining = new Set<string>();
+  const promotingBots = new Set(promoting.values());
   // deleting only the entry being visited is safe under Map iteration
   for (const [key, entry] of queues) {
     const bot = store.bot(entry.botId);
@@ -311,7 +313,7 @@ export function drainSteeredMessages(
       continue;
     }
     // busy, or startTurn has claimed this bot but has not flipped busy yet
-    if (bot.busy || hasActiveTurn?.(entry.botId) || draining.has(entry.botId)) continue;
+    if (bot.busy || hasActiveTurn?.(entry.botId) || draining.has(entry.botId) || promotingBots.has(entry.botId)) continue;
     // committed to draining: the entry leaves the map before anything runs,
     // so a settle racing another settle can never fire the same queue twice
     queues.delete(key);
@@ -385,11 +387,11 @@ export function takeQueuedSteers(
   const steerItems = entry.items.filter((item): item is SteerItem => !isRoomItem(item));
   if (!steerItems.length) return [];
   if (steerItems.some((item) => item.seq <= since && !isSendCancelled(item.sendId))) return [];
-  const held = entry.items.filter((item) => isRoomItem(item) || (item.after && !isSendCancelled(item.sendId)));
+  const held = entry.items.filter((item) => isRoomItem(item) || promoting.has(item.messageId) || (item.after && !isSendCancelled(item.sendId)));
   if (held.length) queues.set(key, { botId, threadId, items: held });
   else queues.delete(key);
   return steerItems
-    .filter((item) => !item.after && !isSendCancelled(item.sendId))
+    .filter((item) => !item.after && !promoting.has(item.messageId) && !isSendCancelled(item.sendId))
     .map((item) => ({ id: item.messageId, text: item.text, prompt: item.prompt, replyToId: item.replyToId, sendId: item.sendId }));
 }
 
@@ -441,6 +443,35 @@ export function queuedSteeredMessage(
   return item ? { id: item.messageId, text: item.text, replyToId: item.replyToId } : null;
 }
 
+/** Keep the durable hold out of drains until the ordinary send path settles. */
+export async function withQueuedSend<T extends { ok: true; queued?: boolean }>(
+  botId: string,
+  threadId: string,
+  queueId: string | undefined,
+  sendId: string | undefined,
+  send: () => Promise<T>,
+): Promise<T> {
+  const key = entryKey(botId, threadId);
+  const item = queues.get(key)?.items.find((item) => !isRoomItem(item) && item.messageId === queueId && item.sendId === sendId);
+  if (!item) return send();
+  promoting.set(item.messageId, botId);
+  try {
+    const result = await send();
+    const entry = queues.get(key);
+    if (entry) {
+      const items = result.queued
+        ? entry.items.map((held) => held === item ? { ...item, after: false } : held)
+        : entry.items.filter((held) => held !== item);
+      if (items.length) queues.set(key, { ...entry, items });
+      else queues.delete(key);
+      saveQueueAfterAppend();
+    }
+    return result;
+  } finally {
+    promoting.delete(item.messageId);
+  }
+}
+
 /** Whether any of this bot's sends or room turns still wait to drain. */
 export function hasQueuedSends(botId: string): boolean {
   for (const entry of queues.values()) {
@@ -460,6 +491,10 @@ export function cancelSteeredMessage(botId: string, messageId: string): CancelSt
   }
   for (const [key, entry] of queues) {
     if (entry.botId !== botId) continue;
+    if (entry.items.some((item) => promoting.has(item.messageId) &&
+      (item.messageId === messageId || (!isRoomItem(item) && item.sendId === messageId)))) {
+      return { cancelled: false, running: true };
+    }
     const items = entry.items.filter(
       (item) => item.messageId !== messageId && (isRoomItem(item) || item.sendId !== messageId),
     );
@@ -506,6 +541,7 @@ export function cancelQueuedRoomParticipations(groupId: string, threadId: string
 /** Test helper: drop in-memory queues and cancel/running bookkeeping. */
 export function _resetSteerQueue(): void {
   queues.clear();
+  promoting.clear();
   cancelledSendIds.clear();
   runningSendIds.clear();
 }
