@@ -291,7 +291,7 @@ async function openPhoneAccess(page) {
   // Phone access moved to Account in 1.0.171
   const account = page.getByRole("dialog").getByRole("button", { name: "Account", exact: true });
   await ((await account.count()) ? account : connections).click();
-  const title = page.getByText("Phone access from anywhere", { exact: true });
+  const title = page.getByText(/^Phone access( from anywhere)?$/).first();
   await title.waitFor({ timeout: 30_000 });
   await title.scrollIntoViewIfNeeded();
   return title.locator("..");

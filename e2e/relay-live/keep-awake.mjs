@@ -11,7 +11,8 @@ const WORK = process.env.WORK_DIR;
 const PROFILE = process.env.USERPROFILE;
 const MODE = process.env.ACME_MODE || "staging";
 const STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory";
-const COPY = "This PC stays awake while plugged in, so your phone can always reach it.";
+// Settings copy shortened in 1.0.190.
+const COPY = /^(This )?PC stays awake while plugged in(, so your phone can always reach it)?.$/;
 const SENSITIVE = '[aria-label="Setup code"], [aria-label="Invite"], [aria-label="Phone pairing QR code"], [data-pairing-code], [role="alert"], [data-phone-access-error]';
 const SHOTS = join(OUT, "screens");
 const POWER = join(OUT, "powercfg");
@@ -252,7 +253,7 @@ async function openPhoneAccess() {
   // Phone access moved to Account in 1.0.171
   const account = page.getByRole("dialog").getByRole("button", { name: "Account", exact: true });
   await ((await account.count()) ? account : connections).click();
-  const title = page.getByText("Phone access from anywhere", { exact: true });
+  const title = page.getByText(/^Phone access( from anywhere)?$/).first();
   await title.waitFor({ timeout: 30_000 });
   await title.scrollIntoViewIfNeeded();
   return title.locator("..");
@@ -325,7 +326,7 @@ async function flow() {
   const on = await pollRequests("k3-connected", 30_000, (value) => blockingEntries(value).length > 0);
   check("k3", "Wink requests EXECUTION or SYSTEM within 30s", on.pass, on);
   await section.scrollIntoViewIfNeeded();
-  const copy = section.getByText(COPY, { exact: true });
+  const copy = section.getByText(COPY);
   const copyVisible = await copy.waitFor({ state: "visible", timeout: 5_000 }).then(() => true, () => false);
   if (copyVisible) await copy.scrollIntoViewIfNeeded();
   await shot("k4-connected-copy");
