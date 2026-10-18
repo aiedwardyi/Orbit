@@ -497,7 +497,7 @@ describe("reaction picker at the 600x480 floor", () => {
   }
 
   it("paints over the usage strip instead of under it", async () => {
-    const { host, picker } = await mount(206, FLOOR);
+    const { host, picker } = await mount(211, FLOOR);
     const box = boxOf(picker);
     expect(box.bottom).toBeGreaterThan(FLOOR.pane.bottom);
     expectAllClickable(host, picker);

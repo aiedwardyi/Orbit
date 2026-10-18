@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -37,6 +38,33 @@ describe("reaction tone map", () => {
   it("keeps thumbs, heart, and the cheap extras on a small primary rail", () => {
     expect([...PRIMARY_REACTIONS]).toEqual(["👍", "👎", "❤️"]);
     expect(EXTENDED_REACTIONS).toEqual(expect.arrayContaining(["👍", "👎", "❤️", "😂", "🎉", "👀"]));
+  });
+
+  it("offers fourteen reactions in picker order", () => {
+    expect([...EXTENDED_REACTIONS]).toEqual([
+      "👍", "👎", "❤️", "🔥", "🚀", "💡",
+      "👌", "❓", "😂", "😮", "👀", "🤝",
+      "💀", "🎉",
+    ]);
+  });
+
+  it("names the surprised face and keeps retired tones for old marks", () => {
+    expect(reactionTone("😮")).toBe("surprised / amazed");
+    const retired: Record<string, string> = {
+      "💎": "especially valuable",
+      "🎯": "on target",
+      "🤖": "playfully robotic",
+      "‼️": "urgent / emphasize this",
+      "💯": "strong agreement",
+      "🧠": "thoughtful / smart",
+      "⚡": "fast / high energy",
+      "☕": "calm / keep it grounded",
+      "✨": "delight / polish this",
+    };
+    for (const [emoji, tone] of Object.entries(retired)) {
+      expect(EXTENDED_REACTIONS).not.toContain(emoji);
+      expect(reactionTone(emoji)).toBe(tone);
+    }
   });
 
   it("offers OK hand instead of salute, which Windows 10 draws as a box", () => {
@@ -253,6 +281,52 @@ describe("reaction plumbing", () => {
 });
 
 describe("bot self-reactions", () => {
+  async function react(emoji: string, reactions = [{ emoji: "💎", by: "bot-1" }]) {
+    const parsed = ts.createSourceFile("index.ts", indexSource, ts.ScriptTarget.Latest, true);
+    const find = (node: ts.Node): ts.Node | undefined => {
+      if (ts.isIfStatement(node) && node.expression.getText(parsed).includes('path === "/api/internal/react"')) return node;
+      return ts.forEachChild(node, find);
+    };
+    const route = find(parsed) as ts.IfStatement;
+    let toggled = false;
+    const deps = {
+      readBody: async () => ({ fromBotId: "bot-1", fromThreadId: "thread-1", emoji }),
+      req: {}, res: {}, EXTENDED_REACTIONS,
+      json: (_res: unknown, status: number, body: unknown) => ({ status, body }),
+      connectorThread: () => true,
+      store: {
+        bot: () => ({ id: "bot-1" }),
+        activePath: () => [{ id: "user-1", role: "user", kind: "text", reactions }],
+        toggleReaction: () => { toggled = true; return {}; },
+      },
+    };
+    const javascript = ts.transpileModule(`return async () => ${route.thenStatement.getText(parsed)};`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
+    const result = await new Function(...Object.keys(deps), javascript)(...Object.values(deps))();
+    return { ...result, toggled };
+  }
+
+  it("lets a bot remove its own retired reaction", async () => {
+    expect(await react("💎")).toMatchObject({ status: 200, toggled: true });
+  });
+
+  it("rejects retired additions and another author's retired mark", async () => {
+    expect(await react("💎", [])).toMatchObject({ status: 400, toggled: false });
+    expect(await react("💎", [{ emoji: "💎", by: "other-bot" }])).toMatchObject({ status: 400, toggled: false });
+    expect(await react("👍", [])).toMatchObject({ status: 200, toggled: true });
+  });
+
+  it("lets the react tool submit a retired emoji for removal", () => {
+    const source = readFileSync(join(here, "drivers/agents-proxy.ts"), "utf8");
+    const parsed = ts.createSourceFile("agents-proxy.ts", source, ts.ScriptTarget.Latest, true);
+    const statement = parsed.statements.find((node) => ts.isVariableStatement(node)
+      && node.declarationList.declarations.some((declaration) => declaration.name.getText(parsed) === "TOOLS")) as ts.VariableStatement;
+    const tools = statement.declarationList.declarations[0]!.initializer as ts.ArrayLiteralExpression;
+    const tool = tools.elements.find((element) => /name: "react",/.test(element.getText(parsed)))!;
+    const javascript = ts.transpileModule(`return (${tool.getText(parsed)});`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
+    const schema = new Function("EXTENDED_REACTIONS", javascript)(EXTENDED_REACTIONS).inputSchema.properties.emoji;
+    expect(schema.enum?.includes("💎") ?? true).toBe(true);
+  });
+
   it("only tells a bot it can react when the agents integration is actually mounted", () => {
     expect(indexSource).toContain("reactionToolGuidance");
     expect(indexSource).toContain('const reactPrompt = integrations.agents ? ` ${reactionToolGuidance()}` : "";');
