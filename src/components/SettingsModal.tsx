@@ -198,11 +198,36 @@ function ToolCallsRow() {
   );
 }
 
+function ReplyStyleRow() {
+  const { t } = useI18n();
+  const style = useReplyStyle();
+  return (
+    <Card title={t("settings.replyStyle.title")}>
+      <div role="radiogroup" aria-label={t("settings.replyStyle.title")} className="flex gap-1 rounded-lg bg-inset p-0.5">
+        {(["paragraphs", "live"] as ReplyStyle[]).map((option) => (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={style === option}
+            onClick={() => saveReplyStyle(option)}
+            className={cn(
+              "min-w-0 flex-1 rounded-[max(0px,calc(var(--radius-lg)_-_2px))] px-2 py-1.5 text-center text-[13px] font-medium transition-colors",
+              style === option ? "bg-raised text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+            )}
+          >
+            {option === "paragraphs" ? t("settings.replyStyle.paragraphs") : t("settings.replyStyle.live")}
+          </button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function DetailedRepliesRow() {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
   const enabled = detailedRepliesEnabled(state.config);
-  const style = useReplyStyle();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -225,33 +250,9 @@ function DetailedRepliesRow() {
 
   return (
     <Card title={t("settings.detailedReplies.title")}>
-      <div className="mb-4 border-b border-hairline/30 pb-4">
-        <div className="mb-2 text-[14px] font-medium text-ink">{t("settings.replyStyle.title")}</div>
-        <div role="radiogroup" aria-label={t("settings.replyStyle.title")} className="flex gap-1 rounded-lg bg-inset p-0.5">
-          {(["paragraphs", "live"] as ReplyStyle[]).map((option) => (
-            <button
-              key={option}
-              type="button"
-              role="radio"
-              aria-checked={style === option}
-              onClick={() => saveReplyStyle(option)}
-              className={cn(
-                "min-w-0 flex-1 rounded-[max(0px,calc(var(--radius-lg)_-_2px))] px-2 py-1.5 text-center text-[13px] font-medium transition-colors",
-                style === option ? "bg-raised text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
-              )}
-            >
-              {option === "paragraphs" ? t("settings.replyStyle.paragraphs") : t("settings.replyStyle.live")}
-            </button>
-          ))}
-        </div>
-        <div className="mt-1 text-[12px] leading-relaxed text-ink-secondary">{t("settings.replyStyle.help")}</div>
-      </div>
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="text-[14px] font-medium text-ink">{t("settings.detailedReplies.toggle")}</div>
-          <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
-            {t("settings.detailedReplies.help")}
-          </div>
         </div>
         <button
           role="switch"
@@ -309,9 +310,6 @@ function VibrationRow() {
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="text-[14px] font-medium text-ink">{t("settings.vibration.toggle")}</div>
-          <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
-            {t("settings.vibration.help")}
-          </div>
         </div>
         <button
           role="switch"
@@ -349,7 +347,6 @@ function NotificationsRow() {
           <span className={cnKnob(on)} />
         </button>
       </div>
-      {!window.ogb && <PhoneNotificationSettings />}
     </Card>
   );
 }
@@ -362,9 +359,6 @@ function RainbowBoxRow() {
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="text-[14px] font-medium text-ink">{t("settings.rainbowBox.toggle")}</div>
-          <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
-            {t("settings.rainbowBox.help")}
-          </div>
         </div>
         <button
           role="switch"
@@ -528,6 +522,7 @@ export function SettingsModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(defaultAdvancedOpen);
+  const [preferencesOpen, setPreferencesOpen] = useState(defaultAdvancedOpen);
   const [moreServicesOpen, setMoreServicesOpen] = useState(defaultMoreServicesOpen);
   const q = query.trim().toLowerCase();
   const phoneAvailable = phoneSettingsAvailable(capabilities.host);
@@ -714,7 +709,7 @@ export function SettingsModal({
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 pb-5">
             {section === "account" && (
               <>
-                <Card title={t("settings.profile.title")} subtitle={t("settings.profile.subtitle")}>
+                <Card title={t("settings.profile.title")}>
                   <ProfileFields />
                 </Card>
                 <SyncPanel onAccountEmail={setAccountEmail} />
@@ -729,12 +724,30 @@ export function SettingsModal({
               <>
                 <LanguagePicker />
                 <SidebarSideRow />
-                <TerminalAppearanceRow />
-                <ToolCallsRow />
-                <DetailedRepliesRow />
-                <NotificationsRow />
+                <ReplyStyleRow />
+                {!window.ogb && <Card><PhoneNotificationSettings /></Card>}
                 <VibrationRow />
                 <UpdatesRow />
+                <button
+                  type="button"
+                  aria-expanded={preferencesOpen}
+                  onClick={() => setPreferencesOpen((open) => !open)}
+                  className="flex w-full items-center justify-between rounded-xl border border-hairline/40 bg-card px-4 py-3 text-left hover:bg-control/60"
+                >
+                  <span className="text-[14px] font-medium text-ink">{t("settings.advanced.title")}</span>
+                  <ChevronDown
+                    size={16}
+                    className={cn("text-ink-secondary transition-transform", preferencesOpen && "rotate-180")}
+                  />
+                </button>
+                {preferencesOpen && (
+                  <div data-settings-preferences className="flex flex-col gap-4">
+                    <TerminalAppearanceRow />
+                    <ToolCallsRow />
+                    <DetailedRepliesRow />
+                    <NotificationsRow />
+                  </div>
+                )}
                 {showSettingsAdvancedSection() && (
                   <>
                 <button
@@ -773,11 +786,6 @@ export function SettingsModal({
             {section === "connections" && (
               <Card>
                 <div className="flex flex-col gap-4">
-                  {state.config?.composio.mode === "managed" ? (
-                    <div className="rounded-lg border border-success/25 bg-success/10 px-3 py-2 text-[13px] text-success">
-                      {t("settings.connections.ready")}
-                    </div>
-                  ) : null}
                   <EnginesSettings />
                   <SavedKeys />
                   {showSettingsMoreServicesSection() && (
@@ -816,7 +824,7 @@ export function SettingsModal({
             {section === "themes" && (
               <>
                 <RainbowBoxRow />
-                <Card title={t("settings.skin.title")} subtitle={t("settings.skin.subtitle")}>
+                <Card title={t("settings.skin.title")}>
                   <SkinPicker />
                 </Card>
               </>

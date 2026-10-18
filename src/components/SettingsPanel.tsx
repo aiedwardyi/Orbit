@@ -207,44 +207,6 @@ function WorkingFolder({ bot }: { bot: Bot }) {
   );
 }
 
-function ProjectNotes({ bot, save }: { bot: Bot; save: (projectNotes: string | null) => void }) {
-  const { t } = useI18n();
-  const [draft, setDraft] = useState<string | null>(null);
-  const commit = (value: string | null) => {
-    save(value);
-    setDraft(null);
-  };
-
-  return (
-    <div className="rounded-xl bg-card p-4">
-      <div className="text-[15px] font-medium text-ink">{t("bot.projectNotes")}</div>
-      <form
-        className="mt-3 flex items-center gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          commit((draft ?? bot.projectNotes ?? "").trim() || null);
-        }}
-      >
-        <input
-          className={cn(inputCls, "font-mono text-[12.5px]")}
-          aria-label={t("bot.projectNotes")}
-          placeholder={t("bot.projectNotesPlaceholder")}
-          value={draft ?? bot.projectNotes ?? ""}
-          onChange={(e) => setDraft(e.target.value)}
-        />
-        <button type="submit" disabled={draft === null} className="shrink-0 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50">
-          {t("bot.workingFolderSave")}
-        </button>
-        {bot.projectNotes && (
-          <button type="button" onClick={() => commit(null)} className="shrink-0 rounded-lg px-2 py-2 text-[13px] text-ink-secondary hover:text-ink">
-            {t("bot.workingFolderClear")}
-          </button>
-        )}
-      </form>
-    </div>
-  );
-}
-
 interface MemoryTopic {
   name: string;
   bytes: number;
@@ -698,7 +660,6 @@ export function SettingsPanel({
 
           <MemoryCard key={bot.id} bot={bot} />
           <WorkingFolder bot={bot} />
-          <ProjectNotes key={`${bot.id}:notes`} bot={bot} save={(projectNotes) => patch({ projectNotes })} />
 
           <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
             <div className="text-[15px] font-medium text-ink">{t("bot.approval")}</div>

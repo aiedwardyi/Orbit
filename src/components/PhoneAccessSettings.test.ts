@@ -58,8 +58,8 @@ function type(input: HTMLInputElement, value: string) {
 
 describe("PhoneAccessSettings", () => {
   it.each([
-    ["en", "This PC stays awake while plugged in, so your phone can always reach it."],
-    ["ko", "전원에 연결된 동안 이 PC가 절전 모드로 전환되지 않아 휴대폰에서 언제든 접속할 수 있습니다."],
+    ["en", "PC stays awake while plugged in."],
+    ["ko", "전원이 연결되면 PC가 켜져 있어요."],
   ])("shows the AC keep-awake line only while phone access is on in %s", async (locale, copy) => {
     localStorage.setItem("omb-locale", locale);
     let relay = status();
@@ -103,7 +103,7 @@ describe("PhoneAccessSettings", () => {
     });
     const { host, root } = await renderView();
     expect(host.querySelector("[data-phone-access-setup]")).not.toBeNull();
-    expect(host.textContent).toContain("Paste the setup code you were sent to reach this PC from your phone.");
+    expect(host.textContent).not.toContain("Paste the setup code you were sent to reach this PC from your phone.");
     expect(host.querySelector('[role="switch"]')).toBeNull();
     await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!, ` ${CODE} `));
     await act(async () => click(button(host, "Set up")));
@@ -374,7 +374,7 @@ describe("PhoneAccessSettings", () => {
     localStorage.setItem("omb-locale", "ko");
     serve({ "GET /api/phone-relay/status": () => status(), "GET /api/phone/devices": () => ({ phones: [] }) });
     const { host, root } = await renderView();
-    expect(host.textContent).toContain("어디서나 휴대폰 접속");
+    expect(host.textContent).toContain("휴대폰 접속");
     expect(button(host, "휴대폰 추가")).toBeDefined();
     await act(async () => root.unmount());
   });

@@ -121,7 +121,7 @@ afterEach(async () => {
 
 describe("SyncPanel Google states", () => {
   const rows: [string, GoogleBody, string | null, string[]][] = [
-    ["signed-out", google("signed-out", { email: null }), null, ["Sign in with Google", "Use a Drive folder instead"]],
+    ["signed-out", google("signed-out", { email: null }), null, ["Google sign-in", "Drive folder"]],
     ["ready, no join", google("ready"), "edward@example.com", ["Start", "Sign out"]],
     ["ready, first PC", google("ready", { join: { first: true, pcs: 1 } }), "First PC on edward@example.com", ["Start", "Sign out"]],
     ["ready, joining", google("ready", { join: { first: false, pcs: 3 } }), "Joining edward@example.com · 3 PCs", ["Start", "Sign out"]],
@@ -130,10 +130,10 @@ describe("SyncPanel Google states", () => {
     ["syncing without progress", google("syncing"), "Syncing…", ["Sign out"]],
     ["up-to-date", google("up-to-date"), "Up to date · edward@example.com", ["Sign out"]],
     ["offline", google("offline"), "Offline. Changes sync when you're back online.", ["Sign out"]],
-    ["drive-full", google("drive-full"), "Google Drive is full. Free up space in Google Drive. Wink catches up on its own.", ["Sign out"]],
-    ["drive-full during a Move", google("drive-full", { move: true }), "Google Drive is full. Free up space in Google Drive. Wink catches up on its own.", ["Sign out"]],
-    ["needs-sign-in", google("needs-sign-in"), "Sign in again to keep syncing.", ["Sign in with Google", "Sign out"]],
-    ["blocked", google("blocked"), "Your organization's Google admin blocked Wink.", ["Use a Drive folder instead"]],
+    ["drive-full", google("drive-full"), "Google Drive is full.", ["Sign out"]],
+    ["drive-full during a Move", google("drive-full", { move: true }), "Google Drive is full.", ["Sign out"]],
+    ["needs-sign-in", google("needs-sign-in"), "Sign in again to keep syncing.", ["Google sign-in", "Sign out"]],
+    ["blocked", google("blocked"), "Your organization's Google admin blocked Wink.", ["Drive folder"]],
     ["other-account", google("other-account", { boundEmail: "work@example.com" }), "This PC syncs with work@example.com.", ["Sign out"]],
     ["error", google("error"), "Sync stopped. It will try again.", ["Sign out"]],
   ];
@@ -151,7 +151,7 @@ describe("SyncPanel Google states", () => {
     ogbStub();
     routes.set(GOOGLE, () => new Promise<GoogleBody>(() => {}));
     const host = await mount();
-    expect(host.textContent).toBe("SyncYour bots, memory and chats on all your PCs.");
+    expect(host.textContent).toBe("SyncSynced across your PCs.");
     expect(buttons(host)).toEqual([]);
   });
 
@@ -163,7 +163,7 @@ describe("SyncPanel Google states", () => {
     expect(host.querySelector("p")).toBeNull();
     expect(host.innerHTML).not.toMatch(/refresh/i);
     expect(host.textContent).not.toMatch(/Shared bot setup|Sync chats|only syncs chats/);
-    expect(host.textContent).toBe("SyncYour bots, memory and chats on all your PCs.Up to date · edward@example.comSign out");
+    expect(host.textContent).toBe("SyncSynced across your PCs.Up to date · edward@example.comSign out");
   });
 
   it("reads Korean", async () => {
@@ -180,7 +180,7 @@ describe("SyncPanel Google states", () => {
     ogbStub();
     routes.set(GOOGLE, () => google("drive-full"));
     const host = await mount();
-    expect(line(host)).toBe("Google Drive가 가득 찼어요. Google Drive 공간을 비우면 Wink가 알아서 이어서 동기화해요.");
+    expect(line(host)).toBe("Google Drive가 가득 찼어요.");
   });
 
   it("polls every 5 seconds while open and stops on unmount", async () => {
@@ -219,7 +219,7 @@ describe("SyncPanel actions", () => {
     let finish: (value: SignIn) => void = () => {};
     account.signIn.mockReturnValue(new Promise((resolve) => (finish = resolve)));
     const host = await mount();
-    await click(button(host, "Sign in with Google"));
+    await click(button(host, "Google sign-in"));
     expect(line(host)).toBe("Waiting for Google…");
     expect(buttons(host)).toEqual(["Cancel"]);
     routes.set(GOOGLE, () => google("ready", { join: { first: true, pcs: 1 } }));
@@ -231,9 +231,9 @@ describe("SyncPanel actions", () => {
     const { account } = ogbStub();
     account.signIn.mockResolvedValue({ ok: false, error: "Google sign-in timed out." });
     const host = await mount();
-    await click(button(host, "Sign in with Google"));
+    await click(button(host, "Google sign-in"));
     expect(line(host)).toBe("Google sign-in timed out.");
-    expect(buttons(host)).toEqual(["Sign in with Google", "Use a Drive folder instead"]);
+    expect(buttons(host)).toEqual(["Google sign-in", "Drive folder"]);
   });
 
   it("cancels quietly even when the pending sign-in then reports failure", async () => {
@@ -241,10 +241,10 @@ describe("SyncPanel actions", () => {
     let finish: (value: SignIn) => void = () => {};
     account.signIn.mockReturnValue(new Promise((resolve) => (finish = resolve)));
     const host = await mount();
-    await click(button(host, "Sign in with Google"));
+    await click(button(host, "Google sign-in"));
     await click(button(host, "Cancel"));
     expect(account.cancel).toHaveBeenCalledOnce();
-    expect(buttons(host)).toEqual(["Sign in with Google", "Use a Drive folder instead"]);
+    expect(buttons(host)).toEqual(["Google sign-in", "Drive folder"]);
     await act(async () => finish({ ok: false, error: "Sign-in cancelled." }));
     expect(line(host)).toBeNull();
   });
@@ -256,7 +256,7 @@ describe("SyncPanel actions", () => {
     routes.set(GOOGLE, () => google("signed-out", { email: null }));
     await click(button(host, "Sign out"));
     expect(account.signOut).toHaveBeenCalledOnce();
-    expect(buttons(host)).toEqual(["Sign in with Google", "Use a Drive folder instead"]);
+    expect(buttons(host)).toEqual(["Google sign-in", "Drive folder"]);
   });
 
   it("starts sync and shows the state it returns", async () => {
@@ -362,11 +362,11 @@ describe("SyncPanel folder view", () => {
     ogbStub();
     routes.set(FOLDER, () => folderStatus({ configured: false, folder: null, status: "disconnected" }));
     const host = await mount();
-    await click(button(host, "Use a Drive folder instead"));
+    await click(button(host, "Drive folder"));
     expect(line(host)).toBe("Not connected");
     expect(buttons(host)).toEqual(["Choose Drive folder", "Back"]);
     await click(button(host, "Back"));
-    expect(buttons(host)).toEqual(["Sign in with Google", "Use a Drive folder instead"]);
+    expect(buttons(host)).toEqual(["Google sign-in", "Drive folder"]);
   });
 
   it("reveals the folder view from a blocked org", async () => {
@@ -374,7 +374,7 @@ describe("SyncPanel folder view", () => {
     routes.set(GOOGLE, () => google("blocked"));
     routes.set(FOLDER, () => folderStatus({ configured: false, folder: null, status: "disconnected" }));
     const host = await mount();
-    await click(button(host, "Use a Drive folder instead"));
+    await click(button(host, "Drive folder"));
     expect(buttons(host)).toEqual(["Choose Drive folder", "Back"]);
   });
 });
@@ -532,7 +532,7 @@ describe("SyncPanel on a phone", () => {
   it.each<[GoogleSyncStatus["state"], string]>([
     ["up-to-date", "Up to date · edward@example.com"],
     ["syncing", "Syncing…"],
-    ["drive-full", "Google Drive is full. Free up space in Google Drive. Wink catches up on its own."],
+    ["drive-full", "Google Drive is full."],
     ["offline", "Offline. Changes sync when you're back online."],
     ["folder", "Up to date · Wink Sync"],
   ])("shows %s through the authenticated relay route", async (state, expected) => {
@@ -569,7 +569,7 @@ describe("SyncPanel on a phone", () => {
   it("says Google Drive is full, with no buttons", async () => {
     routes.set(GOOGLE, () => google("drive-full"));
     const host = await mount();
-    expect(line(host)).toBe("Google Drive is full. Free up space in Google Drive. Wink catches up on its own.");
+    expect(line(host)).toBe("Google Drive is full.");
     expect(buttons(host)).toEqual([]);
   });
 

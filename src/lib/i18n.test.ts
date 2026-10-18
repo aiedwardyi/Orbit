@@ -772,10 +772,10 @@ describe("first-run core path leftovers", () => {
     expect(en["engines.unavailable"]).toBe("Unavailable");
     expect(ko["engines.unavailable"]).toBe("사용 불가");
     expect(en["engines.saveRestartWarning"]).toBe(
-      "Changes apply from the next turn. Running turns continue.",
+      "Applies on the next turn.",
     );
     expect(ko["engines.saveRestartWarning"]).toBe(
-      "변경 사항은 다음 차례부터 적용됩니다. 진행 중인 차례는 계속됩니다.",
+      "다음 차례부터 적용돼요.",
     );
   });
 
@@ -949,7 +949,7 @@ describe("plan usage", () => {
 
   it("wires those phrases into the Usage settings surface instead of hardcoded English", () => {
     expect(usageSection).toContain('t("usage.limits.title")');
-    expect(usageSection).toContain('t("usage.limits.subtitle")');
+    expect(usageSection).not.toContain('t("usage.limits.subtitle")');
     expect(usageSection).toContain('t("usage.limits.empty")');
     expect(planUsageBar).toContain('"usage.limits.session"');
     expect(planUsageBar).toContain('"usage.limits.weekly"');

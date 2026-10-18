@@ -11,15 +11,15 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 describe("qa chat copy", () => {
   it("explains memory and work steps in place", () => {
     expect(en["bot.memoryPlaceholder"]).toBe(
-      "This is where the bot saves rules and facts to remember.",
+      "What it learns. The bot writes this.",
     );
-    expect(ko["bot.memoryPlaceholder"]).toBe("봇이 기억해야 할 규칙과 사실이 여기에 저장돼요.");
+    expect(ko["bot.memoryPlaceholder"]).toBe("봇이 배운 것. 봇이 직접 적어요.");
     expect(ko["bot.name"]).toBe("이름");
     expect(ko["bot.memory"]).toBe("메모리");
-    expect(en["settings.toolCalls.toggle"]).toBe("Show work steps");
-    expect(ko["settings.toolCalls.toggle"]).toBe("작업 과정 보기");
-    expect(en["settings.toolCalls.aria"]).toBe("Show work steps");
-    expect(ko["settings.toolCalls.aria"]).toBe("작업 과정 보기");
+    expect(en["settings.toolCalls.toggle"]).toBe("Work steps");
+    expect(ko["settings.toolCalls.toggle"]).toBe("작업 과정");
+    expect(en["settings.toolCalls.aria"]).toBe("Work steps");
+    expect(ko["settings.toolCalls.aria"]).toBe("작업 과정");
   });
 
   it("wires those phrases and the search find bar", () => {

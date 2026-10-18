@@ -113,7 +113,7 @@ export function QuorumRow() {
   const title = (
     <div className="w-full shrink-0 @[34rem]/quorum:w-auto">
       <a href="https://heyquorum.com" target="_blank" rel="noopener noreferrer" className="text-[15px] font-medium text-ink underline-offset-2 hover:underline">
-        Quorum
+        {t("quorum.title")}
       </a>
       {view.kind === "data" && view.ageMin !== null && <div className="text-[12px] text-ink-secondary">{ageText(view.ageMin, t)}</div>}
     </div>

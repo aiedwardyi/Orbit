@@ -89,7 +89,7 @@ describe("manual update check acknowledgement", () => {
     await act(async () => {
       root.render(createElement(I18nProvider, null, createElement(UpdatesRow)));
     });
-    expect(host.textContent).toContain("You're on the latest version we know of.");
+    expect(host.textContent).toContain("Up to date.");
     await clickAndSettle(host);
     expect(host.textContent).toContain("You're up to date");
   });

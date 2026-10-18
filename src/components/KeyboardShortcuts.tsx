@@ -21,11 +21,13 @@ export function KeyboardShortcuts() {
     { title: "shortcuts.chat", rows: [
       ["shortcuts.model", [alt, "M"]],
       ...terminal,
+      ["shortcuts.addToReply", ["Enter"]],
+      ["shortcuts.sendAfter", [mod, "Enter"]],
+      ["shortcuts.phoneSendAfter", [t("shortcuts.holdSend")]],
     ] },
   ];
   return (
     <>
-      <p className="text-[13px] leading-relaxed text-ink-secondary">{t("shortcuts.help")}</p>
       {groups.map(({ title, rows }) => (
         <Card key={title} title={t(title)}>
           <dl className="divide-y divide-hairline/40">
