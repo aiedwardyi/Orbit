@@ -39,6 +39,7 @@ import { safeExternalUrl } from "./external-open.mjs";
 import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace-credentials.mjs";
 import { activateExistingWindow, liveMainWindow } from "./single-instance.mjs";
 import {
+  SYSTEM_IDLE_THRESHOLD_SECONDS,
   handleDesktopNotify,
   parseNotificationTargetFromCommandLine,
   taskbarBusyIndicator,
@@ -1583,6 +1584,7 @@ ipcMain.on("desktop:notify", (event, payload) => {
     sendClick: (target) => {
       if (!sender.isDestroyed()) sender.webContents.send("desktop:notification-click", target);
     },
+    idleState: powerMonitor.getSystemIdleState(SYSTEM_IDLE_THRESHOLD_SECONDS),
   });
 });
 
