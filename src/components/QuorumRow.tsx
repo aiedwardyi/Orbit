@@ -113,6 +113,13 @@ function keptView(kept: Kept): View {
 }
 
 function cacheReply(reply: Reply | null): void {
+  if (reply && ["off", "denied", "notEnabled"].includes(String(reply.state))) {
+    try {
+      keptStore()?.removeItem(KEPT_KEY);
+    } catch {
+      /* a cache is never worth a crash */
+    }
+  }
   if (reply && reply.state === "ok" && hasStats(reply)) writeKept({ stats: reply.stats, fetchedAt: reply.fetchedAt });
 }
 

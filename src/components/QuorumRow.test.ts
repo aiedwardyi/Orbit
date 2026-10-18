@@ -336,6 +336,19 @@ describe("quorum row", () => {
     expect(host.textContent).toContain("updated 1 min ago");
   });
 
+  it.each(["off", "denied", "notEnabled"])("clears persisted stats after %s and does not repaint them on remount", async (state) => {
+    await mount();
+    expect(localStorage.getItem("omb-quorum-kept")).not.toBeNull();
+    replies = [() => ({ state })];
+    await tick(5 * 60_000);
+    expect(localStorage.getItem("omb-quorum-kept")).toBeNull();
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    replies = [() => new Error("offline")];
+    await mount();
+    expect(bigNumbers()).toEqual([]);
+  });
+
   it("drops the kept paint when the first reply is off", async () => {
     await mount();
     expect(host.querySelector("section")).not.toBeNull();
