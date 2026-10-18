@@ -259,7 +259,7 @@ import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
 import { modelPickPatch } from "./pending-model.ts";
 import { botClears, groupClears } from "./wire-clears.ts";
-import { ownTurnReply, turnSummaries } from "./turn-reply.ts";
+import { ownTurnReply, turnAddedMessage, turnSummaries, turnUnread } from "./turn-reply.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
 import { botClosedPanes, paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
@@ -2497,6 +2497,7 @@ function requestBehavior(value: unknown): "allow" | "deny" | "answer" | null {
 // can carry what the bot actually said
 const lastReply = new Map<string, { text: string; messageId: string }>();
 const turnSummary = turnSummaries();
+const unreadTurns = turnUnread();
 
 const TASK_PACKET_FLUSH_MS = 30_000;
 const pendingTaskPackets = new Map<
@@ -2687,6 +2688,7 @@ function forgetTurnThread(threadId: string) {
   turnInterruptedAt.delete(threadId);
   pendingInterruptThreads.delete(threadId);
   adapterTurnByThread.delete(threadId);
+  unreadTurns.forget(threadId);
 }
 
 function seedFromLastUser(botId: string, threadId: string, turnsAtWrite: number) {
@@ -2726,7 +2728,8 @@ function releaseInterruptedBot(botId: string, threadId: string) {
   const speaker = groupSpeakers.get(threadId);
   if (group && group.busyBotId === botId) {
     if (speaker?.botId === botId) groupSpeakers.delete(threadId);
-    store.patchGroup(group.id, { busyBotId: null, unread: true });
+    const addedMessage = unreadTurns.settle(threadId, undefined, store.messagesFor(threadId));
+    store.patchGroup(group.id, { busyBotId: null, ...(addedMessage ? { unread: true } : {}) });
   }
   if (store.bot(botId)?.busy) store.setActivity(botId, "idle");
 }
@@ -3142,6 +3145,9 @@ bus.subscribe((event: RuntimeEvent) => {
   };
 
   switch (event.type) {
+    case "turn.started":
+      unreadTurns.start(event.threadId, event.turnId, store.messagesFor(event.threadId));
+      break;
     case "session.started":
       if (bot && event.sessionId && event.providerInstanceId && !staleTurnEvent(event.threadId, event.turnId)) {
         store.setResumeCursor(bot.id, event.providerInstanceId, event.sessionId, event.threadId);
@@ -3534,6 +3540,7 @@ bus.subscribe((event: RuntimeEvent) => {
       });
       break;
     case "runtime.error":
+      unreadTurns.start(event.threadId, event.turnId, store.messagesFor(event.threadId));
       pushMessage({
         role: "bot",
         kind: "activity",
@@ -3562,6 +3569,7 @@ bus.subscribe((event: RuntimeEvent) => {
       lastReply.delete(event.threadId);
       // summaries are hidden, so a turn that wrote nothing else shows them instead
       for (const id of turnSummary.settle(event.threadId, event.turnId)) store.patchMessage(event.threadId, id, { summarized: undefined });
+      const addedMessage = unreadTurns.settle(event.threadId, event.turnId, store.messagesFor(event.threadId));
       const lastReported = turnUsage.get(event.threadId);
       turnUsage.delete(event.threadId);
       roomTurnInstruction.delete(event.threadId);
@@ -3659,7 +3667,7 @@ bus.subscribe((event: RuntimeEvent) => {
         const routineReportGroup = routineReportThread ? store.groupByThread(routineReportThread) : undefined;
         // Group-origin routines belong to that channel's unread state. Their
         // hidden execution task should not light up the bot's 1:1 sidebar too.
-        if (!routineReportGroup) store.patchBot(bot.id, { unread: true });
+        if (!routineReportGroup && addedMessage) store.patchBot(bot.id, { unread: true });
         if (routineRun?.status !== "failed") {
           // the frame carries the bot's avatar so every desktop client can
           // show the notification under that bot's own face
@@ -3684,6 +3692,7 @@ bus.subscribe((event: RuntimeEvent) => {
             // the bot may have been deleted while the capture ran
             if (frame && store.bot(bot.id)) {
               pushMessage({ role: "bot", kind: "screen", png: frame.png, mime: frame.mime });
+              if (!routineReportGroup) store.patchBot(bot.id, { unread: true });
             }
           }).finally(clearVpsTurn);
         } else if (vpsTurn) {
@@ -3695,7 +3704,7 @@ bus.subscribe((event: RuntimeEvent) => {
       if (speaker && group?.busyBotId === speaker.botId) {
         settledGroupSpeakers.set(event.threadId, speaker.botId);
         groupSpeakers.delete(event.threadId);
-        store.patchGroup(group.id, { busyBotId: null, unread: true });
+        store.patchGroup(group.id, { busyBotId: null, ...(addedMessage ? { unread: true } : {}) });
         const speakingBot = store.bot(speaker.botId);
         if (speakingBot?.busy) {
           store.setActivity(speakingBot.id, "idle");
@@ -5933,6 +5942,7 @@ async function runClaimedGroupMemberTurn(
   if (readyBot.busy || botHasLiveTurn(bot.id, threadId)) {
     return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError, dispatchedInstructionId);
   }
+  const messagesAtStart = store.messagesFor(threadId).length;
   store.setActivity(bot.id, "working", threadId);
   dispatchedThreads.set(bot.id, threadId);
   releaseTurnStart?.();
@@ -6108,7 +6118,8 @@ async function runClaimedGroupMemberTurn(
   // duplicate group frame or clear a newer speaker's state.
   if (store.group(group.id)?.busyBotId === bot.id) {
     groupSpeakers.delete(threadId);
-    store.patchGroup(group.id, { busyBotId: null, unread: true });
+    const addedMessage = turnAddedMessage(store.messagesFor(threadId), messagesAtStart);
+    store.patchGroup(group.id, { busyBotId: null, ...(addedMessage ? { unread: true } : {}) });
     if (store.bot(bot.id)?.busy) store.setActivity(bot.id, "idle");
   }
   if (outcome === "dispatch_failed") {

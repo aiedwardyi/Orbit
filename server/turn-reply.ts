@@ -3,6 +3,7 @@
 // not stop it reaching a collector; each collector applies the same rule.
 import type { RuntimeEvent } from "./contracts.ts";
 import { ENGINE_SUMMARY_PREFIX } from "./replies.ts";
+import type { Message } from "./store.ts";
 
 export type TurnReplyStep = { text: string } | "completed" | null;
 
@@ -43,6 +44,41 @@ export function turnSummaries() {
       if (!turn || (turn.turnId && turnId && turn.turnId !== turnId)) return [];
       turns.delete(threadId);
       return turn.replied ? [] : turn.ids;
+    },
+  };
+}
+
+export function turnAddedMessage(messages: readonly Message[], start: number): boolean {
+  return messages.slice(start).some((message) => {
+    if (message.role !== "bot" || message.summarized || message.kind === "compaction") return false;
+    if (message.kind === "activity") {
+      return Boolean(message.comm || message.tool?.ok === false || message.tool?.name.startsWith("error:") || message.tool?.name === "memory.save");
+    }
+    if (message.kind === "text") return Boolean(message.text?.trim());
+    if (message.kind === "options") return Boolean(message.card);
+    if (message.kind === "connector") return Boolean(message.connector);
+    if (message.kind === "secret") return Boolean(message.secret);
+    if (message.kind === "screen") return Boolean(message.image || message.png || message.hasImage);
+    return true;
+  });
+}
+
+export function turnUnread() {
+  const turns = new Map<string, { turnId?: string; start: number }>();
+  return {
+    start(threadId: string, turnId: string | undefined, messages: readonly Message[]) {
+      const turn = turns.get(threadId);
+      if (turn && turn.turnId === turnId) return;
+      turns.set(threadId, { turnId, start: messages.length });
+    },
+    settle(threadId: string, turnId: string | undefined, messages: readonly Message[]): boolean {
+      const turn = turns.get(threadId);
+      if (!turn || (turn.turnId && turnId && turn.turnId !== turnId)) return false;
+      turns.delete(threadId);
+      return turnAddedMessage(messages, turn.start);
+    },
+    forget(threadId: string) {
+      turns.delete(threadId);
     },
   };
 }
