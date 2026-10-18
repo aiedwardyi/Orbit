@@ -171,4 +171,15 @@ describe("team cards", () => {
     await tapBar(card, 8);
     expect(card.querySelector("p.whitespace-pre-line")?.textContent).toContain("모바일 없음");
   });
+
+  it("swaps the tip in over the summary without adding a row", async () => {
+    const card = await cardAt(0);
+    expect(card.querySelector("p.whitespace-pre-line")).toBeNull();
+    expect(card.querySelector("div.grid > div")?.className).not.toContain("invisible");
+    const kids = card.childElementCount;
+    await tapBar(card, 13);
+    expect(card.querySelector("p.whitespace-pre-line")?.textContent).toBe("Tue, Oct 13\n6.9h online\nMobile 3 visits · 4m");
+    expect(card.querySelector("div.grid > div")?.className).toContain("invisible");
+    expect(card.childElementCount).toBe(kids);
+  });
 });

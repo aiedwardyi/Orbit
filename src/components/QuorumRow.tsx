@@ -35,8 +35,16 @@ interface Reply {
 }
 
 const REFRESH_MS = 5 * 60_000;
+const KEPT_KEY = "omb-quorum-kept";
 const PROVIDERS: Provider[] = ["claude", "gpt", "gemini", "perplexity", "search"];
 const PROVIDER_NAMES = { claude: "Claude", gpt: "GPT", gemini: "Gemini", perplexity: "Perplexity" };
+
+interface Kept {
+  stats: QuorumStats;
+  fetchedAt: number;
+}
+
+let flight: Promise<Reply | null> | null = null;
 
 function money(cents: number): string {
   if (cents <= 0) return "$0";
@@ -50,6 +58,82 @@ function tracked(since: string | null, day: string): boolean {
 
 function hasStats(reply: Reply): reply is Reply & { stats: QuorumStats; fetchedAt: number } {
   return Array.isArray(reply.stats?.days) && Number.isFinite(reply.fetchedAt);
+}
+
+/** A private window throws on access; a cache is never worth a crash. */
+function keptStore(): Storage | undefined {
+  try {
+    return typeof localStorage === "undefined" ? undefined : localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseKept(value: unknown): Kept | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { stats, fetchedAt } = value as { stats?: QuorumStats; fetchedAt?: unknown };
+  if (!stats || !Array.isArray(stats.days) || !Number.isFinite(fetchedAt)) return null;
+  const dayOk = (day: unknown): day is QuorumDay =>
+    typeof day === "object" && day !== null &&
+    typeof (day as QuorumDay).day === "string" &&
+    Number.isFinite((day as QuorumDay).costCents) &&
+    typeof (day as QuorumDay).costByProvider === "object" && (day as QuorumDay).costByProvider !== null &&
+    Number.isFinite((day as QuorumDay).visitors) && Number.isFinite((day as QuorumDay).signups);
+  const tracking = stats.tracking;
+  const budget = stats.budget;
+  if (!stats.days.every(dayOk)) return null;
+  if (!tracking || typeof tracking !== "object") return null;
+  if (![tracking.costSince, tracking.visitorsSince].every((since) => since === null || typeof since === "string")) return null;
+  if (budget !== null && budget !== undefined && (typeof budget !== "object" || !Number.isFinite(budget.dailyCapCents) || !Number.isFinite(budget.todayCountedCents))) return null;
+  return { stats, fetchedAt: fetchedAt as number };
+}
+
+/** The last good stats, so the row paints at once and refreshes quietly. */
+function readKept(): Kept | null {
+  try {
+    const raw = keptStore()?.getItem(KEPT_KEY);
+    return raw ? parseKept(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeKept(kept: Kept): void {
+  try {
+    keptStore()?.setItem(KEPT_KEY, JSON.stringify(kept));
+  } catch {
+    /* a cache is never worth a crash */
+  }
+}
+
+function keptView(kept: Kept): View {
+  const elapsed = Date.now() - kept.fetchedAt;
+  const ageMin = elapsed < 60_000 ? null : Math.max(1, Math.floor(elapsed / 60_000));
+  return { kind: "data", stats: kept.stats, fetchedAt: kept.fetchedAt, ageMin };
+}
+
+function cacheReply(reply: Reply | null): void {
+  if (reply && reply.state === "ok" && hasStats(reply)) writeKept({ stats: reply.stats, fetchedAt: reply.fetchedAt });
+}
+
+/** One request at a time across the prefetch and the row. */
+function fetchQuorum(): Promise<Reply | null> {
+  flight ??= api("/api/quorum").then(
+    (reply) => {
+      flight = null;
+      return reply as Reply;
+    },
+    () => {
+      flight = null;
+      return null;
+    },
+  );
+  return flight;
+}
+
+/** Warms the cache when Settings opens, ahead of the Team tab. */
+export function prefetchQuorum(): void {
+  void fetchQuorum().then(cacheReply);
 }
 
 /** A failed refresh keeps what is on screen; a server error brings its own kept data. */
@@ -80,7 +164,10 @@ function resetTime(locale: string): string {
 
 export function QuorumRow() {
   const { t, locale } = useI18n();
-  const [view, setView] = useState<View | null>(null);
+  const [view, setView] = useState<View | null>(() => {
+    const kept = readKept();
+    return kept ? keptView(kept) : null;
+  });
   const [tip, setTip] = useState<string | null>(null);
   const offset = useRef(0);
 
@@ -90,15 +177,11 @@ export function QuorumRow() {
     const load = async () => {
       if (busy) return;
       busy = true;
-      let reply: Reply | null = null;
-      try {
-        reply = await api("/api/quorum");
-      } catch {
-        reply = null;
-      }
+      const reply = await fetchQuorum();
       busy = false;
       if (gone) return;
       if (reply && Number.isFinite(reply.now)) offset.current = Number(reply.now) - Date.now();
+      cacheReply(reply);
       setView((prev) => nextView(prev, reply, offset.current));
     };
     void load();
@@ -163,7 +246,8 @@ export function QuorumRow() {
       <div className="flex h-7 w-10 items-end gap-[2px] @[22rem]/quorum:w-16">
         {values.map((value, index) => {
           const text = tipText(metric, index);
-          const height = value === null ? "0" : value > 0 ? `${Math.max(10, Math.round((value / peak) * 100))}%` : "2px";
+          const bar = value !== null && value > 0;
+          const height = bar ? `${Math.max(10, Math.round((value / peak) * 100))}%` : "2px";
           return (
             <button
               key={days[index]?.day ?? index}
@@ -176,12 +260,10 @@ export function QuorumRow() {
               onBlur={() => setTip(null)}
               onClick={() => setTip(text)}
             >
-              {value !== null && (
-                <span
-                  className={value > 0 ? "absolute inset-x-0 bottom-0 rounded-t-[2px] bg-accent group-hover:bg-accent-text group-focus-visible:bg-accent-text" : "absolute inset-x-0 bottom-0 bg-hairline group-hover:bg-ink-secondary"}
-                  style={{ height }}
-                />
-              )}
+              <span
+                className={bar ? "absolute inset-x-0 bottom-0 rounded-t-[2px] bg-accent group-hover:bg-accent-text group-focus-visible:bg-accent-text" : "absolute inset-x-0 bottom-0 bg-ink-secondary/50 group-hover:bg-ink-secondary"}
+                style={{ height }}
+              />
             </button>
           );
         })}
