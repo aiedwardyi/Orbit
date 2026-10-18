@@ -8,7 +8,7 @@ export const TOOLTIP_SKIP_MS = 300;
 export const PLAIN_TOOLTIP_CLASS =
   "pointer-events-none fixed z-[70] max-w-[min(20rem,calc(100vw-1rem))] whitespace-pre-line rounded-lg border border-hairline/40 bg-panel px-2.5 py-1 text-[12px] leading-snug text-ink shadow-lg animate-tip-in motion-reduce:animate-none";
 
-type Stash = { el: Element; title: string; prevTip: string | null };
+type Stash = { el: Element; title: string; prevTip: string | null; label: string | null };
 
 /** One tip for every `title` in the app, without touching the props. */
 export function mountGlobalTooltips() {
@@ -34,7 +34,7 @@ export function mountGlobalTooltips() {
       if (title) chain.push({ el, text: title });
       else {
         const s = stashedBy(el);
-        if (s) chain.push({ el, text: s.title });
+        if (s?.title) chain.push({ el, text: s.title });
       }
     }
     return chain;
@@ -43,16 +43,20 @@ export function mountGlobalTooltips() {
   function stash(chain: Array<{ el: Element; text: string }>) {
     for (const { el, text } of chain) {
       const prevTip = el.getAttribute("data-tip");
-      el.removeAttribute("title");
+      const label = !el.hasAttribute("aria-label") && !el.hasAttribute("aria-labelledby") && !el.textContent?.trim() && !el.querySelector("img[alt]:not([alt='']), [aria-label], [aria-labelledby]") ? text : null;
+      if (label !== null) el.setAttribute("aria-label", label);
+      // An empty title suppresses the native tip and keeps React removals observable.
+      el.setAttribute("title", "");
       el.setAttribute("data-tip", text);
-      stashed.push({ el, title: text, prevTip });
+      stashed.push({ el, title: text, prevTip, label });
     }
   }
 
   function restore() {
     for (const s of stashed) {
       // React may have set a newer title since the stash.
-      if (!s.el.hasAttribute("title")) s.el.setAttribute("title", s.title);
+      if (s.title && s.el.getAttribute("title") === "") s.el.setAttribute("title", s.title);
+      if (s.label !== null && s.el.getAttribute("aria-label") === s.label) s.el.removeAttribute("aria-label");
       if (s.prevTip === null) s.el.removeAttribute("data-tip");
       else s.el.setAttribute("data-tip", s.prevTip);
     }
@@ -113,22 +117,37 @@ export function mountGlobalTooltips() {
 
   function observe(el: Element) {
     observer?.disconnect();
-    const o = new MutationObserver(() => {
+    const o = new MutationObserver((records) => {
       if (!anchor || !anchor.isConnected) {
         teardown();
         return;
       }
       for (const s of stashed) {
+        const changes = records.filter((record) => record.type === "attributes" && record.target === s.el);
+        if (!changes.length) continue;
         const title = s.el.getAttribute("title");
-        if (!title) continue;
+        if (title === "" && changes.every((record) => record.oldValue === s.title)) continue;
+        if (!title) {
+          s.title = "";
+          if (s.label !== null && s.el.getAttribute("aria-label") === s.label) s.el.removeAttribute("aria-label");
+          s.label = null;
+          if (s.prevTip === null) s.el.removeAttribute("data-tip");
+          else s.el.setAttribute("data-tip", s.prevTip);
+          if (s.el === anchor) hide();
+          continue;
+        }
         s.title = title;
-        s.el.removeAttribute("title");
+        if (s.label !== null && s.el.getAttribute("aria-label") === s.label) {
+          s.el.setAttribute("aria-label", title);
+          s.label = title;
+        }
+        s.el.setAttribute("title", "");
         s.el.setAttribute("data-tip", title);
         if (tipEl && s.el === anchor) render(anchor, title);
       }
     });
     observer = o;
-    for (const s of stashed) o.observe(s.el, { attributes: true, attributeFilter: ["title"] });
+    for (const s of stashed) o.observe(s.el, { attributes: true, attributeFilter: ["title"], attributeOldValue: true });
     // the anchor's own removal fires on its parent, a row's on the grandparent
     for (let parent = el.parentElement; parent; parent = parent.parentElement) o.observe(parent, { childList: true });
   }
@@ -137,14 +156,14 @@ export function mountGlobalTooltips() {
     timer = null;
     const el = anchor;
     const s = el && stashedBy(el);
-    if (!el || !s || !el.isConnected) {
+    if (!el || !s?.title || !el.isConnected) {
       teardown();
       return;
     }
     const fresh = el.getAttribute("title");
     if (fresh) {
       s.title = fresh;
-      el.removeAttribute("title");
+      el.setAttribute("title", "");
       el.setAttribute("data-tip", fresh);
     }
     render(el, s.title);

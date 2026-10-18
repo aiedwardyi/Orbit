@@ -47,8 +47,8 @@ describe("chain stash", () => {
     const row = titled("outer");
     const btn = titled("inner", row);
     over(btn);
-    expect(btn.getAttribute("title")).toBeNull();
-    expect(row.getAttribute("title")).toBeNull();
+    expect(btn.getAttribute("title")).toBe("");
+    expect(row.getAttribute("title")).toBe("");
     expect(btn.getAttribute("data-tip")).toBe("inner");
     vi.advanceTimersByTime(400);
     expect(tip()?.textContent).toBe("inner");
@@ -73,7 +73,7 @@ describe("chain stash", () => {
     out(btn, icon);
     over(icon);
     expect(tip()?.textContent).toBe("inner");
-    expect(btn.getAttribute("title")).toBeNull();
+    expect(btn.getAttribute("title")).toBe("");
   });
 
   it("ignores an empty title", () => {
@@ -160,7 +160,7 @@ describe("close triggers", () => {
       hoverAndShow(btn);
       fire(btn);
       expect(tip()).toBeNull();
-      expect(btn.getAttribute("title")).toBeNull();
+      expect(btn.getAttribute("title")).toBe("");
       vi.advanceTimersByTime(1000);
       expect(tip()).toBeNull();
       out(btn, document.body);
@@ -189,12 +189,53 @@ describe("close triggers", () => {
 });
 
 describe("live updates", () => {
+  it("honors an application title removal while hovered", async () => {
+    const btn = titled("Open computer");
+    hoverAndShow(btn);
+    btn.removeAttribute("title");
+    await flushMutations();
+    expect(tip()).toBeNull();
+    out(btn, document.body);
+    expect(btn.hasAttribute("title")).toBe(false);
+    expect(btn.hasAttribute("data-tip")).toBe(false);
+  });
+
+  it("preserves the accessible name of a title-only button until leave", () => {
+    const btn = titled("Copy code");
+    btn.replaceChildren(document.createElement("svg"));
+    hoverAndShow(btn);
+    expect(btn.getAttribute("aria-label")).toBe("Copy code");
+    out(btn, document.body);
+    expect(btn.hasAttribute("aria-label")).toBe(false);
+    expect(btn.getAttribute("title")).toBe("Copy code");
+  });
+
+  it("keeps an application's accessible name when the title changes", async () => {
+    const btn = titled("Copy code");
+    btn.textContent = "";
+    btn.setAttribute("aria-label", "Copy snippet");
+    hoverAndShow(btn);
+    btn.setAttribute("title", "Copied");
+    await flushMutations();
+    out(btn, document.body);
+    expect(btn.getAttribute("aria-label")).toBe("Copy snippet");
+  });
+
+  it("keeps an image name when stashing a button title", () => {
+    const btn = titled("Save attachment");
+    const image = document.createElement("img");
+    image.alt = "Save picture";
+    btn.replaceChildren(image);
+    hoverAndShow(btn);
+    expect(btn.hasAttribute("aria-label")).toBe(false);
+  });
+
   it("re-stashes a title React rewrites while shown", async () => {
     const btn = titled("More reactions");
     hoverAndShow(btn);
     btn.setAttribute("title", "Close reactions");
     await flushMutations();
-    expect(btn.getAttribute("title")).toBeNull();
+    expect(btn.getAttribute("title")).toBe("");
     expect(btn.getAttribute("data-tip")).toBe("Close reactions");
     expect(tip()?.textContent).toBe("Close reactions");
   });
@@ -206,7 +247,7 @@ describe("live updates", () => {
     expect(tip()).toBeNull();
     btn.setAttribute("title", "Close reactions");
     await flushMutations();
-    expect(btn.getAttribute("title")).toBeNull();
+    expect(btn.getAttribute("title")).toBe("");
     expect(btn.getAttribute("data-tip")).toBe("Close reactions");
     expect(tip()).toBeNull();
   });
