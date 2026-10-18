@@ -1476,7 +1476,7 @@ describe("docked reply mascot", () => {
     }
   });
 
-  it("keeps one mascot at the bottom of the turn across a tool step", async () => {
+  it("stands alone once reply text settles and docks again when the next reply streams", async () => {
     const { host, render, mascots, unmount } = await mount();
     const first: Message = { id: "reply-1", parentId: "ua", at: 2, role: "bot", kind: "text", text: "Checking the logs." };
     const tool: Message = { id: "tool-1", parentId: "reply-1", at: 3, role: "bot", kind: "activity", tool: { name: "Read" } };
@@ -1488,11 +1488,12 @@ describe("docked reply mascot", () => {
 
       live.current = working("thread-a");
       await render({ ...botA, messages: [...botA.messages, first], activeLeafId: "reply-1" });
-      expect(dockedIn()).toBe("reply-1");
-      expect(host.querySelector(".turn-presence")).toBeNull();
+      expect(host.querySelector(".turn-presence [data-turn-mascot]")).not.toBeNull();
+      expect(host.querySelector('[data-mid="reply-1"] [data-message-hover-actions]')).not.toBeNull();
+      expect(dockedIn()).toBeUndefined();
 
       await render({ ...botA, messages: [...botA.messages, first, tool], activeLeafId: "tool-1" });
-      expect(dockedIn()).toBe("reply-1");
+      expect(host.querySelector(".turn-presence [data-turn-mascot]")).not.toBeNull();
       expect(mascots()).toHaveLength(1);
 
       live.current = working("thread-a", "All clear.", "tool-1");

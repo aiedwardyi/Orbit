@@ -1974,8 +1974,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const liveTail = laterCount === 0 && !jump.messages;
   const listedStreaming = liveTail ? streamingMessage : null;
 
-  // Once reply text shows, the mascot docks in that reply's action strip and
-  // stays until a row lands below it. At turn end it fades out in place.
+  // Docks under reply text while it streams, and fades there at turn end.
+  // A live dock after the buffer clears would sit on that reply's time.
   let tail: Message | null = listedStreaming;
   for (let i = listed.length - 1; liveTail && !tail && i >= 0; i--) {
     if (messageVisible(listed[i], { showToolCalls, showActivities, transcript: messages })) tail = listed[i];
