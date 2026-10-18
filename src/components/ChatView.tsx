@@ -1470,7 +1470,7 @@ function phoneMenuBounds(menu: HTMLElement): PhoneHeaderBox {
   };
 }
 
-// The chat stage slides on a bot switch while the menu stays put, so the chip is compared unslid.
+// Compare the chip and menu before their switch animations.
 function stageShift(header: HTMLElement, menu: HTMLElement) {
   let x = 0;
   let y = 0;
@@ -1478,6 +1478,11 @@ function stageShift(header: HTMLElement, menu: HTMLElement) {
     const shift = transformShift(getComputedStyle(el).transform);
     x += shift.x;
     y += shift.y;
+  }
+  for (let el: HTMLElement | null = menu; el && !el.contains(header); el = el.parentElement) {
+    const shift = transformShift(getComputedStyle(el).transform);
+    x -= shift.x;
+    y -= shift.y;
   }
   return { x, y };
 }
