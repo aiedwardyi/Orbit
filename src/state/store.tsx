@@ -834,7 +834,7 @@ export type Action =
   | { type: "pendingQueued"; threadId: string; queueId: string; text: string; at?: number; sendId?: string; replyToId?: string }
   | { type: "sendQueuedNow"; botId: string; threadId: string; queueId: string }
   | { type: "consumePendingQueued"; threadId: string; queueId: string }
-  | { type: "cancelQueued"; botId: string; queueId: string }
+  | { type: "cancelQueued"; botId: string; threadId: string; queueId: string }
   | { type: "sendSettled"; threadId: string; sendId: string; queued?: boolean }
   | { type: "sendRejected"; threadId: string; sendId: string; botId?: string }
   | { type: "editMessage"; botId: string; messageId: string; text: string }
@@ -1756,14 +1756,12 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, pendingQueued };
     }
     case "cancelQueued": {
-      const bot = state.bots.find((candidate) => candidate.id === action.botId);
-      if (!bot) return state;
-      const prev = state.pendingQueued[bot.threadId] ?? [];
+      const prev = state.pendingQueued[action.threadId] ?? [];
       const rest = prev.filter((entry) => entry.queueId !== action.queueId);
       if (rest.length === prev.length) return state;
       const pendingQueued = { ...state.pendingQueued };
-      if (rest.length) pendingQueued[bot.threadId] = rest;
-      else delete pendingQueued[bot.threadId];
+      if (rest.length) pendingQueued[action.threadId] = rest;
+      else delete pendingQueued[action.threadId];
       return { ...state, pendingQueued };
     }
     case "sendQueuedNow":
@@ -2452,18 +2450,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "cancelQueued": {
-          const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
           void api(`/api/bots/${action.botId}/queue/${action.queueId}`, { method: "DELETE" })
             .then((body) => {
               if (!shouldDropQueueChip(body)) return;
-              if (bot) {
-                rawDispatch({
-                  type: "sendRejected",
-                  botId: action.botId,
-                  threadId: bot.threadId,
-                  sendId: action.queueId,
-                });
-              }
+              rawDispatch({
+                type: "sendRejected",
+                botId: action.botId,
+                threadId: action.threadId,
+                sendId: action.queueId,
+              });
               rawDispatch(action);
             })
             .catch(showError);
@@ -2554,6 +2549,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 typeof threadId === "string" ? await acceptedSend(stateRef.current, threadId, sendId, action.text) : null;
               if (accepted && typeof threadId === "string") {
                 cancelledSendsRef.current.delete(sendId);
+                if (action.queueId) rawDispatch({ type: "consumePendingQueued", threadId, queueId: action.queueId });
                 rawDispatch({ type: "messageAdded", threadId, message: accepted });
                 rawDispatch({ type: "sendSettled", threadId, sendId });
                 return;

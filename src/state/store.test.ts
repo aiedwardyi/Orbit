@@ -1610,6 +1610,7 @@ describe("pending queued chip", () => {
     const cancelled = reducer(queued, {
       type: "cancelQueued",
       botId: "b1",
+      threadId: "t1",
       queueId: "q-drop",
     });
     expect(cancelled.pendingQueued).toEqual({});

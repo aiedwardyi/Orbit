@@ -100,6 +100,28 @@ const messagesOf = (threadId: string) =>
   store.state.groups.find((g) => g.threadId === threadId)?.messages;
 
 describe("send reject after the server accepted", () => {
+  it("consumes a promoted receipt when accepted-send recovery finds its message", async () => {
+    await mount((thread) => Response.json({ messages: [accepted(thread)], hasMore: false }));
+    await act(async () => store.dispatch({ type: "pendingQueued", threadId: bot.threadId, queueId: "q1", text: "hello", sendId: "s1" }));
+    await act(async () => store.dispatch({ type: "send", botId: bot.id, threadId: bot.threadId, text: "hello", sendId: "s1", queueId: "q1" }));
+    await vi.waitFor(() => expect(messagesOf(bot.threadId)).toEqual([accepted(bot.threadId)]));
+    expect(store.state.pendingQueued[bot.threadId]).toBeUndefined();
+  });
+
+  it("cancels the originating thread after the bot switches tasks", async () => {
+    const fetch = await mount(() => Response.json({ messages: [], hasMore: false }));
+    let finish!: (response: Response) => void;
+    const deletion = new Promise<Response>((resolve) => { finish = resolve; });
+    const route = fetch.getMockImplementation()!;
+    fetch.mockImplementation((url: string, init?: RequestInit) => init?.method === "DELETE" ? deletion : route(url, init));
+    await act(async () => store.dispatch({ type: "pendingQueued", threadId: bot.threadId, queueId: "q1", text: "hello" }));
+    await act(async () => store.dispatch({ type: "cancelQueued", botId: bot.id, threadId: bot.threadId, queueId: "q1" }));
+    await act(async () => store.dispatch({ type: "botPatched", bot: { ...bot, threadId: "other-task" } }));
+    await act(async () => finish(Response.json({ cancelled: true })));
+    await vi.waitFor(() => expect(store.state.pendingQueued[bot.threadId]).toBeUndefined());
+    expect(store.state.bots[0]!.threadId).toBe("other-task");
+  });
+
   it.each(sends)("$name settles without restoring the draft", async ({ threadId, action }) => {
     const fetch = await mount((thread) => Response.json({ messages: [accepted(thread)], hasMore: false }));
     const onError = vi.fn();

@@ -2542,7 +2542,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                   sendNow: engine?.capabilities?.queueing === true && pending?.some((entry) => entry.queueId === m.id && entry.sendId)
                     ? () => dispatch({ type: "sendQueuedNow", botId: bot.id, threadId: bot.threadId, queueId: m.id })
                     : undefined,
-                  cancel: () => dispatch({ type: "cancelQueued", botId: bot.id, queueId: m.id }),
+                  cancel: () => dispatch({ type: "cancelQueued", botId: bot.id, threadId: bot.threadId, queueId: m.id }),
                 }}
                 onStartEdit={startEdit}
                 onCancelEdit={cancelEdit}
