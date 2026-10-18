@@ -642,7 +642,7 @@ export interface AppState {
   } | null;
   /** 1:1 queue-fallback lines waiting for drain; keyed by threadId.
    * Each entry is identified by the server queueId, not by text. */
-  pendingQueued: Record<string, Array<{ queueId: string; text: string; at?: number }>>;
+  pendingQueued: Record<string, Array<{ queueId: string; text: string; at?: number; sendId?: string; replyToId?: string }>>;
   /** queueIds whose drain frame beat the POST continuation. One-shot and
    * bounded to a short event window so other clients cannot grow it forever. */
   consumedQueueIds: Record<string, true>;
@@ -828,9 +828,11 @@ export type Action =
       threadId?: string;
       /** Wait for the running turn instead of steering into it. */
       after?: boolean;
+      queueId?: string;
       onError?: () => void;
     }
-  | { type: "pendingQueued"; threadId: string; queueId: string; text: string; at?: number }
+  | { type: "pendingQueued"; threadId: string; queueId: string; text: string; at?: number; sendId?: string; replyToId?: string }
+  | { type: "sendQueuedNow"; botId: string; threadId: string; queueId: string }
   | { type: "consumePendingQueued"; threadId: string; queueId: string }
   | { type: "cancelQueued"; botId: string; queueId: string }
   | { type: "sendSettled"; threadId: string; sendId: string; queued?: boolean }
@@ -1734,7 +1736,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         pendingQueued: {
           ...state.pendingQueued,
-          [action.threadId]: [...prev, { queueId: action.queueId, text: action.text, at: action.at }],
+          [action.threadId]: [...prev, { queueId: action.queueId, text: action.text, at: action.at, sendId: action.sendId, replyToId: action.replyToId }],
         },
       };
     }
@@ -1764,6 +1766,8 @@ export function reducer(state: AppState, action: Action): AppState {
       else delete pendingQueued[bot.threadId];
       return { ...state, pendingQueued };
     }
+    case "sendQueuedNow":
+      return state;
     case "send": {
       const dismissed = dismissOnboardingCard(state, action.botId);
       const bot = dismissed.bots.find((candidate) => candidate.id === action.botId);
@@ -2436,6 +2440,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "markRoutineRunSeen":
           api(`/api/routine-runs/${action.runId}/seen`, { method: "POST" }).catch(showError);
           break;
+        case "sendQueuedNow": {
+          const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
+          const pending = stateRef.current.pendingQueued[action.threadId]?.find((entry) => entry.queueId === action.queueId);
+          const engine = stateRef.current.instances.find((instance) => instance.instanceId === bot?.modelSelection.instanceId);
+          if (!pending?.sendId || bot?.threadId !== action.threadId || engine?.capabilities?.queueing !== true) break;
+          wrapped({
+            type: "send", botId: action.botId, threadId: action.threadId, text: pending.text,
+            sendId: pending.sendId, replyToId: pending.replyToId, queueId: pending.queueId,
+          });
+          break;
+        }
         case "cancelQueued": {
           const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
           void api(`/api/bots/${action.botId}/queue/${action.queueId}`, { method: "DELETE" })
@@ -2472,9 +2487,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 threadId,
                 sendId,
                 deliver: action.after ? "after" : undefined,
+                queueId: action.queueId,
               }),
             });
           const settle = (body: any) => {
+            if (action.queueId && !body?.queued && typeof threadId === "string") {
+              rawDispatch({ type: "consumePendingQueued", threadId, queueId: action.queueId });
+            }
             if (receiptRejectsAcceptedSend(body)) {
               cancelledSendsRef.current.delete(sendId);
               if (typeof threadId === "string") {
@@ -2520,6 +2539,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 queueId: body.queueId,
                 text: action.text,
                 at: accepted?.at ?? Date.now(),
+                sendId,
+                replyToId: action.replyToId,
               });
             }
             if (typeof settledThread === "string") {

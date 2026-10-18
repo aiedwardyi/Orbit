@@ -175,6 +175,7 @@ import {
   queueMark,
   queueRoomParticipation,
   queueSteeredMessage,
+  withQueuedSend,
 } from "./steer-queue.ts";
 import { sendPostReceipt, startedTurn } from "./send-receipt.ts";
 import { steersSend } from "./send-deliver.ts";
@@ -9517,6 +9518,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (threadSyncGate.enabled) await pullSyncedThread(threadId);
       else pullSyncedThread(threadId);
       const sendId = parseSendId(body.sendId);
+      const queueId = parseSendId(body.queueId);
       if (sendId) {
         ensureChatLatency({ sendId, threadId });
         markChatLatency({ sendId, threadId }, "post.received");
@@ -9525,7 +9527,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const receipt = await sendSequencer.run(
         sendId ? `bot:${bot.id}:${threadId}:${sendId}` : undefined,
         sendFingerprint(text, replyTo?.id),
-        async () => {
+        async () => withQueuedSend(bot.id, threadId, queueId, sendId, async () => {
           if (sendId) {
             const accepted = acceptedSendMatch(store.messagesFor(threadId), sendId, text, replyTo?.id);
             if (accepted.kind === "conflict") {
@@ -9546,7 +9548,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               if (queued.text !== text || queued.replyToId !== replyTo?.id) {
                 throw Object.assign(new Error("sendId already belongs to another message"), { status: 409 });
               }
-              return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
+              if (queueId !== queued.id) return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
+            } else if (queueId) {
+              return { ok: true as const, cancelled: true as const, threadId };
             }
           }
 
@@ -9637,7 +9641,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
               return sendPostReceipt(started, threadId);
             }
-            const queued = queueSteeredMessage(current.id, threadId, text, {
+            const queued = queueId ? { id: queueId, skipped: false } : queueSteeredMessage(current.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
               after: body.deliver === "after",
@@ -9658,7 +9662,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // are synchronous, so a settle cannot land between them and strand
           // the message; the drain on turn.completed takes it from there.
           if (botHasActiveTurn(bot.id, threadId)) {
-            const held = queueSteeredMessage(bot.id, threadId, text, {
+            const held = queueId ? { id: queueId, skipped: false } : queueSteeredMessage(bot.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
               after: body.deliver === "after",
@@ -9670,8 +9674,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
           const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
           return sendPostReceipt(started, threadId);
-        },
-      );
+        }),
+      ).finally(() => { if (queueId) drainQueuedSends(); });
       markChatLatency({ sendId, threadId }, "post.receipt");
       return json(res, 202, receipt);
     }
