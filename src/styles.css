@@ -170,6 +170,7 @@
   --animate-panel-in: panel-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
   --animate-pop-in: pop-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
   --animate-fade-in: fade-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-tip-in: tip-in 0.1s ease-out;
   --animate-caret: caret-blink 1s step-end infinite;
   --animate-msg-in: msg-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 
@@ -3991,6 +3992,9 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   to { transform: scale(1) translateY(0); opacity: 1; }
 }
 @keyframes fade-in {
+  from { opacity: 0; }
+}
+@keyframes tip-in {
   from { opacity: 0; }
 }
 @keyframes fade-out {

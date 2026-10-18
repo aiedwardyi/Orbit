@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { placeTooltip, TOOLTIP_EDGE, TOOLTIP_GAP } from "./tooltip-position";
+import { anchorForTip, placeTooltip, TOOLTIP_EDGE, TOOLTIP_GAP, TOOLTIP_WIDE_PX } from "./tooltip-position";
 
 const size = { width: 160, height: 24 };
 const anchor = (left: number, top = 300) => ({ top, bottom: top + 14, left, width: 40 });
@@ -41,5 +41,25 @@ describe("placeTooltip", () => {
   it("still starts on screen when the tip is wider than the window", () => {
     const { left } = placeTooltip({ anchor: anchor(20), size: { width: 500, height: 24 }, viewportWidth: 380, viewportHeight: 1000 });
     expect(left).toBe(TOOLTIP_EDGE);
+  });
+});
+
+describe("anchorForTip", () => {
+  it("keeps a narrow anchor as is", () => {
+    const rect = { top: 300, bottom: 314, left: 400, width: 40 };
+    expect(anchorForTip(rect, 999)).toBe(rect);
+    const edge = { top: 300, bottom: 314, left: 400, width: TOOLTIP_WIDE_PX };
+    expect(anchorForTip(edge, 999)).toBe(edge);
+  });
+
+  it("pins a wide anchor to the pointer x", () => {
+    const wide = { top: 300, bottom: 314, left: 100, width: 400 };
+    expect(anchorForTip(wide, 350)).toEqual({ top: 300, bottom: 314, left: 350, width: 0 });
+  });
+
+  it("clamps the pointer x to a wide anchor", () => {
+    const wide = { top: 300, bottom: 314, left: 100, width: 400 };
+    expect(anchorForTip(wide, 9000).left).toBe(500);
+    expect(anchorForTip(wide, -50).left).toBe(100);
   });
 });

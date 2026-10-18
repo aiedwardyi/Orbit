@@ -1,6 +1,17 @@
 /** Gap between a tooltip and its anchor, and the margin it keeps off the window edge. */
 export const TOOLTIP_GAP = 6;
 export const TOOLTIP_EDGE = 8;
+/** Anchors wider than this centre the tip on the pointer instead of the element. */
+export const TOOLTIP_WIDE_PX = 160;
+
+/** Centre of a narrow anchor, or the pointer's x clamped onto a wide one. */
+export function anchorForTip(
+  rect: { top: number; bottom: number; left: number; width: number },
+  pointerX: number,
+) {
+  if (rect.width <= TOOLTIP_WIDE_PX) return rect;
+  return { top: rect.top, bottom: rect.bottom, left: Math.max(rect.left, Math.min(pointerX, rect.left + rect.width)), width: 0 };
+}
 
 /**
  * Above the anchor when there is room, below it otherwise, and never past a

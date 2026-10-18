@@ -100,6 +100,7 @@ import { pinPreview } from "@/lib/pin-preview";
 import { BOTTOM_FOLLOW_THRESHOLD, captureTranscriptScroll, newestBelowView, restoreTranscriptScroll, shouldResumeBottomFollow, spaceAfterNewestRow, transcriptUnderfilled, type TranscriptScroll } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
 import { placeTooltip } from "@/lib/tooltip-position";
+import { PLAIN_TOOLTIP_CLASS } from "@/lib/tooltips";
 import { TRANSCRIPT_GAP, useComposerDockPad } from "@/lib/composer-dock";
 import {
   TRANSCRIPT_WINDOW_SIZE,
@@ -438,7 +439,7 @@ function TimestampLabel({ at, hidden = false }: { at: number; hidden?: boolean }
             // hidden for the one commit it takes to measure, so it never
             // paints in the corner on the way to its place
             style={{ top: box?.top ?? 0, left: box?.left ?? 0, visibility: box ? "visible" : "hidden" }}
-            className="pointer-events-none fixed z-40 max-w-[min(20rem,calc(100vw-1rem))] rounded-md border border-hairline/40 bg-panel px-2 py-1 text-[11px] text-ink-secondary shadow-sm"
+            className={PLAIN_TOOLTIP_CLASS}
           >
             {full}
           </div>,

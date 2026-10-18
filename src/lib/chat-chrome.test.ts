@@ -86,8 +86,8 @@ describe("message timestamp tooltip", () => {
     expect(chatView).not.toContain("new Date(message.at).toLocaleString()");
   });
 
-  it("renders a soft-cornered custom tooltip with the full timestamp", () => {
-    expect(label).toMatch(/rounded-md border border-hairline\/40 bg-panel[^"]*shadow-sm/);
+  it("renders the shared plain tip with the full timestamp", () => {
+    expect(label).toContain("className={PLAIN_TOOLTIP_CLASS}");
     expect(label).toContain("{full}");
   });
 
@@ -101,7 +101,7 @@ describe("message timestamp tooltip", () => {
   it("portals to the body so neither the scroller nor the live region holds it", () => {
     expect(label).toContain("createPortal(");
     expect(label).toContain("document.body,");
-    expect(label).toContain("fixed z-40");
+    expect(label).toContain("PLAIN_TOOLTIP_CLASS");
     expect(label).toContain("viewportWidth: window.innerWidth,");
     expect(label).toContain("viewportHeight: window.innerHeight,");
   });
