@@ -3539,6 +3539,7 @@ bus.subscribe((event: RuntimeEvent) => {
       });
       break;
     case "runtime.error":
+      unreadTurns.start(event.threadId, event.turnId, store.messagesFor(event.threadId));
       pushMessage({
         role: "bot",
         kind: "activity",
@@ -3690,6 +3691,7 @@ bus.subscribe((event: RuntimeEvent) => {
             // the bot may have been deleted while the capture ran
             if (frame && store.bot(bot.id)) {
               pushMessage({ role: "bot", kind: "screen", png: frame.png, mime: frame.mime });
+              if (!routineReportGroup) store.patchBot(bot.id, { unread: true });
             }
           }).finally(clearVpsTurn);
         } else if (vpsTurn) {

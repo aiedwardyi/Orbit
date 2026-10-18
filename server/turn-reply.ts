@@ -52,7 +52,7 @@ export function turnAddedMessage(messages: readonly Message[], start: number): b
   return messages.slice(start).some((message) => {
     if (message.role !== "bot" || message.summarized || message.kind === "compaction") return false;
     if (message.kind === "activity") {
-      return Boolean(message.comm || message.tool?.name.startsWith("error:") || message.tool?.name === "memory.save");
+      return Boolean(message.comm || message.tool?.ok === false || message.tool?.name.startsWith("error:") || message.tool?.name === "memory.save");
     }
     if (message.kind === "text") return Boolean(message.text?.trim());
     if (message.kind === "options") return Boolean(message.card);

@@ -48,6 +48,10 @@ function rig(target: "bot" | "group") {
     && node.declarationList.declarations.some((declaration) => declaration.name.getText(parsed) === "addedMessage"));
   const summaries = find(completed, (node) => ts.isForOfStatement(node)
     && node.getText(parsed).includes("turnSummary.settle"))!;
+  const failed = fold.caseBlock.clauses.find((clause) => ts.isCaseClause(clause)
+    && clause.expression.getText(parsed) === '"runtime.error"')!;
+  const screen = find(completed, (node) => ts.isCallExpression(node)
+    && node.expression.getText(parsed) === "finalScreenFrame(bot.id).then") as ts.CallExpression;
   const release = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "releaseInterruptedBot")!;
   const roomTurn = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "runClaimedGroupMemberTurn")!;
   const roomStart = find(roomTurn, (node) => ts.isVariableStatement(node)
@@ -58,6 +62,7 @@ function rig(target: "bot" | "group") {
     ...turnReply, store, bot: { id: "bot-1" }, group: { id: "group-1" },
     routineReportGroup: undefined, turnSummary: turnReply.turnSummaries(),
     threadId: "thread-1", stopScreenPoller: () => {}, activeVpsThreads: new Map(), groupSpeakers: new Map(),
+    pushMessage: (message: Omit<Message, "id" | "at">) => messages.push({ id: `message-${messages.length}`, at: 1, ...message }),
   };
   if (tracker) deps.unreadTurns = compile(`${tracker.getText(parsed)}\nreturn unreadTurns;`, deps);
   let turn = 0;
@@ -78,6 +83,13 @@ function rig(target: "bot" | "group") {
     },
     settle() {
       compile([summaries, decision, target === "bot" ? botUnread : groupUnread].filter(Boolean).map((node) => node!.getText(parsed)).join("\n"), deps);
+    },
+    fail() {
+      Object.assign(deps.event as object, { message: "Engine could not start", setup: true });
+      compile(failed.statements.filter((node) => !ts.isBreakStatement(node)).map((node) => node.getText(parsed)).join("\n"), deps);
+    },
+    screen() {
+      compile(`(${screen.arguments[0]!.getText(parsed)})({ png: "pixels", mime: "image/png" });`, deps);
     },
     interrupt() {
       compile(`${release.getText(parsed)}\nreleaseInterruptedBot(bot.id, threadId);`, deps);
@@ -100,11 +112,20 @@ const visible: Array<[string, Omit<Message, "id" | "at">]> = [
   ["routine output", { role: "bot", kind: "routine.run", text: "Routine completed." }],
   ["promoted summary", { role: "bot", kind: "text", text: "Checked the report.", summarized: true }],
   ["turn error", { role: "bot", kind: "activity", tool: { name: "error: turn failed", ok: false } }],
+  ["permission control failure", { role: "bot", kind: "activity", tool: { name: "Auto mode couldn't answer: missing request ID", ok: false } }],
   ["peer reply", { role: "bot", kind: "activity", text: "The peer replied.", tool: { name: "Reply from @Peer" }, comm: { groupId: "peer-room", withBotId: "peer", withName: "Peer", withColor: "blue", peer: "reply" } }],
   ["memory confirmation", { role: "bot", kind: "activity", tool: { name: "memory.save", spoken: "Saved your preference.", ok: true } }],
 ];
 
 describe.each(["bot", "group"] as const)("%s turn unread", (target) => {
+  it("marks an engine failure unread before turn.started", () => {
+    const r = rig(target);
+    r.start(false);
+    r.fail();
+    r.settle();
+    expect(r.state.unread).toBe(true);
+  });
+
   it("preserves unread after an empty turn and a tool-only turn", () => {
     const r = rig(target);
     for (const unread of [false, true]) {
@@ -143,6 +164,15 @@ describe.each(["bot", "group"] as const)("%s turn unread", (target) => {
     r.settle();
     expect(r.state.unread).toBe(false);
   });
+});
+
+it("marks a final screen unread after its asynchronous persistence", () => {
+  const r = rig("bot");
+  r.start();
+  r.settle();
+  expect(r.state.unread).toBe(false);
+  r.screen();
+  expect(r.state.unread).toBe(true);
 });
 
 describe("group unread fallbacks", () => {
