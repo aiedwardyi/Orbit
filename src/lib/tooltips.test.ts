@@ -288,6 +288,38 @@ describe("text", () => {
 });
 
 describe("placement", () => {
+  it("keeps an 80-line title inside a 900px-high viewport", () => {
+    const previousHeight = window.innerHeight;
+    window.innerHeight = 900;
+    const text = Array.from({ length: 80 }, (_, i) => `Log line ${i + 1}`).join("\n");
+    const naturalHeight = 80 * 16.5 + 10;
+    const height = (el: HTMLElement) => Math.min(naturalHeight, parseFloat(el.style.maxHeight) || Infinity);
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const top = parseFloat(this.style.top) || 0;
+      const left = parseFloat(this.style.left) || 0;
+      return new DOMRect(left, top, 200, height(this));
+    });
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(naturalHeight);
+    const client = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) { return height(this); });
+    try {
+      const btn = titled(text);
+      stubRect(btn, 400, 700, 40);
+      const rendered = hoverAndShow(btn) as HTMLElement;
+      const box = rendered.getBoundingClientRect();
+      expect(box.top).toBeGreaterThanOrEqual(8);
+      expect(box.bottom).toBeLessThanOrEqual(892);
+      expect(box.height).toBeLessThanOrEqual(360);
+      expect(rendered.style.overflow).toBe("hidden");
+      expect(rendered.style.overflowWrap).toBe("anywhere");
+      expect(rendered.style.maskImage).toContain("linear-gradient");
+    } finally {
+      rect.mockRestore();
+      scroll.mockRestore();
+      client.mockRestore();
+      window.innerHeight = previousHeight;
+    }
+  });
+
   it("centres on a narrow element", () => {
     const btn = titled("narrow");
     stubRect(btn, 400, 300, 40);

@@ -89,10 +89,14 @@ export function mountGlobalTooltips() {
     tip.setAttribute("data-global-tip", "");
     tip.setAttribute("role", "tooltip");
     tip.textContent = text;
+    tip.style.maxHeight = `${window.innerHeight * 0.4}px`;
+    tip.style.overflow = "hidden";
+    tip.style.overflowWrap = "anywhere";
     tip.style.top = "0";
     tip.style.left = "0";
     tip.style.visibility = "hidden";
     document.body.append(tip);
+    if (tip.scrollHeight > tip.clientHeight) tip.style.maskImage = "linear-gradient(to bottom, black calc(100% - 1.5em), transparent)";
     const size = tip.getBoundingClientRect();
     const box = placeTooltip({
       anchor: anchorForTip(el.getBoundingClientRect(), pointerX),
