@@ -79,6 +79,11 @@ describe("locale detection", () => {
 });
 
 describe("catalogs", () => {
+  it("explains blocked notification recovery in both languages", () => {
+    expect(en["settings.phoneNotifications.state.blocked"]).toMatch(/blocked.*browser settings/i);
+    expect(ko["settings.phoneNotifications.state.blocked"]).toMatch(/차단.*브라우저 설정.*허용/);
+  });
+
   it("rejects fixed Korean particles after every catalog interpolation", () => {
     const violations = Object.entries(ko).flatMap(([key, phrase]) =>
       hardcodedKoreanParticles(phrase).map((match) => ({ key, match })),
