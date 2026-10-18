@@ -256,6 +256,7 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [right, setRight] = useState(0);
+  const [width, setWidth] = useState(440);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -279,10 +280,11 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
     const main = root.closest("main");
     const place = () => {
       // The menu hangs left of the chip; the chat column clips its edges.
-      const menuWidth = 440; // mirrors w-[440px]
       const row = root.getBoundingClientRect();
       const bounds = main?.getBoundingClientRect();
       const [min, max] = bounds ? [bounds.left + 8, bounds.right - 8] : [8, window.innerWidth - 8];
+      const menuWidth = Math.min(440, max - min);
+      setWidth(menuWidth);
       setRight(row.right - Math.min(Math.max(row.right, min + menuWidth), max));
     };
     place();
@@ -365,8 +367,8 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
           data-worker-list
           role="dialog"
           aria-labelledby={titleId}
-          style={{ right }}
-          className="absolute top-full z-40 mt-1 w-[440px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50"
+          style={{ right, width }}
+          className="absolute top-full z-40 mt-1 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50"
         >
           <h2 id={titleId} className="px-3 py-2 text-[15px] font-semibold text-ink">{t("workers.title", { name })}</h2>
           <div className="max-h-[320px] overflow-y-auto">

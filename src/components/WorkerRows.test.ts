@@ -530,18 +530,23 @@ describe("WorkerChip", () => {
     }
   });
 
-  it("keeps the desktop menu inside a chat column that starts near the chip", async () => {
+  it.each([340, 420, 620])("keeps the desktop menu inside a %spx chat column", async (columnWidth) => {
     vi.stubGlobal("matchMedia", () => ({ matches: false }));
     const { host, chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
     const main = document.createElement("main");
     document.body.append(main);
     main.append(host);
     const box = (left: number, right: number) => new window.DOMRect(left, 0, right - left, 40);
-    vi.spyOn(main, "getBoundingClientRect").mockReturnValue(box(280, 700));
+    vi.spyOn(main, "getBoundingClientRect").mockReturnValue(box(280, 280 + columnWidth));
     vi.spyOn(chip()!.parentElement!, "getBoundingClientRect").mockReturnValue(box(436, 470));
     try {
       await act(async () => chip()!.click());
-      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("-222px"); // 440px menu
+      const menu = host.querySelector<HTMLElement>("[data-worker-list]")!;
+      const width = parseFloat(menu.style.width || menu.className.match(/\bw-\[(\d+)px\]/)?.[1] || "0");
+      const right = 470 - parseFloat(menu.style.right);
+      expect(right - width).toBeGreaterThanOrEqual(288);
+      expect(right).toBeLessThanOrEqual(280 + columnWidth - 8);
+      expect(width).toBe(Math.min(440, columnWidth - 16));
     } finally {
       await unmount();
       main.remove();
@@ -565,7 +570,8 @@ describe("WorkerChip", () => {
     const row = vi.spyOn(chip()!.parentElement!, "getBoundingClientRect").mockReturnValue(box(436, 470));
     try {
       await act(async () => chip()!.click());
-      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("-222px"); // 440px menu
+      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("-222px");
+      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.width).toBe("404px");
       column.mockReturnValue(box(280, 900));
       row.mockReturnValue(box(816, 850));
       await act(async () => {
@@ -573,6 +579,7 @@ describe("WorkerChip", () => {
         else for (const callback of callbacks) callback();
       });
       expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("0px");
+      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.width).toBe("440px");
     } finally {
       await unmount();
       main.remove();
