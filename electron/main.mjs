@@ -62,7 +62,7 @@ import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLi
 import { WINDOWS_CAPTION_HEIGHT, applyWindowsTitleBarOverlay, windowChromeOptions } from "./window-chrome.mjs";
 import { restoreWindowZoom, routeZoomShortcut, setImageZoomOwned } from "./window-zoom.mjs";
 import { contextMenuTemplate } from "./context-menu.mjs";
-import { fileMenuFor, openLocalFile, saveImageCopy } from "./open-file.mjs";
+import { fileMenuFor, imageFetchFor, openLocalFile, saveImageCopy } from "./open-file.mjs";
 import {
   ensureManagedComposioCredentials,
   managedComposioAccess,
@@ -1695,6 +1695,7 @@ function createWindow() {
         dialog,
         downloads: app.getPath("downloads"),
         window: win,
+        fetchImpl: imageFetchFor(params.srcURL, { origin: `http://127.0.0.1:${SERVER_PORT}`, token: serverToken }),
       }).catch((error) => dialog.showErrorBox(nativeText("native.saveCopyFailed"), error?.message ?? String(error))),
     });
     if (!menuItems) return;

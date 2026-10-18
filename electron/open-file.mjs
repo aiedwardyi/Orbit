@@ -85,6 +85,23 @@ export async function imageBytes(srcURL, fetchImpl = fetch) {
   return new Uint8Array(await response.arrayBuffer());
 }
 
+// Fetch for image saves. The local server 401s /api/* without the bearer,
+// so same-origin saves carry it; the web never sees the token.
+export function imageFetchFor(srcURL, { origin, token, fetchImpl = fetch } = {}) {
+  return (url, init) => {
+    if (origin && token && typeof srcURL === "string" && !srcURL.startsWith("data:")) {
+      try {
+        if (new URL(srcURL).origin === origin) {
+          return fetchImpl(url, { ...init, redirect: "error", headers: { ...init?.headers, Authorization: `Bearer ${token}` } });
+        }
+      } catch {
+        // unparsable source: plain fetch below
+      }
+    }
+    return fetchImpl(url, init);
+  };
+}
+
 // The save dialog confirms before overwriting. Cancel writes nothing; a
 // fetch failure rejects for the caller's error box.
 export async function saveImageCopy(srcURL, { dialog, downloads, window, fetchImpl = fetch, fsp = fs.promises }) {
