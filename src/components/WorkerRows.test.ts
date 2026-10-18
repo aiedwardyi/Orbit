@@ -292,6 +292,40 @@ describe("WorkerChip", () => {
     }
   });
 
+  it("shortens the effort and the model before cutting the name in the desktop menu", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    const { host, chip, unmount } = await mount([{ run: run("ARGON-TEST-LANE1 | Gemini 4 Argon | medium"), state: "working" }], { livePanes: null });
+    try {
+      await act(async () => chip()!.click());
+      const item = host.querySelector("[data-worker-list] li")!;
+      expect(item.textContent).toContain("ARGON-TEST-LANE1");
+      expect(item.textContent).toContain("Med");
+      expect(item.textContent).not.toContain("Medium");
+      expect(item.querySelector("span.min-w-0 > span:nth-child(2)")!.className).toMatch(/(^|\s)flex-1(\s|$)/);
+      expect(item.querySelector("span.min-w-0 > span:nth-child(2)")!.className).toMatch(/(^|\s)truncate(\s|$)/);
+      expect(item.querySelector("span.min-w-0 > span:nth-child(3)")!.className).toMatch(/(^|\s)shrink-0(\s|$)/);
+      expect(item.querySelector("span.min-w-0 > span:nth-child(3)")!.className).toMatch(/(^|\s)whitespace-pre(\s|$)/);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("shortens the effort and the model before cutting the name in the phone sheet", async () => {
+    stubMedia({ matches: true });
+    const { chip, unmount } = await mount([{ run: run("ARGON-TEST-LANE1 | Gemini 4 Argon | medium"), state: "working" }], { livePanes: null });
+    try {
+      await act(async () => chip()!.click());
+      const item = document.body.querySelector("[data-worker-list] li")!;
+      expect(item.textContent).toContain("ARGON-TEST-LANE1");
+      expect(item.textContent).toContain("Med");
+      expect(item.textContent).not.toContain("Medium");
+      expect(item.querySelector("span.min-w-0 > span:nth-child(2)")!.className).toMatch(/(^|\s)flex-1(\s|$)/);
+      expect(item.querySelector("span.min-w-0 > span:nth-child(3)")!.className).toMatch(/(^|\s)shrink-0(\s|$)/);
+    } finally {
+      await unmount();
+    }
+  });
+
   it.each([false, true])("closes the open list when the app asks for it on a view switch with phone=%s", async (phone) => {
     stubMedia({ matches: phone });
     const { chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)], { livePanes: new Set(["work-1"]) });
@@ -507,7 +541,7 @@ describe("WorkerChip", () => {
     vi.spyOn(chip()!.parentElement!, "getBoundingClientRect").mockReturnValue(box(436, 470));
     try {
       await act(async () => chip()!.click());
-      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("-118px");
+      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("-222px"); // 440px menu
     } finally {
       await unmount();
       main.remove();
@@ -531,7 +565,7 @@ describe("WorkerChip", () => {
     const row = vi.spyOn(chip()!.parentElement!, "getBoundingClientRect").mockReturnValue(box(436, 470));
     try {
       await act(async () => chip()!.click());
-      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("-118px");
+      expect(host.querySelector<HTMLElement>("[data-worker-list]")!.style.right).toBe("-222px"); // 440px menu
       column.mockReturnValue(box(280, 900));
       row.mockReturnValue(box(816, 850));
       await act(async () => {
