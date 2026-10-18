@@ -239,7 +239,7 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
 
   if (!status.configured) {
     return (
-      <Section title={t("settings.phoneAccess.title")} subtitle={t("settings.phoneAccess.setup.help")}>
+      <Section title={t("settings.phoneAccess.title")}>
         {setupForm}
         {error ? (
           <p role="alert" className="mt-2 text-[12.5px] text-danger">

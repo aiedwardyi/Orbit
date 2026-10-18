@@ -293,14 +293,14 @@ describe("quorum row", () => {
     localStorage.setItem("omb-locale", "ko");
     replies = [() => ok(stats({ budget: { dailyCapCents: 100, todayCountedCents: 80 } }))];
     await mount();
-    expect(host.textContent).toBe("Quorum$2.33지출 · 한도 80%21방문4가입");
+    expect(host.textContent).toBe("쿼럼$2.33지출 · 한도 80%21방문4가입");
     expect(host.textContent).not.toMatch(/오늘|최근|7일|전체/);
     await tap(bars(1)[6]!);
     expect(host.querySelector("section > p.whitespace-pre-line")?.textContent).toBe("토, 10월 17일 · 방문자 5명");
     await tap(bars(0)[6]!);
     expect(host.querySelector("section > p.whitespace-pre-line")?.textContent).toContain("Claude $0.20 · GPT $0.08 · Gemini $0.12 · Perplexity $0.10 · 검색 $0.02");
     const strings = Object.entries(ko).filter(([key]) => key.startsWith("quorum."));
-    expect(strings).toHaveLength(17);
+    expect(strings).toHaveLength(18);
     for (const [, phrase] of strings) expect(phrase).not.toMatch(/^[\x20-\x7e]*$/u);
   });
 });

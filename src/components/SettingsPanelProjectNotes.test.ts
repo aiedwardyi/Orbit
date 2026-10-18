@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { I18nProvider } from "@/lib/i18n";
+import { I18nProvider, persistPreference } from "@/lib/i18n";
 import type { Bot } from "@/state/store";
 
 const { mockDispatch } = vi.hoisted(() => ({ mockDispatch: vi.fn() }));
@@ -60,9 +60,6 @@ const bot = {
 describe("SettingsPanel project notes", () => {
   let host: HTMLDivElement;
   let root: ReturnType<typeof createRoot>;
-  const input = () => host.querySelector<HTMLInputElement>('input[aria-label="Project notes"]')!;
-  const card = () => input().closest("div.rounded-xl")!;
-  const button = (label: string) => Array.from(card().querySelectorAll("button")).find((b) => b.textContent === label);
   const render = (value: Bot) =>
     act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: value }))));
 
@@ -78,26 +75,22 @@ describe("SettingsPanel project notes", () => {
     root.unmount();
     host.remove();
     vi.unstubAllGlobals();
+    persistPreference("en");
   });
 
-  it("sits under the project folder and saves a typed path", async () => {
+  it.each(["en", "ko"] as const)("hides empty project notes in %s", async (locale) => {
+    persistPreference(locale);
     await render(bot);
-    const labels = Array.from(host.querySelectorAll(".text-\\[15px\\]")).map((node) => node.textContent);
-    expect(labels.indexOf("Project notes")).toBe(labels.indexOf("Project folder") + 1);
-    expect(input().placeholder).toBe("Path to a notes file, like BRAIN.md");
-    expect(button("Clear")).toBeUndefined();
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input(), `  ${NOTES} `);
-      input().dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => button("Save")!.click());
-    expect(mockDispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "bot-1", patch: { projectNotes: NOTES } });
+    expect(host.querySelector('input[aria-label="Project notes"], input[aria-label="프로젝트 노트"]')).toBeNull();
+    expect(host.textContent).not.toContain(locale === "en" ? "Project notes" : "프로젝트 노트");
+    expect(mockDispatch).not.toHaveBeenCalled();
   });
 
-  it("clears a set path", async () => {
+  it.each(["en", "ko"] as const)("preserves hidden project notes in %s", async (locale) => {
+    persistPreference(locale);
     await render({ ...bot, projectNotes: NOTES });
-    expect(input().value).toBe(NOTES);
-    await act(async () => button("Clear")!.click());
-    expect(mockDispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "bot-1", patch: { projectNotes: null } });
+    expect(host.querySelector('input[aria-label="Project notes"], input[aria-label="프로젝트 노트"]')).toBeNull();
+    expect(host.textContent).not.toContain(NOTES);
+    expect(mockDispatch).not.toHaveBeenCalled();
   });
 });

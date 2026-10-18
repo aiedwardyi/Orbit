@@ -85,9 +85,9 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("general", "sign in")).toBe(false);
   });
 
-  it.each(["Google", "profile", "동기화", "프로필"])("finds %s on Account", (query) => {
+  it.each([["Google", false], ["profile", true], ["동기화", false], ["프로필", true]] as const)("finds %s on Account", (query, general) => {
     expect(settingsSectionMatches("account", query)).toBe(true);
-    expect(settingsSectionMatches("general", query)).toBe(false);
+    expect(settingsSectionMatches("general", query)).toBe(general);
     expect(settingsSectionMatches("connections", query)).toBe(false);
   });
 

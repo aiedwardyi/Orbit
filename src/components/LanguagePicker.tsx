@@ -8,7 +8,6 @@ const OPTIONS: LocalePreference[] = ["system", "en", "ko"];
 
 export function LanguagePicker() {
   const { t, preference, setPreference } = useI18n();
-  const hintId = "language-match-system-hint";
   return (
     <Card title={t("language.title")}>
       <div role="radiogroup" aria-label={t("language.title")} className="flex gap-1 rounded-lg bg-inset p-0.5">
@@ -22,7 +21,6 @@ export function LanguagePicker() {
               type="button"
               role="radio"
               aria-checked={selected}
-              aria-describedby={id === "system" ? hintId : undefined}
               onClick={() => setPreference(id)}
               className={cn(
                 "min-w-0 flex-1 rounded-[max(0px,calc(var(--radius-lg)_-_2px))] px-2 py-1.5 text-center text-[13px] font-medium transition-colors",
@@ -34,9 +32,6 @@ export function LanguagePicker() {
           );
         })}
       </div>
-      <p id={hintId} className="mt-1.5 text-[12px] leading-snug text-ink-secondary">
-        {t("language.matchSystemHint")}
-      </p>
     </Card>
   );
 }

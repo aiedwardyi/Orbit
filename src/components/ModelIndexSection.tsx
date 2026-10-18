@@ -890,7 +890,6 @@ export function ModelIndexSection() {
 
   return (
     <div className="model-index flex flex-col gap-4">
-      <p className="text-[13px] leading-relaxed text-ink-secondary">{t("modelIndex.subtitle")}</p>
       <div className="rounded-xl border border-hairline/40 bg-card shadow-sm max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         <div className="flex flex-col gap-2.5 p-4 pb-3 max-md:px-0 max-md:pt-0">
           <div className="flex min-w-0 items-center gap-3">

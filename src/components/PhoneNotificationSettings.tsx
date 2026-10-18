@@ -42,7 +42,7 @@ export function PhoneNotificationSettings() {
 
   const button = "rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-control/70 disabled:cursor-not-allowed disabled:opacity-50";
   return (
-    <div className="mt-4 border-t border-hairline/30 pt-4">
+    <div>
       <div className="text-[14px] font-medium text-ink">{t("settings.phoneNotifications.title")}</div>
       <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
         {t("settings.phoneNotifications.help")}
