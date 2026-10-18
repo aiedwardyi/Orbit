@@ -1639,9 +1639,145 @@ test("a worker pane that goes quiet without a report sends one stall note with i
   assert.equal(f.notes.length, 1);
 });
 
+for (const [engine, ellipsis] of [["agy", "..."], ["gemini", "…"]]) {
+  test(`${engine} braille busy tails avoid false stalls and still detect a frozen screen`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: `${engine} go` });
+    for (let tick = 0; tick < 8; tick += 1) {
+      f.children[0].data(`\r\x1b[2K  ${["⣽", "⣻", "⢿", "⡿"][tick % 4]}  Reading file${ellipsis}`);
+      await f.settle();
+      await f.advance(30_000);
+      assert.equal(f.notes.length, 0);
+    }
+    await f.advance(89_999);
+    assert.equal(f.notes.length, 0);
+    await f.advance(1);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /^STALLED: no screen change for 2 min/);
+    await f.advance(600_000);
+    assert.equal(f.notes.length, 1);
+  });
+}
+
+for (const jobs of ["1 shell", "2 shells, 1 monitor"]) {
+  test(`a Claude running-shell footer stalls after 30 minutes despite status ticks: ${jobs}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+    f.children[0].data(`${claudeIdle(jobs)}  96% context left · 12:01 PM\r\n`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 0);
+    await f.advance(13 * 60_000);
+    f.children[0].data(`${claudeIdle(jobs)}  95% context left · 12:16 PM\r\n`);
+    await f.settle();
+    await f.advance(15 * 60_000 - 1);
+    assert.equal(f.notes.length, 0);
+    await f.advance(1);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /^STALLED: no screen change for 30 min/);
+    f.children[0].data(`${claudeIdle(jobs)}  94% context left · 12:31 PM\r\n`);
+    await f.settle();
+    await f.advance(30 * 60_000);
+    assert.equal(f.notes.length, 1);
+    f.children[0].data(claudeIdle().replace("done 6:26 PM", `done 6:26 PM · ${jobs} still running`));
+    await f.settle();
+    await f.advance(119_999);
+    assert.equal(f.notes.length, 1);
+    await f.advance(1);
+    assert.equal(f.notes.length, 2);
+    assert.match(f.notes[1].text, /^STALLED: no screen change for 2 min/);
+  });
+}
+
 const CLAUDE_LIMIT = "  ⎿  You've hit your session limit · resets 3am (Asia/Seoul)\r\n\r\n  What do you want to do?\r\n  ❯ 1. Stop and wait for limit to reset\r\n    2. Upgrade your plan\r\n";
 const CODEX_LIMIT = "■ You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/\r\ncodex/settings/usage to purchase more credits or try again at 10:14 PM.\r\n\r\n\r\n  Approaching rate limits\r\n  Switch to gpt-6-luna for lower credit usage?\r\n\r\n\r\n› 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.\r\n  2. Keep current model\r\n";
 const limitNote = (engine, reset) => new RegExp(`^LIMIT: ${engine} hit its usage limit \\(resets ${reset}\\)\\. Its work so far stays in .+\\. Send "continue" after the reset, or move the job to another engine\\.$`);
+
+test("ordinary Markdown ellipses do not discard a completion note", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  f.children[0].data("  * Waiting for input...\r\n");
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "all green");
+  await f.advance(90_000);
+  assert.equal(f.notes.length, 1);
+  assert.equal(f.notes[0].text, "all green");
+});
+
+test("percentage-only shell progress keeps the worker moving", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  for (const percent of [12, 13, 14, 15]) {
+    f.children[0].data(`\r\x1b[2KDownloading archive ${percent}%`);
+    await f.settle();
+    await f.advance(70_000);
+    assert.equal(f.notes.length, 0);
+  }
+  await f.advance(50_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("a Claude reset excludes an adjacent menu without a blank row", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(CLAUDE_LIMIT.replace("\r\n\r\n", "\r\n"));
+  await f.settle();
+  await f.advance(120_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, limitNote("Claude", "3am \\(Asia/Seoul\\)"));
+});
+
+for (const [engine, screen, reset, nextReset] of [
+  ["claude", CLAUDE_LIMIT, "3am (Asia/Seoul)", "4am (Asia/Seoul)"],
+  ["codex", CODEX_LIMIT, "10:14 PM", "11:14 PM"],
+]) {
+  test(`${engine} selects the newest visible reset`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: `${engine} go` });
+    f.children[0].data(screen);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 1);
+    f.children[0].data(screen.replace(reset, nextReset));
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 2);
+    assert.ok(f.notes[1].text.includes(`resets ${nextReset}`));
+  });
+}
+
+test("a limit screen bypasses the live-shell hold", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(`${CLAUDE_LIMIT}\r\n⏵⏵ bypass permissions on · 1 shell · ← for agents\r\n`);
+  await f.settle();
+  await f.advance(120_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^LIMIT: /);
+});
+
+test("resumed output below an old limit stays live and later stalls normally", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(CLAUDE_LIMIT);
+  await f.settle();
+  for (let step = 0; step < 4; step += 1) {
+    await f.advance(60_000);
+    assert.equal(f.notes.length, 0);
+    f.children[0].data(`● Edited file ${step}\r\n`);
+    await f.settle();
+  }
+  await f.advance(120_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^STALLED: /);
+});
 
 test("a Claude usage limit sends one LIMIT note with the reset time as shown", async () => {
   const f = stallFixture();
@@ -1716,6 +1852,59 @@ test("a limit screen that only redraws a clock, wraps differently or gets keys s
   await f.advance(600_000);
   assert.equal(f.notes.length, 1);
 });
+
+for (const [engine, screen, reset, nextReset] of [
+  ["claude", CLAUDE_LIMIT, "3am (Asia/Seoul)", "4am (Asia/Seoul)"],
+  ["codex", CODEX_LIMIT, "10:14 PM", "11:14 PM"],
+]) {
+  test(`${engine} LIMIT notes stay once per reset across ticks, resizes and resumed turns`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    const pane = await f.host.openForBot("bot-1", { label: "W", command: `${engine} go` });
+    f.children[0].data(`${screen}\r\n  96% context left\r\n`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /^LIMIT: /);
+    f.children[0].data(`\x1b[2J\x1b[H${screen}\r\n  95% context left\r\n`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 1);
+    for (const cols of [50, 100]) {
+      f.host.resize(f.event, pane.sessionId, cols, 24);
+      await f.advance(5_000);
+      f.children[0].data(`\x1b[2J\x1b[H${screen}\r\n  94% context left\r\n`);
+      await f.settle();
+      await f.advance(120_000);
+      assert.equal(f.notes.length, 1);
+    }
+    f.host.sendBot("bot-1", { ...pane, text: "continue\r" });
+    f.children[0].data("\x1b[2J\x1b[HWorking again\r\n");
+    await f.settle();
+    await f.advance(10_000);
+    f.children[0].data(`\x1b[2J\x1b[H${screen}`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 1);
+    f.children[0].data(`\x1b[2J\x1b[H${screen.replace(reset, nextReset)}`);
+    await f.settle();
+    await f.advance(119_999);
+    assert.equal(f.notes.length, 1);
+    await f.advance(1);
+    assert.equal(f.notes.length, 2);
+    assert.ok(f.notes[1].text.includes(`resets ${nextReset}`));
+    f.children[0].data(`\x1b[2J\x1b[H${screen}`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 2);
+    await f.host.openForBot("bot-1", { label: "W2", command: `${engine} go` });
+    f.children[1].data(screen);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 3);
+    assert.notEqual(f.notes[2].scope.pane, pane.sessionId);
+  });
+}
 
 test("a limit pane that resumes after continue and stalls again sends a new note", async () => {
   const f = stallFixture();

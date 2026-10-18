@@ -33,13 +33,13 @@ const STALL_TRIES = 5;
 const RESIZE_REPAINT_MS = 2_000;
 // Script panes go quiet when they finish; only an agent CLI waits on its teacher.
 const WORKER_CLI_RE = /(?:^|[;&|\r\n])\s*&?\s*["']?(?:[^\s"';&|]*[\\/])?(claude|codex|muse|grok|gemini|agy)(?:\.(?:exe|cmd|ps1))?["']?(?=\s|$)/i;
-const AGENT_BUSY_RE = /(?:esc to interrupt|^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$))/mu;
+const AGENT_BUSY_RE = /(?:esc to interrupt|^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$)|^[ \t]*[\u2800-\u28ff][\s─]+\S[^\n]*(?:…|\.{3})(?:\s+\(|\s*$))/mu;
 // Claude Code's status line counts live jobs in a "·" segment; its "done ... still running" line is history and never clears.
 const AGENT_JOBS_RE = /^(?!.*still running)(?=.*·)(?:.*·)?\s*(?:\d+ [^,·]+, )*\d+ (?:shells?|monitors?|local agents?)(?:, \d+ [^,·]+)*\s*(?:·|$)/u;
 // Wrapping, borders, spinner glyphs and clocks change on a redraw without the worker moving; a busy agent's ticking timer still counts.
-const STALL_CHURN_RE = /[\u2500-\u257f\u2800-\u28ff✻✢✳✶✽·*●]|\b\d+[hms]\b|\d{1,2}:\d{2}(?::\d{2})?/gu;
+const STALL_CHURN_RE = /[\u2500-\u257f\u2800-\u28ff✻✢✳✶✽·*●]|\b\d+[hms]\b|\d{1,2}:\d{2}(?::\d{2})?|\b\d+(?:\.\d+)?%(?=\s+context left\b)/gu;
 const stallSignature = (screenText) => AGENT_BUSY_RE.test(screenText) ? screenText : screenText.replace(STALL_CHURN_RE, "").replace(/\s+/g, "");
-const agentJobsRunning = (screenText) => screenText.split("\n").filter((line) => line.trim()).slice(-JOBS_FOOTER_LINES).some((line) => AGENT_JOBS_RE.test(line));
+const agentJobsRunning = (screenText, shellsOnly = false) => screenText.split("\n").filter((line) => line.trim()).slice(-JOBS_FOOTER_LINES).some((line) => AGENT_JOBS_RE.test(line) && (!shellsOnly || /\b[1-9]\d* shells?\b/u.test(line)));
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 export const BOT_PANE_LIMIT = 16;
@@ -146,21 +146,41 @@ function normalizeTerminalText(text) {
 const CLAUDE_LIMIT_RE = /^\s*(?:⎿\s+)?You['’]ve hit your [^·\n]*limit\s*·\s*resets (\S.*)$/i;
 const CODEX_LIMIT_RE = /^\s*■\s+You['’]ve hit your usage limit\..{0,400}?try again at (.+?)\.(?: |$)/i;
 
-// Codex wraps the sentence, so it reads from the "■" line on, flattened.
-const LIMIT_READERS = {
-  claude: (lines) => lines.map((line) => CLAUDE_LIMIT_RE.exec(line)?.[1]).find(Boolean),
-  codex: (lines) => lines.map((line, i) => CODEX_LIMIT_RE.exec(lines.slice(i).join(" ").replace(/\s+/g, " "))?.[1]).find(Boolean),
-};
+const LIMIT_START = { claude: /^\s*(?:⎿\s+)?You['’]ve hit your /i, codex: /^\s*■\s+You['’]ve hit your usage limit\./i };
+const LIMIT_IDLE_RE = /^(?:What do you want to do\?|[❯›]?\s*\d+\. .+|Approaching rate limits|Switch to .+|Fast and affordable .+|gpt-.+|\d+(?:\.\d+)?% context left.*|⏵.*|[❯›?]|[─━]+)$/u;
 
-function usageLimit(lines, engine) {
-  const reset = LIMIT_READERS[engine]?.(lines)?.trim();
+function usageLimit(screenText, engine, cols = 80) {
+  const lines = screenText.split("\n").map((line) => line.trimEnd());
+  const nonempty = lines.flatMap((line, i) => line ? [i] : []);
+  const tail = [];
+  let wrapped = false;
+  for (const line of lines.slice(nonempty.at(-STALL_TAIL_LINES) ?? 0)) {
+    if (wrapped && line && !/^\s*[●•■❯›⎿]/u.test(line)) tail[tail.length - 1] += line;
+    else tail.push(line);
+    wrapped = line.length === cols;
+  }
+  const start = tail.findLastIndex((line) => LIMIT_START[engine]?.test(line));
+  if (start < 0) return null;
+  const reader = engine === "claude" ? CLAUDE_LIMIT_RE : CODEX_LIMIT_RE;
+  let end = start;
+  let text = tail[start];
+  let reset = reader.exec(text)?.[1];
+  while ((!reset || (reset.includes("(") && !reset.includes(")"))) && end + 1 < tail.length) {
+    const next = tail[end + 1];
+    if (!next.trim() || LIMIT_IDLE_RE.test(next.trim())) break;
+    text += next;
+    end += 1;
+    reset = reader.exec(text)?.[1];
+  }
+  if (tail.slice(end + 1).some((line) => line.trim() && !LIMIT_IDLE_RE.test(line.trim()))) return null;
+  reset = reset?.trim();
   return reset ? { engine: engine === "claude" ? "Claude" : "Codex", reset } : null;
 }
 
 // A turn that dies on a usage limit or a menu runs no engine hook, so the screen is the only signal.
-function stallNoteText(screenText, stallMs, cwd, engine) {
+function stallNoteText(screenText, stallMs, cwd, engine, cols) {
   const lines = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES);
-  const limit = usageLimit(lines, engine);
+  const limit = usageLimit(screenText, engine, cols);
   if (limit) return `LIMIT: ${limit.engine} hit its usage limit (resets ${limit.reset}). Its work so far stays in ${cwd}. Send "continue" after the reset, or move the job to another engine.`;
   const tail = lines.join("\n");
   return `STALLED: no screen change for ${Math.max(1, Math.round(stallMs / 60_000))} min and no report. It may be stuck on a usage limit, a menu or an error. terminal_read its pane, then act or tell the user. Last lines:\n${tail}`;
@@ -400,9 +420,12 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         continue;
       }
       if (!session.worker || session.retired || session.exitCode !== null) continue;
+      const text = session.screen.text();
+      const limit = usageLimit(text, session.engine, session.cols);
+      const limitKey = limit ? JSON.stringify([session.engine, limit.reset.replace(/\s+/g, "")]) : null;
       if (session.stallDirty) {
         session.stallDirty = false;
-        const signature = stallSignature(session.screen.text());
+        const signature = limitKey ?? stallSignature(text);
         if (signature !== session.stallText) {
           session.stallText = signature;
           session.stallChangedAt = at;
@@ -410,16 +433,20 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           session.stallTries = 0;
         }
       }
-      if (session.stallFired || at - session.stallChangedAt < stallMs || at < session.stallRetryAt) continue;
+      const threshold = !limit && session.engine === "claude" && agentJobsRunning(text, true) ? JOBS_HOLD_MS : stallMs;
+      if (session.stallFired || at - session.stallChangedAt < threshold || at < session.stallRetryAt) continue;
+      if (limitKey && session.limitsNoted.has(limitKey)) continue;
       // Its report on this task, or a hook note on this task as the screen settled, already reached the teacher.
       if (session.reportAt >= session.stallArmedAt) continue;
       if (session.noteAt >= session.stallArmedAt && session.noteAt >= session.stallChangedAt - STALL_NOTE_SLACK_MS) continue;
       session.stallFired = true;
       if (!session.mail) continue;
+      if (limitKey) session.limitsNoted.add(limitKey);
       const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
       const stall = session.stallChangedAt;
       session.stallTries += 1;
-      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(session.screen.text(), stallMs, session.cwd, session.engine))).catch(() => {
+      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(text, threshold, session.cwd, session.engine, session.cols))).catch(() => {
+        if (limitKey) session.limitsNoted.delete(limitKey);
         // a post that did land raises noteAt, which stops the retry above
         if (session.stallChangedAt !== stall || session.stallTries >= STALL_TRIES) return;
         session.stallFired = false;
@@ -603,9 +630,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       id, key, botId: input.botId, botPane, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
-      outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), pendingInputEcho: "", truncated: false,
+      outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
       workerReady: false, mail, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
-      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
+      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
       reported: false, finished: [], autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false,
     };
     session.outputParser = createTerminalOutputParser((osc) => {
@@ -854,6 +881,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       try {
         const result = session.pty.resize(cols, rows);
         session.screen.resize(cols, rows);
+        session.cols = cols;
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge operations synchronously or asynchronously.
         return result && typeof result.then === "function" ? result.catch((cause) => { fail(session, cause); throw cause; }) : result;
       } catch (cause) {
