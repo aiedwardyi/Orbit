@@ -25,7 +25,7 @@ import { LocalComputerSection } from "./LocalComputerSection";
 import { ProfileFields } from "./ProfileFields";
 import { Card } from "./SettingsPrimitives";
 import { UsageSection } from "./UsageSection";
-import { QuorumRow } from "./QuorumRow";
+import { QuorumRow, prefetchQuorum } from "./QuorumRow";
 import { TeamSection, type TeamView } from "./TeamSection";
 import { ModelIndexSection } from "./ModelIndexSection";
 import { SkinPicker } from "./SkinPicker";
@@ -536,6 +536,10 @@ export function SettingsModal({
     [phoneAvailable, q, teamOwner],
   );
   const visibleSections = SECTIONS.filter(sectionShown);
+
+  useEffect(() => {
+    if (!closing && teamOwner) prefetchQuorum();
+  }, [closing, teamOwner]);
 
   useEffect(() => {
     if (closing) return;
