@@ -237,6 +237,17 @@
       "kind": "independent"
     },
     {
+      "model": "gemini-4-argon",
+      "effort": "high",
+      "value": 52.5605655745982,
+      "cost_per_task": 1.990322379299008,
+      "cost_benchmark": "aa-intelligence-index",
+      "cost_source": "https://artificialanalysis.ai/models/gemini-4-argon",
+      "source_url": "https://artificialanalysis.ai/models/gemini-4-argon",
+      "retrieved_at": "2026-10-19T09:39:23.141Z",
+      "kind": "independent"
+    },
+    {
       "model": "gemini-3.8-flash",
       "effort": "low",
       "value": 33.4548106699132,

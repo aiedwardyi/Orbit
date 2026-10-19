@@ -67,12 +67,13 @@ const AXIS_KEY: Record<ModelIndexKey, MessageKey> = {
   cost: "modelIndex.cost.hint",
 };
 
-// Each score's own run cost; Legal and Cost have none.
+// Each score's own run cost; Cost has none.
 const COST_KEY = new Map<ModelIndexKey, MessageKey>([
   ["intelligence", "modelIndex.axis.cost"],
   ["coding", "modelIndex.axis.costCoding"],
   ["agentic", "modelIndex.axis.costAgentic"],
   ["general", "modelIndex.axis.costGeneral"],
+  ["legal", "modelIndex.tooltip.runCost"],
 ]);
 
 const BENCH_KEY = {
