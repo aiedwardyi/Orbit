@@ -34,7 +34,7 @@ import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-cha
 import { readSnapshotCache, writeSnapshotCache } from "./snapshot-cache";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { completedReopenDismissals } from "@/lib/task-recovery";
-import { openLiveEvents } from "@/lib/live-events";
+import { openLiveEvents, snapshotCoversHello } from "@/lib/live-events";
 import { holdReload } from "@/lib/reload-hold";
 import { hapticTick } from "@/lib/phone-swipe";
 import { isShownMessage } from "@/lib/shown-message";
@@ -3000,6 +3000,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // ── initial load + SSE fold ──────────────────────────────────────────
   useEffect(() => {
     let alive = true;
+    const prefetchAbort = new AbortController();
+    let prefetchedChat: Promise<any> | null = api(`/api/bots?messages=${MESSAGE_PAGE}`, { signal: prefetchAbort.signal }).catch(() => null);
+    let snapshotBoundary: string | undefined;
     type PeripheralKey = "instances" | "config" | "routines" | "webhooks";
     type PeripheralPart = {
       key: PeripheralKey;
@@ -3096,33 +3099,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const bumpPeripheralVersion = (...keys: PeripheralKey[]) => {
       for (const key of keys) refreshState(key).version += 1;
     };
-    const loadAll = async (): Promise<boolean> => {
-      const chat = () =>
-        api(`/api/bots?messages=${MESSAGE_PAGE}`).then(({ bots, groups, computerControl }) => {
-          if (!alive) return;
-          rawDispatch({
-            type: "hydrate",
-            bots,
-            groups: groups ?? [],
-            computerControl: computerControl ?? {},
-            sidebarOrder: loadSidebarOrder(),
-          });
-          // Snapshot has busy, not StreamState.signal. Without SSE replay a
-          // dispatched turn would otherwise read Preparing for the whole wait.
-          // workingThreadId is the thread startTurn actually claimed.
-          for (const bot of bots) {
-            const last = visibleMessages({
-              messages: bot.messages ?? [],
-              activeLeafId: bot.activeLeafId,
-            }).at(-1)?.id;
-            noteStreamTail(bot.threadId, last);
-            const threadId = hydrationTurnThread(bot, groups ?? []);
-            if (threadId) markTurnSignal(threadId, "hydrated");
-          }
-          for (const group of groups ?? []) {
-            noteStreamTail(group.threadId, group.messages?.at(-1)?.id);
-          }
+    const loadAll = async (boundary?: string): Promise<boolean> => {
+      const chat = async () => {
+        const prefetch = prefetchedChat;
+        prefetchedChat = null;
+        let snapshot = prefetch ? await prefetch : null;
+        if (!alive || boundary !== snapshotBoundary) return;
+        // No boundary means the no-hello fallback; there is nothing to validate.
+        if (boundary === undefined ? !snapshot : !snapshotCoversHello(snapshot?.cursor, boundary)) snapshot = await api(`/api/bots?messages=${MESSAGE_PAGE}`);
+        if (!alive || boundary !== snapshotBoundary || rehydrateRequested) return;
+        const { bots, groups, computerControl } = snapshot;
+        rawDispatch({
+          type: "hydrate",
+          bots,
+          groups: groups ?? [],
+          computerControl: computerControl ?? {},
+          sidebarOrder: loadSidebarOrder(),
         });
+        // Snapshot has busy, not StreamState.signal. Without SSE replay a
+        // dispatched turn would otherwise read Preparing for the whole wait.
+        // workingThreadId is the thread startTurn actually claimed.
+        for (const bot of bots) {
+          const last = visibleMessages({
+            messages: bot.messages ?? [],
+            activeLeafId: bot.activeLeafId,
+          }).at(-1)?.id;
+          noteStreamTail(bot.threadId, last);
+          const threadId = hydrationTurnThread(bot, groups ?? []);
+          if (threadId) markTurnSignal(threadId, "hydrated");
+        }
+        for (const group of groups ?? []) {
+          noteStreamTail(group.threadId, group.messages?.at(-1)?.id);
+        }
+      };
       const peripherals = firstChatPeripherals(peripheralParts).map((part) => ({
         key: part.key,
         load: () => loadPeripheral(part, false),
@@ -3134,17 +3143,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return alive && chatReady;
     };
 
-    // A snapshot and the live fold have to meet at a defined boundary. Start
-    // hydration only after the stream says hello, queue frames that arrive
-    // while the REST snapshot is in flight, then apply them on top. Otherwise
-    // a late hydrate can overwrite a newer event, or an event can land between
-    // an eager request and the stream opening and disappear entirely.
+    // Apply the prefetch only after hello proves it covers the stream boundary.
     let hydrated = false;
     let hydrationPromise: Promise<boolean> | null = null;
     let rehydrateRequested = false;
     const pendingFrames: any[] = [];
+    let snapshotBoundaries = 0;
     let handleFrame: (frame: any) => void;
-    const hydrate = (): Promise<boolean> => {
+    const hydrate = (cursor?: string): Promise<boolean> => {
+      snapshotBoundary = cursor;
       if (hydrationPromise) {
         // A second non-resumable hello means this snapshot may have started
         // before another connection gap. Run one more after it settles.
@@ -3156,7 +3163,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         let loaded = false;
         do {
           rehydrateRequested = false;
-          loaded = await loadAll();
+          loaded = await loadAll(snapshotBoundary);
         } while (alive && rehydrateRequested);
         if (!alive || !loaded) return false;
         hydrated = true;
@@ -3169,10 +3176,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       return hydrationPromise;
     };
-    // If SSE is unavailable, the app should still show its saved state. A
-    // later first hello hydrates again because it cannot prove there was no
-    // gap before that connection opened.
-    const hydrationFallback = setTimeout(hydrate, 1_000);
+    // Shows saved state if SSE never says hello; well past a cold start's slowest hello.
+    const hydrationFallback = setTimeout(hydrate, 10_000);
 
     // The hydrate decision belongs to the hello frame, not to onopen: the
     // server replays what we missed when it can, and re-downloading every
@@ -3196,7 +3201,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         settling.current.set(frame.threadId, [() => handleFrame(frame)]);
         return;
       }
-      if (frame.kind === "config") bumpPeripheralVersion("config", "instances");
+      if (frame.kind === "instances") bumpPeripheralVersion("instances");
+      else if (frame.kind === "config") bumpPeripheralVersion("config", "instances");
       else if (frame.kind === "routine" || frame.kind === "routine.deleted" || frame.kind === "routine.run") {
         bumpPeripheralVersion("routines");
       } else if (
@@ -3422,6 +3428,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           groupReorderGeneration.current += 1;
           rawDispatch({ type: "reorderGroups", groupIds: frame.groupIds });
           break;
+        case "instances":
+          rawDispatch({ type: "instances", instances: frame.instances, preserveRateLimits: true });
+          break;
         // a key changed and the fleet hot-reloaded — refresh the picker so
         // newly available providers un-dim immediately
         case "config":
@@ -3443,7 +3452,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const stopLive = openLiveEvents({
       onOpen: () => rawDispatch({ type: "connected", value: true }),
       onError: () => rawDispatch({ type: "connected", value: false }),
-      onSnapshotRequired: () => {
+      onSnapshotRequired: (cursor) => {
         clearTimeout(hydrationFallback);
         // Frames buffered before this non-resumable stream belong to an
         // abandoned generation. Keep the new generation behind hydrate().
@@ -3451,7 +3460,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         settling.current.clear();
         // a held resume's task.resume frame may be lost in the gap
         for (const settle of pendingTaskResumes.current.values()) settle(null);
-        return hydrate();
+        // The mount's deferred load covers the first boundary; a later one may follow a missed instances frame.
+        const instances = partByKey.get("instances");
+        if (snapshotBoundaries++ > 0 && instances) {
+          void loadPeripheral(instances, true).catch((error) => schedulePeripheralRetry(instances, error));
+        }
+        return hydrate(cursor);
       },
       onFrame: (frame) => {
         if (!hydrated) {
@@ -3478,6 +3492,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       : () => {};
     return () => {
       alive = false;
+      prefetchAbort.abort();
       document.removeEventListener("visibilitychange", flushOnVisibility);
       stopDeferredInstances();
       clearTimeout(hydrationFallback);

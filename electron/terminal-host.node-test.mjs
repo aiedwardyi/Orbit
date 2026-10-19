@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import test from "node:test";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { createTerminalHost, createTerminalOutputParser, resolveBotSession, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender } from "./terminal-host.mjs";
+import { installOrbitMsg } from "./terminal-mailbox.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 
 function fixture(options = {}) {
@@ -1129,15 +1131,15 @@ test("openForBot names the whole-app cap and the bot's own count", async () => {
   await assert.rejects(f.host.openForBot("bot-1", { label: "extra" }), /Too many terminal sessions \(32 open across all bots and main terminals; 1 are yours\)\. Close one of yours with terminal_close/);
 });
 
-test("openForBot refuses a pane under 2 GiB free memory, but main terminals stay ungated", async () => {
+test("openForBot refuses a pane under its engine floor, but main terminals stay ungated", async () => {
   let owner;
-  let free = 2 * 1024 ** 3 - 1;
+  let free = 100 * 1024 ** 2 - 1;
   const f = fixture({ owner: () => owner, freeMemory: () => free });
   owner = f.owner;
-  await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /Not enough free memory for another terminal \(2\.0 GB free, 2 GB needed; 0 terminals open, 0 are yours\)\. Close a finished pane with terminal_close/);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /Not enough free memory for another terminal \(0\.1 GB free, 0\.1 GB needed; 0 terminals open, 0 are yours\)\. Close a finished pane with terminal_close/);
   await f.host.open(f.event, f.input);
   await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /1 terminals open, 0 are yours/);
-  free = 2 * 1024 ** 3;
+  free = 100 * 1024 ** 2;
   await f.host.openForBot("bot-1", { label: "w" });
 });
 
@@ -1152,6 +1154,50 @@ test("worker panes drop to below-normal priority, main terminals stay normal, an
   refuse = true;
   await f.host.openForBot("bot-1", { label: "w2" });
   assert.deepEqual(calls, [[102, os.constants.priority.PRIORITY_BELOW_NORMAL], [103, os.constants.priority.PRIORITY_BELOW_NORMAL]]);
+});
+
+test("a codex pane opens at 0.8 GB free", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.8 * 1024 ** 3 });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "worker", command: "codex --model gpt-5 'hi'" });
+  assert.ok(pane.sessionId);
+});
+
+test("a claude pane is refused at 0.5 GB with 0.6 GB needed", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.5 * 1024 ** 3 });
+  owner = f.owner;
+  await assert.rejects(f.host.openForBot("bot-1", { label: "worker", command: "claude --model opus 'hi'" }), /Not enough free memory for another terminal \(0\.5 GB free, 0\.6 GB needed;/);
+});
+
+test("a plain shell opens at 0.2 GB free", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.2 * 1024 ** 3 });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "shell" });
+  assert.ok(pane.sessionId);
+});
+
+test("the gate reads the engine past $env prefixes, paths and extensions", async () => {
+  let owner;
+  let free = 0.35 * 1024 ** 3;
+  const f = fixture({ owner: () => owner, freeMemory: () => free });
+  owner = f.owner;
+  const agy = await f.host.openForBot("bot-1", { label: "a", command: "$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; agy --model gemini-4-argon-high -i 'hi'" });
+  assert.ok(agy.sessionId);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "c", command: "C:\\tools\\Claude.EXE --model opus 'hi'" }), /0\.6 GB needed/);
+  free = 0.2 * 1024 ** 3;
+  await assert.rejects(f.host.openForBot("bot-1", { label: "g", command: "grok -m g1 --effort high 'hi'" }), /0\.3 GB needed/);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "e", command: "echo ok" }), /0\.3 GB needed/);
+});
+
+test("the gate reads a quoted engine path with spaces", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.35 * 1024 ** 3 });
+  owner = f.owner;
+  await assert.rejects(f.host.openForBot("bot-1", { label: "c", command: "& \"C:\\Program Files\\Claude\\claude.exe\" --model opus 'hi'" }), /0\.6 GB needed/);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "s", command: "'C:\\My Tools\\claude.cmd' --model opus 'hi'" }), /0\.6 GB needed/);
 });
 
 test("openForBot submits a command with exactly one Enter", async () => {
@@ -2144,4 +2190,189 @@ test("a remote open refuses a bad bot, a folder pick or a missing window", async
   await assert.rejects(f.host.openMainForBot("../x"), /Invalid bot/);
   await assert.rejects(f.host.openMainForBot("bot-1"), /folder is unavailable/);
   assert.equal(f.children.length, 0);
+});
+
+const contextScreen = (footer) => `\x1b[2J\x1b[H✻ Worked for 54m 33s · done 12:11 AM\r\n${"─".repeat(40)}\r\n> \r\n${"─".repeat(40)}\r\n${footer}\r\n`;
+const contextNotes = (f) => f.notes.map((note) => note.text).filter((text) => text.startsWith("CONTEXT:"));
+const DRIFT = "Long runs drift: if it has real work left, have it save progress and hand off to a FRESH worker from its card and progress file.";
+
+for (const [name, engine, footer, context] of [
+  ["Claude near its 500k compact window", "claude", "  ⏵⏵ bypass permissions on · 3% until auto-compact", { left: 3 }],
+  ["Claude near a 300k compact window", "claude", "  ⏵⏵ bypass permissions on · 7% until auto-compact", { left: 7 }],
+  ["Claude with compaction off", "claude", "  Context low (8% remaining) · Run /compact to compact & continue", { left: 8 }],
+  ["Claude below its warning, custom status line", "claude", "  ▰▰▰▱▱ 59% │ ↑409.3k ↓444 │ 5h: ▱▱▱▱▱ 0% (1h47m)\r\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents", undefined],
+  ["Codex footer", "codex", "  100% context left · ? for shortcuts", { left: 100 }],
+  ["Codex status line", "codex", "  gpt-6 high · Context 45% left · ~/work", { left: 45 }],
+  ["Grok", "grok", "  grok-4.5 · 32K / 256K", { tokens: 32_000, left: 88 }],
+  ["Grok's numbers on a Codex screen", "codex", "  grok-4.5 · 32K / 256K", undefined],
+  ["Muse", "muse", "  muse-2 · ready", undefined],
+]) {
+  test(`the pane list carries the context the screen shows: ${name}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openMainForBot("bot-1");
+    await f.host.openForBot("bot-1", { label: "W", command: `${engine} go` });
+    f.children[0].data(contextScreen("  10% context left"));
+    f.children[1].data(contextScreen(footer));
+    const panes = f.host.readBot("bot-1").panes;
+    assert.equal("context" in panes[0], false);
+    assert.deepEqual(panes[1].context, context);
+  });
+}
+
+test("a CONTEXT note goes once per crossing and again after a compaction", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "PIXEL | gpt-6 | high", command: "codex go" });
+  for (const left of [60, 51]) {
+    f.children[0].data(contextScreen(`  ${left}% context left · ? for shortcuts`));
+    await f.advance(10_000);
+  }
+  assert.deepEqual(contextNotes(f), []);
+  f.children[0].data(contextScreen("  45% context left · ? for shortcuts"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: PIXEL is at 55% of its window. ${DRIFT}`]);
+  assert.equal(f.notes.at(-1).scope.pane, pane.sessionId);
+  for (const left of [30, 12]) {
+    f.children[0].data(contextScreen(`  ${left}% context left · ? for shortcuts`));
+    await f.advance(10_000);
+  }
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(contextScreen("  95% context left · ? for shortcuts"));
+  await f.advance(10_000);
+  f.children[0].data(contextScreen("  48% context left · ? for shortcuts"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f).slice(1), [`CONTEXT: PIXEL is at 52% of its window. ${DRIFT}`]);
+  assert.equal(f.children[0].writes.join(""), "codex go\r");
+});
+
+test("a Grok CONTEXT note goes at 200k tokens, not at half its window", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "GROKKER | grok-4.5 | high", command: "grok go" });
+  f.children[0].data(contextScreen("  grok-4.5 · 199K / 256K"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), []);
+  f.children[0].data(contextScreen("  grok-4.5 · 213K / 256K"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: GROKKER is at 213k context (83% of its window). ${DRIFT}`]);
+});
+
+for (const output of ["213K / 256K", "Downloaded 213K / 256K", "Example: grok-4.5 · 213K / 256K"]) {
+  test(`a Grok CONTEXT note ignores ordinary output: ${output}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "GROKKER", command: "grok go" });
+    f.children[0].data(contextScreen(`  ${output}`));
+    await f.advance(10_000);
+    assert.deepEqual(contextNotes(f), []);
+    assert.equal("context" in f.host.readBot("bot-1").panes[0], false);
+  });
+}
+
+test("a Claude CONTEXT note waits for its own footer and stays once when it clears", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "SHOP | claude-opus-5-5 | high", command: "claude go" });
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), []);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 93% of its window. ${DRIFT}`]);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+});
+
+test("a Claude CONTEXT note re-arms after a compact signal", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  const signal = path.join(os.tmpdir(), `orbit-compact-${pane.sessionId}`);
+  t.after(() => fs.rmSync(signal, { force: true }));
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 93% of its window. ${DRIFT}`]);
+  fs.writeFileSync(signal, "");
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f).slice(1), [`CONTEXT: SHOP is at 94% of its window. ${DRIFT}`]);
+  assert.equal(f.children[0].options.env.ORBIT_COMPACT_SIGNAL, signal);
+  assert.equal(fs.existsSync(signal), false);
+});
+
+test("a Claude CONTEXT note waits for the low footer to clear after a compact signal", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  const signal = path.join(os.tmpdir(), `orbit-compact-${pane.sessionId}`);
+  t.after(() => fs.rmSync(signal, { force: true }));
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  fs.writeFileSync(signal, "");
+  await f.advance(10_000);
+  await f.advance(10_000);
+  f.children[0].data("\x1b[HReinjecting the card\r\n");
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [
+    `CONTEXT: SHOP is at 93% of its window. ${DRIFT}`,
+    `CONTEXT: SHOP is at 94% of its window. ${DRIFT}`,
+  ]);
+});
+
+test("a fresh worker command re-arms its CONTEXT note in the same pane", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "continue\r" });
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(finishedMark(pane));
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "claude next\r" });
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [
+    `CONTEXT: SHOP is at 93% of its window. ${DRIFT}`,
+    `CONTEXT: SHOP is at 94% of its window. ${DRIFT}`,
+  ]);
+  assert.equal(f.children.length, 1);
+});
+
+test("the compact hook signals only a confirmed compact SessionStart", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orbit-compact-signal-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const bin = await installOrbitMsg(path.join(dir, "bin"), "win32");
+  const signal = path.join(dir, "signal");
+  for (const [part, hook] of [
+    ["card", { hook_event_name: "SessionStart", source: "startup" }],
+    ["card", { hook_event_name: "Stop", source: "compact" }],
+    ["progress", { hook_event_name: "SessionStart", source: "compact" }],
+    ["card", { hook_event_name: "SessionStart", source: "compact" }],
+  ]) {
+    await new Promise((resolve, reject) => {
+      const child = execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(bin, "orbit-compact.ps1"), part],
+        { windowsHide: true, env: { ...process.env, ORBIT_COMPACT_SIGNAL: signal } },
+        (error) => error ? reject(error) : resolve());
+      child.stdin.end(JSON.stringify(hook));
+    });
+    assert.equal(fs.existsSync(signal), part === "card" && hook.hook_event_name === "SessionStart" && hook.source === "compact");
+  }
 });

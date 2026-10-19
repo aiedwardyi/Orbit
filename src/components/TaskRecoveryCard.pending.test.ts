@@ -48,6 +48,7 @@ async function mount(post: () => Promise<Response> = async () => Response.json({
   const fetch = vi.fn(async (url: string) => {
     if (String(url).endsWith("/resume")) return post();
     if (String(url) === "/api/bots?messages=200") return Response.json({ bots: [bot], groups: [], computerControl: {} });
+    if (String(url) === "/api/instances") return Response.json({ instances: [] });
     return Response.json({});
   });
   vi.stubGlobal("fetch", fetch);

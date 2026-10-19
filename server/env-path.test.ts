@@ -8,6 +8,7 @@ import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { augmentedPath, resetPathCache, resetPathCacheForTests, splitCliString, toWslPath, windowsKnownDirs } from "./env-path.ts";
+import * as paths from "./env-path.ts";
 import { resolveCli } from "./procs.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
@@ -17,6 +18,28 @@ describe("augmentedPath", () => {
   afterEach(() => {
     delete process.env.OMB_EXTRA_PATH;
     resetPathCacheForTests();
+  });
+
+  it("reuses the disk scan at boot and finds installs and removals in one refresh", async () => {
+    const bin = join(homedir(), "cached-bin");
+    mkdirSync(bin, { recursive: true });
+    process.env.OMB_EXTRA_PATH = bin;
+    const name = "first-send-cache-probe";
+    const file = join(bin, name + (process.platform === "win32" ? ".CMD" : ""));
+    writeFileSync(file, "fixture");
+    const refresh = Reflect.get(paths, "refreshPathCache") as ((names: string[]) => Promise<void>) | undefined;
+    resetPathCacheForTests();
+    if (refresh) await refresh([name]);
+    const saved = paths.findCliCandidates(name);
+    expect(saved).toEqual([file]);
+    rmSync(file);
+    resetPathCacheForTests();
+    expect(paths.findCliCandidates(name)).toEqual(saved);
+    await refresh!([name]);
+    expect(paths.findCliCandidates(name)).toEqual([]);
+    writeFileSync(file, "installed again");
+    await refresh!([name]);
+    expect(paths.findCliCandidates(name)).toEqual(saved);
   });
 
   it("keeps the existing PATH entries first", () => {

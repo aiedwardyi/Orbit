@@ -130,6 +130,7 @@ describe("vals page", () => {
     expect(() => vals.parsePage(html.replace("legal_bench&quot;],&quot;family", "legal&quot;],&quot;family"))).toThrow(Unverifiable);
     expect(() => vals.parsePage(html.replace("overall", "all"))).toThrow(Unverifiable);
     expect(() => vals.parsePage(html.replace("accuracy&quot;:[0,88.561]", "accuracy&quot;:[0,null]"))).toThrow(Unverifiable);
+    expect(() => vals.parsePage(html.replaceAll("cost_per_test", "cost"))).toThrow(/no cost per test/);
   });
 
   it("builds only mapped rows and refuses a new benchmark version", () => {
@@ -138,6 +139,17 @@ describe("vals page", () => {
     expect(snapshot.rows.map((row) => `${row.model} ${row.value}`)).toEqual(["gemini-3.8-flash 86.993", "grok-4.6 86.307"]);
     expect(unmapped).toContain("anthropic/claude-fable-5");
     expect(() => vals.buildSnapshot({ page, models, retrievedAt: "T", previous: { ...previous, version: "2" } })).toThrow(/version/);
+  });
+
+  it("carries each row's cost per test from the same run, none where the page has null", () => {
+    const page = vals.parsePage(fixture("vals-legal-bench.html"));
+    expect(page.cost.get("anthropic/claude-fable-5")).toBe(0.030639);
+    expect(page.cost.has("cohere/command-r")).toBe(false);
+    const { snapshot } = vals.buildSnapshot({ page, models, retrievedAt: "T", previous: { ...previous, version: "1" } });
+    expect(snapshot.rows.map((row) => [row.model, row.cost_per_task, row.cost_benchmark, row.cost_source])).toEqual([
+      ["gemini-3.8-flash", 0.008109, "vals-legalbench", "https://www.vals.ai/benchmarks/legal_bench"],
+      ["grok-4.6", 0.01457, "vals-legalbench", "https://www.vals.ai/benchmarks/legal_bench"],
+    ]);
   });
 });
 

@@ -54,7 +54,7 @@ export interface LiveEventsHandlers {
    * replay gap cannot be filled. The transport commits the new cursor only
    * after this succeeds; false/rejection closes the stream and retries from
    * the last known-good boundary. */
-  onSnapshotRequired: () => Promise<boolean>;
+  onSnapshotRequired: (cursor?: string) => Promise<boolean>;
   onOpen?: () => void;
   onError?: () => void;
   screens?: boolean;
@@ -78,6 +78,16 @@ export function isLivePing(frame: Pick<LiveFrame, "kind">): boolean {
 // Cursors read `<stream>:<seq>`; NaN when there is no sequence to compare.
 function cursorSeq(cursor?: string): number {
   return Number(cursor?.slice(cursor.lastIndexOf(":") + 1) || NaN);
+}
+
+export function snapshotCoversHello(snapshot: unknown, hello?: string): boolean {
+  if (typeof snapshot !== "string" || !hello) return false;
+  const split = snapshot.lastIndexOf(":");
+  const boundary = hello.lastIndexOf(":");
+  const seq = cursorSeq(snapshot);
+  const since = cursorSeq(hello);
+  return split > 0 && boundary > 0 && snapshot.slice(0, split) === hello.slice(0, boundary) &&
+    Number.isSafeInteger(seq) && Number.isSafeInteger(since) && seq >= since;
 }
 
 export function shouldReconnectLiveEvents(
@@ -301,7 +311,7 @@ export function openLiveEvents(
           void (async () => {
             let loaded = false;
             try {
-              loaded = await handlers.onSnapshotRequired();
+              loaded = await handlers.onSnapshotRequired(frame.cursor);
             } catch {
               loaded = false;
             }

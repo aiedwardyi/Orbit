@@ -42,6 +42,7 @@ import { SKINS, applySkin, nextSkin, readSkin, type SkinId } from "@/lib/skins";
 import { Presence } from "@/lib/use-presence";
 import { lazyView, useStaleBuildReload } from "@/lib/stale-build";
 import { markColdOpen, noteChatShown, startWarmOpenTiming } from "@/lib/cold-open-timing";
+import { startIdleMotion } from "@/lib/idle-motion";
 
 const Onboarding = lazyView(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsPanel = lazyView(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -815,6 +816,7 @@ function setOnboardingDone() {
 export default function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(() => !onboardingDone());
   useEffect(() => markColdOpen("mount"), []);
+  useEffect(() => startIdleMotion(), []);
   return (
     <I18nProvider>
       <DesktopCapabilitiesProvider>

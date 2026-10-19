@@ -44,7 +44,10 @@ const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 export const BOT_PANE_LIMIT = 16;
 const SESSION_LIMIT = 32;
-const MIN_FREE_MEMORY = 2 * 1024 ** 3;
+const MB = 1024 ** 2;
+const ENGINE_MEMORY_FLOOR = { claude: 600 * MB, codex: 150 * MB, muse: 150 * MB };
+const OTHER_MEMORY_FLOOR = 300 * MB;
+const SHELL_MEMORY_FLOOR = 100 * MB;
 const LABEL_LIMIT = 40;
 const MIN_ID_PREFIX_LEN = 8;
 const CLOSED_PANE_HISTORY_LIMIT = 32;
@@ -186,6 +189,45 @@ function stallNoteText(screenText, stallMs, cwd, engine, cols) {
   return `STALLED: no screen change for ${Math.max(1, Math.round(stallMs / 60_000))} min and no report. It may be stuck on a usage limit, a menu or an error. terminal_read its pane, then act or tell the user. Last lines:\n${tail}`;
 }
 
+// What each engine's own footer shows; Claude's appears only near its compact threshold.
+const CONTEXT_RES = {
+  claude: [[/\b(\d{1,3})% until auto-compact\b/, "left"], [/\bContext low \((\d{1,3})% remaining\)/, "left"], [/\b(\d{1,3})% context used\b/, "used"]],
+  codex: [[/\b(\d{1,3})% context left\b/, "left"], [/\bContext (\d{1,3})% left\b/, "left"], [/\bContext (\d{1,3})% used\b/, "used"]],
+};
+const GROK_CONTEXT_RE = /^\s*grok-[\w.-]+ · (\d+(?:\.\d+)?)([KM])? \/ (\d+(?:\.\d+)?)([KM])\s*$/;
+const CONTEXT_FOOTER_LINES = 6;
+const CONTEXT_NOTE_TOKENS = 200_000;
+const tokenCount = (value, unit) => Math.round(Number(value) * (unit === "M" ? 1_000_000 : unit === "K" ? 1_000 : 1));
+
+function paneContext(screenText, engine) {
+  const lines = screenText.split("\n").filter((line) => line.trim()).slice(-CONTEXT_FOOTER_LINES).reverse();
+  for (const line of lines) {
+    if (engine === "grok") {
+      const match = GROK_CONTEXT_RE.exec(line);
+      if (!match) continue;
+      const tokens = tokenCount(match[1], match[2]);
+      const windowTokens = tokenCount(match[3], match[4]);
+      if (windowTokens > 0 && tokens <= windowTokens) return { tokens, left: Math.round((1 - tokens / windowTokens) * 100) };
+      continue;
+    }
+    for (const [re, kind] of CONTEXT_RES[engine] ?? []) {
+      const match = re.exec(line);
+      const percent = match ? Number(match[1]) : NaN;
+      if (percent <= 100) return { left: kind === "left" ? percent : 100 - percent };
+    }
+  }
+  return null;
+}
+
+const contextOver = (context) => context.tokens !== undefined ? context.tokens >= CONTEXT_NOTE_TOKENS : context.left <= 50;
+
+function contextNoteText(label, context) {
+  const nick = label?.split("|")[0].trim() || "this worker";
+  const used = `${100 - context.left}% of its window`;
+  const size = context.tokens !== undefined ? `${Math.round(context.tokens / 1000)}k context (${used})` : used;
+  return `CONTEXT: ${nick} is at ${size}. Long runs drift: if it has real work left, have it save progress and hand off to a FRESH worker from its card and progress file.`;
+}
+
 function finishedNoteText(screenText) {
   const tail = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES).join("\n");
   return `FINISHED: command ended without a report. terminal_read its pane, then act or tell the user. Last lines:\n${tail}`;
@@ -257,6 +299,16 @@ export function trustedTerminalSender(event, owner, origin) {
   } catch {
     return false;
   }
+}
+
+// First command token names the pane's engine; $env:... assignments before it (agy line) do not.
+function paneMemoryFloor(command) {
+  if (!command || !command.trim()) return SHELL_MEMORY_FLOOR;
+  const bare = command.replace(/^(?:\s*\$env:[^;]*;)+/i, "").trim();
+  const m = bare.match(/^[&\s]*(?:"([^"]+)"|'([^']+)'|([^\s"';&|]+))/);
+  const token = m?.[1] ?? m?.[2] ?? m?.[3] ?? "";
+  const engine = token.split(/[\\/]/).pop().replace(/\.(exe|cmd|ps1)$/i, "").toLowerCase();
+  return ENGINE_MEMORY_FLOOR[engine] ?? OTHER_MEMORY_FLOOR;
 }
 
 function paneLabel(value) {
@@ -420,7 +472,25 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         continue;
       }
       if (!session.worker || session.retired || session.exitCode !== null) continue;
+      if (session.engine === "claude" && session.compactSignal && fs.existsSync(session.compactSignal)) {
+        try {
+          fs.unlinkSync(session.compactSignal);
+          session.contextCompactPending = true;
+        } catch {}
+      }
       const text = session.screen.text();
+      const context = paneContext(text, session.engine);
+      // The compact hook can run before Claude clears its old low-context footer.
+      if (session.contextCompactPending && (!context || !contextOver(context))) {
+        session.contextCompactPending = false;
+        session.contextNote = null;
+      }
+      // A compaction back under the line re-arms the note.
+      if (context && !contextOver(context)) session.contextNote = null;
+      else if (!session.contextCompactPending && context && session.mail && at >= (session.contextNote?.retryAt ?? 0)) {
+        const note = session.contextNote ??= { tries: 0, retryAt: 0 };
+        postNote(session, note, contextNoteText(session.label, context), () => { note.retryAt = Infinity; });
+      }
       const limit = usageLimit(text, session.engine, session.cols);
       const limitKey = limit ? JSON.stringify([session.engine, limit.reset.replace(/\s+/g, "")]) : null;
       if (session.stallDirty) {
@@ -527,6 +597,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           }
         }
       }
+      if (session.compactSignal) { try { fs.unlinkSync(session.compactSignal); } catch {} }
       if (sessions.get(session.id) === session) sessions.delete(session.id);
     })();
     return session.stopPromise;
@@ -617,7 +688,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     // A pane without orbit-msg beats no pane at all.
     const mail = await Promise.resolve().then(mailbox).catch(() => null);
     const paneEnv = terminalPaneEnv(terminalEnvironment(env), { pane: id, bot: input.botId, teacher: folder.teacher, mailbox: mail });
-    if (botPane) Object.assign(paneEnv, BOT_PANE_ENV);
+    if (botPane) Object.assign(paneEnv, BOT_PANE_ENV, { ORBIT_COMPACT_SIGNAL: path.join(os.tmpdir(), `orbit-compact-${id}`) });
     let pty;
     try {
       pty = await loadPty().spawn(shell, platform === "win32" ? (botPane ? workerShellArgs(id) : ["-NoLogo"]) : [], {
@@ -631,9 +702,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
-      workerReady: false, mail, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
+      workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
-      reported: false, finished: [], autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false,
+      reported: false, finished: [], autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, contextNote: null, contextCompactPending: false,
     };
     session.outputParser = createTerminalOutputParser((osc) => {
       if (!session.botPane || osc !== `133;D;${session.id}`) return;
@@ -696,6 +767,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const launched = session.botPane ? WORKER_CLI_RE.exec(text) : null;
       if (launched) {
         session.engine = launched[1].toLowerCase();
+        session.contextNote = null;
+        session.contextCompactPending = false;
         watchStalls(session);
       }
       if (session.botPane) paneRuns?.started({ id: session.id, botId: session.botId, teacher: session.teacher, label: session.label, cwd: session.cwd, spawnedAt: session.spawnedAt });
@@ -940,7 +1013,13 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           exitCode: session.exitCode,
           exited: session.exitCode !== null,
           ...session.screen.snapshot({ maxScreenChars, maxScrollbackChars }),
-          panes: live.map((pane) => ({ ...paneSummary(pane), screenText: pane.screen.text() })),
+          panes: live.map((pane) => {
+            const screenText = pane.screen.text();
+            const entry = { ...paneSummary(pane), screenText };
+            const context = pane.botPane ? paneContext(screenText, pane.engine) : null;
+            if (context) entry.context = context;
+            return entry;
+          }),
           closedPanes,
         };
       };
@@ -1061,8 +1140,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
       const yours = () => botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length + botReserved;
       if (liveSessions() + reservedPanes >= SESSION_LIMIT) throw new Error(`Too many terminal sessions (${SESSION_LIMIT} open across all bots and main terminals; ${yours()} are yours). Close one of yours with terminal_close, or ask the user to close others.`);
+      const floor = paneMemoryFloor(input.command);
       const free = freeMemory();
-      if (free < MIN_FREE_MEMORY) throw new Error(`Not enough free memory for another terminal (${(free / 1024 ** 3).toFixed(1)} GB free, 2 GB needed; ${liveSessions() + reservedPanes} terminals open, ${yours()} are yours). Close a finished pane with terminal_close.`);
+      if (free < floor) throw new Error(`Not enough free memory for another terminal (${(free / 1024 ** 3).toFixed(1)} GB free, ${(floor / 1024 ** 3).toFixed(1)} GB needed; ${liveSessions() + reservedPanes} terminals open, ${yours()} are yours). Close a finished pane with terminal_close.`);
       paneReservations.set(botId, botReserved + 1);
       reservedPanes += 1;
       let session;

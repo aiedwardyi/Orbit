@@ -199,20 +199,15 @@ describe("model filter", () => {
     }
   });
 
-  it("charts Argon on Legal and Cost, its only indexes with data", () => {
+  it("charts Argon on every tab but DeepSWE, which has not run it", () => {
     const named = () => [...host.querySelectorAll('[tabindex="0"]')].map((el) => el.getAttribute("aria-label") ?? el.textContent ?? "").join("|");
-    for (const benchmark of ["Intelligence", "Coding", "General work"]) {
-      pick("Benchmark", benchmark);
-      expect(named(), benchmark).not.toMatch(/Argon/);
-      if (benchmark === "Coding") {
-        pick("Coding benchmark", "DeepSWE");
-        expect(named(), "DeepSWE").not.toMatch(/Argon/);
-      }
-    }
-    for (const benchmark of ["Legal", "Cost"]) {
+    for (const benchmark of ["Intelligence", "Coding", "General work", "Legal", "Cost"]) {
       pick("Benchmark", benchmark);
       expect(named(), benchmark).toMatch(/Gemini 4 Argon/);
     }
+    pick("Benchmark", "Coding");
+    pick("Coding benchmark", "DeepSWE");
+    expect(named(), "DeepSWE").not.toMatch(/Argon/);
   });
 });
 
@@ -276,6 +271,14 @@ describe("promo price on the cost tab", () => {
 });
 
 describe("score vs cost", () => {
+  it("draws Legal against each model's cost per test", () => {
+    pick("Benchmark", "Legal");
+    expect(group("Chart")!.querySelector<HTMLButtonElement>('[role="radio"]')!.disabled).toBe(false);
+    expect(chosen("Chart")).toBe("Score vs cost");
+    expect(host.querySelector('[aria-label="Claude Fable 5 all"]')?.closest("[data-mi-move]")).not.toBeNull();
+    expect(host.textContent).toContain("Cost per task →");
+  });
+
   it("plots each effort at its own cost to run, not one list price", () => {
     const x = (effort: string) =>
       host.querySelector(`[aria-label="Claude Opus 5.5 ${effort}"]`)?.closest<HTMLElement>("[data-mi-move]")?.style.transform.match(/translate\(([\d.]+)px/)?.[1];
