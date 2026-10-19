@@ -2545,7 +2545,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                 isLastBotText={false}
                 sendsNext={sendsNext && index === 0}
                 queuedActions={{
-                  sendNow: engine?.capabilities?.queueing === true && pending?.some((entry) => entry.queueId === m.id && entry.sendId)
+                  // Send now steers the running turn; a preparing turn has nothing to steer into yet.
+                  sendNow: engine?.capabilities?.queueing === true && turnSignal !== "preparing" && pending?.some((entry) => entry.queueId === m.id && entry.sendId)
                     ? () => dispatch({ type: "sendQueuedNow", botId: bot.id, threadId: bot.threadId, queueId: m.id })
                     : undefined,
                   cancel: () => dispatch({ type: "cancelQueued", botId: bot.id, threadId: bot.threadId, queueId: m.id }),

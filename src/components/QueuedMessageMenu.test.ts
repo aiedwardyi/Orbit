@@ -118,11 +118,21 @@ async function mount(room = false, steering = true, coarse = false, locale = "en
     expect(document.querySelector("[data-message-menu]")).not.toBeNull();
   };
   const click = (selector: string) => act(async () => document.querySelector<HTMLButtonElement>(selector)!.click());
+  const emit = (frame: object) => act(async () => {
+    FakeEventSource.last.onmessage!({ data: JSON.stringify(frame), lastEventId: "q:9" });
+  });
+  // Reply actually running: dispatch announced the turn, then startTurn claimed it.
+  const running = async () => {
+    await emit({ kind: "turn.dispatch", threadId: "thread-helper", createdAt: "2026-01-01T00:00:00.000Z" });
+    await emit({ kind: "runtime", event: {
+      type: "turn.started", threadId: "thread-helper", turnId: "turn1", createdAt: new Date().toISOString(),
+    } });
+  };
   const idle = () => act(async () => {
     if (room) store!.dispatch({ type: "groupPatched", group: { id: group.id, working: false, busyBotId: undefined } });
     else store!.dispatch({ type: "botPatched", bot: { ...bot, busy: false, activity: "idle" } });
   });
-  return { host, posts, deletes, send, open, click, idle, store: () => store! };
+  return { host, posts, deletes, send, open, click, idle, emit, running, store: () => store! };
 }
 
 describe("queued message menu", () => {
@@ -132,6 +142,7 @@ describe("queued message menu", () => {
   ])("offers Enter's choices: room=%s steering=%s touch=%s", async (room, steering, touch) => {
     const ui = await mount(room, steering, touch);
     await ui.send("held");
+    if (!room) await ui.running();
     await ui.open("held");
     const labels = [...document.querySelectorAll("[data-message-menu] button")].map((el) => el.textContent);
     expect(labels).toEqual(!room && steering ? ["Send now", "Cancel"] : ["Cancel"]);
@@ -140,15 +151,35 @@ describe("queued message menu", () => {
   it.each([false, true])("translates the queued menu, room=%s", async (room) => {
     const ui = await mount(room, true, false, "ko");
     await ui.send("held");
+    if (!room) await ui.running();
     await ui.open("held");
     expect([...document.querySelectorAll("[data-message-menu] button")].map((el) => el.textContent))
       .toEqual(room ? ["취소"] : ["지금 보내기", "취소"]);
+  });
+
+  it("hides Send now while the turn still prepares, shows it once the reply runs", async () => {
+    const ui = await mount();
+    await ui.send("held");
+    await ui.open("held");
+    expect([...document.querySelectorAll("[data-message-menu] button")].map((el) => el.textContent))
+      .toEqual(["Send now", "Cancel"]);
+    await ui.emit({ kind: "turn.dispatch", threadId: "thread-helper", createdAt: "2026-01-01T00:00:00.000Z" });
+    await ui.open("held");
+    expect([...document.querySelectorAll("[data-message-menu] button")].map((el) => el.textContent))
+      .toEqual(["Cancel"]);
+    await ui.emit({ kind: "runtime", event: {
+      type: "turn.started", threadId: "thread-helper", turnId: "turn1", createdAt: new Date().toISOString(),
+    } });
+    await ui.open("held");
+    expect([...document.querySelectorAll("[data-message-menu] button")].map((el) => el.textContent))
+      .toEqual(["Send now", "Cancel"]);
   });
 
   it("promotes through Enter's POST with the original send identity", async () => {
     const ui = await mount();
     await ui.send("Enter path", false);
     await ui.send("held");
+    await ui.running();
     const queued = ui.posts[1]!;
     await ui.open("held");
     await ui.click("[data-menu-send-now]");
@@ -162,6 +193,7 @@ describe("queued message menu", () => {
   it("keeps one bubble while the promotion POST is pending", async () => {
     const ui = await mount();
     await ui.send("held");
+    await ui.running();
     const served = globalThis.fetch;
     let finish!: (response: Response) => void;
     vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
@@ -198,6 +230,7 @@ describe("queued message menu", () => {
   it("sends once when the queued line drains while its menu is open", async () => {
     const ui = await mount();
     await ui.send("held");
+    await ui.running();
     const sendId = ui.posts[0]!.body.sendId;
     await ui.open("held");
     await act(async () => {
