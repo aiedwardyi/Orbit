@@ -175,10 +175,13 @@ describe("sourced data", () => {
     expect(MODEL_INDEX_AS_OF).toBe(new Date(newest).toISOString().slice(0, 10));
   });
 
-  it("charts Legal as bars: one score per model, no effort, no cost", () => {
+  it("charts Legal at each model's own Vals cost per test, one score per model", () => {
     const legal = MODEL_INDEX_ENTRIES.filter((e) => e.index === "legal");
     expect(legal.length).toBeGreaterThan(0);
-    for (const e of legal) expect([e.effort, e.cost], e.model).toEqual(["all", undefined]);
+    for (const e of legal) {
+      expect([e.effort, e.costBenchmark, e.costSource], e.model).toEqual(["all", "vals-legalbench", "https://www.vals.ai/benchmarks/legal_bench"]);
+      expect(e.cost, e.model).toBeGreaterThan(0);
+    }
   });
 
   it("records the Gemini 3.8 Flash promo end and the Haiku 5.5 prompt tier", () => {
@@ -198,10 +201,15 @@ describe("sourced data", () => {
     expect([argon?.next?.input, argon?.next?.output]).toEqual([4, 20]);
   });
 
-  it("charts Argon on Legal from Vals and nowhere else", () => {
+  it("charts Argon high on the three AA indexes and on Legal from Vals, not on DeepSWE", () => {
     const scored = MODEL_INDEX_ENTRIES.filter((e) => e.model === "gemini-4-argon" && e.index !== "cost");
-    expect(scored.map((e) => [e.index, e.benchmark, e.score])).toEqual([["legal", "vals-legalbench", 88.299]]);
-    expect(scored[0]?.kind).toBe("independent");
+    expect(scored.map((e) => [e.index, e.benchmark, e.effort, e.score, e.cost])).toEqual([
+      ["general", "aa-gdpval", "high", 1623.99, 1.8192251097173668],
+      ["intelligence", "aa-intelligence-index", "high", 52.5605655745982, 1.990322379299008],
+      ["agentic", "aa-terminal-bench", "high", 57.0707070707071, 6.780140181187823],
+      ["legal", "vals-legalbench", "all", 88.299, 0.016117],
+    ]);
+    for (const e of scored) expect(e.kind).toBe("independent");
   });
 });
 
