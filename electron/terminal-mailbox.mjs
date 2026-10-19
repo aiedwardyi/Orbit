@@ -266,6 +266,10 @@ function Get-Block([string]$Label, [string]$Path, [string]$Text, [int]$Keep, [bo
 }
 try {
   $hook = (New-Object IO.StreamReader([Console]::OpenStandardInput(), $utf8)).ReadToEnd() | ConvertFrom-Json
+  if ($part -eq 'card' -and $hook.hook_event_name -eq 'SessionStart' -and $hook.source -eq 'compact' -and $env:ORBIT_COMPACT_SIGNAL) {
+    # Hook stdout belongs to Claude; the pane watches this file instead.
+    try { [IO.File]::WriteAllText($env:ORBIT_COMPACT_SIGNAL, '') } catch {}
+  }
   $cwd = [string]$hook.cwd
   $ask = New-Object Text.RegularExpressions.Regex('^\s*Read\s+"?(.+?\.md)"?\s+and do it')
   $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)

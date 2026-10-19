@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import test from "node:test";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { createTerminalHost, createTerminalOutputParser, resolveBotSession, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender } from "./terminal-host.mjs";
+import { installOrbitMsg } from "./terminal-mailbox.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 
 function fixture(options = {}) {
@@ -2214,4 +2216,67 @@ test("a Claude CONTEXT note waits for its own footer and stays once when it clea
   f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
   await f.advance(10_000);
   assert.equal(contextNotes(f).length, 1);
+});
+
+test("a Claude CONTEXT note re-arms after a compact signal", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  const signal = path.join(os.tmpdir(), `orbit-compact-${pane.sessionId}`);
+  t.after(() => fs.rmSync(signal, { force: true }));
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 93% of its window. ${DRIFT}`]);
+  fs.writeFileSync(signal, "");
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f).slice(1), [`CONTEXT: SHOP is at 94% of its window. ${DRIFT}`]);
+  assert.equal(f.children[0].options.env.ORBIT_COMPACT_SIGNAL, signal);
+  assert.equal(fs.existsSync(signal), false);
+});
+
+test("a fresh worker command re-arms its CONTEXT note in the same pane", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "continue\r" });
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(finishedMark(pane));
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "claude next\r" });
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [
+    `CONTEXT: SHOP is at 93% of its window. ${DRIFT}`,
+    `CONTEXT: SHOP is at 94% of its window. ${DRIFT}`,
+  ]);
+  assert.equal(f.children.length, 1);
+});
+
+test("the compact hook signals only a confirmed compact SessionStart", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orbit-compact-signal-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const bin = await installOrbitMsg(path.join(dir, "bin"), "win32");
+  const signal = path.join(dir, "signal");
+  for (const [part, hook] of [
+    ["card", { hook_event_name: "SessionStart", source: "startup" }],
+    ["card", { hook_event_name: "Stop", source: "compact" }],
+    ["progress", { hook_event_name: "SessionStart", source: "compact" }],
+    ["card", { hook_event_name: "SessionStart", source: "compact" }],
+  ]) {
+    await new Promise((resolve, reject) => {
+      const child = execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(bin, "orbit-compact.ps1"), part],
+        { windowsHide: true, env: { ...process.env, ORBIT_COMPACT_SIGNAL: signal } },
+        (error) => error ? reject(error) : resolve());
+      child.stdin.end(JSON.stringify(hook));
+    });
+    assert.equal(fs.existsSync(signal), part === "card" && hook.hook_event_name === "SessionStart" && hook.source === "compact");
+  }
 });

@@ -459,6 +459,12 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         continue;
       }
       if (!session.worker || session.retired || session.exitCode !== null) continue;
+      if (session.engine === "claude" && session.compactSignal && fs.existsSync(session.compactSignal)) {
+        try {
+          fs.unlinkSync(session.compactSignal);
+          session.contextNote = null;
+        } catch {}
+      }
       const text = session.screen.text();
       const context = paneContext(text, session.engine);
       // A compaction back under the line re-arms the note.
@@ -573,6 +579,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           }
         }
       }
+      if (session.compactSignal) { try { fs.unlinkSync(session.compactSignal); } catch {} }
       if (sessions.get(session.id) === session) sessions.delete(session.id);
     })();
     return session.stopPromise;
@@ -663,7 +670,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     // A pane without orbit-msg beats no pane at all.
     const mail = await Promise.resolve().then(mailbox).catch(() => null);
     const paneEnv = terminalPaneEnv(terminalEnvironment(env), { pane: id, bot: input.botId, teacher: folder.teacher, mailbox: mail });
-    if (botPane) Object.assign(paneEnv, BOT_PANE_ENV);
+    if (botPane) Object.assign(paneEnv, BOT_PANE_ENV, { ORBIT_COMPACT_SIGNAL: path.join(os.tmpdir(), `orbit-compact-${id}`) });
     let pty;
     try {
       pty = await loadPty().spawn(shell, platform === "win32" ? (botPane ? workerShellArgs(id) : ["-NoLogo"]) : [], {
@@ -677,7 +684,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
-      workerReady: false, mail, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
+      workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
       reported: false, finished: [], autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, contextNote: null,
     };
@@ -738,6 +745,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const launched = session.botPane ? WORKER_CLI_RE.exec(text) : null;
       if (launched) {
         session.engine = launched[1].toLowerCase();
+        session.contextNote = null;
         watchStalls(session);
       }
       if (session.botPane) paneRuns?.started({ id: session.id, botId: session.botId, teacher: session.teacher, label: session.label, cwd: session.cwd, spawnedAt: session.spawnedAt });
