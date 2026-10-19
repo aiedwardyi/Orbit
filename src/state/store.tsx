@@ -3175,6 +3175,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       return hydrationPromise;
     };
+    // Shows saved state if SSE never says hello; well past a cold start's slowest hello.
+    const hydrationFallback = setTimeout(hydrate, 10_000);
 
     // The hydrate decision belongs to the hello frame, not to onopen: the
     // server replays what we missed when it can, and re-downloading every
@@ -3450,6 +3452,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       onOpen: () => rawDispatch({ type: "connected", value: true }),
       onError: () => rawDispatch({ type: "connected", value: false }),
       onSnapshotRequired: (cursor) => {
+        clearTimeout(hydrationFallback);
         // Frames buffered before this non-resumable stream belong to an
         // abandoned generation. Keep the new generation behind hydrate().
         pendingFrames.splice(0);
@@ -3491,6 +3494,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       prefetchAbort.abort();
       document.removeEventListener("visibilitychange", flushOnVisibility);
       stopDeferredInstances();
+      clearTimeout(hydrationFallback);
       for (const refresh of peripheralRefresh.values()) {
         if (refresh.timer) clearTimeout(refresh.timer);
       }

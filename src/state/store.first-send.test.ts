@@ -95,6 +95,23 @@ describe("first-send hydration", () => {
     expect(reads).toBe(1);
   });
 
+  it("shows saved state when hello never arrives", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      vi.stubGlobal("fetch", vi.fn(async (url: string) => String(url) === "/api/bots?messages=200"
+        ? Response.json({ bots: [bot("Saved")], groups: [], cursor: "stream00:4" })
+        : Response.json({}, { status: 404 })));
+      await mount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
+      expect(store.state.hydrated).toBe(false);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+      await vi.waitFor(() => expect(store.state.hydrated).toBe(true));
+      expect(store.state.bots[0].name).toBe("Saved");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps frames received while the prefetched response is pending", async () => {
     let reads = 0;
     let release!: (response: Response) => void;
