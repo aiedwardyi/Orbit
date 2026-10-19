@@ -5044,3 +5044,20 @@ button:disabled.bg-danger {
   white-space: nowrap;
   will-change: transform;
 }
+
+/* Paused in the background. The needs-you pulse stays. */
+html[data-orbit-idle] :is(
+  .orbit-mark-rings,
+  .mascot-avatar .mascot-idle,
+  .mascot-avatar .mascot-blink,
+  .orbit-ring-spin,
+  .thinking-sheen,
+  .thinking-sheen > span,
+  .animate-spin
+) {
+  animation-play-state: paused;
+}
+
+html[data-orbit-idle] [data-orbit-composer-frame]:focus-within > [data-orbit-rainbow] > span {
+  animation-play-state: paused;
+}
