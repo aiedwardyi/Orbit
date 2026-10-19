@@ -148,9 +148,11 @@ test("notification never selects an unknown bot like a sidebar cannot", () => {
   const at = store.indexOf("export function openNotificationTarget(");
   assert.ok(at > -1);
   const fn = store.slice(at, at + 1500);
-  const guardAt = fn.indexOf("if (!bot) return;");
-  const botSelectAt = fn.indexOf('id: target.botId');
+  const ownerAt = fn.indexOf("const owner = notificationOwner(state, target);");
+  const guardAt = fn.indexOf("if (owner) dispatch(");
+  const botSelectAt = fn.indexOf('id: owner.id');
   assert.ok(guardAt > -1 && botSelectAt > -1);
+  assert.ok(ownerAt > -1 && ownerAt < guardAt);
   assert.ok(guardAt < botSelectAt, "must resolve the bot before dispatching select");
 });
 

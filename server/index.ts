@@ -8053,6 +8053,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             return [bot.id, { held: snapshot.held, helpReason: snapshot.helpReason }];
           }),
         ),
+        cursor: `${STREAM_ID}:${lastSeq}`,
       });
     }
     if (method === "PUT" && path === "/api/bots/order") {

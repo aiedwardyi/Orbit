@@ -61,7 +61,7 @@ async function mount(snapshot: () => Promise<Response>) {
 
 async function hello() {
   await act(async () => {
-    FakeEventSource.last!.onmessage!({ data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c1" }), lastEventId: "" });
+    FakeEventSource.last!.onmessage!({ data: JSON.stringify({ kind: "hello", resumed: false, cursor: "stream00:1" }), lastEventId: "" });
   });
 }
 
@@ -76,7 +76,7 @@ describe("chat catch-up on return", () => {
     async (event) => {
       vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
       const snapshot = vi.fn(async () => Response.json({
-        bots: [botOf("b1", [text("b1", 0)])], groups: [], computerControl: {},
+        bots: [botOf("b1", [text("b1", 0)])], groups: [], computerControl: {}, cursor: "stream00:1",
       }));
       await mount(snapshot);
       vi.mocked(fetch).mockImplementation(async (url) => String(url) === "/api/bots?messages=200"
@@ -93,16 +93,16 @@ describe("chat catch-up on return", () => {
         target.dispatchEvent(Object.assign(new Event(event), { persisted: true }));
       });
       expect(oldSource.close).toHaveBeenCalledOnce();
-      expect(FakeEventSource.last!.url).toBe("/api/events?since=c1");
+      expect(FakeEventSource.last!.url).toBe("/api/events?since=stream00%3A1");
       expect(store.state.bots[0].messages).toEqual([text("b1", 0)]);
       expect(store.state.hydrated).toBe(true);
 
       await act(async () => {
         FakeEventSource.last!.onmessage!({
-          data: JSON.stringify({ kind: "hello", resumed: true, cursor: "c2" }), lastEventId: "",
+          data: JSON.stringify({ kind: "hello", resumed: true, cursor: "stream00:2" }), lastEventId: "",
         });
         FakeEventSource.last!.onmessage!({
-          data: JSON.stringify({ kind: "message", threadId: "t-b1", message: text("b1", 1) }), lastEventId: "c2",
+          data: JSON.stringify({ kind: "message", threadId: "t-b1", message: text("b1", 1) }), lastEventId: "stream00:2",
         });
       });
       expect(store.state.bots[0].messages).toEqual([text("b1", 0), text("b1", 1)]);
