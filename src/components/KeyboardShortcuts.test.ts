@@ -14,22 +14,21 @@ describe("KeyboardShortcuts", () => {
   });
 
   it.each([
-    ["en", "Win32", "Ctrl", ["Add to a bot's reply", "Send after the reply", "Send after on a phone", "Hold Send"]],
-    ["ko", "Win32", "Ctrl", ["봇 답변에 추가", "답변 후 보내기", "휴대폰에서 답변 후 보내기", "보내기 길게 누르기"]],
-    ["en", "MacIntel", "Cmd", ["Add to a bot's reply", "Send after the reply", "Send after on a phone", "Hold Send"]],
-    ["ko", "MacIntel", "Cmd", ["봇 답변에 추가", "답변 후 보내기", "휴대폰에서 답변 후 보내기", "보내기 길게 누르기"]],
-  ] as const)("explains busy chat sending in %s on %s", (locale, platform, mod, labels) => {
+    ["en", "Win32", "Ctrl", "Queue message", "Hold Send on phone"],
+    ["ko", "Win32", "Ctrl", "답변 후 보내기", "휴대폰에서 보내기 길게 누르기"],
+    ["en", "MacIntel", "Cmd", "Queue message", "Hold Send on phone"],
+    ["ko", "MacIntel", "Cmd", "답변 후 보내기", "휴대폰에서 보내기 길게 누르기"],
+  ] as const)("lists queueing in one row, with no plain Enter row, in %s on %s", (locale, platform, mod, label, hold) => {
     persistPreference(locale);
     vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(KeyboardShortcuts)));
     const host = document.createElement("div");
     host.innerHTML = html;
     const rows = Array.from(host.querySelectorAll("dl > div"));
-    const combo = (label: string) => rows.find((row) => row.querySelector("dt")?.textContent === label)?.querySelector("dd");
+    const combo = (text: string) => rows.find((row) => row.querySelector("dt")?.textContent === text)?.querySelector("dd");
 
-    expect(combo(labels[0])?.getAttribute("aria-label")).toBe("Enter");
-    expect(combo(labels[1])?.getAttribute("aria-label")).toBe(`${mod} + Enter`);
-    expect(combo(labels[2])?.querySelector("kbd")?.textContent).toBe(labels[3]);
+    expect(combo(label)?.getAttribute("aria-label")).toBe(`${mod} + Enter / ${hold}`);
+    expect(rows.some((row) => row.querySelector("dd")?.getAttribute("aria-label") === "Enter")).toBe(false);
   });
 
   it("lists Toggle Model index once with Alt+I only", () => {

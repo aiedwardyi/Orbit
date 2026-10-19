@@ -21,9 +21,7 @@ export function KeyboardShortcuts() {
     { title: "shortcuts.chat", rows: [
       ["shortcuts.model", [alt, "M"]],
       ...terminal,
-      ["shortcuts.addToReply", ["Enter"]],
-      ["shortcuts.sendAfter", [mod, "Enter"]],
-      ["shortcuts.phoneSendAfter", [t("shortcuts.holdSend")]],
+      ["shortcuts.queue", [mod, "Enter"], [t("shortcuts.holdSend")]],
     ] },
   ];
   return (
