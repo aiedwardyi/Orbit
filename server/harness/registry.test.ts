@@ -92,6 +92,27 @@ describe("ProviderRegistry", () => {
     await recovered.disposeAll();
   });
 
+  it("reads saved probe rows without probing", async () => {
+    const cacheDir = mkdtempSync(join(homedir(), "probe-cache-"));
+    try {
+      const configs = { a: { driver: "fake" }, b: { driver: "fake" } };
+      const previous = new ProviderRegistry([makeFakeDriver().driver], { cacheDir });
+      await previous.load({ a: configs.a });
+      previous.get("a")!.snapshot = async () => ({ state: "unavailable", reason: "signed out" });
+      await previous.describe();
+      await previous.disposeAll();
+
+      const next = countingDriver();
+      const registry = new ProviderRegistry([next.driver], { cacheDir });
+      await registry.load(configs);
+      expect(registry.describeSaved().map((row) => [row.instanceId, row.snapshot.state])).toEqual([["a", "unavailable"]]);
+      expect(next.counts.snapshots).toBe(0);
+      await registry.disposeAll();
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
   it("resolves sign-in only from the registered driver", async () => {
     const fake = makeFakeDriver();
     const registry = new ProviderRegistry([{ ...fake.driver, install: { signInCommand: "official login" } }]);

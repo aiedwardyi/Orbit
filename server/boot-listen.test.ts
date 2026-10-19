@@ -28,6 +28,13 @@ describe("harness listen is not blocked on engine describe", () => {
     expect(index.slice(deferredAt - 32, deferredAt)).toContain("serverServing.then");
   });
 
+  it("seeds automatic availability from saved probes before serving", () => {
+    const seedAt = index.indexOf("rememberAutomaticAvailability(registry.describeSaved())");
+    expect(seedAt).toBeGreaterThan(-1);
+    expect(seedAt).toBeLessThan(index.indexOf("early.setHandler("));
+    expect(seedAt).toBeLessThan(index.indexOf("server.listen("));
+  });
+
   it("still resolves a default engine when creating a bot", () => {
     expect(index).toMatch(/const selection = await defaultSelection\(\)/);
     expect(index).toMatch(/selection = await defaultSelection\(\)/);

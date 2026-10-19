@@ -112,6 +112,25 @@ describe("first-send hydration", () => {
     }
   });
 
+  it("keeps the prefetch when hello never arrives and the server goes away", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let reads = 0;
+      vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+        if (String(url) !== "/api/bots?messages=200") return Response.json({}, { status: 404 });
+        if (++reads > 1) throw new TypeError("Failed to fetch");
+        return Response.json({ bots: [bot("Saved")], groups: [], cursor: "stream00:4" });
+      }));
+      await mount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      await vi.waitFor(() => expect(store.state.hydrated).toBe(true));
+      expect(store.state.bots[0].name).toBe("Saved");
+      expect(reads).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps frames received while the prefetched response is pending", async () => {
     let reads = 0;
     let release!: (response: Response) => void;

@@ -10896,6 +10896,8 @@ for (const bot of store.bots) {
     paneWake.noteArrived(bot.id, bot.threadId);
   }
 }
+// Saved probes steer automatic picks until the deferred refresh lands.
+rememberAutomaticAvailability(registry.describeSaved());
 const early = currentEarlyListen();
 if (early) {
   early.setHandler(handleRequest);

@@ -269,6 +269,14 @@ export class ProviderRegistry {
       ? this.prepareProbes(read) : read();
   }
 
+  /** describe() rows for instances with a saved probe; probes nothing. */
+  describeSaved() {
+    return this.entries().flatMap((entry) => {
+      const probe = this.probed.get(entry.instanceId);
+      return probe ? [this.row(entry, probe)] : [];
+    });
+  }
+
   private async prepareProbes<T>(probe: () => Promise<T>): Promise<T> {
     const names = this.entries().flatMap((entry) => {
       const driver = this.driversByKind.get(entry.shadow?.driverKind ?? entry.live!.driverKind);

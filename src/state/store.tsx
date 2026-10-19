@@ -3105,7 +3105,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         prefetchedChat = null;
         let snapshot = prefetch ? await prefetch : null;
         if (!alive || boundary !== snapshotBoundary) return;
-        if (!snapshotCoversHello(snapshot?.cursor, boundary)) snapshot = await api(`/api/bots?messages=${MESSAGE_PAGE}`);
+        // No boundary means the no-hello fallback; there is nothing to validate.
+        if (boundary === undefined ? !snapshot : !snapshotCoversHello(snapshot?.cursor, boundary)) snapshot = await api(`/api/bots?messages=${MESSAGE_PAGE}`);
         if (!alive || boundary !== snapshotBoundary || rehydrateRequested) return;
         const { bots, groups, computerControl } = snapshot;
         rawDispatch({
