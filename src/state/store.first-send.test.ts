@@ -115,3 +115,53 @@ describe("first-send hydration", () => {
     expect(reads).toBe(1);
   });
 });
+
+describe("engines across a fresh snapshot", () => {
+  const row = (available: boolean) => ({ instanceId: "inst", available });
+
+  async function reconnectDuringHydration(instancesReply: () => Promise<Response>) {
+    let idle!: () => void;
+    let releaseChat!: () => void;
+    const chatHeld = new Promise<void>((resolve) => { releaseChat = resolve; });
+    let instanceReads = 0;
+    vi.stubGlobal("requestIdleCallback", vi.fn((wake: () => void) => { idle = wake; return 1; }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (String(url) === "/api/instances") {
+        instanceReads += 1;
+        return instanceReads === 1 ? Response.json({ instances: [row(false)] }) : instancesReply();
+      }
+      if (String(url) !== "/api/bots?messages=200") return Response.json({}, { status: 404 });
+      await chatHeld;
+      return Response.json({ bots: [bot("Fresh")], groups: [], cursor: "stream00:3" });
+    }));
+    await mount();
+    await act(async () => idle());
+    await vi.waitFor(() => expect(store.state.instances).toEqual([row(false)]));
+    await emit({ kind: "hello", resumed: false, cursor: "stream00:1" });
+    expect(instanceReads).toBe(1);
+    const dropped = FakeEventSource.last;
+    // The corrected instances frame is broadcast while this socket is down.
+    await act(async () => (dropped as unknown as { onerror: () => void }).onerror());
+    await act(async () => window.dispatchEvent(new Event("online")));
+    expect(FakeEventSource.last).not.toBe(dropped);
+    await emit({ kind: "hello", resumed: false, cursor: "stream00:3" });
+    await act(async () => releaseChat());
+    await vi.waitFor(() => expect(store.state.hydrated).toBe(true));
+    return () => instanceReads;
+  }
+
+  it("refetches engines missed while a non-resumable snapshot was pending", async () => {
+    const reads = await reconnectDuringHydration(async () => Response.json({ instances: [row(true)] }));
+    await vi.waitFor(() => expect(store.state.instances).toEqual([row(true)]));
+    expect(reads()).toBe(2);
+  });
+
+  it("keeps a newer live instances frame over a slower refetch", async () => {
+    let releaseInstances!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => { releaseInstances = resolve; });
+    await reconnectDuringHydration(() => held);
+    await emit({ kind: "instances", instances: [row(true)] }, "stream00:4");
+    await act(async () => releaseInstances(Response.json({ instances: [row(false)] })));
+    expect(store.state.instances).toEqual([row(true)]);
+  });
+});

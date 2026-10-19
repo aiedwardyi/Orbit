@@ -3147,6 +3147,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let hydrationPromise: Promise<boolean> | null = null;
     let rehydrateRequested = false;
     const pendingFrames: any[] = [];
+    let snapshotBoundaries = 0;
     let handleFrame: (frame: any) => void;
     const hydrate = (cursor?: string): Promise<boolean> => {
       snapshotBoundary = cursor;
@@ -3455,6 +3456,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         settling.current.clear();
         // a held resume's task.resume frame may be lost in the gap
         for (const settle of pendingTaskResumes.current.values()) settle(null);
+        // The mount's deferred load covers the first boundary; a later one may follow a missed instances frame.
+        const instances = partByKey.get("instances");
+        if (snapshotBoundaries++ > 0 && instances) {
+          void loadPeripheral(instances, true).catch((error) => schedulePeripheralRetry(instances, error));
+        }
         return hydrate(cursor);
       },
       onFrame: (frame) => {
