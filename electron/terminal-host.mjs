@@ -266,7 +266,8 @@ export function trustedTerminalSender(event, owner, origin) {
 function paneMemoryFloor(command) {
   if (!command || !command.trim()) return SHELL_MEMORY_FLOOR;
   const bare = command.replace(/^(?:\s*\$env:[^;]*;)+/i, "").trim();
-  const token = bare.match(/^[&\s]*["']?([^\s"';&|]+)/)?.[1] ?? "";
+  const m = bare.match(/^[&\s]*(?:"([^"]+)"|'([^']+)'|([^\s"';&|]+))/);
+  const token = m?.[1] ?? m?.[2] ?? m?.[3] ?? "";
   const engine = token.split(/[\\/]/).pop().replace(/\.(exe|cmd|ps1)$/i, "").toLowerCase();
   return ENGINE_MEMORY_FLOOR[engine] ?? OTHER_MEMORY_FLOOR;
 }

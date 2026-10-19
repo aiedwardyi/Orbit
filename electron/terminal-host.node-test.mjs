@@ -1176,6 +1176,14 @@ test("the gate reads the engine past $env prefixes, paths and extensions", async
   await assert.rejects(f.host.openForBot("bot-1", { label: "e", command: "echo ok" }), /0\.3 GB needed/);
 });
 
+test("the gate reads a quoted engine path with spaces", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.35 * 1024 ** 3 });
+  owner = f.owner;
+  await assert.rejects(f.host.openForBot("bot-1", { label: "c", command: "& \"C:\\Program Files\\Claude\\claude.exe\" --model opus 'hi'" }), /0\.6 GB needed/);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "s", command: "'C:\\My Tools\\claude.cmd' --model opus 'hi'" }), /0\.6 GB needed/);
+});
+
 test("openForBot submits a command with exactly one Enter", async () => {
   let owner;
   const f = fixture({ owner: () => owner });
