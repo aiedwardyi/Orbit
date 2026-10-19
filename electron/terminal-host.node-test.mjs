@@ -2131,3 +2131,87 @@ test("a remote open refuses a bad bot, a folder pick or a missing window", async
   await assert.rejects(f.host.openMainForBot("bot-1"), /folder is unavailable/);
   assert.equal(f.children.length, 0);
 });
+
+const contextScreen = (footer) => `\x1b[2J\x1b[H✻ Worked for 54m 33s · done 12:11 AM\r\n${"─".repeat(40)}\r\n> \r\n${"─".repeat(40)}\r\n${footer}\r\n`;
+const contextNotes = (f) => f.notes.map((note) => note.text).filter((text) => text.startsWith("CONTEXT:"));
+const DRIFT = "Long runs drift: if it has real work left, have it save progress and hand off to a FRESH worker from its card and progress file.";
+
+for (const [name, engine, footer, context] of [
+  ["Claude near its 500k compact window", "claude", "  ⏵⏵ bypass permissions on · 3% until auto-compact", { left: 3 }],
+  ["Claude near a 300k compact window", "claude", "  ⏵⏵ bypass permissions on · 7% until auto-compact", { left: 7 }],
+  ["Claude with compaction off", "claude", "  Context low (8% remaining) · Run /compact to compact & continue", { left: 8 }],
+  ["Claude below its warning, custom status line", "claude", "  ▰▰▰▱▱ 59% │ ↑409.3k ↓444 │ 5h: ▱▱▱▱▱ 0% (1h47m)\r\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents", undefined],
+  ["Codex footer", "codex", "  100% context left · ? for shortcuts", { left: 100 }],
+  ["Codex status line", "codex", "  gpt-6 high · Context 45% left · ~/work", { left: 45 }],
+  ["Grok", "grok", "  grok-4.5 · 32K / 256K", { tokens: 32_000, left: 88 }],
+  ["Grok's numbers on a Codex screen", "codex", "  grok-4.5 · 32K / 256K", undefined],
+  ["Muse", "muse", "  muse-2 · ready", undefined],
+]) {
+  test(`the pane list carries the context the screen shows: ${name}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openMainForBot("bot-1");
+    await f.host.openForBot("bot-1", { label: "W", command: `${engine} go` });
+    f.children[0].data(contextScreen("  10% context left"));
+    f.children[1].data(contextScreen(footer));
+    const panes = f.host.readBot("bot-1").panes;
+    assert.equal("context" in panes[0], false);
+    assert.deepEqual(panes[1].context, context);
+  });
+}
+
+test("a CONTEXT note goes once per crossing and again after a compaction", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "PIXEL | gpt-6 | high", command: "codex go" });
+  for (const left of [60, 51]) {
+    f.children[0].data(contextScreen(`  ${left}% context left · ? for shortcuts`));
+    await f.advance(10_000);
+  }
+  assert.deepEqual(contextNotes(f), []);
+  f.children[0].data(contextScreen("  45% context left · ? for shortcuts"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: PIXEL is at 55% of its window. ${DRIFT}`]);
+  assert.equal(f.notes.at(-1).scope.pane, pane.sessionId);
+  for (const left of [30, 12]) {
+    f.children[0].data(contextScreen(`  ${left}% context left · ? for shortcuts`));
+    await f.advance(10_000);
+  }
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(contextScreen("  95% context left · ? for shortcuts"));
+  await f.advance(10_000);
+  f.children[0].data(contextScreen("  48% context left · ? for shortcuts"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f).slice(1), [`CONTEXT: PIXEL is at 52% of its window. ${DRIFT}`]);
+  assert.equal(f.children[0].writes.join(""), "codex go\r");
+});
+
+test("a Grok CONTEXT note goes at 200k tokens, not at half its window", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "GROKKER | grok-4.5 | high", command: "grok go" });
+  f.children[0].data(contextScreen("  grok-4.5 · 199K / 256K"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), []);
+  f.children[0].data(contextScreen("  grok-4.5 · 213K / 256K"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: GROKKER is at 213k context (83% of its window). ${DRIFT}`]);
+});
+
+test("a Claude CONTEXT note waits for its own footer and stays once when it clears", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "SHOP | claude-opus-5-5 | high", command: "claude go" });
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), []);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 93% of its window. ${DRIFT}`]);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+});
