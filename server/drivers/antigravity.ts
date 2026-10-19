@@ -881,8 +881,9 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             const parsedError = z.string().safeParse(payload.error);
             const agyError = parsedError.success ? parsedError.data : "";
             const agyResultError = payload.status === "ERROR" && agyError.length > 0;
-            // agy leaves a retried attempt's 429/5xx on the result even when the reply came through
-            const recoveredTransient = agyResultError && realResponse && AGY_NOT_ACCOUNT_ERROR.test(agyError);
+            // agy leaves a retried attempt's 429/5xx/timeout on the result even when the reply came through
+            const transient = AGY_NOT_ACCOUNT_ERROR.test(agyError) || (AGY_TIMEOUT_ERROR.test(agyError) && !AGY_ACCOUNT_ERROR.test(agyError));
+            const recoveredTransient = agyResultError && realResponse && transient;
             if (recoveredTransient) {
               console.warn(`agy turn for ${threadId} recovered with a full reply; dropping retried error: ${agyError}`);
             } else if (agyResultError) {
