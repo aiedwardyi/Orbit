@@ -121,6 +121,13 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     setState({ status: "idle" });
   }
 
+  // install runs whatever downloaded last, so a channel switch drops it first.
+  function reset() {
+    if (downloadOperation || installOperation) return false;
+    withdraw();
+    return true;
+  }
+
   // downloadUpdate acts on the last check's result, which can be an hour stale.
   // Resolves null when the re-check failed, so callers fall back to the known release.
   function recheck() {
@@ -223,5 +230,5 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     }
   }
 
-  return { check, download, install };
+  return { check, download, install, reset };
 }

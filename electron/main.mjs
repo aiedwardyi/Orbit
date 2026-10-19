@@ -25,7 +25,8 @@ import { createPaneRuns, notifyRestartedPanes } from "./pane-runs.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
-import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, retargetUpdater, startUpdater, updaterBridge } from "./updater.mjs";
+import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, retargetUpdater, startUpdater, switchUpdateChannel, updaterBridge } from "./updater.mjs";
+import { channelFromCommandLine } from "./update-channel.mjs";
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
 import { createCloseGuard } from "./close-guard.mjs";
 import { applyStartFresh, requestStartFresh } from "./start-fresh.mjs";
@@ -141,6 +142,7 @@ const browserConnectionStore = createDescriptorStore({
 });
 let pendingPackageInstallUrl = packageUrlFromCommandLine(process.argv);
 let pendingNotificationTarget = parseNotificationTargetFromCommandLine(process.argv);
+const launchUpdateChannel = channelFromCommandLine(process.argv);
 
 function deliverNotificationTarget(win, target = pendingNotificationTarget) {
   if (!target || !win || win.isDestroyed()) return;
@@ -290,6 +292,8 @@ app.on("second-instance", (_event, commandLine) => {
   if (packageUrl) pendingPackageInstallUrl = packageUrl;
   const notifyTarget = parseNotificationTargetFromCommandLine(commandLine);
   if (notifyTarget) pendingNotificationTarget = notifyTarget;
+  const updateChannel = channelFromCommandLine(commandLine);
+  if (updateChannel) void switchUpdateChannel(updateChannel);
   activateMainWindow();
 });
 
@@ -2401,7 +2405,8 @@ app.whenReady().then(async () => {
   startupWindowCreated = true;
   if (resetFailed) void dialog.showMessageBox(win, { type: "info", message: nativeText("settings.startFresh.error") });
   slog(`window shown packaged=${app.isPackaged} serverReady=${serverReady} uptime=${process.uptime().toFixed(2)}s`);
-  startUpdater(win);
+  startUpdater(win, nativeText);
+  if (launchUpdateChannel) void switchUpdateChannel(launchUpdateChannel);
   if (!app.isPackaged) void startBrowserSurface(win);
   // Register before the packaged harness wait: on Darwin, closing the
   // connecting window does not quit, and a dock click in that interval

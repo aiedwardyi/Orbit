@@ -7,6 +7,7 @@ import { buildConnectingPage, shouldDeliverPackageInstall } from "./boot-page.mj
 import { parseNotificationTargetFromCommandLine } from "./desktop-notify.mjs";
 import { packageUrlFromCommandLine, packageUrlFromDeepLink } from "./package-link.mjs";
 import * as singleInstance from "./single-instance.mjs";
+import { channelFromCommandLine } from "./update-channel.mjs";
 
 const { activateExistingWindow } = singleInstance;
 
@@ -76,6 +77,7 @@ function activationHarness(mainWindow, windows, { startupWindowCreated = true } 
   const events = new Map();
   const created = [];
   const surfaces = [];
+  const channels = [];
   const context = vm.createContext({
     ...singleInstance,
     mainWindow,
@@ -88,6 +90,8 @@ function activationHarness(mainWindow, windows, { startupWindowCreated = true } 
     packageUrlFromCommandLine,
     packageUrlFromDeepLink,
     parseNotificationTargetFromCommandLine,
+    channelFromCommandLine,
+    switchUpdateChannel: (channel) => channels.push(channel),
     BOOT_READY: "ready",
     packagedBootPhase: "ready",
     startBrowserSurface: (win) => surfaces.push(win),
@@ -99,7 +103,7 @@ function activationHarness(mainWindow, windows, { startupWindowCreated = true } 
     },
   });
   vm.runInContext(`${notification}\n${handlers}\n${activate[0]}`, context);
-  return { context, events, created, surfaces };
+  return { context, events, created, surfaces, channels };
 }
 
 const packageUrl = "https://github.com/acme/bots/blob/main/bot.md";
@@ -219,6 +223,17 @@ for (const event of ["second-instance", "open-url", "activate"]) {
     assert.equal(harness.context.pendingNotificationTarget, null);
   });
 }
+
+test("second-instance hands an update channel flag to the updater and still focuses the window", () => {
+  const mainWindow = fakeWindow();
+  const harness = activationHarness(mainWindow, [mainWindow]);
+  harness.events.get("second-instance")({}, ["Orbit.exe", "--update-channel=stable"]);
+  assert.deepEqual(harness.channels, ["stable"]);
+  assert.deepEqual(mainWindow.calls, ["show", "focus"]);
+
+  activate(harness, "second-instance");
+  assert.deepEqual(harness.channels, ["stable"]);
+});
 
 test("a new main window takes over the updater's state pushes", () => {
   const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
