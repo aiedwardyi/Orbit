@@ -140,6 +140,7 @@ describe("big file recovery", () => {
     const routes: string[] = [];
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/bots?messages=200") return Response.json({ bots: [], groups: [], cursor: "stream00:0" });
       routes.push(`${init?.method ?? "GET"} ${url}`);
       return fetch(url, init);
     }));

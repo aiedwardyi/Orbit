@@ -38,7 +38,7 @@ const group = (threadId: string) => ({
 
 const other = { ...bot("t-other"), id: "b2", name: "b2" };
 
-type Snapshot = { bots: Array<ReturnType<typeof bot>>; groups: Array<ReturnType<typeof group>> };
+type Snapshot = { bots: Array<ReturnType<typeof bot>>; groups: Array<ReturnType<typeof group>>; cursor?: string };
 type Reply = Snapshot | { bot?: ReturnType<typeof bot> } | { group?: ReturnType<typeof group> } | { error: string };
 
 const respond = (body: Reply, status = 200) =>
@@ -50,7 +50,7 @@ async function mount(cached: Snapshot, fresh: Snapshot, selectedId = "") {
   let hydrate: (() => void) | null = null;
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("fetch", vi.fn(async (path: string, init: RequestInit = {}) => {
-    if (path === "/api/bots?messages=200") return new Promise<Response>((resolve) => (hydrate = () => resolve(respond(fresh))));
+    if (path === "/api/bots?messages=200") return new Promise<Response>((resolve) => (hydrate = () => resolve(respond({ ...fresh, cursor: "stream00:0" }))));
     if (init.method === "POST" && /\/tasks\//.test(path)) {
       switches.push(path);
       return respond(path.startsWith("/api/groups/") ? { group: fresh.groups[0] } : { bot: fresh.bots[0] });
@@ -71,7 +71,7 @@ async function mount(cached: Snapshot, fresh: Snapshot, selectedId = "") {
       act(async () => openNotificationTarget(store!.dispatch, target, store!.state)),
     select: (id: string) => act(async () => store!.dispatch({ type: "select", id })),
     hydrate: async () => {
-      await act(async () => FakeEventSource.current!.onmessage?.({ data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }), lastEventId: "" }));
+      await act(async () => FakeEventSource.current!.onmessage?.({ data: JSON.stringify({ kind: "hello", resumed: false, cursor: "stream00:0" }), lastEventId: "" }));
       await vi.waitFor(() => expect(hydrate).not.toBeNull());
       await act(async () => hydrate!());
       await vi.waitFor(() => expect(store!.state.hydrated).toBe(true));
