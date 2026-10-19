@@ -2201,6 +2201,18 @@ test("a Grok CONTEXT note goes at 200k tokens, not at half its window", async (t
   assert.deepEqual(contextNotes(f), [`CONTEXT: GROKKER is at 213k context (83% of its window). ${DRIFT}`]);
 });
 
+for (const output of ["213K / 256K", "Downloaded 213K / 256K", "Example: grok-4.5 · 213K / 256K"]) {
+  test(`a Grok CONTEXT note ignores ordinary output: ${output}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "GROKKER", command: "grok go" });
+    f.children[0].data(contextScreen(`  ${output}`));
+    await f.advance(10_000);
+    assert.deepEqual(contextNotes(f), []);
+    assert.equal("context" in f.host.readBot("bot-1").panes[0], false);
+  });
+}
+
 test("a Claude CONTEXT note waits for its own footer and stays once when it clears", async (t) => {
   const f = stallFixture();
   t.after(() => f.host.dispose());
@@ -2237,6 +2249,32 @@ test("a Claude CONTEXT note re-arms after a compact signal", async (t) => {
   assert.deepEqual(contextNotes(f).slice(1), [`CONTEXT: SHOP is at 94% of its window. ${DRIFT}`]);
   assert.equal(f.children[0].options.env.ORBIT_COMPACT_SIGNAL, signal);
   assert.equal(fs.existsSync(signal), false);
+});
+
+test("a Claude CONTEXT note waits for the low footer to clear after a compact signal", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  const signal = path.join(os.tmpdir(), `orbit-compact-${pane.sessionId}`);
+  t.after(() => fs.rmSync(signal, { force: true }));
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  fs.writeFileSync(signal, "");
+  await f.advance(10_000);
+  await f.advance(10_000);
+  f.children[0].data("\x1b[HReinjecting the card\r\n");
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [
+    `CONTEXT: SHOP is at 93% of its window. ${DRIFT}`,
+    `CONTEXT: SHOP is at 94% of its window. ${DRIFT}`,
+  ]);
 });
 
 test("a fresh worker command re-arms its CONTEXT note in the same pane", async (t) => {

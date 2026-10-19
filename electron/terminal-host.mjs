@@ -191,7 +191,7 @@ const CONTEXT_RES = {
   claude: [[/\b(\d{1,3})% until auto-compact\b/, "left"], [/\bContext low \((\d{1,3})% remaining\)/, "left"], [/\b(\d{1,3})% context used\b/, "used"]],
   codex: [[/\b(\d{1,3})% context left\b/, "left"], [/\bContext (\d{1,3})% left\b/, "left"], [/\bContext (\d{1,3})% used\b/, "used"]],
 };
-const GROK_CONTEXT_RE = /\b(\d+(?:\.\d+)?)([KM])? \/ (\d+(?:\.\d+)?)([KM])\b/;
+const GROK_CONTEXT_RE = /^\s*grok-[\w.-]+ · (\d+(?:\.\d+)?)([KM])? \/ (\d+(?:\.\d+)?)([KM])\s*$/;
 const CONTEXT_FOOTER_LINES = 6;
 const CONTEXT_NOTE_TOKENS = 200_000;
 const tokenCount = (value, unit) => Math.round(Number(value) * (unit === "M" ? 1_000_000 : unit === "K" ? 1_000 : 1));
@@ -203,8 +203,8 @@ function paneContext(screenText, engine) {
       const match = GROK_CONTEXT_RE.exec(line);
       if (!match) continue;
       const tokens = tokenCount(match[1], match[2]);
-      const window = tokenCount(match[3], match[4]);
-      if (window > 0 && tokens <= window) return { tokens, left: Math.round((1 - tokens / window) * 100) };
+      const windowTokens = tokenCount(match[3], match[4]);
+      if (windowTokens > 0 && tokens <= windowTokens) return { tokens, left: Math.round((1 - tokens / windowTokens) * 100) };
       continue;
     }
     for (const [re, kind] of CONTEXT_RES[engine] ?? []) {
@@ -462,14 +462,19 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (session.engine === "claude" && session.compactSignal && fs.existsSync(session.compactSignal)) {
         try {
           fs.unlinkSync(session.compactSignal);
-          session.contextNote = null;
+          session.contextCompactPending = true;
         } catch {}
       }
       const text = session.screen.text();
       const context = paneContext(text, session.engine);
+      // The compact hook can run before Claude clears its old low-context footer.
+      if (session.contextCompactPending && (!context || !contextOver(context))) {
+        session.contextCompactPending = false;
+        session.contextNote = null;
+      }
       // A compaction back under the line re-arms the note.
       if (context && !contextOver(context)) session.contextNote = null;
-      else if (context && session.mail && at >= (session.contextNote?.retryAt ?? 0)) {
+      else if (!session.contextCompactPending && context && session.mail && at >= (session.contextNote?.retryAt ?? 0)) {
         const note = session.contextNote ??= { tries: 0, retryAt: 0 };
         postNote(session, note, contextNoteText(session.label, context), () => { note.retryAt = Infinity; });
       }
@@ -686,7 +691,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
-      reported: false, finished: [], autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, contextNote: null,
+      reported: false, finished: [], autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, contextNote: null, contextCompactPending: false,
     };
     session.outputParser = createTerminalOutputParser((osc) => {
       if (!session.botPane || osc !== `133;D;${session.id}`) return;
@@ -746,6 +751,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (launched) {
         session.engine = launched[1].toLowerCase();
         session.contextNote = null;
+        session.contextCompactPending = false;
         watchStalls(session);
       }
       if (session.botPane) paneRuns?.started({ id: session.id, botId: session.botId, teacher: session.teacher, label: session.label, cwd: session.cwd, spawnedAt: session.spawnedAt });
