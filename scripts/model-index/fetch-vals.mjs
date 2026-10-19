@@ -20,6 +20,7 @@ export function parsePage(html) {
     if (m[3]) cost.set(m[1], Number(m[3]));
   }
   if (accuracy.size === 0) throw new Unverifiable("Vals overall table has no accuracy entries");
+  if (cost.size === 0) throw new Unverifiable("Vals overall table has no cost per test");
   const listed = new Set([...props.slice(start, end).matchAll(/"([a-z0-9_-]+\/[a-z0-9_.-]+)":\[0,\{/g)].map((m) => m[1]));
   const lacking = [...listed].filter((id) => !accuracy.has(id));
   if (lacking.length) throw new Unverifiable(`Vals overall table: no numeric accuracy for ${lacking.join(", ")}`);

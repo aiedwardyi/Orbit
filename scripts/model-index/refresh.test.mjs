@@ -130,6 +130,7 @@ describe("vals page", () => {
     expect(() => vals.parsePage(html.replace("legal_bench&quot;],&quot;family", "legal&quot;],&quot;family"))).toThrow(Unverifiable);
     expect(() => vals.parsePage(html.replace("overall", "all"))).toThrow(Unverifiable);
     expect(() => vals.parsePage(html.replace("accuracy&quot;:[0,88.561]", "accuracy&quot;:[0,null]"))).toThrow(Unverifiable);
+    expect(() => vals.parsePage(html.replaceAll("cost_per_test", "cost"))).toThrow(/no cost per test/);
   });
 
   it("builds only mapped rows and refuses a new benchmark version", () => {
