@@ -41,6 +41,24 @@ describe("idle motion attribute", () => {
     stop();
   });
 
+  it("re-reads focus on a visibility change with no focus or blur event", () => {
+    focused();
+    const stop = startIdleMotion(root);
+    window.dispatchEvent(new Event("blur"));
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(root.hasAttribute("data-orbit-idle")).toBe(false);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(root.hasAttribute("data-orbit-idle")).toBe(true);
+    stop();
+  });
+
   it("never sets data-orbit-idle while focused with no input", () => {
     vi.useFakeTimers();
     focused();
@@ -65,6 +83,7 @@ describe("idle motion attribute", () => {
     expect(rule).toContain(".animate-spin");
     expect(rule).toContain("[data-orbit-rainbow] > span");
     expect(rule).toContain("animation-play-state: paused");
+    expect(rule.slice(0, rule.indexOf("}"))).toContain("animation-play-state: paused !important");
     expect(rule).not.toContain("needs-you-pulse");
     expect(rule).not.toContain("arrival-glow");
     expect(rule).not.toContain("unread-ring");

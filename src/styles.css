@@ -5055,7 +5055,7 @@ html[data-orbit-idle] :is(
   .thinking-sheen > span,
   .animate-spin
 ) {
-  animation-play-state: paused;
+  animation-play-state: paused !important;
 }
 
 html[data-orbit-idle] [data-orbit-composer-frame]:focus-within > [data-orbit-rainbow] > span {

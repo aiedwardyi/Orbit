@@ -16,16 +16,20 @@ export function startIdleMotion(root: HTMLElement = document.documentElement): (
     blurred = false;
     apply();
   };
+  const onVisibility = () => {
+    blurred = document.hasFocus() === false;
+    apply();
+  };
 
   window.addEventListener("blur", onBlur);
   window.addEventListener("focus", onFocus);
-  document.addEventListener("visibilitychange", apply);
+  document.addEventListener("visibilitychange", onVisibility);
   apply();
 
   return () => {
     window.removeEventListener("blur", onBlur);
     window.removeEventListener("focus", onFocus);
-    document.removeEventListener("visibilitychange", apply);
+    document.removeEventListener("visibilitychange", onVisibility);
     root.removeAttribute("data-orbit-idle");
   };
 }
