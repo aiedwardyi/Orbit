@@ -382,6 +382,33 @@ describe("summary build after settle", () => {
     );
   });
 
+  it("ignores pruned screen pixels while retaining reactions and card answers in the prefix", async () => {
+    for (const change of ["pixels", "reaction", "card answer"]) {
+      const { calls, generateText } = deferred();
+      const { threads, appended, build } = setup(generateText);
+      const rows = overBudgetThread("a");
+      const screen = message("screen", "", { role: "bot", kind: "screen", png: "pixels" });
+      const card = message("card", "", { role: "bot", kind: "options", card: {
+        title: "Choose a target", subtitle: "", options: ["desktop", "phone"], answered: "answer", answerText: "desktop",
+      } });
+      rows.splice(2, 0, screen, card);
+      threads.set("t", rows);
+      try {
+        build.onSettled("bot", "t");
+        await tick();
+        screen.png = undefined;
+        if (change === "reaction") rows[1]!.reactions = [{ emoji: "👍", by: "user" }];
+        if (change === "card answer") card.card!.answerText = "phone";
+        calls[0]!.resolve("SUMMARY\nbuilt");
+        await build.idle();
+        expect(appended).toHaveLength(change === "pixels" ? 1 : 0);
+        if (change !== "pixels") expect(vi.mocked(console.info).mock.calls.at(-1)?.[0]).toContain('"reason":"prefix-changed"');
+      } finally {
+        build.dispose();
+      }
+    }
+  });
+
   it("a switch to an engine without generateText mid-build waits 0", async () => {
     const { calls, generateText } = deferred();
     const { threads, appended, state, build } = setup(generateText);

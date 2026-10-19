@@ -10,6 +10,7 @@ const BUILD_CALL_TIMEOUT_MS = 240_000;
 const BUILD_RUN_TIMEOUT_MS = 8 * 60_000;
 // Good summaries take 23-81 s, so a shorter call only delays the fallback the repair replaces later.
 const INLINE_FLOOR_MS = 60_000;
+const prefixKey = (messages: Message[]) => JSON.stringify(messages.map((message) => message.kind === "screen" ? { ...message, png: undefined } : message));
 
 type BuildInstance = Pick<ProviderInstance, "driverKind" | "generateText" | "textModel" | "textTimeoutMs">;
 
@@ -131,7 +132,7 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
       drop(built, "compaction-changed");
       return false;
     }
-    if (JSON.stringify(path.slice(0, built.coveredIndex + 1)) !== built.prefix) {
+    if (prefixKey(path.slice(0, built.coveredIndex + 1)) !== built.prefix) {
       drop(built, "prefix-changed");
       return false;
     }
@@ -174,7 +175,7 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
     });
     if (!plan.needed) return;
     const coveredIndex = messages.findIndex((message) => message.id === plan.coveredThrough.id);
-    const prefix = JSON.stringify(messages.slice(0, coveredIndex + 1));
+    const prefix = prefixKey(messages.slice(0, coveredIndex + 1));
     const previousValue = JSON.stringify(plan.previous?.value ?? null);
     const runNumber = (budgets.get(leafId)?.runs ?? 0) + 1;
     budgets.set(leafId, { runs: runNumber, nextAt: Number.POSITIVE_INFINITY });

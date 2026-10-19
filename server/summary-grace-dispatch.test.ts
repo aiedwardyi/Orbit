@@ -14,8 +14,9 @@ const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8").repl
 const preparation = source.slice(source.indexOf("  const folded = currentTurnEpoch"), source.indexOf("\n  const persona = [", source.indexOf("  const folded = currentTurnEpoch")));
 const marker = "const started = await dispatchAdapterTurn(threadId, async () => {";
 const start = source.indexOf(marker) + marker.length;
-const dispatch = source.slice(start, source.indexOf("\n      });\n      bindInterruptedTurn", start)).replace("(base: string)", "(base)");
-const runDispatch = new Function("scope", `with (scope) { return (async () => {${preparation}\nreturn (async () => {${dispatch}})();})(); }`);
+const dispatch = source.slice(start, source.indexOf("\n      });\n      bindInterruptedTurn", start)).replace("(base: string)", "(base)").replace("const late: string[]", "const late");
+const delivery = source.slice(source.indexOf("      // a deferred recycle's live session"), source.indexOf("      store.markReactionsDelivered", start));
+const runDispatch = new Function("scope", `with (scope) { return (async () => {${preparation}\nconst started = await (async () => {${dispatch}})();\n${delivery}\nreturn started;})(); }`);
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -30,11 +31,16 @@ afterEach(() => {
 
 describe("summary grace dispatch", () => {
   it.each([
-    ["preparation", "paste", true],
-    ["dispatch", "paste", false],
-    ["preparation", "image", false],
-    ["dispatch", "image", true],
-  ] as const)("waits after the %s fold adds a late %s (pinned system %s)", async (fold, kind, pinnedSystem) => {
+    ["preparation", "paste", true, ""],
+    ["dispatch", "paste", false, ""],
+    ["preparation", "image", false, ""],
+    ["dispatch", "image", true, ""],
+    ["dispatch", "image", true, "wait send"],
+    ["preparation", "paste", false, "prepare send"],
+    ["dispatch", "image", true, "setup note"],
+    ["dispatch", "image", false, "wait note"],
+    ["dispatch", "paste", true, "background"],
+  ] as const)("waits after the %s fold adds a late %s (pinned system %s, event %s)", async (fold, kind, pinnedSystem, event) => {
     const messages: Message[] = Array.from({ length: 70 }, (_, index) => [
       { id: `u${index}`, at: index * 2, role: "user", kind: "text", text: `request ${index}` },
       { id: `b${index}`, at: index * 2 + 1, role: "bot", kind: "text", text: `outcome ${index} ${"x".repeat(420)}` },
@@ -56,9 +62,10 @@ describe("summary grace dispatch", () => {
         messages.push(saved);
         return saved;
       },
-      sessionSystem: () => "system",
+      sessionSystem: () => event === "background" ? "old system" : "system",
       clearResumeCursors: vi.fn(),
       markProviderSessionBound: vi.fn(),
+      markPaneNotesDelivered: vi.fn(),
     };
     let busy = false;
     const build = createSummaryBuild({ store, sendInputs: async () => ({ instance, contextWindow: 200_000, taskRecordText }), busy: () => busy, userName: () => "User" });
@@ -90,18 +97,39 @@ describe("summary grace dispatch", () => {
       const summarize = vi.fn(async () => "SUMMARY\nduplicate");
       const prepared = await prepareModelContext({ ...input, summaryGrace, summarize });
       if (prepared.status !== "ready") throw new Error(prepared.status);
-      const prepareContext = vi.fn((rows: Message[]) => prepareModelContext({ ...input, messages: rows, summarize }));
+      const prepareContext = vi.fn(async (rows: Message[]) => {
+        if (event === "prepare send") {
+          await new Promise((resolve) => setTimeout(resolve, 1_000));
+          queueSteeredMessage("bot", "thread", "sent while preparing");
+        }
+        return prepareModelContext({ ...input, messages: rows, summarize });
+      });
       const settle = vi.spyOn(build, "settle");
       const claimMark = queueMark();
       const payload = kind === "paste" ? "x".repeat(375_000) : '<attached-image path="shot.png" />';
       const enqueue = () => queueSteeredMessage("bot", "thread", payload);
       if (fold === "preparation") enqueue();
       const sendTurn = vi.fn(async (_turn: { text: string; transcript: Array<{ text: string }>; resumeCursor?: unknown }) => ({ turnId: "turn" }));
-      const live = { adapter: { capabilities: { pinnedSystem }, sendTurn } };
+      const live = { adapter: { capabilities: { pinnedSystem }, sendTurn, hasBackgroundWork: () => event === "background" } };
+      if (event === "background") {
+        const recycleStart = source.indexOf("recycle: shouldRecycleProviderSession(") + "recycle: ".length;
+        const recycle = source.slice(recycleStart, source.indexOf("\n    local:", recycleStart)).trim().replace(/,$/, "");
+        const plannedRecycle = new Function("scope", `with (scope) { return ${recycle}; }`)({
+          shouldRecycleProviderSession: () => false, rewound: false, recovering: false,
+          countLastTurnToolRounds: () => 0, countSessionToolRounds: () => 0,
+          messagesBeforeSummary: activeMessages, skipTranscript, task: {},
+          instance: { adapter: live.adapter }, threadId: "thread", catalogWindow: 200_000, sessionPrompt: undefined,
+        });
+        expect(planSummaryGrace({ ...graceInputs, grace: { ...summaryGrace, recycle: plannedRecycle } })).toEqual({ safe: false, reason: "session-recycle" });
+      }
       const seed = { cursor: "session" as unknown, compactionId: null as string | null };
       const scope = {
         currentTurnEpoch: () => 1, epoch: 1,
-        providerReload: { started: () => { if (fold === "dispatch") enqueue(); return live; } },
+        providerReload: { started: () => {
+          if (fold === "dispatch") enqueue();
+          if (event === "setup note") store.appendMessage("thread", { role: "bot", kind: "note", text: "[pane build] setup finished" });
+          return live;
+        } },
         instanceId: "claude", threadId: "thread", bot: { id: "bot" }, claimMark, store, instance,
         foldQueuedSends, composeUserTurnPrompt, userTurnReactionKeys, paneNotesForTurn, routineCardsSinceLastUserTurn, withoutTurnNotes,
         buildTurnContext, buildResumeFallback, withSystemChanges, planSummaryGrace,
@@ -114,9 +142,11 @@ describe("summary grace dispatch", () => {
         skillInstructions: "", packagePlaybooks: "", harnessPlaybookPrompt: () => "", opts: {}, tagged: [],
         text: "next request", activeMessages, skipTranscript, userMessage, replaysTranscript: false, replaysNatively: false,
         reactions: {}, rewound: false, fresh: false, recycled: false, recycleReason: undefined, modelContextWindow: 200_000,
+        recycleDeferred: false,
         transcript: prepared.transcript, contextCompacted: prepared.compacted, taskRecord: undefined, durableTaskRecordText: taskRecordText,
         recovering: false, recoveryLatestUserText: "next request", latestCompactionId: null, seed,
         summarySkipped: true, summaryGrace, graceInputs, planBeforeSummary, summaryBuild: build, prepareContext,
+        inlineNotes: null,
         onSummaryWait, logSummaryWait, latencySendId: "send", isSendCancelled: () => false,
         systemSeeds: { set: () => ({}) }, systemSeed: undefined, lastTurnToolRounds: 0, sessionToolRounds: 0,
         pendingInterruptThreads: { started: () => {} }, model: "claude-opus-5-5", effort: undefined,
@@ -130,21 +160,39 @@ describe("summary grace dispatch", () => {
       expect(finalGrace.grace.requestText).toContain(payload);
       expect(planSummaryGrace(finalGrace)).toEqual({ safe: false, reason: kind === "paste" ? "headroom" : "unknown-headroom" });
       if (kind === "paste") expect(80_000 + estimateContextTokens([{ text: finalGrace.grace.requestText }])).toBeGreaterThan(200_000);
+      if (event === "wait send") queueSteeredMessage("bot", "thread", "sent while waiting");
+      const note = event === "wait note"
+        ? store.appendMessage("thread", { role: "bot", kind: "note", text: "[pane build] deferred work finished" })
+        : event === "setup note" ? messages.findLast((message) => message.kind === "note") : undefined;
       await vi.advanceTimersByTimeAsync(60_000);
+      if (event === "prepare send") await vi.advanceTimersByTimeAsync(1_000);
       await dispatched;
       expect(sendTurn).toHaveBeenCalledOnce();
       const turn = sendTurn.mock.calls[0]![0];
-      expect(turn.resumeCursor).toBeUndefined();
+      expect(turn.resumeCursor).toBe(event === "background" ? "session" : undefined);
+      if (event === "wait send" || event === "prepare send") {
+        const text = event === "wait send" ? "sent while waiting" : "sent while preparing";
+        expect(turn.text.split(text)).toHaveLength(2);
+        expect(turn.transcript.some((row) => row.text.includes(text))).toBe(false);
+        expect(messages.filter((row) => row.text === text)).toHaveLength(1);
+      }
+      if (note) {
+        expect(store.markPaneNotesDelivered).toHaveBeenCalledWith("bot", "thread", note.id);
+        expect(turn.text.split(note.text!.split("] ")[1]!)).toHaveLength(2);
+        expect(paneNotesForTurn(store.activePath(), skipTranscript, note.id, false).notes).toEqual([]);
+      }
       expect(turn.text.split(payload)).toHaveLength(2);
       expect(turn.text.split("next request")).toHaveLength(2);
-      expect(turn.text).toContain("retained decisions");
-      expect(turn.text).toContain("[Wink compacted this conversation");
+      if (event !== "background") {
+        expect(turn.text).toContain("retained decisions");
+        expect(turn.text).toContain("[Wink compacted this conversation");
+      } else expect(turn.text).toContain(withSystemChanges("", "old system", "system")!.trim());
       expect(turn.transcript.some((row) => row.text.includes(payload) || row.text.includes("next request"))).toBe(false);
       expect(messages.filter((row) => row.text === payload)).toHaveLength(1);
       expect(foldQueuedSends(store, "bot", "thread", claimMark)).toEqual([]);
       expect(prepareContext).toHaveBeenCalledOnce();
-      expect(store.clearResumeCursors).toHaveBeenCalledOnce();
-      expect(seed).toEqual({ cursor: undefined, compactionId: "summary" });
+      expect(store.clearResumeCursors).toHaveBeenCalledTimes(event === "background" ? 0 : 1);
+      expect(seed).toEqual(event === "background" ? { cursor: "session", compactionId: "summary" } : { cursor: undefined, compactionId: "summary", turnId: "turn" });
       expect(generateText).toHaveBeenCalledOnce();
       expect(summarize).not.toHaveBeenCalled();
       const lines = vi.mocked(console.info).mock.calls.map(([line]) => String(line)).filter((line) => line.startsWith("[summary-wait] "));

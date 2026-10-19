@@ -4461,7 +4461,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       lastTurnInputTokens: task.usage?.lastInput,
       nativeTokenBudget: instance.adapter.capabilities.turnInputIsPromptSize && catalogWindow ? nativeSessionTokenBudget(catalogWindow) : 0,
       sessionPrompt,
-    }),
+    }) || instance.adapter.hasBackgroundWork?.(threadId) === true,
     local: Boolean(decodeInjectId(model)),
     native: instance.adapter.capabilities.transcriptReplay !== true
       ? { instanceId, cursor: task.resumeCursors[instanceId], seed: task.resumeSeed, prompt: sessionPrompt }
@@ -4478,7 +4478,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => planBeforeSummary.needed, { sendId: latencySendId, grace: graceInputs, onWait: onSummaryWait });
   const activeMessages = summarySkipped ? messagesBeforeSummary : store.activePath(threadId);
   // Inline replay carries this turn's notes after the reply marker, so they leave history and claim their room first.
-  const inlineNotes = summarySkipped ? notesBeforeSummary : instance.adapter.capabilities.transcriptReplay !== true
+  let inlineNotes = summarySkipped ? notesBeforeSummary : instance.adapter.capabilities.transcriptReplay !== true
     ? paneNotesForTurn(activeMessages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
     : null;
   const prepareContext = (messages: Message[], waitedMs: number, grace?: SummaryGrace) => {
@@ -4623,7 +4623,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   });
   // A recycle closes the live CLI and kills its background work. Resume it
   // instead; the first turn after that work settles recycles on the same checks.
-  const recycleDeferred = recycleWanted && !fresh && instance.adapter.hasBackgroundWork?.(threadId) === true;
+  let recycleDeferred = recycleWanted && !fresh && instance.adapter.hasBackgroundWork?.(threadId) === true;
   const recycled = recycleWanted && !recycleDeferred;
   // Transcript-replay engines never `--resume`; clearing an already-empty
   // map is a no-op. Resume-cursor engines drop the stale/fat session here.
@@ -4682,7 +4682,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     composeUserTurnPrompt(text, turnOpts),
     ...folded,
   ].join("\n\n");
-  const { notes: paneNotes, newestId: newestPaneNoteId } = paneNotesForTurn(
+  let { notes: paneNotes, newestId: newestPaneNoteId } = paneNotesForTurn(
     activeMessages,
     skipTranscript,
     task.paneNotesDeliveredId ?? undefined,
@@ -4695,7 +4695,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     ? []
     : routineCardsSinceLastUserTurn(activeMessages, skipTranscript, task.providerSessionBoundId);
   const turnNotes = [...paneNotes, ...routineCards];
-  const turnPrompt = turnNotes.length ? [...turnNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
+  let turnPrompt = turnNotes.length ? [...turnNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
   let turnTranscript = withoutTurnNotes(transcript, paneNotes);
   const { turnText, resume } = buildTurnContext({
     text: turnPrompt,
@@ -5128,14 +5128,18 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         const live = providerReload.started(threadId, instanceId);
         if (!live) return Promise.reject(new Error(`provider instance "${instanceId}" is unavailable`));
         // Sends during the setup awaits had no provider turn to steer, so they queued; they join here.
-        const late = foldQueuedSends(store, bot.id, threadId, claimMark);
-        if (late.length) {
+        const late: string[] = [];
+        const foldLate = () => {
+          const queued = foldQueuedSends(store, bot.id, threadId, claimMark);
+          if (!queued.length) return;
+          late.push(...queued);
           clearUnattended(bot.id);
           resumePaneWakes(bot.id);
           takeOverPeerTurn(threadId);
           // the user joined this turn, so its finish alerts
           paneNoteTurnThreads.delete(threadId);
-        }
+        };
+        foldLate();
         const notesPath = opensHostFiles(privateWorkspace, instance.driverKind) ? bot.projectNotes : undefined;
         const notesNotice = notesPath ? projectNotesCheck.take(bot.id, threadId, resume ? task.resumeCursors[instanceId] : undefined) : "";
         const withLate = (base: string) => [base, ...late, ...(notesNotice ? [notesNotice] : [])].join("\n\n");
@@ -5212,31 +5216,45 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         const finalGraceInputs = { ...graceInputs, grace: { ...summaryGrace, requestText: text, recycle: summaryGrace.recycle || systemRecycle } };
         const finalGrace = summarySkipped ? planSummaryGrace(finalGraceInputs) : null;
         if (systemRecycle || (finalGrace && !finalGrace.safe)) {
+          const lateCount = late.length;
           if (summarySkipped) {
             onSummaryWait({ threadId, sendId: latencySendId, mode: "waited", waitedMs: 0, reason: finalGrace && !finalGrace.safe ? finalGrace.reason : "session-recycle" });
             const waitedMs = await summaryBuild.settle(threadId, instance, 90_000, () => planBeforeSummary.needed, {
               sendId: latencySendId, grace: finalGraceInputs, onWait: onSummaryWait,
             });
+            foldLate();
             const messages = store.activePath(threadId);
             const replayedIds = new Set(activeMessages.map((message) => message.id));
             for (const message of messages) if (message.steered && !replayedIds.has(message.id)) skipTranscript.add(message.id);
+            const refreshedNotes = paneNotesForTurn(messages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, !replaysNatively, modelContextWindow);
+            if (!replaysNatively) inlineNotes = refreshedNotes;
             const compacted = await prepareContext(messages, waitedMs);
+            foldLate();
             if (compacted.status !== "ready") throw new Error(compacted.status === "failed" ? compacted.error : "Unsupported context summary version");
             latestCompactionId = compacted.compaction ? store.appendCompaction(threadId, compacted.compaction).id : compacted.compactionId ?? null;
             transcript = compacted.transcript;
             contextCompacted = compacted.compacted;
+            if (live.adapter.hasBackgroundWork?.(threadId) !== true) {
+              paneNotes = refreshedNotes.notes;
+              newestPaneNoteId = refreshedNotes.newestId;
+              const notes = [...paneNotes, ...routineCardsSinceLastUserTurn(messages, skipTranscript, task.providerSessionBoundId)];
+              turnPrompt = notes.length ? [...notes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
+            }
             turnTranscript = withoutTurnNotes(transcript, paneNotes);
             seed.compactionId = compacted.expanded ? null : latestCompactionId;
             if (currentTurnEpoch(bot.id) !== epoch || (opts?.sendId && isSendCancelled(opts.sendId))) {
               throw Object.assign(new Error("turn cancelled before dispatch"), { cancelled: true });
             }
           }
-          store.clearResumeCursors(bot.id, threadId);
-          store.markProviderSessionBound(bot.id, threadId, opts?.cardContinuation ? activeMessages.at(-1)?.id ?? userMessage.id : userMessage.id);
-          seed.cursor = undefined;
-          resumeCursor = undefined;
-          text = withLate(systemRecycleText(!systemRecycle));
-          console.info(`[session] ${JSON.stringify({ threadId, reason: systemRecycle ? "system" : "compaction", lastTurnToolRounds, sessionToolRounds })}`);
+          recycleDeferred = live.adapter.hasBackgroundWork?.(threadId) === true;
+          if (!recycleDeferred) {
+            store.clearResumeCursors(bot.id, threadId);
+            store.markProviderSessionBound(bot.id, threadId, opts?.cardContinuation ? activeMessages.at(-1)?.id ?? userMessage.id : userMessage.id);
+            seed.cursor = undefined;
+            resumeCursor = undefined;
+            text = withLate(systemRecycleText(!systemRecycle));
+          } else text = [text, ...late.slice(lateCount)].join("\n\n");
+          console.info(`[session] ${JSON.stringify({ threadId, reason: recycleDeferred ? "recycle-deferred-background" : systemRecycle ? "system" : "compaction", lastTurnToolRounds, sessionToolRounds })}`);
         }
         if (live.adapter.capabilities.pinnedSystem === true) {
           systemSeed = systemSeeds.set(threadId, { instanceId, cursor: resumeCursor, system });
