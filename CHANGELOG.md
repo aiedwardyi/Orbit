@@ -5,12 +5,12 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 ## [1.0.191] - 2026-10-19
 
 ### Changed
-- Replies no longer wait for a chat summary to finish. The summary lands on the next turn.
+- Most replies no longer wait for a chat summary to finish. The summary lands on the next turn.
 - Bots skip the closing recap after tool work.
 
 ### Fixed
 - Send now showing while a turn was still getting ready, when it could not act.
-- An error on Gemini timeouts the CLI had already retried.
+- Gemini replies showing a timeout error that was already retried.
 
 ## [1.0.190] - 2026-10-18
 
