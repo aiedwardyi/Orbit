@@ -112,8 +112,9 @@ import {
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, planCompaction, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
-import { createSummaryBuild, inlineDeadlineMs, inlineSummarizer } from "./summary-build.ts";
+import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, planCompaction, planSummaryGrace, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes, type SummaryGrace } from "./context-compaction.ts";
+import { decodeInjectId } from "./drivers/local-inject.ts";
+import { createSummaryBuild, inlineDeadlineMs, inlineSummarizer, type SummaryWait } from "./summary-build.ts";
 import { createSummaryRepair, logSummaryCall } from "./summary-repair.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
@@ -4407,79 +4408,128 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // never pruned; only this provider-facing projection is bounded.
   const skipTranscript = new Set<string>([userMessage.id, ...(opts?.excludeMessageIds ?? [])]);
   const modelContextWindow = contextWindowFor(instance.models, model);
-  // A summary built since the last settle lands here, before the path is read, so prepare reuses it.
-  const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => {
-    const messages = store.activePath(threadId);
-    const notes = instance.adapter.capabilities.transcriptReplay !== true
-      ? paneNotesForTurn(messages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
-      : null;
-    return planCompaction({
-      messages,
-      contextWindow: modelContextWindow,
-      excludeIds: notes?.ids?.length ? new Set([...skipTranscript, ...notes.ids]) : skipTranscript,
-      reserveTokens: notes?.tokens,
-      userName: cfg.profile?.name?.trim() || "User",
-      referenceMessages: store.messagesFor(threadId),
-    }).needed;
-  });
-  const activeMessages = store.activePath(threadId);
-  const rewound = threadId === bot.threadId && Boolean(bot.rewound);
+  const messagesBeforeSummary = store.activePath(threadId);
+  let rewound = threadId === bot.threadId && Boolean(bot.rewound);
   let taskRecord = taskPacketForWrite(threadId);
   const selectionChanged = task.lastInstanceId !== undefined && (
     task.lastInstanceId !== instanceId ||
     (task.lastModel !== undefined && task.lastModel !== model)
   );
-  if (taskRecord && selectionChanged) {
-    taskRecord = persistTaskPacket(stampTaskResumePacket(taskRecord, "engine-switch", {
-      now: Date.now(),
-      turnsAtWrite: task.usage?.turns ?? taskRecord.turnsAtWrite,
-    })) ?? taskRecord;
-  }
-  const taskRecordToFlush = taskRecord;
-  const latestUser = lastUserInstruction(activeMessages.filter((message) => !skipTranscript.has(message.id)));
+  const latestUser = lastUserInstruction(messagesBeforeSummary.filter((message) => !skipTranscript.has(message.id)));
   // Recovery Current request must be this send's text. skipTranscript excludes
   // userMessage.id, so transcript lookup alone would show a prior user turn.
   // A Resume card carries no request of its own, so it falls back to the turn
   // the interruption cut short.
-  const recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || latestUser?.text || "";
-  const durableTaskRecordText = taskRecord
+  let recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || latestUser?.text || "";
+  let durableTaskRecordText = taskRecord
     ? taskRecordBlock(
       taskRecord,
       Math.max(512, Math.floor(modelContextWindow * 0.15) * 3),
       recovering ? { recovering: true, latestUserText: recoveryLatestUserText } : undefined,
     )
     : "";
-  // Inline replay carries this turn's notes after the reply marker, so they leave history and claim their room first.
-  const inlineNotes = instance.adapter.capabilities.transcriptReplay !== true
-    ? paneNotesForTurn(activeMessages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
+  const catalogWindow = knownCatalogContextWindow(instance.models, model);
+  let sessionPrompt = sessionPromptFor({ report: task.nativePrompt, cursor: task.resumeCursors[instanceId], model, catalogWindow });
+  const notesBeforeSummary = instance.adapter.capabilities.transcriptReplay !== true
+    ? paneNotesForTurn(messagesBeforeSummary, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
     : null;
-  const prepared = await prepareModelContext({
-    messages: activeMessages,
+  const planBeforeSummary = planCompaction({
+    messages: messagesBeforeSummary,
     contextWindow: modelContextWindow,
-    taskRecordText: durableTaskRecordText || "No durable task record is available.",
-    excludeIds: inlineNotes?.ids?.length ? new Set([...skipTranscript, ...inlineNotes.ids]) : skipTranscript,
-    reserveTokens: inlineNotes?.tokens,
+    excludeIds: notesBeforeSummary?.ids?.length ? new Set([...skipTranscript, ...notesBeforeSummary.ids]) : skipTranscript,
+    reserveTokens: notesBeforeSummary?.tokens,
     userName: cfg.profile?.name?.trim() || "User",
     referenceMessages: store.messagesFor(threadId),
-    summarize: inlineSummarizer(instance, summaryWaitMs),
-    onSummaryCall: (record) => logSummaryCall({
-      botId: bot.id,
-      threadId,
-      phase: "compact",
-      engine: instance.driverKind,
-      model: instance.textModel ?? null,
-      run: 0,
-      deadlineMs: inlineDeadlineMs(instance, summaryWaitMs),
-    }, record),
-    beforeSummarize: taskRecordToFlush ? () => {
-      const saved = persistTaskPacket(stampTaskResumePacket(taskRecordToFlush, "pre-compaction", {
-        now: Date.now(),
-        turnsAtWrite: task.usage?.turns ?? taskRecordToFlush.turnsAtWrite,
-      }));
-      if (!saved) throw new Error("the durable task record could not be flushed");
-      taskRecord = saved;
-    } : undefined,
   });
+  const reactions = { delivered: task.reactionsDelivered };
+  const summaryGrace: SummaryGrace = {
+    knownWindow: catalogWindow,
+    requestText: composeUserTurnPrompt(text, {
+      replyTo: opts?.replyTo, messages: messagesBeforeSummary, userName: cfg.profile?.name?.trim() || "User", ...reactions,
+    }),
+    fresh: selectionChanged || engineIsFresh({
+      instanceId, model, lastInstanceId: task.lastInstanceId, lastModel: task.lastModel,
+      sessionModelSwitch: instance.adapter.capabilities.sessionModelSwitch, resumeCursors: task.resumeCursors,
+      resumeCursor: instance.adapter.capabilities.resumeCursor,
+      transcript: planBeforeSummary.needed || planBeforeSummary.status === "fits" ? planBeforeSummary.transcript : [],
+    }),
+    rewound,
+    recycle: shouldRecycleProviderSession({
+      compacted: false, rewound, recovering,
+      lastTurnToolRounds: countLastTurnToolRounds(messagesBeforeSummary, skipTranscript, task.providerSessionBoundId),
+      sessionToolRounds: countSessionToolRounds(messagesBeforeSummary, skipTranscript, task.providerSessionBoundId),
+      lastTurnInputTokens: task.usage?.lastInput,
+      nativeTokenBudget: instance.adapter.capabilities.turnInputIsPromptSize && catalogWindow ? nativeSessionTokenBudget(catalogWindow) : 0,
+      sessionPrompt,
+    }),
+    local: Boolean(decodeInjectId(model)),
+    native: instance.adapter.capabilities.transcriptReplay !== true
+      ? { instanceId, cursor: task.resumeCursors[instanceId], seed: task.resumeSeed, prompt: sessionPrompt }
+      : undefined,
+  };
+  const graceInputs = { plan: planBeforeSummary, grace: summaryGrace, taskRecordText: durableTaskRecordText || "No durable task record is available.", reserveTokens: notesBeforeSummary?.tokens };
+  const summarySkipped = summaryBuild.inflight(threadId) && planSummaryGrace(graceInputs).safe;
+  let summaryWait: SummaryWait | undefined;
+  const onSummaryWait = (wait: SummaryWait) => { summaryWait = { ...wait, waitedMs: (summaryWait?.waitedMs ?? 0) + wait.waitedMs }; };
+  const logSummaryWait = () => {
+    if (summaryWait) console.info(`[summary-wait] ${JSON.stringify(summaryWait)}`);
+    summaryWait = undefined;
+  };
+  const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => planBeforeSummary.needed, { sendId: latencySendId, grace: graceInputs, onWait: onSummaryWait });
+  const activeMessages = summarySkipped ? messagesBeforeSummary : store.activePath(threadId);
+  // Inline replay carries this turn's notes after the reply marker, so they leave history and claim their room first.
+  const inlineNotes = summarySkipped ? notesBeforeSummary : instance.adapter.capabilities.transcriptReplay !== true
+    ? paneNotesForTurn(activeMessages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
+    : null;
+  const prepareContext = (messages: Message[], waitedMs: number, grace?: SummaryGrace) => {
+    if (!grace) {
+      rewound = threadId === bot.threadId && Boolean(bot.rewound);
+      taskRecord = taskPacketForWrite(threadId);
+      if (taskRecord && selectionChanged) {
+        taskRecord = persistTaskPacket(stampTaskResumePacket(taskRecord, "engine-switch", {
+          now: Date.now(),
+          turnsAtWrite: task.usage?.turns ?? taskRecord.turnsAtWrite,
+        })) ?? taskRecord;
+      }
+      recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || lastUserInstruction(messages.filter((message) => !skipTranscript.has(message.id)))?.text || "";
+      durableTaskRecordText = taskRecord
+        ? taskRecordBlock(taskRecord, Math.max(512, Math.floor(modelContextWindow * 0.15) * 3),
+            recovering ? { recovering: true, latestUserText: recoveryLatestUserText } : undefined)
+        : "";
+      sessionPrompt = sessionPromptFor({ report: task.nativePrompt, cursor: task.resumeCursors[instanceId], model, catalogWindow });
+      reactions.delivered = task.reactionsDelivered;
+    }
+    const taskRecordToFlush = taskRecord;
+    return prepareModelContext({
+      messages,
+      contextWindow: modelContextWindow,
+      taskRecordText: durableTaskRecordText || "No durable task record is available.",
+      excludeIds: inlineNotes?.ids?.length ? new Set([...skipTranscript, ...inlineNotes.ids]) : skipTranscript,
+      reserveTokens: inlineNotes?.tokens,
+      summaryGrace: grace,
+      userName: cfg.profile?.name?.trim() || "User",
+      referenceMessages: store.messagesFor(threadId),
+      summarize: inlineSummarizer(instance, waitedMs),
+      onSummaryCall: (record) => logSummaryCall({
+        botId: bot.id,
+        threadId,
+        phase: "compact",
+        engine: instance.driverKind,
+        model: instance.textModel ?? null,
+        run: 0,
+        deadlineMs: inlineDeadlineMs(instance, waitedMs),
+      }, record),
+      beforeSummarize: taskRecordToFlush ? () => {
+        const saved = persistTaskPacket(stampTaskResumePacket(taskRecordToFlush, "pre-compaction", {
+          now: Date.now(),
+          turnsAtWrite: task.usage?.turns ?? taskRecordToFlush.turnsAtWrite,
+        }));
+        if (!saved) throw new Error("the durable task record could not be flushed");
+        taskRecord = saved;
+      } : undefined,
+    });
+  };
+  const prepared = await prepareContext(activeMessages, summaryWaitMs, summarySkipped ? summaryGrace : undefined);
   if (prepared.status !== "ready") {
     const detail = prepared.status === "unsupported"
       ? `This conversation uses context summary version ${String(prepared.version)}. Update Wink before continuing.`
@@ -4490,6 +4540,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       tool: { name: `error: ${detail}`, ok: false },
     });
     opts?.onDispatchError?.(detail);
+    logSummaryWait();
     return startedTurn(userMessage, { dispatchFailed: true, error: detail });
   }
   let latestCompactionId = prepared.compactionId ?? null;
@@ -4504,13 +4555,14 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         tool: { name: `error: ${detail}`, ok: false },
       });
       opts?.onDispatchError?.(detail);
+      logSummaryWait();
       return startedTurn(userMessage, { dispatchFailed: true, error: detail });
     }
   }
   ensureChatLatency({ sendId: latencySendId, threadId, userMessageId: userMessage.id });
   markChatLatency({ sendId: latencySendId, threadId, userMessageId: userMessage.id }, "prepare.completed");
-  const transcript = prepared.transcript;
-  const contextCompacted = prepared.compacted;
+  let transcript = prepared.transcript;
+  let contextCompacted = prepared.compacted;
   // `compacted` stays true for every turn after the first summary; only a new
   // summary should drop the session, or no later turn can ever resume.
   const compactedThisTurn = Boolean(prepared.compaction);
@@ -4547,13 +4599,6 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const knownWindow = instance.adapter.capabilities.turnInputIsPromptSize
     ? knownCatalogContextWindow(instance.models, model)
     : null;
-  // Engines that report each call's real prompt are judged on that alone.
-  const sessionPrompt = sessionPromptFor({
-    report: task.nativePrompt,
-    cursor: task.resumeCursors[instanceId],
-    model,
-    catalogWindow: knownCatalogContextWindow(instance.models, model),
-  });
   const supersededIds = supersededCompactionIds(activeMessages, latestCompactionId);
   const unseeded = !rewound && !fresh && resumeSessionUnseeded({
     instanceId,
@@ -4630,7 +4675,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     messages: store.activePath(threadId),
     userName: cfg.profile?.name?.trim() || "User",
     replayedTranscript: replaysTranscript ? transcript : undefined,
-    delivered: task.reactionsDelivered,
+    ...reactions,
   };
   const reactionsSeen = userTurnReactionKeys(turnOpts);
   const currentPrompt = [
@@ -4651,7 +4696,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     : routineCardsSinceLastUserTurn(activeMessages, skipTranscript, task.providerSessionBoundId);
   const turnNotes = [...paneNotes, ...routineCards];
   const turnPrompt = turnNotes.length ? [...turnNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
-  const turnTranscript = withoutTurnNotes(transcript, paneNotes);
+  let turnTranscript = withoutTurnNotes(transcript, paneNotes);
   const { turnText, resume } = buildTurnContext({
     text: turnPrompt,
     transcript: turnTranscript,
@@ -4699,8 +4744,12 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // busy flips immediately so the composer locks; the dispatch itself runs
   // in the background — box provisioning can take ~90s and must never
   // hang the HTTP request
-  if (currentTurnEpoch(bot.id) !== epoch) return startedTurn(userMessage);
+  if (currentTurnEpoch(bot.id) !== epoch) {
+    logSummaryWait();
+    return startedTurn(userMessage);
+  }
   if (opts?.sendId && isSendCancelled(opts.sendId)) {
+    logSummaryWait();
     return startedTurn(userMessage, { cancelled: true });
   }
   store.setActivity(bot.id, "working", threadId);
@@ -4709,6 +4758,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   if (currentTurnEpoch(bot.id) !== epoch) {
     store.setActivity(bot.id, "idle");
     clearSendRunning(bot.id);
+    logSummaryWait();
     return startedTurn(userMessage);
   }
   // a pane note, delegation, routine, or peer ask starting this turn is not
@@ -4737,6 +4787,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   void (async () => {
     if (currentTurnEpoch(bot.id) !== epoch) {
       turnSeeds.release(threadId, seed);
+      logSummaryWait();
       return;
     }
     let systemSeed: ReturnType<typeof systemSeeds.set> | undefined;
@@ -5070,7 +5121,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // new cursor with it.
       if (rewound) store.clearResumeCursors(bot.id, threadId);
       watchdog.watch(threadId, bot.id);
-      const started = await dispatchAdapterTurn(threadId, () => {
+      const started = await dispatchAdapterTurn(threadId, async () => {
         if (currentTurnEpoch(bot.id) !== epoch) {
           return Promise.reject(Object.assign(new Error("turn cancelled before dispatch"), { cancelled: true }));
         }
@@ -5156,6 +5207,25 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
             ?? (live.adapter.hasBackgroundWork?.(threadId) === true ? withSystemChanges(text, delivered ?? "", system, Infinity) : null);
           if (updated !== null) text = updated;
           else {
+            if (summarySkipped) {
+              onSummaryWait({ threadId, sendId: latencySendId, mode: "waited", waitedMs: 0, reason: "session-recycle" });
+              const waitedMs = await summaryBuild.settle(threadId, instance, 90_000, () => planBeforeSummary.needed, {
+                sendId: latencySendId, grace: { ...graceInputs, grace: { ...summaryGrace, recycle: true } }, onWait: onSummaryWait,
+              });
+              const messages = store.activePath(threadId);
+              const replayedIds = new Set(activeMessages.map((message) => message.id));
+              for (const message of messages) if (message.steered && !replayedIds.has(message.id)) skipTranscript.add(message.id);
+              const compacted = await prepareContext(messages, waitedMs);
+              if (compacted.status !== "ready") throw new Error(compacted.status === "failed" ? compacted.error : "Unsupported context summary version");
+              latestCompactionId = compacted.compaction ? store.appendCompaction(threadId, compacted.compaction).id : compacted.compactionId ?? null;
+              transcript = compacted.transcript;
+              contextCompacted = compacted.compacted;
+              turnTranscript = withoutTurnNotes(transcript, paneNotes);
+              seed.compactionId = compacted.expanded ? null : latestCompactionId;
+              if (currentTurnEpoch(bot.id) !== epoch || (opts?.sendId && isSendCancelled(opts.sendId))) {
+                throw Object.assign(new Error("turn cancelled before dispatch"), { cancelled: true });
+              }
+            }
             store.clearResumeCursors(bot.id, threadId);
             store.markProviderSessionBound(bot.id, threadId, opts?.cardContinuation ? activeMessages.at(-1)?.id ?? userMessage.id : userMessage.id);
             seed.cursor = undefined;
@@ -5165,6 +5235,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           }
           systemSeed = systemSeeds.set(threadId, { instanceId, cursor: resumeCursor, system });
         }
+        logSummaryWait();
         pendingInterruptThreads.started(threadId, bot.id, epoch);
         return live.adapter.sendTurn({
         threadId,
@@ -5240,6 +5311,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       paneWake.settled();
       drainConnectorResumes();
       drainSecretResumes();
+    } finally {
+      logSummaryWait();
     }
   })();
   return startedTurn(userMessage);
