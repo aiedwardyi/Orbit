@@ -3892,6 +3892,16 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   animation: orbit-rainbow-spin 4s linear infinite paused;
 }
 
+[data-orbit-rainbow="theme"] > span {
+  background: repeating-conic-gradient(
+    var(--color-accent),
+    color-mix(in oklab, var(--color-accent) 50%, white) 12.5%,
+    var(--color-accent) 25%,
+    color-mix(in oklab, var(--color-accent) 75%, black) 37.5%,
+    var(--color-accent) 50%
+  );
+}
+
 [data-orbit-composer-frame]:focus-within > [data-orbit-rainbow] {
   opacity: 1;
 }

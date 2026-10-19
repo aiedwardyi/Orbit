@@ -43,7 +43,7 @@ import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
 import { TranscriptionSettings } from "./TranscriptionSettings";
 import { loadSidebarSide, saveSidebarSide, type SidebarSide } from "@/lib/sidebar-preferences";
 import { isPhone, saveVibration, vibrationEnabled } from "@/lib/phone-swipe";
-import { saveRainbowBox, useRainbowBox } from "@/lib/rainbow-box";
+import { saveRainbowBox, useRainbowBox, type RainbowBox } from "@/lib/rainbow-box";
 import { saveTerminalPopups, useTerminalPopups } from "@/lib/terminal-popups";
 import { saveReplyStyle, useReplyStyle, type ReplyStyle } from "@/lib/reply-style";
 import { cn } from "@/lib/cn";
@@ -353,22 +353,25 @@ function NotificationsRow() {
 
 function RainbowBoxRow() {
   const { t } = useI18n();
-  const on = useRainbowBox();
+  const box = useRainbowBox();
   return (
-    <Card title={t("settings.rainbowBox.title")}>
-      <div className="flex items-center justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-[14px] font-medium text-ink">{t("settings.rainbowBox.toggle")}</div>
-        </div>
-        <button
-          role="switch"
-          aria-checked={on}
-          aria-label={t("settings.rainbowBox.toggle")}
-          onClick={() => saveRainbowBox(!on)}
-          className={cnSwitch(on)}
-        >
-          <span className={cnKnob(on)} />
-        </button>
+    <Card title={t("settings.rainbowBox.title")} subtitle={t("settings.rainbowBox.help")}>
+      <div role="radiogroup" aria-label={t("settings.rainbowBox.title")} className="flex gap-1 rounded-lg bg-inset p-0.5">
+        {(["off", "rainbow", "theme"] as RainbowBox[]).map((option) => (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={box === option}
+            onClick={() => saveRainbowBox(option)}
+            className={cn(
+              "flex-1 whitespace-nowrap rounded-[max(0px,calc(var(--radius-lg)_-_2px))] px-2 py-1.5 text-center text-[13px] font-medium transition-colors",
+              box === option ? "bg-raised text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
+            )}
+          >
+            {t(`settings.rainbowBox.${option}`)}
+          </button>
+        ))}
       </div>
     </Card>
   );
