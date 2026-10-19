@@ -4717,13 +4717,13 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
   });
-  const systemRecycleText = () => buildTurnContext({
+  const systemRecycleText = (compaction = false) => buildTurnContext({
     text: turnPrompt,
     transcript: turnTranscript,
     rewound: false,
     fresh: false,
     recycled: true,
-    recycleReason: "system",
+    recycleReason: compaction ? "compaction" : "system",
     replaysNatively,
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
@@ -5196,6 +5196,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         // conversation and defeat the context bubble
         let resumeCursor = resume ? task.resumeCursors[instanceId] : undefined;
         let text = withLate(turnText);
+        let systemRecycle = false;
         if (live.adapter.capabilities.pinnedSystem === true) {
           // The session still holds the system text it started with: what
           // changed since rides at the top of this turn, or recycles the
@@ -5206,33 +5207,38 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           const updated = (unknown ? null : withSystemChanges(text, delivered, system))
             ?? (live.adapter.hasBackgroundWork?.(threadId) === true ? withSystemChanges(text, delivered ?? "", system, Infinity) : null);
           if (updated !== null) text = updated;
-          else {
-            if (summarySkipped) {
-              onSummaryWait({ threadId, sendId: latencySendId, mode: "waited", waitedMs: 0, reason: "session-recycle" });
-              const waitedMs = await summaryBuild.settle(threadId, instance, 90_000, () => planBeforeSummary.needed, {
-                sendId: latencySendId, grace: { ...graceInputs, grace: { ...summaryGrace, recycle: true } }, onWait: onSummaryWait,
-              });
-              const messages = store.activePath(threadId);
-              const replayedIds = new Set(activeMessages.map((message) => message.id));
-              for (const message of messages) if (message.steered && !replayedIds.has(message.id)) skipTranscript.add(message.id);
-              const compacted = await prepareContext(messages, waitedMs);
-              if (compacted.status !== "ready") throw new Error(compacted.status === "failed" ? compacted.error : "Unsupported context summary version");
-              latestCompactionId = compacted.compaction ? store.appendCompaction(threadId, compacted.compaction).id : compacted.compactionId ?? null;
-              transcript = compacted.transcript;
-              contextCompacted = compacted.compacted;
-              turnTranscript = withoutTurnNotes(transcript, paneNotes);
-              seed.compactionId = compacted.expanded ? null : latestCompactionId;
-              if (currentTurnEpoch(bot.id) !== epoch || (opts?.sendId && isSendCancelled(opts.sendId))) {
-                throw Object.assign(new Error("turn cancelled before dispatch"), { cancelled: true });
-              }
+          else systemRecycle = true;
+        }
+        const finalGraceInputs = { ...graceInputs, grace: { ...summaryGrace, requestText: text, recycle: summaryGrace.recycle || systemRecycle } };
+        const finalGrace = summarySkipped ? planSummaryGrace(finalGraceInputs) : null;
+        if (systemRecycle || (finalGrace && !finalGrace.safe)) {
+          if (summarySkipped) {
+            onSummaryWait({ threadId, sendId: latencySendId, mode: "waited", waitedMs: 0, reason: finalGrace && !finalGrace.safe ? finalGrace.reason : "session-recycle" });
+            const waitedMs = await summaryBuild.settle(threadId, instance, 90_000, () => planBeforeSummary.needed, {
+              sendId: latencySendId, grace: finalGraceInputs, onWait: onSummaryWait,
+            });
+            const messages = store.activePath(threadId);
+            const replayedIds = new Set(activeMessages.map((message) => message.id));
+            for (const message of messages) if (message.steered && !replayedIds.has(message.id)) skipTranscript.add(message.id);
+            const compacted = await prepareContext(messages, waitedMs);
+            if (compacted.status !== "ready") throw new Error(compacted.status === "failed" ? compacted.error : "Unsupported context summary version");
+            latestCompactionId = compacted.compaction ? store.appendCompaction(threadId, compacted.compaction).id : compacted.compactionId ?? null;
+            transcript = compacted.transcript;
+            contextCompacted = compacted.compacted;
+            turnTranscript = withoutTurnNotes(transcript, paneNotes);
+            seed.compactionId = compacted.expanded ? null : latestCompactionId;
+            if (currentTurnEpoch(bot.id) !== epoch || (opts?.sendId && isSendCancelled(opts.sendId))) {
+              throw Object.assign(new Error("turn cancelled before dispatch"), { cancelled: true });
             }
-            store.clearResumeCursors(bot.id, threadId);
-            store.markProviderSessionBound(bot.id, threadId, opts?.cardContinuation ? activeMessages.at(-1)?.id ?? userMessage.id : userMessage.id);
-            seed.cursor = undefined;
-            resumeCursor = undefined;
-            text = withLate(systemRecycleText());
-            console.info(`[session] ${JSON.stringify({ threadId, reason: "system", lastTurnToolRounds, sessionToolRounds })}`);
           }
+          store.clearResumeCursors(bot.id, threadId);
+          store.markProviderSessionBound(bot.id, threadId, opts?.cardContinuation ? activeMessages.at(-1)?.id ?? userMessage.id : userMessage.id);
+          seed.cursor = undefined;
+          resumeCursor = undefined;
+          text = withLate(systemRecycleText(!systemRecycle));
+          console.info(`[session] ${JSON.stringify({ threadId, reason: systemRecycle ? "system" : "compaction", lastTurnToolRounds, sessionToolRounds })}`);
+        }
+        if (live.adapter.capabilities.pinnedSystem === true) {
           systemSeed = systemSeeds.set(threadId, { instanceId, cursor: resumeCursor, system });
         }
         logSummaryWait();
