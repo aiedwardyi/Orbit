@@ -354,7 +354,9 @@ export class ProviderRegistry {
       const discovery = this.modelRefreshInFlight.get(inst.instanceId);
       if (discovery) await discovery;
       const lastRefresh = this.modelRefreshAt.get(inst.instanceId) ?? 0;
-      if (inst.refreshModels && this.now() - lastRefresh >= this.modelRefreshTtlMs) {
+      // Creation may have resolved a stale cached CLI path; this probe runs after a fresh PATH scan.
+      const freshPath = opts?.refresh || opts?.rescan;
+      if (inst.refreshModels && (freshPath || this.now() - lastRefresh >= this.modelRefreshTtlMs)) {
         const inFlight = this.modelRefreshInFlight.get(inst.instanceId);
         if (inFlight) await inFlight;
         else {

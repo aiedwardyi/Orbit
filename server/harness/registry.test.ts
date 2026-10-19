@@ -1,11 +1,12 @@
 // The registry's contract is forward/backward compatibility: a config
 // written by a newer or differently-built app must load as an
 // unavailable shadow, never crash the fleet. These tests pin that.
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
+import { findCliCandidates, refreshPathCache, resetPathCacheForTests } from "../env-path.ts";
 import * as procs from "../procs.ts";
 import { makeFakeDriver } from "../testing/fake-driver.ts";
 import { ProviderRegistry } from "./registry.ts";
@@ -156,6 +157,45 @@ describe("ProviderRegistry", () => {
     now += 101;
     await registry.describe();
     expect(refreshes).toBe(2);
+  });
+
+  it("rediscovers models once a refresh repairs a stale cached CLI path", async () => {
+    const cacheDir = mkdtempSync(join(homedir(), "probe-cache-"));
+    const [moved, installed] = ["moved-bin-", "installed-bin-"].map((dir) => mkdtempSync(join(homedir(), dir)));
+    const name = "stale-shim-cli";
+    const shim = (dir: string) => join(dir, name + (process.platform === "win32" ? ".cmd" : ""));
+    process.env.OMB_EXTRA_PATH = [moved, installed].join(delimiter);
+    try {
+      writeFileSync(shim(moved), "fixture");
+      resetPathCacheForTests();
+      await refreshPathCache([name]);
+      rmSync(shim(moved));
+      writeFileSync(shim(installed), "fixture");
+      resetPathCacheForTests();
+      const fake = makeFakeDriver();
+      const originalCreate = fake.driver.create.bind(fake.driver);
+      fake.driver.create = async (input) => {
+        const instance = await originalCreate(input);
+        const refreshModels = async () => {
+          const found = existsSync(findCliCandidates(name)[0] ?? "");
+          Object.assign(instance, {
+            models: found ? { default: "real", options: [{ id: "real", label: "Real" }] } : fake.driver.models,
+          });
+        };
+        await refreshModels();
+        Object.assign(instance, { refreshModels });
+        return instance;
+      };
+      const registry = new ProviderRegistry([fake.driver], { cacheDir });
+      await registry.load({ a: { driver: "fake", config: { cli: name } } });
+      expect(registry.get("a")!.models.default).toBe("fake-1");
+      expect((await registry.describe({ refresh: true }))[0].models.default).toBe("real");
+      expect((await registry.describeCached())[0].models.default).toBe("real");
+      await registry.disposeAll();
+    } finally {
+      delete process.env.OMB_EXTRA_PATH;
+      resetPathCacheForTests();
+    }
   });
 
   it("coalesces concurrent model discovery refreshes", async () => {
