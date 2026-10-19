@@ -10,7 +10,7 @@ import { buildResumeFallback, buildTurnContext, withSystemChanges } from "./turn
 import type { ContextCompactionV1 } from "../shared/context-compaction.ts";
 
 // Execute the production folds and dispatch without booting the server.
-const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const preparation = source.slice(source.indexOf("  const folded = currentTurnEpoch"), source.indexOf("\n  const persona = [", source.indexOf("  const folded = currentTurnEpoch")));
 const marker = "const started = await dispatchAdapterTurn(threadId, async () => {";
 const start = source.indexOf(marker) + marker.length;
