@@ -332,12 +332,12 @@ const WAITING_NOTE = "WAITING: this worker is stuck on an on-screen prompt (perm
 
 // permission_prompt also fires for AskUserQuestion; idle_prompt would repeat after every finished turn.
 // A plain note, not --hook: the report dedup can swallow an auto note.
-// Compacts at about 467k (window minus 33k), well before the 1M default.
+// Compacts at about 267k (window minus 33k), well before the 1M default.
 function claudeWorkerSettings(dir) {
   const command = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(dir, "orbit-msg.ps1").replace(/\\/g, "/")}" "${WAITING_NOTE}"`;
   const compact = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(dir, "orbit-compact.ps1").replace(/\\/g, "/")}"`;
   return `${JSON.stringify({
-    autoCompactWindow: 500_000,
+    autoCompactWindow: 300_000,
     hooks: {
       Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command, timeout: 15 }] }],
       SessionStart: [{ matcher: "compact", hooks: ["card", "progress"].map((part) => ({ type: "command", command: `${compact} ${part}`, timeout: 30 })) }],

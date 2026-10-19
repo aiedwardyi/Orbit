@@ -66,7 +66,7 @@ expensive the longer it runs.
 - A new task gets a FRESH worker. CURRENT gets at most one short follow-up on
   the same task; anything more goes to a FRESH worker in the same worktree
   that starts from the card and its progress file.
-- Claude workers compact at about 500k and get their card and progress file back.
+- Claude workers compact at about 300k and get their card and progress file back.
 - Match the model to the job: the strongest for architecture, audits and hard
   bugs; a mid model for routine builds; the cheapest for searches and mechanical
   edits. Spread jobs across engines so no single plan runs out.
