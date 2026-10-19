@@ -16,7 +16,7 @@ describe("pane-note quiet finish", () => {
   });
 
   it("alerts when a late send joins at dispatch", () => {
-    const at = index.indexOf("const late = foldQueuedSends(");
+    const at = index.indexOf("const queued = foldQueuedSends(");
     expect(at).toBeGreaterThan(0);
     expect(index.slice(at, at + 500)).toContain("paneNoteTurnThreads.delete(threadId)");
   });

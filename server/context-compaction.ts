@@ -3,6 +3,7 @@ import { decodeInjectId } from "./drivers/local-inject.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { ENGINE_SUMMARY_PREFIX, replyExcerpt, transcriptText } from "./replies.ts";
 import type { Message, OptionCardData } from "./store.ts";
+import type { ResumeSeed, SessionPrompt } from "./turn-context.ts";
 import {
   CONTEXT_COMPACTION_VERSION,
   readContextCompaction,
@@ -15,6 +16,8 @@ export const MODEL_CONTEXT_FALLBACK = 128_000;
 export const LOCAL_MODEL_CONTEXT_FALLBACK = 16_384;
 
 const CONTEXT_BUDGET_SHARE = 0.5;
+// A grace turn leaves a quarter window for output and further native growth.
+const SUMMARY_GRACE_INPUT_SHARE = 0.75;
 const SUMMARY_BUDGET_SHARE = 0.35;
 // Both count user turns: bot bubbles and tool lines are bounded by tokens.
 const MAX_CONTEXT_MESSAGES = 60;
@@ -899,6 +902,7 @@ export type CompactionPlan =
       summaryBudget: number;
       contextWindow: number;
       estimatedTokensBefore: number;
+      transcript: ModelContextMessage[];
     }
   | {
       needed: false;
@@ -984,7 +988,56 @@ export function planCompaction(input: {
     summaryBudget,
     contextWindow,
     estimatedTokensBefore: Math.max(1, currentTokens),
+    transcript: currentTranscript,
   };
+}
+
+export interface SummaryGrace {
+  knownWindow: number | null;
+  requestText: string;
+  fresh: boolean;
+  rewound: boolean;
+  recycle: boolean;
+  local: boolean;
+  overheadTokens?: number | null;
+  native?: {
+    instanceId: string;
+    cursor: unknown;
+    seed: ResumeSeed | undefined;
+    prompt: SessionPrompt | undefined;
+  };
+}
+
+export function planSummaryGrace(input: {
+  plan: CompactionPlan;
+  grace: SummaryGrace;
+  taskRecordText: string;
+  reserveTokens?: number;
+}): { safe: true; budgetTokens: number } | { safe: false; reason: string } {
+  const { plan, grace } = input;
+  if (!grace.knownWindow || !Number.isSafeInteger(grace.knownWindow)) return { safe: false, reason: "unknown-window" };
+  if (grace.local || grace.knownWindow <= MODEL_CONTEXT_FALLBACK) return { safe: false, reason: "small-or-local" };
+  if (grace.rewound || grace.fresh || grace.recycle) return { safe: false, reason: "session-recycle" };
+  if (!plan.needed && plan.status !== "fits") return { safe: false, reason: "invalid-context" };
+  let window = grace.knownWindow;
+  let overhead = grace.overheadTokens;
+  if (grace.native) {
+    const { instanceId, cursor, seed, prompt } = grace.native;
+    if (cursor === undefined || !seed || seed.instanceId !== instanceId || seed.cursor !== cursor || seed.compactionId !== (plan.previous?.messageId ?? null)) {
+      return { safe: false, reason: "unseeded" };
+    }
+    if (!prompt || !Number.isSafeInteger(prompt.contextWindow) || prompt.contextWindow <= 0) return { safe: false, reason: "unknown-headroom" };
+    window = Math.min(window, prompt.contextWindow);
+    overhead = prompt.last;
+  }
+  if (window <= MODEL_CONTEXT_FALLBACK || overhead == null || !Number.isSafeInteger(overhead) || overhead <= 0 || /<attached-image\b/.test(grace.requestText)) {
+    return { safe: false, reason: "unknown-headroom" };
+  }
+  // The native prompt includes raw tools and startup; counting history again leaves their full cost reserved.
+  const budgetTokens = Math.floor(window * SUMMARY_GRACE_INPUT_SHARE) - overhead - (input.reserveTokens ?? 0) -
+    estimateContextTokens([{ text: grace.requestText }, { text: input.taskRecordText }]);
+  const tokens = plan.needed ? plan.estimatedTokensBefore : plan.estimatedTokens;
+  return tokens <= budgetTokens ? { safe: true, budgetTokens } : { safe: false, reason: "headroom" };
 }
 
 function compactionRecord(plan: CompactionNeeded, summary: string): ContextCompactionV1 {
@@ -1012,9 +1065,21 @@ export async function prepareModelContext(input: {
   referenceMessages?: Message[];
   includeSpeakers?: boolean;
   reserveTokens?: number;
+  summaryGrace?: SummaryGrace;
   onSummaryCall?: (record: SummaryCallRecord) => void;
 }): Promise<PreparedModelContext> {
   const plan = planCompaction(input);
+  const grace = input.summaryGrace ? planSummaryGrace({ ...input, plan, grace: input.summaryGrace }) : null;
+  if (grace?.safe && (plan.needed || plan.status === "fits")) {
+    return {
+      status: "ready",
+      transcript: plan.transcript,
+      budgetTokens: grace.budgetTokens,
+      estimatedTokens: plan.needed ? plan.estimatedTokensBefore : plan.estimatedTokens,
+      compacted: Boolean(plan.previous),
+      ...(plan.previous ? { compactionId: plan.previous.messageId } : {}),
+    };
+  }
   if (!plan.needed) {
     if (plan.status === "unsupported") return { status: "unsupported", messageId: plan.messageId, version: plan.version };
     if (plan.status === "failed") return { status: "failed", error: plan.error };
