@@ -100,7 +100,7 @@ jobs:
           WINDOWS_RESULTS: ${{ toJSON(needs) }}
         run: |
           node --input-type=module - <<'EOF'
-          import { readFileSync } from "node:fs";
+          import { readdirSync, readFileSync } from "node:fs";
           import { evaluateRun } from "./scripts/test-floor.mjs";
 
           let ok = true;
@@ -108,11 +108,12 @@ jobs:
             console.log(`${name}: ${job.result}`);
             if (job.result !== "success") ok = false;
           }
+          if (!ok) process.exit(1);
           let total = 0;
-          for (let shard = 1; shard <= 4; shard++) {
-            const summary = JSON.parse(readFileSync(`vitest-results/vitest-${shard}.json`, "utf8"));
+          for (const file of readdirSync("vitest-results").sort()) {
+            const summary = JSON.parse(readFileSync(`vitest-results/${file}`, "utf8"));
             const result = evaluateRun({ exitCode: 0, summary }, 1);
-            console.log(`shard ${shard}: ${result.message}`);
+            console.log(`${file}: ${result.message}`);
             if (!result.ok) ok = false;
             total += summary.numTotalTests;
           }
