@@ -51,11 +51,11 @@ afterEach(async () => {
 describe("benchmark hotkey", () => {
   it("cycles tabs with Alt+Shift+I and wraps around", () => {
     const seen = [tab()];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 7; i++) {
       press(window);
       seen.push(tab());
     }
-    expect(seen).toEqual(["Intelligence", "Coding", "General work", "Legal", "Cost", "Intelligence"]);
+    expect(seen).toEqual(["Intelligence", "Coding", "Design", "Security", "General work", "Legal", "Cost", "Intelligence"]);
   });
 
   it("keeps the keystroke from a focused terminal", () => {
@@ -78,34 +78,36 @@ describe("benchmark hotkey", () => {
 });
 
 describe("coding tabs", () => {
-  it("puts Terminal-Bench first under Coding, DeepSWE second, and no Agentic tab", () => {
+  it("puts Terminal-Bench first under Coding, FrontierCode second, and no Agentic tab", () => {
     expect([...group("Benchmark")!.querySelectorAll('[role="radio"]')].map((el) => el.textContent)).toEqual([
       "Intelligence",
       "Coding",
+      "Design",
+      "Security",
       "General work",
       "Legal",
       "Cost",
     ]);
     expect(group("Coding benchmark")).toBeNull();
     pick("Benchmark", "Coding");
-    expect([...group("Coding benchmark")!.querySelectorAll('[role="radio"]')].map((el) => el.textContent)).toEqual(["Terminal-Bench", "DeepSWE"]);
+    expect([...group("Coding benchmark")!.querySelectorAll('[role="radio"]')].map((el) => el.textContent)).toEqual(["Terminal-Bench", "FrontierCode"]);
     expect(chosen("Coding benchmark")).toBe("Terminal-Bench");
     expect(host.textContent).toContain("Terminal-Bench 4.0, % resolved");
-    pick("Coding benchmark", "DeepSWE");
-    expect(host.textContent).toContain("DeepSWE v1.1, % resolved");
+    pick("Coding benchmark", "FrontierCode");
+    expect(host.textContent).toContain("FrontierCode 1.1, mean score %");
   });
 
   it("keeps the chosen coding benchmark across view and tab switches", () => {
     pick("Benchmark", "Coding");
-    pick("Coding benchmark", "DeepSWE");
+    pick("Coding benchmark", "FrontierCode");
     pick("Chart", "Ranked");
-    expect(chosen("Coding benchmark")).toBe("DeepSWE");
+    expect(chosen("Coding benchmark")).toBe("FrontierCode");
     pick("Benchmark", "Legal");
     pick("Benchmark", "Coding");
-    expect(chosen("Coding benchmark")).toBe("DeepSWE");
-    for (let i = 0; i < 5; i++) press(window);
-    expect(chosen("Coding benchmark")).toBe("DeepSWE");
-    expect(host.textContent).toContain("DeepSWE v1.1, % resolved");
+    expect(chosen("Coding benchmark")).toBe("FrontierCode");
+    for (let i = 0; i < 7; i++) press(window);
+    expect(chosen("Coding benchmark")).toBe("FrontierCode");
+    expect(host.textContent).toContain("FrontierCode 1.1, mean score %");
   });
 });
 
@@ -147,20 +149,18 @@ describe("source freshness", () => {
   });
 
   it("flags a source not updated for more than 14 days", async () => {
-    const coding = sourceFor("coding");
-    if (coding.updated === null) throw new Error("coding publishes no date");
+    const security = sourceFor("security");
+    if (security.updated === null) throw new Error("security publishes no date");
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(atLocal(coding.updated, 14, 23, 30));
+    vi.setSystemTime(atLocal(security.updated, 14, 23, 30));
     await mount();
-    pick("Benchmark", "Coding");
-    pick("Coding benchmark", "DeepSWE");
-    expect(host.textContent).toContain(`Source updated ${nbDay(coding.updated)}`);
+    pick("Benchmark", "Security");
+    expect(host.textContent).toContain(`Source updated ${nbDay(security.updated)}`);
     expect(host.textContent).not.toContain(STALE);
-    vi.setSystemTime(atLocal(coding.updated, 15, 0, 30));
+    vi.setSystemTime(atLocal(security.updated, 15, 0, 30));
     await mount();
-    pick("Benchmark", "Coding");
-    pick("Coding benchmark", "DeepSWE");
-    const badge = [...host.querySelectorAll("span")].find((el) => el.textContent === `${STALE} ${nbDay(coding.updated)}`);
+    pick("Benchmark", "Security");
+    const badge = [...host.querySelectorAll("span")].find((el) => el.textContent === `${STALE} ${nbDay(security.updated)}`);
     expect(badge?.className).toContain("text-warning");
   });
 
@@ -189,31 +189,31 @@ describe("model filter", () => {
 
   it("charts only picker models on every tab", () => {
     const named = () => [...host.querySelectorAll('[tabindex="0"]')].map((el) => el.getAttribute("aria-label") ?? el.textContent ?? "").join("|");
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 7; i++) {
       expect(named(), tab() ?? "").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Haiku 4\.5/);
       if (tab() === "Coding") {
-        pick("Coding benchmark", "DeepSWE");
-        expect(named(), "DeepSWE").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Haiku 4\.5/);
+        pick("Coding benchmark", "FrontierCode");
+        expect(named(), "FrontierCode").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Haiku 4\.5/);
       }
       press(window);
     }
   });
 
-  it("charts Argon on every tab but DeepSWE, which has not run it", () => {
+  it("charts Argon on every tab and both coding benchmarks", () => {
     const named = () => [...host.querySelectorAll('[tabindex="0"]')].map((el) => el.getAttribute("aria-label") ?? el.textContent ?? "").join("|");
-    for (const benchmark of ["Intelligence", "Coding", "General work", "Legal", "Cost"]) {
+    for (const benchmark of ["Intelligence", "Coding", "Design", "Security", "General work", "Legal", "Cost"]) {
       pick("Benchmark", benchmark);
       expect(named(), benchmark).toMatch(/Gemini 4 Argon/);
     }
     pick("Benchmark", "Coding");
-    pick("Coding benchmark", "DeepSWE");
-    expect(named(), "DeepSWE").not.toMatch(/Argon/);
+    pick("Coding benchmark", "FrontierCode");
+    expect(named(), "FrontierCode").toMatch(/Gemini 4 Argon/);
   });
 });
 
 describe("cost tab", () => {
   it("shows input / output list price per 1M tokens", () => {
-    for (let i = 0; i < 4; i++) press(window);
+    for (let i = 0; i < 6; i++) press(window);
     expect(tab()).toBe("Cost");
     const opus = [...host.querySelectorAll('[tabindex="0"]')].find((el) => el.textContent?.includes("Claude Opus 5.5"));
     expect(opus?.textContent).toContain("$4 / $20");
@@ -233,7 +233,7 @@ describe("promo price on the cost tab", () => {
     vi.setSystemTime(new Date(...day, 12));
     vi.stubGlobal("localStorage", { getItem: () => locale });
     await mount();
-    for (let i = 0; i < 4; i++) press(window);
+    for (let i = 0; i < 6; i++) press(window);
     return [...host.querySelectorAll('[tabindex="0"]')].find((el) => el.textContent?.includes(model))?.textContent;
   };
 
@@ -264,7 +264,7 @@ describe("promo price on the cost tab", () => {
     act(() => argon().focus());
     expect(kept()).toEqual([true, true]);
     await mount();
-    for (let i = 0; i < 3; i++) press(window);
+    for (let i = 0; i < 5; i++) press(window);
     act(() => argon().focus());
     expect(kept()).toEqual([true]);
   });
@@ -296,6 +296,13 @@ describe("score hover card", () => {
     act(() => host.querySelector<SVGElement>(`[aria-label="${label}"]`)!.blur());
     return tip;
   };
+  const rowTip = (text: string) => {
+    const row = [...host.querySelectorAll<HTMLElement>('[tabindex="0"]')].find((el) => el.textContent?.startsWith(text))!;
+    act(() => row.focus());
+    const tip = host.querySelector('[role="tooltip"]')?.textContent ?? "";
+    act(() => row.blur());
+    return tip;
+  };
 
   it("shows each effort's own cost per task over one shared price", () => {
     const low = hoverTip("Claude Opus 5.5 low");
@@ -307,16 +314,19 @@ describe("score hover card", () => {
     for (const tip of [low, max]) expect(tip).toContain("Price per 1M, in / out$4 / $20Same at every effort");
   });
 
-  it("names the coding benchmark and shows the 95% interval and harness when the row has them", () => {
+  it("names the coding benchmark, and the harness when the row has one", () => {
     pick("Benchmark", "Coding");
     const terminal = hoverTip("Claude Opus 5.5 high");
     expect(terminal).toMatch(/%Terminal-Bench/);
     expect(terminal).toContain("Cost per task");
     expect(terminal).not.toMatch(/95% CI|Harness/);
-    pick("Coding benchmark", "DeepSWE");
-    const tip = hoverTip("Claude Fable 5 low");
-    expect(tip).toContain("59.6%DeepSWE95% CI 56.8-62.4%");
-    expect(tip).toContain("Harnessmini-swe-agent");
+    pick("Coding benchmark", "FrontierCode");
+    expect(chosen("Chart")).toBe("Ranked");
+    expect(rowTip("Claude Opus 5.5medium")).toContain("57.1%FrontierCode");
+    pick("Benchmark", "Design");
+    const terra = rowTip("GPT-5.6 Terraxhigh");
+    expect(terra).toContain("1,522Design");
+    expect(terra).toContain("HarnessCodex");
   });
 });
 
