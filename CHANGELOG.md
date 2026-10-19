@@ -2,6 +2,22 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.192] - 2026-10-20
+
+### Added
+- Model index: Gemini 4 Argon on the Intelligence, Agentic and General charts.
+- A bot gets one note when a worker it launched passes 200k context, and its pane list shows each worker's context size.
+
+### Changed
+- The chat box is ready about 0.3 s sooner after launch.
+- Worker panes run at below-normal CPU priority, so Wink stays quick while workers are busy.
+- Spinners and the rainbow chat box pause while Wink is in the background. The needs-you pulse keeps running.
+- A new pane needs only the memory its engine uses (600 MB for Claude, 150 MB for Codex or Muse), not 2 GB free.
+- Claude workers summarize at about 300k context instead of 500k.
+
+### Fixed
+- The Legal chart in the model index not drawing.
+
 ## [1.0.191] - 2026-10-19
 
 ### Changed
@@ -61,6 +77,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.192]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.192
 [1.0.191]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.191
 [1.0.190]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.190
 [1.0.189]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.189
