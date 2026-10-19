@@ -2,6 +2,16 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.191] - 2026-10-19
+
+### Changed
+- Replies no longer wait for a chat summary to finish. The summary lands on the next turn.
+- Bots skip the closing recap after tool work.
+
+### Fixed
+- Send now showing while a turn was still getting ready, when it could not act.
+- An error on Gemini timeouts the CLI had already retried.
+
 ## [1.0.190] - 2026-10-18
 
 ### Added
@@ -51,5 +61,6 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.191]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.191
 [1.0.190]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.190
 [1.0.189]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.189
