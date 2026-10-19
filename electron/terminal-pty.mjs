@@ -65,6 +65,7 @@ export function spawnTerminalPty(modulePath, shell, args, options) {
   worker.on("message", (message) => {
     if (message.type === "ready") {
       ready = true;
+      handle.pid = message.pid;
       resolveReady();
     }
     if (message.type === "data") for (const listener of dataListeners) listener(message.data);
@@ -103,7 +104,8 @@ export function spawnTerminalPty(modulePath, shell, args, options) {
     finish(exitCode);
     resolveExited();
   });
-  return {
+  const handle = {
+    pid: null,
     onData: (listener) => dataListeners.add(listener),
     onExit: (listener) => exitListeners.add(listener),
     onError: (listener) => errorListeners.add(listener),
@@ -115,6 +117,7 @@ export function spawnTerminalPty(modulePath, shell, args, options) {
     kill: () => request("kill", {}),
     terminate: () => worker.terminate(),
   };
+  return handle;
 }
 
 if (!isMainThread && workerData?.modulePath) {
@@ -141,7 +144,7 @@ if (!isMainThread && workerData?.modulePath) {
         parentPort.postMessage({ type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
       }
     });
-    parentPort.postMessage({ type: "ready" });
+    parentPort.postMessage({ type: "ready", pid: pty.pid });
   } catch (error) {
     parentPort.postMessage({ type: "error", fatal: true, message: error instanceof Error ? error.message : String(error) });
     process.exit(1);
