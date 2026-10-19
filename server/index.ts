@@ -450,7 +450,7 @@ const threadSyncGate = createThreadSyncV2Gate(DATA_DIR);
 if (!existsSync(join(DATA_DIR, "profile-sync.json"))) {
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
 }
-const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
+const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { cacheDir: DATA_DIR });
 await registry.load(instanceConfigs(cfg));
 const bundledSkills = loadBundledSkills();
 const availableSkills = () => mergeSkills(bundledSkills, loadUserSkills(join(DATA_DIR, "skills")));
@@ -2057,6 +2057,8 @@ function publishDeviceRecord(): void {
 }
 
 let devicePresenceStarted = false;
+let markServerServing!: () => void;
+const serverServing = new Promise<void>((resolve) => { markServerServing = resolve; });
 
 /** Tailnet detection and the relay both call this; the heartbeat starts once. */
 function startDevicePresence(): void {
@@ -2064,7 +2066,7 @@ function startDevicePresence(): void {
   if (devicePresenceStarted) return;
   devicePresenceStarted = true;
   setInterval(publishDeviceRecord, DEVICE_HEARTBEAT_MS).unref();
-  void detectLaptop().then((laptop) => {
+  void serverServing.then(() => new Promise<void>((resolve) => setTimeout(resolve, 1_000))).then(detectLaptop).then((laptop) => {
     deviceLaptop = laptop;
     if (laptop) publishDeviceRecord();
   });
@@ -10896,26 +10898,33 @@ for (const bot of store.bots) {
 const early = currentEarlyListen();
 if (early) {
   early.setHandler(handleRequest);
+  markServerServing();
 } else {
   const server = createServer(handleRequest);
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`wink server on http://127.0.0.1:${PORT}`);
+    markServerServing();
   });
 }
 phoneAccess.start(handleRequest).catch((error) => {
   console.error(`[phone-relay] start failed: ${error instanceof Error ? error.message : String(error)}`);
 });
-// PATH/CLI describe after the socket is accepting, and after this turn so
-// a queued first /api/bots can drain before `--version` scans start.
-setImmediate(() => {
-  void defaultSelection()
+// Let the first chat drain before refreshing the saved engine probes.
+void serverServing.then(() => setTimeout(() => {
+  void describeInstances("refresh")
+    .then(() => registry.describeCached())
+    .then((instances) => {
+      rememberAutomaticAvailability(instances);
+      broadcast({ kind: "instances", instances: withRateLimits(instances) });
+      return defaultSelection();
+    })
     .then((sel) => {
       bootSelection = sel;
     })
     .catch((error) => {
       console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
     });
-});
+}, 1_000).unref());
 
 hostShutdown = () => {
   if (hostShutdownStarted) return;

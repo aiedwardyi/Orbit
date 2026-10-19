@@ -3196,7 +3196,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         settling.current.set(frame.threadId, [() => handleFrame(frame)]);
         return;
       }
-      if (frame.kind === "config") bumpPeripheralVersion("config", "instances");
+      if (frame.kind === "instances") bumpPeripheralVersion("instances");
+      else if (frame.kind === "config") bumpPeripheralVersion("config", "instances");
       else if (frame.kind === "routine" || frame.kind === "routine.deleted" || frame.kind === "routine.run") {
         bumpPeripheralVersion("routines");
       } else if (
@@ -3421,6 +3422,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // A saved order is the truth: a failure handler or refetch still in flight is now stale.
           groupReorderGeneration.current += 1;
           rawDispatch({ type: "reorderGroups", groupIds: frame.groupIds });
+          break;
+        case "instances":
+          rawDispatch({ type: "instances", instances: frame.instances, preserveRateLimits: true });
           break;
         // a key changed and the fleet hot-reloaded — refresh the picker so
         // newly available providers un-dim immediately

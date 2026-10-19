@@ -1,6 +1,9 @@
 // The registry's contract is forward/backward compatibility: a config
 // written by a newer or differently-built app must load as an
 // unavailable shadow, never crash the fleet. These tests pin that.
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import * as procs from "../procs.ts";
@@ -41,6 +44,53 @@ const versions = (rows: { instanceId: string; snapshot: { version?: string | nul
   Object.fromEntries(rows.map((row) => [row.instanceId, row.snapshot.version]));
 
 describe("ProviderRegistry", () => {
+  it("answers from the persisted boot probe while its replacement is pending", async () => {
+    const cacheDir = mkdtempSync(join(homedir(), "probe-cache-"));
+    const configs = { a: { driver: "fake" } };
+    const first = countingDriver();
+    const previous = new ProviderRegistry([first.driver], { cacheDir });
+    await previous.load(configs);
+    Object.assign(previous.get("a")!, { models: { default: "discovered", options: [{ id: "discovered", label: "Discovered" }] } });
+    const saved = await previous.describe();
+    await previous.disposeAll();
+
+    const next = countingDriver();
+    const registry = new ProviderRegistry([next.driver], { cacheDir });
+    await registry.load(configs);
+    const release = next.hold();
+    const boot = registry.describe({ refresh: true });
+    let cached: Awaited<ReturnType<typeof registry.describeCached>> | undefined;
+    const read = registry.describeCached().then((rows) => { cached = rows; });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(cached).toEqual(saved);
+      expect(cached![0].models.default).toBe("discovered");
+    } finally {
+      release();
+      await Promise.all([boot, read]);
+    }
+    expect((await registry.describeCached())[0].models.default).toBe("fake-1");
+    expect(next.counts.snapshots).toBe(1);
+
+    registry.get("a")!.snapshot = async () => ({ state: "unavailable", reason: "removed since launch" });
+    await registry.describe({ refresh: true });
+    expect((await registry.describeCached())[0].snapshot).toEqual({ state: "unavailable", reason: "removed since launch" });
+    registry.get("a")!.snapshot = async () => ({ state: "available", version: "newly installed" });
+    await registry.describe({ refresh: true });
+    expect((await registry.describeCached())[0].snapshot.version).toBe("newly installed");
+    await registry.disposeAll();
+
+    const changed = new ProviderRegistry([makeFakeDriver().driver], { cacheDir });
+    await changed.load({ a: { driver: "fake", config: { changed: true } } });
+    expect((await changed.describeCached())[0].snapshot.version).toBe("0.0.0-fake");
+    await changed.disposeAll();
+    writeFileSync(join(cacheDir, "provider-probes.json"), "{broken");
+    const recovered = new ProviderRegistry([makeFakeDriver().driver], { cacheDir });
+    await recovered.load(configs);
+    expect((await recovered.describeCached())[0].snapshot.version).toBe("0.0.0-fake");
+    await recovered.disposeAll();
+  });
+
   it("resolves sign-in only from the registered driver", async () => {
     const fake = makeFakeDriver();
     const registry = new ProviderRegistry([{ ...fake.driver, install: { signInCommand: "official login" } }]);

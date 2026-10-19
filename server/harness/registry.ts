@@ -4,12 +4,20 @@
 // startup failure (that behavior is what makes settings forward/backward
 // compatible — do not remove it); dispose tears an instance down without
 // touching its siblings.
-import { findCliCandidates } from "../env-path.ts";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { z } from "zod";
+
+import { writeFileAtomic } from "../atomic.ts";
+import { findCliCandidates, refreshPathCache, splitCliString } from "../env-path.ts";
 import { clearVersionCache } from "../procs.ts";
+import { withWslProbeSnapshot } from "../wsl-gate.ts";
 import type {
   AnyProviderDriver,
   InstanceConfigMap,
   InstanceId,
+  ModelCatalog,
   ProviderInstance,
   ProviderSnapshot,
 } from "../contracts.ts";
@@ -34,11 +42,30 @@ const MODEL_REFRESH_TTL_MS = 5_000;
 interface Probe {
   snapshot: ProviderSnapshot;
   cliCandidates: string[];
+  models?: ModelCatalog;
 }
+
+const savedProbeSchema = z.object({
+  key: z.string(),
+  snapshot: z.object({
+    state: z.enum(["available", "unavailable"]), reason: z.string().optional(),
+    authenticated: z.boolean().optional(), version: z.string().nullable().optional(),
+    billing: z.enum(["metered", "subscription"]).optional(),
+  }),
+  cliCandidates: z.array(z.string()),
+  models: z.object({
+    default: z.string(),
+    options: z.array(z.object({
+      id: z.string(), label: z.string(), custom: z.boolean().optional(),
+      loaded: z.boolean().optional(), contextWindow: z.number().optional(),
+    })),
+  }),
+});
 
 export interface ProviderRegistryOptions {
   now?: () => number;
   modelRefreshTtlMs?: number;
+  cacheDir?: string;
 }
 
 /** The `cli` field off a driver's default config, when it has one — the
@@ -72,14 +99,23 @@ export class ProviderRegistry {
   private driversByKind: Map<string, AnyProviderDriver>;
   private readonly now: () => number;
   private readonly modelRefreshTtlMs: number;
+  private readonly cacheDir: string | undefined;
+  private cacheKeys = new Map<InstanceId, string>();
+  private probeVersion = 0;
+  private savedVersion = 0;
 
   constructor(drivers: readonly AnyProviderDriver[], options: ProviderRegistryOptions = {}) {
     this.driversByKind = new Map(drivers.map((d) => [d.driverKind, d]));
     this.now = options.now ?? Date.now;
     this.modelRefreshTtlMs = options.modelRefreshTtlMs ?? MODEL_REFRESH_TTL_MS;
+    this.cacheDir = options.cacheDir;
   }
 
   async load(configs: InstanceConfigMap) {
+    let saved: Record<string, unknown> = {};
+    if (this.cacheDir) {
+      try { saved = JSON.parse(readFileSync(join(this.cacheDir, "provider-probes.json"), "utf8")); } catch {}
+    }
     const loaded = await Promise.all(Object.entries(configs).map(async ([instanceId, entry]) => {
       const driver = this.driversByKind.get(entry.driver);
       if (!driver) {
@@ -134,6 +170,15 @@ export class ProviderRegistry {
       else this.cliByInstance.delete(result.entry.instanceId);
       this.byId.set(result.entry.instanceId, result.entry);
       const live = result.entry.live;
+      const driver = live && this.driversByKind.get(live.driverKind);
+      if (driver && this.cacheDir) {
+        const key = createHash("sha256").update(JSON.stringify([
+          process.platform, configs[result.entry.instanceId], driver.defaultConfig(), driver.models,
+        ])).digest("hex");
+        this.cacheKeys.set(result.entry.instanceId, key);
+        const probe = savedProbeSchema.safeParse(saved?.[result.entry.instanceId]);
+        if (probe.success && probe.data.key === key) this.probed.set(result.entry.instanceId, probe.data);
+      }
       if (live?.modelsReady) {
         const ready = live.modelsReady
           .then(() => {
@@ -159,6 +204,7 @@ export class ProviderRegistry {
         this.modelRefreshInFlight.delete(result.entry.instanceId);
       }
     }
+    if (this.cacheDir) this.savedVersion = this.probeVersion;
   }
 
   get(instanceId: InstanceId): ProviderInstance | null {
@@ -195,23 +241,57 @@ export class ProviderRegistry {
   async describe(opts?: { rescan?: boolean; refresh?: boolean }) {
     if (opts?.rescan) clearVersionCache();
     const candidatesFor = this.candidateScan();
-    return Promise.all(
-      this.entries().map(async (entry) => this.row(entry, await this.startProbe(entry, candidatesFor, opts))),
-    );
+    const probe = async () => {
+      const pending = [];
+      for (const entry of this.entries()) {
+        if (this.cacheDir) await new Promise<void>((resolve) => setImmediate(resolve));
+        pending.push(this.startProbe(entry, candidatesFor, opts).then((probe) => this.row(entry, probe)));
+      }
+      const rows = await Promise.all(pending);
+      this.saveProbes();
+      return rows;
+    };
+    return this.prepareProbes(probe);
   }
 
   /** describe() rows from the last completed probe; only instances added or changed since are probed. */
   async describeCached() {
-    const candidatesFor = this.candidateScan();
-    return Promise.all(
-      this.entries().map(async (entry) =>
-        this.row(
-          entry,
-          this.probed.get(entry.instanceId) ??
-            (await (this.probing.get(entry.instanceId) ?? this.startProbe(entry, candidatesFor))),
-        ),
-      ),
-    );
+    const read = async () => {
+      const candidatesFor = this.candidateScan();
+      const rows = await Promise.all(
+        this.entries().map(async (entry) => this.row(entry, this.probed.get(entry.instanceId) ??
+          await (this.probing.get(entry.instanceId) ?? this.startProbe(entry, candidatesFor)))),
+      );
+      this.saveProbes();
+      return rows;
+    };
+    return this.entries().some((entry) => !this.probed.has(entry.instanceId) && !this.probing.has(entry.instanceId))
+      ? this.prepareProbes(read) : read();
+  }
+
+  private async prepareProbes<T>(probe: () => Promise<T>): Promise<T> {
+    const names = this.entries().flatMap((entry) => {
+      const driver = this.driversByKind.get(entry.shadow?.driverKind ?? entry.live!.driverKind);
+      return [cliDefaultOf(driver), this.cliByInstance.get(entry.instanceId)].flatMap((cli) => cli ? [splitCliString(cli)[0]] : []);
+    });
+    if (this.cacheDir && names.length) {
+      await refreshPathCache([...names, "node.exe", "wsl"]);
+      return withWslProbeSnapshot(probe);
+    }
+    return probe();
+  }
+
+  private saveProbes() {
+    if (!this.cacheDir || this.savedVersion === this.probeVersion) return;
+    try {
+      mkdirSync(this.cacheDir, { recursive: true });
+      const saved = Object.fromEntries([...this.probed].flatMap(([id, probe]) => {
+        const key = this.cacheKeys.get(id);
+        return key && probe.models ? [[id, { key, ...probe }]] : [];
+      }));
+      writeFileAtomic(join(this.cacheDir, "provider-probes.json"), JSON.stringify(saved), { mode: 0o600 });
+      this.savedVersion = this.probeVersion;
+    } catch {}
   }
 
   // Multiple instances may share a driver. Scan each default binary once
@@ -241,6 +321,7 @@ export class ProviderRegistry {
       if (this.byId.get(id) === entry && this.probing.get(id) === pending) {
         this.probed.set(id, probe);
         this.probing.delete(id);
+        this.probeVersion += 1;
       }
     });
     return pending;
@@ -249,6 +330,8 @@ export class ProviderRegistry {
   private forget(instanceId: InstanceId) {
     this.probed.delete(instanceId);
     this.probing.delete(instanceId);
+    this.cacheKeys.delete(instanceId);
+    this.probeVersion += 1;
   }
 
   private async probe(
@@ -302,6 +385,7 @@ export class ProviderRegistry {
       // the dropdown's "detected" entries. Snapshotted per probe so a
       // newly installed CLI shows up on the next refresh.
       cliCandidates: candidatesFor(driver),
+      models: this.cacheDir ? structuredClone(inst.models) : undefined,
     };
   }
 
@@ -329,7 +413,7 @@ export class ProviderRegistry {
       driverKind: inst.driverKind,
       displayName: inst.displayName ?? inst.driverKind,
       snapshot: probe.snapshot,
-      models: inst.models,
+      models: probe.models ?? inst.models,
       capabilities: {
         computerMcp: inst.adapter.capabilities.computerMcp === true,
         agentsMcp: inst.adapter.capabilities.agentsMcp === true,
@@ -360,5 +444,6 @@ export class ProviderRegistry {
     this.modelRefreshInFlight.clear();
     this.probed.clear();
     this.probing.clear();
+    this.cacheKeys.clear();
   }
 }
