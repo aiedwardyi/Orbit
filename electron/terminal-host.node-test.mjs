@@ -17,11 +17,12 @@ function fixture(options = {}) {
     platform: "linux",
     env: { SHELL: "/bin/sh" },
     loadPty: () => ({ spawn: (shell, args, options) => {
-      const child = { shell, args, options, writes: [], sizes: [], killed: false, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize(...size) { this.sizes.push(size); }, kill() { this.killed = true; } };
+      const child = { pid: 101 + children.length, shell, args, options, writes: [], sizes: [], killed: false, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize(...size) { this.sizes.push(size); }, kill() { this.killed = true; } };
       children.push(child);
       return child;
     } }),
     freeMemory: () => 8 * 1024 ** 3,
+    setPriority: () => {},
     ...options,
   });
   return { host, event, owner, children, events, input: { botId: "bot-1", cols: 80, rows: 24 } };
@@ -1138,6 +1139,19 @@ test("openForBot refuses a pane under 2 GiB free memory, but main terminals stay
   await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /1 terminals open, 0 are yours/);
   free = 2 * 1024 ** 3;
   await f.host.openForBot("bot-1", { label: "w" });
+});
+
+test("worker panes drop to below-normal priority, main terminals stay normal, and a refusal never fails the spawn", async () => {
+  let owner;
+  const calls = [];
+  let refuse = false;
+  const f = fixture({ owner: () => owner, setPriority: (...args) => { calls.push(args); if (refuse) throw new Error("EACCES"); } });
+  owner = f.owner;
+  await f.host.open(f.event, f.input);
+  await f.host.openForBot("bot-1", { label: "w1" });
+  refuse = true;
+  await f.host.openForBot("bot-1", { label: "w2" });
+  assert.deepEqual(calls, [[102, os.constants.priority.PRIORITY_BELOW_NORMAL], [103, os.constants.priority.PRIORITY_BELOW_NORMAL]]);
 });
 
 test("openForBot submits a command with exactly one Enter", async () => {
