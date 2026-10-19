@@ -159,7 +159,7 @@ function queuedFromRoomHold(hold: PersistedRoomHold, draftId: string): QueuedGro
 }
 
 // An absolute child sits on the frame's padding box; the inset reaches out over each skin's border.
-function RainbowRing() {
+function RainbowRing({ theme }: { theme: boolean }) {
   const ring = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const el = ring.current;
@@ -175,7 +175,7 @@ function RainbowRing() {
     return () => appearance.disconnect();
   }, []);
   return (
-    <span ref={ring} aria-hidden data-orbit-rainbow>
+    <span ref={ring} aria-hidden data-orbit-rainbow={theme ? "theme" : ""}>
       <span />
     </span>
   );
@@ -1023,8 +1023,8 @@ export function Composer({
             aria-hidden
             className="absolute -left-5 -right-5 top-[calc(100%-1.5rem)] h-[50vh] bg-app"
           />
-        <div data-orbit-composer-frame data-rainbow={rainbow ? "" : undefined} className="relative grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-3xl bg-raised px-3 pb-2 pt-1">
-          {rainbow && <RainbowRing />}
+        <div data-orbit-composer-frame data-rainbow={rainbow === "off" ? undefined : ""} className="relative grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-3xl bg-raised px-3 pb-2 pt-1">
+          {rainbow !== "off" && <RainbowRing theme={rainbow === "theme"} />}
           <input
             ref={fileInput}
             type="file"

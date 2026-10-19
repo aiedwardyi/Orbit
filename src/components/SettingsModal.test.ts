@@ -298,16 +298,20 @@ describe("SettingsModal friends chrome", () => {
     expect(markup("general", true).match(popupsSwitch)?.[1]).toBe("false");
   });
 
-  it("flips the Rainbow chat box switch on Themes, off by default", () => {
-    expect(markup("general")).not.toContain("Rainbow chat box");
-    const rainbowSwitch = /<button role="switch" aria-checked="(true|false)" aria-label="Rainbow chat box"/;
-    expect(markup("themes").match(rainbowSwitch)?.[1]).toBe("false");
-    saveRainbowBox(true);
-    expect(markup("themes").match(rainbowSwitch)?.[1]).toBe("true");
-    saveRainbowBox(false);
-    expect(markup("themes").match(rainbowSwitch)?.[1]).toBe("false");
+  it("picks the chat box ring from Off, Rainbow and Theme colors on Themes, off by default", () => {
+    expect(markup("general")).not.toContain('aria-label="Chat box"');
+    const checked = () => [...markup("themes").matchAll(/<button type="button" role="radio" aria-checked="true"[^>]*>([^<]+)</g)].map((m) => m[1]);
+    const group = markup("themes").match(/<div role="radiogroup" aria-label="Chat box"[^>]*>(.*?)<\/div>/)?.[1] ?? "";
+    expect([...group.matchAll(/role="radio"[^>]*>([^<]+)</g)].map((m) => m[1])).toEqual(["Off", "Rainbow", "Theme colors"]);
+    expect(checked()).toContain("Off");
+    saveRainbowBox("rainbow");
+    expect(checked()).toContain("Rainbow");
+    saveRainbowBox("theme");
+    expect(checked()).toContain("Theme colors");
+    saveRainbowBox("off");
+    expect(checked()).toContain("Off");
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
-    expect(source).toContain("onClick={() => saveRainbowBox(!on)}");
+    expect(source).toContain("onClick={() => saveRainbowBox(option)}");
   });
 
   it("does not reveal Local VM, channel turns, experimental, or diagnostics when Advanced would have been open", () => {
