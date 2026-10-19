@@ -1128,16 +1128,52 @@ test("openForBot names the whole-app cap and the bot's own count", async () => {
   await assert.rejects(f.host.openForBot("bot-1", { label: "extra" }), /Too many terminal sessions \(32 open across all bots and main terminals; 1 are yours\)\. Close one of yours with terminal_close/);
 });
 
-test("openForBot refuses a pane under 2 GiB free memory, but main terminals stay ungated", async () => {
+test("openForBot refuses a pane under its engine floor, but main terminals stay ungated", async () => {
   let owner;
-  let free = 2 * 1024 ** 3 - 1;
+  let free = 100 * 1024 ** 2 - 1;
   const f = fixture({ owner: () => owner, freeMemory: () => free });
   owner = f.owner;
-  await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /Not enough free memory for another terminal \(2\.0 GB free, 2 GB needed; 0 terminals open, 0 are yours\)\. Close a finished pane with terminal_close/);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /Not enough free memory for another terminal \(0\.1 GB free, 0\.1 GB needed; 0 terminals open, 0 are yours\)\. Close a finished pane with terminal_close/);
   await f.host.open(f.event, f.input);
   await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /1 terminals open, 0 are yours/);
-  free = 2 * 1024 ** 3;
+  free = 100 * 1024 ** 2;
   await f.host.openForBot("bot-1", { label: "w" });
+});
+
+test("a codex pane opens at 0.8 GB free", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.8 * 1024 ** 3 });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "worker", command: "codex --model gpt-5 'hi'" });
+  assert.ok(pane.sessionId);
+});
+
+test("a claude pane is refused at 0.5 GB with 0.6 GB needed", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.5 * 1024 ** 3 });
+  owner = f.owner;
+  await assert.rejects(f.host.openForBot("bot-1", { label: "worker", command: "claude --model opus 'hi'" }), /Not enough free memory for another terminal \(0\.5 GB free, 0\.6 GB needed;/);
+});
+
+test("a plain shell opens at 0.2 GB free", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.2 * 1024 ** 3 });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "shell" });
+  assert.ok(pane.sessionId);
+});
+
+test("the gate reads the engine past $env prefixes, paths and extensions", async () => {
+  let owner;
+  let free = 0.35 * 1024 ** 3;
+  const f = fixture({ owner: () => owner, freeMemory: () => free });
+  owner = f.owner;
+  const agy = await f.host.openForBot("bot-1", { label: "a", command: "$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; agy --model gemini-4-argon-high -i 'hi'" });
+  assert.ok(agy.sessionId);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "c", command: "C:\\tools\\Claude.EXE --model opus 'hi'" }), /0\.6 GB needed/);
+  free = 0.2 * 1024 ** 3;
+  await assert.rejects(f.host.openForBot("bot-1", { label: "g", command: "grok -m g1 --effort high 'hi'" }), /0\.3 GB needed/);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "e", command: "echo ok" }), /0\.3 GB needed/);
 });
 
 test("openForBot submits a command with exactly one Enter", async () => {

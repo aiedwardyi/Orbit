@@ -44,7 +44,10 @@ const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 export const BOT_PANE_LIMIT = 16;
 const SESSION_LIMIT = 32;
-const MIN_FREE_MEMORY = 2 * 1024 ** 3;
+const MB = 1024 ** 2;
+const ENGINE_MEMORY_FLOOR = { claude: 600 * MB, codex: 150 * MB, muse: 150 * MB };
+const OTHER_MEMORY_FLOOR = 300 * MB;
+const SHELL_MEMORY_FLOOR = 100 * MB;
 const LABEL_LIMIT = 40;
 const MIN_ID_PREFIX_LEN = 8;
 const CLOSED_PANE_HISTORY_LIMIT = 32;
@@ -257,6 +260,15 @@ export function trustedTerminalSender(event, owner, origin) {
   } catch {
     return false;
   }
+}
+
+// First command token names the pane's engine; $env:... assignments before it (agy line) do not.
+function paneMemoryFloor(command) {
+  if (!command || !command.trim()) return SHELL_MEMORY_FLOOR;
+  const bare = command.replace(/^(?:\s*\$env:[^;]*;)+/i, "").trim();
+  const token = bare.match(/^[&\s]*["']?([^\s"';&|]+)/)?.[1] ?? "";
+  const engine = token.split(/[\\/]/).pop().replace(/\.(exe|cmd|ps1)$/i, "").toLowerCase();
+  return ENGINE_MEMORY_FLOOR[engine] ?? OTHER_MEMORY_FLOOR;
 }
 
 function paneLabel(value) {
@@ -1057,8 +1069,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
       const yours = () => botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length + botReserved;
       if (liveSessions() + reservedPanes >= SESSION_LIMIT) throw new Error(`Too many terminal sessions (${SESSION_LIMIT} open across all bots and main terminals; ${yours()} are yours). Close one of yours with terminal_close, or ask the user to close others.`);
+      const floor = paneMemoryFloor(input.command);
       const free = freeMemory();
-      if (free < MIN_FREE_MEMORY) throw new Error(`Not enough free memory for another terminal (${(free / 1024 ** 3).toFixed(1)} GB free, 2 GB needed; ${liveSessions() + reservedPanes} terminals open, ${yours()} are yours). Close a finished pane with terminal_close.`);
+      if (free < floor) throw new Error(`Not enough free memory for another terminal (${(free / 1024 ** 3).toFixed(1)} GB free, ${(floor / 1024 ** 3).toFixed(1)} GB needed; ${liveSessions() + reservedPanes} terminals open, ${yours()} are yours). Close a finished pane with terminal_close.`);
       paneReservations.set(botId, botReserved + 1);
       reservedPanes += 1;
       let session;
