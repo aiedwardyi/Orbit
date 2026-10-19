@@ -1,0 +1,209 @@
+{
+  "benchmark": "aa-frontiercode",
+  "version": "1.1",
+  "index": "coding",
+  "label": "Artificial Analysis FrontierCode 1.1 (mean score %)",
+  "updated": null,
+  "rows": [
+    {
+      "model": "claude-fable-5-1",
+      "effort": "max",
+      "value": 48.9732333333333,
+      "source_url": "https://artificialanalysis.ai/models/claude-fable-5-1",
+      "retrieved_at": "2026-10-19T23:37:04+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "value": 42.6618,
+      "source_url": "https://artificialanalysis.ai/models/claude-opus-5-5-low",
+      "retrieved_at": "2026-10-19T23:37:20+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-opus-5-5",
+      "effort": "medium",
+      "value": 57.0542333333333,
+      "source_url": "https://artificialanalysis.ai/models/claude-opus-5-5-medium",
+      "retrieved_at": "2026-10-19T23:37:22+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "value": 53.9616333333333,
+      "source_url": "https://artificialanalysis.ai/models/claude-opus-5-5-high",
+      "retrieved_at": "2026-10-19T23:37:19+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-opus-5-5",
+      "effort": "xhigh",
+      "value": 53.5376,
+      "source_url": "https://artificialanalysis.ai/models/claude-opus-5-5-xhigh",
+      "retrieved_at": "2026-10-19T23:37:23+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-opus-5-5",
+      "effort": "max",
+      "value": 52.1731,
+      "source_url": "https://artificialanalysis.ai/models/claude-opus-5-5",
+      "retrieved_at": "2026-10-19T23:37:18+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "effort": "low",
+      "value": 26.4162666666667,
+      "source_url": "https://artificialanalysis.ai/models/claude-sonnet-5-5-low",
+      "retrieved_at": "2026-10-19T23:37:27+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "effort": "medium",
+      "value": 29.3075666666667,
+      "source_url": "https://artificialanalysis.ai/models/claude-sonnet-5-5-medium",
+      "retrieved_at": "2026-10-19T23:37:28+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "effort": "high",
+      "value": 44.2987666666667,
+      "source_url": "https://artificialanalysis.ai/models/claude-sonnet-5-5-high",
+      "retrieved_at": "2026-10-19T23:37:26+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "effort": "xhigh",
+      "value": 46.1498666666667,
+      "source_url": "https://artificialanalysis.ai/models/claude-sonnet-5-5-xhigh",
+      "retrieved_at": "2026-10-19T23:37:29+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-sonnet-5-5",
+      "effort": "max",
+      "value": 45.8291333333333,
+      "source_url": "https://artificialanalysis.ai/models/claude-sonnet-5-5",
+      "retrieved_at": "2026-10-19T23:37:25+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-haiku-5-5",
+      "effort": "low",
+      "value": 29.3338,
+      "source_url": "https://artificialanalysis.ai/models/claude-haiku-5-5-low",
+      "retrieved_at": "2026-10-19T23:37:14+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-haiku-5-5",
+      "effort": "medium",
+      "value": 40.4265666666667,
+      "source_url": "https://artificialanalysis.ai/models/claude-haiku-5-5-medium",
+      "retrieved_at": "2026-10-19T23:37:15+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-haiku-5-5",
+      "effort": "high",
+      "value": 43.6422666666667,
+      "source_url": "https://artificialanalysis.ai/models/claude-haiku-5-5-high",
+      "retrieved_at": "2026-10-19T23:37:12+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-haiku-5-5",
+      "effort": "xhigh",
+      "value": 45.471,
+      "source_url": "https://artificialanalysis.ai/models/claude-haiku-5-5-xhigh",
+      "retrieved_at": "2026-10-19T23:37:16+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "claude-haiku-5-5",
+      "effort": "max",
+      "value": 41.8067,
+      "source_url": "https://artificialanalysis.ai/models/claude-haiku-5-5",
+      "retrieved_at": "2026-10-19T23:37:11+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "gemini-4-argon",
+      "effort": "high",
+      "value": 43.4532,
+      "source_url": "https://artificialanalysis.ai/models/gemini-4-argon",
+      "retrieved_at": "2026-10-19T23:37:35+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "effort": "high",
+      "value": 36.3585,
+      "source_url": "https://artificialanalysis.ai/models/gemini-3-8-flash",
+      "retrieved_at": "2026-10-19T23:37:31+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "muse-spark-1.3",
+      "effort": "max",
+      "value": 40.6458333333333,
+      "source_url": "https://artificialanalysis.ai/models/muse-spark-1-3",
+      "retrieved_at": "2026-10-19T23:38:14+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "value": 46.9827666666667,
+      "source_url": "https://artificialanalysis.ai/models/gpt-6-astra",
+      "retrieved_at": "2026-10-19T23:37:50+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "gpt-6-luna",
+      "effort": "max",
+      "value": 41.9269666666667,
+      "source_url": "https://artificialanalysis.ai/models/gpt-6-luna",
+      "retrieved_at": "2026-10-19T23:37:57+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "gpt-6.1-sol",
+      "effort": "max",
+      "value": 49.1209333333333,
+      "source_url": "https://artificialanalysis.ai/models/gpt-6-1-sol",
+      "retrieved_at": "2026-10-19T23:37:43+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "grok-4.7",
+      "effort": "low",
+      "value": 39.5933666666667,
+      "source_url": "https://artificialanalysis.ai/models/grok-4-7-low",
+      "retrieved_at": "2026-10-19T23:38:13+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "grok-4.7",
+      "effort": "high",
+      "value": 34.1543,
+      "source_url": "https://artificialanalysis.ai/models/grok-4-7-high",
+      "retrieved_at": "2026-10-19T23:38:12+09:00",
+      "kind": "independent"
+    },
+    {
+      "model": "grok-4.7",
+      "effort": "xhigh",
+      "value": 33.8342,
+      "source_url": "https://artificialanalysis.ai/models/grok-4-7",
+      "retrieved_at": "2026-10-19T23:38:10+09:00",
+      "kind": "independent"
+    }
+  ]
+}

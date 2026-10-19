@@ -3,24 +3,26 @@
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import * as deepswe from "./fetch-deepswe.mjs";
+import * as lmarena from "./fetch-lmarena.mjs";
 import * as listPrices from "./fetch-list-prices.mjs";
 import * as vals from "./fetch-vals.mjs";
 import { beginRun, readModels, readSnapshot, root, saveRaw, writeSnapshot } from "./lib.mjs";
 
 const FETCHED = [
-  { name: "deepswe", fetcher: deepswe },
-  { name: "vals-legalbench", fetcher: vals },
+  { name: "lmarena-webdev", fetcher: lmarena },
+  { name: "vals-legalbench", fetcher: vals.legal },
+  { name: "vals-cyberbench", fetcher: vals.cyber },
   { name: "list-prices", fetcher: listPrices },
 ];
 const MANUAL = [
   { name: "aa-intelligence-index", why: "artificialanalysis.ai terms bar scripted access; its API needs an account key" },
   { name: "aa-terminal-bench", why: "artificialanalysis.ai terms bar scripted access; its API needs an account key" },
   { name: "aa-gdpval", why: "artificialanalysis.ai terms bar scripted access; its API needs an account key" },
+  { name: "aa-frontiercode", why: "artificialanalysis.ai terms bar scripted access; its API needs an account key" },
 ];
 
 // How each provider Wink carries spells its models in source ids.
-const FAMILY = { anthropic: /claude/, google: /gemini/, openai: /gpt/, xai: /grok/, meta: /muse/ };
+const FAMILY = { anthropic: /claude/i, google: /gemini/i, openai: /gpt/i, xai: /grok/i, meta: /muse/i };
 const rowKey = (row) => `${row.model} ${row.effort}`;
 const show = (value) => (value === undefined ? "none" : JSON.stringify(value));
 

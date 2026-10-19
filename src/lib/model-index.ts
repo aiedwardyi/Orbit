@@ -2,7 +2,7 @@ import type { InstanceInfo } from "@/state/store";
 import { MODEL_INDEX_ENTRIES, type ModelIndexEntry, type ModelIndexKey, type ModelPrice, type ModelRates } from "../../shared/model-index-data.ts";
 import { PICKER_MODEL_IDS, pickerModels, pickerRows } from "./cross-model-picker";
 
-export const MODEL_INDEXES: readonly ModelIndexKey[] = ["intelligence", "coding", "agentic", "general", "legal", "cost"];
+export const MODEL_INDEXES: readonly ModelIndexKey[] = ["intelligence", "coding", "agentic", "design", "security", "general", "legal", "cost"];
 
 // Five hues pass the all-pairs colorblind and normal-vision checks on both
 // themes; every other lab folds into the gray "other" slot and leans on its label.
