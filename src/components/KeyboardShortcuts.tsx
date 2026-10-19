@@ -21,9 +21,7 @@ export function KeyboardShortcuts() {
     { title: "shortcuts.chat", rows: [
       ["shortcuts.model", [alt, "M"]],
       ...terminal,
-      ["shortcuts.addToReply", ["Enter"]],
-      ["shortcuts.sendAfter", [mod, "Enter"]],
-      ["shortcuts.phoneSendAfter", [t("shortcuts.holdSend")]],
+      ["shortcuts.queue", [mod, "Enter"], [t("shortcuts.holdSend")]],
     ] },
   ];
   return (
@@ -34,7 +32,7 @@ export function KeyboardShortcuts() {
             {rows.map(([label, ...combos]) => (
               <div key={label} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2.5 first:pt-0 last:pb-0">
                 <dt className="text-[13px] text-ink">{t(label)}</dt>
-                <dd className="flex shrink-0 items-center gap-1" aria-label={combos.map((keys) => keys.join(" + ")).join(" / ")}>
+                <dd className="flex min-w-0 flex-wrap items-center gap-1" aria-label={combos.map((keys) => keys.join(" + ")).join(" / ")}>
                   {combos.map((keys, i) => (
                     <Fragment key={keys.join("+")}>
                       {i > 0 && <span aria-hidden="true" className="text-[12px] text-ink-secondary">/</span>}
