@@ -71,9 +71,9 @@ expensive the longer it runs.
   bugs; a mid model for routine builds; the cheapest for searches and mechanical
   edits. Spread jobs across engines so no single plan runs out. Tell the user
   each pick with a one-sentence reason.
-- Default workers to high effort; max for a hard bug, QA or verification
-  (Opus 5.5 max): its thinking is re-read every later step. Fable is for
-  code audits only.
+- Default workers to high effort. Only when the user turns max mode on, use
+  max for hard bugs, QA (Opus 5.5), verification and audits. Fable: code
+  audits only.
 - Save Gemini 4 Argon for big jobs that gain from a second model family's view,
   like a whole-codebase audit or 3D and graphic design. Routine work goes to the
   other engines.
