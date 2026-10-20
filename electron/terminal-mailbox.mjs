@@ -337,6 +337,20 @@ exit 0
 const ORBIT_STATUS_PS1 = String.raw`$ErrorActionPreference = 'Stop'
 $window = [int]$args[0]
 $utf8 = New-Object Text.UTF8Encoding $false
+function Get-StatusBash {
+  $wsl = '[\\/](?:System32|SysWOW64|Sysnative)[\\/]bash\.exe$'
+  if ($env:CLAUDE_CODE_GIT_BASH_PATH -and $env:CLAUDE_CODE_GIT_BASH_PATH -notmatch $wsl) { return $env:CLAUDE_CODE_GIT_BASH_PATH }
+  $git = (Get-Command git.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+  if ($git) {
+    $root = Split-Path (Split-Path $git)
+    foreach ($candidate in @((Join-Path $root 'bin\bash.exe'), (Join-Path (Split-Path $root) 'bin\bash.exe'))) {
+      if ($candidate -notmatch $wsl -and (Test-Path -LiteralPath $candidate)) { return $candidate }
+    }
+  }
+  foreach ($command in (Get-Command bash.exe -All -ErrorAction SilentlyContinue)) {
+    if ($command.Source -and $command.Source -notmatch $wsl) { return $command.Source }
+  }
+}
 $out = ''
 try {
   $status = (New-Object IO.StreamReader([Console]::OpenStandardInput(), $utf8)).ReadToEnd() | ConvertFrom-Json
@@ -350,7 +364,7 @@ try {
   try {
     $dir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }
     $command = [string]([IO.File]::ReadAllText((Join-Path $dir 'settings.json'), $utf8) | ConvertFrom-Json).statusLine.command
-    $bash = if ($env:CLAUDE_CODE_GIT_BASH_PATH) { $env:CLAUDE_CODE_GIT_BASH_PATH } else { (Get-Command bash.exe).Source }
+    $bash = Get-StatusBash
     if ($command -and $command.IndexOf('orbit-status.ps1', [StringComparison]::OrdinalIgnoreCase) -lt 0) {
       $info = New-Object Diagnostics.ProcessStartInfo($bash, '-c "eval \"$ORBIT_STATUS_COMMAND\""')
       $info.EnvironmentVariables['ORBIT_STATUS_COMMAND'] = $command

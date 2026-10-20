@@ -9215,8 +9215,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
       // Turning it on is the user's approval of the plan's pending steps as they stand now.
-      if (body.on) keepGoing.enable(bot.id, bot.threadId, taskPacketForWrite(bot.threadId));
-      else keepGoing.disable(bot.id);
+      if (body.on) {
+        resumePaneWakes(bot.id);
+        keepGoing.enable(bot.id, bot.threadId, taskPacketForWrite(bot.threadId));
+      } else keepGoing.disable(bot.id);
       const visible = wireBot(bot);
       broadcast({ kind: "bot", bot: visible });
       return json(res, 200, { bot: visible });
