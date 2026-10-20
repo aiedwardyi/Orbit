@@ -94,13 +94,13 @@ export function createTeamRoutes(deps: TeamRouteDeps) {
       }
     },
     scout: async (res: ServerResponse, url: URL) => {
-      // The scout reads a folder and answers with a suggestion — it creates
+      // The scout reads a folder and answers with a suggestion - it creates
       // nothing. Bots and the room come into being only when the human sends
       // the suggested manifest through /api/teams/import, so "the agent
       // proposes, the person imports" is enforced by the route split itself.
       // The folder is whatever validateBotCwd accepts: the same local-user
       // trust boundary as pointing any bot's working folder at a path.
-      // Deliberately offline — the community directory lives on its own
+      // Deliberately offline - the community directory lives on its own
       // route below, so a slow network can never delay the suggestion.
       const validated = validateBotCwd(url.searchParams.get("cwd"));
       if (!validated.ok) return json(res, 400, { error: validated.error });
@@ -109,7 +109,7 @@ export function createTeamRoutes(deps: TeamRouteDeps) {
       return json(res, 200, { profile, suggestion: suggestTeam(profile) });
     },
     directory: async (res: ServerResponse, url: URL) => {
-      // Community bots that fit the scouted folder — a separate, lazy call
+      // Community bots that fit the scouted folder - a separate, lazy call
       // so an unreachable directory degrades to "no extra candidates", never
       // to a broken scout.
       const validated = validateBotCwd(url.searchParams.get("cwd"));
@@ -119,7 +119,7 @@ export function createTeamRoutes(deps: TeamRouteDeps) {
       try {
         directory = matchDirectoryBots(scoutProject(validated.cwd), await fetchBotDirectory());
       } catch (error) {
-        // an unreachable directory is a fact of life, not an error — but an
+        // an unreachable directory is a fact of life, not an error - but an
         // empty section should still be diagnosable from the server log
         console.warn("bot directory lookup failed:", error instanceof Error ? error.message : String(error));
       }
@@ -129,12 +129,12 @@ export function createTeamRoutes(deps: TeamRouteDeps) {
       // Import is additive-only. A manifest is untrusted input (catalog,
       // GitHub, a shared file), so it must be structurally unable to reach
       // records the user already has: every member becomes a NEW bot with a
-      // fresh id — a manifest cannot name, update, or merge into an existing
+      // fresh id - a manifest cannot name, update, or merge into an existing
       // bot or room, and importing the same file twice simply creates a
       // second, freshly numbered set (an edit the user made to the first set
       // is theirs and stays). Replace mode does hide the current team, but
       // that archive is driven by the mode parameter the user chose and
-      // touches only hidden/chiefOfStaff on their own bots — nothing in the
+      // touches only hidden/chiefOfStaff on their own bots - nothing in the
       // file decides what gets archived or how.
       const importMode = url.searchParams.get("mode") ?? "add";
       if (importMode !== "add" && importMode !== "replace" && importMode !== "project") {
@@ -183,7 +183,7 @@ export function createTeamRoutes(deps: TeamRouteDeps) {
       // Names already in use, hidden bots included: an archived bot can be
       // un-archived later, and a revived duplicate would be just as
       // ambiguous then. In replace mode this means re-importing your own
-      // export numbers the newcomers ("Mira 2") — the old team is only
+      // export numbers the newcomers ("Mira 2") - the old team is only
       // hidden, not gone, and Undo must never surface two bots wearing the
       // same name.
       const takenNames = new Set(store.bots.map((bot) => bot.name.trim().toLowerCase()));
@@ -207,9 +207,9 @@ export function createTeamRoutes(deps: TeamRouteDeps) {
         for (const source of sourceMembers) {
           const member = source.member;
           // importedMemberProfile is the authority boundary: persona fields
-          // only, colliding names numbered. seedMessages: false — an
+          // only, colliding names numbered. seedMessages: false - an
           // imported bot must not open by greeting the user as though it
-          // were new. composio: false — a shared persona never starts with
+          // were new. composio: false - a shared persona never starts with
           // reach into the user's connected apps (absence would mean
           // allowed); the user can switch it on per bot after reading who
           // they got.
@@ -277,7 +277,7 @@ export function createTeamRoutes(deps: TeamRouteDeps) {
         }
 
         // The room is created last, so a failure anywhere above leaves no
-        // half-built project behind — the catch below deletes the bots and
+        // half-built project behind - the catch below deletes the bots and
         // there is no room pointing at them.
         if (!pkg && importMode === "project" && importedBots.length > 0) {
           const roomName = url.searchParams.get("room")?.trim() || manifest!.team.name;
@@ -313,7 +313,7 @@ export function createTeamRoutes(deps: TeamRouteDeps) {
           routines: createdRoutineIds.flatMap((id) => routines!.listRoutines().filter((routine) => routine.id === id)),
         });
       } catch (error) {
-        // A room of deleted members must not survive either — patchGroup can
+        // A room of deleted members must not survive either - patchGroup can
         // throw (disk) after createGroup already saved.
         for (const routineId of createdRoutineIds) routines!.remove(routineId);
         for (const created of createdGroups) store.deleteGroup(created.id);
