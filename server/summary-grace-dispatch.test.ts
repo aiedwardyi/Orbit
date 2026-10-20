@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { estimateContextTokens, paneNotesForTurn, planCompaction, planSummaryGrace, prepareModelContext, routineCardsSinceLastUserTurn, withoutTurnNotes } from "./context-compaction.ts";
 import { composeUserTurnPrompt, userTurnReactionKeys } from "./replies.ts";
+import { KEEP_GOING_RULES, keepGoingTurnOptions } from "./keep-going.ts";
 import { _resetSteerQueue, foldQueuedSends, queueMark, queueSteeredMessage } from "./steer-queue.ts";
 import type { Message } from "./store.ts";
 import { createSummaryBuild, type SummaryWait } from "./summary-build.ts";
@@ -30,6 +31,30 @@ afterEach(() => {
 });
 
 describe("summary grace dispatch", () => {
+  it("omits continuation rules from a scheduler dispatch", () => {
+    const line = source.split("\n").find((line) => line.includes("keepGoing.rules(bot.id)"))!.trim().replace(/\s*\+$/, "");
+    const rules = new Function("opts", "keepGoing", "bot", `return ${line};`);
+    const keepGoing = { rules: () => ` ${KEEP_GOING_RULES}` };
+    expect(rules(keepGoingTurnOptions("thread"), keepGoing, { id: "bot" })).toBe("");
+    expect(rules({}, keepGoing, { id: "bot" })).toContain(KEEP_GOING_RULES);
+  });
+
+  it.each([
+    [0, undefined, true],
+    [1, undefined, false],
+    [0, "resume", false],
+  ])("marks room hop %s continuation %s as user-started %s", (hop, cardContinuation, byUser) => {
+    const start = source.indexOf("  const messagesAtStart", source.indexOf("async function runClaimedGroupMemberTurn("));
+    const claim = source.slice(start, source.indexOf("\n  store.patchGroup", start));
+    const turnStarted = vi.fn();
+    new Function("scope", `with (scope) { ${claim} }`)({
+      store: { messagesFor: () => [], setActivity: () => {} },
+      bot: { id: "bot" }, threadId: "room", dispatchedThreads: new Map(), releaseTurnStart: undefined,
+      keepGoing: { turnStarted }, hop, cardContinuation,
+    });
+    expect(turnStarted).toHaveBeenCalledWith("bot", "room", byUser);
+  });
+
   it.each([
     ["preparation", "paste", true, ""],
     ["dispatch", "paste", false, ""],
@@ -138,7 +163,7 @@ describe("summary grace dispatch", () => {
         persona: "system", projectFolderPrompt: () => "", projectNotesPrompt: () => "", cwd: ".",
         computerKind: undefined, integrations: {}, browserPrompt: () => "", coordinationPrompt: "", credentialPrompt: "", routinePrompt: "",
         taskStatePrompt: "", reactPrompt: "", showImagePrompt: "", detailedRepliesEnabled: () => false, cfg: {},
-        ALWAYS_REPLY_INSTRUCTIONS: "", CORPUS_SEARCH_INSTRUCTIONS: "", sectionContextSystemPrompt: () => "",
+        ALWAYS_REPLY_INSTRUCTIONS: "", CORPUS_SEARCH_INSTRUCTIONS: "", keepGoing: { rules: () => "" }, sectionContextSystemPrompt: () => "",
         skillInstructions: "", packagePlaybooks: "", harnessPlaybookPrompt: () => "", opts: {}, tagged: [],
         text: "next request", activeMessages, skipTranscript, userMessage, replaysTranscript: false, replaysNatively: false,
         reactions: {}, rewound: false, fresh: false, recycled: false, recycleReason: undefined, modelContextWindow: 200_000,

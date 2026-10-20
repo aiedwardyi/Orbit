@@ -270,6 +270,7 @@ import { terminalResumeResponse } from "./terminal-resume.ts";
 import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import { NoteSteerer, steerUntilTaken } from "./note-steer.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
+import { KEEP_GOING_USAGE_FRESH_MS, KeepGoing } from "./keep-going.ts";
 import {
   ensureWorkspace,
   workspaceDir,
@@ -1152,6 +1153,50 @@ const wireTask = ({
   ...task
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
+const KEEP_GOING_PAUSED_LINE = "Keep going paused: two tries in a row made no progress on the approved steps";
+// Declared before wireBot reads it; its callbacks only run on the routines timer.
+const keepGoing = new KeepGoing({
+  deviceId: () => profileSyncSettings.deviceId,
+  botThreadId: (botId) => store.bot(botId)?.threadId ?? null,
+  busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
+  queuedSends: (botId) => hasQueuedSends(botId),
+  wakesPaused: (botId) => store.bot(botId)?.paneWakePaused === true,
+  packet: (threadId) => taskPacketForWrite(threadId),
+  usage: async (botId) => {
+    const instanceId = store.bot(botId)?.modelSelection.instanceId ?? "";
+    const previous = rateLimitsByInstance.get(instanceId);
+    if (previous?.windows.length && Number.isFinite(Date.parse(previous.observedAt)) && Date.now() - Date.parse(previous.observedAt) <= KEEP_GOING_USAGE_FRESH_MS) return previous;
+    const config = instanceConfigs(cfg)[instanceId];
+    const instance = registry.get(instanceId);
+    if (!config || !instance) return null;
+    const result = await refreshUsage(instance.driverKind, {
+      instanceId,
+      cli: z.object({ cli: z.string().optional() }).catch({}).parse(config.config).cli,
+      environment: config.environment,
+    }, previous);
+    if (result.report) {
+      const current = rateLimitsByInstance.get(instanceId);
+      if (!current || Date.parse(result.report.observedAt) >= Date.parse(current.observedAt)) {
+        rateLimitsByInstance.set(instanceId, result.report);
+        scheduleSaveRateLimits(rateLimitsByInstance, DATA_DIR);
+      }
+    }
+    return rateLimitsByInstance.get(instanceId) ?? null;
+  },
+  livePanes: async (botId) => {
+    const counts = await terminalPaneCountsResponse(terminalBridgeAccess);
+    return counts.status === 200 && "counts" in counts.body ? counts.body.counts[botId] ?? 0 : null;
+  },
+  dispatch: (botId, prompt, options) => startTurn(botId, prompt, options).then(() => undefined),
+  paused: (_botId, threadId) => {
+    store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `error: ${KEEP_GOING_PAUSED_LINE}`, ok: false } });
+  },
+  changed: (botId) => {
+    const bot = store.bot(botId);
+    if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
+  },
+});
+
 const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
   const {
     resumeCursors: _resumeCursors,
@@ -1176,6 +1221,7 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     // busy snapshot must not invent a wait on bot.threadId (routines and
     // channels run elsewhere).
     workingThreadId: activeThreadId ?? null,
+    keepGoing: keepGoing.view(bot.id),
     // null, not omitted: an applied pick must clear the client's copy
     pendingModelSelection: rest.pendingModelSelection ?? null,
     avatarUrl: rest.avatarUrl ?? null,
@@ -4170,6 +4216,7 @@ type StartTurnOptions = {
   automationSource?: RoutineRunTrigger;
   /** the caller was already running unattended, so this turn is too */
   unattended?: boolean;
+  keepGoingWake?: boolean;
   /** The peer that wrote this turn's prompt. It lands in the target's own
    * 1:1, where an unattributed line reads as the user's: the record carries
    * the sender and the channel, and never names the user's task. */
@@ -4360,6 +4407,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     clearUnattended(bot.id);
     resumePaneWakes(bot.id);
   }
+  keepGoing.turnStarted(bot.id, threadId, !opts?.unattended && turnStartedByUser(opts));
   const task = store.taskByThread(bot.id, threadId);
   if (!task) throw Object.assign(new Error("no such task"), { status: 404 });
   const latencySendId = opts?.sendId ?? opts?.userMessage?.sendId;
@@ -5235,6 +5283,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           showImagePrompt +
           (detailedRepliesEnabled(cfg) ? DETAILED_REPLY_INSTRUCTIONS : ALWAYS_REPLY_INSTRUCTIONS) +
           CORPUS_SEARCH_INSTRUCTIONS +
+          (opts?.keepGoingWake ? "" : keepGoing.rules(bot.id)) +
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace ? memorySystemPrompt(bot.id) + skillsSystemPrompt(bot.id) : "") +
           skillInstructions +
@@ -5535,6 +5584,7 @@ routines = new RoutineManager({
     closeOpenApprovals(threadId);
   },
   onRunChanged: syncRoutineRunToSource,
+  onInterval: () => keepGoing.tick(),
   onRunFailed: (run) => {
     const bot = store.bot(run.botId);
     if (!bot) return;
@@ -6096,6 +6146,7 @@ async function runClaimedGroupMemberTurn(
   const messagesAtStart = store.messagesFor(threadId).length;
   store.setActivity(bot.id, "working", threadId);
   dispatchedThreads.set(bot.id, threadId);
+  keepGoing.turnStarted(bot.id, threadId, hop === 0 && !cardContinuation);
   releaseTurnStart?.();
 
   store.patchGroup(group.id, { busyBotId: bot.id }); // the store's change stream carries the frame
@@ -7142,7 +7193,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!isRecoveryFlushReason(current.flushReason)) next.flushReason = "progress";
         next.turnsAtWrite = task?.usage?.turns ?? next.turnsAtWrite;
         const saved = persistTaskPacket(next);
-        if (saved && body.pause_automatic_wakes) store.patchBot(bot.id, { paneWakePaused: true });
+        if (saved && body.pause_automatic_wakes) {
+          store.patchBot(bot.id, { paneWakePaused: true });
+          keepGoing.pause(bot.id, "bot-paused");
+        }
         return saved
           ? json(res, 200, { ok: true, updatedAt: saved.updatedAt, nextAction: saved.nextAction, automaticWakesPaused: bot.paneWakePaused === true, notice: taskStateNotice(clipped, dropped, folder) })
           : json(res, 409, { error: "task record could not be saved" });
@@ -7331,6 +7385,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const patched = store.toggleReaction(fromThreadId, target.id, emoji, fromBotId);
         if (!patched) return json(res, 404, { error: "message not found" });
         return json(res, 200, { ok: true });
+      }
+      // The set_keep_going tool; the switch row gets the change through the bot broadcast.
+      if (method === "POST" && path === "/api/internal/keep-going") {
+        const body = await readBody(req);
+        const from = store.bot(String(body.fromBotId ?? ""));
+        if (!from) return json(res, 403, { error: "unknown sender" });
+        if (typeof body.on !== "boolean") return json(res, 400, { error: "on must be true or false" });
+        const fromThreadId = String(body.fromThreadId ?? "");
+        const result = keepGoing.fromTool(from.id, fromThreadId, body.on, body.on ? taskPacketForWrite(fromThreadId) : null);
+        if ("error" in result) return json(res, 403, result);
+        broadcast({ kind: "bot", bot: wireBot(from) });
+        return json(res, 200, result);
       }
       // The ask_user tool: pins a question for the user without pausing the
       // bot. Never sets waiting-on-you; the answer is the user's next message.
@@ -9138,6 +9204,19 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "POST") {
       const bot = store.patchBot(m[1], { unread: false });
       if (!bot) return json(res, 404, { error: "no such bot" });
+      const visible = wireBot(bot);
+      broadcast({ kind: "bot", bot: visible });
+      return json(res, 200, { bot: visible });
+    }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/keep-going$/);
+    if (m && method === "POST") {
+      const body = await readBody(req);
+      if (typeof body.on !== "boolean") return json(res, 400, { error: "on must be true or false" });
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      // Turning it on is the user's approval of the plan's pending steps as they stand now.
+      if (body.on) keepGoing.enable(bot.id, bot.threadId, taskPacketForWrite(bot.threadId));
+      else keepGoing.disable(bot.id);
       const visible = wireBot(bot);
       broadcast({ kind: "bot", bot: visible });
       return json(res, 200, { bot: visible });

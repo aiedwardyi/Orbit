@@ -59,6 +59,8 @@ interface TaskStateRequestBody {
 }
 let lastTaskStateBody: TaskStateRequestBody | null = null;
 let botWakesPaused = false;
+let lastKeepGoingBody: { fromBotId: string; fromThreadId: string; on: boolean } | null = null;
+let keepGoingResponse: { status: number; body: unknown } = { status: 200, body: { ok: true } };
 let taskStateNotice: string | undefined;
 
 let child: ChildProcess;
@@ -254,6 +256,16 @@ beforeAll(async () => {
       });
       return;
     }
+    if (req.method === "POST" && req.url === "/api/internal/keep-going") {
+      let data = "";
+      req.on("data", (c) => (data += c));
+      req.on("end", () => {
+        lastKeepGoingBody = JSON.parse(data);
+        res.writeHead(keepGoingResponse.status, { "content-type": "application/json" });
+        res.end(JSON.stringify(keepGoingResponse.body));
+      });
+      return;
+    }
     res.writeHead(404, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: "unknown" }));
   });
@@ -315,7 +327,25 @@ describe("agents-proxy MCP surface", () => {
       "list_routines",
       "propose_routine",
       "propose_routine_action",
+      "set_keep_going",
     ]);
+  });
+
+  it("sets keep going through the harness and passes its refusal back", async () => {
+    const list = await rpc("tools/list");
+    const tool = list.result.tools.find((t: { name: string }) => t.name === "set_keep_going");
+    expect(tool.description).toContain("keep going, work on your own, or be agentic");
+    expect(tool.inputSchema.required).toEqual(["on"]);
+    keepGoingResponse = { status: 200, body: { ok: true } };
+    const on = await callTool("set_keep_going", { on: true });
+    expect(on.result.isError).toBe(false);
+    expect(lastKeepGoingBody).toEqual({ fromBotId: "bot-asker", fromThreadId: "thread-asker-routine", on: true });
+    keepGoingResponse = { status: 403, body: { error: "only a turn the user started can turn keep going on" } };
+    const refused = await callTool("set_keep_going", { on: true });
+    expect(refused.result.isError).toBe(true);
+    expect(refused.result.content[0].text).toContain("user started");
+    const bad = await callTool("set_keep_going", { on: "yes" });
+    expect(bad.result.isError).toBe(true);
   });
 
   it("asks the user through the harness and returns at once without waiting", async () => {
@@ -1032,7 +1062,8 @@ describe("agents-proxy identity gate", () => {
   });
 
   it("lists every tool once the bot, thread and comms token are all set", async () => {
-    const { list } = await probeWithIdentity({ OMB_BOT_ID: "bot-asker", OMB_THREAD_ID: "thread-asker", OMB_COMMS_TOKEN: TOKEN });
-    expect(list.result.tools).toHaveLength(17);
+    const { list } = await probeWithIdentity({ OMB_BOT_ID: "bot-new", OMB_THREAD_ID: "thread-new", OMB_COMMS_TOKEN: TOKEN });
+    expect(list.result.tools).toHaveLength(18);
+    expect(list.result.tools.map((t: { name: string }) => t.name)).toContain("set_keep_going");
   });
 });

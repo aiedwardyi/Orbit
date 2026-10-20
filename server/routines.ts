@@ -162,6 +162,8 @@ export interface RoutineManagerOptions {
   /** Projects every durable transition into the source conversation and says where the card landed. */
   onRunChanged?: (run: RoutineRun) => { threadId: string; messageId: string } | null | void;
   onRunFailed?: (run: RoutineRun) => void;
+  /** Rides the 10-second timer only, not the event-driven ticks. */
+  onInterval?: () => void;
 }
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -679,7 +681,10 @@ export class RoutineManager {
   start() {
     if (this.timer) return;
     void this.tick();
-    this.timer = setInterval(() => void this.tick(), 10_000);
+    this.timer = setInterval(() => {
+      void this.tick();
+      this.options.onInterval?.();
+    }, 10_000);
     this.timer.unref?.();
   }
 

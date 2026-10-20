@@ -25,6 +25,7 @@
 //   propose_routine(...)                  → show a confirmation card for a new routine
 //   propose_routine_action(...)           → show a confirmation card for a routine change
 //   update_task_state(...)                → save goal, progress, blockers, and next action
+//   set_keep_going(on)                    → turn this bot's Keep going switch on or off
 //
 // Speaks raw JSON-RPC 2.0 over stdio (no MCP SDK — house style, matches
 // computer-proxy / permission-proxy). All state comes from env, injected by
@@ -500,6 +501,17 @@ const TOOLS = [
       required: ["routine_id", "action"],
     },
   },
+  {
+    name: "set_keep_going",
+    description:
+      "Turn this bot's Keep going switch on or off. Turn it on when the user asks you to keep going, work on your own, or be agentic: it approves the task plan's pending steps as they stand now, so save the plan with update_task_state first. On works only in a turn the user started with their own message; off works in any turn.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { on: { type: "boolean", description: "true turns it on, false turns it off." } },
+      required: ["on"],
+    },
+  },
 ];
 
 type Json = Record<string, unknown>;
@@ -924,6 +936,18 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
       body: JSON.stringify(body),
     });
     return confirmationResult(r, `${action.replace("_", " ")} on routine ${routineId}`);
+  }
+  if (name === "set_keep_going") {
+    if (typeof args.on !== "boolean") return { text: "set_keep_going needs on: true or false.", isError: true };
+    await api("/api/internal/keep-going", {
+      method: "POST",
+      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, on: args.on }),
+    });
+    return {
+      text: args.on
+        ? "Keep going is on for the plan's pending steps. Wink starts the next one when nothing is running."
+        : "Keep going is off. Running work is left alone.",
+    };
   }
   return { text: `Unknown tool: ${name}`, isError: true };
 }

@@ -144,6 +144,12 @@ export const SERVER_LINES: ServerLine[] = [
   },
   { re: /^Delegated turn did not finish$/, pick: () => ["chat.delegation.turnDidNotFinish", {}], file: "delegations.ts", needles: ["Delegated turn did not finish"] },
   { re: /^Delegated turn completed$/, pick: () => ["chat.delegation.turnCompleted", {}], file: "delegations.ts", needles: ["Delegated turn completed"] },
+  {
+    re: /^Keep going paused: two tries in a row made no progress on the approved steps$/,
+    pick: () => ["chat.keepGoingPaused", {}],
+    file: "index.ts",
+    needles: ["Keep going paused: two tries in a row made no progress on the approved steps"],
+  },
   { re: /^Delegated turn stalled and was stopped$/, pick: () => ["chat.delegation.turnStalled", {}], file: "index.ts", needles: ["Delegated turn stalled and was stopped"] },
   {
     re: /^Delegated turn could not start \u2014 ([\s\S]*)$/,
