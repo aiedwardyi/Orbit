@@ -274,7 +274,7 @@ describe("score vs cost", () => {
   it("draws Legal against each model's cost per test", () => {
     pick("Benchmark", "Legal");
     expect(group("Chart")!.querySelector<HTMLButtonElement>('[role="radio"]')!.disabled).toBe(false);
-    expect(chosen("Chart")).toBe("Score Vs Cost");
+    expect(chosen("Chart")).toBe("Score vs Cost");
     expect(host.querySelector('[aria-label="Claude Fable 5 all"]')?.closest("[data-mi-move]")).not.toBeNull();
     expect(host.textContent).toContain("Cost per task →");
   });

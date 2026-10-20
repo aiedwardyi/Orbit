@@ -156,7 +156,7 @@ export function VoiceSettings({
             rel="noopener noreferrer"
             className="mt-1.5 inline-block text-[12px] font-medium text-accent hover:underline"
           >
-            Get a Key From ElevenLabs
+            Get a Key from ElevenLabs
           </a>
         )}
         </div>

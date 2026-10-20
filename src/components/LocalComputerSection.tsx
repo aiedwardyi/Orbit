@@ -364,7 +364,7 @@ export function LocalComputerSection() {
 
           <Step
             n={4}
-            title={perBot ? "Create a Private Desktop From Each Bot's Computer Panel" : needsRecreate ? "Replace the Older or Unsafe VM" : "Create and Start the Local VM"}
+            title={perBot ? "Create a Private Desktop from Each Bot's Computer Panel" : needsRecreate ? "Replace the Older or Unsafe VM" : "Create and Start the Local VM"}
             done={!perBot && ready}
           >
             {perBot ? (

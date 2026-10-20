@@ -180,7 +180,7 @@ export const en = {
   "modelIndex.index.general": "General Work",
   "modelIndex.index.legal": "Legal",
   "modelIndex.index.cost": "Cost",
-  "modelIndex.view.scatter": "Score Vs Cost",
+  "modelIndex.view.scatter": "Score vs Cost",
   "modelIndex.view.bars": "Ranked",
   "modelIndex.fullScreen": "Full Screen",
   "modelIndex.exitFullScreen": "Exit Full Screen",
