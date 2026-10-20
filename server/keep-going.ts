@@ -39,7 +39,7 @@ export type KeepGoingSkip =
   | "dispatch-failed";
 
 export type KeepGoingResult = { dispatched: string } | { skipped: KeepGoingSkip };
-export type KeepGoingView = { paused: "no-progress" | "bot-paused" | "other-pc" | null } | null;
+export type KeepGoingView = { paused: "no-progress" | "bot-paused" | "other-pc" | "task-changed" | "usage-unknown" | "usage-stale" | null } | null;
 
 type StepStatus = TaskResumePacket["plan"][number]["status"];
 
@@ -57,7 +57,7 @@ const entrySchema = z.object({
   revision: z.number().int().nonnegative(),
   steps: z.array(z.string()),
   approvedAt: z.number(),
-  paused: z.enum(["no-progress", "bot-paused"]).optional(),
+  paused: z.enum(["no-progress", "bot-paused", "usage-unknown", "usage-stale"]).optional(),
   receipts: z.array(receiptSchema),
 });
 const fileSchema = z.object({ v: z.literal(1), bots: z.record(z.string(), entrySchema) });
@@ -69,6 +69,7 @@ export interface KeepGoingTurnOptions {
   threadId: string;
   cardContinuation: true;
   unattended: true;
+  keepGoingWake: true;
 }
 
 export interface KeepGoingDeps {
@@ -79,7 +80,7 @@ export interface KeepGoingDeps {
   queuedSends(botId: string): boolean;
   wakesPaused(botId: string): boolean;
   packet(threadId: string): TaskResumePacket | null;
-  usage(botId: string): RateLimitsReport | null;
+  usage(botId: string): Promise<RateLimitsReport | null>;
   /** Live worker panes; null when the terminal bridge could not say. */
   livePanes(botId: string): Promise<number | null>;
   dispatch(botId: string, prompt: string, options: KeepGoingTurnOptions): Promise<void>;
@@ -97,7 +98,7 @@ export function normalizeStep(step: string): string {
 
 /** Same unattended mark a scheduled routine turn gets, without its detached-task record handling. */
 export function keepGoingTurnOptions(threadId: string): KeepGoingTurnOptions {
-  return { threadId, cardContinuation: true, unattended: true };
+  return { threadId, cardContinuation: true, unattended: true, keepGoingWake: true };
 }
 
 export function keepGoingPrompt(step: string): string {
@@ -148,7 +149,7 @@ function approvedStatuses(packet: TaskResumePacket, steps: string[]): Map<string
 function moved(packet: TaskResumePacket | null, steps: string[], before: Receipt["before"]): boolean {
   if (!packet) return false;
   for (const [key, status] of approvedStatuses(packet, steps)) {
-    if ((status === "active" || status === "done") && before[key] !== status) return true;
+    if ((status === "active" || status === "done" || status === "skipped") && before[key] !== status) return true;
   }
   return false;
 }
@@ -206,9 +207,10 @@ export class KeepGoing {
     this.save();
   }
 
-  /** Turn instructions while the switch is on; empty when off. */
+  /** Turn instructions while the switch is on and unpaused. */
   rules(botId: string): string {
-    return this.bots[botId]?.on ? ` ${KEEP_GOING_RULES}` : "";
+    const view = this.view(botId);
+    return view && !view.paused ? ` ${KEEP_GOING_RULES}` : "";
   }
 
   turnStarted(botId: string, threadId: string, byUser: boolean): void {
@@ -235,7 +237,7 @@ export class KeepGoing {
   view(botId: string): KeepGoingView {
     const entry = this.bots[botId];
     if (!entry?.on) return null;
-    return { paused: entry.paused ?? (entry.ownerDeviceId === this.deps.deviceId() ? null : "other-pc") };
+    return { paused: entry.paused ?? (entry.ownerDeviceId !== this.deps.deviceId() ? "other-pc" : this.deps.botThreadId(botId) !== entry.threadId ? "task-changed" : null) };
   }
 
   receipts(botId: string): Receipt[] {
@@ -254,7 +256,9 @@ export class KeepGoing {
       }
       if (now - last < KEEP_GOING_INTERVAL_MS || this.checking.has(botId)) continue;
       this.lastCheck.set(botId, now);
-      void this.check(botId);
+      void this.check(botId).catch((error) => {
+        this.log(`keep going: ${botId} check failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
     }
   }
 
@@ -271,6 +275,16 @@ export class KeepGoing {
     const first = this.gate(botId);
     if ("skipped" in first) return this.skip(botId, first.skipped);
     const revision = this.bots[botId]!.revision;
+    const report = await this.deps.usage(botId);
+    // off or re-approved while usage refreshed
+    if (this.bots[botId]?.on !== true || this.bots[botId]!.revision !== revision) return this.skip(botId, "off");
+    const ready = this.gate(botId);
+    if ("skipped" in ready) return this.skip(botId, ready.skipped);
+    const usage = usageSkip(report, this.now());
+    if (usage) {
+      if (usage === "usage-unknown" || usage === "usage-stale") this.pause(botId, usage);
+      return this.skip(botId, usage);
+    }
     const panes = await this.deps.livePanes(botId).catch(() => null);
     // the switch may have gone off, or been re-approved, while the bridge answered
     if (this.bots[botId]?.on !== true || this.bots[botId]!.revision !== revision) return this.skip(botId, "off");
@@ -322,14 +336,13 @@ export class KeepGoing {
     const approved = new Set(entry.steps);
     const next = packet.plan.find((item) => item.status === "pending" && approved.has(normalizeStep(item.step)));
     if (!next) return { skipped: "no-approved-step" };
-    const usage = usageSkip(this.deps.usage(botId), now);
-    if (usage) return { skipped: usage };
     return { step: next.step, before: Object.fromEntries(approvedStatuses(packet, entry.steps)) };
   }
 
   /** Grades the last dispatch; two in a row without progress pause the switch. */
   private settle(botId: string, panes: number): boolean {
     const entry = this.bots[botId]!;
+    if (entry.paused) return true;
     const last = entry.receipts.at(-1);
     if (last?.outcome === "pending") {
       if (this.deps.busy(botId, entry.threadId)) return false;

@@ -59,7 +59,7 @@ interface TaskStateRequestBody {
 }
 let lastTaskStateBody: TaskStateRequestBody | null = null;
 let botWakesPaused = false;
-let lastKeepGoingBody: any = null;
+let lastKeepGoingBody: { fromBotId: string; fromThreadId: string; on: boolean } | null = null;
 let keepGoingResponse: { status: number; body: unknown } = { status: 200, body: { ok: true } };
 let taskStateNotice: string | undefined;
 

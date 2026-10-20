@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { estimateContextTokens } from "./context-compaction.ts";
 import {
@@ -9,6 +10,7 @@ import {
   KEEP_GOING_DAILY_CAP,
   KEEP_GOING_INTERVAL_MS,
   KEEP_GOING_RULES,
+  KEEP_GOING_USAGE_FRESH_MS,
   KeepGoing,
   keepGoingTurnOptions,
   type KeepGoingDeps,
@@ -60,7 +62,7 @@ function harness(overrides: { deviceId?: string; file?: string } = {}) {
     queuedSends: () => state.queued,
     wakesPaused: () => state.wakesPaused,
     packet: () => state.packet,
-    usage: () => state.usage,
+    usage: async () => state.usage,
     livePanes,
     dispatch,
     paused,
@@ -139,7 +141,7 @@ describe("KeepGoing dispatch", () => {
     const h = harness();
     h.keepGoing.enable("b1", "t1", h.state.packet);
     await h.keepGoing.check("b1");
-    expect(h.dispatch.mock.calls[0]![2]).toEqual({ threadId: "t1", cardContinuation: true, unattended: true });
+    expect(h.dispatch.mock.calls[0]![2]).toEqual({ threadId: "t1", cardContinuation: true, unattended: true, keepGoingWake: true });
     expect(keepGoingTurnOptions("t9").unattended).toBe(true);
     expect(keepGoingTurnOptions("t9")).not.toHaveProperty("automationSource");
   });
@@ -252,6 +254,7 @@ describe("KeepGoing off latch", () => {
     let answer!: (count: number) => void;
     h.livePanes.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
     const inFlight = h.keepGoing.check("b1");
+    await vi.waitFor(() => expect(answer).toBeTypeOf("function"));
     h.keepGoing.disable("b1");
     answer(0);
     await expect(inFlight).resolves.toEqual({ skipped: "off" });
@@ -379,5 +382,144 @@ describe("KeepGoing dispatch failure", () => {
     await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "dispatch-failed" });
     expect(log.mock.calls.map(([line]) => line)).toEqual(["keep going: b1 dispatch failed: engine down"]);
     expect(h.keepGoing.receipts("b1")).toEqual([expect.objectContaining({ outcome: "failed" })]);
+  });
+});
+
+describe("KeepGoing review regressions", () => {
+  it("waits for usage before dispatch", async () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    let answer!: (report: RateLimitsReport | null) => void;
+    h.deps.usage = () => new Promise((resolve) => { answer = resolve; });
+    const check = h.keepGoing.check("b1");
+    expect(h.dispatch).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(answer).toBeTypeOf("function"));
+    answer(h.state.usage);
+    await expect(check).resolves.toEqual({ dispatched: "Write tests" });
+  });
+
+  it.each(["off", "reapprove"])("rejects an old usage answer after %s", async (change) => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    let answer!: (report: RateLimitsReport | null) => void;
+    h.deps.usage = () => new Promise((resolve) => { answer = resolve; });
+    const check = h.keepGoing.check("b1");
+    await vi.waitFor(() => expect(answer).toBeTypeOf("function"));
+    if (change === "off") h.keepGoing.disable("b1");
+    else h.keepGoing.enable("b1", "t1", h.state.packet);
+    answer(h.state.usage);
+    await expect(check).resolves.toEqual({ skipped: "off" });
+    expect(h.dispatch).not.toHaveBeenCalled();
+    expect(h.keepGoing.receipts("b1")).toEqual([]);
+  });
+
+  it.each([null, { windows: [], observedAt: new Date(NOON_KST).toISOString() }])("shows missing usage as paused (%j)", async (report) => {
+    const h = harness();
+    h.state.usage = report;
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "usage-unknown" });
+    expect(h.keepGoing.view("b1")).toEqual({ paused: "usage-unknown" });
+    expect(h.changed).toHaveBeenCalledWith("b1");
+    expect(new KeepGoing(h.deps).view("b1")).toEqual({ paused: "usage-unknown" });
+  });
+
+  it("shows retained stale usage as paused", async () => {
+    const h = harness();
+    h.state.usage!.observedAt = new Date(NOON_KST - KEEP_GOING_USAGE_FRESH_MS - 1).toISOString();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "usage-stale" });
+    expect(h.keepGoing.view("b1")).toEqual({ paused: "usage-stale" });
+  });
+
+  it("shows a changed task as paused before a tick", () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.state.threadId = "t2";
+    expect(h.keepGoing.view("b1")).toEqual({ paused: "task-changed" });
+    expect(h.keepGoing.rules("b1")).toBe("");
+    h.state.threadId = "t1";
+    expect(h.keepGoing.view("b1")).toEqual({ paused: null });
+  });
+
+  it.each(["bot-paused", "no-progress"] as const)("omits rules while %s", (reason) => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.keepGoing.pause("b1", reason);
+    expect(h.keepGoing.rules("b1")).toBe("");
+  });
+
+  it("counts a skipped approved step as progress", async () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    await h.keepGoing.check("b1");
+    setPlan(h, [{ step: "Write tests", status: "skipped" }, { step: "Build UI", status: "pending" }]);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Build UI" });
+    expect(h.keepGoing.receipts("b1")[0]!.outcome).toBe("progress");
+  });
+
+  it("keeps a pause during the pane await without another paused card", async () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    await h.keepGoing.check("b1");
+    await h.keepGoing.check("b1");
+    let answer!: (count: number) => void;
+    h.livePanes.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    const check = h.keepGoing.check("b1");
+    await vi.waitFor(() => expect(answer).toBeTypeOf("function"));
+    h.keepGoing.pause("b1", "bot-paused");
+    answer(0);
+    await expect(check).resolves.toEqual({ skipped: "paused" });
+    expect(h.keepGoing.view("b1")).toEqual({ paused: "bot-paused" });
+    expect(h.paused).not.toHaveBeenCalled();
+  });
+
+  it("handles a scheduled check rejection and logs its bot", async () => {
+    const h = harness();
+    const log = vi.fn();
+    h.deps.log = log;
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    const catchError = vi.fn((_handler: (error: unknown) => void) => Promise.resolve());
+    vi.spyOn(h.keepGoing, "check").mockReturnValue({ catch: catchError } as unknown as ReturnType<KeepGoing["check"]>);
+    h.state.now += KEEP_GOING_INTERVAL_MS;
+    h.keepGoing.tick();
+    expect(catchError).toHaveBeenCalledOnce();
+    catchError.mock.calls[0]![0](new Error("disk full"));
+    expect(log).toHaveBeenCalledWith("keep going: b1 check failed: disk full");
+  });
+});
+
+describe("KeepGoing server wiring", () => {
+  const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const usageStart = source.indexOf("  usage:", source.indexOf("const keepGoing = new KeepGoing("));
+  const usage = source.slice(usageStart + "  usage: ".length, source.indexOf(",\n  livePanes:", usageStart));
+  const readUsage = new Function("scope", `with (scope) { return (${usage})("b1"); }`);
+
+  it.each(["missing", "stale", "empty"])("refreshes and saves %s usage without replacing a newer observation", async (kind) => {
+    const previous = kind === "missing" ? undefined : {
+      windows: kind === "empty" ? [] : [{ id: "five_hour", usedPercent: 99, resetsAt: null }],
+      observedAt: new Date(kind === "stale" ? Date.now() - KEEP_GOING_USAGE_FRESH_MS - 1 : Date.now()).toISOString(),
+    };
+    const report = { windows: [{ id: "five_hour", usedPercent: 20, resetsAt: null }], observedAt: new Date(Date.now() + 60_000).toISOString() };
+    const rateLimitsByInstance = new Map(previous ? [["engine", previous]] : []);
+    const refreshUsage = vi.fn(async () => ({ report }));
+    const scheduleSaveRateLimits = vi.fn();
+    const config = { config: { cli: "fake-cli" }, environment: { FAKE: "1" } };
+    const scope = {
+      store: { bot: () => ({ modelSelection: { instanceId: "engine" } }) },
+      rateLimitsByInstance, cfg: {}, instanceConfigs: () => ({ engine: config }),
+      registry: { get: () => ({ driverKind: "claude" }) }, refreshUsage, scheduleSaveRateLimits,
+      KEEP_GOING_USAGE_FRESH_MS, DATA_DIR: dir, z,
+    };
+    expect(await readUsage(scope)).toEqual(report);
+    expect(refreshUsage).toHaveBeenCalledWith("claude", { instanceId: "engine", cli: "fake-cli", environment: config.environment }, previous);
+    expect(rateLimitsByInstance.get("engine")).toEqual(report);
+    expect(scheduleSaveRateLimits).toHaveBeenCalledWith(rateLimitsByInstance, dir);
+    rateLimitsByInstance.set("engine", { ...report, observedAt: new Date(0).toISOString() });
+    refreshUsage.mockImplementationOnce(async () => {
+      rateLimitsByInstance.set("engine", report);
+      return { report: { ...report, observedAt: new Date(0).toISOString() } };
+    });
+    expect(await readUsage(scope)).toEqual(report);
+    expect(scheduleSaveRateLimits).toHaveBeenCalledTimes(1);
   });
 });

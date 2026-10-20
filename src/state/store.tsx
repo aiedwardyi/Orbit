@@ -378,7 +378,7 @@ export interface Bot {
   /** Allow this bot's provider to read its own Orbit terminal screen. */
   shareTerminalWithChat?: boolean;
   /** null = off. Server-owned; toggled through /keep-going, never the bot PATCH. */
-  keepGoing?: { paused: "no-progress" | "bot-paused" | "other-pc" | null } | null;
+  keepGoing?: { paused: "no-progress" | "bot-paused" | "other-pc" | "task-changed" | "usage-unknown" | "usage-stale" | null } | null;
   messages: Message[];
   /** The server holds older messages than `messages` starts with. */
   hasMore?: boolean;

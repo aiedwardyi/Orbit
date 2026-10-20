@@ -270,7 +270,7 @@ import { terminalResumeResponse } from "./terminal-resume.ts";
 import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import { NoteSteerer, steerUntilTaken } from "./note-steer.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
-import { KeepGoing } from "./keep-going.ts";
+import { KEEP_GOING_USAGE_FRESH_MS, KeepGoing } from "./keep-going.ts";
 import {
   ensureWorkspace,
   workspaceDir,
@@ -1160,7 +1160,27 @@ const keepGoing = new KeepGoing({
   queuedSends: (botId) => hasQueuedSends(botId),
   wakesPaused: (botId) => store.bot(botId)?.paneWakePaused === true,
   packet: (threadId) => taskPacketForWrite(threadId),
-  usage: (botId) => rateLimitsByInstance.get(store.bot(botId)?.modelSelection.instanceId ?? "") ?? null,
+  usage: async (botId) => {
+    const instanceId = store.bot(botId)?.modelSelection.instanceId ?? "";
+    const previous = rateLimitsByInstance.get(instanceId);
+    if (previous?.windows.length && Number.isFinite(Date.parse(previous.observedAt)) && Date.now() - Date.parse(previous.observedAt) <= KEEP_GOING_USAGE_FRESH_MS) return previous;
+    const config = instanceConfigs(cfg)[instanceId];
+    const instance = registry.get(instanceId);
+    if (!config || !instance) return null;
+    const result = await refreshUsage(instance.driverKind, {
+      instanceId,
+      cli: z.object({ cli: z.string().optional() }).catch({}).parse(config.config).cli,
+      environment: config.environment,
+    }, previous);
+    if (result.report) {
+      const current = rateLimitsByInstance.get(instanceId);
+      if (!current || Date.parse(result.report.observedAt) >= Date.parse(current.observedAt)) {
+        rateLimitsByInstance.set(instanceId, result.report);
+        scheduleSaveRateLimits(rateLimitsByInstance, DATA_DIR);
+      }
+    }
+    return rateLimitsByInstance.get(instanceId) ?? null;
+  },
   livePanes: async (botId) => {
     const counts = await terminalPaneCountsResponse(terminalBridgeAccess);
     return counts.status === 200 && "counts" in counts.body ? counts.body.counts[botId] ?? 0 : null;
@@ -4189,6 +4209,7 @@ type StartTurnOptions = {
   automationSource?: RoutineRunTrigger;
   /** the caller was already running unattended, so this turn is too */
   unattended?: boolean;
+  keepGoingWake?: boolean;
   /** The peer that wrote this turn's prompt. It lands in the target's own
    * 1:1, where an unattributed line reads as the user's: the record carries
    * the sender and the channel, and never names the user's task. */
@@ -5253,7 +5274,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           showImagePrompt +
           (detailedRepliesEnabled(cfg) ? DETAILED_REPLY_INSTRUCTIONS : ALWAYS_REPLY_INSTRUCTIONS) +
           CORPUS_SEARCH_INSTRUCTIONS +
-          keepGoing.rules(bot.id) +
+          (opts?.keepGoingWake ? "" : keepGoing.rules(bot.id)) +
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace ? memorySystemPrompt(bot.id) + skillsSystemPrompt(bot.id) : "") +
           skillInstructions +
@@ -6116,6 +6137,7 @@ async function runClaimedGroupMemberTurn(
   const messagesAtStart = store.messagesFor(threadId).length;
   store.setActivity(bot.id, "working", threadId);
   dispatchedThreads.set(bot.id, threadId);
+  keepGoing.turnStarted(bot.id, threadId, hop === 0 && !cardContinuation);
   releaseTurnStart?.();
 
   store.patchGroup(group.id, { busyBotId: bot.id }); // the store's change stream carries the frame

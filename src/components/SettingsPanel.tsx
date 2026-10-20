@@ -111,6 +111,9 @@ const KEEP_GOING_PAUSED = {
   "no-progress": "bot.keepGoingNoProgress",
   "bot-paused": "bot.keepGoingBotPaused",
   "other-pc": "bot.keepGoingOtherPc",
+  "task-changed": "bot.keepGoingTaskChanged",
+  "usage-unknown": "bot.keepGoingUsageUnknown",
+  "usage-stale": "bot.keepGoingUsageStale",
 } as const;
 
 function KeepGoingRow({ bot }: { bot: Bot }) {
