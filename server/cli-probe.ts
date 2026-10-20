@@ -7,7 +7,7 @@ import { redactSecretsInText } from "./redact.ts";
 
 /** Pre-save probe for a CLI path override: run `<cli> --version` with the
  * same environment a real turn gets (augmented PATH). Returns ok + the
- * version line, or a fail the UI can act on — ENOENT on a GUI-launched app
+ * version line, or a fail the UI can act on - ENOENT on a GUI-launched app
  * usually means "not on the app's PATH", the exact mistake this catches
  * before the override is saved. */
 export async function testCliBinary(cli: string, driver: (typeof BUILT_IN_DRIVERS)[number] | undefined): Promise<CliProbe> {
@@ -35,7 +35,7 @@ export async function testCliBinary(cli: string, driver: (typeof BUILT_IN_DRIVER
           const e = err as NodeJS.ErrnoException & { killed?: boolean };
           // err.code is an errno CONSTANT ("ENOENT", "EACCES") only for spawn
           // failures; for a non-zero exit it's the exit STATUS (a number) and
-          // for a timeout it's null + killed:true — describeSpawnFailure words
+          // for a timeout it's null + killed:true - describeSpawnFailure words
           // only the first kind
           const exceededBuffer = e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
           const isSpawnError = typeof e.code === "string" && !exceededBuffer;
@@ -68,7 +68,7 @@ interface CliProbe {
 const PROBE_VERSION_MAX = 200;
 
 /** What a wrapper's fixed argument looks like: a subcommand, a flag, or a
- * path. An inline script payload needs characters no engine subcommand has —
+ * path. An inline script payload needs characters no engine subcommand has -
  * spaces, quotes, parentheses, `;`, `|`, `$`. */
 const PROBE_ARG = /^[A-Za-z0-9._@:+=/\\-]+$/;
 
@@ -83,21 +83,21 @@ const PROBE_EVAL_FLAG = /^--(eval|command|exec|expression|print|script|require|i
 
 /** A file an interpreter would execute. `node x.mjs` reads as a plain path to
  * the rule above, so the extension is what separates a wrapper's subcommand
- * from a script handed to this route to run. Renaming a script defeats it —
+ * from a script handed to this route to run. Renaming a script defeats it -
  * this narrows the endpoint, it does not seal it; the child env allowlist and
  * the redacted, bounded output are what make the run uninteresting. */
 const PROBE_SCRIPT_ARG = /\.(js|mjs|cjs|ts|mts|cts|jar|sh|bash|zsh|fish|py|rb|pl|php|lua|ps1|psm1|bat|cmd|vbs)$/i;
 
 /** Reject a `cli` this route must not run, wording the failure the way a
  * failed spawn would. Two rules: the command has to be a real executable, and
- * its fixed arguments have to be a wrapper's own — a subcommand, a long flag,
+ * its fixed arguments have to be a wrapper's own - a subcommand, a long flag,
  * or a non-script path. `sh -c id`, `node -e "…"` and `node ./x.mjs` all fail
  * the second one.
  *
  * This narrows the endpoint; it does not seal it. A head that is itself a
  * runner (`env id`, `timeout 5 id`) still reaches a command, so what keeps a
  * steered probe uninteresting is the allowlisted child env and the redacted,
- * bounded line it answers with — not this check. */
+ * bounded line it answers with - not this check. */
 function probeCommandError(cli: string): string | null {
   const notInstalled = (name: string) => {
     const enoent: NodeJS.ErrnoException = new Error(`spawn ${name} ENOENT`);
@@ -115,7 +115,7 @@ function probeCommandError(cli: string): string | null {
   // the existsSync fallback lets a path with spaces through, so it is checked
   // last and never rescues an argument already refused above
   if (fixed.some((arg) => runsACommand(arg) || !(PROBE_ARG.test(arg) || existsSync(arg)))) {
-    return `\`${cli}\` is not a CLI path — a fixed argument may be a subcommand, a long flag, or a non-script path`;
+    return `\`${cli}\` is not a CLI path - a fixed argument may be a subcommand, a long flag, or a non-script path`;
   }
   return null;
 }
