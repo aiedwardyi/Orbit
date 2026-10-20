@@ -72,6 +72,30 @@ afterEach(async () => {
 });
 
 describe("ModelPicker cross navigation", () => {
+  it.each(["en", "ko"] as const)("updates the status price with the highlighted model in %s", async (locale) => {
+    vi.stubGlobal("localStorage", window.localStorage);
+    persistPreference(locale);
+    mock.instances = [engine("grok", "grokAgent", ["grok-4.7", "grok-4.5"])];
+    try {
+      await mount({ instanceId: "grok", model: "grok-4.5", mode: "pinned" });
+      expect(document.querySelector("[data-model-price]")).toBeNull();
+      await key("ArrowUp");
+      const price = document.querySelector('[aria-live="polite"] [data-model-price]');
+      expect(price?.textContent).toBe(locale === "en" ? "$2 / $6 per 1M" : "$2 / $6 100만 토큰당");
+      expect(price?.getAttribute("title")).toBe(locale === "en" ? "Input / output per 1M tokens (USD)" : "100만 토큰당 입력 / 출력 가격이에요 (USD)");
+      expect(document.querySelector('[data-model-cell] [data-model-price]')).toBeNull();
+      expect(document.querySelector('[aria-haspopup="dialog"]')?.textContent).not.toContain("$");
+      await key("ArrowDown");
+      expect(document.querySelector('[data-model-cell="grok-4.5"][aria-pressed="true"]')).not.toBeNull();
+      expect(document.querySelector("[data-model-price]")).toBeNull();
+      await key("ArrowUp");
+      expect(document.querySelector('[aria-live="polite"] [data-model-price]')?.textContent).toBe(price?.textContent);
+    } finally {
+      persistPreference("en");
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each([".model-cross-options", ".model-cross-custom"])("preserves native wheel scrolling over %s", async (selector) => {
     const instance = engine("grok", "grokAgent", ["grok-4.7", "grok-4.6"]);
     instance.models.options.push({ id: "provider::custom-model", label: "Custom model", custom: true });

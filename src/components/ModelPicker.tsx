@@ -6,6 +6,7 @@ import { filterCustomModels } from "@/lib/custom-models";
 import { chipEffortLabel, chipEffortShortLabel, chipPhoneName,displayedChipEffort, engineBadgeText, modelChipText, modelChipTitle, modelEffortLabel, modelFamilyAccent } from "@/lib/model-chip";
 import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, selectPickerEffort, selectPickerModel, withPickerEffort } from "@/lib/cross-model-picker";
 import { focusComposerOnActivation } from "@/lib/focus-composer";
+import { pickerPrice } from "@/lib/model-index";
 import { usePresence } from "@/lib/use-presence";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
@@ -90,6 +91,7 @@ export function ModelPickerControl({
   const shortcut = /Mac/i.test(globalThis.navigator?.platform ?? "") ? "Option" : "Alt";
   const custom = instance?.models.options.filter((option) => option.custom) ?? [];
   const filteredCustom = filterCustomModels(custom, query);
+  const price = pickerPrice(draft.model);
 
   const show = (viaShortcut = false) => {
     setDraft(selection);
@@ -391,6 +393,7 @@ export function ModelPickerControl({
             <span>{t("model.automatic")}</span>
             <span className="break-all text-ink">{t("model.automaticHelp", { name: draft.model || t("model.unresolved") })}</span>
             {effortIndex >= 0 && <span>{t("model.effort")}: {effortLabel(efforts[effortIndex]!.label)}</span>}
+            {price && <span data-model-price className="shrink-0 whitespace-nowrap" title={t("model.priceUnits")}>{price} {t("model.pricePerMillion")}</span>}
             {!instance && <span>{t("model.offList")}</span>}
             {instance && <span className={cn("rounded-full px-2 py-0.5", blocked ? "bg-warning/10 text-warning" : "bg-success/10 text-success")}>
               {engineBadgeText(instance.snapshot, needsCli(instance) ? "not-installed" : needsSignIn(instance) ? "sign-in" : "ready", t)}
