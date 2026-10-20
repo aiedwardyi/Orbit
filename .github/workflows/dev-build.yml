@@ -223,7 +223,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh api --paginate --slurp 'repos/aiedwardyi/Orbit/releases?per_page=100' \
-            --jq 'add | map(select(.prerelease and (.draft | not) and (.tag_name | test("^v\\d+\\.\\d+\\.\\d+-dev\\.\\d+$")))) | sort_by(.published_at) | reverse | .[3:][].tag_name' \
+            | jq -r 'add | map(select(.prerelease and (.draft | not) and (.tag_name | test("^v\\d+\\.\\d+\\.\\d+-dev\\.\\d+$")))) | sort_by(.published_at) | reverse | .[3:][].tag_name' \
             > "$RUNNER_TEMP/old-dev-tags"
           while IFS= read -r tag; do
             gh release delete "$tag" --repo aiedwardyi/Orbit --cleanup-tag --yes

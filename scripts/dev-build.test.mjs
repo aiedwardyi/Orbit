@@ -400,6 +400,13 @@ describe("dev build workflow", () => {
     expect(runs.indexOf(".isPrerelease and (.isDraft | not)")).toBeLessThan(runs.indexOf("gh release delete"));
   });
 
+  it("pipes slurped release pages to jq, since gh rejects --slurp with --jq", () => {
+    const step = workflow().jobs.publish.steps.find((entry) => entry.name === "Keep the newest three dev prereleases");
+    expect(step.run).toContain("--slurp");
+    expect(step.run).not.toMatch(/--jq\b/);
+    expect(step.run).toContain("| jq -r 'add");
+  });
+
   it.each(["v2.0.0-alpha.1-dev.notes", "v1.0.193-dev.1.notes", "other-v1.0.193-dev.1", "v1.0.193-dev.notes"])("never retains %s as a generated dev tag", (tag) => {
     const step = workflow().jobs.publish.steps.find((entry) => entry.name === "Keep the newest three dev prereleases");
     const pattern = new RegExp(JSON.parse(step.run.match(/test\(("(?:\\.|[^"\\])*")\)/)[1]));
