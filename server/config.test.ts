@@ -41,6 +41,13 @@ describe("configuration boundaries", () => {
     expect(JSON.parse(readFileSync(join(DATA_DIR, "config.json"), "utf8")).features).toMatchObject({ toolDetailCapture: true, showToolCalls: false });
   });
 
+  it("keeps the profile picture when the name is saved and accepts only a stored image", () => {
+    saveConfig(parseConfigPatch({ profile: { avatarUrl: "/api/attachments/ada.png" } }));
+    saveConfig(parseConfigPatch({ profile: { name: "Ada" } }));
+    expect(loadConfig().profile).toMatchObject({ name: "Ada", avatarUrl: "/api/attachments/ada.png" });
+    expect(() => parseConfigPatch({ profile: { avatarUrl: "https://lh3.googleusercontent.com/a/photo" } })).toThrow("profile.avatarUrl");
+  });
+
   it("tool detail rejects a malformed capture flag", () => {
     expect(() => parseConfigPatch({ features: { toolDetailCapture: "yes" } })).toThrow("features.toolDetailCapture");
   });

@@ -481,7 +481,7 @@ export interface ConfigStatus {
   vertex?: { configured: boolean };
   customKeys?: { host: string; name: string }[];
   /** who's using the app — collected in onboarding, shown in the sidebar */
-  profile?: { name: string; email: string };
+  profile?: { name: string; email: string; avatarUrl?: string };
   /** Opt-in flags. Absent means off, except memoryNotes. */
   features?: { skillRecorder: boolean; showToolCalls?: boolean; detailedReplies?: boolean; browser?: boolean; memoryNotes?: boolean; terminalHost?: boolean };
   /** Named browser sessions any bot can be pointed at. */

@@ -334,7 +334,7 @@ import {
 import { PhoneAccess } from "./phone-access.ts";
 import { postPhoneKeepAwake, type PhoneKeepAwakeMessage } from "./phone-keep-awake.ts";
 import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
-import { GoogleAccount, applyGoogleAccountMessage, googleAccountRoute, takeGoogleEnv } from "./google-account.ts";
+import { GoogleAccount, applyGoogleAccountMessage, googleAccountRoute, googleProfileFill, takeGoogleEnv } from "./google-account.ts";
 import { quorumRoute } from "./quorum-route.ts";
 import { teamRoute } from "./team-route.ts";
 import { createGoogleSync, GOOGLE_MIRROR_DIR, googleSyncRoute } from "./google-sync.ts";
@@ -553,6 +553,18 @@ const phoneAccess: PhoneAccess = new PhoneAccess({
 });
 postPhoneKeepAwake(phoneAccess, utilityParentPort);
 googleAccount.onSession(() => phoneAccess.googleChanged());
+googleAccount.onSession(() => {
+  const idToken = googleAccount.idToken();
+  const sub = googleAccount.owner()?.sub;
+  if (!idToken || !sub) return;
+  void googleProfileFill(idToken, sub, () => cfg.profile, (bytes, mime) => botAvatarUrlFromStoredPath(saveImage(bytes, mime).path)).then((fill) => {
+    if (!fill || googleAccount.owner()?.sub !== sub) return;
+    saveConfig({ profile: fill });
+    Object.assign(cfg, loadConfig());
+    if (fill.name) phoneAccess.nameChanged();
+    broadcast({ kind: "config", ...configStatus() });
+  }).catch((error) => console.warn(`[google] profile fill failed: ${error instanceof Error ? error.message : String(error)}`));
+});
 googleAccount.onIdToken(() => phoneAccess.googleChanged());
 
 /** Constant-time bearer check for the internal comms endpoints. The token
@@ -6815,7 +6827,7 @@ function configStatus() {
     vertex: { configured: Boolean(cfg.vertex?.key) },
     customKeys: Object.entries(cfg.customKeys ?? {}).flatMap(([host, saved]) => (saved ? [{ host, name: saved.name }] : [])),
     // not a secret — the sidebar shows it
-    profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "" },
+    profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "", avatarUrl: cfg.profile?.avatarUrl ?? "" },
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     localVm: {
       mode: localVmMode(cfg),

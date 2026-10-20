@@ -782,6 +782,33 @@ describe("Sidebar layout controls", () => {
     }
   });
 
+  it("shows the profile picture in the footer and falls back to initials when it fails", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async (path: string) => {
+      if (path === "/api/bots?messages=200") return Response.json({ bots: [], groups: [] });
+      if (path === "/api/config") return Response.json({ composio: { configured: false }, profile: { name: "Ada Lovelace", email: "", avatarUrl: "/api/attachments/ada.png" } });
+      return Response.json({ error: "not in this test" }, { status: 404 });
+    }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(SidebarSettingsProbe))));
+      await act(async () => FakeEventSource.current!.onmessage?.({ data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }), lastEventId: "" }));
+      const row = host.querySelector("[data-sidebar-profile-row]")!;
+      await vi.waitFor(() => expect(row.querySelector("img")).not.toBeNull());
+      const image = row.querySelector("img")!;
+      expect(image.getAttribute("src")).toBe("/api/attachments/ada.png");
+      expect(row.textContent).not.toContain("AL");
+      await act(async () => image.dispatchEvent(new Event("error")));
+      expect(row.querySelector("img")).toBeNull();
+      expect(row.textContent).toContain("AL");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("keeps the update control in the footer rail and uses the tighter labeled row geometry", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "Sidebar.tsx"), "utf8");
     const footer = source.slice(source.indexOf("{/* Footer */}"), source.indexOf("{menu &&"));

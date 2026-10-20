@@ -7,7 +7,11 @@
 
 import { z } from "zod";
 
+import { sniffImageMime } from "./attachments.ts";
+
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
+const PICTURE_MAX_BYTES = 1024 * 1024;
+const PICTURE_HOST = /(^|\.)googleusercontent\.com$/;
 const EXPIRY_MARGIN_MS = 60_000;
 const BACKOFF_MS = [5_000, 15_000, 60_000, 5 * 60_000];
 
@@ -20,6 +24,11 @@ export const TEAM_OWNER_ENV = "WINK_TEAM_OWNER";
 const idTokenSchema = z.string().min(1).max(8192);
 /** The ID token a fresh desktop sign-in pushes beside the session. */
 const pushedIdTokenSchema = z.object({ idToken: idTokenSchema });
+const profileClaimsSchema = z.object({
+  sub: z.string(),
+  name: z.string().optional().catch(undefined),
+  picture: z.string().optional().catch(undefined),
+});
 
 export type GoogleAccountState = "unavailable" | "pending" | "signed-out" | "signed-in" | "needs-sign-in" | "blocked" | "offline";
 export type GoogleAccountStatus = { state: GoogleAccountState; email?: string };
@@ -60,6 +69,72 @@ export async function googleAccountRoute(method: "PUT" | "DELETE", hasParentPort
   const pushed = pushedIdTokenSchema.safeParse(body);
   account.setSession(session, pushed.success ? pushed.data.idToken : null);
   return { status: 200, body: account.status() };
+}
+
+/** Name and picture from the signed-in account's ID token; a token from before the profile scope has neither. */
+export function googleProfileClaims(idToken: string, sub: string): { name?: string; picture?: string } {
+  let claims: unknown;
+  try {
+    claims = JSON.parse(Buffer.from(idToken.split(".")[1] ?? "", "base64url").toString("utf8"));
+  } catch {
+    return {};
+  }
+  const parsed = profileClaimsSchema.safeParse(claims);
+  if (!parsed.success || parsed.data.sub !== sub) return {};
+  const name = parsed.data.name?.trim();
+  return { ...(name ? { name } : {}), ...(parsed.data.picture ? { picture: parsed.data.picture } : {}) };
+}
+
+async function fetchPicture(url: string, fetch: typeof globalThis.fetch): Promise<{ bytes: Buffer; mime: string } | null> {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:" || !PICTURE_HOST.test(parsed.hostname)) return null;
+    // A redirect could leave the allowed host, so refuse it.
+    const response = await fetch(parsed, { redirect: "error", signal: AbortSignal.timeout(10_000) });
+    if (!response.ok || !response.body || Number(response.headers.get("content-length")) > PICTURE_MAX_BYTES) return null;
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for (let read = await reader.read(); !read.done; read = await reader.read()) {
+      size += read.value.byteLength;
+      if (size > PICTURE_MAX_BYTES) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(read.value);
+    }
+    const bytes = Buffer.concat(chunks);
+    const mime = sniffImageMime(bytes);
+    return mime ? { bytes, mime } : null;
+  } catch {
+    return null;
+  }
+}
+
+type ProfileFields = { name?: string; avatarUrl?: string };
+
+/** Profile fields to fill from a sign-in: only an empty name or an unset avatar. Null when there is nothing to fill. */
+export async function googleProfileFill(
+  idToken: string,
+  sub: string,
+  current: () => ProfileFields | undefined,
+  saveImage: (bytes: Buffer, mime: string) => string | null,
+  fetch: typeof globalThis.fetch = globalThis.fetch,
+): Promise<ProfileFields | null> {
+  const claims = googleProfileClaims(idToken, sub);
+  const fill: ProfileFields = {};
+  if (claims.picture && !current()?.avatarUrl) {
+    const picture = await fetchPicture(claims.picture, fetch);
+    try {
+      // Re-read after the fetch: the user may have set one meanwhile.
+      const avatarUrl = picture && !current()?.avatarUrl ? saveImage(picture.bytes, picture.mime) : null;
+      if (avatarUrl) fill.avatarUrl = avatarUrl;
+    } catch {
+      // A picture that cannot be stored leaves the default.
+    }
+  }
+  if (claims.name && !current()?.name?.trim()) fill.name = claims.name;
+  return fill.name || fill.avatarUrl ? fill : null;
 }
 
 /** Reads the clients and boot session, then deletes them so engine CLIs never inherit them. */

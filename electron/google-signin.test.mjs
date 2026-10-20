@@ -106,7 +106,7 @@ describe("google sign-in", () => {
       client_id: CLIENT.id,
       redirect_uri: `http://127.0.0.1:${address.port}`,
       response_type: "code",
-      scope: `openid email ${DRIVE_FILE}`,
+      scope: `openid email ${DRIVE_FILE} profile`,
       code_challenge_method: "S256",
       access_type: "offline",
       prompt: "consent select_account",
