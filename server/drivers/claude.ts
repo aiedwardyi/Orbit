@@ -1164,6 +1164,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         // remembers which tool each pending ask came from, so the resolved
         // event can scope approvals to real desktop-control tools only
         const askTools = new Map<string, string | undefined>();
+        // the one desktop rule: autoVerdict reads this scope, so the background check must too
+        const askScope = (tool: unknown) =>
+          controlsHost && typeof tool === "string" && tool.startsWith("mcp__computer") ? ("local-computer" as const) : undefined;
         broker = createPermissionBroker({
           socketPath,
           isActive: () => Boolean(sessions.get(threadId)?.turn),
@@ -1171,7 +1174,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             const s = sessions.get(threadId);
             if (!s || !hasLiveBackgroundWork(s)) return null;
             // Auto covers unattended work, but not the desktop
-            const desktop = controlsHost && tool.startsWith("mcp__computer");
+            const desktop = askScope(tool) === "local-computer";
             return (desktop ? backgroundAutoAttended(s) : backgroundAuto(s)) ? "auto" : "denied";
           },
           onAsk: (ask) => {
@@ -1185,10 +1188,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               tool: ask.tool,
               summary: askSummary(ask),
               inputDigest: inputDigest(ask.input ?? askArgs(ask)),
-              approvalScope:
-                typeof ask.tool === "string" && controlsHost && ask.tool.startsWith("mcp__computer")
-                  ? "local-computer"
-                  : undefined,
+              approvalScope: askScope(ask.tool),
               choices: Array.isArray(ask.input?.choices) ? (ask.input.choices as string[]).slice(0, 5) : undefined,
               ...(ask.background ? { background: true } : {}),
             });
@@ -1201,8 +1201,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               requestId: resolved.id,
               behavior: resolved.behavior,
               source: resolved.source,
-              approvalScope:
-                controlsHost && typeof askTools.get(resolved.id) === "string" && askTools.get(resolved.id)!.startsWith("mcp__computer") ? "local-computer" : undefined,
+              approvalScope: askScope(askTools.get(resolved.id)),
             });
             askTools.delete(resolved.id);
           },

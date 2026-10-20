@@ -3280,11 +3280,15 @@ bus.subscribe((event: RuntimeEvent) => {
         const requestId = event.requestId;
         const { tool, summary } = event;
         // answered at once: a desktop card nobody can see would stall the turn
+        const deny = async () => {
+          if (!instance) throw new Error("provider unavailable");
+          const outcome = await instance.adapter.respondToRequest(event.threadId, requestId, { behavior: "deny", message: AWAY_DESKTOP_DENY_NOTE });
+          if (outcome === "unavailable") throw new Error("the ask is no longer open");
+        };
         void (async () => {
           try {
-            if (!instance) throw new Error("provider unavailable");
-            const outcome = await instance.adapter.respondToRequest(event.threadId, requestId, { behavior: "deny", message: AWAY_DESKTOP_DENY_NOTE });
-            if (outcome === "unavailable") throw new Error("the ask is no longer open");
+            // retried once: no card is shown, so a failed deny leaves the ask open until the broker times out
+            await deny().catch(deny);
             pushMessage({
               role: "bot",
               kind: "activity",

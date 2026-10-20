@@ -2222,6 +2222,34 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     conn.end();
   });
 
+  it("treats any computer tool from a helper as desktop, matching the scope autoVerdict reads", async () => {
+    await create("background-task");
+    const localComputer = { command: "/cua-driver", args: ["mcp"], env: {}, platform: "linux" as const, scope: "local-computer" as const };
+    const harness = instance.adapter.onEvent((e) => {
+      if (e.type !== "request.opened" || !e.requestId) return;
+      void instance.adapter.respondToRequest(e.threadId, e.requestId, { behavior: "deny" });
+    });
+    try {
+      await instance.adapter.sendTurn({ threadId: "t-scope-away", text: "one", approval: "auto", attended: false, integrations: { localComputer } });
+      await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-scope-away");
+      const away = await askBetween("t-scope-away", { id: "ask-type-away", tool: "mcp__computer__type_text", input: { text: "hi" } });
+      await expect(away.answer).resolves.toMatchObject({ id: "ask-type-away", behavior: "deny", message: "Wink: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report." });
+      away.conn.end();
+
+      await instance.adapter.sendTurn({ threadId: "t-scope-here", text: "one", approval: "auto", attended: true, integrations: { localComputer } });
+      await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-scope-here");
+      const here = await askBetween("t-scope-here", { id: "ask-type-here", tool: "mcp__computer__type_text", input: { text: "hi" } });
+      const opened = await recorder.until((e) => e.type === "request.opened" && e.requestId === "ask-type-here");
+      expect(opened).toMatchObject({ background: true, approvalScope: "local-computer" });
+      if (opened.type !== "request.opened") throw new Error("missing permission request");
+      expect(autoVerdict({ autoApprove: true }, opened.tool, opened.summary, { unattended: true, scope: opened.approvalScope }).source).toBe("away-desktop-deny");
+      await here.answer;
+      here.conn.end();
+    } finally {
+      harness();
+    }
+  });
+
   it("denies a helper's late ask at once when the turn that started it was in Ask", async () => {
     await create("background-task");
     await instance.adapter.sendTurn({ threadId: "t-helper-ask", text: "one", approval: "ask", attended: true });
