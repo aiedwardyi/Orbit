@@ -1711,7 +1711,7 @@ export function GroupView({ group }: { group: Group }) {
         const sender = pinned.role === "user" ? t("room.you") : (pinned.from?.name ?? t("chrome.aBot"));
         return (
           <div className="w-full px-5">
-            <div className="mb-2 flex items-center gap-2 rounded-lg border border-accent/25 bg-accent/[0.07] px-3 py-1.5">
+            <div className="mb-2 flex items-center gap-2 rounded-xl border border-hairline/50 bg-app px-3 py-1.5 shadow-sm">
               <Pin size={12} className="shrink-0 text-accent" />
               <button
                 onClick={() => dispatch({ type: "focusMessage", threadId: group.threadId, messageId: pinned.id })}

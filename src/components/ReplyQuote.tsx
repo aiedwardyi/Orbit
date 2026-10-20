@@ -26,7 +26,7 @@ export function ReplyQuote({
     </>
   );
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-lg border-l-2 border-accent/60 bg-inset/70 px-2.5 py-1.5">
+    <div className="flex min-w-0 items-center gap-2 rounded-xl border border-hairline/40 bg-inset/70 px-2.5 py-1.5">
       {onJump ? (
         <button type="button" onClick={onJump} className="flex min-w-0 flex-1 items-center gap-2 text-left" title="Jump to original message">
           {body}

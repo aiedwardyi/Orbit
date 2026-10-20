@@ -1405,7 +1405,7 @@ export function PinnedBanner({
   if (!text) return null;
   return (
     <div className="w-full px-5">
-      <div className="mb-2 flex items-center gap-2 rounded-lg border border-accent/25 bg-accent/[0.07] px-3 py-1.5">
+      <div className="mb-2 flex items-center gap-2 rounded-xl border border-hairline/50 bg-app px-3 py-1.5 shadow-sm">
         <Pin size={12} className="shrink-0 text-accent" />
         <button
           onClick={() => onJump(pinned.id)}
