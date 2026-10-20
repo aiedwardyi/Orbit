@@ -107,6 +107,69 @@ function phraseWithNode(phrase: string, name: string, node: ReactNode): ReactNod
   );
 }
 
+const KEEP_GOING_PAUSED = {
+  "no-progress": "bot.keepGoingNoProgress",
+  "bot-paused": "bot.keepGoingBotPaused",
+  "other-pc": "bot.keepGoingOtherPc",
+} as const;
+
+function KeepGoingRow({ bot }: { bot: Bot }) {
+  const { t } = useI18n();
+  const { dispatch } = useStore();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const on = Boolean(bot.keepGoing);
+  const paused = bot.keepGoing?.paused;
+
+  const toggle = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const result: { bot?: Bot } = await api(`/api/bots/${bot.id}/keep-going`, {
+        method: "POST",
+        body: JSON.stringify({ on: !on }),
+      });
+      if (result.bot) dispatch({ type: "botPatched", bot: result.bot });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl bg-card p-4">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-[15px] font-medium text-ink">{t("bot.keepGoing")}</div>
+          <div className="mt-0.5 break-keep text-[12px] leading-relaxed text-ink-secondary">
+            {paused ? t("bot.keepGoingPaused", { reason: t(KEEP_GOING_PAUSED[paused]) }) : t("bot.keepGoingHelp")}
+          </div>
+        </div>
+        <button
+          role="switch"
+          aria-checked={on}
+          aria-label={t("bot.keepGoing")}
+          disabled={saving}
+          onClick={() => void toggle()}
+          className={cn(
+            "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-wait",
+            on ? "bg-accent" : "bg-control",
+          )}
+        >
+          <span
+            className={cn(
+              "absolute top-[3px] size-5 rounded-full bg-white transition-all",
+              on ? "left-[21px]" : "left-[3px]",
+            )}
+          />
+        </button>
+      </div>
+      {error && <div className="mt-2 text-[12px] text-danger">{error}</div>}
+    </div>
+  );
+}
+
 function WorkingFolder({ bot }: { bot: Bot }) {
   const { t } = useI18n();
   const { dispatch } = useStore();
@@ -736,6 +799,8 @@ export function SettingsPanel({
               />
             </button>
           </div>
+
+          <KeepGoingRow bot={bot} />
 
           {engine?.driverKind === "claudeAgent" && (
             <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">

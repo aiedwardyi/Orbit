@@ -270,6 +270,7 @@ import { terminalResumeResponse } from "./terminal-resume.ts";
 import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
 import { NoteSteerer, steerUntilTaken } from "./note-steer.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
+import { KeepGoing } from "./keep-going.ts";
 import {
   ensureWorkspace,
   workspaceDir,
@@ -1150,6 +1151,30 @@ const wireTask = ({
   ...task
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
+const KEEP_GOING_PAUSED_LINE = "Keep going paused: two tries in a row made no progress on the approved steps";
+// Declared before wireBot reads it; its callbacks only run on the routines timer.
+const keepGoing = new KeepGoing({
+  deviceId: () => profileSyncSettings.deviceId,
+  botThreadId: (botId) => store.bot(botId)?.threadId ?? null,
+  busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
+  queuedSends: (botId) => hasQueuedSends(botId),
+  wakesPaused: (botId) => store.bot(botId)?.paneWakePaused === true,
+  packet: (threadId) => taskPacketForWrite(threadId),
+  usage: (botId) => rateLimitsByInstance.get(store.bot(botId)?.modelSelection.instanceId ?? "") ?? null,
+  livePanes: async (botId) => {
+    const counts = await terminalPaneCountsResponse(terminalBridgeAccess);
+    return counts.status === 200 && "counts" in counts.body ? counts.body.counts[botId] ?? 0 : null;
+  },
+  dispatch: (botId, prompt, options) => startTurn(botId, prompt, options).then(() => undefined),
+  paused: (_botId, threadId) => {
+    store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: `error: ${KEEP_GOING_PAUSED_LINE}`, ok: false } });
+  },
+  changed: (botId) => {
+    const bot = store.bot(botId);
+    if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
+  },
+});
+
 const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
   const {
     resumeCursors: _resumeCursors,
@@ -1174,6 +1199,7 @@ const wireBot = (bot: NonNullable<ReturnType<typeof store.bot>>) => {
     // busy snapshot must not invent a wait on bot.threadId (routines and
     // channels run elsewhere).
     workingThreadId: activeThreadId ?? null,
+    keepGoing: keepGoing.view(bot.id),
     // null, not omitted: an applied pick must clear the client's copy
     pendingModelSelection: rest.pendingModelSelection ?? null,
     avatarUrl: rest.avatarUrl ?? null,
@@ -5526,6 +5552,7 @@ routines = new RoutineManager({
     closeOpenApprovals(threadId);
   },
   onRunChanged: syncRoutineRunToSource,
+  onInterval: () => keepGoing.tick(),
   onRunFailed: (run) => {
     const bot = store.bot(run.botId);
     if (!bot) return;
@@ -7133,7 +7160,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!isRecoveryFlushReason(current.flushReason)) next.flushReason = "progress";
         next.turnsAtWrite = task?.usage?.turns ?? next.turnsAtWrite;
         const saved = persistTaskPacket(next);
-        if (saved && body.pause_automatic_wakes) store.patchBot(bot.id, { paneWakePaused: true });
+        if (saved && body.pause_automatic_wakes) {
+          store.patchBot(bot.id, { paneWakePaused: true });
+          keepGoing.pause(bot.id, "bot-paused");
+        }
         return saved
           ? json(res, 200, { ok: true, updatedAt: saved.updatedAt, nextAction: saved.nextAction, automaticWakesPaused: bot.paneWakePaused === true, notice: taskStateNotice(clipped, dropped, folder) })
           : json(res, 409, { error: "task record could not be saved" });
@@ -9129,6 +9159,19 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "POST") {
       const bot = store.patchBot(m[1], { unread: false });
       if (!bot) return json(res, 404, { error: "no such bot" });
+      const visible = wireBot(bot);
+      broadcast({ kind: "bot", bot: visible });
+      return json(res, 200, { bot: visible });
+    }
+    m = path.match(/^\/api\/bots\/([\w-]+)\/keep-going$/);
+    if (m && method === "POST") {
+      const body = await readBody(req);
+      if (typeof body.on !== "boolean") return json(res, 400, { error: "on must be true or false" });
+      const bot = store.bot(m[1]);
+      if (!bot) return json(res, 404, { error: "no such bot" });
+      // Turning it on is the user's approval of the plan's pending steps as they stand now.
+      if (body.on) keepGoing.enable(bot.id, bot.threadId, taskPacketForWrite(bot.threadId));
+      else keepGoing.disable(bot.id);
       const visible = wireBot(bot);
       broadcast({ kind: "bot", bot: visible });
       return json(res, 200, { bot: visible });
