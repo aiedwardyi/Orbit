@@ -285,6 +285,12 @@ export class KeepGoing {
       if (usage === "usage-unknown" || usage === "usage-stale") this.pause(botId, usage);
       return this.skip(botId, usage);
     }
+    const current = this.bots[botId]!;
+    if (current.paused === "usage-unknown" || current.paused === "usage-stale") {
+      delete current.paused;
+      this.save();
+      this.deps.changed(botId);
+    }
     const panes = await this.deps.livePanes(botId).catch(() => null);
     // the switch may have gone off, or been re-approved, while the bridge answered
     if (this.bots[botId]?.on !== true || this.bots[botId]!.revision !== revision) return this.skip(botId, "off");
@@ -318,7 +324,8 @@ export class KeepGoing {
     const entry = this.bots[botId];
     if (!entry?.on) return { skipped: "off" };
     if (entry.ownerDeviceId !== this.deps.deviceId()) return { skipped: "not-owner" };
-    if (entry.paused) return { skipped: "paused" };
+    // a usage pause clears itself once usage reads fresh again
+    if (entry.paused && entry.paused !== "usage-unknown" && entry.paused !== "usage-stale") return { skipped: "paused" };
     if (this.deps.wakesPaused(botId)) return { skipped: "wakes-paused" };
     const threadId = this.deps.botThreadId(botId);
     if (threadId !== entry.threadId) return { skipped: "task-changed" };

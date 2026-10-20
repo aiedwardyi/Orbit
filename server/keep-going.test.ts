@@ -431,6 +431,18 @@ describe("KeepGoing review regressions", () => {
     expect(h.keepGoing.view("b1")).toEqual({ paused: "usage-stale" });
   });
 
+  it("clears a usage pause once usage reads fresh again", async () => {
+    const h = harness();
+    const fresh = h.state.usage;
+    h.state.usage = null;
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "usage-unknown" });
+    h.state.usage = fresh;
+    const result = await h.keepGoing.check("b1");
+    expect(result).toHaveProperty("dispatched");
+    expect(h.keepGoing.view("b1")).toEqual({ paused: null });
+  });
+
   it("shows a changed task as paused before a tick", () => {
     const h = harness();
     h.keepGoing.enable("b1", "t1", h.state.packet);
