@@ -2,6 +2,17 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.193] - 2026-10-20
+
+### Added
+- Chat box ring: a Theme colors choice next to Rainbow that shimmers in the current theme's own colors.
+- Model index: Design and Security tabs, and Coding now ranks on Terminal-Bench and FrontierCode with the newest models.
+- A dev update channel for testing new builds on one PC, with a one-click way back to stable from the taskbar menu.
+
+### Changed
+- Auto mode now covers routines and other turns nobody started, so they never stall on a permission card. Desktop control in those turns is skipped instead of asked.
+- Settings > Shortcuts shows one row: Queue message, Ctrl+Enter or hold Send on a phone.
+
 ## [1.0.192] - 2026-10-20
 
 ### Added
@@ -77,6 +88,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.193]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.193
 [1.0.192]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.192
 [1.0.191]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.191
 [1.0.190]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.190
