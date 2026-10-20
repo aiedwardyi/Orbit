@@ -309,7 +309,7 @@ function createPermissionBroker(opts: {
   isActive?: () => boolean;
   /** Between turns: "auto" when live background work keeps its turn's Auto
    * approvals, "denied" when it has nobody to ask, null when there is none. */
-  backgroundAsks?: () => "auto" | "denied" | null;
+  backgroundAsks?: (tool: string) => "auto" | "denied" | null;
   timeoutMs?: number;
 }) {
   const timeoutMs = opts.timeoutMs ?? 15 * 60_000;
@@ -362,7 +362,7 @@ function createPermissionBroker(opts: {
         // a card for a turn that has already settled.
         let background = false;
         if (opts.isActive && !opts.isActive()) {
-          const work = kind === "permission" ? (opts.backgroundAsks?.() ?? null) : null;
+          const work = kind === "permission" ? (opts.backgroundAsks?.(String(msg.tool ?? "tool")) ?? null) : null;
           if (work !== "auto") {
             const reply = work === "denied" ? { behavior: "deny" as const, message: BACKGROUND_DENY_NOTE } : systemEndedReply(kind);
             try {
@@ -778,11 +778,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         timer: ReturnType<typeof startTurnTimer>;
       } | null;
       idleTimer: ReturnType<typeof setTimeout> | null;
-      /** the last turn sendTurn started was attended and in Auto */
+      /** the last turn sendTurn started was in Auto, and attended */
+      auto: boolean;
       autoAttended: boolean;
       /** backgrounded task_id -> start time, and whether the turn that
-       * started it was attended Auto; such tasks die with this process */
-      background: Map<string, { at: number; autoAttended: boolean }>;
+       * started it was Auto and attended; such tasks die with this process */
+      background: Map<string, { at: number; auto: boolean; autoAttended: boolean }>;
       closing: boolean;
       /** a task_notification landed between turns; the CLI's wake is due by then */
       wakeDeadline: number | null;
@@ -818,6 +819,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     const backgroundAutoAttended = (s: Session) => {
       const live = liveBackground(s);
       return live.length > 0 && live.every((task) => task.autoAttended);
+    };
+    const backgroundAuto = (s: Session) => {
+      const live = liveBackground(s);
+      return live.length > 0 && live.every((task) => task.auto);
     };
 
     const ackSteers = (s: Session, taken: boolean) => {
@@ -957,7 +962,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const sessionId = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;
       const newSessionId = sessionId ? null : newId();
       const asks = turn.approval === "ask" && config.permissionMode !== "bypassPermissions";
-      const autoAttended = turn.approval === "auto" && turn.attended === true;
+      const auto = turn.approval === "auto";
+      const autoAttended = auto && turn.attended === true;
 
       const args = [
         "-p",
@@ -1104,6 +1110,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         turnTimer.mark("spawnOrReuse");
         turnTimer.mark("cliReady");
         live.turn = { turnId, settled: false, sawStreamDelta: false, timer: turnTimer, launch: { request: turn, retry, abort: retryAbort } };
+        live.auto = auto;
         live.autoAttended = autoAttended;
         active.set(threadId, {
           stop: () => {
@@ -1160,10 +1167,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         broker = createPermissionBroker({
           socketPath,
           isActive: () => Boolean(sessions.get(threadId)?.turn),
-          backgroundAsks: () => {
+          backgroundAsks: (tool) => {
             const s = sessions.get(threadId);
             if (!s || !hasLiveBackgroundWork(s)) return null;
-            return backgroundAutoAttended(s) ? "auto" : "denied";
+            // Auto covers unattended work, but not the desktop
+            const desktop = controlsHost && tool.startsWith("mcp__computer");
+            return (desktop ? backgroundAutoAttended(s) : backgroundAuto(s)) ? "auto" : "denied";
           },
           onAsk: (ask) => {
             const eventTurnId = sessions.get(threadId)?.turn?.turnId ?? turnId;
@@ -1244,6 +1253,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           launch: { request: turn, retry, abort: retryAbort },
         },
         idleTimer: null,
+        auto,
         autoAttended,
         background: new Map(),
         closing: false,
@@ -1424,6 +1434,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               // between turns only background work starts tasks; inherit from it
               session.background.set(o.task_id, {
                 at: Date.now(),
+                auto: session.turn ? session.auto : backgroundAuto(session),
                 autoAttended: session.turn ? session.autoAttended : backgroundAutoAttended(session),
               });
             } else if (o.subtype === "task_notification" && typeof o.task_id === "string") {

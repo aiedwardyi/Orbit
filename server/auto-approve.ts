@@ -1,8 +1,9 @@
 // Auto mode: when a bot may answer its own permission requests.
 //
-// Auto mode answers every permission request from a turn a person started,
-// destructive-looking ones included. Unattended and local-computer turns
-// keep the guard below even with auto mode on.
+// Auto mode answers every permission request, destructive-looking ones
+// included, whether or not a person started the turn. Local-computer
+// requests keep the guard below even with auto mode on, and are skipped
+// when nobody started the turn.
 //
 // The guard is deliberately tiny and literal. It is NOT a security
 // boundary (an agent set on damage has a thousand spellings for `rm`);
@@ -166,6 +167,10 @@ export function approvalKey(tool: string, summary: string, scope?: "local-comput
   return scope ? `${scope}:${key}` : key;
 }
 
+/** The deny for an Auto bot's desktop ask in a turn nobody started. */
+export const AWAY_DESKTOP_DENY_NOTE =
+  "Wink: desktop control needs the user present. Skip this step and continue with the rest.";
+
 /** The deny for a helper's ask that only a person could approve, once its turn has ended. */
 export const BACKGROUND_DENY_NOTE =
   "Wink: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report.";
@@ -182,6 +187,7 @@ export type AutoVerdictSource =
   | "always-allow"
   | "auto-mode"
   | "unattended-block"
+  | "away-desktop-deny"
   | "local-computer-block"
   | "destructive-guard"
   | "sensitive-guard"
@@ -229,10 +235,14 @@ export function autoVerdict(
       : key && bot.alwaysAllow?.includes(key)
         ? { approve: `auto-approved ${key} (always allowed)`, source: "always-allow" as const, rule: key }
         : null;
-  if (context?.unattended) {
-    // A turn nobody started does not inherit auto mode: the guard above is a
-    // pattern list its own comment calls "not a security boundary", and it
-    // must not stand in for a human at 3am.
+  if (context?.unattended && bot.autoApprove && context.scope === "local-computer") {
+    // nobody can answer a desktop card, so skip the step instead of stalling the turn
+    return { approve: null, source: "away-desktop-deny" };
+  }
+  if (context?.unattended && !bot.autoApprove) {
+    // Auto mode covers a turn nobody started, but an Ask bot's grants wait
+    // for a human: the guard above is "not a security boundary" and must not
+    // stand in for one at 3am.
     if (grant) return { approve: null, source: "unattended-block", rule: grant.rule };
     if (destructive) return { approve: null, source: "destructive-guard", rule: destructive };
     if (sensitive) return { approve: null, source: "sensitive-guard", rule: sensitive };
@@ -254,8 +264,8 @@ export function autoVerdict(
     if (sensitive) return { approve: null, source: "sensitive-guard", rule: sensitive };
     return { approve: `auto-approved ${tool}`, source: "auto-mode" };
   }
-  // The ordinary, attended case: auto mode answers even a destructive-looking
-  // request instead of carding it. Ask mode keeps the guard.
+  // Auto mode answers even a destructive-looking request instead of carding
+  // it. Ask mode keeps the guard.
   if (bot.autoApprove) return { approve: `auto-approved ${tool}`, source: "auto-mode" };
   if (destructive) return { approve: null, source: "destructive-guard", rule: destructive };
   if (sensitive) return { approve: null, source: "sensitive-guard", rule: sensitive };

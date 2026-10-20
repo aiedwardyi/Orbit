@@ -267,18 +267,52 @@ describe("autoDecision", () => {
 
 describe("unattended turns", () => {
   const bot = { autoApprove: true, alwaysAllow: ["Bash:git"] };
+  const askBot = { alwaysAllow: ["Bash:git"] };
 
-  it("does not inherit auto mode when nobody started the turn", () => {
-    expect(autoDecision(bot, "Bash", "git status", { unattended: true })).toBeNull();
+  it("keeps auto mode when nobody started the turn", () => {
+    expect(autoVerdict(bot, "Bash", "npm test", { unattended: true })).toEqual(autoVerdict(bot, "Bash", "npm test"));
+    expect(autoVerdict(bot, "Bash", "npm test", { unattended: true })).toMatchObject({
+      approve: "auto-approved Bash",
+      source: "auto-mode",
+    });
+    expect(autoVerdict(bot, "Bash", "rm -rf dist", { unattended: true }).source).toBe("auto-mode");
   });
 
-  it("does not inherit an always-allow grant either", () => {
-    expect(autoDecision(bot, "Bash", "git log", { unattended: true })).toBeNull();
+  it("does not let an Ask bot's always-allow grant answer for it", () => {
+    expect(autoVerdict(askBot, "Bash", "git log", { unattended: true })).toMatchObject({
+      approve: null,
+      source: "unattended-block",
+      rule: "Bash:git",
+    });
+  });
+
+  it("still cards a destructive request from an Ask bot", () => {
+    expect(autoVerdict(askBot, "Bash", "rm -rf dist", { unattended: true })).toMatchObject({
+      approve: null,
+      source: "destructive-guard",
+    });
+  });
+
+  it("skips a desktop request at once in auto mode instead of carding it", () => {
+    const away = { unattended: true, scope: "local-computer" } as const;
+    expect(autoVerdict(bot, "mcp__computer__click", "Click", away)).toEqual({
+      approve: null,
+      source: "away-desktop-deny",
+    });
+    expect(autoVerdict(bot, "mcp__computer__click", "Click", { scope: "local-computer" })).toMatchObject({
+      approve: "auto-approved mcp__computer__click",
+      source: "auto-mode",
+    });
+    expect(autoVerdict(askBot, "mcp__computer__click", "Click", away)).toMatchObject({
+      approve: null,
+      source: "no-grant",
+    });
   });
 
   it("still auto-approves the same action when a person started the turn", () => {
     expect(autoDecision(bot, "Bash", "git status")).toBeTruthy();
     expect(autoDecision(bot, "Bash", "git status", { unattended: false })).toBeTruthy();
+    expect(autoDecision(askBot, "Bash", "git log")).toBeTruthy();
   });
 });
 

@@ -2179,18 +2179,57 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     }
   });
 
-  it("denies a helper's late ask at once when the turn that started it was unattended", async () => {
+  it("keeps Auto approvals for a helper an unattended Auto turn left running", async () => {
     await create("background-task");
-    await instance.adapter.sendTurn({ threadId: "t-helper-unattended", text: "one", approval: "auto", attended: false });
-    await recorder.until((e) => e.type === "turn.completed");
-    expect(instance.adapter.hasBackgroundWork!("t-helper-unattended")).toBe(true);
-
-    const { conn, answer } = await askBetween("t-helper-unattended", { id: "ask-unattended", tool: "Bash", input: { command: "git status" } });
-    await expect(answer).resolves.toMatchObject({
-      id: "ask-unattended",
-      behavior: "deny",
-      message: "Wink: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report.",
+    const harness = instance.adapter.onEvent((e) => {
+      if (e.type !== "request.opened" || !e.requestId) return;
+      const verdict = autoVerdict({ autoApprove: true }, e.tool, e.summary);
+      void instance.adapter.respondToRequest(e.threadId, e.requestId, { behavior: verdict.approve ? "allow" : "deny" });
     });
+    try {
+      await instance.adapter.sendTurn({ threadId: "t-helper-unattended", text: "one", approval: "auto", attended: false });
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(instance.adapter.hasBackgroundWork!("t-helper-unattended")).toBe(true);
+
+      const { conn, answer } = await askBetween("t-helper-unattended", { id: "ask-unattended", tool: "Bash", input: { command: "git status" } });
+      await expect(answer).resolves.toEqual({ t: "answer", id: "ask-unattended", behavior: "allow" });
+      expect(recorder.events).toContainEqual(
+        expect.objectContaining({ type: "request.opened", requestId: "ask-unattended", background: true }),
+      );
+      conn.end();
+    } finally {
+      harness();
+    }
+  });
+
+  it("denies a desktop ask at once from a helper an unattended Auto turn left running", async () => {
+    await create("background-task");
+    await instance.adapter.sendTurn({
+      threadId: "t-helper-desktop",
+      text: "one",
+      approval: "auto",
+      attended: false,
+      integrations: {
+        localComputer: { command: "/cua-driver", args: ["mcp"], env: {}, platform: "linux", scope: "local-computer" },
+      },
+    });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(instance.adapter.hasBackgroundWork!("t-helper-desktop")).toBe(true);
+
+    const { conn, answer } = await askBetween("t-helper-desktop", { id: "ask-desktop", tool: "mcp__computer__click", input: { x: 1, y: 1 } });
+    await expect(answer).resolves.toMatchObject({ id: "ask-desktop", behavior: "deny", message: "Wink: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report." });
+    expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
+    conn.end();
+  });
+
+  it("denies a helper's late ask at once when the turn that started it was in Ask", async () => {
+    await create("background-task");
+    await instance.adapter.sendTurn({ threadId: "t-helper-ask", text: "one", approval: "ask", attended: true });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(instance.adapter.hasBackgroundWork!("t-helper-ask")).toBe(true);
+
+    const { conn, answer } = await askBetween("t-helper-ask", { id: "ask-ask", tool: "Bash", input: { command: "git status" } });
+    await expect(answer).resolves.toMatchObject({ id: "ask-ask", behavior: "deny", message: "Wink: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report." });
     expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
     conn.end();
   });

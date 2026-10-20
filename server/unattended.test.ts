@@ -1,12 +1,12 @@
-// Auto mode must not follow a turn that nobody started.
+// An Ask bot's always-allow grants must not follow a turn that nobody started.
 //
 // The unit tests in auto-approve.test.ts pin the RULE; these pin the
 // WIRING, which is the part that silently rots. Both of these pass if the
 // unattended mark is never set, or set on the wrong key, or never read —
 // so they are written to fail in exactly those cases:
 //
-//   1. a webhook delivery to a bot with auto mode ON must still produce an
-//      approval card, not a silent auto-approval
+//   1. a webhook delivery to an Ask bot with the exact key granted must still
+//      produce an approval card, not a silent auto-approval
 //   2. and so must the turn that bot hands to a teammate — the gate has to
 //      survive the peer-comms hop, or it protects the bot that read the
 //      payload and releases the one that acts on it
@@ -130,14 +130,14 @@ posixOnly("unattended turns keep asking", () => {
   });
 
   it(
-    "still asks a human when a webhook starts the turn, even with auto mode on",
+    "still asks a human when a webhook starts the turn, even with the grant",
     async () => {
       const bot = (await api("POST", "/api/bots")).body.bot;
-      // auto mode ON: an attended turn would sail straight through
+      // the fake asks for `echo hi`, so an attended turn would sail straight through
       expect(
         (
           await api("PATCH", `/api/bots/${bot.id}`, {
-            autoApprove: true,
+            alwaysAllow: ["shell:echo"],
             modelSelection: { instanceId: "grok", model: "fake-model" },
           })
         ).status,
@@ -182,7 +182,7 @@ posixOnly("unattended turns keep asking", () => {
       const teammate = created.body.bot;
       await api("PATCH", `/api/bots/${teammate.id}`, {
         name: "Teammate",
-        autoApprove: true,
+        alwaysAllow: ["shell:echo"],
         modelSelection: { instanceId: "grok", model: "fake-model" },
       });
 
@@ -239,7 +239,7 @@ posixOnly("unattended turns keep asking", () => {
       const target = (await api("POST", "/api/bots")).body.bot;
       await api("PATCH", `/api/bots/${target.id}`, {
         name: "Answerer",
-        autoApprove: true,
+        alwaysAllow: ["shell:echo"],
         modelSelection: { instanceId: "grok", model: "fake-model" },
       });
 

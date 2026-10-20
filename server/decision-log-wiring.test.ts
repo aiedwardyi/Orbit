@@ -9,7 +9,8 @@
 //   2. a card and the human's answer write two rows (allow and deny)
 //   3. an answer that could not be delivered writes NO approval row
 //   4. an unattended block writes its row — the audit row that says "this
-//      would have auto-approved, and only the block stood in the way"
+//      would have auto-approved, and only the block stood in the way"; an
+//      Auto bot's unattended approval writes one marked unattended
 //   5. GET /api/decisions pages newest-last with ?limit=
 import type { ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -263,10 +264,10 @@ posixOnly("authorization decisions are logged", () => {
   it(
     "an unattended block writes the row that says a grant was withheld",
     async () => {
-      // Auto mode on AND the exact key granted: an attended turn would sail
+      // An Ask bot with the exact key granted: an attended turn would sail
       // straight through, so the only thing carding this one is the
       // unattended block — which is precisely what the row must say.
-      const bot = await makePermissionBot({ name: "Nightshift", autoApprove: true, alwaysAllow: ["shell:echo"] });
+      const bot = await makePermissionBot({ name: "Nightshift", alwaysAllow: ["shell:echo"] });
 
       const hook = await api("POST", "/api/webhooks", {
         name: "Nightly build",
@@ -292,6 +293,37 @@ posixOnly("authorization decisions are logged", () => {
       expect(row, "the unattended block never reached the decision log").not.toBeNull();
       expect(row!.source).toBe("unattended-block");
       expect(row!.rule).toBe("shell:echo");
+      expect(row!.unattended).toBe(true);
+      expect(row!.botId).toBe(bot.id);
+    },
+    90_000,
+  );
+
+  it(
+    "an Auto bot's unattended approval writes a row marked unattended",
+    async () => {
+      const bot = await makePermissionBot({ name: "Nightowl", autoApprove: true });
+
+      const hook = await api("POST", "/api/webhooks", {
+        name: "Nightly bench",
+        prompt: "Handle the incoming build event",
+        botId: bot.id,
+        runOn: "maus",
+      });
+      expect(hook.status).toBe(201);
+      const delivered = await fetch(hook.body.credential.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "failed" }),
+      });
+      expect(delivered.status).toBe(202);
+      const { runId } = (await delivered.json()) as { runId: string };
+
+      const threadId = await waitForRunThread(runId);
+      expect(threadId, "the webhook never started a task").toBeTruthy();
+      const row = await waitForDecision((r) => r.threadId === threadId && r.decision === "auto-approved");
+      expect(row, "the webhook turn never auto-approved").not.toBeNull();
+      expect(row!.source).toBe("auto-mode");
       expect(row!.unattended).toBe(true);
       expect(row!.botId).toBe(bot.id);
     },
