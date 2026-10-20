@@ -901,7 +901,7 @@ function BotListItem({
     unreadRing && "relative unread-ring",
     arrival.playing && "relative arrival-glow",
   );
-  const iconLabel = modelLabel ? `${bot.name} · ${modelLabel}` : bot.name;
+  const iconLabel = [bot.name, modelLabel, keepGoingLabel].filter(Boolean).join(" · ");
   const body = (
     <>
       <span className={cn("relative shrink-0", iconOnly && "inline-flex")}>
