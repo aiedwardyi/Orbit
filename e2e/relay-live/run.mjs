@@ -81,7 +81,7 @@ function note(letter, text) {
 }
 
 /** Boxes that can hold a setup code, an invite, the QR or the pairing code; masked in every screenshot. */
-const SENSITIVE = '[aria-label="Setup code"], [aria-label="Invite"], [aria-label="Phone pairing QR code"], [data-pairing-code]';
+const SENSITIVE = '[aria-label="Setup code" i], [aria-label="Invite" i], [aria-label="Phone pairing QR code" i], [data-pairing-code]';
 
 async function shot(page, name, options = {}) {
   try {
@@ -291,7 +291,7 @@ async function openPhoneAccess(page) {
   // Phone access moved to Account in 1.0.171
   const account = page.getByRole("dialog").getByRole("button", { name: "Account", exact: true });
   await ((await account.count()) ? account : connections).click();
-  const title = page.getByText(/^Phone access( from anywhere)?$/).first();
+  const title = page.getByText(/^Phone access( from anywhere)?$/i).first();
   await title.waitFor({ timeout: 30_000 });
   await title.scrollIntoViewIfNeeded();
   return title.locator("..");
@@ -432,7 +432,7 @@ async function flow() {
       const minted = Date.now();
       const pairUrl = new URL(pairing.url);
       const token = hide(new URLSearchParams(pairUrl.hash.slice(1)).get("k") ?? "");
-      const qr = desk.page.locator('[aria-label="Phone pairing QR code"]');
+      const qr = desk.page.locator('[aria-label="Phone pairing QR code" i]');
       await qr.waitFor();
       const decoded = hide(decodeQr(await qr.screenshot()));
       await shot(desk.page, "d1-qr-shown", { mask: [qr, desk.page.locator("[data-pairing-code]")] });
@@ -491,7 +491,7 @@ async function flow() {
         days: cookie ? Math.round((cookie.expires * 1000 - Date.now()) / 86_400_000) : null,
       });
       const desktopNoticed = await desk.page.getByText(/is paired\.$/).first().waitFor({ timeout: 10_000 }).then(() => true, () => false);
-      await shot(desk.page, "e3-desktop-paired", { mask: [desk.page.locator('[aria-label="Phone pairing QR code"]'), desk.page.locator("[data-pairing-code]")] });
+      await shot(desk.page, "e3-desktop-paired", { mask: [desk.page.locator('[aria-label="Phone pairing QR code" i]'), desk.page.locator("[data-pairing-code]")] });
       mark("e: desktop shows the phone as paired", { shown: desktopNoticed });
       return true;
     },

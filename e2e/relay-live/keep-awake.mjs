@@ -13,7 +13,7 @@ const MODE = process.env.ACME_MODE || "staging";
 const STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory";
 // Settings copy shortened in 1.0.190.
 const COPY = /^(This )?PC stays awake while plugged in(, so your phone can always reach it)?.$/;
-const SENSITIVE = '[aria-label="Setup code"], [aria-label="Invite"], [aria-label="Phone pairing QR code"], [data-pairing-code], [role="alert"], [data-phone-access-error]';
+const SENSITIVE = '[aria-label="Setup code" i], [aria-label="Invite" i], [aria-label="Phone pairing QR code" i], [data-pairing-code], [role="alert"], [data-phone-access-error]';
 const SHOTS = join(OUT, "screens");
 const POWER = join(OUT, "powercfg");
 const secrets = new Set();
@@ -253,7 +253,7 @@ async function openPhoneAccess() {
   // Phone access moved to Account in 1.0.171
   const account = page.getByRole("dialog").getByRole("button", { name: "Account", exact: true });
   await ((await account.count()) ? account : connections).click();
-  const title = page.getByText(/^Phone access( from anywhere)?$/).first();
+  const title = page.getByText(/^Phone access( from anywhere)?$/i).first();
   await title.waitFor({ timeout: 30_000 });
   await title.scrollIntoViewIfNeeded();
   return title.locator("..");
