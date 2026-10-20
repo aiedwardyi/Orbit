@@ -71,6 +71,7 @@ import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
 import { WorkerRow, WorkerChip, useWorkerRows, type ShownRun } from "./WorkerRows";
+import { KeepGoingMark, keepGoingMarkState } from "./KeepGoingMark";
 import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { FileAttachmentRows } from "./FileAttachmentRow";
 import { ModelPicker } from "./ModelPicker";
@@ -2221,6 +2222,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const latestShown = Boolean(jump.messages || laterCount > 0 || (!follow && newestBelow));
   // Long enough to need the timeline: three screens, or rows outside the mounted window.
   const railShown = tall || hiddenCount > 0 || Boolean(bot.hasMore) || Boolean(jump.messages);
+  const keepGoing = keepGoingMarkState(bot);
+  const keepGoingLabel = keepGoing ? t(keepGoing === "on" ? "bot.keepGoingOnMark" : "bot.keepGoingPausedMark") : undefined;
 
   return (
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
@@ -2287,6 +2290,18 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary max-md:hidden" />}
         </div>
         <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 max-md:min-w-0 max-md:shrink max-md:flex-nowrap">
+          {keepGoing && (
+            <button
+              type="button"
+              data-chat-keep-going={keepGoing}
+              onClick={() => dispatch({ type: "toggleSettings", open: true, keepGoing: true })}
+              aria-label={keepGoingLabel}
+              title={keepGoingLabel}
+              className="shrink-0 rounded-md p-2 hover:bg-raised"
+            >
+              <KeepGoingMark state={keepGoing} size={14} />
+            </button>
+          )}
           <WorkerChip name={bot.name} runs={workers} livePanes={livePanes} paneLabels={lastLabels.get(bot.id)} waitForLive={livePanes === null && window.ogb?.terminal != null} onOpenTerminalPane={onOpenTerminalPane} />
           {onOpenTerminal && (
             <button

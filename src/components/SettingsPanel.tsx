@@ -118,7 +118,9 @@ const KEEP_GOING_PAUSED = {
 
 function KeepGoingRow({ bot }: { bot: Bot }) {
   const { t } = useI18n();
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
+  const rowRef = useRef<HTMLDivElement>(null);
+  const request = state.settingsKeepGoingRequest ?? 0;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const on = Boolean(bot.keepGoing);
@@ -140,8 +142,24 @@ function KeepGoingRow({ bot }: { bot: Bot }) {
     }
   };
 
+  useEffect(() => {
+    const row = rowRef.current;
+    const list = row?.parentElement;
+    if (request === 0 || !row || !list) return;
+    const show = () => row.scrollIntoView({ block: "nearest" });
+    show();
+    // Memory above loads late and pushes this row back out of view.
+    const observer = new ResizeObserver(show);
+    observer.observe(list);
+    const stop = setTimeout(() => observer.disconnect(), 1000);
+    return () => {
+      clearTimeout(stop);
+      observer.disconnect();
+    };
+  }, [request]);
+
   return (
-    <div className="rounded-xl bg-card p-4">
+    <div ref={rowRef} data-settings-keep-going className="rounded-xl bg-card p-4">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="text-[15px] font-medium text-ink">{t("bot.keepGoing")}</div>
