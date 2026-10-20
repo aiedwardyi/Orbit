@@ -39,6 +39,24 @@ function route(pattern: string, deps: Record<string, unknown>, binding = "m", en
   return new Function(...Object.keys(deps), `${javascript}\nreturn invoke;`)(...Object.values(deps));
 }
 
+const groupSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "group-routes.ts"), "utf8");
+const groupParsed = ts.createSourceFile("group-routes.ts", groupSource, ts.ScriptTarget.Latest, true);
+
+function groupRoute(name: string, deps: Record<string, unknown>) {
+  const find = (node: ts.Node): ts.ArrowFunction | undefined =>
+    ts.isPropertyAssignment(node) && node.name.getText(groupParsed) === name && ts.isArrowFunction(node.initializer)
+      && node.initializer.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword)
+      ? node.initializer
+      : ts.forEachChild(node, find);
+  const handler = find(groupParsed);
+  expect(handler).toBeDefined();
+  const params = handler!.parameters.map((parameter) => parameter.name.getText(groupParsed)).join(", ");
+  const javascript = ts.transpileModule(`async function ${name}(${params}) ${handler!.body.getText(groupParsed)}`, {
+    compilerOptions: { target: ts.ScriptTarget.ESNext },
+  }).outputText;
+  return new Function(...Object.keys(deps), `${javascript}\nreturn ${name};`)(...Object.values(deps));
+}
+
 function interruptRig() {
   const interruptedTurnIds = new Set<string>();
   const liveTurnIdByThread = new Map<string, string>();
@@ -212,7 +230,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     EVENTS_DIR: "events", NATIVE_DIR: "native", join: (...parts: string[]) => parts.join("/"), unlinkSync: noop,
   });
   const original = options.preparing ? startTurn(bot.id, "original") : Promise.resolve();
-  const stopGroup = route('/^\\/api\\/groups\\/([\\w-]+)\\/interrupt$/', {
+  const groupStopDeps = {
     store, taskResumes,
     readBody: async () => ({}),
     cancelGroupTurnOperations: () => operations.forEach((operation) => { operation.cancelled = true; }),
@@ -220,6 +238,10 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     registry: { get: () => undefined },
     closeOpenApprovals: noop,
     json: (_res: unknown, status: number, body: unknown) => ({ status, body }),
+  };
+  const stopGroup = route('/^\\/api\\/groups\\/([\\w-]+)\\/interrupt$/', {
+    ...groupStopDeps,
+    groupRoutes: { interrupt: groupRoute("interrupt", groupStopDeps) },
   });
   return {
     bot, starts, frames, messages, interrupts, routineRun,
