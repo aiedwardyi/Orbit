@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const FORMAT_PATHS = [
+  "server/thread-sync.ts",
   "server/thread-sync-v2*.ts",
   "server/profile-sync.ts",
   "server/device-sync.ts",
@@ -14,6 +15,7 @@ export const FORMAT_PATHS = [
   "server/drive-own-ids.ts",
   "server/sync-roots.ts",
   "server/message-db.ts",
+  "server/workspace.ts",
   "shared/bot-avatar.ts",
 ];
 
@@ -43,7 +45,10 @@ async function prepare() {
   let published = false;
   try {
     const response = await fetch("https://api.github.com/repos/aiedwardyi/orbit-releases/releases/latest", {
-      headers: { Accept: "application/vnd.github+json" },
+      headers: {
+        Accept: "application/vnd.github+json",
+        ...(process.env.GITHUB_TOKEN && { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` }),
+      },
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) throw new Error(`Published stable release probe failed: ${response.status}`);

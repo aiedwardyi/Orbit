@@ -38,13 +38,15 @@ jobs:
         with:
           node-version: 24
       - id: pin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/dev-build.mjs
 
   windows:
     name: Windows x64 dev build
     needs: prepare
     if: needs.prepare.outputs.held == 'false'
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

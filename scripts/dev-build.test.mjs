@@ -85,7 +85,7 @@ function runScript(project, status, args, env = {}, input) {
       return nextResolve(specifier, context);
     } });
     globalThis.fetch = async (url, options = {}) => {
-      appendFileSync(${JSON.stringify(join(project.dir, "http-calls"))}, JSON.stringify([url, options.method ?? "GET"]) + "\\n");
+      appendFileSync(${JSON.stringify(join(project.dir, "http-calls"))}, JSON.stringify([url, options.method ?? "GET", options.headers?.Authorization ?? null]) + "\\n");
       if (url === "https://api.github.com/repos/aiedwardyi/orbit-releases/releases/latest") {
         if (project.latestStatus === "network") throw new Error("Stable API offline");
         return Response.json(project.latest, { status: project.latestStatus ?? 200 });
@@ -99,8 +99,9 @@ function runScript(project, status, args, env = {}, input) {
     };`);
   const output = join(project.dir, "output");
   const summary = join(project.dir, "summary");
-  const childEnv = { ...process.env, GITHUB_RUN_NUMBER: "45", GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, ...env };
-  for (const key of ["ORBIT_URL", "ORBIT_MSG_AUTH", "ORBIT_MSG_TOKEN", "ORBIT_PANE"]) delete childEnv[key];
+  const childEnv = { ...process.env, GITHUB_RUN_NUMBER: "45", GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary };
+  for (const key of ["ORBIT_URL", "ORBIT_MSG_AUTH", "ORBIT_MSG_TOKEN", "ORBIT_PANE", "GITHUB_TOKEN"]) delete childEnv[key];
+  Object.assign(childEnv, env);
   const result = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, ...args], {
     cwd: project.dir,
     encoding: "utf8",
@@ -111,8 +112,8 @@ function runScript(project, status, args, env = {}, input) {
   return { ...result, output, summary };
 }
 
-function prepare(project, status = 200) {
-  return runScript(project, status, [join(ROOT, "scripts/dev-build.mjs")]);
+function prepare(project, status = 200, env) {
+  return runScript(project, status, [join(ROOT, "scripts/dev-build.mjs")], env);
 }
 
 function publicationAllowed(project, ciAttempt = 1, runAttempt = 1) {
@@ -166,10 +167,10 @@ describe("devVersion", () => {
 
 describe("heldBy", () => {
   it.each([
-    "server/thread-sync-v2.ts", "server/thread-sync-v2-engine.ts", "server/profile-sync.ts",
+    "server/thread-sync.ts", "server/thread-sync-v2.ts", "server/thread-sync-v2-engine.ts", "server/profile-sync.ts",
     "server/device-sync.ts", "server/memory-sync.ts", "server/picture-sync.ts",
     "server/google-sync.ts", "server/drive-mirror.ts", "server/drive-own-ids.ts",
-    "server/sync-roots.ts", "server/message-db.ts", "shared/bot-avatar.ts",
+    "server/sync-roots.ts", "server/message-db.ts", "server/workspace.ts", "shared/bot-avatar.ts",
   ])("holds changes to %s", async (file) => {
     const { heldBy } = await import("./dev-build.mjs");
     expect(heldBy([file])).toEqual([file]);
@@ -197,6 +198,16 @@ describe("dev build preparation", () => {
     const result = prepare(project, status);
     expect(result.status, result.stderr).toBe(0);
     expect(readFileSync(result.output, "utf8")).toBe(`sha=${sha}\nversion=${version}\nheld=false\n`);
+  });
+
+  it.each([["test-token", "Bearer test-token"], [undefined, null]])("authenticates the stable API call with token %s", (token, authorization) => {
+    const project = fixture();
+    project.git("tag", "v1.0.192");
+    const result = prepare(project, 200, token ? { GITHUB_TOKEN: token } : {});
+    expect(result.status, result.stderr).toBe(0);
+    const calls = readFileSync(join(project.dir, "http-calls"), "utf8").trim().split("\n").map(JSON.parse);
+    expect(calls.find(([url]) => url.startsWith("https://api.github.com/")).at(2)).toBe(authorization);
+    expect(calls.find(([url]) => url.startsWith("https://github.com/")).at(2)).toBeNull();
   });
 
   it("uses the published stable tag and ignores dev tags", () => {
@@ -330,6 +341,8 @@ describe("dev build workflow", () => {
     const { prepare, windows, publish } = workflow().jobs;
     expect(prepare.steps[0].with).toMatchObject({ ref: "${{ github.event.workflow_run.head_sha }}", "fetch-depth": 0, "persist-credentials": false });
     expect(prepare.outputs).toEqual({ sha: "${{ steps.pin.outputs.sha }}", version: "${{ steps.pin.outputs.version }}", held: "${{ steps.pin.outputs.held }}" });
+    expect(prepare.steps.find((step) => step.id === "pin").env).toEqual({ GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" });
+    expect(windows["runs-on"]).toBe("windows-2025");
     expect(windows.steps[0].with.ref).toBe("${{ needs.prepare.outputs.sha }}");
     expect(windows.if).toContain("needs.prepare.outputs.held == 'false'");
     expect(publish.needs).toEqual(["prepare", "windows"]);
