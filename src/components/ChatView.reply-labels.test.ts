@@ -310,12 +310,70 @@ describe("ChatView target-side peer chips", () => {
     expect(document.querySelector("[data-message-menu]")?.textContent).toContain("Copy");
   });
 
-  it("keeps Edward's own message on the right with its edit control", async () => {
-    const { host } = await mount(bot([received, inbound, text("Edward's question", "user")]));
-    const row = host.querySelector(`[data-mid="Edward's question"] [data-orbit-message]`);
+  it("keeps the local user's own message on the right with its edit control", async () => {
+    const { host } = await mount(bot([received, inbound, text("my question", "user")]));
+    const row = host.querySelector('[data-mid="my question"] [data-orbit-message]');
     expect(row?.getAttribute("data-orbit-message")).toBe("user");
     expect(row?.className).toContain("items-end");
     expect(row?.querySelector("[aria-label='Edit message']")).not.toBeNull();
+  });
+
+  it("gives a peer message the bot menu with reactions and pin", async () => {
+    const { host } = await mount(bot([received, inbound]));
+    const row = host.querySelector('[data-mid="inbound"] [data-orbit-message]')!;
+    await act(async () => { row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 })); });
+    const menu = document.querySelector("[data-message-menu]");
+    expect(menu?.querySelectorAll("[data-menu-reaction]")).toHaveLength(6);
+    expect(menu?.querySelector("[data-menu-pin]")?.textContent).toBe("Pin message");
+  });
+
+  it("makes the peer body selectable after the touch menu's Select text", async () => {
+    const { host } = await mount(bot([received, inbound]));
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" }));
+    const row = host.querySelector('[data-mid="inbound"] [data-orbit-message]')!;
+    const body = row.querySelector("[data-peer-body]")!;
+    const hold = new Event("touchstart", { bubbles: true, cancelable: true });
+    Object.defineProperty(hold, "touches", { value: [{ clientX: 10, clientY: 10 }] });
+    await act(async () => { body.dispatchEvent(hold); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 520)); });
+    await act(async () => { body.dispatchEvent(new Event("touchend", { bubbles: true, cancelable: true })); });
+    await act(async () => { document.querySelector<HTMLButtonElement>("[data-menu-select]")!.click(); });
+    expect(row.hasAttribute("data-select-mode")).toBe(true);
+    expect(body.closest("[data-orbit-message-content]")).not.toBeNull();
+    expect(window.getSelection()?.toString()).toBe(inbound.text);
+    await act(async () => { document.body.dispatchEvent(new Event("touchstart", { bubbles: true })); });
+  });
+
+  it("makes a short peer message keyboard reachable for copy, reply and pin", async () => {
+    const { host } = await mount(bot([received, inbound]));
+    const row = host.querySelector<HTMLElement>('[data-mid="inbound"] [data-orbit-message]')!;
+    expect(row.tabIndex).toBe(0);
+    row.focus();
+    for (const key of [{ key: "ContextMenu" }, { key: "F10", shiftKey: true }]) {
+      await act(async () => { row.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...key })); });
+      const menu = document.querySelector("[data-message-menu]");
+      for (const action of ["copy", "reply", "pin"]) expect(menu?.querySelector(`[data-menu-${action}]`)).not.toBeNull();
+      expect(document.activeElement).toBe(menu?.querySelector("button"));
+      await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" })); });
+      expect(document.activeElement).toBe(row);
+    }
+  });
+
+  it("renders stored bot reactions on a peer message", async () => {
+    const { host } = await mount(bot([received, { ...inbound, reactions: [{ emoji: "👍", by: "helper" }] }]));
+    const reaction = host.querySelector('[data-mid="inbound"] [data-message-reactions] button');
+    expect(reaction?.textContent).toBe("👍");
+    expect(reaction?.getAttribute("title")).toBe("Helper");
+  });
+
+  it("renders peer image and file attachments without exposing their markup", async () => {
+    const attached = { ...inbound, text: 'Check the release.\n<attached-image path="/uploads/12345678-1234-1234-1234-123456789abc.png" />\n<attached-file path="/uploads/release.pdf" name="release.pdf" size="1024" />' };
+    const { host } = await mount(bot([received, attached]));
+    const row = host.querySelector('[data-mid="inbound"] [data-orbit-message]')!;
+    expect(row.querySelector("img")).not.toBeNull();
+    expect(row.querySelector("[data-file-row]")?.textContent).toContain("release.pdf");
+    expect(row.querySelector("[data-peer-body]")?.textContent).toBe("Check the release.");
+    expect(row.textContent).not.toMatch(/<attached-(image|file)/);
   });
 
   it.each([["en", "Open the conversation with Atlas"], ["ko", "Atlas 대화 열기"]])("titles the chip in %s", async (locale, title) => {

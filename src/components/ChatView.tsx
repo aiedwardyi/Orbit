@@ -576,9 +576,9 @@ const Bubble = memo(function Bubble({
         threadId,
         message,
         copyText: user ? visibleText : text,
-        user,
+        user: user && !message.from,
         pinned,
-        canPin: user || (!streaming && !dock?.live),
+        canPin: (user && !message.from) || (!streaming && !dock?.live),
         queued: queuedActions,
       }
       : null;
@@ -613,9 +613,18 @@ const Bubble = memo(function Bubble({
   // a teammate's message lands as a user row; it reads as theirs, like the asker side's
   if (user && message.from) {
     return (
-      <div data-orbit-message="peer" className="group flex w-full flex-col items-start outline-none" tabIndex={-1} {...menuProps}>
+      <div data-orbit-message="peer" className="group flex w-full flex-col items-start outline-none focus-visible:outline-2 focus-visible:outline-accent" tabIndex={0} {...menuProps}>
         <div className="orbit-message-speaker hidden">{message.from.name}</div>
-        <PeerMessageBody text={text} />
+        <div className={cn("relative w-full", hasReactions && "pb-8")}>
+          <div data-orbit-message-content className="contents">
+            {attachedImages && attachedImages.images.length > 0 && (
+              <AttachedImageGallery paths={attachedImages.images} className="ml-3 max-w-[min(42rem,78%)] justify-start pl-3" />
+            )}
+            <PeerMessageBody text={visibleText} />
+            {attachedImages && <FileAttachmentRows files={attachedImages.files} className="mt-2 ml-3 max-w-[min(42rem,78%)] pl-3" />}
+          </div>
+          {!message.placeholder && <ReactionChips threadId={threadId} message={message} members={members} corner="left" className="bottom-4 ml-3" />}
+        </div>
         <TimestampLabel at={message.at} />
       </div>
     );
