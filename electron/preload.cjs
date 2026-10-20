@@ -284,6 +284,9 @@ contextBridge.exposeInMainWorld("ogb", {
     check: () => ipcRenderer.invoke("update:check"),
     download: () => ipcRenderer.invoke("update:download"),
     install: () => ipcRenderer.invoke("update:install"),
+    /** "stable" | "dev". Only a launch flag joins dev; the app can only leave it. */
+    getChannel: () => ipcRenderer.invoke("update:get-channel"),
+    backToStable: () => ipcRenderer.invoke("update:set-channel", "stable"),
     onState: (cb) => {
       ipcRenderer
         .invoke("update:get-state")

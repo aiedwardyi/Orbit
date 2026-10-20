@@ -598,6 +598,77 @@ test("an older release never replaces the staged one", async () => {
   assert.equal(quitCalls, 1);
 });
 
+test("reset swaps a downloaded dev build for the stable release before quitting", async () => {
+  let quitCalls = 0;
+  const { updater, coordinator, getState } = harness({
+    quitForInstall: () => {
+      quitCalls += 1;
+    },
+  });
+  const feed = versionedFeed(updater, "1.0.193-dev.5", "1.0.193-dev.7");
+  await coordinator.download();
+  assert.deepEqual(getState(), { status: "downloaded", version: "1.0.193-dev.7" });
+
+  // Back on the stable feed with downgrades allowed, the older release is the update.
+  updater.checkForUpdates = () => {
+    feed.cached = "1.0.192";
+    return Promise.resolve({ isUpdateAvailable: true, updateInfo: { version: "1.0.192" } });
+  };
+  assert.equal(coordinator.reset(), true);
+  assert.equal(getState().status, "idle");
+  await coordinator.install();
+
+  assert.deepEqual(feed.downloads, ["1.0.193-dev.7", "1.0.192"]);
+  assert.equal(quitCalls, 1);
+  assert.equal(getState().status, "installing");
+  assert.equal(getState().version, "1.0.192");
+});
+
+test("reset refuses while a download or install runs", async () => {
+  const { updater, coordinator, getState } = harness({ quitForInstall: () => {} });
+  const pending = deferred();
+  updater.checkForUpdates = () => Promise.resolve({ isUpdateAvailable: true, updateInfo: { version: "1.0.193-dev.7" } });
+  updater.downloadUpdate = () => {
+    updater.emit("update-downloaded", { version: "1.0.193-dev.7" });
+    return pending.promise;
+  };
+
+  const download = coordinator.download();
+  assert.equal(coordinator.reset(), false);
+  assert.equal(getState().status, "downloading");
+  pending.resolve([]);
+  await download;
+  assert.deepEqual(getState(), { status: "downloaded", version: "1.0.193-dev.7" });
+
+  const install = coordinator.install();
+  assert.equal(coordinator.reset(), false);
+  await install;
+  assert.equal(coordinator.reset(), false);
+  assert.equal(getState().status, "installing");
+});
+
+test("after reset an unreachable feed never installs the dropped build", async () => {
+  let quitCalls = 0;
+  const { updater, coordinator, getState } = harness({
+    quitForInstall: () => {
+      quitCalls += 1;
+    },
+  });
+  versionedFeed(updater, "1.0.193-dev.5", "1.0.193-dev.7");
+  await coordinator.download();
+  assert.equal(coordinator.reset(), true);
+
+  const offline = new Error("feed offline");
+  updater.checkForUpdates = () => {
+    updater.emit("error", offline);
+    return Promise.reject(offline);
+  };
+  await coordinator.install();
+
+  assert.equal(quitCalls, 0);
+  assert.equal(getState().status, "idle");
+});
+
 test("compares release versions numerically", () => {
   assert.equal(isNewerVersion("1.0.100", "1.0.99"), true);
   assert.equal(isNewerVersion("1.0.98", "1.0.99"), false);
