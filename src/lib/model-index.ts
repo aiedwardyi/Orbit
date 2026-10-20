@@ -58,6 +58,12 @@ export function priceOn(price: ModelPrice, today: string): ModelPrice {
   return { ...rest, input, cachedInput, output };
 }
 
+export function pickerPrice(model: string, today = modelIndexToday()): string | undefined {
+  const id = model.replace(/^(gemini-.+)-(high|medium|low)$/, "$1");
+  const price = MODEL_INDEX_ENTRIES.find((entry) => entry.index === "cost" && entry.model === id)?.price;
+  return price ? formatPrice(priceOn(price, today)) : undefined;
+}
+
 /** A cost row at the price in effect on `today`; its score follows. Rows with no `next` come back as is. */
 function entryOn(entry: ModelIndexEntry, today: string): ModelIndexEntry {
   if (!entry.price?.next || today < entry.price.next.from) return entry;

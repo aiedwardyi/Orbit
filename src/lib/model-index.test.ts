@@ -20,6 +20,7 @@ import {
   modelShapes,
   paretoFrontier,
   priceOn,
+  pickerPrice,
   scoredIndexes,
   winkCatalog,
 } from "./model-index";
@@ -336,6 +337,29 @@ describe("price format", () => {
     expect(formatPrice({ input: 4, cachedInput: 0.2, output: 20 })).toBe("$4 / $20");
     expect(formatPrice({ input: 0.1, cachedInput: 0.01, output: 0.5 })).toBe("$0.10 / $0.50");
     expect(formatPrice({ input: 1.25, cachedInput: 0.15, output: 4.25 })).toBe("$1.25 / $4.25");
+  });
+});
+
+describe("picker price", () => {
+  it.each(PICKER_MODEL_IDS)("looks up %s in the cost index", (model) => {
+    const price = MODEL_INDEX_ENTRIES.find((entry) => entry.index === "cost" && entry.model === model)?.price;
+    expect(price).toBeDefined();
+    expect(pickerPrice(model, "2026-10-20")).toBe(formatPrice(priceOn(price!, "2026-10-20")));
+  });
+
+  it.each(["low", "medium", "high"])("resolves Gemini %s ids without changing other model ids", (effort) => {
+    expect(pickerPrice(`gemini-4-argon-${effort}`, "2026-11-30")).toBe("$2 / $10");
+    expect(pickerPrice(`gemini-3.8-flash-${effort}`, "2026-12-31")).toBe("$0.75 / $3.75");
+    expect(pickerPrice(`gpt-6.1-sol-${effort}`)).toBeUndefined();
+  });
+
+  it("switches promo prices on their effective dates", () => {
+    expect(pickerPrice("gemini-4-argon-high", "2026-12-01")).toBe("$4 / $20");
+    expect(pickerPrice("gemini-3.8-flash-low", "2027-01-01")).toBe("$1.50 / $7.50");
+  });
+
+  it.each(["", "unknown", "omlx::local", "grok-4.5"])("leaves %s without a price", (model) => {
+    expect(pickerPrice(model)).toBeUndefined();
   });
 });
 
