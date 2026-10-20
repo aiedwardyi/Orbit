@@ -216,7 +216,7 @@ describe("SettingsPanel memory and order", () => {
       root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
     });
     const toggle = host.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Auto notes"]')!;
-    expect(host.textContent).toContain("Saves facts you mention in chat to the bot's Memory, using Claude Haiku.");
+    expect(host.textContent).toContain("Saves facts from chat to Memory.");
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     const text = host.textContent ?? "";
     expect(text.indexOf("Auto notes")).toBeGreaterThan(text.indexOf("Memory"));
@@ -249,7 +249,7 @@ describe("SettingsPanel memory and order", () => {
         root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
       });
       expect(host.querySelector('button[role="switch"][aria-label="자동 메모"]')).not.toBeNull();
-      expect(host.textContent).toContain("채팅에서 말한 사실을 Claude Haiku로 봇의 메모리에 저장해요.");
+      expect(host.textContent).toContain("채팅 속 사실을 메모리에 저장");
     } finally {
       localStorage.removeItem("omb-locale");
     }
