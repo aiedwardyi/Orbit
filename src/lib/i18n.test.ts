@@ -82,8 +82,8 @@ describe("catalogs", () => {
   it("names Agentic Mode in both locales and title cases settings labels", () => {
     expect.soft(en["bot.keepGoing"]).toBe("Agentic Mode");
     expect.soft(ko["bot.keepGoing"]).toBe("에이전트 모드");
-    expect.soft(en["bot.keepGoingHelp"]).toBe("Works through approved plan steps on its own.");
-    expect.soft(ko["bot.keepGoingHelp"]).toBe("승인한 계획 단계를 스스로 진행해요.");
+    expect.soft(en["bot.keepGoingHelp"]).toBe("Works through the approved task on its own.");
+    expect.soft(ko["bot.keepGoingHelp"]).toBe("승인한 작업을 스스로 진행해요.");
     expect.soft(en["chat.keepGoingPaused"]).toBe("Agentic Mode paused: two tries made no progress");
     expect.soft(en["bot.keepGoingOnMark"]).toBe("Agentic Mode on");
     expect.soft(en["bot.keepGoingPausedMark"]).toBe("Agentic Mode paused");

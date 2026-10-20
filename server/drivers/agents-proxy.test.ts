@@ -59,7 +59,7 @@ interface TaskStateRequestBody {
 }
 let lastTaskStateBody: TaskStateRequestBody | null = null;
 let botWakesPaused = false;
-let lastKeepGoingBody: { fromBotId: string; fromThreadId: string; on: boolean } | null = null;
+let lastKeepGoingBody: { fromBotId: string; fromThreadId: string; on: boolean; start_after?: string } | null = null;
 let keepGoingResponse: { status: number; body: unknown } = { status: 200, body: { ok: true } };
 let taskStateNotice: string | undefined;
 
@@ -348,6 +348,37 @@ describe("agents-proxy MCP surface", () => {
     expect(refused.result.content[0].text).toContain("user started");
     const bad = await callTool("set_keep_going", { on: "yes" });
     expect(bad.result.isError).toBe(true);
+  });
+
+  it("declares and forwards start_after without relaxing the on argument", async () => {
+    const list = await rpc("tools/list");
+    const tool = list.result.tools.find((t: { name: string }) => t.name === "set_keep_going");
+    expect(tool.inputSchema.properties.start_after).toEqual(expect.objectContaining({ type: "string" }));
+    expect(tool.inputSchema.properties.start_after).not.toHaveProperty("format");
+    expect(tool.inputSchema.required).toEqual(["on"]);
+    keepGoingResponse = { status: 200, body: { ok: true } };
+    const startAfter = "2026-10-21T05:00:00+09:00";
+    const delayed = await callTool("set_keep_going", { on: true, start_after: startAfter });
+    expect(delayed.result.isError).toBe(false);
+    expect(lastKeepGoingBody).toEqual({ fromBotId: "bot-asker", fromThreadId: "thread-asker-routine", on: true, start_after: startAfter });
+    expect(delayed.result.content[0].text).toContain(startAfter);
+    const bad = await callTool("set_keep_going", { start_after: startAfter });
+    expect(bad.result.isError).toBe(true);
+  });
+
+  it("rejects non-string start_after without a request", async () => {
+    keepGoingResponse = { status: 200, body: { ok: true } };
+    lastKeepGoingBody = null;
+    const bad = await callTool("set_keep_going", { on: true, start_after: 123 });
+    expect(bad.result.isError).toBe(true);
+    expect(lastKeepGoingBody).toBeNull();
+  });
+
+  it("returns a refused delay without claiming the switch is on", async () => {
+    keepGoingResponse = { status: 403, body: { error: "start_after requires Agentic Mode to be on" } };
+    const refused = await callTool("set_keep_going", { on: true, start_after: "2026-10-21T05:00:00+09:00" });
+    expect(refused.result.isError).toBe(true);
+    expect(refused.result.content[0].text).toContain("requires Agentic Mode");
   });
 
   it("asks the user through the harness and returns at once without waiting", async () => {

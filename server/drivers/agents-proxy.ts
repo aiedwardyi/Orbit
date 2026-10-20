@@ -25,7 +25,7 @@
 //   propose_routine(...)                  → show a confirmation card for a new routine
 //   propose_routine_action(...)           → show a confirmation card for a routine change
 //   update_task_state(...)                → save goal, progress, blockers, and next action
-//   set_keep_going(on)                    → turn this bot's Keep going switch on or off
+//   set_keep_going(on, start_after?)      → approve this task or delay an already-on switch
 //
 // Speaks raw JSON-RPC 2.0 over stdio (no MCP SDK — house style, matches
 // computer-proxy / permission-proxy). All state comes from env, injected by
@@ -504,11 +504,14 @@ const TOOLS = [
   {
     name: "set_keep_going",
     description:
-      "Turn this bot's Agentic Mode switch on or off. Turn it on when the user asks you to keep going, work on your own, be agentic, or agentic mode: it approves the task plan's pending steps as they stand now, so save the plan with update_task_state first. On works only in a turn the user started with their own message; off works in any turn.",
+      "Turn this bot's Agentic Mode switch on or off. Turn it on when the user asks you to keep going, work on your own, be agentic, or agentic mode: it approves this thread's task, including later plan edits, so save the plan with update_task_state first. Turning on requires a user-typed turn; off works in any turn. start_after delays an already-on switch in any turn.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      properties: { on: { type: "boolean", description: "true turns it on, false turns it off." } },
+      properties: {
+        on: { type: "boolean", description: "true turns it on or sets start_after, false turns it off." },
+        start_after: { type: "string", description: "RFC3339 with offset; only delays while already on." },
+      },
       required: ["on"],
     },
   },
@@ -939,13 +942,16 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
   }
   if (name === "set_keep_going") {
     if (typeof args.on !== "boolean") return { text: "set_keep_going needs on: true or false.", isError: true };
+    if (args.start_after !== undefined && typeof args.start_after !== "string") return { text: "start_after must be RFC3339 with an offset.", isError: true };
     await api("/api/internal/keep-going", {
       method: "POST",
-      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, on: args.on }),
+      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, on: args.on, start_after: args.start_after }),
     });
     return {
       text: args.on
-        ? "Agentic Mode is on for the plan's pending steps. Wink starts the next one when nothing is running."
+        ? args.start_after
+          ? `Agentic Mode will wait until ${args.start_after}.`
+          : "Agentic Mode is on for this task. Wink starts the next pending step when nothing is running."
         : "Agentic Mode is off. Running work is left alone.",
     };
   }
