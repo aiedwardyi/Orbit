@@ -5,7 +5,6 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { currentEarlyListen } from "./early-listen.ts";
-import { isIP } from "node:net";
 import { hostname as osHostname } from "node:os";
 import { basename, extname, join } from "node:path";
 
@@ -85,7 +84,6 @@ import {
   type Runtime,
 } from "./container-computer.ts";
 import {
-  cliProbeEnvironment,
   customKeyStorageError,
   ensureDirs,
   instanceConfigs,
@@ -116,8 +114,8 @@ import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNote
 import { decodeInjectId } from "./drivers/local-inject.ts";
 import { createSummaryBuild, inlineDeadlineMs, inlineSummarizer, type SummaryWait } from "./summary-build.ts";
 import { createSummaryRepair, logSummaryCall } from "./summary-repair.ts";
-import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
-import { describeSpawnFailure, execCli } from "./procs.ts";
+import { findCliCandidates, resetPathCache } from "./env-path.ts";
+import { testCliBinary } from "./cli-probe.ts";
 import { buildNotification, type Notification } from "./notify.ts";
 import { watchAskHold } from "./ask-hold.ts";
 import { askUserCardPatchSchema, askUserRequestSchema, postAskUser } from "./ask-user.ts";
@@ -404,7 +402,8 @@ import { createThreadSyncV2Gate } from "./thread-sync-v2-gate.ts";
 import { ensureSyncV2Identity } from "./thread-sync-v2-engine.ts";
 import { serveLinkedFile } from "./linked-files.ts";
 import { missingStaticResponse } from "./static-fallback.ts";
-import { sendJson, sendStaticFile, sendText } from "./compression.ts";
+import { sendStaticFile, sendText } from "./compression.ts";
+import { isAllowedOrigin, isLoopbackHost, json, readBody } from "./http-helpers.ts";
 import { fetchBotDirectory, matchDirectoryBots, type MatchedDirectoryBot } from "./bot-directory.ts";
 import { scoutProject, suggestTeam } from "./project-scout.ts";
 import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-library.ts";
@@ -6763,127 +6762,6 @@ bus.subscribe((event: RuntimeEvent) => {
   }
 });
 
-/** Pre-save probe for a CLI path override: run `<cli> --version` with the
- * same environment a real turn gets (augmented PATH). Returns ok + the
- * version line, or a fail the UI can act on — ENOENT on a GUI-launched app
- * usually means "not on the app's PATH", the exact mistake this catches
- * before the override is saved. */
-async function testCliBinary(cli: string, driver: (typeof BUILT_IN_DRIVERS)[number] | undefined): Promise<CliProbe> {
-  const invalid = probeCommandError(cli);
-  if (invalid) {
-    const failure: CliProbe = { ok: false, message: invalid };
-    if (driver?.install) failure.install = driver.install;
-    return failure;
-  }
-  return new Promise((resolve) => {
-    execCli(
-      cli,
-      ["--version"],
-      {
-        timeout: 10_000,
-        // SIGKILL, not SIGTERM: a child that traps TERM (sh -c "trap '' TERM;
-        // sleep 99999") would otherwise never fire the callback and pin the
-        // HTTP socket forever. maxBuffer bounds a chatty --version too.
-        killSignal: "SIGKILL",
-        maxBuffer: 1024 * 64,
-        env: { ...cliProbeEnvironment(), PATH: augmentedPath() },
-      },
-      (err, stdout) => {
-        if (err) {
-          const e = err as NodeJS.ErrnoException & { killed?: boolean };
-          // err.code is an errno CONSTANT ("ENOENT", "EACCES") only for spawn
-          // failures; for a non-zero exit it's the exit STATUS (a number) and
-          // for a timeout it's null + killed:true — describeSpawnFailure words
-          // only the first kind
-          const exceededBuffer = e.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
-          const isSpawnError = typeof e.code === "string" && !exceededBuffer;
-          const message = exceededBuffer
-            ? "CLI test produced more than 64 KiB of output"
-            : isSpawnError
-              ? describeSpawnFailure(e, cli).message
-              : e.killed
-              ? "CLI test timed out after 10s"
-              : `CLI exited with error ${String(e.code)}: ${(stderrOf(err) || "").slice(0, 200) || err.message.split("\n")[0]}`;
-          resolve({ ok: false, message, ...(driver?.install && isSpawnError ? { install: driver.install } : {}) });
-          return;
-        }
-        // one redacted, bounded line: whatever the caller pointed this at, the
-        // response is a version string, not a window into the child's output
-        resolve({ ok: true, version: redactSecretsInText(stdout.trim().split("\n")[0] ?? "").slice(0, PROBE_VERSION_MAX) });
-      },
-    );
-  });
-}
-
-interface CliProbe {
-  ok: boolean;
-  version?: string;
-  message?: string;
-  install?: (typeof BUILT_IN_DRIVERS)[number]["install"];
-}
-
-/** A version line, not a transcript. */
-const PROBE_VERSION_MAX = 200;
-
-/** What a wrapper's fixed argument looks like: a subcommand, a flag, or a
- * path. An inline script payload needs characters no engine subcommand has —
- * spaces, quotes, parentheses, `;`, `|`, `$`. */
-const PROBE_ARG = /^[A-Za-z0-9._@:+=/\\-]+$/;
-
-/** A single-dash flag, which is how every interpreter spells "the next
- * argument is the program": `sh -c`, `python -c`, `node -e`, `awk -f`,
- * `powershell -Command`. `sh -c id` is two ordinary words to the rule above,
- * so the flag is the only thing that marks it as command evaluation. */
-const PROBE_SHORT_FLAG = /^-[^-]/;
-
-/** The same instruction spelled long. */
-const PROBE_EVAL_FLAG = /^--(eval|command|exec|expression|print|script|require|import|load|preload)(=|$)/i;
-
-/** A file an interpreter would execute. `node x.mjs` reads as a plain path to
- * the rule above, so the extension is what separates a wrapper's subcommand
- * from a script handed to this route to run. Renaming a script defeats it —
- * this narrows the endpoint, it does not seal it; the child env allowlist and
- * the redacted, bounded output are what make the run uninteresting. */
-const PROBE_SCRIPT_ARG = /\.(js|mjs|cjs|ts|mts|cts|jar|sh|bash|zsh|fish|py|rb|pl|php|lua|ps1|psm1|bat|cmd|vbs)$/i;
-
-/** Reject a `cli` this route must not run, wording the failure the way a
- * failed spawn would. Two rules: the command has to be a real executable, and
- * its fixed arguments have to be a wrapper's own — a subcommand, a long flag,
- * or a non-script path. `sh -c id`, `node -e "…"` and `node ./x.mjs` all fail
- * the second one.
- *
- * This narrows the endpoint; it does not seal it. A head that is itself a
- * runner (`env id`, `timeout 5 id`) still reaches a command, so what keeps a
- * steered probe uninteresting is the allowlisted child env and the redacted,
- * bounded line it answers with — not this check. */
-function probeCommandError(cli: string): string | null {
-  const notInstalled = (name: string) => {
-    const enoent: NodeJS.ErrnoException = new Error(`spawn ${name} ENOENT`);
-    enoent.code = "ENOENT";
-    return describeSpawnFailure(enoent, name).message;
-  };
-  const [command, ...fixed] = splitCliString(cli);
-  if (!command) return notInstalled(cli);
-  // findCliCandidates resolves a bare name on the augmented PATH and echoes a
-  // path-ish one back unchecked, so the existsSync covers both spellings
-  const [resolved] = findCliCandidates(command);
-  if (!resolved || !existsSync(resolved)) return notInstalled(command);
-  const runsACommand = (arg: string) =>
-    PROBE_SHORT_FLAG.test(arg) || PROBE_EVAL_FLAG.test(arg) || PROBE_SCRIPT_ARG.test(arg);
-  // the existsSync fallback lets a path with spaces through, so it is checked
-  // last and never rescues an argument already refused above
-  if (fixed.some((arg) => runsACommand(arg) || !(PROBE_ARG.test(arg) || existsSync(arg)))) {
-    return `\`${cli}\` is not a CLI path — a fixed argument may be a subcommand, a long flag, or a non-script path`;
-  }
-  return null;
-}
-
-/** execFile's error carries the child's stderr in .stderr. */
-function stderrOf(err: unknown): string {
-  const s = (err as { stderr?: unknown }).stderr;
-  return typeof s === "string" ? s : Buffer.isBuffer(s) ? s.toString("utf8") : "";
-}
-
 async function localVmPayload(target: LocalVmTarget) {
   const status = await containerComputerStatus(undefined, undefined, target);
   return {
@@ -6964,85 +6842,6 @@ function reloadProviders() {
 let providerConfigBusy = false;
 
 // ── HTTP plumbing ─────────────────────────────────────────────────────
-function json(res: ServerResponse, status: number, body: unknown) {
-  sendJson(res, status, JSON.stringify(body));
-}
-
-function readBody(req: IncomingMessage): Promise<any> {
-  return new Promise((resolve, reject) => {
-    let data = "";
-    let bytes = 0;
-    let done = false;
-    const fail = (status: number, msg: string) => {
-      if (done) return;
-      done = true;
-      const err = Object.assign(new Error(msg), { status });
-      reject(err);
-    };
-    req.on("data", (c) => {
-      if (done) return;
-      bytes += typeof c === "string" ? Buffer.byteLength(c) : c.length;
-      if (bytes > 1_000_000) {
-        // Keep draining the socket, but stop retaining attacker-controlled
-        // bytes. Destroying the request here prevents the caller from
-        // receiving the useful 413 response.
-        return fail(413, "body too large");
-      }
-      data += c;
-    });
-    req.on("end", () => {
-      if (done) return;
-      let body: any;
-      try {
-        body = data ? JSON.parse(data) : {};
-      } catch {
-        return fail(400, "invalid JSON body");
-      }
-      done = true;
-      resolve(body);
-    });
-    req.on("error", (e) => fail(400, e instanceof Error ? e.message : String(e)));
-  });
-}
-
-// Loopback-only enforcement: the harness runs on 127.0.0.1 but accepts
-// requests from any loopback connection and any web page that DNS-rebinds
-// onto it. Reject non-loopback Hosts outright (defeats rebinding) and
-// origins outside loopback (blocks remote-web CSRF).
-function isLoopbackHost(host: string | undefined): boolean {
-  if (!host) return false;
-  const value = host.trim().toLowerCase();
-  if (!value) return false;
-
-  let hostname = value;
-  if (value.startsWith("[")) {
-    const close = value.indexOf("]");
-    if (close < 0 || (value.length > close + 1 && !/^:\d+$/.test(value.slice(close + 1)))) return false;
-    hostname = value.slice(1, close);
-  } else {
-    const firstColon = value.indexOf(":");
-    const lastColon = value.lastIndexOf(":");
-    if (firstColon >= 0 && firstColon === lastColon) {
-      if (!/^\d+$/.test(value.slice(firstColon + 1))) return false;
-      hostname = value.slice(0, firstColon);
-    }
-  }
-
-  if (hostname === "localhost" || hostname === "localhost.") return true;
-  if (isIP(hostname) === 4) return hostname.startsWith("127.");
-  return hostname === "::1" || hostname === "0:0:0:0:0:0:0:1";
-}
-
-function isAllowedOrigin(origin: string | undefined | null): boolean {
-  if (!origin) return true; // non-browser clients (CLIs, curl, tests) send none
-  try {
-    const o = new URL(origin);
-    return isLoopbackHost(o.hostname) && (o.protocol === "http:" || o.protocol === "https:");
-  } catch {
-    return false;
-  }
-}
-
 const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   /** scratch for route matches, shared by every `path.match` below */
   let m: RegExpMatchArray | null = null;
