@@ -11,19 +11,19 @@ const HEALTHY: MemoryHealth = { longLines: 0, orphans: [] };
 describe("memoryNotice", () => {
   it("names every problem in one line", () => {
     expect(memoryNotice({ longLines: 26, orphans: ["x.md"] }, { dropped: 4, since: SINCE })).toBe(
-      "[Memory check: 26 lines are over 300 bytes; memory/x.md has no pointer line in MEMORY.md; 4 auto notes since 10-14 were not saved because the file is full. This session, move details into memory/ side files, one topic each, with a short pointer line in MEMORY.md saying when to read it. Keep every fact and exact value whole. Add the missing pointer lines too.]",
+      "[Memory check: 26 lines are over 300 bytes; memory/x.md has no pointer line in MEMORY.md; 4 auto notes since 10-14 were not saved because the file is full. This session, move details into memory/ side files, one topic each, with a short pointer line in MEMORY.md saying when to read it. Keep every fact and exact value whole. Add the missing pointer lines too. Put pointer lines in the first 200 lines. Use the file edit tool, not scripts. Recheck no original line was lost.]",
     );
   });
 
   it("keeps only the parts that apply", () => {
     expect(memoryNotice({ longLines: 1, orphans: [] })).toBe(
-      "[Memory check: 1 line is over 300 bytes. This session, move details into memory/ side files, one topic each, with a short pointer line in MEMORY.md saying when to read it. Keep every fact and exact value whole.]",
+      "[Memory check: 1 line is over 300 bytes. This session, move details into memory/ side files, one topic each, with a short pointer line in MEMORY.md saying when to read it. Keep every fact and exact value whole. Put pointer lines in the first 200 lines. Use the file edit tool, not scripts. Recheck no original line was lost.]",
     );
     expect(memoryNotice(HEALTHY, { dropped: 1, since: SINCE })).toBe(
-      "[Memory check: 1 auto note since 10-14 was not saved because the file is full. This session, move details into memory/ side files, one topic each, with a short pointer line in MEMORY.md saying when to read it. Keep every fact and exact value whole.]",
+      "[Memory check: 1 auto note since 10-14 was not saved because the file is full. This session, move details into memory/ side files, one topic each, with a short pointer line in MEMORY.md saying when to read it. Keep every fact and exact value whole. Put pointer lines in the first 200 lines. Use the file edit tool, not scripts. Recheck no original line was lost.]",
     );
     expect(memoryNotice({ longLines: 0, orphans: ["a.md", "b.md"] })).toBe(
-      "[Memory check: memory/a.md and memory/b.md have no pointer line in MEMORY.md. This session, add a short pointer line in MEMORY.md for each, saying when to read it.]",
+      "[Memory check: memory/a.md and memory/b.md have no pointer line in MEMORY.md. This session, add a short pointer line in MEMORY.md for each, saying when to read it. Put pointer lines in the first 200 lines. Use the file edit tool, not scripts. Recheck no original line was lost.]",
     );
     expect(memoryNotice({ longLines: 0, orphans: ["a.md", "b.md", "c.md", "d.md", "e.md"] })).toContain(
       "memory/a.md, memory/b.md, memory/c.md and 2 more have no pointer line in MEMORY.md",
@@ -32,7 +32,7 @@ describe("memoryNotice", () => {
 
   it("moves details and adds the missing pointers", () => {
     expect(memoryNotice({ longLines: 2, orphans: ["a.md"] })).toBe(
-      "[Memory check: 2 lines are over 300 bytes; memory/a.md has no pointer line in MEMORY.md. This session, move details into memory/ side files, one topic each, with a short pointer line in MEMORY.md saying when to read it. Keep every fact and exact value whole. Add the missing pointer lines too.]",
+      "[Memory check: 2 lines are over 300 bytes; memory/a.md has no pointer line in MEMORY.md. This session, move details into memory/ side files, one topic each, with a short pointer line in MEMORY.md saying when to read it. Keep every fact and exact value whole. Add the missing pointer lines too. Put pointer lines in the first 200 lines. Use the file edit tool, not scripts. Recheck no original line was lost.]",
     );
   });
 

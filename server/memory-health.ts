@@ -36,6 +36,7 @@ export function memoryNotice(health: MemoryHealth, dropped?: DroppedNotes): stri
   const fix = [
     move ? "This session, move details into memory/ side files, one topic each, with a short pointer line in MEMORY.md saying when to read it. Keep every fact and exact value whole." : "",
     orphans.length ? (move ? "Add the missing pointer lines too." : "This session, add a short pointer line in MEMORY.md for each, saying when to read it.") : "",
+    "Put pointer lines in the first 200 lines. Use the file edit tool, not scripts. Recheck no original line was lost.",
   ].filter(Boolean).join(" ");
   return `[Memory check: ${parts.join("; ")}. ${fix}]`;
 }
