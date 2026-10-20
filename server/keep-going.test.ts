@@ -546,17 +546,29 @@ describe("KeepGoing start_after", () => {
     await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "waiting" });
   });
 
-  it("keeps prior failed tries when setting a delay", async () => {
+  it("refuses a delay while paused after failed tries", async () => {
     const h = harness();
     h.keepGoing.enable("b1", "t1", h.state.packet);
     await h.keepGoing.check("b1");
     await h.keepGoing.check("b1");
     h.state.now++;
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "paused" });
     h.keepGoing.turnStarted("b1", "t1", true);
-    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, startAfter)).toEqual({ ok: true });
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, startAfter)).toEqual({ error: expect.stringContaining("paused") });
+    expect(JSON.parse(readFileSync(h.deps.file!, "utf8")).bots.b1).not.toHaveProperty("startAfter");
     h.state.now = Date.parse(startAfter);
     await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "paused" });
     expect(h.dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops the turn rules until the delay ends", () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, startAfter)).toEqual({ ok: true });
+    h.state.now = Date.parse(startAfter) - 1;
+    expect(h.keepGoing.rules("b1")).toBe("");
+    h.state.now++;
+    expect(h.keepGoing.rules("b1")).toBe(` ${KEEP_GOING_RULES}`);
   });
 });
 

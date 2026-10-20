@@ -206,6 +206,8 @@ export class KeepGoing {
   /** Turn instructions while the switch is on and unpaused. */
   rules(botId: string): string {
     const view = this.view(botId);
+    const startAfter = this.bots[botId]?.startAfter;
+    if (startAfter && this.now() < Date.parse(startAfter)) return "";
     return view && !view.paused ? ` ${KEEP_GOING_RULES}` : "";
   }
 
@@ -222,6 +224,7 @@ export class KeepGoing {
       if (!parsed.success) return { error: "start_after must be RFC3339 with an offset" };
       const entry = this.bots[botId];
       if (!entry?.on) return { error: "start_after requires Agentic Mode to be on" };
+      if (entry.paused) return { error: "Agentic Mode is paused; the user must turn it off and on" };
       if (entry.ownerDeviceId !== this.deps.deviceId()) return { error: "Agentic Mode belongs to another PC" };
       if (entry.threadId !== threadId || this.deps.botThreadId(botId) !== threadId) return { error: "Agentic Mode task changed" };
       entry.startAfter = parsed.data;
