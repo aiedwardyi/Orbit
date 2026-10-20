@@ -1776,16 +1776,17 @@ test("a DLL init exit after output, after five seconds, or another code never re
   assert.ok(f.notes.every((note) => note.text.startsWith("EXITED: ")));
 });
 
-function slowRespawnFixture() {
+function slowRespawnFixture({ slow = (index) => index > 0, ...options } = {}) {
   const children = [];
   let releaseReady;
-  const f = stallFixture({ loadPty: () => ({ spawn: () => {
-    const child = { pid: 101 + children.length, writes: [], killed: false, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize() {}, kill() { this.killed = true; } };
-    if (children.length) child.ready = new Promise((resolve) => { releaseReady = resolve; });
+  let failReady;
+  const f = stallFixture({ ...options, loadPty: () => ({ spawn: () => {
+    const child = { pid: 101 + children.length, writes: [], killed: false, exit() {}, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize() {}, kill() { this.killed = true; } };
+    if (slow(children.length)) child.ready = new Promise((resolve, reject) => { releaseReady = resolve; failReady = reject; });
     children.push(child);
     return child;
   } }) });
-  return { ...f, children, release: () => releaseReady() };
+  return { ...f, children, release: () => releaseReady(), fail: () => failReady(new Error("not ready")) };
 }
 
 test("a bot send mid-respawn waits for the new shell", async (t) => {
@@ -1815,6 +1816,86 @@ test("a pane closed mid-respawn kills the new shell and sends no note", async (t
   assert.deepEqual(f.children[1].writes, []);
   await f.advance(600_000);
   assert.equal(f.notes.length, 0);
+});
+
+test("a pane closed mid-respawn marks its run ended", async (t) => {
+  const runs = [];
+  const f = slowRespawnFixture({ paneRuns: { started() {}, reported() {}, ended: (id) => runs.push(["ended", id]), closed: (id) => runs.push(["closed", id]) } });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.children[0].exit({ exitCode: DLL_INIT_FAILED });
+  await f.settle();
+  await f.host.closeForBot("bot-1", pane.sessionId);
+  f.release();
+  await f.settle();
+  assert.deepEqual(runs, [["closed", pane.sessionId], ["ended", pane.sessionId]]);
+});
+
+test("a pane closed mid-respawn whose new shell never acks its kill still lets other panes stop", async () => {
+  const f = slowRespawnFixture({ slow: (index) => index === 2 });
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  const other = await f.host.openForBot("bot-1", { label: "OTHER" });
+  f.children[0].exit({ exitCode: DLL_INIT_FAILED });
+  await f.settle();
+  f.children[2].kill = () => new Promise(() => {});
+  await f.host.closeForBot("bot-1", pane.sessionId);
+  f.release();
+  await f.settle();
+  const closed = await Promise.race([f.host.closeForBot("bot-1", other.sessionId).then(() => true), wait(1_500).then(() => false)]);
+  assert.equal(closed, true);
+  assert.equal(f.children[1].killed, true);
+  await f.host.dispose();
+});
+
+test("a respawned shell that never gets ready is killed and reports its own exit code", async (t) => {
+  const f = slowRespawnFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.children[0].exit({ exitCode: DLL_INIT_FAILED });
+  await f.settle();
+  f.children[1].exit({ exitCode: 5 });
+  f.fail();
+  await f.settle();
+  assert.equal(f.children[1].killed, true);
+  assert.deepEqual(f.notes.map((note) => note.text), ["EXITED: pane shell ended with code 5 (0x5) before a report. terminal_read the pane list, then respawn or tell the user."]);
+});
+
+test("a respawned shell that fails ready without exiting reports the first exit code", async (t) => {
+  const f = slowRespawnFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.children[0].exit({ exitCode: DLL_INIT_FAILED });
+  await f.settle();
+  f.fail();
+  await f.settle();
+  assert.equal(f.children[1].killed, true);
+  assert.match(f.notes[0].text, /^EXITED: pane shell ended with code -1073741502 \(0xC0000142\)/);
+});
+
+test("a renderer write mid-respawn waits for the new shell", async (t) => {
+  const f = slowRespawnFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.children[0].exit({ exitCode: DLL_INIT_FAILED });
+  await f.settle();
+  f.host.write(f.event, pane.sessionId, "y\r");
+  assert.deepEqual(f.children[0].writes, ["codex go\r"]);
+  f.release();
+  await f.settle();
+  assert.deepEqual(f.children[1].writes, ["codex go\r", "y\r"]);
+});
+
+test("a reused pane that exits before reporting its new task sends EXITED", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
+  f.host.attendBot("bot-1", pane.sessionId, "report");
+  await f.advance(1_000);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "next task\r" });
+  f.children[0].exit({ exitCode: 1 });
+  await f.settle();
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^EXITED: pane shell ended with code 1 /);
 });
 
 test("a worker pane that goes quiet without a report sends one stall note with its last lines", async () => {

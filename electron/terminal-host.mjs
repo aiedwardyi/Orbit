@@ -683,7 +683,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     if (session.botPane) paneRuns?.ended(session.id);
     if (session.exitCode === null) {
       session.exitCode = exitCode;
-      if (session.botPane && session.mail && exitCode !== 0 && !session.reportAt) session.exitNote = { text: exitNoteText(session.screen.text(), exitCode), tries: 0, retryAt: 0 };
+      if (session.botPane && session.mail && exitCode !== 0 && !(session.reportAt && session.reportAt >= session.stallArmedAt)) session.exitNote = { text: exitNoteText(session.screen.text(), exitCode), tries: 0, retryAt: 0 };
     }
     if (session.autoNote || session.finished.length || session.exitNote) exitNotes.add(session);
     clearActivityTimer(session);
@@ -746,24 +746,45 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The test adapter predates worker error events.
     if (typeof pty.onError === "function") pty.onError((error) => { if (session.pty === pty) fail(session, error); });
   };
+  const stopReplacement = (pty) => {
+    if (pty.exited) {
+      exiting.add(pty.exited);
+      const drop = () => exiting.delete(pty.exited);
+      Promise.resolve(pty.exited).then(drop, drop);
+    }
+    void stopInTurn(async () => {
+      const result = pty.kill();
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge operations synchronously or asynchronously.
+      if (result && typeof result.then === "function") await timeout(result, disposed ? QUIT_PANE_MS : SHUTDOWN_TIMEOUT_MS, "Terminal shutdown timed out");
+    }).catch(() => {
+      if (!disposed) {
+        try { pty.terminate?.(); } catch {}
+      }
+    });
+  };
   // Writes that land mid-respawn wait for the new shell.
   const respawn = async (session, exitCode) => {
     session.respawned = true;
     session.respawn = [];
     let pty;
+    let replacementExit = null;
     try {
       pty = await session.spawn();
+      pty.onExit(({ exitCode: code }) => { replacementExit ??= code; });
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may expose readiness only when worker-backed.
       if (pty.ready && typeof pty.ready.then === "function") await timeout(pty.ready, readyTimeoutMs, "Terminal worker did not become ready");
     } catch {
       session.respawn = null;
-      reportExit(session, exitCode);
+      if (pty) stopReplacement(pty);
+      if (session.retired) paneRuns?.ended(session.id);
+      reportExit(session, replacementExit ?? exitCode);
       return;
     }
     const queued = session.respawn;
     session.respawn = null;
     if (session.retired) {
-      void stopInTurn(async () => pty.kill()).catch(() => {});
+      paneRuns?.ended(session.id);
+      stopReplacement(pty);
       return;
     }
     session.pty = pty;
@@ -1033,6 +1054,10 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       // X10 bytes past column/row 95 exceed 0x7F; a UTF-8 string write
       // would expand them to two bytes, so send the raw binary instead.
       const payload = mouse && data.includes("\x1b[M") ? Buffer.from(data, "binary") : data;
+      if (session.respawn) {
+        if (!mouse) session.respawn.push(data);
+        return undefined;
+      }
       try {
         const result = session.pty.write(payload);
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge operations synchronously or asynchronously.
