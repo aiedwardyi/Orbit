@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const index = readFileSync(join(here, "index.ts"), "utf8");
+const teams = readFileSync(join(here, "team-routes.ts"), "utf8");
 
 describe("harness listen is not blocked on engine describe", () => {
   it("does not start defaultSelection until after listen or early attach", () => {
@@ -36,7 +37,7 @@ describe("harness listen is not blocked on engine describe", () => {
   });
 
   it("still resolves a default engine when creating a bot", () => {
-    expect(index).toMatch(/const selection = await defaultSelection\(\)/);
+    expect(teams).toMatch(/const selection = await defaultSelection\(\)/);
     expect(index).toMatch(/selection = await defaultSelection\(\)/);
   });
 });
