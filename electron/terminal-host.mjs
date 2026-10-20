@@ -195,12 +195,28 @@ const CONTEXT_RES = {
   codex: [[/\b(\d{1,3})% context left\b/, "left"], [/\bContext (\d{1,3})% left\b/, "left"], [/\bContext (\d{1,3})% used\b/, "used"]],
 };
 const GROK_CONTEXT_RE = /^\s*grok-[\w.-]+ · (\d+(?:\.\d+)?)([KM])? \/ (\d+(?:\.\d+)?)([KM])\s*$/;
+// The Claude worker status line's own last line, scaled to its compact window.
+const CLAUDE_STATUS_RE = /^\s*ctx (\d+)k\/(\d+)k\s*$/;
 const CONTEXT_FOOTER_LINES = 6;
 const CONTEXT_NOTE_TOKENS = 200_000;
+const CONTEXT_EARLY_SHARE = 0.8;
+const CONTEXT_SAVE_LINE = "Context is getting full. Update your progress file now (done, in flight, left), then continue.";
+const CONTEXT_SAVE_TAIL = CONTEXT_SAVE_LINE.replace(/\s+/g, "").slice(-16);
+// Both queue typed text while busy; a menu would take the Enter as a pick.
+const SAVE_LINE_ENGINES = new Set(["claude", "codex"]);
+const PANE_MENU_RE = /^\s*[❯›]\s*\d+\.\s/u;
+const BRACKETED_PASTE_MODE = 2004;
+const SAVE_ENTER_MS = 5_000;
 const tokenCount = (value, unit) => Math.round(Number(value) * (unit === "M" ? 1_000_000 : unit === "K" ? 1_000 : 1));
 
 function paneContext(screenText, engine) {
   const lines = screenText.split("\n").filter((line) => line.trim()).slice(-CONTEXT_FOOTER_LINES).reverse();
+  const status = engine === "claude" ? lines.map((line) => CLAUDE_STATUS_RE.exec(line)).find(Boolean) : null;
+  if (status && Number(status[2]) > 0) {
+    const tokens = Number(status[1]) * 1_000;
+    const windowTokens = Number(status[2]) * 1_000;
+    return { tokens, window: windowTokens, left: Math.max(0, Math.round((1 - tokens / windowTokens) * 100)) };
+  }
   for (const line of lines) {
     if (engine === "grok") {
       const match = GROK_CONTEXT_RE.exec(line);
@@ -219,14 +235,19 @@ function paneContext(screenText, engine) {
   return null;
 }
 
-const contextOver = (context) => context.tokens !== undefined ? context.tokens >= CONTEXT_NOTE_TOKENS : context.left <= 50;
+const contextOver = (context) => context.window ? context.tokens >= context.window * CONTEXT_EARLY_SHARE
+  : context.tokens !== undefined ? context.tokens >= CONTEXT_NOTE_TOKENS : context.left <= 50;
 
 function contextNoteText(label, context) {
   const nick = label?.split("|")[0].trim() || "this worker";
   const used = `${100 - context.left}% of its window`;
-  const size = context.tokens !== undefined ? `${Math.round(context.tokens / 1000)}k context (${used})` : used;
-  return `CONTEXT: ${nick} is at ${size}. Long runs drift: if it has real work left, have it save progress and hand off to a FRESH worker from its card and progress file.`;
+  const size = context.window ? `${Math.round(context.tokens / 1000)}k of ${Math.round(context.window / 1000)}k`
+    : context.tokens !== undefined ? `${Math.round(context.tokens / 1000)}k context (${used})` : used;
+  return `CONTEXT: ${nick} is at ${size}. It could not get the save line; terminal_read the pane.`;
 }
+
+const canTakeSaveLine = (screenText, engine) => SAVE_LINE_ENGINES.has(engine) && AGENT_BUSY_RE.test(screenText)
+  && !screenText.split("\n").filter((line) => line.trim()).slice(-STALL_TAIL_LINES).some((line) => PANE_MENU_RE.test(line));
 
 function finishedNoteText(screenText) {
   const tail = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES).join("\n");
@@ -437,6 +458,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (note.tries >= STALL_TRIES) settle(false);
     });
   };
+  const typeIntoPane = (session, data) => {
+    void Promise.resolve().then(() => session.pty.write(data)).catch((cause) => fail(session, cause));
+  };
   const postAuto = (session, auto) => postNote(session, auto, auto.text, (delivered) => {
     if (delivered) session.noteAt = now();
     if (session.autoNote !== auto) return;
@@ -487,9 +511,22 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       }
       // A compaction back under the line re-arms the note.
       if (context && !contextOver(context)) session.contextNote = null;
-      else if (!session.contextCompactPending && context && session.mail && at >= (session.contextNote?.retryAt ?? 0)) {
-        const note = session.contextNote ??= { tries: 0, retryAt: 0 };
-        postNote(session, note, contextNoteText(session.label, context), () => { note.retryAt = Infinity; });
+      else if (!session.contextCompactPending && context) {
+        const note = session.contextNote ??= { tries: 0, retryAt: 0, save: null, typedAt: 0 };
+        if (!note.save) {
+          note.save = canTakeSaveLine(text, session.engine) ? "typed" : "failed";
+          if (note.save === "typed") {
+            const paste = session.screen.snapshot({ maxScreenChars: 1, maxScrollbackChars: 0 }).modes?.includes(BRACKETED_PASTE_MODE);
+            note.typedAt = at;
+            session.pendingInputEcho = `${session.pendingInputEcho}${CONTEXT_SAVE_LINE}`.slice(-INPUT_ECHO_LIMIT);
+            typeIntoPane(session, paste ? `\x1b[200~${CONTEXT_SAVE_LINE}\x1b[201~` : CONTEXT_SAVE_LINE);
+          }
+        } else if (note.save === "typed" && at - note.typedAt >= SAVE_ENTER_MS) {
+          // Text plus Enter in one write can land in Claude Code as a paste that never submits.
+          note.save = text.replace(/\s+/g, "").includes(CONTEXT_SAVE_TAIL) ? "sent" : "failed";
+          if (note.save === "sent") typeIntoPane(session, "\r");
+        }
+        if (note.save === "failed" && session.mail && at >= note.retryAt) postNote(session, note, contextNoteText(session.label, context), () => { note.retryAt = Infinity; });
       }
       const limit = usageLimit(text, session.engine, session.cols);
       const limitKey = limit ? JSON.stringify([session.engine, limit.reset.replace(/\s+/g, "")]) : null;

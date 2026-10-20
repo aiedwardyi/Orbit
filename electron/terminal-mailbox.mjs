@@ -332,16 +332,65 @@ try {
 exit 0
 `;
 
+// Claude Code runs status lines like hooks, in Git Bash; the user's own line runs there too, scaled to the compact window.
+// The pane parses the last line, "ctx 241k/300k", for its context note.
+const ORBIT_STATUS_PS1 = String.raw`$ErrorActionPreference = 'Stop'
+$window = [int]$args[0]
+$utf8 = New-Object Text.UTF8Encoding $false
+$out = ''
+try {
+  $status = (New-Object IO.StreamReader([Console]::OpenStandardInput(), $utf8)).ReadToEnd() | ConvertFrom-Json
+  $ctx = $status.context_window
+  $tokens = [int64]$ctx.total_input_tokens
+  $ctx.context_window_size = $window
+  if ($null -ne $ctx.used_percentage) {
+    $ctx.used_percentage = [Math]::Min(100, [int][Math]::Round($tokens * 100 / $window))
+    $ctx.remaining_percentage = 100 - $ctx.used_percentage
+  }
+  try {
+    $dir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.claude' }
+    $command = [string]([IO.File]::ReadAllText((Join-Path $dir 'settings.json'), $utf8) | ConvertFrom-Json).statusLine.command
+    $bash = if ($env:CLAUDE_CODE_GIT_BASH_PATH) { $env:CLAUDE_CODE_GIT_BASH_PATH } else { (Get-Command bash.exe).Source }
+    if ($command -and $command.IndexOf('orbit-status.ps1', [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+      $info = New-Object Diagnostics.ProcessStartInfo($bash, '-c "eval \"$ORBIT_STATUS_COMMAND\""')
+      $info.EnvironmentVariables['ORBIT_STATUS_COMMAND'] = $command
+      $info.UseShellExecute = $false
+      $info.CreateNoWindow = $true
+      $info.RedirectStandardInput = $true
+      $info.RedirectStandardOutput = $true
+      $info.StandardOutputEncoding = $utf8
+      $user = [Diagnostics.Process]::Start($info)
+      $bytes = $utf8.GetBytes(($status | ConvertTo-Json -Depth 32 -Compress))
+      $user.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+      $user.StandardInput.Close()
+      $out = $user.StandardOutput.ReadToEnd().TrimEnd()
+      $user.WaitForExit()
+      if ($out) { $out += [char]10 }
+    }
+  } catch {}
+  $out += 'ctx ' + [Math]::Round($tokens / 1000) + 'k/' + [Math]::Round($window / 1000) + 'k'
+} catch {}
+$bytes = $utf8.GetBytes($out)
+$stdout = [Console]::OpenStandardOutput()
+$stdout.Write($bytes, 0, $bytes.Length)
+$stdout.Flush()
+exit 0
+`;
+
 const WAITING_NOTE = "WAITING: this worker is stuck on an on-screen prompt (permission check or question). terminal_read its pane, then answer with key presses or tell the user.";
 
 // permission_prompt also fires for AskUserQuestion; idle_prompt would repeat after every finished turn.
 // A plain note, not --hook: the report dedup can swallow an auto note.
 // Compacts at about 267k (window minus 33k), well before the 1M default.
+export const CLAUDE_COMPACT_WINDOW = 300_000;
+
 function claudeWorkerSettings(dir) {
   const command = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(dir, "orbit-msg.ps1").replace(/\\/g, "/")}" "${WAITING_NOTE}"`;
   const compact = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(dir, "orbit-compact.ps1").replace(/\\/g, "/")}"`;
+  const status = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(dir, "orbit-status.ps1").replace(/\\/g, "/")}" ${CLAUDE_COMPACT_WINDOW}`;
   return `${JSON.stringify({
-    autoCompactWindow: 300_000,
+    autoCompactWindow: CLAUDE_COMPACT_WINDOW,
+    statusLine: { type: "command", command: status },
     hooks: {
       Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command, timeout: 15 }] }],
       SessionStart: [{ matcher: "compact", hooks: ["card", "progress"].map((part) => ({ type: "command", command: `${compact} ${part}`, timeout: 30 })) }],
@@ -358,6 +407,7 @@ export async function installOrbitMsg(dir, platform = process.platform) {
     ["orbit-msg.cmd", ORBIT_MSG_CMD.replace(/\r?\n/g, "\r\n")],
     ["orbit-msg", ORBIT_MSG_SH],
     ["orbit-compact.ps1", ORBIT_COMPACT_PS1.replace(/\r?\n/g, "\r\n")],
+    ["orbit-status.ps1", ORBIT_STATUS_PS1.replace(/\r?\n/g, "\r\n")],
     ["claude-worker.json", claudeWorkerSettings(dir)],
   ];
   for (const [name, content] of files) {

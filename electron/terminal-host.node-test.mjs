@@ -2194,12 +2194,15 @@ test("a remote open refuses a bad bot, a folder pick or a missing window", async
 
 const contextScreen = (footer) => `\x1b[2J\x1b[H✻ Worked for 54m 33s · done 12:11 AM\r\n${"─".repeat(40)}\r\n> \r\n${"─".repeat(40)}\r\n${footer}\r\n`;
 const contextNotes = (f) => f.notes.map((note) => note.text).filter((text) => text.startsWith("CONTEXT:"));
-const DRIFT = "Long runs drift: if it has real work left, have it save progress and hand off to a FRESH worker from its card and progress file.";
+const NO_SAVE = "It could not get the save line; terminal_read the pane.";
+const SAVE_LINE = "Context is getting full. Update your progress file now (done, in flight, left), then continue.";
+const busyScreen = (footer, typed = "") => `\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n${"─".repeat(40)}\r\n> ${typed}\r\n${"─".repeat(40)}\r\n${footer}\r\n`;
 
 for (const [name, engine, footer, context] of [
   ["Claude near its 500k compact window", "claude", "  ⏵⏵ bypass permissions on · 3% until auto-compact", { left: 3 }],
   ["Claude near a 300k compact window", "claude", "  ⏵⏵ bypass permissions on · 7% until auto-compact", { left: 7 }],
-  ["Claude with compaction off", "claude", "  Context low (8% remaining) · Run /compact to compact & continue", { left: 8 }],
+  ["Claude worker status line", "claude", "  ▰▱▱▱▱ 20% │ ↑241.2k\r\n  ctx 241k/300k\r\n  ⏵⏵ bypass permissions on · 5% until auto-compact", { tokens: 241_000, window: 300_000, left: 20 }],
+  ["Claude with compaction off", "claude","  Context low (8% remaining) · Run /compact to compact & continue", { left: 8 }],
   ["Claude below its warning, custom status line", "claude", "  ▰▰▰▱▱ 59% │ ↑409.3k ↓444 │ 5h: ▱▱▱▱▱ 0% (1h47m)\r\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents", undefined],
   ["Codex footer", "codex", "  100% context left · ? for shortcuts", { left: 100 }],
   ["Codex status line", "codex", "  gpt-6 high · Context 45% left · ~/work", { left: 45 }],
@@ -2231,7 +2234,7 @@ test("a CONTEXT note goes once per crossing and again after a compaction", async
   assert.deepEqual(contextNotes(f), []);
   f.children[0].data(contextScreen("  45% context left · ? for shortcuts"));
   await f.advance(10_000);
-  assert.deepEqual(contextNotes(f), [`CONTEXT: PIXEL is at 55% of its window. ${DRIFT}`]);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: PIXEL is at 55% of its window. ${NO_SAVE}`]);
   assert.equal(f.notes.at(-1).scope.pane, pane.sessionId);
   for (const left of [30, 12]) {
     f.children[0].data(contextScreen(`  ${left}% context left · ? for shortcuts`));
@@ -2243,7 +2246,7 @@ test("a CONTEXT note goes once per crossing and again after a compaction", async
   f.children[0].data(contextScreen("  48% context left · ? for shortcuts"));
   await f.advance(10_000);
   await f.advance(10_000);
-  assert.deepEqual(contextNotes(f).slice(1), [`CONTEXT: PIXEL is at 52% of its window. ${DRIFT}`]);
+  assert.deepEqual(contextNotes(f).slice(1), [`CONTEXT: PIXEL is at 52% of its window. ${NO_SAVE}`]);
   assert.equal(f.children[0].writes.join(""), "codex go\r");
 });
 
@@ -2256,7 +2259,7 @@ test("a Grok CONTEXT note goes at 200k tokens, not at half its window", async (t
   assert.deepEqual(contextNotes(f), []);
   f.children[0].data(contextScreen("  grok-4.5 · 213K / 256K"));
   await f.advance(10_000);
-  assert.deepEqual(contextNotes(f), [`CONTEXT: GROKKER is at 213k context (83% of its window). ${DRIFT}`]);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: GROKKER is at 213k context (83% of its window). ${NO_SAVE}`]);
 });
 
 for (const output of ["213K / 256K", "Downloaded 213K / 256K", "Example: grok-4.5 · 213K / 256K"]) {
@@ -2280,7 +2283,7 @@ test("a Claude CONTEXT note waits for its own footer and stays once when it clea
   assert.deepEqual(contextNotes(f), []);
   f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
   await f.advance(10_000);
-  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 93% of its window. ${DRIFT}`]);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 93% of its window. ${NO_SAVE}`]);
   f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
   await f.advance(10_000);
   f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
@@ -2296,7 +2299,7 @@ test("a Claude CONTEXT note re-arms after a compact signal", async (t) => {
   t.after(() => fs.rmSync(signal, { force: true }));
   f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
   await f.advance(10_000);
-  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 93% of its window. ${DRIFT}`]);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 93% of its window. ${NO_SAVE}`]);
   fs.writeFileSync(signal, "");
   f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
   await f.advance(10_000);
@@ -2304,7 +2307,7 @@ test("a Claude CONTEXT note re-arms after a compact signal", async (t) => {
   f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
   await f.advance(10_000);
   await f.advance(10_000);
-  assert.deepEqual(contextNotes(f).slice(1), [`CONTEXT: SHOP is at 94% of its window. ${DRIFT}`]);
+  assert.deepEqual(contextNotes(f).slice(1), [`CONTEXT: SHOP is at 94% of its window. ${NO_SAVE}`]);
   assert.equal(f.children[0].options.env.ORBIT_COMPACT_SIGNAL, signal);
   assert.equal(fs.existsSync(signal), false);
 });
@@ -2330,8 +2333,8 @@ test("a Claude CONTEXT note waits for the low footer to clear after a compact si
   await f.advance(10_000);
   await f.advance(10_000);
   assert.deepEqual(contextNotes(f), [
-    `CONTEXT: SHOP is at 93% of its window. ${DRIFT}`,
-    `CONTEXT: SHOP is at 94% of its window. ${DRIFT}`,
+    `CONTEXT: SHOP is at 93% of its window. ${NO_SAVE}`,
+    `CONTEXT: SHOP is at 94% of its window. ${NO_SAVE}`,
   ]);
 });
 
@@ -2350,13 +2353,94 @@ test("a fresh worker command re-arms its CONTEXT note in the same pane", async (
   await f.advance(10_000);
   await f.advance(10_000);
   assert.deepEqual(contextNotes(f), [
-    `CONTEXT: SHOP is at 93% of its window. ${DRIFT}`,
-    `CONTEXT: SHOP is at 94% of its window. ${DRIFT}`,
+    `CONTEXT: SHOP is at 93% of its window. ${NO_SAVE}`,
+    `CONTEXT: SHOP is at 94% of its window. ${NO_SAVE}`,
   ]);
   assert.equal(f.children.length, 1);
 });
 
-test("the compact hook signals only a confirmed compact SessionStart", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+test("a Claude CONTEXT note waits for 80% of its compact window", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  f.children[0].data(contextScreen("  ctx 210k/300k"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), []);
+  f.children[0].data(contextScreen("  ctx 240k/300k"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 240k of 300k. ${NO_SAVE}`]);
+});
+
+test("a busy worker gets the save line once per compaction cycle and the chief no note", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  f.children[0].data(busyScreen("  ctx 245k/300k"));
+  await f.advance(10_000);
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE]);
+  f.children[0].data(busyScreen("  ctx 246k/300k", SAVE_LINE));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  f.children[0].data(busyScreen("  ctx 262k/300k"));
+  await f.advance(10_000);
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE, "\r"]);
+  f.children[0].data(busyScreen("  ctx 31k/300k"));
+  await f.advance(10_000);
+  f.children[0].data(busyScreen("  ctx 250k/300k"));
+  await f.advance(10_000);
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE, "\r", SAVE_LINE]);
+  assert.deepEqual(contextNotes(f), []);
+});
+
+for (const [name, command, screen, note] of [
+  ["an idle prompt", "claude go", contextScreen("  ctx 245k/300k"), "CONTEXT: W is at 245k of 300k."],
+  ["a menu", "claude go", busyScreen("  ❯ 1. Yes\r\n    2. No\r\n  ctx 245k/300k"), "CONTEXT: W is at 245k of 300k."],
+  ["a Grok pane", "grok go", busyScreen("  grok-4.5 · 213K / 256K"), "CONTEXT: W is at 213k context (83% of its window)."],
+]) {
+  test(`the save line stays out of ${name} and the chief gets the note`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command });
+    f.children[0].data(screen);
+    await f.advance(10_000);
+    await f.advance(10_000);
+    assert.deepEqual(f.children[0].writes, [`${command}\r`]);
+    assert.deepEqual(contextNotes(f), [`${note} ${NO_SAVE}`]);
+  });
+}
+
+test("a save line that never shows gets no Enter and the chief gets the note", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  f.children[0].data(busyScreen("  Context 40% left"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(f.children[0].writes, ["codex go\r", SAVE_LINE]);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: W is at 60% of its window. ${NO_SAVE}`]);
+});
+
+test("the worker status line prints its tokens of the compact window after the user's own line", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orbit-status-line-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const bin = await installOrbitMsg(path.join(dir, "bin"), "win32");
+  const script = path.join(bin, "orbit-status.ps1");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(bin, "claude-worker.json"), "utf8")).statusLine.command,
+    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${script.replace(/\\/g, "/")}" 300000`);
+  fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ statusLine: { type: "command", command: "cat" } }));
+  const status = { model: { display_name: "Opus" }, context_window: { total_input_tokens: 241_234, context_window_size: 1_000_000, used_percentage: 24, remaining_percentage: 76 } };
+  const out = await new Promise((resolve, reject) => {
+    const child = execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "300000"],
+      { windowsHide: true, env: { ...process.env, CLAUDE_CONFIG_DIR: dir } },
+      (error, stdout) => error ? reject(error) : resolve(stdout));
+    child.stdin.end(JSON.stringify(status));
+  });
+  const [user, ctx] = out.split("\n");
+  assert.deepEqual(JSON.parse(user).context_window, { total_input_tokens: 241_234, context_window_size: 300_000, used_percentage: 80, remaining_percentage: 20 });
+  assert.equal(ctx, "ctx 241k/300k");
+});
+
+test("the compact hook signals only a confirmed compact SessionStart",{ skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orbit-compact-signal-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const bin = await installOrbitMsg(path.join(dir, "bin"), "win32");
