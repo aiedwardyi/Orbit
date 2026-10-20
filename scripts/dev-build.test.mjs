@@ -356,7 +356,7 @@ describe("dev build workflow", () => {
     }
     const runs = windows.steps.map((step) => step.run || "").join("\n");
     expect(runs).toContain('npm pkg set "version=$env:VERSION"');
-    expect(runs).toContain("pnpm package:win -c.publish.channel=dev");
+    expect(runs).toContain("pnpm package:win --config.publish.channel=dev");
     for (const gate of ["packaged-boot.js", "server/index.js", "ui/index.html", "cloudflared.exe", "sha256sum", "app-update.yml", "publisherName", "node scripts/smoke-packaged-relay.mjs", "http://127.0.0.1:21987/api/health"]) {
       expect(runs).toContain(gate);
     }
@@ -365,6 +365,14 @@ describe("dev build workflow", () => {
     const artifact = windows.steps.find((step) => step.uses?.startsWith("actions/upload-artifact@"));
     expect(artifact.with.path.trim().split("\n")).toEqual(["release/*.exe", "release/*.exe.blockmap", "release/dev.yml"]);
     expect(artifact.with["retention-days"]).toBe(1);
+  });
+
+  it("passes the dev channel in a form PowerShell does not split at the dot", () => {
+    const { windows } = workflow().jobs;
+    const step = windows.steps.find((entry) => entry.run?.startsWith("pnpm package:win"));
+    expect(step.run).toBe("pnpm package:win --config.publish.channel=dev");
+    expect(workflow().text).not.toMatch(/\s-c\./);
+    expect(readFileSync(join(ROOT, "scripts/dev-build.mjs"), "utf8")).not.toMatch(/\s-c\./);
   });
 
   it("uses the same-repository token and never names the stable release destination", () => {
