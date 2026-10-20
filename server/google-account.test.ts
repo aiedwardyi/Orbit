@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { acpChildEnv } from "./drivers/acp/core.ts";
 import { grokSupport } from "./drivers/acp/grok.ts";
-import { GOOGLE_ACCOUNT_ENV, GoogleAccount, GoogleAccountError, applyGoogleAccountMessage, googleAccountRoute, takeGoogleEnv, type GoogleSession } from "./google-account.ts";
+import { GOOGLE_ACCOUNT_ENV, GoogleAccount, GoogleAccountError, applyGoogleAccountMessage, googleAccountRoute, googleProfileFill, takeGoogleEnv, type GoogleSession } from "./google-account.ts";
 
 const CLIENT = { id: "client-id-test", secret: "client-secret-test" };
 const SESSION: GoogleSession = { refreshToken: "refresh-token-SECRET", sub: "sub-1", email: "me@example.com" };
@@ -321,5 +321,82 @@ describe("desktop Google account updates", () => {
     clock.t = 24 * 3600_000;
     expect(await stateOf(google.getAccessToken())).toBe("blocked");
     expect(endpoint.mock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("profile fill from Google sign-in", () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+  const PICTURE = "https://lh3.googleusercontent.com/a/photo=s96-c";
+  const idToken = (claims: Record<string, unknown>) =>
+    `${Buffer.from("{}").toString("base64url")}.${Buffer.from(JSON.stringify({ sub: SESSION.sub, email: SESSION.email, ...claims })).toString("base64url")}.sig`;
+  const picture = (reply: Response | Error = new Response(PNG, { headers: { "content-type": "image/png" } })) =>
+    vi.fn(async () => {
+      if (reply instanceof Error) throw reply;
+      return reply;
+    }) as unknown as typeof globalThis.fetch & ReturnType<typeof vi.fn>;
+  const saved = () => vi.fn((_bytes: Buffer, mime: string) => `/api/attachments/saved.${mime === "image/png" ? "png" : "jpg"}`);
+
+  it("fills an empty name and an unset avatar with the cached picture", async () => {
+    const fetch = picture();
+    const save = saved();
+    const fill = await googleProfileFill(idToken({ name: " Ada Lovelace ", picture: PICTURE }), SESSION.sub, () => ({ name: "  " }), save, fetch);
+    expect(fill).toEqual({ name: "Ada Lovelace", avatarUrl: "/api/attachments/saved.png" });
+    expect(String(fetch.mock.calls[0]![0])).toBe(PICTURE);
+    expect(save).toHaveBeenCalledWith(PNG, "image/png");
+  });
+
+  it("never overwrites a name or avatar the user set", async () => {
+    const fetch = picture();
+    const save = saved();
+    const current = { name: "Countess", avatarUrl: "/api/attachments/mine.png" };
+    expect(await googleProfileFill(idToken({ name: "Ada", picture: PICTURE }), SESSION.sub, () => current, save, fetch)).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(await googleProfileFill(idToken({ name: "Ada", picture: PICTURE }), SESSION.sub, () => ({ name: "Countess" }), save, fetch)).toEqual({ avatarUrl: "/api/attachments/saved.png" });
+  });
+
+  it("keeps an avatar the user set while the picture was downloading", async () => {
+    let current: { avatarUrl?: string } = {};
+    const fetch = vi.fn(async () => {
+      current = { avatarUrl: "/api/attachments/mine.png" };
+      return new Response(PNG);
+    }) as unknown as typeof globalThis.fetch;
+    const save = saved();
+    expect(await googleProfileFill(idToken({ picture: PICTURE }), SESSION.sub, () => current, save, fetch)).toBeNull();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("fills nothing from an old-scope token without name or picture", async () => {
+    const fetch = picture();
+    const save = saved();
+    expect(await googleProfileFill(idToken({}), SESSION.sub, () => undefined, save, fetch)).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("ignores a token for another account or a malformed token", async () => {
+    const fetch = picture();
+    expect(await googleProfileFill(idToken({ sub: "sub-2", name: "Eve", picture: PICTURE }), SESSION.sub, () => undefined, saved(), fetch)).toBeNull();
+    expect(await googleProfileFill("not-a-token", SESSION.sub, () => undefined, saved(), fetch)).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a network error", picture(new Error("offline")), PICTURE],
+    ["an HTTP error", picture(new Response("nope", { status: 404 })), PICTURE],
+    ["a non-image body", picture(new Response("<html>")), PICTURE],
+    ["an oversized picture", picture(new Response(Buffer.concat([PNG, Buffer.alloc(1024 * 1024)]))), PICTURE],
+    ["a non-Google host", picture(), "https://evil.example/photo.png"],
+    ["plain http", picture(), "http://lh3.googleusercontent.com/a/photo"],
+  ])("leaves the default avatar after %s and still fills the name", async (_case, fetch, url) => {
+    const save = saved();
+    expect(await googleProfileFill(idToken({ name: "Ada", picture: url }), SESSION.sub, () => undefined, save, fetch)).toEqual({ name: "Ada" });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("leaves the default avatar when the picture cannot be stored", async () => {
+    const save = vi.fn(() => {
+      throw new Error("disk full");
+    });
+    expect(await googleProfileFill(idToken({ name: "Ada", picture: PICTURE }), SESSION.sub, () => undefined, save, picture())).toEqual({ name: "Ada" });
   });
 });

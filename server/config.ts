@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 
+import { botAvatarUrlSchema } from "../shared/bot-avatar.ts";
 import {
   CREDENTIAL_BROKER,
   credentialValue,
@@ -138,7 +139,7 @@ const appConfigSchema = z.object({
   anthropic: z.object({ key: optionalText }).optional(),
   vertex: z.object({ key: optionalText }).optional(),
   /** Non-secret profile details shown in the sidebar. */
-  profile: z.object({ name: optionalText, email: optionalText }).optional(),
+  profile: z.object({ name: optionalText, email: optionalText, avatarUrl: botAvatarUrlSchema.optional() }).optional(),
   rooms: roomConfigSchema.optional(),
   localVm: localVmConfigSchema.optional(),
   features: featureConfigSchema.optional(),
@@ -180,7 +181,7 @@ export interface AppConfig {
   anthropic?: { key?: string };
   vertex?: { key?: string };
   customKeys?: Record<string, CustomKey | null>;
-  profile?: { name?: string; email?: string };
+  profile?: { name?: string; email?: string; avatarUrl?: string };
   rooms?: { turnTimeoutMinutes: number };
   /** Shared preserves the historical singleton. Per-bot gives every bot a
    * separate container, durable workspace, viewer and lease. */

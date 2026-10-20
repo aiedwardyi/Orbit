@@ -224,11 +224,29 @@ export function BotAvatar({ bot, size = 44, label, orbitRing = false, ...mascotP
 
 export function InitialsAvatar({
   initials,
+  imageUrl,
   size = 32,
 }: {
   initials: string;
+  imageUrl?: string;
   size?: number;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [imageUrl]);
+  if (imageUrl && !imageFailed) {
+    return (
+      <img
+        src={imageUrl}
+        alt=""
+        width={size}
+        height={size}
+        draggable={false}
+        onError={() => setImageFailed(true)}
+        className="block shrink-0 rounded-full bg-raised object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   return (
     <div
       className="flex shrink-0 items-center justify-center rounded-full bg-raised text-ink-secondary font-medium"

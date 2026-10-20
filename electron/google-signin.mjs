@@ -4,7 +4,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 
-export const GOOGLE_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/drive.file"];
+export const GOOGLE_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/drive.file", "profile"];
 const DRIVE_FILE = GOOGLE_SCOPES[2];
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";

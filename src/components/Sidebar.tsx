@@ -2647,7 +2647,7 @@ export function Sidebar({
             aria-label={density === "icons" ? t("settings.section.account") : undefined}
             title={density === "icons" ? t("settings.section.account") : undefined}
           >
-            <InitialsAvatar initials={profileInitials(state.config?.profile)} size={28} />
+            <InitialsAvatar initials={profileInitials(state.config?.profile)} imageUrl={state.config?.profile?.avatarUrl} size={28} />
             <span className={cn("truncate text-[14px] text-ink", density === "icons" && "hidden")}>
               {state.config?.profile?.name?.trim() || state.config?.profile?.email?.trim() || t("chrome.you")}
             </span>
