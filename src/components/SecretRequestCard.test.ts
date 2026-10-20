@@ -25,7 +25,7 @@ const render = (secret: Partial<NonNullable<Message["secret"]>>) =>
     message: {
       id: "m1",
       kind: "secret",
-      secret: { target: "xaiApiKey", label: "xAI API key", description: "", placeholder: "", helpUrl: "https://console.x.ai/", requestKey: "r", ...secret },
+      secret: { target: "xaiApiKey", label: "xAI API Key", description: "", placeholder: "", helpUrl: "https://console.x.ai/", requestKey: "r", ...secret },
     } as Message,
   })));
 

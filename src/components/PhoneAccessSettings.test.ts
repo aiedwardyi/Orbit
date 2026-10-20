@@ -105,8 +105,8 @@ describe("PhoneAccessSettings", () => {
     expect(host.querySelector("[data-phone-access-setup]")).not.toBeNull();
     expect(host.textContent).not.toContain("Paste the setup code you were sent to reach this PC from your phone.");
     expect(host.querySelector('[role="switch"]')).toBeNull();
-    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!, ` ${CODE} `));
-    await act(async () => click(button(host, "Set up")));
+    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup Code"]')!, ` ${CODE} `));
+    await act(async () => click(button(host, "Set Up")));
     expect(setup).toHaveBeenCalledWith({ method: "POST", body: JSON.stringify({ code: CODE }) });
     expect(host.querySelector("[data-phone-access-setup]")).toBeNull();
     expect(host.textContent).toContain("Connecting to the relay...");
@@ -121,8 +121,8 @@ describe("PhoneAccessSettings", () => {
       },
     });
     const refused = await renderView();
-    await act(async () => type(refused.host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!, "wks1:localhost:wki1.a.b"));
-    await act(async () => click(button(refused.host, "Set up")));
+    await act(async () => type(refused.host.querySelector<HTMLInputElement>('input[aria-label="Setup Code"]')!, "wks1:localhost:wki1.a.b"));
+    await act(async () => click(button(refused.host, "Set Up")));
     expect(refused.host.querySelector('[role="alert"]')?.textContent).toBe("Could not set up phone access: the setup code names an invalid relay address");
     expect(refused.host.querySelector("[data-phone-access-setup]")).not.toBeNull();
     await act(async () => refused.root.unmount());
@@ -145,8 +145,8 @@ describe("PhoneAccessSettings", () => {
     const { host, root } = await renderView();
     expect(host.querySelector("[data-phone-access-error]")?.textContent).toBe('Dynamic require of "crypto" is not supported');
     expect(host.querySelector("[data-phone-access-setup]")).not.toBeNull();
-    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!, CODE));
-    await act(async () => click(button(host, "Set up")));
+    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup Code"]')!, CODE));
+    await act(async () => click(button(host, "Set Up")));
     expect(setup).toHaveBeenCalledWith({ method: "POST", body: JSON.stringify({ code: CODE }) });
     expect(host.querySelector("[data-phone-access-setup]")).toBeNull();
     expect(host.textContent).toContain("Connecting to the relay...");
@@ -162,14 +162,14 @@ describe("PhoneAccessSettings", () => {
       },
     });
     const { host, root } = await renderView();
-    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!, "wks1:wink.test:wki1.invite.sig"));
+    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup Code"]')!, "wks1:wink.test:wki1.invite.sig"));
     for (const [code, text] of [
       ["invite-used", "This setup code was already used. Ask for a new one."],
       ["invite-expired", "This setup code has expired. Ask for a new one."],
       ["enroll-failed", "Could not set up phone access. Try again, or ask for a new setup code."],
     ]) {
       answer = code;
-      await act(async () => click(button(host, "Set up")));
+      await act(async () => click(button(host, "Set Up")));
       expect(host.querySelector('[role="alert"]')?.textContent).toBe(text);
     }
     await act(async () => root.unmount());
@@ -207,10 +207,10 @@ describe("PhoneAccessSettings", () => {
       "POST /api/phone-relay/enroll": enroll,
     });
     const { host, root } = await renderView();
-    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!, CODE));
-    await act(async () => click(button(host, "Set up")));
+    await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup Code"]')!, CODE));
+    await act(async () => click(button(host, "Set Up")));
     expect(enroll).toHaveBeenCalledWith({ method: "POST", body: JSON.stringify({ invite: CODE }) });
-    expect(host.querySelector('input[aria-label="Setup code"]')).toBeNull();
+    expect(host.querySelector('input[aria-label="Setup Code"]')).toBeNull();
     expect(host.querySelector("[data-phone-access-relay]")?.textContent).toBe("Relay: wink.test");
     await act(async () => root.unmount());
   });
@@ -221,7 +221,7 @@ describe("PhoneAccessSettings", () => {
     const { host, root } = await renderView();
     const toggle = host.querySelector<HTMLButtonElement>('[role="switch"]')!;
     expect(toggle.getAttribute("aria-checked")).toBe("false");
-    expect(host.textContent).not.toContain("Paired phones");
+    expect(host.textContent).not.toContain("Paired Phones");
     await act(async () => click(toggle));
     expect(put).toHaveBeenCalledWith({ method: "PUT", body: JSON.stringify({ enabled: true }) });
     expect(toggle.getAttribute("aria-checked")).toBe("true");
@@ -241,9 +241,10 @@ describe("PhoneAccessSettings", () => {
     const { host, root } = await renderView();
     expect(host.querySelector("[data-phone-access-state]")?.textContent).toBe("Paste the setup code you were sent to reach this PC from your phone.");
     expect(host.textContent).not.toMatch(/invite|join/i);
-    const input = host.querySelector<HTMLInputElement>('input[aria-label="Setup code"]')!;
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Setup Code"]')!;
+    expect(input.placeholder).toBe("Setup code");
     await act(async () => type(input, " wki1.invite.sig "));
-    await act(async () => click(button(host, "Set up")));
+    await act(async () => click(button(host, "Set Up")));
     expect(enroll).toHaveBeenCalledWith({ method: "POST", body: JSON.stringify({ invite: "wki1.invite.sig" }) });
     expect(host.querySelector('[role="alert"]')?.textContent).toBe("This setup code was already used. Ask for a new one.");
     await act(async () => root.unmount());
@@ -301,7 +302,7 @@ describe("PhoneAccessSettings", () => {
     expect(superseded.host.querySelector('[role="alert"]')?.textContent).toBe(
       "This phone address is in use on another computer. Turn phone access off and on here to take it back.",
     );
-    expect(button(superseded.host, "Add a phone")).toBeUndefined();
+    expect(button(superseded.host, "Add a Phone")).toBeUndefined();
     await act(async () => superseded.root.unmount());
 
     serve({
@@ -324,8 +325,8 @@ describe("PhoneAccessSettings", () => {
     });
     const scroll = vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(() => {});
     const { host, root } = await renderView();
-    await act(async () => click(button(host, "Add a phone")));
-    const qr = host.querySelector('[aria-label="Phone pairing QR code"]');
+    await act(async () => click(button(host, "Add a Phone")));
+    const qr = host.querySelector('[aria-label="Phone Pairing QR Code"]');
     expect(qr?.querySelector("svg")).not.toBeNull();
     expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
     expect(scroll.mock.contexts).toEqual([qr?.parentElement]);
@@ -334,7 +335,7 @@ describe("PhoneAccessSettings", () => {
     expect(host.textContent).not.toContain("wkp_");
     await act(async () => click(button(host, "Cancel")));
     expect(cancel).toHaveBeenCalled();
-    expect(host.querySelector('[aria-label="Phone pairing QR code"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Phone Pairing QR Code"]')).toBeNull();
     await act(async () => root.unmount());
   });
 

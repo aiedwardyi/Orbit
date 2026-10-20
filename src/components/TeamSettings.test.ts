@@ -120,7 +120,7 @@ describe("Team settings", () => {
   it("shows Team after Usage for the owner, with one card per person", async () => {
     await render();
     await vi.waitFor(() => expect(labels()).toContain("Team"));
-    expect(labels()).toEqual(["Account", "General", "Connections", "Themes", "Usage", "Team", "Model index", "Shortcuts"]);
+    expect(labels()).toEqual(["Account", "General", "Connections", "Themes", "Usage", "Team", "Model Index", "Shortcuts"]);
     const team = [...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "Team");
     await act(async () => team!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await vi.waitFor(() => expect(host.textContent).toContain("Ada"));
@@ -188,7 +188,7 @@ describe("Team settings", () => {
     };
     vi.stubGlobal("ogb", { platform: "win32", googleAccount: account });
     await render();
-    const signIn = () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Google sign-in");
+    const signIn = () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Google Sign-in");
     await vi.waitFor(() => expect(signIn()).toBeTruthy());
     expect(labels()).not.toContain("Team");
     await act(async () => signIn()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
@@ -198,7 +198,7 @@ describe("Team settings", () => {
     await vi.waitFor(() => expect(host.textContent).toContain("Ada"));
     const accountNav = [...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "Account");
     await act(async () => accountNav!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    const signOut = () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Sign out");
+    const signOut = () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Sign Out");
     await vi.waitFor(() => expect(signOut()).toBeTruthy());
     await act(async () => signOut()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await vi.waitFor(() => expect(labels()).not.toContain("Team"));

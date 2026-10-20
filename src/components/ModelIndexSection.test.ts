@@ -55,7 +55,7 @@ describe("benchmark hotkey", () => {
       press(window);
       seen.push(tab());
     }
-    expect(seen).toEqual(["Intelligence", "Coding", "Design", "Security", "General work", "Legal", "Cost", "Intelligence"]);
+    expect(seen).toEqual(["Intelligence", "Coding", "Design", "Security", "General Work", "Legal", "Cost", "Intelligence"]);
   });
 
   it("keeps the keystroke from a focused terminal", () => {
@@ -84,29 +84,29 @@ describe("coding tabs", () => {
       "Coding",
       "Design",
       "Security",
-      "General work",
+      "General Work",
       "Legal",
       "Cost",
     ]);
-    expect(group("Coding benchmark")).toBeNull();
+    expect(group("Coding Benchmark")).toBeNull();
     pick("Benchmark", "Coding");
-    expect([...group("Coding benchmark")!.querySelectorAll('[role="radio"]')].map((el) => el.textContent)).toEqual(["Terminal-Bench", "FrontierCode"]);
-    expect(chosen("Coding benchmark")).toBe("Terminal-Bench");
+    expect([...group("Coding Benchmark")!.querySelectorAll('[role="radio"]')].map((el) => el.textContent)).toEqual(["Terminal-Bench", "FrontierCode"]);
+    expect(chosen("Coding Benchmark")).toBe("Terminal-Bench");
     expect(host.textContent).toContain("Terminal-Bench 4.0, % resolved");
-    pick("Coding benchmark", "FrontierCode");
+    pick("Coding Benchmark", "FrontierCode");
     expect(host.textContent).toContain("FrontierCode 1.1, mean score %");
   });
 
   it("keeps the chosen coding benchmark across view and tab switches", () => {
     pick("Benchmark", "Coding");
-    pick("Coding benchmark", "FrontierCode");
+    pick("Coding Benchmark", "FrontierCode");
     pick("Chart", "Ranked");
-    expect(chosen("Coding benchmark")).toBe("FrontierCode");
+    expect(chosen("Coding Benchmark")).toBe("FrontierCode");
     pick("Benchmark", "Legal");
     pick("Benchmark", "Coding");
-    expect(chosen("Coding benchmark")).toBe("FrontierCode");
+    expect(chosen("Coding Benchmark")).toBe("FrontierCode");
     for (let i = 0; i < 7; i++) press(window);
-    expect(chosen("Coding benchmark")).toBe("FrontierCode");
+    expect(chosen("Coding Benchmark")).toBe("FrontierCode");
     expect(host.textContent).toContain("FrontierCode 1.1, mean score %");
   });
 });
@@ -192,7 +192,7 @@ describe("model filter", () => {
     for (let i = 0; i < 7; i++) {
       expect(named(), tab() ?? "").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Haiku 4\.5/);
       if (tab() === "Coding") {
-        pick("Coding benchmark", "FrontierCode");
+        pick("Coding Benchmark", "FrontierCode");
         expect(named(), "FrontierCode").not.toMatch(/GLM|Kimi|Qwen|DeepSeek|Inkling|Haiku 4\.5/);
       }
       press(window);
@@ -201,12 +201,12 @@ describe("model filter", () => {
 
   it("charts Argon on every tab and both coding benchmarks", () => {
     const named = () => [...host.querySelectorAll('[tabindex="0"]')].map((el) => el.getAttribute("aria-label") ?? el.textContent ?? "").join("|");
-    for (const benchmark of ["Intelligence", "Coding", "Design", "Security", "General work", "Legal", "Cost"]) {
+    for (const benchmark of ["Intelligence", "Coding", "Design", "Security", "General Work", "Legal", "Cost"]) {
       pick("Benchmark", benchmark);
       expect(named(), benchmark).toMatch(/Gemini 4 Argon/);
     }
     pick("Benchmark", "Coding");
-    pick("Coding benchmark", "FrontierCode");
+    pick("Coding Benchmark", "FrontierCode");
     expect(named(), "FrontierCode").toMatch(/Gemini 4 Argon/);
   });
 });
@@ -274,7 +274,7 @@ describe("score vs cost", () => {
   it("draws Legal against each model's cost per test", () => {
     pick("Benchmark", "Legal");
     expect(group("Chart")!.querySelector<HTMLButtonElement>('[role="radio"]')!.disabled).toBe(false);
-    expect(chosen("Chart")).toBe("Score vs cost");
+    expect(chosen("Chart")).toBe("Score Vs Cost");
     expect(host.querySelector('[aria-label="Claude Fable 5 all"]')?.closest("[data-mi-move]")).not.toBeNull();
     expect(host.textContent).toContain("Cost per task →");
   });
@@ -320,7 +320,7 @@ describe("score hover card", () => {
     expect(terminal).toMatch(/%Terminal-Bench/);
     expect(terminal).toContain("Cost per task");
     expect(terminal).not.toMatch(/95% CI|Harness/);
-    pick("Coding benchmark", "FrontierCode");
+    pick("Coding Benchmark", "FrontierCode");
     expect(chosen("Chart")).toBe("Ranked");
     expect(rowTip("Claude Opus 5.5medium")).toContain("57.1%FrontierCode");
     pick("Benchmark", "Design");
@@ -496,19 +496,19 @@ describe("full screen chart", () => {
 
   it("offers full screen on phones only", async () => {
     await rebuild(false, { width: 640, height: 400 });
-    expect(button("Full screen")).toBeNull();
+    expect(button("Full Screen")).toBeNull();
     await rebuild(true, { width: 360, height: 400 });
-    expect(button("Full screen")).not.toBeNull();
+    expect(button("Full Screen")).not.toBeNull();
   });
 
   it("fills the screen with the chart, then closes back into the card", async () => {
     await rebuild(true, { width: 780, height: 330 });
     const inline = svg().getAttribute("height");
-    act(() => button("Full screen")!.click());
+    act(() => button("Full Screen")!.click());
     expect(svg().getAttribute("width")).toBe("780");
     expect(svg().getAttribute("height")).toBe("330");
-    act(() => button("Exit full screen")!.click());
-    expect(button("Exit full screen")).toBeNull();
+    act(() => button("Exit Full Screen")!.click());
+    expect(button("Exit Full Screen")).toBeNull();
     expect(svg().getAttribute("height")).toBe(inline);
   });
 
@@ -520,13 +520,13 @@ describe("full screen chart", () => {
     Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => shown });
     Object.defineProperty(HTMLElement.prototype, "requestFullscreen", { configurable: true, value: request });
     try {
-      act(() => button("Full screen")!.click());
+      act(() => button("Full Screen")!.click());
       expect(request).toHaveBeenCalledTimes(1);
       shown = svg();
       act(() => void document.dispatchEvent(new Event("fullscreenchange")));
       shown = null;
       act(() => void document.dispatchEvent(new Event("fullscreenchange")));
-      expect(button("Exit full screen")).toBeNull();
+      expect(button("Exit Full Screen")).toBeNull();
     } finally {
       Reflect.deleteProperty(document, "fullscreenElement");
       if (original) Object.defineProperty(HTMLElement.prototype, "requestFullscreen", original);

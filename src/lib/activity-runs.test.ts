@@ -482,6 +482,10 @@ describe("localizeServerLine", () => {
   });
 
   it("maps a line without its error prefix, as the error row shows it", () => {
+    for (const line of ["Agentic Mode paused: two tries made no progress", "Keep going paused: two tries in a row made no progress on the approved steps"]) {
+      expect(localizeServerLine(line, en)).toBe("Agentic Mode paused: two tries made no progress");
+      expect(localizeServerLine(line, ko)).toBe("에이전트 모드 일시 중지됨: 두 번 시도에 진전 없음");
+    }
     expect(localizeServerLine("delegation failed \u2014 Atlas is offline", ko)).toBe("위임 실패 - Atlas is offline");
   });
 

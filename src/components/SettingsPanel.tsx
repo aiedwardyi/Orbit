@@ -59,7 +59,7 @@ function BotUsageCard({ bot }: { bot: Bot }) {
           onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
           className="text-[12px] text-ink-secondary hover:text-ink"
         >
-          All bots →
+          All Bots →
         </button>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-3 text-[13px]">
@@ -917,7 +917,7 @@ export function SettingsPanel({
             <button
               role="switch"
               aria-checked={Boolean(bot.approvePeerComms)}
-              aria-label="Ask me before contacting other bots"
+              aria-label="Ask Me Before Contacting Other Bots"
               onClick={() => patch({ approvePeerComms: !bot.approvePeerComms })}
               className={cn(
                 "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",
@@ -942,7 +942,7 @@ export function SettingsPanel({
             <button
               role="switch"
               aria-checked={browserEnabled}
-              aria-label="Give this bot a built-in browser"
+              aria-label="Give This Bot a Built-in Browser"
               disabled={!browserEnabled && (!desktopBrowser || !browserFeature || !canUseBrowser)}
               onClick={() => patch({ browser: !browserEnabled })}
               className={cn(
@@ -967,7 +967,7 @@ export function SettingsPanel({
               {([
                 ["cloud", "Cloud"],
                 ["vm", "Local VM"],
-                ["local", "This computer"],
+                ["local", "This Computer"],
                 ["off", "Off"],
               ] as const).map(([mode, label], i) => (
                 <button
@@ -1002,12 +1002,12 @@ export function SettingsPanel({
                 {!bot.computer && bot.cloudBackend === "vps" && (
                   <div className="mt-3 flex items-center justify-between gap-4 rounded-lg bg-inset px-3 py-2.5">
                     <div className="min-w-0">
-                      <div className="text-[13px] text-ink">Start VPS automatically</div>
+                      <div className="text-[13px] text-ink">Start VPS Automatically</div>
                     </div>
                     <button
                       role="switch"
                       aria-checked={Boolean(bot.autoStartVps)}
-                      aria-label="Start VPS automatically"
+                      aria-label="Start VPS Automatically"
                       onClick={() => patch({ autoStartVps: !bot.autoStartVps })}
                       className={cn(
                         "relative h-6 w-11 shrink-0 rounded-full transition-colors",
@@ -1032,7 +1032,7 @@ export function SettingsPanel({
 
           {advancedOpen && (
             <div className="rounded-xl bg-card p-4">
-            <div className="text-[15px] font-medium text-ink">Review routine approvals</div>
+            <div className="text-[15px] font-medium text-ink">Review Routine Approvals</div>
             <div className="mt-3 flex gap-1 rounded-lg bg-inset p-0.5">
               {(
                 [

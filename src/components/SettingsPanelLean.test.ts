@@ -97,7 +97,7 @@ describe("SettingsPanel lean startup switch", () => {
     await act(async () => {
       root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
     });
-    const toggle = host.querySelector('button[aria-label="Load skills & plugins"]');
+    const toggle = host.querySelector('button[aria-label="Load Skills & Plugins"]');
     expect(toggle?.getAttribute("aria-checked")).toBe("true");
     await act(async () => {
       (toggle as HTMLButtonElement)?.click();
@@ -115,7 +115,7 @@ describe("SettingsPanel lean startup switch", () => {
         createElement(I18nProvider, null, createElement(SettingsPanel, { bot: { ...claudeBot, leanStartup: true } as Bot })),
       );
     });
-    const toggle = host.querySelector('button[aria-label="Load skills & plugins"]');
+    const toggle = host.querySelector('button[aria-label="Load Skills & Plugins"]');
     expect(toggle?.getAttribute("aria-checked")).toBe("false");
     await act(async () => {
       (toggle as HTMLButtonElement)?.click();
@@ -215,12 +215,12 @@ describe("SettingsPanel memory and order", () => {
     await act(async () => {
       root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
     });
-    const toggle = host.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Auto notes"]')!;
+    const toggle = host.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Auto Notes"]')!;
     expect(host.textContent).toContain("Saves facts from chat to Memory.");
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     const text = host.textContent ?? "";
-    expect(text.indexOf("Auto notes")).toBeGreaterThan(text.indexOf("Memory"));
-    expect(text.indexOf("Auto notes")).toBeLessThan(text.indexOf("Project folder"));
+    expect(text.indexOf("Auto Notes")).toBeGreaterThan(text.indexOf("Memory"));
+    expect(text.indexOf("Auto Notes")).toBeLessThan(text.indexOf("Project Folder"));
     await act(async () => toggle.click());
     expect(mockDispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "bot-1", patch: { memoryNotes: false } });
   });
@@ -231,7 +231,7 @@ describe("SettingsPanel memory and order", () => {
       await act(async () => {
         root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
       });
-      const toggle = () => host.querySelector('button[aria-label="Auto notes"]')!;
+      const toggle = () => host.querySelector('button[aria-label="Auto Notes"]')!;
       expect(toggle().getAttribute("aria-checked")).toBe("false");
       await act(async () => {
         root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: { ...claudeBot, memoryNotes: true } })));
@@ -260,7 +260,7 @@ describe("SettingsPanel memory and order", () => {
       root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
     });
     const text = host.textContent ?? "";
-    const order = ["Title", "Description", "Memory", "Project folder", "Approval", "Notifications", "Share terminal with chat", "Load skills & plugins"];
+    const order = ["Title", "Description", "Memory", "Project Folder", "Approval", "Notifications", "Share Terminal with Chat", "Load Skills & Plugins"];
     const at = order.map((label) => text.indexOf(label));
     expect(at).not.toContain(-1);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
@@ -570,7 +570,7 @@ describe("SettingsPanel memory autosave", () => {
     expect(status()).toBe("");
     await wait(5000);
     expect(puts).toHaveLength(1);
-    await act(async () => button("Load latest").click());
+    await act(async () => button("Load Latest").click());
     expect(box().value).toBe("likes coffee");
     await type("likes coffee and jazz");
     act(() => root.unmount());
@@ -706,7 +706,7 @@ describe("SettingsPanel memory autosave", () => {
     writeMemoryFile("bot-latest", "newer remote memory");
     await type("my edit");
     await wait(800);
-    await act(async () => button("Load latest").click());
+    await act(async () => button("Load Latest").click());
     expect(box().value).toBe("newer remote memory");
     expect(notice()).toBe("");
     expect(stored("bot-latest")).toBeNull();
@@ -724,7 +724,7 @@ describe("SettingsPanel memory autosave", () => {
     writeMemoryFile("bot-mine", "newer remote memory");
     await type("my edit");
     await wait(800);
-    await act(async () => button("Keep mine").click());
+    await act(async () => button("Keep Mine").click());
     expect(readMemoryFile("bot-mine").text).toBe("my edit");
     expect(box().value).toBe("my edit");
     expect(notice()).toBe("");
@@ -820,7 +820,7 @@ describe("SettingsPanel memory autosave", () => {
     await type("my edit");
     await wait(800);
     writeMemoryFile("bot-moving", "newest remote memory");
-    await act(async () => button("Load latest").click());
+    await act(async () => button("Load Latest").click());
     expect(box().value).toBe("newest remote memory");
     writeMemoryFile("bot-moving", "remote again");
     await type("my second edit");
@@ -830,7 +830,7 @@ describe("SettingsPanel memory autosave", () => {
       if (init?.method !== "PUT") throw new Error("offline");
       return serve(url, init);
     });
-    await act(async () => button("Load latest").click());
+    await act(async () => button("Load Latest").click());
     expect(box().value).toBe("remote again");
     expect(notice()).toBe("");
   });

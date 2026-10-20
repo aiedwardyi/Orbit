@@ -16,9 +16,9 @@ describe("qa chat copy", () => {
     expect(ko["bot.memoryPlaceholder"]).toBe("봇이 배운 것. 봇이 직접 적어요.");
     expect(ko["bot.name"]).toBe("이름");
     expect(ko["bot.memory"]).toBe("메모리");
-    expect(en["settings.toolCalls.toggle"]).toBe("Work steps");
+    expect(en["settings.toolCalls.toggle"]).toBe("Work Steps");
     expect(ko["settings.toolCalls.toggle"]).toBe("작업 과정");
-    expect(en["settings.toolCalls.aria"]).toBe("Work steps");
+    expect(en["settings.toolCalls.aria"]).toBe("Work Steps");
     expect(ko["settings.toolCalls.aria"]).toBe("작업 과정");
   });
 

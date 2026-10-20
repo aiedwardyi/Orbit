@@ -5,43 +5,43 @@
  */
 export const CREDENTIAL_TARGETS = {
   xaiApiKey: {
-    label: "xAI API key",
+    label: "xAI API Key",
     description: "Used by the built-in Grok provider.",
     placeholder: "xai-…",
     helpUrl: "https://console.x.ai/",
   },
   geminiApiKey: {
-    label: "Gemini API key",
+    label: "Gemini API Key",
     description: "Runs the native Gemini CLI directly.",
     placeholder: "Paste your Gemini API key",
     helpUrl: "https://aistudio.google.com/apikey",
   },
   boxToken: {
-    label: "Box API key",
+    label: "Box API Key",
     description: "Gives bots an isolated cloud computer when Box is selected.",
     placeholder: "Paste your Box API key",
     helpUrl: "https://docs.ascii.dev/box/api-keys",
   },
   ttsKey: {
-    label: "ElevenLabs API key",
+    label: "ElevenLabs API Key",
     description: "Enables text-to-speech voices in calls.",
     placeholder: "Paste your ElevenLabs API key",
     helpUrl: "https://elevenlabs.io/app/settings/api-keys",
   },
   openaiImageApiKey: {
-    label: "OpenAI API key",
+    label: "OpenAI API Key",
     description: "Used to generate bot avatars and images bots create with generate_image.",
     placeholder: "sk-…",
     helpUrl: "https://platform.openai.com/api-keys",
   },
   anthropicApiKey: {
-    label: "Claude API key",
+    label: "Claude API Key",
     description: "Lets bots call the Claude API with call_api.",
     placeholder: "sk-ant-…",
     helpUrl: "https://console.anthropic.com/settings/keys",
   },
   vertexApiKey: {
-    label: "Vertex AI API key",
+    label: "Vertex AI API Key",
     description: "Lets bots call Vertex AI with call_api.",
     placeholder: "Paste your Vertex AI API key",
     helpUrl: "https://console.cloud.google.com/apis/credentials",

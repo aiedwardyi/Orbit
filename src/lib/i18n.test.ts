@@ -79,6 +79,20 @@ describe("locale detection", () => {
 });
 
 describe("catalogs", () => {
+  it("names Agentic Mode in both locales and title cases settings labels", () => {
+    expect.soft(en["bot.keepGoing"]).toBe("Agentic Mode");
+    expect.soft(ko["bot.keepGoing"]).toBe("에이전트 모드");
+    expect.soft(en["bot.keepGoingHelp"]).toBe("Works through approved plan steps on its own.");
+    expect.soft(ko["bot.keepGoingHelp"]).toBe("승인한 계획 단계를 스스로 진행해요.");
+    expect.soft(en["chat.keepGoingPaused"]).toBe("Agentic Mode paused: two tries made no progress");
+    expect.soft(en["bot.keepGoingOnMark"]).toBe("Agentic Mode on");
+    expect.soft(en["bot.keepGoingPausedMark"]).toBe("Agentic Mode paused");
+    expect.soft(ko["bot.keepGoingOnMark"]).toBe("에이전트 모드 켜짐");
+    expect.soft(ko["bot.keepGoingPausedMark"]).toBe("에이전트 모드 일시 중지됨");
+    expect.soft(en["bot.leanStartup"]).toBe("Load Skills & Plugins");
+    expect.soft(en["settings.replyStyle.title"]).toBe("Reply Style");
+  });
+
   it("explains blocked notification recovery in both languages", () => {
     expect(en["settings.phoneNotifications.state.blocked"]).toMatch(/blocked.*browser settings/i);
     expect(ko["settings.phoneNotifications.state.blocked"]).toMatch(/차단.*브라우저 설정.*허용/);
@@ -314,7 +328,7 @@ describe("complete phrases", () => {
   });
 
   it("frames a bot project folder as a short private-workspace title", () => {
-    expect(en["bot.workingFolder"]).toBe("Project folder");
+    expect(en["bot.workingFolder"]).toBe("Project Folder");
     expect(ko["bot.workingFolder"]).toBe("프로젝트 폴더");
     expect(Object.hasOwn(en, "bot.workingFolderHelp")).toBe(false);
     expect(Object.hasOwn(ko, "bot.workingFolderHelp")).toBe(false);
@@ -355,11 +369,11 @@ describe("connected apps and bot details Korean coverage", () => {
     expect(en["room.manageMembersOf"]).toBe("Manage members of {name}");
     expect(ko["room.manageMembersOf"]).toBe("{name}의 구성원 관리");
     expect(ko["room.manageMembersOf"]).not.toMatch(/Manage members of/);
-    expect(en["bot.details"]).toBe("Bot details");
+    expect(en["bot.details"]).toBe("Bot Details");
     expect(ko["bot.details"]).toBe("봇 세부 정보");
-    expect(en["bot.collapseDetails"]).toBe("Collapse bot details");
+    expect(en["bot.collapseDetails"]).toBe("Collapse Bot Details");
     expect(ko["bot.collapseDetails"]).toBe("봇 세부 정보 접기");
-    expect(en["bot.closeDetails"]).toBe("Close bot details");
+    expect(en["bot.closeDetails"]).toBe("Close Bot Details");
     expect(ko["bot.closeDetails"]).toBe("봇 세부 정보 닫기");
   });
 
@@ -706,7 +720,7 @@ describe("first-run core path leftovers", () => {
     expect(en["engine.signInTo"]).toContain("{name}");
     expect(ko["engine.signInTo"]).toContain("{name}");
     expect(ko["engine.signInTo"]).not.toMatch(/Sign in to/i);
-    expect(en["engine.copyCommand"]).toBe("Copy command");
+    expect(en["engine.copyCommand"]).toBe("Copy Command");
     expect(ko["engine.copyCommand"]).toBe("명령 복사");
     expect(en["approval.wantsNamed"]).toContain("{action}");
     expect(ko["approval.wantsNamed"]).toContain("{action}");
@@ -754,7 +768,7 @@ describe("first-run core path leftovers", () => {
     expect(ko["model.automaticHelp"]).not.toMatch(/stay on this|when it works/i);
     expect(translate("en", "model.automaticHelp", { name: "Grok 4.6" })).toBe("Grok 4.6");
     expect(translate("ko", "model.automaticHelp", { name: "Grok 4.6" })).toBe("Grok 4.6");
-    expect(en["engine.openConnections"]).toBe("Enter API key");
+    expect(en["engine.openConnections"]).toBe("Enter API Key");
     expect(ko["engine.openConnections"]).toBe("API 키 입력");
     expect(en["engines.models"]).toBe("Models");
     expect(ko["engines.models"]).toBe("모델");
@@ -879,7 +893,7 @@ describe("plan usage", () => {
   });
 
   it("keeps the usage window phrases complete in English and Korean", () => {
-    expect(en["usage.limits.title"]).toBe("Plan usage");
+    expect(en["usage.limits.title"]).toBe("Plan Usage");
     expect(ko["usage.limits.title"]).toBe("요금제 사용량");
     // Same glyphs on purpose: the Grok row is a bare figure. Korean “used”
     // stays on the window labels below, not as a suffix on the percent.

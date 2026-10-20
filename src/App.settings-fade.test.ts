@@ -49,7 +49,7 @@ describe("Settings fade", () => {
     await act(async () => opener.click());
     expect((await until(settingsDialog))?.getAttribute("role")).toBe("dialog");
 
-    await act(async () => button("Close settings")!.click());
+    await act(async () => button("Close Settings")!.click());
     const backdrop = settingsDialog()?.parentElement;
     expect(backdrop?.hasAttribute("data-closing")).toBe(true);
     expect(backdrop?.hasAttribute("inert")).toBe(true);
@@ -66,7 +66,7 @@ describe("Settings fade", () => {
     await act(async () => button("Open Scout's profile")!.click());
     expect((await until(detailsPanel))?.hasAttribute("data-closing")).toBe(false);
 
-    await act(async () => button("Close bot details")!.click());
+    await act(async () => button("Close Bot Details")!.click());
     expect(detailsPanel()?.hasAttribute("data-closing")).toBe(true);
     expect(detailsPanel()?.hasAttribute("inert")).toBe(true);
 

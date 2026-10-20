@@ -53,7 +53,7 @@ export function RoomTurnTimeoutSettings() {
   return (
     <div className="flex flex-col gap-2">
       <label htmlFor="room-turn-timeout" className="text-[13px] font-medium text-ink">
-        Maximum turn length
+        Maximum Turn Length
       </label>
       <div
         className={`flex max-w-[220px] items-center rounded-lg border bg-inset ${

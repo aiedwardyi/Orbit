@@ -80,7 +80,7 @@ describe("Account settings", () => {
     await render();
     const buttons = [...host.querySelectorAll("nav button")];
     expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Account", "General", "Connections", "Themes", "Usage", "Model index", "Shortcuts",
+      "Account", "General", "Connections", "Themes", "Usage", "Model Index", "Shortcuts",
     ]);
     expect(buttons.map((button) => button.querySelector("svg")?.classList.item(1))).toEqual([
       "lucide-user", "lucide-settings", "lucide-key-round", "lucide-palette", "lucide-coins", "lucide-chart-scatter", "lucide-keyboard",
@@ -96,7 +96,7 @@ describe("Account settings", () => {
     expect(cards[1].firstElementChild?.textContent).toBe("Sync");
     expect(cards[1].textContent).toContain("Synced across your PCs.");
     expect([...cards[2].children].map((section) => section.firstElementChild?.textContent)).toEqual([
-      "Phone access", "Phone link",
+      "Phone Access", "Phone Link",
     ]);
   });
 
@@ -118,21 +118,21 @@ describe("Account settings", () => {
     expect(pane.querySelector("#settings-profile-name")).toBeNull();
     expect(pane.textContent).not.toContain("Profile");
     expect(pane.textContent).toContain("Language");
-    expect(pane.textContent).not.toContain("Work steps");
+    expect(pane.textContent).not.toContain("Work Steps");
     expect(pane.textContent).toContain("Advanced");
   });
 
   it("leaves General without the Memory card", async () => {
     const pane = await render("general");
     expect([...pane.children].map((card) => card.firstElementChild?.textContent)).not.toContain("Memory");
-    expect(pane.textContent).not.toContain("Auto notes");
-    expect(pane.querySelector('[aria-label="Auto notes"]')).toBeNull();
+    expect(pane.textContent).not.toContain("Auto Notes");
+    expect(pane.querySelector('[aria-label="Auto Notes"]')).toBeNull();
   });
 
   it("leaves Connections without phone components or their requests", async () => {
     const pane = await render("connections");
-    expect(pane.textContent).not.toContain("Phone link");
-    expect(pane.textContent).not.toContain("Phone access");
+    expect(pane.textContent).not.toContain("Phone Link");
+    expect(pane.textContent).not.toContain("Phone Access");
     expect(request.mock.calls.some(([path]) => path === "/api/remote-link")).toBe(false);
     expect(request.mock.calls.some(([path]) => path === "/api/phone-relay/status")).toBe(false);
   });
@@ -152,7 +152,7 @@ describe("Account settings", () => {
     const pane = await render();
     expect(pane.children).toHaveLength(3);
     expect(pane.lastElementChild?.children).toHaveLength(1);
-    expect(pane.lastElementChild?.textContent).toContain(available === "relay" ? "Phone access" : "Phone link");
+    expect(pane.lastElementChild?.textContent).toContain(available === "relay" ? "Phone Access" : "Phone Link");
   });
 
   it.each(["sync", "companion"] as const)("renders the %s deep link as Account", async (section) => {

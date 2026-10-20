@@ -75,10 +75,10 @@ describe("keep going mark", () => {
     try {
       await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="off"]')).not.toBeNull());
       expect(sidebarMark(host, "on")?.getAttribute("data-sidebar-keep-going")).toBe("on");
-      expect(sidebarMark(host, "on")?.getAttribute("aria-label")).toBe("Keep going on");
+      expect(sidebarMark(host, "on")?.getAttribute("aria-label")).toBe("Agentic Mode on");
       expect(sidebarMark(host, "on")?.querySelector("circle")).toBeNull();
       expect(sidebarMark(host, "paused")?.getAttribute("data-sidebar-keep-going")).toBe("paused");
-      expect(sidebarMark(host, "paused")?.getAttribute("aria-label")).toBe("Keep going paused");
+      expect(sidebarMark(host, "paused")?.getAttribute("aria-label")).toBe("Agentic Mode paused");
       expect(sidebarMark(host, "paused")?.querySelector("circle")?.getAttribute("fill")).toBe("none");
       expect(sidebarMark(host, "off")).toBeNull();
     } finally {
@@ -92,7 +92,7 @@ describe("keep going mark", () => {
       const mark = () => host.querySelector<HTMLButtonElement>("[data-chat-keep-going]");
       await vi.waitFor(() => expect(mark()).not.toBeNull());
       expect(mark()?.getAttribute("data-chat-keep-going")).toBe("on");
-      expect(mark()?.getAttribute("aria-label")).toBe("Keep going on");
+      expect(mark()?.getAttribute("aria-label")).toBe("Agentic Mode on");
       expect(host.querySelector("[data-settings-keep-going]")).toBeNull();
       const scrolled: Element[] = [];
       vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) {
@@ -111,7 +111,7 @@ describe("keep going mark", () => {
     const paused = await mountApp([bot("paused", { keepGoing: { paused: "bot-paused" } })]);
     try {
       await vi.waitFor(() => expect(paused.host.querySelector("[data-chat-keep-going]")).not.toBeNull());
-      expect(paused.host.querySelector("[data-chat-keep-going]")?.getAttribute("aria-label")).toBe("Keep going paused");
+      expect(paused.host.querySelector("[data-chat-keep-going]")?.getAttribute("aria-label")).toBe("Agentic Mode paused");
     } finally {
       await paused.unmount();
     }

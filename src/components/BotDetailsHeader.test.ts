@@ -251,11 +251,11 @@ describe("SettingsPanel still owns folder and usage", () => {
         createElement(SettingsPanel, { bot: botWithUsage, defaultAdvancedOpen: true }),
       ),
     );
-    expect(html).toContain("Project folder");
+    expect(html).toContain("Project Folder");
     expect(html).toContain("This task uses");
     expect(html).not.toContain("Working folder");
     expect(html).not.toContain("Where this bot runs its shell and file tools.");
-    expect(html).not.toContain("All bots");
+    expect(html).not.toContain("All Bots");
     expect(settingsPanel).toContain("{advancedOpen && <BotUsageCard bot={bot} />}");
   });
 
@@ -284,7 +284,7 @@ describe("SettingsPanel still owns folder and usage", () => {
         createElement(SettingsPanel, { bot: botWithoutCwd }),
       ),
     );
-    expect(html).toContain("Project folder");
+    expect(html).toContain("Project Folder");
     expect(html).toContain("Leave empty for a private workspace");
     expect(html).toContain("This task uses");
     expect(html).not.toMatch(/you must configure where tools run/i);

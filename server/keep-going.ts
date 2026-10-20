@@ -16,7 +16,7 @@ const BENCH_FROM = 3 * 60 + 45;
 const BENCH_TO = 5 * 60;
 const RECEIPTS_KEPT = 40;
 export const KEEP_GOING_RULES =
-  `Keep going is on. Don't end a turn while an approved step waits and nothing is running: start it. No question cards or "want me to" offers: decide on merit and report what you did. Ask only for logins, deletes, money, or push/merge/release rules.`;
+  `Agentic Mode is on. Don't end a turn while an approved step waits and nothing is running: start it. No question cards or "want me to" offers: decide on merit and report what you did. Ask only for logins, deletes, money, or push/merge/release rules.`;
 
 export type KeepGoingSkip =
   | "off"
@@ -102,7 +102,7 @@ export function keepGoingTurnOptions(threadId: string): KeepGoingTurnOptions {
 }
 
 export function keepGoingPrompt(step: string): string {
-  return `[Keep going] Nothing is running and the user approved this plan step: "${step}". Start it now, and only this step: mark it active, launch its worker if it needs one, then end the turn.`;
+  return `[Agentic Mode] Nothing is running and the user approved this plan step: "${step}". Start it now, and only this step: mark it active, launch its worker if it needs one, then end the turn.`;
 }
 
 function seoulParts(now: number): Record<string, string> {
@@ -221,7 +221,7 @@ export class KeepGoing {
   /** The set_keep_going tool: on is the user's approval, so only a turn they typed may give it. */
   fromTool(botId: string, threadId: string, on: boolean, packet: TaskResumePacket | null): { ok: true } | { error: string } {
     if (!on) this.disable(botId);
-    else if (this.userTurns.get(botId) !== threadId) return { error: "only a turn the user started with their own message can turn keep going on" };
+    else if (this.userTurns.get(botId) !== threadId) return { error: "only a turn the user started with their own message can turn Agentic Mode on" };
     else this.enable(botId, threadId, packet);
     return { ok: true };
   }
@@ -257,7 +257,7 @@ export class KeepGoing {
       if (now - last < KEEP_GOING_INTERVAL_MS || this.checking.has(botId)) continue;
       this.lastCheck.set(botId, now);
       void this.check(botId).catch((error) => {
-        this.log(`keep going: ${botId} check failed: ${error instanceof Error ? error.message : String(error)}`);
+        this.log(`Agentic Mode: ${botId} check failed: ${error instanceof Error ? error.message : String(error)}`);
       });
     }
   }
@@ -313,10 +313,10 @@ export class KeepGoing {
       }
       receipt.outcome = "failed";
       this.save();
-      this.log(`keep going: ${botId} dispatch failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.log(`Agentic Mode: ${botId} dispatch failed: ${error instanceof Error ? error.message : String(error)}`);
       return { skipped: "dispatch-failed" };
     }
-    this.log(`keep going: ${botId} started "${gate.step}"`);
+    this.log(`Agentic Mode: ${botId} started "${gate.step}"`);
     return { dispatched: gate.step };
   }
 
@@ -360,14 +360,14 @@ export class KeepGoing {
     if (recent.length < 2 || !recent.every((receipt) => receipt.outcome === "no-progress" || receipt.outcome === "failed")) return false;
     entry.paused = "no-progress";
     this.save();
-    this.log(`keep going: ${botId} paused after two dispatches without progress`);
+    this.log(`Agentic Mode: ${botId} paused after two dispatches without progress`);
     this.deps.paused(botId, entry.threadId);
     this.deps.changed(botId);
     return true;
   }
 
   private skip(botId: string, reason: KeepGoingSkip): KeepGoingResult {
-    this.log(`keep going: ${botId} skipped (${reason})`);
+    this.log(`Agentic Mode: ${botId} skipped (${reason})`);
     return { skipped: reason };
   }
 
@@ -380,7 +380,7 @@ export class KeepGoing {
       mkdirSync(dirname(this.file), { recursive: true });
       writeFileAtomic(this.file, `${JSON.stringify({ v: 1, bots: this.bots }, null, 2)}\n`, { mode: 0o600 });
     } catch (error) {
-      console.error("keep going: save failed", error);
+      console.error("Agentic Mode: save failed", error);
     }
   }
 }

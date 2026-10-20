@@ -323,7 +323,7 @@ export function UsageSection() {
               );
             })}
             <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-5 pt-2.5 text-[13px] font-medium text-ink">
-              <span>All bots</span>
+              <span>All Bots</span>
               <span className="text-right tabular-nums">{total.turns}</span>
               <span className="text-right tabular-nums" title={t(totalDetail.key, totalDetail.vars)}>{formatTokens(total.input + total.output)}</span>
               <span className="text-right tabular-nums">{hasFiniteCost(total.costUsd) ? formatUsd(total.costUsd) : "—"}</span>

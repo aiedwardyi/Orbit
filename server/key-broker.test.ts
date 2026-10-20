@@ -65,7 +65,7 @@ describe("call_api", () => {
   it("refuses box, a bot-supplied auth header, and a missing key", async () => {
     const fetchMock = reply("");
     await expect(callApi(request({ credentialId: "boxToken" }), keys, [root], fetchMock))
-      .rejects.toThrow("Box API key is not available through call_api.");
+      .rejects.toThrow("Box API Key is not available through call_api.");
     await expect(callApi(request({ headers: { Authorization: "Bearer mine" } }), keys, [root], fetchMock))
       .rejects.toMatchObject({ status: 400 });
     await expect(callApi(request({ credentialId: "geminiApiKey", url: "https://generativelanguage.googleapis.com/v1beta/models" }), keys, [root], fetchMock))

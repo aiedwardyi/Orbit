@@ -82,7 +82,7 @@ describe("manual update check acknowledgement", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
-    expect(host.querySelector("button")!.getAttribute("aria-label")).toBe("Check for updates");
+    expect(host.querySelector("button")!.getAttribute("aria-label")).toBe("Check for Updates");
   });
 
   it("acknowledges a slow check in the Settings updates row", async () => {

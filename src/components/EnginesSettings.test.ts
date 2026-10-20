@@ -168,8 +168,8 @@ describe("EnginesSettings friends Connections list", () => {
   });
 
   it.each([
-    [{ state: "unavailable" }, "Not installed", "Open install in Terminal", false],
-    [{ state: "available", authenticated: false }, "Needs sign-in", "Open sign-in in Terminal", false],
+    [{ state: "unavailable" }, "Not installed", "Open Install in Terminal", false],
+    [{ state: "available", authenticated: false }, "Needs sign-in", "Open Sign-in in Terminal", false],
     [{ state: "available", authenticated: true }, "Connected", null, true],
     [{ state: "available" }, "Installed", null, false],
   ] as const)("renders honest status for %j", (snapshot, label, action, ready) => {
@@ -238,7 +238,7 @@ it("opens sign-in with only the instance id and shows running instructions", asy
     await act(async () => root.render(createElement(I18nProvider, null, createElement(EngineSetup, {
       instance: instance({ snapshot: { state: "available", authenticated: false }, install: { signInCommand: "claude" } }),
     }))));
-    const button = [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Open sign-in"))!;
+    const button = [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Open Sign-in"))!;
     await act(async () => button.click());
     expect(openEngineSignIn).toHaveBeenCalledExactlyOnceWith("claude");
     expect(openInstallTerminal).not.toHaveBeenCalled();

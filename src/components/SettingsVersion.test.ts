@@ -46,7 +46,7 @@ describe("settings version label", () => {
       root.render(createElement(I18nProvider, null, createElement(UpdatesRow)));
     });
     expect(host.textContent).toContain("v1.0.41");
-    expect(host.querySelector("button")!.textContent).toBe("Check for updates");
+    expect(host.querySelector("button")!.textContent).toBe("Check for Updates");
   });
 
   it("renders the button alone when the bridge has no version", async () => {
@@ -55,6 +55,6 @@ describe("settings version label", () => {
       root.render(createElement(I18nProvider, null, createElement(UpdatesRow)));
     });
     expect(host.textContent).not.toMatch(/v\d+\.\d+/);
-    expect(host.querySelector("button")!.textContent).toBe("Check for updates");
+    expect(host.querySelector("button")!.textContent).toBe("Check for Updates");
   });
 });

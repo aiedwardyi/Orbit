@@ -335,6 +335,7 @@ describe("KeepGoing rules block", () => {
     expect(h.keepGoing.rules("b1")).toBe("");
     h.keepGoing.enable("b1", "t1", h.state.packet);
     expect(h.keepGoing.rules("b1")).toBe(` ${KEEP_GOING_RULES}`);
+    expect(KEEP_GOING_RULES).toMatch(/^Agentic Mode is on\./);
     expect(KEEP_GOING_RULES).toContain("Ask only for logins, deletes, money, or push/merge/release rules.");
     expect(estimateContextTokens([{ text: KEEP_GOING_RULES }]) - 6).toBeLessThanOrEqual(100);
     h.keepGoing.disable("b1");
@@ -380,7 +381,7 @@ describe("KeepGoing dispatch failure", () => {
     h.keepGoing.enable("b1", "t1", h.state.packet);
     h.state.dispatchError = new Error("engine down");
     await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "dispatch-failed" });
-    expect(log.mock.calls.map(([line]) => line)).toEqual(["keep going: b1 dispatch failed: engine down"]);
+    expect(log.mock.calls.map(([line]) => line)).toEqual(["Agentic Mode: b1 dispatch failed: engine down"]);
     expect(h.keepGoing.receipts("b1")).toEqual([expect.objectContaining({ outcome: "failed" })]);
   });
 });
@@ -496,7 +497,7 @@ describe("KeepGoing review regressions", () => {
     h.keepGoing.tick();
     expect(catchError).toHaveBeenCalledOnce();
     catchError.mock.calls[0]![0](new Error("disk full"));
-    expect(log).toHaveBeenCalledWith("keep going: b1 check failed: disk full");
+    expect(log).toHaveBeenCalledWith("Agentic Mode: b1 check failed: disk full");
   });
 });
 

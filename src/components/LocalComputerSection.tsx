@@ -264,7 +264,7 @@ export function LocalComputerSection() {
             disabled={loading || pending !== null}
             className="flex items-center gap-1.5 rounded-lg border border-hairline/40 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-40"
           >
-            <RefreshCw size={12} /> Re-check
+            <RefreshCw size={12} /> Re-Check
           </button>
           <button
             type="button"
@@ -272,7 +272,7 @@ export function LocalComputerSection() {
             aria-expanded={setupOpen}
             className="rounded-lg border border-hairline/40 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-control hover:text-ink"
           >
-            {setupOpen ? "Hide Local VM setup" : "Show Local VM setup"}
+            {setupOpen ? "Hide Local VM Setup" : "Show Local VM Setup"}
           </button>
           {ready && !perBot && (
             <a
@@ -281,7 +281,7 @@ export function LocalComputerSection() {
               rel="noreferrer"
               className="flex items-center gap-1.5 rounded-lg border border-hairline/40 px-2.5 py-1 text-[12.5px] text-ink hover:bg-control"
             >
-              <ExternalLink size={12} /> Watch screen
+              <ExternalLink size={12} /> Watch Screen
             </a>
           )}
         </div>
@@ -306,17 +306,17 @@ export function LocalComputerSection() {
                 status?.mode === mode ? "bg-control text-ink" : "text-ink-secondary hover:text-ink",
               )}
             >
-              {mode === "shared" ? "Shared" : "Per bot"}
+              {mode === "shared" ? "Shared" : "Per Bot"}
             </button>
           ))}
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
           <div>
-            <div className="text-[13px] text-ink">Maximum per-bot desktops</div>
+            <div className="text-[13px] text-ink">Maximum per-Bot Desktops</div>
             <div className="text-[11.5px] text-ink-secondary">Limits storage and host resource use; each running desktop may use up to 4 GB and 2 CPUs.</div>
           </div>
           <select
-            aria-label="Maximum per-bot desktops"
+            aria-label="Maximum per-Bot Desktops"
             value={status?.max_instances ?? 2}
             disabled={!status || policyPending}
             onChange={(event) => void savePolicy(status?.mode ?? "shared", Number(event.target.value))}
@@ -330,7 +330,7 @@ export function LocalComputerSection() {
 
       <Card title="Setup" subtitle="Once a container runtime is open, Wink prepares Cua and the VM for you.">
         <div className="flex flex-col gap-4">
-          <Step n={1} title="Install a container runtime" done={Boolean(status?.runtime)}>
+          <Step n={1} title="Install a Container Runtime" done={Boolean(status?.runtime)}>
             <div className="text-[13px] leading-relaxed text-ink-secondary">
               Podman and Colima are free. Docker Desktop may require a paid licence for larger companies and government use.
             </div>
@@ -338,14 +338,14 @@ export function LocalComputerSection() {
               <CommandLine command={c.install} />
             ) : (
               <a href="https://podman.io/docs/installation" target="_blank" rel="noreferrer" className="text-[13px] text-accent hover:underline">
-                Open the Podman installation guide
+                Open the Podman Installation Guide
               </a>
             )}
           </Step>
 
           <Step
             n={2}
-            title={status?.runtime && !status.daemonUp ? `Open and start ${status.runtime}` : "Start the container runtime"}
+            title={status?.runtime && !status.daemonUp ? `Open and Start ${status.runtime}` : "Start the Container Runtime"}
             done={Boolean(status?.daemonUp)}
           >
             {!status?.runtime ? null : c?.runtimeStart ? (
@@ -355,16 +355,16 @@ export function LocalComputerSection() {
             )}
           </Step>
 
-          <Step n={3} title="Prepare the Cua desktop (one-time download and build)" done={Boolean(status?.image)}>
+          <Step n={3} title="Prepare the Cua Desktop (One-Time Download and Build)" done={Boolean(status?.image)}>
             {status?.daemonUp && (
-              <ActionButton action="pull" pending={pending} onClick={() => void act("pull")}>Prepare Cua desktop</ActionButton>
+              <ActionButton action="pull" pending={pending} onClick={() => void act("pull")}>Prepare Cua Desktop</ActionButton>
             )}
-            {c?.pull && <details className="text-[12px] text-ink-secondary"><summary className="cursor-pointer">Show base-image download</summary><div className="mt-2"><CommandLine command={c.pull} /></div></details>}
+            {c?.pull && <details className="text-[12px] text-ink-secondary"><summary className="cursor-pointer">Show Base-Image Download</summary><div className="mt-2"><CommandLine command={c.pull} /></div></details>}
           </Step>
 
           <Step
             n={4}
-            title={perBot ? "Create a private desktop from each bot's Computer panel" : needsRecreate ? "Replace the older or unsafe VM" : "Create and start the Local VM"}
+            title={perBot ? "Create a Private Desktop From Each Bot's Computer Panel" : needsRecreate ? "Replace the Older or Unsafe VM" : "Create and Start the Local VM"}
             done={!perBot && ready}
           >
             {perBot ? (
@@ -383,7 +383,7 @@ export function LocalComputerSection() {
                 </div>
                 {status?.image ? (
                   <ActionButton action="recreate" pending={pending} onClick={() => void act("recreate")} danger>
-                    <RotateCcw size={13} /> Delete and recreate
+                    <RotateCcw size={13} /> Delete and Recreate
                   </ActionButton>
                 ) : (
                   <div className="text-[13px] text-ink-secondary">Prepare the pinned Cua desktop above before replacing this VM.</div>
@@ -396,7 +396,7 @@ export function LocalComputerSection() {
             ) : status?.image ? (
               <ActionButton action="run" pending={pending} onClick={() => void act("run")}>Create Local VM</ActionButton>
             ) : null}
-            {c?.run && <details className="text-[12px] text-ink-secondary"><summary className="cursor-pointer">Show command</summary><div className="mt-2"><CommandLine command={c.run} /></div></details>}
+            {c?.run && <details className="text-[12px] text-ink-secondary"><summary className="cursor-pointer">Show Command</summary><div className="mt-2"><CommandLine command={c.run} /></div></details>}
           </Step>
         </div>
       </Card>
@@ -413,7 +413,7 @@ export function LocalComputerSection() {
 
       {setupOpen && (
       <Card
-        title="Safety and storage"
+        title="Safety and Storage"
         subtitle={perBot
           ? `Cua Driver operates only each VM's desktop. Every bot gets a private host folder mounted at ${status?.workspace_guest_path ?? "/home/cua/workspace"}; its files and browser profile survive VM replacement. Viewers bind only to loopback, and exact bot-derived targets prevent one bot from attaching to another bot's container. Each VM keeps the existing 4 GB, 2 CPU, 512-process and dropped-capability limits. VMs can still reach the internet.`
           : `Cua Driver operates only the VM's desktop. Exactly one private host folder is mounted at ${status?.workspace_guest_path ?? "/home/cua/workspace"}; files and browser sign-ins there survive VM replacement, while everything elsewhere in the VM remains disposable. The password-protected viewer is available only on this machine. Docker and Podman runs are limited to 4 GB memory, 2 CPUs and 512 processes; all Linux capabilities are dropped except the two the desktop supervisor needs to switch to its unprivileged user. The VM can still reach the internet, and bots share it one at a time.`}
@@ -426,7 +426,7 @@ export function LocalComputerSection() {
               </ActionButton>
             )}
             <ActionButton action="remove" pending={pending} onClick={() => void act("remove")} danger>
-              <Trash2 size={12} /> {perBot ? "Delete legacy shared VM" : "Delete VM"}
+              <Trash2 size={12} /> {perBot ? "Delete Legacy Shared VM" : "Delete VM"}
             </ActionButton>
           </div>
         )}

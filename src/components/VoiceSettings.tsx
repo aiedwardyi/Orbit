@@ -97,11 +97,11 @@ export function VoiceSettings({
 
       {(systemVoicesAvailable || provider === "system") && (
         <div className="mt-4">
-          <div className="mb-2 text-[13px] text-ink-secondary">Voice engine</div>
-          <div className="inline-flex rounded-xl bg-inset p-1" role="radiogroup" aria-label="Voice engine">
+          <div className="mb-2 text-[13px] text-ink-secondary">Voice Engine</div>
+          <div className="inline-flex rounded-xl bg-inset p-1" role="radiogroup" aria-label="Voice Engine">
             {([
               { value: "elevenlabs", label: "ElevenLabs", available: true },
-              { value: "system", label: "Built-in Mac voices", available: systemVoicesAvailable },
+              { value: "system", label: "Built-in Mac Voices", available: systemVoicesAvailable },
             ] as const).map((option) => (
               <button
                 key={option.value}
@@ -127,7 +127,7 @@ export function VoiceSettings({
         <div className="mt-4">
         <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
           <span className={cn("size-1.5 rounded-full", configured ? "bg-success" : "bg-raised-hover")} />
-          <span>ElevenLabs key</span>
+          <span>ElevenLabs Key</span>
           {configured && <span className="text-[11px] text-success">Connected</span>}
         </div>
         <div className="flex gap-2">
@@ -137,7 +137,7 @@ export function VoiceSettings({
             onChange={(e) => setKey(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && key.trim() && void saveKey()}
             placeholder={configured ? "••••••••" : "Paste your ElevenLabs API key"}
-            aria-label="ElevenLabs key"
+            aria-label="ElevenLabs Key"
             autoComplete="off"
             className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none"
           />
@@ -156,7 +156,7 @@ export function VoiceSettings({
             rel="noopener noreferrer"
             className="mt-1.5 inline-block text-[12px] font-medium text-accent hover:underline"
           >
-            Get a key from ElevenLabs
+            Get a Key From ElevenLabs
           </a>
         )}
         </div>
@@ -176,11 +176,11 @@ export function VoiceSettings({
                 {loadingVoices
                   ? "Loading voices…"
                   : tts.voice
-                    ? "Workspace default"
+                    ? "Workspace Default"
                     : "Pick a voice"}
               </option>
               {selectedVoice && !voices.some((voice) => voice.id === selectedVoice) && (
-                <option value={selectedVoice}>Current agent voice</option>
+                <option value={selectedVoice}>Current Agent Voice</option>
               )}
               {voices.map((v) => (
                 <option key={v.id} value={v.id}>
@@ -192,8 +192,8 @@ export function VoiceSettings({
             <button
               onClick={() => void speaker.speak(SAMPLE, { voiceId: bot.voice, botId: bot.id })}
               disabled={!ready}
-              title={ready ? "Hear this voice" : "Pick a voice first"}
-              aria-label="Hear this voice"
+              title={ready ? "Hear This Voice" : "Pick a voice first"}
+              aria-label="Hear This Voice"
               className="flex w-[72px] shrink-0 items-center justify-center gap-1.5 rounded-lg bg-control py-2 text-[13px] text-ink hover:bg-raised-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Volume2 size={14} /> Try
@@ -204,12 +204,12 @@ export function VoiceSettings({
 
       <div className="mt-4 flex items-center justify-between gap-4 border-t border-hairline/40 pt-4">
         <div>
-          <div className="text-[13px] font-medium text-ink">Read replies aloud</div>
+          <div className="text-[13px] font-medium text-ink">Read Replies Aloud</div>
         </div>
         <button
           role="switch"
           aria-checked={Boolean(bot.speakReplies)}
-          aria-label="Read this bot's replies aloud"
+          aria-label="Read This Bot's Replies Aloud"
           onClick={() => onPatch({ speakReplies: !bot.speakReplies })}
           className={cn(
             "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors",

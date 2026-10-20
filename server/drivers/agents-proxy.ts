@@ -504,7 +504,7 @@ const TOOLS = [
   {
     name: "set_keep_going",
     description:
-      "Turn this bot's Keep going switch on or off. Turn it on when the user asks you to keep going, work on your own, or be agentic: it approves the task plan's pending steps as they stand now, so save the plan with update_task_state first. On works only in a turn the user started with their own message; off works in any turn.",
+      "Turn this bot's Agentic Mode switch on or off. Turn it on when the user asks you to keep going, work on your own, be agentic, or agentic mode: it approves the task plan's pending steps as they stand now, so save the plan with update_task_state first. On works only in a turn the user started with their own message; off works in any turn.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -945,8 +945,8 @@ async function callTool(name: string, args: Json & TaskStateToolArgs): Promise<{
     });
     return {
       text: args.on
-        ? "Keep going is on for the plan's pending steps. Wink starts the next one when nothing is running."
-        : "Keep going is off. Running work is left alone.",
+        ? "Agentic Mode is on for the plan's pending steps. Wink starts the next one when nothing is running."
+        : "Agentic Mode is off. Running work is left alone.",
     };
   }
   return { text: `Unknown tool: ${name}`, isError: true };
