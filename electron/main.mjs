@@ -142,7 +142,9 @@ const browserConnectionStore = createDescriptorStore({
 });
 let pendingPackageInstallUrl = packageUrlFromCommandLine(process.argv);
 let pendingNotificationTarget = parseNotificationTargetFromCommandLine(process.argv);
+// Queued before any second-instance, so a later jump list click wins.
 const launchUpdateChannel = channelFromCommandLine(process.argv);
+if (launchUpdateChannel) void switchUpdateChannel(launchUpdateChannel);
 
 function deliverNotificationTarget(win, target = pendingNotificationTarget) {
   if (!target || !win || win.isDestroyed()) return;
@@ -2406,7 +2408,6 @@ app.whenReady().then(async () => {
   if (resetFailed) void dialog.showMessageBox(win, { type: "info", message: nativeText("settings.startFresh.error") });
   slog(`window shown packaged=${app.isPackaged} serverReady=${serverReady} uptime=${process.uptime().toFixed(2)}s`);
   startUpdater(win, nativeText);
-  if (launchUpdateChannel) void switchUpdateChannel(launchUpdateChannel);
   if (!app.isPackaged) void startBrowserSurface(win);
   // Register before the packaged harness wait: on Darwin, closing the
   // connecting window does not quit, and a dock click in that interval

@@ -49,6 +49,7 @@ class FakeElectronUpdater extends EventEmitter {
   _offer = null;
   _channel = null;
   hold = null;
+  checkHold = null;
   downloads = [];
   allowDowngrade = false;
 
@@ -79,20 +80,21 @@ class FakeElectronUpdater extends EventEmitter {
     this._repo = options.repo;
   }
 
-  checkForUpdates() {
+  async checkForUpdates() {
     this._log.push("checkForUpdates");
     this.emit("checking-for-update");
+    await this.checkHold;
     let version;
     try {
       version = feedVersion(this._versions, this._repo, this.allowPrerelease);
     } catch (error) {
       this.emit("error", error);
-      return Promise.reject(error);
+      throw error;
     }
     const isUpdateAvailable = isNewerVersion(version, this._running) || (this.allowDowngrade && isNewerVersion(this._running, version));
     if (isUpdateAvailable) this._offer = version;
     this.emit(isUpdateAvailable ? "update-available" : "update-not-available", { version });
-    return Promise.resolve({ isUpdateAvailable, updateInfo: { version } });
+    return { isUpdateAvailable, updateInfo: { version } };
   }
 
   downloadUpdate() {
@@ -108,7 +110,7 @@ class FakeElectronUpdater extends EventEmitter {
   }
 }
 
-function launch(t, { platform = "win32", running = "1.0.192", channelFile, versions = {}, responses = [] } = {}) {
+function launch(t, { platform = "win32", running = "1.0.192", channelFile, versions = {}, responses = [], early = [] } = {}) {
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), "updater-"));
   t.after(() => fs.rmSync(userData, { recursive: true, force: true }));
   if (channelFile) updateChannel.writeUpdateChannel(userData, channelFile);
@@ -179,6 +181,7 @@ function launch(t, { platform = "win32", running = "1.0.192", channelFile, versi
     .replace(/^export /gm, "");
   h.api = vm.runInContext(`${source}\n({ startUpdater, switchUpdateChannel, updaterBridge, consumePendingUpdateInstall })`, context);
   const win = { isDestroyed: () => false, webContents: { send() {} } };
+  for (const next of early) h.api.switchUpdateChannel(next);
   h.api.startUpdater(win, (key, vars) => translate("en", key, vars));
   h.timerList = () => h.timers.map(({ kind, ms }) => `${kind} ${ms}`);
   h.status = () => h.api.updaterBridge.state().status;
@@ -301,4 +304,31 @@ test("the jump list task goes once a stable build runs on the stable channel", a
   // The first launch after a rollback clears the task the dev build left behind.
   const afterRollback = launch(t, { channelFile: "stable", versions: { "orbit-releases": "1.0.192" } });
   assert.deepEqual(afterRollback.tasks, [[]]);
+});
+
+test("a channel flag that lands before the updater starts is applied once it does", async (t) => {
+  const h = launch(t, { running: "1.0.193-dev.45", channelFile: "dev", versions: { "orbit-releases": "1.0.192", Orbit: "1.0.193-dev.47" }, responses: [0], early: ["dev", "stable"] });
+  for (let i = 0; i < 10; i += 1) await flush();
+  assert.equal(updateChannel.readUpdateChannel(h.userData), "stable");
+  assert.deepEqual(h.updater.downloads, ["1.0.192"]);
+  assert.equal(h.dialogs[0]?.message, "Wink 1.0.192 is ready.");
+  assert.deepEqual(h.quits, ["quit"]);
+});
+
+test("joining dev during a stable check checks the dev feed once that check settles", async (t) => {
+  const h = launch(t, { versions: { "orbit-releases": "1.0.192", Orbit: "1.0.193-dev.46" } });
+  const stableCheck = deferred();
+  h.updater.checkHold = stableCheck.promise;
+  h.timers[0].callback();
+  await flush();
+  assert.equal(h.status(), "checking");
+
+  const join = h.api.switchUpdateChannel("dev");
+  await flush();
+  h.updater.checkHold = null;
+  stableCheck.resolve();
+  await join;
+  assert.deepEqual(h.probes, ["orbit-releases", "Orbit"]);
+  assert.equal(h.status(), "available");
+  assert.equal(h.api.updaterBridge.state().version, "1.0.193-dev.46");
 });

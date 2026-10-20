@@ -28,6 +28,7 @@ let channel = "stable";
 let checkTimer = null;
 let leavingDev = null;
 let nativeText = null;
+let pendingChannel = null;
 
 export function consumePendingUpdateInstall() {
   const pending = pendingUpdateInstall;
@@ -97,13 +98,18 @@ export function retargetUpdater(mainWindow) {
 
 /** Moves this PC to a channel. Leaving dev stages the latest stable and asks before restarting. */
 export async function switchUpdateChannel(next) {
-  if (!updaterCoordinator || process.platform !== "win32") return;
+  if (process.platform !== "win32") return;
+  // A jump list click can land while the app is still starting; startUpdater applies it.
+  if (!updaterCoordinator) {
+    pendingChannel = next;
+    return;
+  }
   try {
     channel = writeUpdateChannel(app.getPath("userData"), next);
     scheduleChecks();
     syncJumpList();
     if (channel === "dev") {
-      await updaterCoordinator.check(true);
+      await updaterCoordinator.check(true, true);
       return;
     }
     // A second click while one is staging joins it instead of stacking prompts.
@@ -206,4 +212,9 @@ export function startUpdater(mainWindow, text) {
   // receive the timer's argument as `manual` and start reporting errors again.
   setTimeout(() => void updaterCoordinator?.check(), 15_000).unref?.();
   scheduleChecks();
+  if (pendingChannel) {
+    const next = pendingChannel;
+    pendingChannel = null;
+    void switchUpdateChannel(next);
+  }
 }

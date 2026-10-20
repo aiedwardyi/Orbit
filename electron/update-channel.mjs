@@ -36,7 +36,11 @@ export function readUpdateChannel(userDataDir) {
 export function writeUpdateChannel(userDataDir, channel) {
   if (!CHANNELS.includes(channel)) return readUpdateChannel(userDataDir);
   fs.mkdirSync(userDataDir, { recursive: true });
-  fs.writeFileSync(channelPath(userDataDir), `${JSON.stringify({ channel })}\n`, "utf8");
+  const target = channelPath(userDataDir);
+  // A torn write would read as stable and silently drop the opt-in.
+  const temp = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, `${JSON.stringify({ channel })}\n`, "utf8");
+  fs.renameSync(temp, target);
   return channel;
 }
 

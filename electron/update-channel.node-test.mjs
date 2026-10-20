@@ -99,6 +99,19 @@ test("the channel file keeps dev or stable and ignores anything else", (t) => {
   assert.equal(readUpdateChannel(dir), "stable");
 });
 
+test("a write that dies midway leaves the old channel file intact", (t) => {
+  const dir = userData(t);
+  writeUpdateChannel(dir, "dev");
+  const write = fs.writeFileSync;
+  t.mock.method(fs, "writeFileSync", (file) => {
+    write(file, "{");
+    throw new Error("disk full");
+  });
+  assert.throws(() => writeUpdateChannel(dir, "stable"), /disk full/);
+  t.mock.restoreAll();
+  assert.equal(readUpdateChannel(dir), "dev");
+});
+
 test("only --update-channel=dev or =stable picks a channel from the command line", () => {
   assert.equal(channelFromCommandLine(["Orbit.exe", "--update-channel=dev"]), "dev");
   assert.equal(channelFromCommandLine(["Orbit.exe", "--allow-file-access-from-files", "--update-channel=stable"]), "stable");
