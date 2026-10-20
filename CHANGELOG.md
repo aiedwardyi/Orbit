@@ -2,6 +2,21 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.194] - 2026-10-20
+
+### Added
+- Keep going: a per-bot switch that starts the next approved plan step every 30 minutes while the bot is idle. A small mark on the avatar and chat header shows when it is on, and telling a bot "keep going" turns it on.
+- A bot gets a short note to move details into side files when its memory nears the size limit.
+
+### Changed
+- Workers get their context note at about 80% of the window, and Wink types the save-progress line into the worker itself.
+- Messages from other bots show on the left under a "Message from" label.
+- Shorter text in bot settings.
+
+### Fixed
+- Claude Code menus in worker panes redrawing in the wrong place.
+- Worker panes dropping the user's own status line on some PCs.
+
 ## [1.0.193] - 2026-10-20
 
 ### Added
@@ -88,6 +103,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.194]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.194
 [1.0.193]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.193
 [1.0.192]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.192
 [1.0.191]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.191
