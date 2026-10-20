@@ -506,6 +506,37 @@ describe("KeepGoing server wiring", () => {
   const usage = source.slice(usageStart + "  usage: ".length, source.indexOf(",\n  livePanes:", usageStart));
   const readUsage = new Function("scope", `with (scope) { return (${usage})("b1"); }`);
 
+  it("resumes paused wakes when Settings enables Keep going, including an off/on retry", async () => {
+    const h = harness();
+    const routeStart = source.indexOf('    m = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/keep-going$/);');
+    const route = source.slice(routeStart, source.indexOf('\n    m = path.match(', routeStart + 1));
+    expect(routeStart).toBeGreaterThan(-1);
+    const handle = new Function("scope", `with (scope) { return (async () => { ${route} })(); }`);
+    const resumePaneWakes = vi.fn(() => { h.state.wakesPaused = false; });
+    const scope = {
+      path: "/api/bots/b1/keep-going", method: "POST", m: null, req: {}, res: {},
+      readBody: async () => ({ on: true }), json: vi.fn(),
+      store: { bot: () => ({ id: "b1", threadId: "t1" }) },
+      keepGoing: h.keepGoing, taskPacketForWrite: () => h.state.packet,
+      resumePaneWakes, wireBot: vi.fn(), broadcast: vi.fn(),
+    };
+    for (const retry of [false, true]) {
+      if (retry) {
+        scope.readBody = async () => ({ on: false });
+        h.state.wakesPaused = true;
+        await handle(scope);
+        expect(h.state.wakesPaused).toBe(true);
+      }
+      h.state.wakesPaused = true;
+      scope.readBody = async () => ({ on: true });
+      await handle(scope);
+      await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Write tests" });
+      h.state.now += KEEP_GOING_INTERVAL_MS;
+    }
+    expect(resumePaneWakes).toHaveBeenCalledTimes(2);
+    expect(resumePaneWakes).toHaveBeenCalledWith("b1");
+  });
+
   it.each(["missing", "stale", "empty"])("refreshes and saves %s usage without replacing a newer observation", async (kind) => {
     const previous = kind === "missing" ? undefined : {
       windows: kind === "empty" ? [] : [{ id: "five_hour", usedPercent: 99, resetsAt: null }],

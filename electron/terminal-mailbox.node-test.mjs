@@ -81,6 +81,44 @@ function runPs1Direct({ ps1, env, args, input }) {
   });
 }
 
+test("the status Bash resolver prefers the override and installed Git and rejects WSL", { skip: !WIN32, timeout: 30_000 }, async (t) => {
+  const { dir, bin } = await installBin();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const script = readFileSync(path.join(bin, "orbit-status.ps1"), "utf8");
+  const resolver = script.match(/function Get-StatusBash \{[\s\S]*?\r?\n\}/)?.[0];
+  assert.ok(resolver, "status wrapper must define its Bash resolver");
+  const git = "C:\\Program Files\\Git\\cmd\\git.exe";
+  const bash = "C:\\Program Files\\Git\\bin\\bash.exe";
+  const wsl = "C:\\Windows\\System32\\bash.exe";
+  const fallback = "D:\\tools\\bash.exe";
+  const cases = [
+    { override: fallback, git, paths: [wsl], files: [bash], expected: fallback },
+    { override: "", git, paths: [wsl], files: [bash], expected: bash },
+    { override: "", git: "", paths: [wsl, fallback], files: [], expected: fallback },
+    { override: "", git: "", paths: [wsl], files: [], expected: "" },
+    { override: wsl, git, paths: [wsl], files: [bash], expected: bash },
+  ];
+  const data = Buffer.from(JSON.stringify(cases)).toString("base64");
+  const probe = path.join(dir, "resolver.ps1");
+  writeFileSync(probe, `${resolver}
+function Get-Command {
+  [CmdletBinding()] param($Name, [switch]$All)
+  if ($Name -eq 'git.exe' -and $case.git) { [pscustomobject]@{ Source = $case.git } }
+  if ($Name -eq 'bash.exe') { $case.paths | ForEach-Object { [pscustomobject]@{ Source = $_ } } }
+}
+function Test-Path { param($LiteralPath) $case.files -contains $LiteralPath }
+$cases = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${data}')) | ConvertFrom-Json
+foreach ($case in $cases) {
+  $env:CLAUDE_CODE_GIT_BASH_PATH = $case.override
+  [Console]::WriteLine([string](Get-StatusBash))
+}
+`);
+  const out = await runPs1Direct({ ps1: probe, env: process.env, args: [] });
+  assert.equal(out.status, 0, out.stderr);
+  assert.equal(out.stderr, "");
+  assert.deepEqual(out.stdout.replace(/\r/g, "").split("\n").slice(0, -1), cases.map((entry) => entry.expected));
+});
+
 const GIT_BASH = "C:\\Program Files\\Git\\bin\\bash.exe";
 
 function runShDirect({ sh, env, args, input }) {

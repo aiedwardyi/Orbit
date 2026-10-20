@@ -2196,7 +2196,7 @@ const contextScreen = (footer) => `\x1b[2J\x1b[H✻ Worked for 54m 33s · done 1
 const contextNotes = (f) => f.notes.map((note) => note.text).filter((text) => text.startsWith("CONTEXT:"));
 const NO_SAVE = "It could not get the save line; terminal_read the pane.";
 const SAVE_LINE = "Context is getting full. Update your progress file now (done, in flight, left), then continue.";
-const busyScreen = (footer, typed = "") => `\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n${"─".repeat(40)}\r\n> ${typed}\r\n${"─".repeat(40)}\r\n${footer}\r\n`;
+const busyScreen = (footer, typed = "") => `\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n${"─".repeat(40)}\r\n> ${typed}\r\n${"─".repeat(40)}\r\n${footer}\r\n${typed ? `\x1b[${3 + Math.floor((typed.length + 2) / 120)};${(typed.length + 2) % 120 + 1}H` : ""}`;
 
 for (const [name, engine, footer, context] of [
   ["Claude near its 500k compact window", "claude", "  ⏵⏵ bypass permissions on · 3% until auto-compact", { left: 3 }],
@@ -2420,6 +2420,28 @@ test("a save line that never shows gets no Enter and the chief gets the note", a
   assert.deepEqual(contextNotes(f), [`CONTEXT: W is at 60% of its window. ${NO_SAVE}`]);
 });
 
+for (const [name, screen] of [
+  ["menu-appears-before-enter", `> ${SAVE_LINE}\r\nAllow this command?\r\n❯ 1. Yes\r\n  2. No\r\nctx 245k/300k\r\n`],
+  ["menu over the active input", busyScreen("❯ 1. Yes\r\n  2. No\r\nctx 245k/300k", SAVE_LINE)],
+  ["permission prompt over the active input", busyScreen("Allow this command? (y/n)\r\nctx 245k/300k", SAVE_LINE)],
+  ["save line in old output", `${SAVE_LINE}\r\n${busyScreen("ctx 245k/300k").replace(/\x1b\[2J\x1b\[H/, "")}\x1b[4;3H`],
+  ["only the save-line suffix in input", busyScreen("ctx 245k/300k", SAVE_LINE.replace(/\s+/g, "").slice(-16))],
+]) {
+  test(`a delayed save-line Enter refuses ${name}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+    f.children[0].data(busyScreen("ctx 245k/300k"));
+    await f.advance(10_000);
+    assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE]);
+    f.children[0].data(`\x1b[2J\x1b[H${screen}`);
+    await f.advance(10_000);
+    await f.advance(10_000);
+    assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE]);
+    assert.deepEqual(contextNotes(f), [`CONTEXT: W is at 245k of 300k. ${NO_SAVE}`]);
+  });
+}
+
 test("the worker status line prints its tokens of the compact window after the user's own line", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orbit-status-line-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -2431,7 +2453,7 @@ test("the worker status line prints its tokens of the compact window after the u
   const status = { model: { display_name: "Opus" }, context_window: { total_input_tokens: 241_234, context_window_size: 1_000_000, used_percentage: 24, remaining_percentage: 76 } };
   const out = await new Promise((resolve, reject) => {
     const child = execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "300000"],
-      { windowsHide: true, env: { ...process.env, CLAUDE_CONFIG_DIR: dir } },
+      { windowsHide: true, env: { ...process.env, CLAUDE_CONFIG_DIR: dir, CLAUDE_CODE_GIT_BASH_PATH: "" } },
       (error, stdout) => error ? reject(error) : resolve(stdout));
     child.stdin.end(JSON.stringify(status));
   });

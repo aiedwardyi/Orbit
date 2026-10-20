@@ -201,7 +201,6 @@ const CONTEXT_FOOTER_LINES = 6;
 const CONTEXT_NOTE_TOKENS = 200_000;
 const CONTEXT_EARLY_SHARE = 0.8;
 const CONTEXT_SAVE_LINE = "Context is getting full. Update your progress file now (done, in flight, left), then continue.";
-const CONTEXT_SAVE_TAIL = CONTEXT_SAVE_LINE.replace(/\s+/g, "").slice(-16);
 // Both queue typed text while busy; a menu would take the Enter as a pick.
 const SAVE_LINE_ENGINES = new Set(["claude", "codex"]);
 const PANE_MENU_RE = /^\s*[❯›]\s*\d+\.\s/u;
@@ -248,6 +247,18 @@ function contextNoteText(label, context) {
 
 const canTakeSaveLine = (screenText, engine) => SAVE_LINE_ENGINES.has(engine) && AGENT_BUSY_RE.test(screenText)
   && !screenText.split("\n").filter((line) => line.trim()).slice(-STALL_TAIL_LINES).some((line) => PANE_MENU_RE.test(line));
+
+function canSubmitSaveLine(screen, engine) {
+  const { screenText, cursor } = screen;
+  const lines = screenText.split("\n");
+  if (!canTakeSaveLine(screenText, engine) || lines.some((line) => PANE_MENU_RE.test(line))
+    || /Allow .+\?|Do you want to (?:proceed|allow|run)|Would you like to (?:proceed|run)|\(y\/n\)|esc to cancel|enter to (?:confirm|select)/i.test(screenText)) return false;
+  if (cursor.col !== lines[cursor.row]?.length) return false;
+  let start = cursor.row;
+  while (start > 0 && !/^\s*[>❯›] /u.test(lines[start])) start -= 1;
+  const input = lines.slice(start, cursor.row + 1).join("").replace(/^\s*[>❯›] /u, "");
+  return input.replace(/\s+/g, "") === CONTEXT_SAVE_LINE.replace(/\s+/g, "");
+}
 
 function finishedNoteText(screenText) {
   const tail = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES).join("\n");
@@ -523,7 +534,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           }
         } else if (note.save === "typed" && at - note.typedAt >= SAVE_ENTER_MS) {
           // Text plus Enter in one write can land in Claude Code as a paste that never submits.
-          note.save = text.replace(/\s+/g, "").includes(CONTEXT_SAVE_TAIL) ? "sent" : "failed";
+          note.save = canSubmitSaveLine(session.screen.snapshot({ maxScrollbackChars: 0 }), session.engine) ? "sent" : "failed";
           if (note.save === "sent") typeIntoPane(session, "\r");
         }
         if (note.save === "failed" && session.mail && at >= note.retryAt) postNote(session, note, contextNoteText(session.label, context), () => { note.retryAt = Infinity; });
