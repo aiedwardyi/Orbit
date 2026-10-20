@@ -249,7 +249,7 @@ describe("SettingsPanel memory and order", () => {
         root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
       });
       expect(host.querySelector('button[role="switch"][aria-label="자동 메모"]')).not.toBeNull();
-      expect(host.textContent).toContain("채팅 속 사실을 메모리에 저장");
+      expect(host.textContent).toContain("채팅 속 사실을 메모리에 저장해요.");
     } finally {
       localStorage.removeItem("omb-locale");
     }
