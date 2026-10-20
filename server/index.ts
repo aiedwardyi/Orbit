@@ -4379,6 +4379,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     clearUnattended(bot.id);
     resumePaneWakes(bot.id);
   }
+  keepGoing.turnStarted(bot.id, threadId, !opts?.unattended && turnStartedByUser(opts));
   const task = store.taskByThread(bot.id, threadId);
   if (!task) throw Object.assign(new Error("no such task"), { status: 404 });
   const latencySendId = opts?.sendId ?? opts?.userMessage?.sendId;
@@ -5252,6 +5253,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           showImagePrompt +
           (detailedRepliesEnabled(cfg) ? DETAILED_REPLY_INSTRUCTIONS : ALWAYS_REPLY_INSTRUCTIONS) +
           CORPUS_SEARCH_INSTRUCTIONS +
+          keepGoing.rules(bot.id) +
           sectionContextSystemPrompt(bot.section) +
           (privateWorkspace ? memorySystemPrompt(bot.id) + skillsSystemPrompt(bot.id) : "") +
           skillInstructions +
@@ -7352,6 +7354,18 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const patched = store.toggleReaction(fromThreadId, target.id, emoji, fromBotId);
         if (!patched) return json(res, 404, { error: "message not found" });
         return json(res, 200, { ok: true });
+      }
+      // The set_keep_going tool; the switch row gets the change through the bot broadcast.
+      if (method === "POST" && path === "/api/internal/keep-going") {
+        const body = await readBody(req);
+        const from = store.bot(String(body.fromBotId ?? ""));
+        if (!from) return json(res, 403, { error: "unknown sender" });
+        if (typeof body.on !== "boolean") return json(res, 400, { error: "on must be true or false" });
+        const fromThreadId = String(body.fromThreadId ?? "");
+        const result = keepGoing.fromTool(from.id, fromThreadId, body.on, body.on ? taskPacketForWrite(fromThreadId) : null);
+        if ("error" in result) return json(res, 403, result);
+        broadcast({ kind: "bot", bot: wireBot(from) });
+        return json(res, 200, result);
       }
       // The ask_user tool: pins a question for the user without pausing the
       // bot. Never sets waiting-on-you; the answer is the user's next message.

@@ -3,10 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { estimateContextTokens } from "./context-compaction.ts";
 import {
   inBenchWindow,
   KEEP_GOING_DAILY_CAP,
   KEEP_GOING_INTERVAL_MS,
+  KEEP_GOING_RULES,
   KeepGoing,
   keepGoingTurnOptions,
   type KeepGoingDeps,
@@ -321,5 +323,61 @@ describe("KeepGoing tick", () => {
     restarted.tick();
     await Promise.resolve();
     expect(h.dispatch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("KeepGoing rules block", () => {
+  it("rides the turn instructions only while the switch is on", () => {
+    const h = harness();
+    expect(h.keepGoing.rules("b1")).toBe("");
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    expect(h.keepGoing.rules("b1")).toBe(` ${KEEP_GOING_RULES}`);
+    expect(KEEP_GOING_RULES).toContain("Ask only for logins, deletes, money, or push/merge/release rules.");
+    expect(estimateContextTokens([{ text: KEEP_GOING_RULES }]) - 6).toBeLessThanOrEqual(100);
+    h.keepGoing.disable("b1");
+    expect(h.keepGoing.rules("b1")).toBe("");
+  });
+});
+
+describe("KeepGoing set_keep_going", () => {
+  it("refuses on from a turn the user did not start", () => {
+    const h = harness();
+    h.keepGoing.turnStarted("b1", "t1", false);
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet)).toEqual({ error: expect.stringContaining("user") });
+    h.keepGoing.turnStarted("b1", "t1", true);
+    expect(h.keepGoing.fromTool("b1", "t2", true, h.state.packet)).toHaveProperty("error");
+    expect(h.keepGoing.view("b1")).toBeNull();
+  });
+
+  it("snapshots the approval from a turn the user started", async () => {
+    const h = harness();
+    h.keepGoing.turnStarted("b1", "t1", true);
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet)).toEqual({ ok: true });
+    expect(h.keepGoing.view("b1")).toEqual({ paused: null });
+    setPlan(h, [{ step: "Write tests", status: "done" }, { step: "Build UI", status: "pending" }, { step: "Push to main", status: "pending" }]);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Build UI" });
+    setPlan(h, [{ step: "Build UI", status: "done" }, { step: "Push to main", status: "pending" }]);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "no-approved-step" });
+  });
+
+  it("turns off from any turn", () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.keepGoing.turnStarted("b1", "t9", false);
+    expect(h.keepGoing.fromTool("b1", "t9", false, null)).toEqual({ ok: true });
+    expect(h.keepGoing.view("b1")).toBeNull();
+  });
+});
+
+describe("KeepGoing dispatch failure", () => {
+  it("logs the failure only and reports it as a skip", async () => {
+    const log = vi.fn();
+    const h = harness();
+    h.deps.log = log;
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.state.dispatchError = new Error("engine down");
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "dispatch-failed" });
+    expect(log.mock.calls.map(([line]) => line)).toEqual(["keep going: b1 dispatch failed: engine down"]);
+    expect(h.keepGoing.receipts("b1")).toEqual([expect.objectContaining({ outcome: "failed" })]);
   });
 });

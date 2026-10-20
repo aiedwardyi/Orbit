@@ -15,6 +15,8 @@ const BENCH_ZONE = "Asia/Seoul";
 const BENCH_FROM = 3 * 60 + 45;
 const BENCH_TO = 5 * 60;
 const RECEIPTS_KEPT = 40;
+export const KEEP_GOING_RULES =
+  `Keep going is on. Don't end a turn while an approved step waits and nothing is running: start it. No question cards or "want me to" offers: decide on merit and report what you did. Ask only for logins, deletes, money, or push/merge/release rules.`;
 
 export type KeepGoingSkip =
   | "off"
@@ -33,7 +35,8 @@ export type KeepGoingSkip =
   | "usage-stale"
   | "usage-low"
   | "panes-unknown"
-  | "workers-running";
+  | "workers-running"
+  | "dispatch-failed";
 
 export type KeepGoingResult = { dispatched: string } | { skipped: KeepGoingSkip };
 export type KeepGoingView = { paused: "no-progress" | "bot-paused" | "other-pc" | null } | null;
@@ -160,6 +163,8 @@ export class KeepGoing {
   private bots: Record<string, Entry> = {};
   private readonly lastCheck = new Map<string, number>();
   private readonly checking = new Set<string>();
+  /** Bot id to the thread of its current turn, only when the user typed it. */
+  private readonly userTurns = new Map<string, string>();
 
   constructor(deps: KeepGoingDeps) {
     this.deps = deps;
@@ -199,6 +204,24 @@ export class KeepGoing {
     delete entry.paused;
     this.lastCheck.delete(botId);
     this.save();
+  }
+
+  /** Turn instructions while the switch is on; empty when off. */
+  rules(botId: string): string {
+    return this.bots[botId]?.on ? ` ${KEEP_GOING_RULES}` : "";
+  }
+
+  turnStarted(botId: string, threadId: string, byUser: boolean): void {
+    if (byUser) this.userTurns.set(botId, threadId);
+    else this.userTurns.delete(botId);
+  }
+
+  /** The set_keep_going tool: on is the user's approval, so only a turn they typed may give it. */
+  fromTool(botId: string, threadId: string, on: boolean, packet: TaskResumePacket | null): { ok: true } | { error: string } {
+    if (!on) this.disable(botId);
+    else if (this.userTurns.get(botId) !== threadId) return { error: "only a turn the user started with their own message can turn keep going on" };
+    else this.enable(botId, threadId, packet);
+    return { ok: true };
   }
 
   pause(botId: string, reason: NonNullable<Entry["paused"]>): void {
@@ -271,6 +294,7 @@ export class KeepGoing {
       receipt.outcome = "failed";
       this.save();
       this.log(`keep going: ${botId} dispatch failed: ${error instanceof Error ? error.message : String(error)}`);
+      return { skipped: "dispatch-failed" };
     }
     this.log(`keep going: ${botId} started "${gate.step}"`);
     return { dispatched: gate.step };
