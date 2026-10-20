@@ -210,7 +210,7 @@ export interface SendTurnInput {
   /** The bot's Ask for approval / Auto chip. Omitted keeps the driver's own mode. */
   approval?: "ask" | "auto";
   /** A person is present for this turn. Only then does background work it
-   * starts keep Auto approvals after it settles. */
+   * starts keep Auto approvals for desktop control after it settles. */
   attended?: boolean;
   /** Per-bot integrations the driver may hand to the agent as tools. */
   integrations?: {

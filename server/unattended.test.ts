@@ -1,15 +1,18 @@
-// Auto mode must not follow a turn that nobody started.
+// An Ask bot's always-allow grants must not follow a turn that nobody started.
 //
 // The unit tests in auto-approve.test.ts pin the RULE; these pin the
 // WIRING, which is the part that silently rots. Both of these pass if the
 // unattended mark is never set, or set on the wrong key, or never read —
 // so they are written to fail in exactly those cases:
 //
-//   1. a webhook delivery to a bot with auto mode ON must still produce an
-//      approval card, not a silent auto-approval
+//   1. a webhook delivery to an Ask bot with the exact key granted must still
+//      produce an approval card, not a silent auto-approval
 //   2. and so must the turn that bot hands to a teammate — the gate has to
 //      survive the peer-comms hop, or it protects the bot that read the
 //      payload and releases the one that acts on it
+//
+// The counterpart pins the other side: an Auto bot's webhook turn proceeds
+// with no card.
 import type { ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -130,14 +133,14 @@ posixOnly("unattended turns keep asking", () => {
   });
 
   it(
-    "still asks a human when a webhook starts the turn, even with auto mode on",
+    "still asks a human when a webhook starts the turn, even with the grant",
     async () => {
       const bot = (await api("POST", "/api/bots")).body.bot;
-      // auto mode ON: an attended turn would sail straight through
+      // the fake asks for `echo hi`, so an attended turn would sail straight through
       expect(
         (
           await api("PATCH", `/api/bots/${bot.id}`, {
-            autoApprove: true,
+            alwaysAllow: ["shell:echo"],
             modelSelection: { instanceId: "grok", model: "fake-model" },
           })
         ).status,
@@ -173,6 +176,50 @@ posixOnly("unattended turns keep asking", () => {
   );
 
   it(
+    "lets an Auto bot's webhook turn proceed without a card",
+    async () => {
+      const bot = (await api("POST", "/api/bots")).body.bot;
+      expect(
+        (
+          await api("PATCH", `/api/bots/${bot.id}`, {
+            autoApprove: true,
+            modelSelection: { instanceId: "grok", model: "fake-model" },
+          })
+        ).status,
+      ).toBe(200);
+
+      const hook = await api("POST", "/api/webhooks", {
+        name: "Nightly sweep",
+        prompt: "Handle the incoming build event",
+        botId: bot.id,
+        runOn: "maus",
+      });
+      expect(hook.status).toBe(201);
+
+      const delivered = await fetch(hook.body.credential.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "failed" }),
+      });
+      expect(delivered.status).toBe(202);
+      const { runId } = (await delivered.json()) as { runId: string };
+
+      const threadId = await waitForRunThread(runId);
+      expect(threadId, "the webhook never started a task").toBeTruthy();
+
+      const deadline = Date.now() + 30_000;
+      let messages: Array<{ kind: string; card?: { requestId?: string }; tool?: { approval?: boolean } }> = [];
+      while (Date.now() < deadline && !messages.some((m) => m.tool?.approval)) {
+        messages = (await api("GET", `/api/threads/${threadId}/messages`)).body.messages ?? [];
+        if (!messages.some((m) => m.tool?.approval)) await new Promise((r) => setTimeout(r, 250));
+      }
+      expect(messages.some((m) => m.tool?.approval), "an Auto bot's webhook turn was not auto-approved").toBe(true);
+      expect(messages.some((m) => m.kind === "options" && m.card?.requestId)).toBe(false);
+    },
+    60_000,
+  );
+
+  it(
     "keeps asking after the work is handed to a teammate",
     async () => {
       // A runs the webhook and delegates; B does the acting. Without the
@@ -182,7 +229,7 @@ posixOnly("unattended turns keep asking", () => {
       const teammate = created.body.bot;
       await api("PATCH", `/api/bots/${teammate.id}`, {
         name: "Teammate",
-        autoApprove: true,
+        alwaysAllow: ["shell:echo"],
         modelSelection: { instanceId: "grok", model: "fake-model" },
       });
 
@@ -239,7 +286,7 @@ posixOnly("unattended turns keep asking", () => {
       const target = (await api("POST", "/api/bots")).body.bot;
       await api("PATCH", `/api/bots/${target.id}`, {
         name: "Answerer",
-        autoApprove: true,
+        alwaysAllow: ["shell:echo"],
         modelSelection: { instanceId: "grok", model: "fake-model" },
       });
 

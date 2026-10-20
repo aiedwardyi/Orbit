@@ -28,6 +28,7 @@ import { redactSecrets } from "./redact.ts";
 
 export type DecisionKind =
   | "auto-approved"
+  | "auto-denied"
   | "card-shown"
   | "user-approved"
   | "user-denied"

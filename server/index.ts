@@ -33,7 +33,7 @@ import {
   type CredentialTargetId,
 } from "../shared/credential-request.ts";
 
-import { approvalKey, autoVerdict, BACKGROUND_DENY_NOTE } from "./auto-approve.ts";
+import { approvalKey, autoVerdict, AWAY_DESKTOP_DENY_NOTE, BACKGROUND_DENY_NOTE } from "./auto-approve.ts";
 import { requestReview, resolveAutoReviewMode, shouldReview } from "./auto-review.ts";
 import {
   resolveAutomaticSelection,
@@ -3263,8 +3263,8 @@ bus.subscribe((event: RuntimeEvent) => {
         });
         break;
       }
-      // A background ask comes only from work an attended Auto turn started;
-      // the driver captured that at launch, and the mark may have aged since.
+      // A background ask comes only from work an Auto turn started, and the
+      // driver kept desktop asks to attended ones; the mark may have aged since.
       const unattended = permission && asker && event.requestId && !event.background ? isUnattended(asker.id) : false;
       // Verdicts run on the original event. The bus redacts only the NDJSON
       // tee; SSE/broadcast (PR72) redacts the client copy. Masking first
@@ -3273,6 +3273,48 @@ bus.subscribe((event: RuntimeEvent) => {
       const verdict = permission && asker && event.requestId && (!event.background || asker.autoApprove)
         ? autoVerdict(asker, event.tool, event.summary, { unattended, scope: event.approvalScope })
         : null;
+      if (verdict?.source === "away-desktop-deny" && asker && event.requestId) {
+        const instance = event.providerInstanceId
+          ? registry.get(event.providerInstanceId)
+          : registry.get(asker.modelSelection.instanceId);
+        const requestId = event.requestId;
+        const { tool, summary } = event;
+        // answered at once: a desktop card nobody can see would stall the turn
+        const deny = async () => {
+          if (!instance) throw new Error("provider unavailable");
+          const outcome = await instance.adapter.respondToRequest(event.threadId, requestId, { behavior: "deny", message: AWAY_DESKTOP_DENY_NOTE });
+          if (outcome === "unavailable") throw new Error("the ask is no longer open");
+        };
+        void (async () => {
+          try {
+            // retried once: no card is shown, so a failed deny leaves the ask open until the broker times out
+            await deny().catch(deny);
+            pushMessage({
+              role: "bot",
+              kind: "activity",
+              tool: { name: `Skipped desktop control while you were away: ${summary.slice(0, 120)}`, ok: false },
+            });
+            appendDecision(DATA_DIR, {
+              threadId: event.threadId,
+              requestId,
+              botId: asker.id,
+              botName: asker.name,
+              tool,
+              summary,
+              decision: "auto-denied",
+              source: verdict.source,
+              unattended: true,
+            });
+          } catch {
+            pushMessage({
+              role: "bot",
+              kind: "activity",
+              tool: { name: `Auto mode couldn't answer: ${summary.slice(0, 120)}`, ok: false },
+            });
+          }
+        })();
+        break;
+      }
       if (verdict?.approve && asker && event.requestId) {
         const settled = verdict.approve;
         const instance = event.providerInstanceId
@@ -3307,6 +3349,7 @@ bus.subscribe((event: RuntimeEvent) => {
               decision: "auto-approved",
               source: verdict.source,
               rule: verdict.rule,
+              unattended: unattended || undefined,
             });
           } catch {
             if (asker.autoApprove || event.background) {
