@@ -59,6 +59,9 @@ export const PRESTART_LIMIT = 3;
 export const PRESTART_IDLE_MS = 10 * 60_000;
 // A stray Enter on an empty Claude prompt submits its suggestion as a real turn.
 const BOT_PANE_ENV = { CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: "false" };
+// STATUS_DLL_INIT_FAILED: the shell died loading, before it ran anything.
+const DLL_INIT_FAILED = 0xC0000142;
+const RESPAWN_MS = 5_000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -263,6 +266,12 @@ function canSubmitSaveLine(screen, engine) {
 function finishedNoteText(screenText) {
   const tail = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES).join("\n");
   return `FINISHED: command ended without a report. terminal_read its pane, then act or tell the user. Last lines:\n${tail}`;
+}
+
+function exitNoteText(screenText, exitCode) {
+  const tail = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES).join("\n");
+  const text = `EXITED: pane shell ended with code ${exitCode} (0x${(exitCode >>> 0).toString(16).toUpperCase()}) before a report. terminal_read the pane list, then respawn or tell the user.`;
+  return tail ? `${text} Last lines:\n${tail}` : text;
 }
 
 // This -EncodedCommand lands in history, so the first prompt only records the id; Write-Error keeps a failed $? for the user's prompt.
@@ -488,6 +497,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         if (at < finished.retryAt) continue;
         postNote(session, finished, finishedNoteText(finished.text), () => { session.finished = session.finished.filter((entry) => entry !== finished); });
       }
+      const exitNote = session.exitNote;
+      if (exitNote && at >= exitNote.retryAt) postNote(session, exitNote, exitNote.text, () => { session.exitNote = null; });
       const auto = session.autoNote;
       // Once tried, or once its pane is gone, the busy and job checks no longer apply.
       if (auto && (auto.tries || exited)) {
@@ -503,7 +514,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         }
       }
       if (exited) {
-        if (!session.autoNote && !session.finished.length) exitNotes.delete(session);
+        if (!session.autoNote && !session.finished.length && !session.exitNote) exitNotes.delete(session);
         continue;
       }
       if (!session.worker || session.retired || session.exitCode !== null) continue;
@@ -665,9 +676,16 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const liveSessions = () => [...active.values()].filter((id) => sessions.get(id)?.exitCode === null).length;
   const reportExit = (session, exitCode) => {
     if (session.retired) return;
+    if (session.botPane && !session.respawned && exitCode >>> 0 === DLL_INIT_FAILED && now() - session.startedAt < RESPAWN_MS && !session.screen.text().trim()) {
+      void respawn(session, exitCode);
+      return;
+    }
     if (session.botPane) paneRuns?.ended(session.id);
-    if (session.exitCode === null) session.exitCode = exitCode;
-    if (session.autoNote || session.finished.length) exitNotes.add(session);
+    if (session.exitCode === null) {
+      session.exitCode = exitCode;
+      if (session.botPane && session.mail && exitCode !== 0 && !session.reportAt) session.exitNote = { text: exitNoteText(session.screen.text(), exitCode), tries: 0, retryAt: 0 };
+    }
+    if (session.autoNote || session.finished.length || session.exitNote) exitNotes.add(session);
     clearActivityTimer(session);
     session.activityArmed = false;
     reportAttention(session, exitCode === 0 ? "exit" : "error");
@@ -690,8 +708,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     retireQuietly(session, true, true);
   };
   const attach = (session) => {
-    session.pty.onData((data) => {
-      if (session.retired) return;
+    const { pty } = session;
+    pty.onData((data) => {
+      if (session.retired || session.pty !== pty) return;
       session.output += data;
       if (session.output.length > OUTPUT_LIMIT) {
         session.output = session.output.slice(-OUTPUT_LIMIT);
@@ -723,9 +742,36 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (!parsed.bell && echo.text.trim()) scheduleActivity(session);
       emit(session, "terminal:data", { id: session.id, data, seq: ++session.seq });
     });
-    session.pty.onExit(({ exitCode }) => reportExit(session, exitCode));
+    pty.onExit(({ exitCode }) => { if (session.pty === pty) reportExit(session, exitCode); });
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The test adapter predates worker error events.
-    if (typeof session.pty.onError === "function") session.pty.onError((error) => fail(session, error));
+    if (typeof pty.onError === "function") pty.onError((error) => { if (session.pty === pty) fail(session, error); });
+  };
+  // Writes that land mid-respawn wait for the new shell.
+  const respawn = async (session, exitCode) => {
+    session.respawned = true;
+    session.respawn = [];
+    let pty;
+    try {
+      pty = await session.spawn();
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may expose readiness only when worker-backed.
+      if (pty.ready && typeof pty.ready.then === "function") await timeout(pty.ready, readyTimeoutMs, "Terminal worker did not become ready");
+    } catch {
+      session.respawn = null;
+      reportExit(session, exitCode);
+      return;
+    }
+    const queued = session.respawn;
+    session.respawn = null;
+    if (session.retired) {
+      void stopInTurn(async () => pty.kill()).catch(() => {});
+      return;
+    }
+    session.pty = pty;
+    attach(session);
+    if (Number.isInteger(pty.pid)) {
+      try { setPriority(pty.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
+    }
+    for (const text of session.command && !queued.includes(session.command) ? [session.command, ...queued] : queued) typeIntoPane(session, text);
   };
   const start = async ({ key, event, input, folder, cwd, cancelPromise, botPane = false }) => {
     const shell = platform === "win32"
@@ -737,22 +783,23 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     const mail = await Promise.resolve().then(mailbox).catch(() => null);
     const paneEnv = terminalPaneEnv(terminalEnvironment(env), { pane: id, bot: input.botId, teacher: folder.teacher, mailbox: mail });
     if (botPane) Object.assign(paneEnv, BOT_PANE_ENV, { ORBIT_COMPACT_SIGNAL: path.join(os.tmpdir(), `orbit-compact-${id}`) });
+    const spawn = () => loadPty().spawn(shell, platform === "win32" ? (botPane ? workerShellArgs(id) : ["-NoLogo"]) : [], {
+      name: "xterm-256color", cols: input.cols, rows: input.rows, cwd, env: paneEnv, useConptyDll: platform === "win32",
+    });
     let pty;
     try {
-      pty = await loadPty().spawn(shell, platform === "win32" ? (botPane ? workerShellArgs(id) : ["-NoLogo"]) : [], {
-        name: "xterm-256color", cols: input.cols, rows: input.rows, cwd, env: paneEnv, useConptyDll: platform === "win32",
-      });
+      pty = await spawn();
     } catch (cause) {
       throw errorValue(cause);
     }
     const session = {
-      id, key, botId: input.botId, botPane, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
+      id, key, botId: input.botId, botPane, owner: event.sender, cwd, shell, pty, spawn, startedAt: now(), respawned: false, respawn: null, command: null, output: "", exitCode: null, seq: 0,
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
-      reported: false, finished: [], autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, contextNote: null, contextCompactPending: false,
+      reported: false, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, contextNote: null, contextCompactPending: false,
     };
     session.outputParser = createTerminalOutputParser((osc) => {
       if (!session.botPane || osc !== `133;D;${session.id}`) return;
@@ -822,6 +869,10 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (session.botPane) paneRuns?.started({ id: session.id, botId: session.botId, teacher: session.teacher, label: session.label, cwd: session.cwd, spawnedAt: session.spawnedAt });
     }
     if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
+    if (session.respawn) {
+      session.respawn.push(text);
+      return undefined;
+    }
     try {
       return session.pty.write(text);
     } catch (cause) {
@@ -1227,7 +1278,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       emit(session, "terminal:opened", { id: session.id, botId, label: label ?? null, generation: session.generation });
       if (input.command) {
         const command = normalizeTerminalText(input.command);
-        await botWrite(session, command.endsWith("\r") ? command : `${command}\r`);
+        session.command = command.endsWith("\r") ? command : `${command}\r`;
+        await botWrite(session, session.command);
       }
       return { sessionId: session.id, generation: session.generation };
     },
