@@ -165,7 +165,7 @@ export function createGroupRoutes(deps: GroupRouteDeps) {
       if (!group) return json(res, 404, { error: "no such channel" });
       if (group.dm) return json(res, 400, { error: "bot-to-bot channels keep one canonical conversation" });
       if (channelTaskBlocked(group)) {
-        return json(res, 409, { error: "this channel is working or waiting on you — finish that turn first" });
+        return json(res, 409, { error: "this channel is working or waiting on you - finish that turn first" });
       }
       const body = await readBody(req);
       if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -184,7 +184,7 @@ export function createGroupRoutes(deps: GroupRouteDeps) {
       if (!group) return json(res, 404, { error: "no such channel" });
       if (group.dm) return json(res, 400, { error: "bot-to-bot channels keep one canonical conversation" });
       if (channelTaskBlocked(group)) {
-        return json(res, 409, { error: "this channel is working or waiting on you — finish that turn first" });
+        return json(res, 409, { error: "this channel is working or waiting on you - finish that turn first" });
       }
       const switched = store.switchGroupTask(group.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such channel task" });
@@ -200,7 +200,7 @@ export function createGroupRoutes(deps: GroupRouteDeps) {
       if (!group) return json(res, 404, { error: "no such channel" });
       if (group.dm) return json(res, 400, { error: "bot-to-bot channels keep one canonical conversation" });
       if (channelTaskBlocked(group)) {
-        return json(res, 409, { error: "this channel is working or waiting on you — finish that turn first" });
+        return json(res, 409, { error: "this channel is working or waiting on you - finish that turn first" });
       }
       const body = await readBody(req);
       if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -215,7 +215,7 @@ export function createGroupRoutes(deps: GroupRouteDeps) {
       if (!group) return json(res, 404, { error: "no such channel" });
       if (group.dm) return json(res, 400, { error: "bot-to-bot channels keep one canonical conversation" });
       if (channelTaskBlocked(group)) {
-        return json(res, 409, { error: "this channel is working or waiting on you — finish that turn first" });
+        return json(res, 409, { error: "this channel is working or waiting on you - finish that turn first" });
       }
       if (!store.groupTaskByThread(group.id, m[2])) return json(res, 404, { error: "no such channel task" });
       lastReply.delete(m[2]);
@@ -236,7 +236,7 @@ export function createGroupRoutes(deps: GroupRouteDeps) {
         channelTaskBlocked(existing) &&
         (body.memberIds !== undefined || body.defaultResponder !== undefined || body.bulletin !== undefined)
       ) {
-        return json(res, 409, { error: "this channel is working or waiting on you — finish that turn first" });
+        return json(res, 409, { error: "this channel is working or waiting on you - finish that turn first" });
       }
       const patch: Record<string, unknown> = {};
       if (body.name !== undefined) {
@@ -280,7 +280,7 @@ export function createGroupRoutes(deps: GroupRouteDeps) {
         patch.cwd = checked.cwd ?? undefined;
       }
       // one pinned message per room; null/"" clears. The id is not
-      // validated against the transcript here — a pin whose message was
+      // validated against the transcript here - a pin whose message was
       // edited away or deleted simply resolves to nothing in the UI.
       if (body.pinnedMessageId !== undefined) {
         if (body.pinnedMessageId === null || body.pinnedMessageId === "") patch.pinnedMessageId = undefined;
@@ -313,7 +313,7 @@ export function createGroupRoutes(deps: GroupRouteDeps) {
       const group = store.group(m[1]);
       if (!group) return json(res, 404, { error: "no such room" });
       if (groupIsWorking(group)) {
-        return json(res, 409, { error: "this channel is working — stop that turn first" });
+        return json(res, 409, { error: "this channel is working - stop that turn first" });
       }
       const threadIds = new Set([group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)]);
       for (const threadId of threadIds) lastReply.delete(threadId);
