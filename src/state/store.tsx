@@ -616,6 +616,8 @@ export interface AppState {
   settingsOpen: boolean;
   /** Bumps when the chat avatar asks bot details to open the avatar picker. */
   settingsAvatarRequest: number;
+  /** Bumps when the chat header's keep going mark asks bot details to show that switch. */
+  settingsKeepGoingRequest: number;
   pluginsOpen: boolean;
   computerOpen: boolean;
   /** the per-thread event inspector (runtime stream + native protocol tee) */
@@ -904,7 +906,7 @@ export type Action =
   | { type: "stopReleased"; botId: string; until: number }
   | { type: "connected"; value: boolean }
   | { type: "error"; message: string | null }
-  | { type: "toggleSettings"; open?: boolean; avatar?: boolean }
+  | { type: "toggleSettings"; open?: boolean; avatar?: boolean; keepGoing?: boolean }
   | { type: "togglePlugins"; open?: boolean }
   | { type: "toggleComputer"; open?: boolean }
   | { type: "toggleInspector"; open?: boolean }
@@ -1570,6 +1572,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         settingsOpen: open,
         settingsAvatarRequest: !open ? 0 : action.avatar ? (state.settingsAvatarRequest ?? 0) + 1 : 0,
+        settingsKeepGoingRequest: !open ? 0 : action.keepGoing ? (state.settingsKeepGoingRequest ?? 0) + 1 : 0,
         computerOpen: open ? false : state.computerOpen,
         inspectorOpen: open ? false : state.inspectorOpen,
         appSettingsOpen: open ? false : state.appSettingsOpen,
@@ -2050,6 +2053,7 @@ export const initialState: AppState = {
   composerFocusBotId: null,
   settingsOpen: false,
   settingsAvatarRequest: 0,
+  settingsKeepGoingRequest: 0,
   pluginsOpen: false,
   computerOpen: false,
   inspectorOpen: false,

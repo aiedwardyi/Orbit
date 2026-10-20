@@ -67,6 +67,7 @@ import { MIN_QUERY, SearchResults } from "./SearchResults";
 import { TeamLibraryPanel, type TeamImportResult } from "./TeamLibraryPanel";
 import { RenameTitle } from "./RenameTitle";
 import { GroupWizard } from "./GroupWizard";
+import { KeepGoingMark, keepGoingMarkState } from "./KeepGoingMark";
 import { ConfirmDialog } from "./ConfirmDialog";
 import {
   displaySidebarWidth,
@@ -885,6 +886,8 @@ function BotListItem({
   const question = chatNeedsYou(bot.messages);
   const asking = question || routineRinging(state.routineRuns, bot.threadId, bot.tasks);
   const unreadRing = Boolean(bot.unread) && !asking;
+  const keepGoing = keepGoingMarkState(bot);
+  const keepGoingLabel = keepGoing ? t(keepGoing === "on" ? "bot.keepGoingOnMark" : "bot.keepGoingPausedMark") : undefined;
   const arrival = useArrivalGlow([bot.id], { enabled: !selected, asking });
   const rowClass = cn(
     "flex w-full items-center rounded-xl border text-left",
@@ -898,7 +901,7 @@ function BotListItem({
     unreadRing && "relative unread-ring",
     arrival.playing && "relative arrival-glow",
   );
-  const iconLabel = modelLabel ? `${bot.name} · ${modelLabel}` : bot.name;
+  const iconLabel = [bot.name, modelLabel, keepGoingLabel].filter(Boolean).join(" · ");
   const body = (
     <>
       <span className={cn("relative shrink-0", iconOnly && "inline-flex")}>
@@ -925,6 +928,19 @@ function BotListItem({
             )}
             style={{ backgroundColor: modelFamilyAccent(engine?.driverKind) }}
           />
+        )}
+        {keepGoing && (
+          <span
+            data-sidebar-keep-going={keepGoing}
+            role="img"
+            aria-label={keepGoingLabel}
+            className={cn(
+              "pointer-events-none absolute bottom-0 right-0 rounded-full",
+              selected ? "bg-raised ring-2 ring-raised" : "bg-panel ring-2 ring-panel",
+            )}
+          >
+            <KeepGoingMark state={keepGoing} size={avatarSize >= 44 ? 12 : 10} />
+          </span>
         )}
         {(terminalCopy || workerPanesLabel) && (
           <span className="absolute -right-1 -top-1 z-10 flex">
