@@ -90,11 +90,15 @@ describe("ask-user endpoint", () => {
   });
 
   it("lets a room persist only an ask_user card's answered or dismissed state", () => {
-    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
-    const route = source.slice(source.indexOf("m = path.match(/^\\/api\\/groups\\/([\\w-]+)\\/cards\\/([\\w-]+)$/);"));
+    const source = readFileSync(new URL("./group-routes.ts", import.meta.url), "utf8");
+    const route = source.slice(source.indexOf("patchCard: async ("));
     const handler = route.slice(0, route.indexOf("return json(res, 200, { message: patched });"));
     expect(handler).toContain('if (!existing?.card?.askUser) return json(res, 404, { error: "no such card" });');
     expect(handler).toContain("askUserCardPatchSchema.parse(await readBody(req))");
+    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const cards = index.slice(index.indexOf("m = path.match(/^\\/api\\/groups\\/([\\w-]+)\\/cards\\/([\\w-]+)$/);"));
+    const guard = cards.slice(0, cards.indexOf("m = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/messages$/);"));
+    expect(guard).toMatch(/^m = path\.match\(.+\);\s+if \(m && method === "PATCH"\) \{\s+return await groupRoutes\.patchCard\(req, res, m\);\s+\}\s+$/);
     expect(askUserCardPatchSchema.parse({ answered: "Prod", dismissed: "yes", requestId: "r1" })).toEqual({ answered: "Prod" });
     expect(askUserCardPatchSchema.parse({ dismissed: true })).toEqual({ dismissed: true });
   });
