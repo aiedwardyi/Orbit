@@ -342,6 +342,7 @@ describe("profile fill from Google sign-in", () => {
     const fill = await googleProfileFill(idToken({ name: " Ada Lovelace ", picture: PICTURE }), SESSION.sub, () => ({ name: "  " }), save, fetch);
     expect(fill).toEqual({ name: "Ada Lovelace", avatarUrl: "/api/attachments/saved.png" });
     expect(String(fetch.mock.calls[0]![0])).toBe(PICTURE);
+    expect(fetch.mock.calls[0]![1]).toMatchObject({ redirect: "error" });
     expect(save).toHaveBeenCalledWith(PNG, "image/png");
   });
 
@@ -385,6 +386,7 @@ describe("profile fill from Google sign-in", () => {
     ["an HTTP error", picture(new Response("nope", { status: 404 })), PICTURE],
     ["a non-image body", picture(new Response("<html>")), PICTURE],
     ["an oversized picture", picture(new Response(Buffer.concat([PNG, Buffer.alloc(1024 * 1024)]))), PICTURE],
+    ["an oversized picture with no length", picture(new Response(new Blob([PNG, new Uint8Array(1024 * 1024)]).stream())), PICTURE],
     ["a non-Google host", picture(), "https://evil.example/photo.png"],
     ["plain http", picture(), "http://lh3.googleusercontent.com/a/photo"],
   ])("leaves the default avatar after %s and still fills the name", async (_case, fetch, url) => {

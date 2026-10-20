@@ -89,10 +89,22 @@ async function fetchPicture(url: string, fetch: typeof globalThis.fetch): Promis
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:" || !PICTURE_HOST.test(parsed.hostname)) return null;
-    const response = await fetch(parsed, { signal: AbortSignal.timeout(10_000) });
-    if (!response.ok || Number(response.headers.get("content-length") ?? 0) > PICTURE_MAX_BYTES) return null;
-    const bytes = Buffer.from(await response.arrayBuffer());
-    const mime = bytes.byteLength <= PICTURE_MAX_BYTES ? sniffImageMime(bytes) : null;
+    // A redirect could leave the allowed host, so refuse it.
+    const response = await fetch(parsed, { redirect: "error", signal: AbortSignal.timeout(10_000) });
+    if (!response.ok || !response.body || Number(response.headers.get("content-length")) > PICTURE_MAX_BYTES) return null;
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for (let read = await reader.read(); !read.done; read = await reader.read()) {
+      size += read.value.byteLength;
+      if (size > PICTURE_MAX_BYTES) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(read.value);
+    }
+    const bytes = Buffer.concat(chunks);
+    const mime = sniffImageMime(bytes);
     return mime ? { bytes, mime } : null;
   } catch {
     return null;

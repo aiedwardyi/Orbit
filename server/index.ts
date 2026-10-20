@@ -558,7 +558,7 @@ googleAccount.onSession(() => {
   const sub = googleAccount.owner()?.sub;
   if (!idToken || !sub) return;
   void googleProfileFill(idToken, sub, () => cfg.profile, (bytes, mime) => botAvatarUrlFromStoredPath(saveImage(bytes, mime).path)).then((fill) => {
-    if (!fill) return;
+    if (!fill || googleAccount.owner()?.sub !== sub) return;
     saveConfig({ profile: fill });
     Object.assign(cfg, loadConfig());
     if (fill.name) phoneAccess.nameChanged();
