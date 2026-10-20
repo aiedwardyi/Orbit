@@ -299,6 +299,25 @@ describe("ChatView target-side peer chips", () => {
     expect(rowLabel(host, "first reply")).toBe("Reply to @Atlas");
   });
 
+  it("shows the peer's message on the left like the asker side, with no edit control", async () => {
+    const { host } = await mount(bot([received, inbound]));
+    const row = host.querySelector<HTMLElement>('[data-mid="inbound"] [data-orbit-message]');
+    expect(row?.className).not.toMatch(/items-end|animate-msg-in/);
+    expect(row?.getAttribute("data-orbit-message")).toBe("peer");
+    expect(row?.querySelector("[data-peer-body]")?.textContent).toBe("Check the release.");
+    expect(row?.querySelector(".bg-bubble-user, [data-message-hover-actions], [aria-label='Edit message']")).toBeNull();
+    await act(async () => { row?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 10, clientY: 10 })); });
+    expect(document.querySelector("[data-message-menu]")?.textContent).toContain("Copy");
+  });
+
+  it("keeps Edward's own message on the right with its edit control", async () => {
+    const { host } = await mount(bot([received, inbound, text("Edward's question", "user")]));
+    const row = host.querySelector(`[data-mid="Edward's question"] [data-orbit-message]`);
+    expect(row?.getAttribute("data-orbit-message")).toBe("user");
+    expect(row?.className).toContain("items-end");
+    expect(row?.querySelector("[aria-label='Edit message']")).not.toBeNull();
+  });
+
   it.each([["en", "Open the conversation with Atlas"], ["ko", "Atlas 대화 열기"]])("titles the chip in %s", async (locale, title) => {
     localStorage.setItem("omb-locale", locale);
     const { host } = await mount(bot([received]));

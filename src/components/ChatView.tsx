@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Dispatch } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type HTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -583,35 +583,50 @@ const Bubble = memo(function Bubble({
       }
       : null;
 
+  const menuProps: HTMLAttributes<HTMLDivElement> = {
+    ...holdToOpen(menuTarget && ((x, y, opener) => onMessageMenu({ kind: "message", x, y, opener, target: menuTarget }))),
+    onContextMenu: menuTarget ? (e) => {
+      if (isTouchPrimary() || !(e.target instanceof Element)) return;
+      const kind = contextClickKind(e.target, e.clientX, e.clientY);
+      if (kind === "native") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onMessageMenu(kind === "selection"
+        ? { kind, x: e.clientX, y: e.clientY, opener: e.currentTarget, text: window.getSelection()?.toString() ?? "" }
+        : { kind, x: e.clientX, y: e.clientY, opener: e.currentTarget, target: menuTarget });
+    } : undefined,
+    onKeyDown: menuTarget ? (e) => {
+      if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+      if (e.target instanceof Element && keepsNativeMenu(e.target)) return;
+      e.preventDefault();
+      const rect = e.currentTarget.getBoundingClientRect();
+      onMessageMenu({
+        kind: "message",
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+        opener: e.currentTarget,
+        target: menuTarget,
+      });
+    } : undefined,
+  };
+
+  // a teammate's message lands as a user row; it reads as theirs, like the asker side's
+  if (user && message.from) {
+    return (
+      <div data-orbit-message="peer" className="group flex w-full flex-col items-start outline-none" tabIndex={-1} {...menuProps}>
+        <div className="orbit-message-speaker hidden">{message.from.name}</div>
+        <PeerMessageBody text={text} />
+        <TimestampLabel at={message.at} />
+      </div>
+    );
+  }
+
   return (
     <div
       data-orbit-message={user ? "user" : "bot"}
       className={cn("group flex w-full flex-col outline-none", user ? "animate-msg-in items-end" : "items-start")}
       tabIndex={-1}
-      {...holdToOpen(menuTarget && ((x, y, opener) => onMessageMenu({ kind: "message", x, y, opener, target: menuTarget })))}
-      onContextMenu={menuTarget ? (e) => {
-        if (isTouchPrimary() || !(e.target instanceof Element)) return;
-        const kind = contextClickKind(e.target, e.clientX, e.clientY);
-        if (kind === "native") return;
-        e.preventDefault();
-        e.stopPropagation();
-        onMessageMenu(kind === "selection"
-          ? { kind, x: e.clientX, y: e.clientY, opener: e.currentTarget, text: window.getSelection()?.toString() ?? "" }
-          : { kind, x: e.clientX, y: e.clientY, opener: e.currentTarget, target: menuTarget });
-      } : undefined}
-      onKeyDown={menuTarget ? (e) => {
-        if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
-        if (e.target instanceof Element && keepsNativeMenu(e.target)) return;
-        e.preventDefault();
-        const rect = e.currentTarget.getBoundingClientRect();
-        onMessageMenu({
-          kind: "message",
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2,
-          opener: e.currentTarget,
-          target: menuTarget,
-        });
-      } : undefined}
+      {...menuProps}
     >
       {/* padded so the docked action row below the bubble
           keeps out of the timestamp and reaction chips that follow it */}
