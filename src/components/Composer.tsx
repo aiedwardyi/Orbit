@@ -74,6 +74,7 @@ import { pinnedQuestion } from "@/lib/open-question";
 import { usePresence } from "@/lib/use-presence";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { MessageMenu, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
 
 /** The active @mention query at the caret: the text between an `@` that
  * starts a word and the caret. null = no mention being typed. */
@@ -158,7 +159,7 @@ function queuedFromRoomHold(hold: PersistedRoomHold, draftId: string): QueuedGro
 }
 
 // An absolute child sits on the frame's padding box; the inset reaches out over each skin's border.
-function RainbowRing() {
+function RainbowRing({ theme }: { theme: boolean }) {
   const ring = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const el = ring.current;
@@ -174,7 +175,7 @@ function RainbowRing() {
     return () => appearance.disconnect();
   }, []);
   return (
-    <span ref={ring} aria-hidden data-orbit-rainbow>
+    <span ref={ring} aria-hidden data-orbit-rainbow={theme ? "theme" : ""}>
       <span />
     </span>
   );
@@ -549,6 +550,17 @@ export function Composer({
   const dropQueued = useCallback((sendId: string) => {
     commitQueued(queuedRef.current.filter((entry) => entry.draft.sendId !== sendId));
   }, [commitQueued]);
+  const [queuedMenu, setQueuedMenu] = useState<MessageMenuRequest | null>(null);
+  const openQueuedMenu = (entry: QueuedGroupSend, x: number, y: number, opener: HTMLElement) => {
+    setQueuedMenu({
+      kind: "message", x, y, opener,
+      target: {
+        threadId, message: { id: entry.draft.sendId, role: "user", kind: "text", text: entry.text, at: 0 },
+        copyText: entry.text, user: true, pinned: false, canPin: false,
+        queued: { cancel: () => dropQueued(entry.draft.sendId) },
+      },
+    });
+  };
   // a chip on its own is a message: the send control has to appear for it
   const fileInput = useRef<HTMLInputElement>(null);
   const pickFiles = async (picked: readonly File[]) => {
@@ -919,6 +931,20 @@ export function Composer({
         {queued.map((entry) => (
           <div
             key={entry.draft.sendId}
+            tabIndex={-1}
+            {...holdToOpen((x, y, opener) => openQueuedMenu(entry, x, y, opener))}
+            onContextMenu={(e) => {
+              if (isTouchPrimary() || !(e.target instanceof Element) || keepsNativeMenu(e.target)) return;
+              e.preventDefault();
+              e.stopPropagation();
+              openQueuedMenu(entry, e.clientX, e.clientY, e.currentTarget);
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+              e.preventDefault();
+              const box = e.currentTarget.getBoundingClientRect();
+              openQueuedMenu(entry, box.left + box.width / 2, box.top + box.height / 2, e.currentTarget);
+            }}
             className="mb-2 flex items-center gap-2 rounded-lg border border-hairline/40 bg-panel px-3 py-2 text-[12.5px] text-ink-secondary"
           >
             <Clock size={13} className="shrink-0" />
@@ -997,8 +1023,8 @@ export function Composer({
             aria-hidden
             className="absolute -left-5 -right-5 top-[calc(100%-1.5rem)] h-[50vh] bg-app"
           />
-        <div data-orbit-composer-frame data-rainbow={rainbow ? "" : undefined} className="relative grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-3xl bg-raised px-3 pb-2 pt-1">
-          {rainbow && <RainbowRing />}
+        <div data-orbit-composer-frame data-rainbow={rainbow === "off" ? undefined : ""} className="relative grid grid-cols-[auto_1fr_auto] items-center gap-x-2 rounded-3xl bg-raised px-3 pb-2 pt-1">
+          {rainbow !== "off" && <RainbowRing theme={rainbow === "theme"} />}
           <input
             ref={fileInput}
             type="file"
@@ -1222,6 +1248,12 @@ export function Composer({
         </div>
         </div>
       </div>
+      {queuedMenu?.kind === "message" && (
+        <MessageMenu
+          x={queuedMenu.x} y={queuedMenu.y} opener={queuedMenu.opener} target={queuedMenu.target}
+          onReply={() => {}} onPin={() => {}} onClose={() => setQueuedMenu(null)}
+        />
+      )}
       {sendPreview.value && (
         <ConfirmDialog
           closing={sendPreview.closing}

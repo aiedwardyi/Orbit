@@ -186,7 +186,7 @@ function stubPlatform(platform: string) {
 
 describe("message menu helpers", () => {
   it("lists the six quick reactions", () => {
-    expect(QUICK_REACTIONS).toEqual(["👍", "👎", "❤️", "😂", "🎉", "🔥"]);
+    expect(QUICK_REACTIONS).toEqual(["👍", "👎", "❤️", "😂", "😮", "🔥"]);
     for (const emoji of QUICK_REACTIONS) expect(EXTENDED_REACTIONS).toContain(emoji);
   });
 
@@ -197,12 +197,14 @@ describe("message menu helpers", () => {
     expect(copyShortcutHint()).toBe("Cmd+C");
   });
 
-  it("keeps the native menu on links and editable fields", () => {
+  it("keeps the native menu on links, images and editable fields", () => {
     const host = document.createElement("div");
-    host.innerHTML = '<a href="https://example.com">docs</a><textarea></textarea><input /><p>plain</p>';
+    host.innerHTML = '<a href="https://example.com">docs</a><button data-file-link><span>clip.mp4</span></button><img src="shot.png" alt="" /><textarea></textarea><input /><p>plain</p>';
     document.body.append(host);
     try {
       expect(contextClickKind(host.querySelector("a")!, 1, 1)).toBe("native");
+      expect(contextClickKind(host.querySelector("[data-file-link] span")!, 1, 1)).toBe("native");
+      expect(contextClickKind(host.querySelector("img")!, 1, 1)).toBe("native");
       expect(contextClickKind(host.querySelector("textarea")!, 1, 1)).toBe("native");
       expect(contextClickKind(host.querySelector("input")!, 1, 1)).toBe("native");
       expect(contextClickKind(host.querySelector("p")!, 1, 1)).toBe("message");
@@ -265,6 +267,15 @@ describe("message menu in 1:1 chats", () => {
     expect(menuReactions()[0]!.getAttribute("role")).toBe("menuitemcheckbox");
     expect(menuReactions()[0]!.getAttribute("aria-checked")).toBe("true");
     await act(async () => { menuReactions()[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(storeMessage("thread-helper", "b1")?.reactions).toBeUndefined();
+  });
+
+  it("keeps a retired gem chip visible and removable", async () => {
+    expect(EXTENDED_REACTIONS).not.toContain("💎");
+    const host = await mountChat(bot([botMsg("b1", "hello", { reactions: [{ emoji: "💎", by: "user" }] })]));
+    const chip = host.querySelector('[data-mid="b1"] [data-message-reactions] button')!;
+    expect(chip.textContent).toContain("💎");
+    await act(async () => { chip.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     expect(storeMessage("thread-helper", "b1")?.reactions).toBeUndefined();
   });
 

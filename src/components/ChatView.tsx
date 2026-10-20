@@ -78,7 +78,7 @@ import { DeviceTag } from "./DeviceSwitcher";
 import { RenameTitle } from "./RenameTitle";
 import { TaskPicker } from "./TaskPicker";
 import { ReactionBar, ReactionChips } from "./Reactions";
-import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
+import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest, type MessageMenuTarget } from "./MessageMenu";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
@@ -100,6 +100,7 @@ import { pinPreview } from "@/lib/pin-preview";
 import { BOTTOM_FOLLOW_THRESHOLD, captureTranscriptScroll, newestBelowView, restoreTranscriptScroll, shouldResumeBottomFollow, spaceAfterNewestRow, transcriptUnderfilled, type TranscriptScroll } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
 import { placeTooltip } from "@/lib/tooltip-position";
+import { PLAIN_TOOLTIP_CLASS } from "@/lib/tooltips";
 import { TRANSCRIPT_GAP, useComposerDockPad } from "@/lib/composer-dock";
 import {
   TRANSCRIPT_WINDOW_SIZE,
@@ -438,7 +439,7 @@ function TimestampLabel({ at, hidden = false }: { at: number; hidden?: boolean }
             // hidden for the one commit it takes to measure, so it never
             // paints in the corner on the way to its place
             style={{ top: box?.top ?? 0, left: box?.left ?? 0, visibility: box ? "visible" : "hidden" }}
-            className="pointer-events-none fixed z-40 max-w-[min(20rem,calc(100vw-1rem))] rounded-md border border-hairline/40 bg-panel px-2 py-1 text-[11px] text-ink-secondary shadow-sm"
+            className={PLAIN_TOOLTIP_CLASS}
           >
             {full}
           </div>,
@@ -506,6 +507,7 @@ const Bubble = memo(function Bubble({
   streaming = false,
   dock,
   sendsNext = false,
+  queuedActions,
   onStartEdit,
   onCancelEdit,
   onSubmitEdit,
@@ -524,6 +526,7 @@ const Bubble = memo(function Bubble({
   streaming?: boolean;
   dock?: ReplyDock;
   sendsNext?: boolean;
+  queuedActions?: MessageMenuTarget["queued"];
   onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
   onSubmitEdit: (id: string, text: string) => void;
@@ -568,7 +571,7 @@ const Bubble = memo(function Bubble({
   };
 
   const menuTarget =
-    message.kind === "text" && !message.placeholder
+    message.kind === "text" && (!message.placeholder || queuedActions)
       ? {
         threadId,
         message,
@@ -576,6 +579,7 @@ const Bubble = memo(function Bubble({
         user,
         pinned,
         canPin: user || (!streaming && !dock?.live),
+        queued: queuedActions,
       }
       : null;
 
@@ -1467,7 +1471,7 @@ function phoneMenuBounds(menu: HTMLElement): PhoneHeaderBox {
   };
 }
 
-// The chat stage slides on a bot switch while the menu stays put, so the chip is compared unslid.
+// Compare the chip and menu before their switch animations.
 function stageShift(header: HTMLElement, menu: HTMLElement) {
   let x = 0;
   let y = 0;
@@ -1475,6 +1479,11 @@ function stageShift(header: HTMLElement, menu: HTMLElement) {
     const shift = transformShift(getComputedStyle(el).transform);
     x += shift.x;
     y += shift.y;
+  }
+  for (let el: HTMLElement | null = menu; el && !el.contains(header); el = el.parentElement) {
+    const shift = transformShift(getComputedStyle(el).transform);
+    x -= shift.x;
+    y -= shift.y;
   }
   return { x, y };
 }
@@ -1966,8 +1975,8 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const liveTail = laterCount === 0 && !jump.messages;
   const listedStreaming = liveTail ? streamingMessage : null;
 
-  // Once reply text shows, the mascot docks in that reply's action strip and
-  // stays until a row lands below it. At turn end it fades out in place.
+  // Docks under reply text while it streams, and fades there at turn end.
+  // A live dock after the buffer clears would sit on that reply's time.
   let tail: Message | null = listedStreaming;
   for (let i = listed.length - 1; liveTail && !tail && i >= 0; i--) {
     if (messageVisible(listed[i], { showToolCalls, showActivities, transcript: messages })) tail = listed[i];
@@ -2535,6 +2544,13 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                 editing={false}
                 isLastBotText={false}
                 sendsNext={sendsNext && index === 0}
+                queuedActions={{
+                  // Send now steers the running turn; a preparing turn has nothing to steer into yet.
+                  sendNow: engine?.capabilities?.queueing === true && turnSignal !== "preparing" && pending?.some((entry) => entry.queueId === m.id && entry.sendId)
+                    ? () => dispatch({ type: "sendQueuedNow", botId: bot.id, threadId: bot.threadId, queueId: m.id })
+                    : undefined,
+                  cancel: () => dispatch({ type: "cancelQueued", botId: bot.id, threadId: bot.threadId, queueId: m.id }),
+                }}
                 onStartEdit={startEdit}
                 onCancelEdit={cancelEdit}
                 onSubmitEdit={submitEdit}

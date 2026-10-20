@@ -15,10 +15,10 @@ concurrency:
 
 jobs:
   # Windows is the supported dogfood target for this release line.
-  test:
-    name: typecheck + test (Windows)
+  checks:
+    name: typecheck + build + checks (Windows)
     runs-on: windows-latest
-    timeout-minutes: 35
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
@@ -29,8 +29,98 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm build
-      - run: pnpm test
       - run: pnpm check:electron
+      - run: node scripts/check-skin-contrast.mjs
+      - run: pnpm broker:test
+
+  vitest:
+    name: vitest (Windows, shard ${{ matrix.shard }})
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node node_modules/vitest/vitest.mjs run --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=default --reporter=json --outputFile.json=vitest-${{ matrix.shard }}.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() }}
+        with:
+          name: vitest-${{ matrix.shard }}
+          path: vitest-${{ matrix.shard }}.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 7
+
+  node-tests:
+    name: node tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:updater
+      - run: pnpm test:desktop-viewer
+      - run: pnpm test:package-link
+      - run: pnpm test:open-file
+      - run: pnpm test:server-boot-probe
+      - run: pnpm test:packaged-server
+      - run: pnpm test:terminal
+
+  test:
+    name: typecheck + test (Windows)
+    needs: [checks, vitest, node-tests]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: vitest-*
+          path: vitest-results
+          merge-multiple: true
+      - name: Check Windows jobs and whole-suite test floor
+        env:
+          WINDOWS_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node --input-type=module - <<'EOF'
+          import { readdirSync, readFileSync } from "node:fs";
+          import { evaluateRun } from "./scripts/test-floor.mjs";
+
+          let ok = true;
+          for (const [name, job] of Object.entries(JSON.parse(process.env.WINDOWS_RESULTS))) {
+            console.log(`${name}: ${job.result}`);
+            if (job.result !== "success") ok = false;
+          }
+          if (!ok) process.exit(1);
+          let total = 0;
+          for (const file of readdirSync("vitest-results").sort()) {
+            const summary = JSON.parse(readFileSync(`vitest-results/${file}`, "utf8"));
+            const result = evaluateRun({ exitCode: 0, summary }, 1);
+            console.log(`${file}: ${result.message}`);
+            if (!result.ok) ok = false;
+            total += summary.numTotalTests;
+          }
+          const result = evaluateRun({ exitCode: 0, summary: { numTotalTests: total, success: ok } });
+          console.log(result.message);
+          process.exit(result.ok ? 0 : 1);
+          EOF
 
   relay:
     name: relay check + test

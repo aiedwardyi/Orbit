@@ -1,14 +1,35 @@
 // @vitest-environment happy-dom
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider, persistPreference } from "@/lib/i18n";
 
 import { KeyboardShortcuts } from "./KeyboardShortcuts";
 
 describe("KeyboardShortcuts", () => {
-  afterEach(() => persistPreference("en"));
+  afterEach(() => {
+    persistPreference("en");
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ["en", "Win32", "Ctrl", "Queue message", "Hold Send on phone"],
+    ["ko", "Win32", "Ctrl", "답변 후 보내기", "휴대폰에서 보내기 길게 누르기"],
+    ["en", "MacIntel", "Cmd", "Queue message", "Hold Send on phone"],
+    ["ko", "MacIntel", "Cmd", "답변 후 보내기", "휴대폰에서 보내기 길게 누르기"],
+  ] as const)("lists queueing in one row, with no plain Enter row, in %s on %s", (locale, platform, mod, label, hold) => {
+    persistPreference(locale);
+    vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(KeyboardShortcuts)));
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    const rows = Array.from(host.querySelectorAll("dl > div"));
+    const combo = (text: string) => rows.find((row) => row.querySelector("dt")?.textContent === text)?.querySelector("dd");
+
+    expect(combo(label)?.getAttribute("aria-label")).toBe(`${mod} + Enter / ${hold}`);
+    expect(rows.some((row) => row.querySelector("dd")?.getAttribute("aria-label") === "Enter")).toBe(false);
+  });
 
   it("lists Toggle Model index once with Alt+I only", () => {
     const html = renderToStaticMarkup(

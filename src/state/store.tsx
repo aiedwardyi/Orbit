@@ -34,7 +34,7 @@ import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-cha
 import { readSnapshotCache, writeSnapshotCache } from "./snapshot-cache";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { completedReopenDismissals } from "@/lib/task-recovery";
-import { openLiveEvents } from "@/lib/live-events";
+import { openLiveEvents, snapshotCoversHello } from "@/lib/live-events";
 import { holdReload } from "@/lib/reload-hold";
 import { hapticTick } from "@/lib/phone-swipe";
 import { isShownMessage } from "@/lib/shown-message";
@@ -642,7 +642,7 @@ export interface AppState {
   } | null;
   /** 1:1 queue-fallback lines waiting for drain; keyed by threadId.
    * Each entry is identified by the server queueId, not by text. */
-  pendingQueued: Record<string, Array<{ queueId: string; text: string; at?: number }>>;
+  pendingQueued: Record<string, Array<{ queueId: string; text: string; at?: number; sendId?: string; replyToId?: string }>>;
   /** queueIds whose drain frame beat the POST continuation. One-shot and
    * bounded to a short event window so other clients cannot grow it forever. */
   consumedQueueIds: Record<string, true>;
@@ -828,11 +828,13 @@ export type Action =
       threadId?: string;
       /** Wait for the running turn instead of steering into it. */
       after?: boolean;
+      queueId?: string;
       onError?: () => void;
     }
-  | { type: "pendingQueued"; threadId: string; queueId: string; text: string; at?: number }
+  | { type: "pendingQueued"; threadId: string; queueId: string; text: string; at?: number; sendId?: string; replyToId?: string }
+  | { type: "sendQueuedNow"; botId: string; threadId: string; queueId: string }
   | { type: "consumePendingQueued"; threadId: string; queueId: string }
-  | { type: "cancelQueued"; botId: string; queueId: string }
+  | { type: "cancelQueued"; botId: string; threadId: string; queueId: string }
   | { type: "sendSettled"; threadId: string; sendId: string; queued?: boolean }
   | { type: "sendRejected"; threadId: string; sendId: string; botId?: string }
   | { type: "editMessage"; botId: string; messageId: string; text: string }
@@ -1734,7 +1736,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         pendingQueued: {
           ...state.pendingQueued,
-          [action.threadId]: [...prev, { queueId: action.queueId, text: action.text, at: action.at }],
+          [action.threadId]: [...prev, { queueId: action.queueId, text: action.text, at: action.at, sendId: action.sendId, replyToId: action.replyToId }],
         },
       };
     }
@@ -1754,16 +1756,16 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, pendingQueued };
     }
     case "cancelQueued": {
-      const bot = state.bots.find((candidate) => candidate.id === action.botId);
-      if (!bot) return state;
-      const prev = state.pendingQueued[bot.threadId] ?? [];
+      const prev = state.pendingQueued[action.threadId] ?? [];
       const rest = prev.filter((entry) => entry.queueId !== action.queueId);
       if (rest.length === prev.length) return state;
       const pendingQueued = { ...state.pendingQueued };
-      if (rest.length) pendingQueued[bot.threadId] = rest;
-      else delete pendingQueued[bot.threadId];
+      if (rest.length) pendingQueued[action.threadId] = rest;
+      else delete pendingQueued[action.threadId];
       return { ...state, pendingQueued };
     }
+    case "sendQueuedNow":
+      return state;
     case "send": {
       const dismissed = dismissOnboardingCard(state, action.botId);
       const bot = dismissed.bots.find((candidate) => candidate.id === action.botId);
@@ -2436,19 +2438,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "markRoutineRunSeen":
           api(`/api/routine-runs/${action.runId}/seen`, { method: "POST" }).catch(showError);
           break;
-        case "cancelQueued": {
+        case "sendQueuedNow": {
           const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
+          const pending = stateRef.current.pendingQueued[action.threadId]?.find((entry) => entry.queueId === action.queueId);
+          const engine = stateRef.current.instances.find((instance) => instance.instanceId === bot?.modelSelection.instanceId);
+          if (!pending?.sendId || bot?.threadId !== action.threadId || engine?.capabilities?.queueing !== true) break;
+          wrapped({
+            type: "send", botId: action.botId, threadId: action.threadId, text: pending.text,
+            sendId: pending.sendId, replyToId: pending.replyToId, queueId: pending.queueId,
+          });
+          break;
+        }
+        case "cancelQueued": {
           void api(`/api/bots/${action.botId}/queue/${action.queueId}`, { method: "DELETE" })
             .then((body) => {
               if (!shouldDropQueueChip(body)) return;
-              if (bot) {
-                rawDispatch({
-                  type: "sendRejected",
-                  botId: action.botId,
-                  threadId: bot.threadId,
-                  sendId: action.queueId,
-                });
-              }
+              rawDispatch({
+                type: "sendRejected",
+                botId: action.botId,
+                threadId: action.threadId,
+                sendId: action.queueId,
+              });
               rawDispatch(action);
             })
             .catch(showError);
@@ -2472,9 +2482,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 threadId,
                 sendId,
                 deliver: action.after ? "after" : undefined,
+                queueId: action.queueId,
               }),
             });
           const settle = (body: any) => {
+            if (action.queueId && !body?.queued && typeof threadId === "string") {
+              rawDispatch({ type: "consumePendingQueued", threadId, queueId: action.queueId });
+            }
             if (receiptRejectsAcceptedSend(body)) {
               cancelledSendsRef.current.delete(sendId);
               if (typeof threadId === "string") {
@@ -2520,6 +2534,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 queueId: body.queueId,
                 text: action.text,
                 at: accepted?.at ?? Date.now(),
+                sendId,
+                replyToId: action.replyToId,
               });
             }
             if (typeof settledThread === "string") {
@@ -2533,6 +2549,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 typeof threadId === "string" ? await acceptedSend(stateRef.current, threadId, sendId, action.text) : null;
               if (accepted && typeof threadId === "string") {
                 cancelledSendsRef.current.delete(sendId);
+                if (action.queueId) rawDispatch({ type: "consumePendingQueued", threadId, queueId: action.queueId });
                 rawDispatch({ type: "messageAdded", threadId, message: accepted });
                 rawDispatch({ type: "sendSettled", threadId, sendId });
                 return;
@@ -2983,6 +3000,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // ── initial load + SSE fold ──────────────────────────────────────────
   useEffect(() => {
     let alive = true;
+    const prefetchAbort = new AbortController();
+    let prefetchedChat: Promise<any> | null = api(`/api/bots?messages=${MESSAGE_PAGE}`, { signal: prefetchAbort.signal }).catch(() => null);
+    let snapshotBoundary: string | undefined;
     type PeripheralKey = "instances" | "config" | "routines" | "webhooks";
     type PeripheralPart = {
       key: PeripheralKey;
@@ -3079,33 +3099,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const bumpPeripheralVersion = (...keys: PeripheralKey[]) => {
       for (const key of keys) refreshState(key).version += 1;
     };
-    const loadAll = async (): Promise<boolean> => {
-      const chat = () =>
-        api(`/api/bots?messages=${MESSAGE_PAGE}`).then(({ bots, groups, computerControl }) => {
-          if (!alive) return;
-          rawDispatch({
-            type: "hydrate",
-            bots,
-            groups: groups ?? [],
-            computerControl: computerControl ?? {},
-            sidebarOrder: loadSidebarOrder(),
-          });
-          // Snapshot has busy, not StreamState.signal. Without SSE replay a
-          // dispatched turn would otherwise read Preparing for the whole wait.
-          // workingThreadId is the thread startTurn actually claimed.
-          for (const bot of bots) {
-            const last = visibleMessages({
-              messages: bot.messages ?? [],
-              activeLeafId: bot.activeLeafId,
-            }).at(-1)?.id;
-            noteStreamTail(bot.threadId, last);
-            const threadId = hydrationTurnThread(bot, groups ?? []);
-            if (threadId) markTurnSignal(threadId, "hydrated");
-          }
-          for (const group of groups ?? []) {
-            noteStreamTail(group.threadId, group.messages?.at(-1)?.id);
-          }
+    const loadAll = async (boundary?: string): Promise<boolean> => {
+      const chat = async () => {
+        const prefetch = prefetchedChat;
+        prefetchedChat = null;
+        let snapshot = prefetch ? await prefetch : null;
+        if (!alive || boundary !== snapshotBoundary) return;
+        // No boundary means the no-hello fallback; there is nothing to validate.
+        if (boundary === undefined ? !snapshot : !snapshotCoversHello(snapshot?.cursor, boundary)) snapshot = await api(`/api/bots?messages=${MESSAGE_PAGE}`);
+        if (!alive || boundary !== snapshotBoundary || rehydrateRequested) return;
+        const { bots, groups, computerControl } = snapshot;
+        rawDispatch({
+          type: "hydrate",
+          bots,
+          groups: groups ?? [],
+          computerControl: computerControl ?? {},
+          sidebarOrder: loadSidebarOrder(),
         });
+        // Snapshot has busy, not StreamState.signal. Without SSE replay a
+        // dispatched turn would otherwise read Preparing for the whole wait.
+        // workingThreadId is the thread startTurn actually claimed.
+        for (const bot of bots) {
+          const last = visibleMessages({
+            messages: bot.messages ?? [],
+            activeLeafId: bot.activeLeafId,
+          }).at(-1)?.id;
+          noteStreamTail(bot.threadId, last);
+          const threadId = hydrationTurnThread(bot, groups ?? []);
+          if (threadId) markTurnSignal(threadId, "hydrated");
+        }
+        for (const group of groups ?? []) {
+          noteStreamTail(group.threadId, group.messages?.at(-1)?.id);
+        }
+      };
       const peripherals = firstChatPeripherals(peripheralParts).map((part) => ({
         key: part.key,
         load: () => loadPeripheral(part, false),
@@ -3117,17 +3143,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return alive && chatReady;
     };
 
-    // A snapshot and the live fold have to meet at a defined boundary. Start
-    // hydration only after the stream says hello, queue frames that arrive
-    // while the REST snapshot is in flight, then apply them on top. Otherwise
-    // a late hydrate can overwrite a newer event, or an event can land between
-    // an eager request and the stream opening and disappear entirely.
+    // Apply the prefetch only after hello proves it covers the stream boundary.
     let hydrated = false;
     let hydrationPromise: Promise<boolean> | null = null;
     let rehydrateRequested = false;
     const pendingFrames: any[] = [];
+    let snapshotBoundaries = 0;
     let handleFrame: (frame: any) => void;
-    const hydrate = (): Promise<boolean> => {
+    const hydrate = (cursor?: string): Promise<boolean> => {
+      snapshotBoundary = cursor;
       if (hydrationPromise) {
         // A second non-resumable hello means this snapshot may have started
         // before another connection gap. Run one more after it settles.
@@ -3139,7 +3163,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         let loaded = false;
         do {
           rehydrateRequested = false;
-          loaded = await loadAll();
+          loaded = await loadAll(snapshotBoundary);
         } while (alive && rehydrateRequested);
         if (!alive || !loaded) return false;
         hydrated = true;
@@ -3152,10 +3176,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       return hydrationPromise;
     };
-    // If SSE is unavailable, the app should still show its saved state. A
-    // later first hello hydrates again because it cannot prove there was no
-    // gap before that connection opened.
-    const hydrationFallback = setTimeout(hydrate, 1_000);
+    // Shows saved state if SSE never says hello; well past a cold start's slowest hello.
+    const hydrationFallback = setTimeout(hydrate, 10_000);
 
     // The hydrate decision belongs to the hello frame, not to onopen: the
     // server replays what we missed when it can, and re-downloading every
@@ -3179,7 +3201,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         settling.current.set(frame.threadId, [() => handleFrame(frame)]);
         return;
       }
-      if (frame.kind === "config") bumpPeripheralVersion("config", "instances");
+      if (frame.kind === "instances") bumpPeripheralVersion("instances");
+      else if (frame.kind === "config") bumpPeripheralVersion("config", "instances");
       else if (frame.kind === "routine" || frame.kind === "routine.deleted" || frame.kind === "routine.run") {
         bumpPeripheralVersion("routines");
       } else if (
@@ -3405,6 +3428,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           groupReorderGeneration.current += 1;
           rawDispatch({ type: "reorderGroups", groupIds: frame.groupIds });
           break;
+        case "instances":
+          rawDispatch({ type: "instances", instances: frame.instances, preserveRateLimits: true });
+          break;
         // a key changed and the fleet hot-reloaded — refresh the picker so
         // newly available providers un-dim immediately
         case "config":
@@ -3426,7 +3452,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const stopLive = openLiveEvents({
       onOpen: () => rawDispatch({ type: "connected", value: true }),
       onError: () => rawDispatch({ type: "connected", value: false }),
-      onSnapshotRequired: () => {
+      onSnapshotRequired: (cursor) => {
         clearTimeout(hydrationFallback);
         // Frames buffered before this non-resumable stream belong to an
         // abandoned generation. Keep the new generation behind hydrate().
@@ -3434,7 +3460,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         settling.current.clear();
         // a held resume's task.resume frame may be lost in the gap
         for (const settle of pendingTaskResumes.current.values()) settle(null);
-        return hydrate();
+        // The mount's deferred load covers the first boundary; a later one may follow a missed instances frame.
+        const instances = partByKey.get("instances");
+        if (snapshotBoundaries++ > 0 && instances) {
+          void loadPeripheral(instances, true).catch((error) => schedulePeripheralRetry(instances, error));
+        }
+        return hydrate(cursor);
       },
       onFrame: (frame) => {
         if (!hydrated) {
@@ -3461,6 +3492,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       : () => {};
     return () => {
       alive = false;
+      prefetchAbort.abort();
       document.removeEventListener("visibilitychange", flushOnVisibility);
       stopDeferredInstances();
       clearTimeout(hydrationFallback);

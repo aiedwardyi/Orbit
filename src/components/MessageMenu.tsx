@@ -5,7 +5,7 @@
 // phone's own selection.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { Copy, MessageSquareReply, Pin, PinOff, SmilePlus, TextCursor, X } from "lucide-react";
+import { ArrowUp, Copy, MessageSquareReply, Pin, PinOff, SmilePlus, TextCursor, X } from "lucide-react";
 import { EXTENDED_REACTIONS } from "../../shared/reactions";
 import { useStore, type Message } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
@@ -18,7 +18,7 @@ declare global {
 }
 
 /** Quick row on the bot menu, in Grok's order. */
-export const QUICK_REACTIONS = ["👍", "👎", "❤️", "😂", "🎉", "🔥"] as const;
+export const QUICK_REACTIONS = ["👍", "👎", "❤️", "😂", "😮", "🔥"] as const;
 
 /** Gutter the menu keeps off every window edge. */
 const EDGE = 8;
@@ -35,9 +35,9 @@ export function isTouchPrimary(win: Window = window): boolean {
   return win.matchMedia?.("(pointer: coarse)").matches ?? false;
 }
 
-/** Links and editable fields keep today's native menu. */
+/** Links, images and editable fields keep today's native menu. */
 export function keepsNativeMenu(target: Element): boolean {
-  return target.closest("a[href], input, textarea, select, [contenteditable=\"true\"]") !== null;
+  return target.closest("a[href], [data-file-link], img, input, textarea, select, [contenteditable=\"true\"]") !== null;
 }
 
 function holdsNative(target: Element): boolean {
@@ -229,6 +229,7 @@ export interface MessageMenuTarget {
   user: boolean;
   pinned: boolean;
   canPin: boolean;
+  queued?: { sendNow?: () => void; cancel: () => void };
 }
 
 export type MessageMenuRequest =
@@ -409,6 +410,44 @@ export function MessageMenu({
       </button>
     );
   };
+
+  if (target.queued) {
+    const { sendNow, cancel } = target.queued;
+    return createPortal(
+      <div
+        ref={ref}
+        role="menu"
+        data-message-menu
+        style={{ top: box.top, left: box.left }}
+        onKeyDown={(e) => menuKeyDown(ref, e)}
+        className={cn(MENU_CLASS, touch ? "w-[304px]" : "w-[248px]")}
+      >
+        {sendNow && (
+          <button
+            type="button"
+            role="menuitem"
+            data-menu-send-now
+            onClick={() => { sendNow(); closeMenu(opener, ref.current, onClose); }}
+            className={cn(ROW_CLASS, touch && "min-h-10")}
+          >
+            <ArrowUp size={16} className="text-ink-secondary" />
+            {t("chat.sendQueuedNow")}
+          </button>
+        )}
+        <button
+          type="button"
+          role="menuitem"
+          data-menu-cancel-queued
+          onClick={() => { cancel(); closeMenu(opener, ref.current, onClose); }}
+          className={cn(ROW_CLASS, touch && "min-h-10")}
+        >
+          <X size={16} className="text-ink-secondary" />
+          {t("chat.cancelQueuedAction")}
+        </button>
+      </div>,
+      document.body,
+    );
+  }
 
   return createPortal(
     <div

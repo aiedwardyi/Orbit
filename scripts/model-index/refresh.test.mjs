@@ -4,19 +4,28 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
-import * as deepswe from "./fetch-deepswe.mjs";
+import * as lmarena from "./fetch-lmarena.mjs";
 import * as listPrices from "./fetch-list-prices.mjs";
 import * as vals from "./fetch-vals.mjs";
 import { percent, sourceIds, sourcesDir, Unverifiable, writeSnapshot } from "./lib.mjs";
 import { diffSnapshots, refresh } from "./refresh.mjs";
 
 const fixture = (name) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", name), "utf8");
-const leaderboard = () => JSON.parse(fixture("deepswe-leaderboard.json"));
+const arenaRows = () => lmarena.parseRows(fixture("lmarena-webdev.json")).rows;
 
 const models = {
-  "gpt-6-astra": { provider: "openai", label: "GPT-6 Astra", sources: { deepswe: ["gpt-6-astra"], vals: ["openai/gpt-6-astra"] } },
-  "gemini-3.8-flash": { provider: "google", label: "Gemini 3.8 Flash", sources: { deepswe: ["gemini-3-8-flash"], vals: ["google/gemini-3.8-flash"] } },
-  "grok-4.6": { provider: "xai", label: "Grok 4.6", sources: { deepswe: ["grok-4-6"], vals: ["grok/grok-4.6"] } },
+  "gpt-6-astra": { provider: "openai", label: "GPT-6 Astra", sources: { vals: ["openai/gpt-6-astra"] } },
+  "gemini-3.8-flash": { provider: "google", label: "Gemini 3.8 Flash", sources: { vals: ["google/gemini-3.8-flash"] } },
+  "grok-4.6": { provider: "xai", label: "Grok 4.6", sources: { vals: ["grok/grok-4.6"] } },
+  "claude-opus-5-5": { provider: "anthropic", label: "Claude Opus 5.5", sources: { vals: ["anthropic/claude-opus-5-5"], lmarena: ["Claude Opus 5.5"] } },
+  "claude-sonnet-5-5": { provider: "anthropic", label: "Claude Sonnet 5.5", sources: { lmarena: ["Claude Sonnet 5.5"] } },
+  "gpt-5.6-terra": { provider: "openai", label: "GPT-5.6 Terra", sources: { lmarena: ["GPT-5.6 Terra"] } },
+  "muse-spark-1.3": {
+    provider: "meta",
+    label: "Muse Spark 1.3",
+    sources: { vals: ["meta/muse_spark_1_3", "meta/muse_spark_1_3_max"] },
+    efforts: { vals: { "meta/muse_spark_1_3": "xhigh", "meta/muse_spark_1_3_max": "max" } },
+  },
 };
 const previous = { benchmark: "x", version: "1.1", index: "coding", label: "L", updated: null, rows: [] };
 
@@ -40,80 +49,40 @@ describe("sourceIds", () => {
   });
 });
 
-describe("deepswe leaderboard", () => {
-  it("reads scores, intervals and the source date", () => {
-    const { updated, rows } = deepswe.parseLeaderboard(fixture("deepswe-leaderboard.json"));
-    expect(updated).toBe("2026-09-22");
-    expect(rows.get("mini_swe_agent_gpt_6_astra_xhigh").pass_at_1).toBe(0.7411504424778761);
-  });
+describe("lmarena webdev", () => {
+  const build = (rows = arenaRows()) => lmarena.buildSnapshot({ rows, models, retrievedAt: "2026-10-19T00:00:00.000Z", previous: { ...previous, version: null } });
 
-  it("fails on a missing field, a new field, a new top-level key or non-JSON", () => {
-    const parse = (data) => deepswe.parseLeaderboard(JSON.stringify(data));
-    const missing = leaderboard();
-    delete missing.rows[0].ci_lo;
-    expect(() => parse(missing)).toThrow(Unverifiable);
-    const extra = leaderboard();
-    extra.rows[0].pass_at_8 = 0.9;
-    expect(() => parse(extra)).toThrow(Unverifiable);
-    const top = leaderboard();
-    top.version = "1.2";
-    expect(() => parse(top)).toThrow(Unverifiable);
-    expect(() => deepswe.parseLeaderboard("<html>")).toThrow(Unverifiable);
-  });
-
-  it("fails when a score is not a fraction or the harness changes", () => {
-    const percentScore = leaderboard();
-    percentScore.rows[0].pass_at_1 = 74.1;
-    expect(() => deepswe.parseLeaderboard(JSON.stringify(percentScore))).toThrow(Unverifiable);
-    const harness = leaderboard();
-    harness.rows[0].harness = "other-agent";
-    expect(() => deepswe.parseLeaderboard(JSON.stringify(harness))).toThrow(Unverifiable);
-  });
-});
-
-describe("deepswe page", () => {
-  it("reads the displayed cost from the hydration data", () => {
-    const costs = deepswe.parseHydration(fixture("deepswe-page.html"));
-    expect(costs.get("mini_swe_agent_gpt_6_astra_xhigh")).toEqual({ cost: 4.429117203539823, passAt1: 0.7411504424778761 });
-  });
-
-  it("fails when no row is found", () => {
-    expect(() => deepswe.parseHydration("<script>{rows:[]}</script>")).toThrow(Unverifiable);
-  });
-});
-
-describe("deepswe snapshot", () => {
-  const build = (overrides = {}) =>
-    deepswe.buildSnapshot({
-      leaderboard: deepswe.parseLeaderboard(fixture("deepswe-leaderboard.json")),
-      hydration: deepswe.parseHydration(fixture("deepswe-page.html")),
-      models,
-      retrievedAt: "2026-10-10T00:00:00.000Z",
-      previous,
-      ...overrides,
-    });
-
-  it("keeps the shape: percent scores, interval, displayed cost, harness", () => {
-    const { snapshot } = build();
-    expect(snapshot.updated).toBe("2026-09-22");
-    expect(snapshot.rows.map((row) => `${row.model} ${row.effort}`)).toEqual(["gpt-6-astra xhigh", "gemini-3.8-flash high"]);
-    const expected = JSON.parse('{"model":"gpt-6-astra","effort":"xhigh","value":74.11504424778761,"interval":{"low":71.24964807371247,"high":76.98044042186275},"cost_per_task":4.429117203539823,"cost_benchmark":"deepswe","cost_source":"https://deepswe.datacurve.ai/","source_url":"https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json","retrieved_at":"2026-10-10T00:00:00.000Z","kind":"independent","harness":"mini-swe-agent"}');
-    expect(JSON.stringify(snapshot.rows.find((row) => row.model === "gpt-6-astra"))).toBe(JSON.stringify(expected));
-  });
-
-  it("lists unmapped source models and never guesses a row for them", () => {
+  it("reads each tier as its own effort, at source precision, versioned by the publish date", () => {
     const { snapshot, unmapped } = build();
-    expect(unmapped).toEqual(["claude-opus-5"]);
-    expect(snapshot.rows.some((row) => row.model.includes("opus"))).toBe(false);
+    expect([snapshot.version, snapshot.updated]).toEqual(["2026-10-18", "2026-10-18"]);
+    expect(snapshot.rows.map((row) => `${row.model} ${row.effort} ${row.value}`)).toEqual([
+      "claude-opus-5-5 max 1806.1951256724408",
+      "claude-sonnet-5-5 high 1709.2667011267456",
+      "claude-sonnet-5-5 xhigh 1767.8459284869168",
+      "gpt-5.6-terra xhigh 1521.7642333914368",
+    ]);
+    expect(snapshot.rows.find((row) => row.model === "gpt-5.6-terra")?.harness).toBe("Codex");
+    expect(snapshot.rows[0]?.source_url).toBe(lmarena.PAGE_URL);
+    expect(unmapped).toEqual(["Claude Opus 4.5 (High, 32K, 20251101)", "GPT-6 Sol (Max)", "Qwen3.8-Max"]);
   });
 
-  it("fails when the page lacks a config or disagrees with the JSON", () => {
-    const hydration = deepswe.parseHydration(fixture("deepswe-page.html"));
-    hydration.delete("mini_swe_agent_gpt_6_astra_xhigh");
-    expect(() => build({ hydration })).toThrow(/not in the page/);
-    const skewed = deepswe.parseHydration(fixture("deepswe-page.html"));
-    skewed.get("mini_swe_agent_gpt_6_astra_xhigh").passAt1 = 0.5;
-    expect(() => build({ hydration: skewed })).toThrow(/disagree/);
+  it("never reads GPT-6 Sol as GPT-6.1 Sol or a bare name as a tier", () => {
+    expect(lmarena.splitName("GPT-6 Sol (Max)")).toEqual({ base: "GPT-6 Sol", effort: "max", harness: undefined, odd: false });
+    expect(lmarena.splitName("Qwen3.8-Max")).toEqual({ base: "Qwen3.8-Max" });
+  });
+
+  it("fails on a mapped model with no readable effort, a repeat, a second date or a new column", () => {
+    const rows = arenaRows();
+    const opus = rows.find((row) => row.model_name === "Claude Opus 5.5 (Max)");
+    expect(() => build([...rows, { ...opus, model_name: "Claude Opus 5.5" }])).toThrow(/no effort/);
+    expect(() => build([...rows, { ...opus, model_name: "Claude Opus 5.5 (Max, 32K)" }])).toThrow(/no effort/);
+    expect(() => build([...rows, { ...opus }])).toThrow(/repeated claude-opus-5-5 max/);
+    expect(() => build([...rows, { ...opus, model_name: "Claude Opus 5.5 (High)", leaderboard_publish_date: "2026-10-11" }])).toThrow(/publish dates/);
+    expect(() => build([...rows, { ...opus, model_name: "Claude Opus 5.5 (High)", category: "coding" }])).toThrow(/category/);
+    const data = JSON.parse(fixture("lmarena-webdev.json"));
+    data.features.push({ feature_idx: 11, name: "style_control", type: { dtype: "bool", _type: "Value" } });
+    expect(() => lmarena.parseRows(JSON.stringify(data))).toThrow(Unverifiable);
+    expect(() => lmarena.parseRows("<html>")).toThrow(Unverifiable);
   });
 });
 
@@ -130,6 +99,7 @@ describe("vals page", () => {
     expect(() => vals.parsePage(html.replace("legal_bench&quot;],&quot;family", "legal&quot;],&quot;family"))).toThrow(Unverifiable);
     expect(() => vals.parsePage(html.replace("overall", "all"))).toThrow(Unverifiable);
     expect(() => vals.parsePage(html.replace("accuracy&quot;:[0,88.561]", "accuracy&quot;:[0,null]"))).toThrow(Unverifiable);
+    expect(() => vals.parsePage(html.replaceAll("cost_per_test", "cost"))).toThrow(/no cost per test/);
   });
 
   it("builds only mapped rows and refuses a new benchmark version", () => {
@@ -138,6 +108,47 @@ describe("vals page", () => {
     expect(snapshot.rows.map((row) => `${row.model} ${row.value}`)).toEqual(["gemini-3.8-flash 86.993", "grok-4.6 86.307"]);
     expect(unmapped).toContain("anthropic/claude-fable-5");
     expect(() => vals.buildSnapshot({ page, models, retrievedAt: "T", previous: { ...previous, version: "2" } })).toThrow(/version/);
+  });
+
+  it("carries each row's cost per test from the same run, none where the page has null", () => {
+    const page = vals.parsePage(fixture("vals-legal-bench.html"));
+    expect(page.cost.get("anthropic/claude-fable-5")).toBe(0.030639);
+    expect(page.cost.has("cohere/command-r")).toBe(false);
+    const { snapshot } = vals.buildSnapshot({ page, models, retrievedAt: "T", previous: { ...previous, version: "1" } });
+    expect(snapshot.rows.map((row) => [row.model, row.cost_per_task, row.cost_benchmark, row.cost_source])).toEqual([
+      ["gemini-3.8-flash", 0.008109, "vals-legalbench", "https://www.vals.ai/benchmarks/legal_bench"],
+      ["grok-4.6", 0.01457, "vals-legalbench", "https://www.vals.ai/benchmarks/legal_bench"],
+    ]);
+  });
+});
+
+describe("vals cyberbench page", () => {
+  const page = () => vals.parsePage(fixture("vals-cyber.html"), "cyberbench");
+  const build = () => vals.buildSnapshot({ page: page(), models, retrievedAt: "T", previous: { ...previous, version: "1.1" }, benchmark: "vals-cyberbench" });
+
+  it("reads CyberBench, and LegalBench only from its own page", () => {
+    expect([page().version, page().updated]).toEqual(["1.1", "2026-10-12"]);
+    expect(page().accuracy.get("anthropic/claude-opus-5-5")).toBe(55.357);
+    expect(() => vals.parsePage(fixture("vals-cyber.html"))).toThrow(/version and updated date/);
+    expect(() => vals.parsePage(fixture("vals-legal-bench.html"), "cyberbench")).toThrow(/version and updated date/);
+  });
+
+  it("charts the plain config, never the Cyber Range one", () => {
+    const { snapshot, unmapped } = build();
+    expect(snapshot.rows.filter((row) => row.model === "claude-opus-5-5").map((row) => row.value)).toEqual([55.357]);
+    expect(unmapped).toContain("anthropic/claude-opus-5-5-range");
+  });
+
+  it("names the effort of a model Vals runs twice and costs every row from CyberBench", () => {
+    const { snapshot } = build();
+    expect(snapshot.rows.map((row) => [row.model, row.effort, row.value, row.cost_per_task])).toEqual([
+      ["gpt-6-astra", "all", 41.072, 1.840737],
+      ["grok-4.6", "all", 67.678, 4.06856],
+      ["claude-opus-5-5", "all", 55.357, 3.476604],
+      ["muse-spark-1.3", "xhigh", 69.405, 4.258407],
+      ["muse-spark-1.3", "max", 72.738, 3.343249],
+    ]);
+    for (const row of snapshot.rows) expect([row.cost_benchmark, row.cost_source, row.source_url]).toEqual(["vals-cyberbench", vals.BENCHMARKS["vals-cyberbench"].url, vals.BENCHMARKS["vals-cyberbench"].url]);
   });
 });
 
@@ -302,11 +313,11 @@ describe("repeated rows", () => {
     model: "gpt-6-astra",
     effort,
     value: 74,
-    source_url: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
+    source_url: "https://artificialanalysis.ai/models/gpt-6-astra",
     retrieved_at: "2026-10-10T00:00:00.000Z",
     kind: "independent",
   });
-  const snap = (rows) => ({ benchmark: "deepswe", version: "1.1", index: "coding", label: "L", updated: "2026-09-22", rows });
+  const snap = (rows) => ({ benchmark: "aa-frontiercode", version: "1.1", index: "coding", label: "L", updated: null, rows });
   const runBuild = (files) => {
     const dir = mkdtempSync(join(tmpdir(), "mi-build-"));
     try {
@@ -318,28 +329,22 @@ describe("repeated rows", () => {
   };
 
   it("fails when a model and effort is repeated", () => {
-    const leaderboard = deepswe.parseLeaderboard(fixture("deepswe-leaderboard.json"));
-    const row = leaderboard.rows.get("mini_swe_agent_gpt_6_astra_xhigh");
-    leaderboard.rows.set("mini_swe_agent_gpt_6_astra_xhigh_rerun", { ...row, config: "mini_swe_agent_gpt_6_astra_xhigh_rerun" });
-    const hydration = deepswe.parseHydration(fixture("deepswe-page.html"));
-    hydration.set("mini_swe_agent_gpt_6_astra_xhigh_rerun", hydration.get("mini_swe_agent_gpt_6_astra_xhigh"));
-    expect(() => deepswe.buildSnapshot({ leaderboard, hydration, models, retrievedAt: "T", previous })).toThrow(/repeated gpt-6-astra xhigh/);
-    const built = runBuild({ "models.json": wink, "deepswe.json": snap([score("xhigh"), score("xhigh")]) });
+    const built = runBuild({ "models.json": wink, "aa-frontiercode.json": snap([score("xhigh"), score("xhigh")]) });
     expect(built.status).not.toBe(0);
-    expect(built.stderr).toMatch(/repeated deepswe gpt-6-astra xhigh/);
+    expect(built.stderr).toMatch(/repeated aa-frontiercode gpt-6-astra xhigh/);
   });
 
   it("fails on an empty snapshot or a duplicate benchmark id", () => {
-    const empty = runBuild({ "models.json": wink, "deepswe.json": snap([]) });
+    const empty = runBuild({ "models.json": wink, "aa-frontiercode.json": snap([]) });
     expect(empty.status).not.toBe(0);
-    expect(empty.stderr).toMatch(/deepswe: snapshot has no rows/);
+    expect(empty.stderr).toMatch(/aa-frontiercode: snapshot has no rows/);
     const dup = runBuild({
       "models.json": wink,
       "a.json": snap([score("xhigh")]),
       "b.json": snap([score("high")]),
     });
     expect(dup.status).not.toBe(0);
-    expect(dup.stderr).toMatch(/duplicate benchmark deepswe/);
+    expect(dup.stderr).toMatch(/duplicate benchmark aa-frontiercode/);
   });
 
   it("names the benchmark and model when a price URL has no vendor", () => {
@@ -380,7 +385,7 @@ describe("refresh run state", () => {
       expect(first.out.join("\n")).not.toMatch(/already fetched/);
       expect(second.out.join("\n")).not.toMatch(/already fetched/);
       expect(second.out.join("\n")).toMatch(/offline/);
-      expect(calls).toHaveLength(6);
+      expect(calls).toHaveLength(8);
     } finally {
       globalThis.fetch = original;
       const { beginRun } = await import("./lib.mjs");

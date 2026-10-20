@@ -792,6 +792,26 @@ describe("ACP turns (fake CLI)", () => {
     expect(recorder.events.filter((e) => e.type === "item.completed" && e.itemType === "assistant_text" && e.text === "extra")).toHaveLength(1);
   });
 
+  it("reports a Grok steer accepted at end_turn as read after the reply", async () => {
+    await create(GrokAgentDriver, "steer-original-first");
+    await instance.adapter.sendTurn({ threadId: "t-grok-after", text: "first" });
+    await recorder.until((e) => e.type === "content.delta");
+    const consumed = vi.fn();
+    expect(await instance.adapter.steer!("t-grok-after", "extra", consumed)).toBe(true);
+    expect(consumed.mock.calls).toEqual([[true, true]]);
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true, stopReason: null });
+  });
+
+  it("reports a Grok interjection without afterReply", async () => {
+    await create(GrokAgentDriver, "steer");
+    await instance.adapter.sendTurn({ threadId: "t-grok-interject", text: "first" });
+    await recorder.until((e) => e.type === "content.delta");
+    const consumed = vi.fn();
+    expect(await instance.adapter.steer!("t-grok-interject", "extra", consumed)).toBe(true);
+    expect(consumed.mock.calls).toEqual([[true]]);
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true, stopReason: null });
+  });
+
   it("does not advertise steering on unproven ACP engines", async () => {
     await create(GeminiAgentDriver);
     expect(instance.adapter.capabilities.queueing).not.toBe(true);

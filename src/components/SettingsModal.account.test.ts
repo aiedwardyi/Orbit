@@ -94,9 +94,9 @@ describe("Account settings", () => {
     expect(cards[0].querySelector("#settings-profile-name")).not.toBeNull();
     expect(cards[0].textContent).toContain("Profile");
     expect(cards[1].firstElementChild?.textContent).toBe("Sync");
-    expect(cards[1].textContent).toContain("Your bots, memory and chats on all your PCs.");
+    expect(cards[1].textContent).toContain("Synced across your PCs.");
     expect([...cards[2].children].map((section) => section.firstElementChild?.textContent)).toEqual([
-      "Phone access from anywhere", "Phone link",
+      "Phone access", "Phone link",
     ]);
   });
 
@@ -104,7 +104,7 @@ describe("Account settings", () => {
     const pane = await render();
     const sync = pane.children[1];
     expect(sync.querySelector(".bg-card")).toBeNull();
-    expect(sync.children[1]?.textContent).toBe("Your bots, memory and chats on all your PCs.");
+    expect(sync.children[1]?.textContent).toBe("Synced across your PCs.");
   });
 
   it("labels Account in Korean", async () => {
@@ -118,7 +118,8 @@ describe("Account settings", () => {
     expect(pane.querySelector("#settings-profile-name")).toBeNull();
     expect(pane.textContent).not.toContain("Profile");
     expect(pane.textContent).toContain("Language");
-    expect(pane.textContent).toContain("Show work steps");
+    expect(pane.textContent).not.toContain("Work steps");
+    expect(pane.textContent).toContain("Advanced");
   });
 
   it("leaves General without the Memory card", async () => {
@@ -131,7 +132,7 @@ describe("Account settings", () => {
   it("leaves Connections without phone components or their requests", async () => {
     const pane = await render("connections");
     expect(pane.textContent).not.toContain("Phone link");
-    expect(pane.textContent).not.toContain("Phone access from anywhere");
+    expect(pane.textContent).not.toContain("Phone access");
     expect(request.mock.calls.some(([path]) => path === "/api/remote-link")).toBe(false);
     expect(request.mock.calls.some(([path]) => path === "/api/phone-relay/status")).toBe(false);
   });
@@ -151,7 +152,7 @@ describe("Account settings", () => {
     const pane = await render();
     expect(pane.children).toHaveLength(3);
     expect(pane.lastElementChild?.children).toHaveLength(1);
-    expect(pane.lastElementChild?.textContent).toContain(available === "relay" ? "Phone access from anywhere" : "Phone link");
+    expect(pane.lastElementChild?.textContent).toContain(available === "relay" ? "Phone access" : "Phone link");
   });
 
   it.each(["sync", "companion"] as const)("renders the %s deep link as Account", async (section) => {

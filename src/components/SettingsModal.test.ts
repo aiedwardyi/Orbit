@@ -106,22 +106,20 @@ describe("SettingsModal friends chrome", () => {
     }
   });
 
-  it("keeps idle General short: no Advanced, no Local VM / channel / experimental / diagnostics", () => {
+  it("keeps General short with Advanced closed and parked controls hidden", () => {
     const html = markup("general");
     expect(html).not.toContain("Profile");
     expect(html).not.toContain("Skin");
     expect(html).not.toContain("Applies instantly and is remembered");
-    expect(html).toContain("Tool calls");
-    expect(html).toContain("Show work steps");
-    expect(html).toContain("Failed tools, turn-level errors, and bot-to-bot messages still appear.");
-    expect(html).toMatch(/aria-label="Show work steps"[^>]*aria-checked="false"|aria-checked="false"[^>]*aria-label="Show work steps"/);
+    expect(html).not.toContain("Work steps");
+    expect(html).not.toContain("Longer replies");
+    expect(html).not.toContain("Terminal alerts");
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain("data-settings-preferences");
     expect(html).toContain(">Auto<");
-    expect(html).toContain("Uses English or Korean from the operating system.");
-    expect(html).toContain("aria-describedby");
-    expect(html).not.toMatch(/title="Uses English or Korean from the operating system/);
-    expect(html).toContain("Detailed replies");
-    expect(html).toContain("Bots write longer, fuller answers. Off keeps replies short and to the point.");
-    expect(html).toMatch(/aria-checked="false"[^>]*aria-label="Detailed replies"/);
+    expect(html).not.toContain("Uses English or Korean from the operating system.");
+    expect(html).not.toContain("aria-describedby");
+    expect(html).toContain("Reply style");
     expect(html).toContain("English");
     expect(html).toContain("한국어");
     expect(html).not.toContain("Your name");
@@ -129,7 +127,7 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toContain("Usage analytics");
     expect(html).not.toContain("Save name and email");
     expect(html).not.toContain("Save name");
-    expect(html).not.toContain("Advanced");
+    expect(html).toContain("Advanced");
     expect(html).not.toContain("data-settings-advanced");
     expect(html).not.toContain('aria-label="Search settings"');
     expect(html).not.toMatch(/>Channel turns</);
@@ -159,7 +157,7 @@ describe("SettingsModal friends chrome", () => {
   it("offers Onyx, Dracula, and Panda Syntax in Skin alongside the shipped palettes", () => {
     const html = markup("themes");
     expect(html).toContain("Skin");
-    expect(html).toContain("Applies instantly and is remembered");
+    expect(html).not.toContain("Applies instantly and is remembered");
     expect(html).toContain("Catppuccin Frappe");
     expect(html).toContain("Tokyo Night");
     expect(html).toContain("Vesper");
@@ -290,32 +288,36 @@ describe("SettingsModal friends chrome", () => {
     expect(themes).toContain('data-skin="kanagawa"');
   });
 
-  it("flips the Terminal popups switch on General, off by default", () => {
-    const popupsSwitch = /<button role="switch" aria-checked="(true|false)" aria-label="Terminal popups"/;
-    expect(markup("general")).toContain("Notifications");
-    expect(markup("general").match(popupsSwitch)?.[1]).toBe("false");
+  it("flips Terminal alerts inside Advanced, off by default", () => {
+    const popupsSwitch = /<button role="switch" aria-checked="(true|false)" aria-label="Terminal alerts"/;
+    expect(markup("general", true)).toContain("Notifications");
+    expect(markup("general", true).match(popupsSwitch)?.[1]).toBe("false");
     saveTerminalPopups(true);
-    expect(markup("general").match(popupsSwitch)?.[1]).toBe("true");
+    expect(markup("general", true).match(popupsSwitch)?.[1]).toBe("true");
     saveTerminalPopups(false);
-    expect(markup("general").match(popupsSwitch)?.[1]).toBe("false");
+    expect(markup("general", true).match(popupsSwitch)?.[1]).toBe("false");
   });
 
-  it("flips the Rainbow chat box switch on Themes, off by default", () => {
-    expect(markup("general")).not.toContain("Rainbow chat box");
-    const rainbowSwitch = /<button role="switch" aria-checked="(true|false)" aria-label="Rainbow chat box"/;
-    expect(markup("themes").match(rainbowSwitch)?.[1]).toBe("false");
-    saveRainbowBox(true);
-    expect(markup("themes").match(rainbowSwitch)?.[1]).toBe("true");
-    saveRainbowBox(false);
-    expect(markup("themes").match(rainbowSwitch)?.[1]).toBe("false");
+  it("picks the chat box ring from Off, Rainbow and Theme colors on Themes, off by default", () => {
+    expect(markup("general")).not.toContain('aria-label="Chat box"');
+    const checked = () => [...markup("themes").matchAll(/<button type="button" role="radio" aria-checked="true"[^>]*>([^<]+)</g)].map((m) => m[1]);
+    const group = markup("themes").match(/<div role="radiogroup" aria-label="Chat box"[^>]*>(.*?)<\/div>/)?.[1] ?? "";
+    expect([...group.matchAll(/role="radio"[^>]*>([^<]+)</g)].map((m) => m[1])).toEqual(["Off", "Rainbow", "Theme colors"]);
+    expect(checked()).toContain("Off");
+    saveRainbowBox("rainbow");
+    expect(checked()).toContain("Rainbow");
+    saveRainbowBox("theme");
+    expect(checked()).toContain("Theme colors");
+    saveRainbowBox("off");
+    expect(checked()).toContain("Off");
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
-    expect(source).toContain("onClick={() => saveRainbowBox(!on)}");
+    expect(source).toContain("onClick={() => saveRainbowBox(option)}");
   });
 
   it("does not reveal Local VM, channel turns, experimental, or diagnostics when Advanced would have been open", () => {
     const html = markup("general", true);
     expect(html).not.toContain("data-settings-advanced");
-    expect(html).not.toContain("Advanced");
+    expect(html).toContain("Advanced");
     expect(html).not.toMatch(/>Channel turns</);
     expect(html).not.toContain("Set one maximum duration");
     expect(html).not.toMatch(/>Experimental features</);
@@ -361,8 +363,8 @@ describe("SettingsModal friends chrome", () => {
     expect(picker).toContain("language.matchSystem");
     expect(picker).toContain("language.name.en");
     expect(picker).toContain("language.name.ko");
-    expect(picker).toContain("language.matchSystemHint");
-    expect(picker).toContain("aria-describedby");
+    expect(picker).not.toContain("language.matchSystemHint");
+    expect(picker).not.toContain("aria-describedby");
     expect(picker).not.toMatch(/title=\{id === "system"/);
     expect(source).toContain("settings.profile.title");
     expect(source).not.toContain("compact");
@@ -380,18 +382,19 @@ describe("SettingsModal friends chrome", () => {
     expect(themes).toContain("settings.skin.title");
   });
 
-  it("orders General cards so Left/Right sits under Language and switches follow", () => {
+  it("orders General with reply style above phone controls and Advanced after Updates", () => {
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
     const general = source.slice(source.indexOf('section === "general"'), source.indexOf('section === "connections"'));
-    const order = ["<LanguagePicker", "<SidebarSideRow", "<TerminalAppearanceRow", "<ToolCallsRow", "<NotificationsRow", "<VibrationRow", "<UpdatesRow", "data-settings-advanced"].map((marker) => general.indexOf(marker));
+    const order = ["<LanguagePicker", "<SidebarSideRow", "<ReplyStyleRow", "<PhoneNotificationSettings", "<VibrationRow", "<UpdatesRow", "data-settings-preferences", "<TerminalAppearanceRow", "<ToolCallsRow", "<DetailedRepliesRow", "<NotificationsRow", "<StartFreshRow"].map((marker) => general.indexOf(marker));
     expect(order.every((at) => at > -1)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 
-  it("puts phone notifications in the General Notifications card, not Connections", () => {
+  it("puts phone notifications on General outside Advanced", () => {
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
-    const row = source.slice(source.indexOf("function NotificationsRow"), source.indexOf("function RainbowBoxRow"));
+    const row = source.slice(source.indexOf('section === "general"'), source.indexOf('section === "connections"'));
     expect(row).toContain("<PhoneNotificationSettings");
+    expect(row.indexOf("<PhoneNotificationSettings")).toBeLessThan(row.indexOf("data-settings-preferences"));
     const connections = source.slice(source.indexOf('section === "connections"'), source.indexOf('{section === "themes" && (', source.indexOf('section === "connections"')));
     expect(connections).not.toContain("<PhoneLinkSettings");
     expect(connections).not.toContain("<PhoneAccessSettings");
@@ -405,23 +408,23 @@ describe("SettingsModal friends chrome", () => {
 
   it("hides phone notifications in the desktop app", () => {
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
-    const row = source.slice(source.indexOf("function NotificationsRow"), source.indexOf("function RainbowBoxRow"));
-    expect(row).toContain("{!window.ogb && <PhoneNotificationSettings />}");
+    const row = source.slice(source.indexOf('section === "general"'), source.indexOf('section === "connections"'));
+    expect(row).toContain("{!window.ogb && <Card><PhoneNotificationSettings /></Card>}");
   });
 
   it("shows Vibration only where a phone can vibrate", () => {
     const win = window as unknown as Record<string, unknown>;
     const matchMedia = (matches: boolean) => () => ({ matches });
     try {
-      expect(markup("general")).not.toContain("Vibrate on send");
+      expect(markup("general")).not.toContain('aria-label="Vibration"');
       win.matchMedia = matchMedia(false);
       win.navigator = { vibrate: () => true };
-      expect(markup("general")).not.toContain("Vibrate on send");
+      expect(markup("general")).not.toContain('aria-label="Vibration"');
       win.matchMedia = matchMedia(true);
       win.navigator = {};
-      expect(markup("general")).not.toContain("Vibrate on send");
+      expect(markup("general")).not.toContain('aria-label="Vibration"');
       win.navigator = { vibrate: () => true };
-      expect(markup("general")).toContain("Vibrate on send");
+      expect(markup("general")).toContain('aria-label="Vibration"');
     } finally {
       delete win.matchMedia;
       delete win.navigator;

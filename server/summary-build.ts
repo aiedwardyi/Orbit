@@ -1,4 +1,4 @@
-import { applicableCompaction, buildCompaction, planCompaction, repairTarget } from "./context-compaction.ts";
+import { applicableCompaction, buildCompaction, planCompaction, planSummaryGrace, repairTarget } from "./context-compaction.ts";
 import type { ProviderInstance } from "./contracts.ts";
 import type { Message, Store } from "./store.ts";
 import { abortable, logSummaryCall, type SummaryCallContext } from "./summary-repair.ts";
@@ -10,6 +10,7 @@ const BUILD_CALL_TIMEOUT_MS = 240_000;
 const BUILD_RUN_TIMEOUT_MS = 8 * 60_000;
 // Good summaries take 23-81 s, so a shorter call only delays the fallback the repair replaces later.
 const INLINE_FLOOR_MS = 60_000;
+const prefixKey = (messages: Message[]) => JSON.stringify(messages.map((message) => message.kind === "screen" ? { ...message, png: undefined } : message));
 
 type BuildInstance = Pick<ProviderInstance, "driverKind" | "generateText" | "textModel" | "textTimeoutMs">;
 
@@ -29,16 +30,25 @@ export interface SummaryBuildDeps {
   userName(): string;
 }
 
+export interface SummaryWait {
+  threadId: string;
+  sendId?: string;
+  mode: "skipped" | "waited";
+  waitedMs: number;
+  reason?: string;
+}
+
 export interface SummaryBuild {
   /** Call when a 1:1 turn settles; a path under budget returns without a provider call. */
   onSettled(botId: string, threadId: string): void;
   inflight(threadId: string): boolean;
-  /** Waits up to capMs for this thread's build and lands it, or drops it when the send's engine would not summarize with it; resolves to the ms waited, which comes out of the send's own summary deadline. */
+  /** Waits within the inline deadline, or preserves the build for a safe grace turn. */
   settle(
     threadId: string,
     instance: Pick<ProviderInstance, "generateText" | "textTimeoutMs">,
     capMs: number,
     summarizes: () => boolean,
+    options?: { sendId?: string; grace?: Parameters<typeof planSummaryGrace>[0]; onWait?: (wait: SummaryWait) => void },
   ): Promise<number>;
   /** Resolves once the queue is empty. */
   idle(): Promise<void>;
@@ -51,7 +61,17 @@ interface Built {
   leafId: string;
   leafIndex: number;
   previousId: string | null;
+  previousValue: string;
+  prefix: string;
+  coveredIndex: number;
   compaction: ContextCompactionV1;
+}
+
+interface BuildJob {
+  botId: string;
+  threadId: string;
+  messages: Message[];
+  leafId: string | null;
 }
 
 interface ActiveRun {
@@ -82,7 +102,8 @@ export function inlineSummarizer(
 export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
   const budgets = new Map<string, { runs: number; nextAt: number }>();
   const held = new Map<string, Built>();
-  const queue: Array<{ botId: string; threadId: string }> = [];
+  const queue: BuildJob[] = [];
+  const graceThreads = new Set<string>();
   const retries = new Set<ReturnType<typeof setTimeout>>();
   let active: ActiveRun | null = null;
   let disposed = false;
@@ -97,16 +118,22 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
     console.info(`[summary-build] dropped ${JSON.stringify({ botId: built.botId, threadId: built.threadId, reason })}`);
   };
 
-  // A waiting send has already appended its own row past the leaf, so it checks the leaf by position; an idle landing wants it unmoved.
+  // Waiting and grace sends append past the captured leaf without changing its prefix.
   const place = (built: Built, unmoved: boolean): boolean => {
     const path = deps.store.activePath(built.threadId);
-    const leafHolds = unmoved ? deps.store.activeLeaf(built.threadId) === built.leafId : path[built.leafIndex]?.id === built.leafId;
+    const leafHolds = unmoved && !graceThreads.has(built.threadId) ? deps.store.activeLeaf(built.threadId) === built.leafId : path[built.leafIndex]?.id === built.leafId;
+    graceThreads.delete(built.threadId);
     if (!leafHolds) {
       drop(built, "leaf-moved");
       return false;
     }
-    if ((applicableCompaction(path)?.messageId ?? null) !== built.previousId) {
+    const previous = applicableCompaction(path);
+    if ((previous?.messageId ?? null) !== built.previousId || JSON.stringify(previous && !("unsupported" in previous) ? previous.value : null) !== built.previousValue) {
       drop(built, "compaction-changed");
+      return false;
+    }
+    if (prefixKey(path.slice(0, built.coveredIndex + 1)) !== built.prefix) {
+      drop(built, "prefix-changed");
       return false;
     }
     deps.store.appendCompaction(built.threadId, built.compaction);
@@ -131,11 +158,8 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
     retries.add(timer);
   };
 
-  const run = async (botId: string, threadId: string, controller: AbortController) => {
-    // A send that claimed the bot meanwhile prepares inline; its row is already past the leaf.
-    if (deps.busy(botId, threadId)) return;
-    const messages = deps.store.activePath(threadId);
-    const leafId = deps.store.activeLeaf(threadId);
+  const run = async ({ botId, threadId, messages, leafId }: BuildJob, controller: AbortController) => {
+    if (deps.busy(botId, threadId) && !graceThreads.has(threadId)) return;
     // a build would chain from the fallback and void its repair
     if (!leafId || !eligible(leafId) || repairTarget(messages)) return;
     const inputs = await deps.sendInputs(botId, threadId, messages);
@@ -150,6 +174,9 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
       referenceMessages: deps.store.messagesFor(threadId),
     });
     if (!plan.needed) return;
+    const coveredIndex = messages.findIndex((message) => message.id === plan.coveredThrough.id);
+    const prefix = prefixKey(messages.slice(0, coveredIndex + 1));
+    const previousValue = JSON.stringify(plan.previous?.value ?? null);
     const runNumber = (budgets.get(leafId)?.runs ?? 0) + 1;
     budgets.set(leafId, { runs: runNumber, nextAt: Number.POSITIVE_INFINITY });
     const timer = setTimeout(() => controller.abort(), BUILD_RUN_TIMEOUT_MS);
@@ -173,9 +200,10 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
     }).finally(() => clearTimeout(timer));
     if (disposed) return;
     if (result.status === "ready") {
-      land({ botId, threadId, leafId, leafIndex: messages.length - 1, previousId: plan.previous?.messageId ?? null, compaction: result.compaction });
+      land({ botId, threadId, leafId, leafIndex: messages.length - 1, previousId: plan.previous?.messageId ?? null, previousValue, prefix, coveredIndex, compaction: result.compaction });
       return;
     }
+    graceThreads.delete(threadId);
     if (runNumber >= MAX_BUILD_RUNS) return;
     budgets.set(leafId, { runs: runNumber, nextAt: Date.now() + BUILD_RETRY_MS });
     retryLater(botId, threadId);
@@ -187,7 +215,7 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
     if (!next) return;
     const current: ActiveRun = { threadId: next.threadId, done: Promise.resolve(), controller: new AbortController() };
     active = current;
-    current.done = run(next.botId, next.threadId, current.controller)
+    current.done = run(next, current.controller)
       .catch((error) => {
         console.warn(`[summary-build] run failed (${error instanceof Error ? error.name : "error"})`);
       })
@@ -202,27 +230,41 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
     const pending = held.get(threadId);
     if (pending && land(pending)) return;
     if (active?.threadId === threadId || queue.some((item) => item.threadId === threadId)) return;
+    if (deps.busy(botId, threadId)) return;
     if (!eligible(deps.store.activeLeaf(threadId))) return;
-    queue.push({ botId, threadId });
+    queue.push({ botId, threadId, messages: structuredClone(deps.store.activePath(threadId)), leafId: deps.store.activeLeaf(threadId) });
     pump();
   };
 
   return {
     onSettled,
     inflight: (threadId) => active?.threadId === threadId || queue.some((item) => item.threadId === threadId),
-    async settle(threadId, instance, capMs, summarizes) {
+    async settle(threadId, instance, capMs, summarizes, options) {
       const queued = queue.findIndex((item) => item.threadId === threadId);
-      if (queued >= 0) queue.splice(queued, 1);
       const current = active?.threadId === threadId ? active : null;
-      if (!current && !held.has(threadId)) return 0;
+      if (!current && queued < 0 && !held.has(threadId)) return 0;
+      const logWait = (wait: SummaryWait) => {
+        if (options?.onWait) options.onWait(wait);
+        else console.info(`[summary-wait] ${JSON.stringify(wait)}`);
+      };
+      const grace = options?.grace ? planSummaryGrace(options.grace) : null;
+      if ((current || queued >= 0) && grace?.safe) {
+        graceThreads.add(threadId);
+        logWait({ threadId, sendId: options?.sendId, mode: "skipped", waitedMs: 0 });
+        return 0;
+      }
+      const started = Date.now();
+      const reason = grace && !grace.safe ? grace.reason : "ordinary-compaction";
+      if (queued >= 0) queue.splice(queued, 1);
+      graceThreads.delete(threadId);
       if (!instance.generateText || instance.textTimeoutMs === undefined || !summarizes()) {
         current?.controller.abort();
         held.delete(threadId);
+        logWait({ threadId, sendId: options?.sendId, mode: "waited", waitedMs: 0, reason });
         return 0;
       }
       let waited = 0;
       if (current) {
-        const started = Date.now();
         const cap = setTimeout(() => current.controller.abort(), capMs);
         await current.done.finally(() => clearTimeout(cap));
         waited = Date.now() - started;
@@ -232,6 +274,7 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
         held.delete(threadId);
         place(built, false);
       }
+      logWait({ threadId, sendId: options?.sendId, mode: "waited", waitedMs: waited, reason });
       return waited;
     },
     async idle() {
@@ -241,6 +284,7 @@ export function createSummaryBuild(deps: SummaryBuildDeps): SummaryBuild {
       disposed = true;
       queue.length = 0;
       held.clear();
+      graceThreads.clear();
       for (const timer of retries) clearTimeout(timer);
       retries.clear();
       active?.controller.abort();

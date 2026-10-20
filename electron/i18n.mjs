@@ -31,6 +31,8 @@ const en = {
   "packaged.deviceTailnetUnknown": "Tailscale must be running on this PC to open your other PCs.",
   "packaged.deviceFileFailed": "Couldn't download that file from the other PC.",
   "native.copyLink": "Copy Link",
+  "native.copyImage": "Copy Image",
+  "native.saveImage": "Save Image As…",
   "native.showInFolder": "Show in folder",
   "native.saveCopy": "Save a copy…",
   "native.saveCopyFailed": "Couldn't save a copy",
@@ -49,6 +51,11 @@ const en = {
   "close.workerMany": "{count} workers are still running. Closing Wink stops them.",
   "close.bot": "A bot is still replying. Closing Wink stops it.",
   "close.both": "Work is still running. Closing Wink stops it.",
+  "update.ready": "Wink {version} is ready.",
+  "update.restartDetail": "Restarting closes every pane.",
+  "update.restartNow": "Restart now",
+  "update.later": "Later",
+  "update.backToStable": "Back to stable release",
 };
 
 const ko = {
@@ -73,6 +80,8 @@ const ko = {
   "packaged.deviceTailnetUnknown": "다른 PC를 열려면 이 PC에서 Tailscale이 실행 중이어야 합니다.",
   "packaged.deviceFileFailed": "다른 PC에서 파일을 내려받지 못했습니다.",
   "native.copyLink": "링크 복사",
+  "native.copyImage": "이미지 복사",
+  "native.saveImage": "이미지를 다른 이름으로 저장",
   "native.showInFolder": "폴더에서 보기",
   "native.saveCopy": "사본 저장…",
   "native.saveCopyFailed": "사본을 저장하지 못했습니다",
@@ -91,6 +100,11 @@ const ko = {
   "close.workerMany": "작업자 {count}명이 아직 실행 중입니다. Wink를 닫으면 모두 중지됩니다.",
   "close.bot": "봇이 아직 답하는 중입니다. Wink를 닫으면 중지됩니다.",
   "close.both": "작업이 아직 진행 중입니다. Wink를 닫으면 중지됩니다.",
+  "update.ready": "Wink {version} 설치 준비가 끝났습니다.",
+  "update.restartDetail": "다시 시작하면 모든 창이 닫힙니다.",
+  "update.restartNow": "지금 다시 시작",
+  "update.later": "나중에",
+  "update.backToStable": "안정 버전으로 돌아가기",
 };
 
 const catalogs = { en, ko };

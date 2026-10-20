@@ -25,7 +25,8 @@ import { createPaneRuns, notifyRestartedPanes } from "./pane-runs.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
-import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, retargetUpdater, startUpdater, updaterBridge } from "./updater.mjs";
+import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, retargetUpdater, startUpdater, switchUpdateChannel, updaterBridge } from "./updater.mjs";
+import { channelFromCommandLine } from "./update-channel.mjs";
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
 import { createCloseGuard } from "./close-guard.mjs";
 import { applyStartFresh, requestStartFresh } from "./start-fresh.mjs";
@@ -39,6 +40,7 @@ import { safeExternalUrl } from "./external-open.mjs";
 import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace-credentials.mjs";
 import { activateExistingWindow, liveMainWindow } from "./single-instance.mjs";
 import {
+  SYSTEM_IDLE_THRESHOLD_SECONDS,
   handleDesktopNotify,
   parseNotificationTargetFromCommandLine,
   taskbarBusyIndicator,
@@ -62,7 +64,7 @@ import { PACKAGE_INSTALL_SCHEME, packageUrlFromCommandLine, packageUrlFromDeepLi
 import { WINDOWS_CAPTION_HEIGHT, applyWindowsTitleBarOverlay, windowChromeOptions } from "./window-chrome.mjs";
 import { restoreWindowZoom, routeZoomShortcut, setImageZoomOwned } from "./window-zoom.mjs";
 import { contextMenuTemplate } from "./context-menu.mjs";
-import { fileMenuFor, openLocalFile } from "./open-file.mjs";
+import { fileMenuFor, imageFetchFor, openLocalFile, saveImageCopy } from "./open-file.mjs";
 import {
   ensureManagedComposioCredentials,
   managedComposioAccess,
@@ -140,6 +142,9 @@ const browserConnectionStore = createDescriptorStore({
 });
 let pendingPackageInstallUrl = packageUrlFromCommandLine(process.argv);
 let pendingNotificationTarget = parseNotificationTargetFromCommandLine(process.argv);
+// Queued before any second-instance, so a later jump list click wins.
+const launchUpdateChannel = channelFromCommandLine(process.argv);
+if (launchUpdateChannel) void switchUpdateChannel(launchUpdateChannel);
 
 function deliverNotificationTarget(win, target = pendingNotificationTarget) {
   if (!target || !win || win.isDestroyed()) return;
@@ -289,6 +294,8 @@ app.on("second-instance", (_event, commandLine) => {
   if (packageUrl) pendingPackageInstallUrl = packageUrl;
   const notifyTarget = parseNotificationTargetFromCommandLine(commandLine);
   if (notifyTarget) pendingNotificationTarget = notifyTarget;
+  const updateChannel = channelFromCommandLine(commandLine);
+  if (updateChannel) void switchUpdateChannel(updateChannel);
   activateMainWindow();
 });
 
@@ -1583,6 +1590,7 @@ ipcMain.on("desktop:notify", (event, payload) => {
     sendClick: (target) => {
       if (!sender.isDestroyed()) sender.webContents.send("desktop:notification-click", target);
     },
+    idleState: powerMonitor.getSystemIdleState(SYSTEM_IDLE_THRESHOLD_SECONDS),
   });
 });
 
@@ -1690,6 +1698,13 @@ function createWindow() {
     const menuItems = contextMenuTemplate(params, nativeText, {
       replaceMisspelling: (suggestion) => win.webContents.replaceMisspelling(suggestion),
       copyLink: (url) => clipboard.writeText(url),
+      copyImage: () => win.webContents.copyImageAt(params.x, params.y),
+      saveImage: () => saveImageCopy(params.srcURL, {
+        dialog,
+        downloads: app.getPath("downloads"),
+        window: win,
+        fetchImpl: imageFetchFor(params.srcURL, { origin: `http://127.0.0.1:${SERVER_PORT}`, token: serverToken }),
+      }).catch((error) => dialog.showErrorBox(nativeText("native.saveCopyFailed"), error?.message ?? String(error))),
     });
     if (!menuItems) return;
     Menu.buildFromTemplate(menuItems).popup({ window: win, frame: params.frame });
@@ -2392,7 +2407,7 @@ app.whenReady().then(async () => {
   startupWindowCreated = true;
   if (resetFailed) void dialog.showMessageBox(win, { type: "info", message: nativeText("settings.startFresh.error") });
   slog(`window shown packaged=${app.isPackaged} serverReady=${serverReady} uptime=${process.uptime().toFixed(2)}s`);
-  startUpdater(win);
+  startUpdater(win, nativeText);
   if (!app.isPackaged) void startBrowserSurface(win);
   // Register before the packaged harness wait: on Darwin, closing the
   // connecting window does not quit, and a dock click in that interval

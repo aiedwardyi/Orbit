@@ -1476,7 +1476,7 @@ describe("docked reply mascot", () => {
     }
   });
 
-  it("keeps one mascot at the bottom of the turn across a tool step", async () => {
+  it("stands alone once reply text settles and docks again when the next reply streams", async () => {
     const { host, render, mascots, unmount } = await mount();
     const first: Message = { id: "reply-1", parentId: "ua", at: 2, role: "bot", kind: "text", text: "Checking the logs." };
     const tool: Message = { id: "tool-1", parentId: "reply-1", at: 3, role: "bot", kind: "activity", tool: { name: "Read" } };
@@ -1488,11 +1488,12 @@ describe("docked reply mascot", () => {
 
       live.current = working("thread-a");
       await render({ ...botA, messages: [...botA.messages, first], activeLeafId: "reply-1" });
-      expect(dockedIn()).toBe("reply-1");
-      expect(host.querySelector(".turn-presence")).toBeNull();
+      expect(host.querySelector(".turn-presence [data-turn-mascot]")).not.toBeNull();
+      expect(host.querySelector('[data-mid="reply-1"] [data-message-hover-actions]')).not.toBeNull();
+      expect(dockedIn()).toBeUndefined();
 
       await render({ ...botA, messages: [...botA.messages, first, tool], activeLeafId: "tool-1" });
-      expect(dockedIn()).toBe("reply-1");
+      expect(host.querySelector(".turn-presence [data-turn-mascot]")).not.toBeNull();
       expect(mascots()).toHaveLength(1);
 
       live.current = working("thread-a", "All clear.", "tool-1");
@@ -1623,7 +1624,7 @@ describe("phone header name floor", () => {
     }
   };
 
-  const mount = async (overlap: boolean, menu?: { left: number; glow?: boolean; bare?: boolean; slide?: number }) => {
+  const mount = async (overlap: boolean, menu?: { left: number; glow?: boolean; bare?: boolean; slide?: number; rider?: boolean }) => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     vi.stubGlobal("ResizeObserver", class {
@@ -1643,6 +1644,7 @@ describe("phone header name floor", () => {
         button.setAttribute("data-phone-menu", "");
       }
       button.setAttribute("data-test-menu", "");
+      if (menu.rider) button.style.transform = `matrix(1, 0, 0, 1, ${menu.slide}, 0)`;
       document.body.append(button);
     }
     const bot: Bot = {
@@ -1802,6 +1804,25 @@ describe("phone header name floor", () => {
 
   it("hides the model label while the chat stage slides away from the menu it reaches", async () => {
     const view = await mount(false, { left: 330, slide: -32 });
+    try {
+      expect(view.modelLabel?.style.display).toBe("none");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("keeps the model label while the menu rides the chat stage away", async () => {
+    const view = await mount(false, { left: 316, slide: -32, rider: true });
+    try {
+      expect(view.modelLabel).not.toBeNull();
+      expect(view.modelLabel?.style.display).not.toBe("none");
+    } finally {
+      await view.unmount();
+    }
+  });
+
+  it("hides an overlapping model label while the menu rides the chat stage toward it", async () => {
+    const view = await mount(false, { left: 362, slide: 32, rider: true });
     try {
       expect(view.modelLabel?.style.display).toBe("none");
     } finally {

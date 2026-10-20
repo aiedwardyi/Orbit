@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isFallbackSummary, prepareModelContext } from "./context-compaction.ts";
+import { isFallbackSummary, planCompaction, prepareModelContext } from "./context-compaction.ts";
 import type { Message } from "./store.ts";
 import { createSummaryBuild, inlineDeadlineMs, inlineSummarizer } from "./summary-build.ts";
 import type { ContextCompactionV1 } from "../shared/context-compaction.ts";
@@ -53,7 +53,7 @@ function setup(generateText?: (prompt: string, opts?: { signal?: AbortSignal }) 
     busy: () => state.busy,
     userName: () => "User",
   });
-  const sendPrepares = (threadId: string, userId: string, inline?: { summarize: ((prompt: string) => Promise<string>) | undefined }) => {
+  const sendPrepares = (threadId: string, userId: string, inline?: { summarize: ((prompt: string) => Promise<string>) | undefined; summaryGrace?: typeof grace }) => {
     const summarize = inline ? inline.summarize : vi.fn(async () => "SUMMARY\ninline");
     return prepareModelContext({
       messages: store.activePath(threadId),
@@ -61,6 +61,7 @@ function setup(generateText?: (prompt: string, opts?: { signal?: AbortSignal }) 
       taskRecordText: "Goal: build",
       excludeIds: new Set([userId]),
       summarize,
+      summaryGrace: inline?.summaryGrace,
     }).then((prepared) => ({ prepared, summarize }));
   };
   return { threads, appended, state, build, store, sendPrepares };
@@ -77,6 +78,25 @@ function deferred() {
 
 const tick = () => vi.advanceTimersByTimeAsync(0);
 const claudeSend = { generateText: async () => "SUMMARY\ninline", textTimeoutMs: 90_000 };
+const grace = {
+  knownWindow: WINDOW,
+  requestText: "next question",
+  fresh: false,
+  rewound: false,
+  recycle: false,
+  local: false,
+  native: {
+    instanceId: "claude",
+    cursor: "session",
+    seed: { instanceId: "claude", cursor: "session", compactionId: null as string | null },
+    prompt: { first: 25_000, last: 35_000, contextWindow: WINDOW },
+  },
+};
+const graceInputs = (messages: Message[]) => ({
+  plan: planCompaction({ messages, contextWindow: WINDOW }),
+  taskRecordText: "Goal: build",
+  grace,
+});
 
 describe("summary build after settle", () => {
   beforeEach(() => {
@@ -226,6 +246,167 @@ describe("summary build after settle", () => {
     expect(summarize).not.toHaveBeenCalled();
     expect(prepared).toMatchObject({ status: "ready", compactionId: appended[0]!.id });
     expect(calls).toHaveLength(1);
+  });
+
+  it("summary grace dispatches with zero virtual wait and uses the held build next turn once", async () => {
+    const generateText = vi.fn(() => new Promise<string>((resolve) => setTimeout(() => resolve("SUMMARY\nbuilt"), 31_000)));
+    const { threads, appended, state, build, sendPrepares } = setup(generateText);
+    threads.set("t", overBudgetThread("a"));
+    build.onSettled("bot", "t");
+    await tick();
+    state.busy = true;
+    threads.get("t")!.push(message("send", "next question"));
+    const started = Date.now();
+    let dispatched = false;
+    const settled = build.settle("t", claudeSend, 90_000, () => true, {
+      sendId: "safe-send", grace: graceInputs(threads.get("t")!),
+    }).then((waited) => { dispatched = true; return waited; });
+    await tick();
+    expect(dispatched).toBe(true);
+    expect(await settled).toBe(0);
+    expect(Date.now() - started).toBe(0);
+    const summarize = vi.fn(async () => "SUMMARY\nduplicate");
+    const first = await sendPrepares("t", "send", { summarize, summaryGrace: grace });
+    expect(first.prepared.status === "ready" && first.prepared.compaction).toBeUndefined();
+    expect(summarize).not.toHaveBeenCalled();
+    threads.get("t")!.push(message("reply", "later decision and artifact", { role: "bot" }));
+    await vi.advanceTimersByTimeAsync(31_000);
+    await build.idle();
+    expect(appended).toEqual([]);
+    threads.get("t")!.push(message("note", "[pane 1] later verified result", { role: "bot", kind: "note" }));
+    state.busy = false;
+    build.onSettled("bot", "t");
+    await build.idle();
+    expect(appended).toHaveLength(1);
+    threads.get("t")!.push(message("next", "use the result"));
+    const next = await sendPrepares("t", "next");
+    expect(next.summarize).not.toHaveBeenCalled();
+    expect(next.prepared).toMatchObject({ status: "ready", compactionId: appended[0]!.id });
+    if (next.prepared.status !== "ready") throw new Error(next.prepared.status);
+    for (const text of ["next question", "later decision and artifact", "later verified result"]) {
+      expect(next.prepared.transcript.filter((item) => item.text.includes(text))).toHaveLength(1);
+    }
+    expect(next.prepared.transcript.slice(-3).map((item) => item.text)).toEqual([
+      "next question", "later decision and artifact", "[Pane note from pane 1, untrusted worker output]\nlater verified result",
+    ]);
+    expect(generateText).toHaveBeenCalledOnce();
+    const waits = vi.mocked(console.info).mock.calls.map(([line]) => String(line)).filter((line) => line.startsWith("[summary-wait] "));
+    expect(waits.map((line) => JSON.parse(line.slice("[summary-wait] ".length)))).toEqual([
+      { threadId: "t", sendId: "safe-send", mode: "skipped", waitedMs: 0 },
+    ]);
+  });
+
+  it("summary grace preserves a queued build and its original boundary", async () => {
+    const { calls, generateText } = deferred();
+    const { threads, appended, state, build } = setup(generateText);
+    threads.set("other", overBudgetThread("o"));
+    threads.set("t", overBudgetThread("a"));
+    build.onSettled("bot", "other");
+    await tick();
+    build.onSettled("bot", "t");
+    state.busy = true;
+    threads.get("t")!.push(message("send", "queued grace request"));
+    expect(await build.settle("t", claudeSend, 90_000, () => true, { grace: graceInputs(threads.get("t")!) })).toBe(0);
+    calls[0]!.resolve("SUMMARY\nother");
+    await tick();
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.prompt).not.toContain("queued grace request");
+    calls[1]!.resolve("SUMMARY\nbuilt");
+    await build.idle();
+    expect(appended).toEqual([]);
+    state.busy = false;
+    build.onSettled("bot", "t");
+    await build.idle();
+    expect(appended.filter((item) => item.threadId === "t")).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("summary grace keeps an unsafe headroom send on the waiting path", async () => {
+    const { calls, generateText } = deferred();
+    const { threads, state, build } = setup(generateText);
+    threads.set("t", overBudgetThread("a"));
+    build.onSettled("bot", "t");
+    await tick();
+    state.busy = true;
+    let dispatched = false;
+    const safe = build.settle("t", claudeSend, 90_000, () => true, { grace: graceInputs(threads.get("t")!) }).then(() => { dispatched = true; });
+    await tick();
+    expect(dispatched).toBe(true);
+    await safe;
+    const inputs = graceInputs(threads.get("t")!);
+    let waited = false;
+    const unsafe = build.settle("t", claudeSend, 90_000, () => true, {
+      sendId: "unsafe-send", grace: { ...inputs, grace: { ...grace, requestText: "large request ".repeat(50_000) } },
+    }).then((ms) => { waited = true; return ms; });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(waited).toBe(false);
+    expect(calls[0]!.signal?.aborted).toBe(false);
+    calls[0]!.resolve("SUMMARY\nbuilt");
+    expect(await unsafe).toBe(5_000);
+    const lines = vi.mocked(console.info).mock.calls.map(([line]) => String(line)).filter((line) => line.startsWith("[summary-wait] "));
+    expect(JSON.parse(lines.at(-1)!.slice("[summary-wait] ".length))).toEqual({
+      threadId: "t", sendId: "unsafe-send", mode: "waited", waitedMs: 5_000, reason: "headroom",
+    });
+    expect(lines.join("\n")).not.toContain("large request");
+  });
+
+  it.each(["rewind", "covered edit", "prior compaction"])("summary grace drops a build after %s", async (change) => {
+    const { calls, generateText } = deferred();
+    const { threads, appended, state, build } = setup(generateText);
+    threads.set("t", overBudgetThread("a"));
+    build.onSettled("bot", "t");
+    await tick();
+    state.busy = true;
+    let dispatched = false;
+    const settled = build.settle("t", claudeSend, 90_000, () => true, { grace: graceInputs(threads.get("t")!) }).then(() => { dispatched = true; });
+    await tick();
+    expect(dispatched).toBe(true);
+    await settled;
+    if (change === "rewind") threads.set("t", threads.get("t")!.slice(0, 80));
+    else if (change === "covered edit") threads.get("t")![0]!.text = "corrected covered request";
+    else threads.get("t")!.push(message("competing", "", { role: "bot", kind: "compaction", compaction: {
+      v: 1, summary: "different prior summary", coveredThroughId: "au0", firstKeptId: "ab0",
+      contextWindow: WINDOW, estimatedTokensBefore: 1_000, sourceMessageCount: 1,
+    } }));
+    calls[0]!.resolve("SUMMARY\nstale");
+    await build.idle();
+    state.generateText = undefined;
+    state.busy = false;
+    build.onSettled("bot", "t");
+    await build.idle();
+    expect(appended).toEqual([]);
+    const dropped = vi.mocked(console.info).mock.calls.map(([line]) => String(line)).filter((line) => line.startsWith("[summary-build] dropped "));
+    expect(dropped).toHaveLength(1);
+    expect(JSON.parse(dropped[0]!.slice("[summary-build] dropped ".length)).reason).toBe(
+      change === "rewind" ? "leaf-moved" : change === "covered edit" ? "prefix-changed" : "compaction-changed",
+    );
+  });
+
+  it("ignores pruned screen pixels while retaining reactions and card answers in the prefix", async () => {
+    for (const change of ["pixels", "reaction", "card answer"]) {
+      const { calls, generateText } = deferred();
+      const { threads, appended, build } = setup(generateText);
+      const rows = overBudgetThread("a");
+      const screen = message("screen", "", { role: "bot", kind: "screen", png: "pixels" });
+      const card = message("card", "", { role: "bot", kind: "options", card: {
+        title: "Choose a target", subtitle: "", options: ["desktop", "phone"], answered: "answer", answerText: "desktop",
+      } });
+      rows.splice(2, 0, screen, card);
+      threads.set("t", rows);
+      try {
+        build.onSettled("bot", "t");
+        await tick();
+        screen.png = undefined;
+        if (change === "reaction") rows[1]!.reactions = [{ emoji: "👍", by: "user" }];
+        if (change === "card answer") card.card!.answerText = "phone";
+        calls[0]!.resolve("SUMMARY\nbuilt");
+        await build.idle();
+        expect(appended).toHaveLength(change === "pixels" ? 1 : 0);
+        if (change !== "pixels") expect(vi.mocked(console.info).mock.calls.at(-1)?.[0]).toContain('"reason":"prefix-changed"');
+      } finally {
+        build.dispose();
+      }
+    }
   });
 
   it("a switch to an engine without generateText mid-build waits 0", async () => {
@@ -489,21 +670,25 @@ describe("summary build wiring", () => {
 
   it("builds first in the main fold, settles before prepare, and disposes on shutdown", () => {
     expect(index).toMatch(/summaryBuild\.onSettled\(bot\.id, event\.threadId\);\s*summaryRepair\.onSettled\(bot\.id, event\.threadId\);/);
-    expect(index).toMatch(/const summaryWaitMs = await summaryBuild\.settle\(threadId, instance, 90_000, \(\) => \{[\s\S]*?\}\)\.needed;\s*\}\);\s*const activeMessages = store\.activePath\(threadId\);/);
-    expect(index.indexOf("const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => {")).toBeLessThan(index.indexOf("  const prepared = await prepareModelContext({"));
+    expect(index).toContain("const summarySkipped = summaryBuild.inflight(threadId) && planSummaryGrace(graceInputs).safe;");
+    expect(index).toContain("grace: graceInputs, onWait: onSummaryWait");
+    expect(index.indexOf("const summaryWaitMs = await summaryBuild.settle(")).toBeLessThan(index.indexOf("  const prepared = await prepareContext("));
+    expect(index).toContain("const prepared = await prepareContext(activeMessages, summaryWaitMs, summarySkipped ? summaryGrace : undefined);");
+    expect(index).toContain("requestText: text, recycle: summaryGrace.recycle || systemRecycle");
+    expect(index).toContain("const finalGrace = summarySkipped ? planSummaryGrace(finalGraceInputs) : null;");
     expect(index).toMatch(/summaryBuild\.dispose\(\);\s*summaryRepair\.dispose\(\);/);
   });
 
   it("the 1:1 send's inline call runs on the deadline left after the wait; the room path is unchanged", () => {
-    const sends = index.split("summarize: inlineSummarizer(instance, summaryWaitMs),");
+    const sends = index.split("summarize: inlineSummarizer(instance, waitedMs),");
     expect(sends).toHaveLength(2);
-    expect(sends[0]!.lastIndexOf("const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => {")).toBeGreaterThan(sends[0]!.lastIndexOf("async function startClaimedTurn("));
+    expect(sends[0]!.lastIndexOf("const summaryWaitMs = await summaryBuild.settle(")).toBeGreaterThan(sends[0]!.lastIndexOf("async function startClaimedTurn("));
     expect(index).toContain("summarize: instance.generateText ? (prompt) => instance.generateText!(prompt) : undefined,");
   });
 
   it("the 1:1 compact log reports the deadline the inline call gets", () => {
-    const send = index.split("summarize: inlineSummarizer(instance, summaryWaitMs),")[1]!;
-    expect(send.slice(0, send.indexOf("}, record),"))).toContain("deadlineMs: inlineDeadlineMs(instance, summaryWaitMs),");
+    const send = index.split("summarize: inlineSummarizer(instance, waitedMs),")[1]!;
+    expect(send.slice(0, send.indexOf("}, record),"))).toContain("deadlineMs: inlineDeadlineMs(instance, waitedMs),");
     expect(inlineDeadlineMs({ textTimeoutMs: 90_000 }, 30_000)).toBe(60_000);
     expect(inlineDeadlineMs({ textTimeoutMs: 90_000 }, 0)).toBe(90_000);
     expect(inlineDeadlineMs({ textTimeoutMs: undefined }, 30_000)).toBeNull();

@@ -33,7 +33,7 @@ import {
   type CredentialTargetId,
 } from "../shared/credential-request.ts";
 
-import { approvalKey, autoVerdict, BACKGROUND_DENY_NOTE } from "./auto-approve.ts";
+import { approvalKey, autoVerdict, AWAY_DESKTOP_DENY_NOTE, BACKGROUND_DENY_NOTE } from "./auto-approve.ts";
 import { requestReview, resolveAutoReviewMode, shouldReview } from "./auto-review.ts";
 import {
   resolveAutomaticSelection,
@@ -112,8 +112,9 @@ import {
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, planCompaction, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes } from "./context-compaction.ts";
-import { createSummaryBuild, inlineDeadlineMs, inlineSummarizer } from "./summary-build.ts";
+import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, planCompaction, planSummaryGrace, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes, type SummaryGrace } from "./context-compaction.ts";
+import { decodeInjectId } from "./drivers/local-inject.ts";
+import { createSummaryBuild, inlineDeadlineMs, inlineSummarizer, type SummaryWait } from "./summary-build.ts";
 import { createSummaryRepair, logSummaryCall } from "./summary-repair.ts";
 import { augmentedPath, findCliCandidates, resetPathCache, splitCliString } from "./env-path.ts";
 import { describeSpawnFailure, execCli } from "./procs.ts";
@@ -156,8 +157,8 @@ import { searchHaystack, searchMessages, searchSnippet } from "./message-db.ts";
 import { turnIndex } from "./turn-index.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript, userTurnReactionKeys } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
-import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, finishDelegatedTurn, pendingDelegationSnapshot, pollDelegation, queueDelegation, resolveDelegationId, takeOverDelegatedTurn, type DelegatedTurn, type QueueResult } from "./delegations.ts";
-import { onPeerTakeover, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
+import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, finishDelegatedTurn, pendingDelegationSnapshot, pollDelegation, queueDelegation, resolveDelegationId, settleTakenOverDelegation, type DelegatedTurn, type QueueResult } from "./delegations.ts";
+import { hasPeerWatch, onPeerTakeover, steerTakeover, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
 import { waitForPeerReply, type AskReply } from "./ask-bot.ts";
 import {
   cancelQueuedRoomParticipations,
@@ -175,6 +176,7 @@ import {
   queueMark,
   queueRoomParticipation,
   queueSteeredMessage,
+  withQueuedSend,
 } from "./steer-queue.ts";
 import { sendPostReceipt, startedTurn } from "./send-receipt.ts";
 import { steersSend } from "./send-deliver.ts";
@@ -258,7 +260,7 @@ import { TurnWatchdog } from "./turn-watchdog.ts";
 import { foldContinuationStart } from "./continuation-turn.ts";
 import { modelPickPatch } from "./pending-model.ts";
 import { botClears, groupClears } from "./wire-clears.ts";
-import { ownTurnReply, turnSummaries } from "./turn-reply.ts";
+import { ownTurnReply, turnAddedMessage, turnSummaries, turnUnread } from "./turn-reply.ts";
 import { terminalReadGrant } from "./terminal-grant.ts";
 import { updateBridgeResponse, updateStateFromMessage } from "./update-proxy.ts";
 import { botClosedPanes, paneLabel, raisePaneAttention, terminalPaneCountsResponse, terminalSendResponse, terminalSnapshotResponse, terminalStartResponse } from "./terminal-snapshot.ts";
@@ -450,7 +452,7 @@ const threadSyncGate = createThreadSyncV2Gate(DATA_DIR);
 if (!existsSync(join(DATA_DIR, "profile-sync.json"))) {
   profileSyncSettings = saveProfileSyncSettings(DATA_DIR, profileSyncSettings);
 }
-const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
+const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { cacheDir: DATA_DIR });
 await registry.load(instanceConfigs(cfg));
 const bundledSkills = loadBundledSkills();
 const availableSkills = () => mergeSkills(bundledSkills, loadUserSkills(join(DATA_DIR, "skills")));
@@ -2057,6 +2059,8 @@ function publishDeviceRecord(): void {
 }
 
 let devicePresenceStarted = false;
+let markServerServing!: () => void;
+const serverServing = new Promise<void>((resolve) => { markServerServing = resolve; });
 
 /** Tailnet detection and the relay both call this; the heartbeat starts once. */
 function startDevicePresence(): void {
@@ -2064,7 +2068,7 @@ function startDevicePresence(): void {
   if (devicePresenceStarted) return;
   devicePresenceStarted = true;
   setInterval(publishDeviceRecord, DEVICE_HEARTBEAT_MS).unref();
-  void detectLaptop().then((laptop) => {
+  void serverServing.then(() => new Promise<void>((resolve) => setTimeout(resolve, 1_000))).then(detectLaptop).then((laptop) => {
     deviceLaptop = laptop;
     if (laptop) publishDeviceRecord();
   });
@@ -2500,6 +2504,7 @@ function requestBehavior(value: unknown): "allow" | "deny" | "answer" | null {
 // can carry what the bot actually said
 const lastReply = new Map<string, { text: string; messageId: string }>();
 const turnSummary = turnSummaries();
+const unreadTurns = turnUnread();
 
 const TASK_PACKET_FLUSH_MS = 30_000;
 const pendingTaskPackets = new Map<
@@ -2553,6 +2558,8 @@ const turnDispatchedAt = new Map<string, number>();
 const turnStartedAtMs = new Map<string, number>();
 // A routine fired in a chat is not the user's task: it neither resumes nor settles that record.
 const routineTurnThreads = new Set<string>();
+// Threads whose running turn a pane note woke: its finish stays quiet.
+const paneNoteTurnThreads = new Set<string>();
 const turnInterruptedAt = new Map<string, number>();
 const turnEpochByBot = new Map<string, number>();
 const liveTurnIdByThread = new Map<string, string>();
@@ -2690,6 +2697,7 @@ function forgetTurnThread(threadId: string) {
   turnInterruptedAt.delete(threadId);
   pendingInterruptThreads.delete(threadId);
   adapterTurnByThread.delete(threadId);
+  unreadTurns.forget(threadId);
 }
 
 function seedFromLastUser(botId: string, threadId: string, turnsAtWrite: number) {
@@ -2729,7 +2737,8 @@ function releaseInterruptedBot(botId: string, threadId: string) {
   const speaker = groupSpeakers.get(threadId);
   if (group && group.busyBotId === botId) {
     if (speaker?.botId === botId) groupSpeakers.delete(threadId);
-    store.patchGroup(group.id, { busyBotId: null, unread: true });
+    const addedMessage = unreadTurns.settle(threadId, undefined, store.messagesFor(threadId));
+    store.patchGroup(group.id, { busyBotId: null, ...(addedMessage ? { unread: true } : {}) });
   }
   if (store.bot(botId)?.busy) store.setActivity(botId, "idle");
 }
@@ -2961,6 +2970,8 @@ bus.subscribe((event: RuntimeEvent) => {
       turnDispatchedAt.set(threadId, tickTurnClock());
       turnStartedAtMs.set(threadId, Date.now());
       watchdog.watch(threadId, botId);
+      // a continuation is not the note turn
+      paneNoteTurnThreads.delete(threadId);
     },
     disown: (turnId) => disownedTurnIds.add(turnId),
   });
@@ -3143,6 +3154,9 @@ bus.subscribe((event: RuntimeEvent) => {
   };
 
   switch (event.type) {
+    case "turn.started":
+      unreadTurns.start(event.threadId, event.turnId, store.messagesFor(event.threadId));
+      break;
     case "session.started":
       if (bot && event.sessionId && event.providerInstanceId && !staleTurnEvent(event.threadId, event.turnId)) {
         store.setResumeCursor(bot.id, event.providerInstanceId, event.sessionId, event.threadId);
@@ -3255,8 +3269,8 @@ bus.subscribe((event: RuntimeEvent) => {
         });
         break;
       }
-      // A background ask comes only from work an attended Auto turn started;
-      // the driver captured that at launch, and the mark may have aged since.
+      // A background ask comes only from work an Auto turn started, and the
+      // driver kept desktop asks to attended ones; the mark may have aged since.
       const unattended = permission && asker && event.requestId && !event.background ? isUnattended(asker.id) : false;
       // Verdicts run on the original event. The bus redacts only the NDJSON
       // tee; SSE/broadcast (PR72) redacts the client copy. Masking first
@@ -3265,6 +3279,48 @@ bus.subscribe((event: RuntimeEvent) => {
       const verdict = permission && asker && event.requestId && (!event.background || asker.autoApprove)
         ? autoVerdict(asker, event.tool, event.summary, { unattended, scope: event.approvalScope })
         : null;
+      if (verdict?.source === "away-desktop-deny" && asker && event.requestId) {
+        const instance = event.providerInstanceId
+          ? registry.get(event.providerInstanceId)
+          : registry.get(asker.modelSelection.instanceId);
+        const requestId = event.requestId;
+        const { tool, summary } = event;
+        // answered at once: a desktop card nobody can see would stall the turn
+        const deny = async () => {
+          if (!instance) throw new Error("provider unavailable");
+          const outcome = await instance.adapter.respondToRequest(event.threadId, requestId, { behavior: "deny", message: AWAY_DESKTOP_DENY_NOTE });
+          if (outcome === "unavailable") throw new Error("the ask is no longer open");
+        };
+        void (async () => {
+          try {
+            // retried once: no card is shown, so a failed deny leaves the ask open until the broker times out
+            await deny().catch(deny);
+            pushMessage({
+              role: "bot",
+              kind: "activity",
+              tool: { name: `Skipped desktop control while you were away: ${summary.slice(0, 120)}`, ok: false },
+            });
+            appendDecision(DATA_DIR, {
+              threadId: event.threadId,
+              requestId,
+              botId: asker.id,
+              botName: asker.name,
+              tool,
+              summary,
+              decision: "auto-denied",
+              source: verdict.source,
+              unattended: true,
+            });
+          } catch {
+            pushMessage({
+              role: "bot",
+              kind: "activity",
+              tool: { name: `Auto mode couldn't answer: ${summary.slice(0, 120)}`, ok: false },
+            });
+          }
+        })();
+        break;
+      }
       if (verdict?.approve && asker && event.requestId) {
         const settled = verdict.approve;
         const instance = event.providerInstanceId
@@ -3299,6 +3355,7 @@ bus.subscribe((event: RuntimeEvent) => {
               decision: "auto-approved",
               source: verdict.source,
               rule: verdict.rule,
+              unattended: unattended || undefined,
             });
           } catch {
             if (asker.autoApprove || event.background) {
@@ -3535,6 +3592,7 @@ bus.subscribe((event: RuntimeEvent) => {
       });
       break;
     case "runtime.error":
+      unreadTurns.start(event.threadId, event.turnId, store.messagesFor(event.threadId));
       pushMessage({
         role: "bot",
         kind: "activity",
@@ -3563,6 +3621,7 @@ bus.subscribe((event: RuntimeEvent) => {
       lastReply.delete(event.threadId);
       // summaries are hidden, so a turn that wrote nothing else shows them instead
       for (const id of turnSummary.settle(event.threadId, event.turnId)) store.patchMessage(event.threadId, id, { summarized: undefined });
+      const addedMessage = unreadTurns.settle(event.threadId, event.turnId, store.messagesFor(event.threadId));
       const lastReported = turnUsage.get(event.threadId);
       turnUsage.delete(event.threadId);
       roomTurnInstruction.delete(event.threadId);
@@ -3661,7 +3720,7 @@ bus.subscribe((event: RuntimeEvent) => {
         const routineReportGroup = routineReportThread ? store.groupByThread(routineReportThread) : undefined;
         // Group-origin routines belong to that channel's unread state. Their
         // hidden execution task should not light up the bot's 1:1 sidebar too.
-        if (!routineReportGroup) store.patchBot(bot.id, { unread: true });
+        if (!routineReportGroup && addedMessage) store.patchBot(bot.id, { unread: true });
         if (routineRun?.status !== "failed") {
           // the frame carries the bot's avatar so every desktop client can
           // show the notification under that bot's own face
@@ -3670,7 +3729,9 @@ bus.subscribe((event: RuntimeEvent) => {
             : reply;
           const startedAt = turnStartedAtMs.get(event.threadId);
           notify(
-            buildNotification("done", bot, routineReportThread ?? event.threadId, completionDetail),
+            buildNotification("done", bot, routineReportThread ?? event.threadId, completionDetail, {
+              paneNoteTurn: paneNoteTurnThreads.has(event.threadId),
+            }),
             startedAt === undefined ? undefined : Date.now() - startedAt,
             routineRun,
           );
@@ -3684,6 +3745,7 @@ bus.subscribe((event: RuntimeEvent) => {
             // the bot may have been deleted while the capture ran
             if (frame && store.bot(bot.id)) {
               pushMessage({ role: "bot", kind: "screen", png: frame.png, mime: frame.mime });
+              if (!routineReportGroup) store.patchBot(bot.id, { unread: true });
             }
           }).finally(clearVpsTurn);
         } else if (vpsTurn) {
@@ -3695,7 +3757,7 @@ bus.subscribe((event: RuntimeEvent) => {
       if (speaker && group?.busyBotId === speaker.botId) {
         settledGroupSpeakers.set(event.threadId, speaker.botId);
         groupSpeakers.delete(event.threadId);
-        store.patchGroup(group.id, { busyBotId: null, unread: true });
+        store.patchGroup(group.id, { busyBotId: null, ...(addedMessage ? { unread: true } : {}) });
         const speakingBot = store.bot(speaker.botId);
         if (speakingBot?.busy) {
           store.setActivity(speakingBot.id, "idle");
@@ -3742,9 +3804,12 @@ function finalizeDelegationWatch(
 function watchDelegatedTurn(targetThreadId: string, watched: DelegatedTurn & { sourceThreadId: string; endTakeover?: () => void }): void {
   delegationWatch.set(targetThreadId, watched);
   peerTurnSource.set(targetThreadId, watched.sourceThreadId);
-  watched.endTakeover = onPeerTakeover(targetThreadId, () => {
+  watched.endTakeover = onPeerTakeover(targetThreadId, (afterReply) => {
     peerTurnSource.delete(targetThreadId);
-    takeOverDelegatedTurn(commsBus, watched, cfg.profile?.name?.trim() || "User");
+    // a reply that finished before the read settles now; the turn's later end finds no watch
+    const finished = afterReply ? lastReply.get(targetThreadId)?.text : undefined;
+    if (finished !== undefined) delegationWatch.delete(targetThreadId);
+    settleTakenOverDelegation(commsBus, watched, cfg.profile?.name?.trim() || "User", finished);
   });
 }
 
@@ -3899,7 +3964,7 @@ const paneWake = new PaneWakeScheduler({
     if (newest) store.markPaneNotesSkipped(botId, threadId, newest.id);
   },
   wake: (botId, threadId) => {
-    startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true }).then(() => undefined).catch((err) => {
+    startTurn(botId, PANE_WAKE_PROMPT, { threadId, cardContinuation: true, paneNoteWake: true }).then(() => undefined).catch((err) => {
       if (isBusyRejection(err)) paneWake.noteArrived(botId, threadId);
       else console.warn("pane wake failed:", err instanceof Error ? err.message : String(err));
     });
@@ -4114,6 +4179,8 @@ type StartTurnOptions = {
    * The prompt is control-plane context: it reaches the provider without
    * masquerading as another message authored by the user. */
   cardContinuation?: boolean;
+  /** A pane note woke this turn; its finish stays quiet. */
+  paneNoteWake?: boolean;
   /** Earlier text message this user turn is replying to. */
   replyTo?: Message;
   /** Stable identity supplied by the composer so a network retry cannot
@@ -4136,7 +4203,7 @@ const SHOW_IMAGE_GUIDANCE =
 const ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS =
   " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. If that line answered it, your final message does not return to it: no recap, no 'On your question' part, no expanded take, unless your later work changed the answer or a Wink note says the user never saw that line, in which case the answer goes out again, exactly once. This covers messages the user types, not pane notes or other automated messages. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you. Clean up after yourself: once a task's result is verified, remove the temporary files, folders and worktrees you created for it, by exact path only; never delete by wildcard or age, or anything you did not create, and ask when unsure. Say what you verified yourself and what you assume or were told.";
 const REPLY_STYLE_INSTRUCTIONS =
-  " Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. After tool work, close with a short standalone summary of what you did and found. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
+  " Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
 const ALWAYS_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS + REPLY_STYLE_INSTRUCTIONS;
 const DETAILED_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS;
 
@@ -4393,79 +4460,128 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // never pruned; only this provider-facing projection is bounded.
   const skipTranscript = new Set<string>([userMessage.id, ...(opts?.excludeMessageIds ?? [])]);
   const modelContextWindow = contextWindowFor(instance.models, model);
-  // A summary built since the last settle lands here, before the path is read, so prepare reuses it.
-  const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => {
-    const messages = store.activePath(threadId);
-    const notes = instance.adapter.capabilities.transcriptReplay !== true
-      ? paneNotesForTurn(messages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
-      : null;
-    return planCompaction({
-      messages,
-      contextWindow: modelContextWindow,
-      excludeIds: notes?.ids?.length ? new Set([...skipTranscript, ...notes.ids]) : skipTranscript,
-      reserveTokens: notes?.tokens,
-      userName: cfg.profile?.name?.trim() || "User",
-      referenceMessages: store.messagesFor(threadId),
-    }).needed;
-  });
-  const activeMessages = store.activePath(threadId);
-  const rewound = threadId === bot.threadId && Boolean(bot.rewound);
+  const messagesBeforeSummary = store.activePath(threadId);
+  let rewound = threadId === bot.threadId && Boolean(bot.rewound);
   let taskRecord = taskPacketForWrite(threadId);
   const selectionChanged = task.lastInstanceId !== undefined && (
     task.lastInstanceId !== instanceId ||
     (task.lastModel !== undefined && task.lastModel !== model)
   );
-  if (taskRecord && selectionChanged) {
-    taskRecord = persistTaskPacket(stampTaskResumePacket(taskRecord, "engine-switch", {
-      now: Date.now(),
-      turnsAtWrite: task.usage?.turns ?? taskRecord.turnsAtWrite,
-    })) ?? taskRecord;
-  }
-  const taskRecordToFlush = taskRecord;
-  const latestUser = lastUserInstruction(activeMessages.filter((message) => !skipTranscript.has(message.id)));
+  const latestUser = lastUserInstruction(messagesBeforeSummary.filter((message) => !skipTranscript.has(message.id)));
   // Recovery Current request must be this send's text. skipTranscript excludes
   // userMessage.id, so transcript lookup alone would show a prior user turn.
   // A Resume card carries no request of its own, so it falls back to the turn
   // the interruption cut short.
-  const recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || latestUser?.text || "";
-  const durableTaskRecordText = taskRecord
+  let recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || latestUser?.text || "";
+  let durableTaskRecordText = taskRecord
     ? taskRecordBlock(
       taskRecord,
       Math.max(512, Math.floor(modelContextWindow * 0.15) * 3),
       recovering ? { recovering: true, latestUserText: recoveryLatestUserText } : undefined,
     )
     : "";
-  // Inline replay carries this turn's notes after the reply marker, so they leave history and claim their room first.
-  const inlineNotes = instance.adapter.capabilities.transcriptReplay !== true
-    ? paneNotesForTurn(activeMessages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
+  const catalogWindow = knownCatalogContextWindow(instance.models, model);
+  let sessionPrompt = sessionPromptFor({ report: task.nativePrompt, cursor: task.resumeCursors[instanceId], model, catalogWindow });
+  const notesBeforeSummary = instance.adapter.capabilities.transcriptReplay !== true
+    ? paneNotesForTurn(messagesBeforeSummary, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
     : null;
-  const prepared = await prepareModelContext({
-    messages: activeMessages,
+  const planBeforeSummary = planCompaction({
+    messages: messagesBeforeSummary,
     contextWindow: modelContextWindow,
-    taskRecordText: durableTaskRecordText || "No durable task record is available.",
-    excludeIds: inlineNotes?.ids?.length ? new Set([...skipTranscript, ...inlineNotes.ids]) : skipTranscript,
-    reserveTokens: inlineNotes?.tokens,
+    excludeIds: notesBeforeSummary?.ids?.length ? new Set([...skipTranscript, ...notesBeforeSummary.ids]) : skipTranscript,
+    reserveTokens: notesBeforeSummary?.tokens,
     userName: cfg.profile?.name?.trim() || "User",
     referenceMessages: store.messagesFor(threadId),
-    summarize: inlineSummarizer(instance, summaryWaitMs),
-    onSummaryCall: (record) => logSummaryCall({
-      botId: bot.id,
-      threadId,
-      phase: "compact",
-      engine: instance.driverKind,
-      model: instance.textModel ?? null,
-      run: 0,
-      deadlineMs: inlineDeadlineMs(instance, summaryWaitMs),
-    }, record),
-    beforeSummarize: taskRecordToFlush ? () => {
-      const saved = persistTaskPacket(stampTaskResumePacket(taskRecordToFlush, "pre-compaction", {
-        now: Date.now(),
-        turnsAtWrite: task.usage?.turns ?? taskRecordToFlush.turnsAtWrite,
-      }));
-      if (!saved) throw new Error("the durable task record could not be flushed");
-      taskRecord = saved;
-    } : undefined,
   });
+  const reactions = { delivered: task.reactionsDelivered };
+  const summaryGrace: SummaryGrace = {
+    knownWindow: catalogWindow,
+    requestText: composeUserTurnPrompt(text, {
+      replyTo: opts?.replyTo, messages: messagesBeforeSummary, userName: cfg.profile?.name?.trim() || "User", ...reactions,
+    }),
+    fresh: selectionChanged || engineIsFresh({
+      instanceId, model, lastInstanceId: task.lastInstanceId, lastModel: task.lastModel,
+      sessionModelSwitch: instance.adapter.capabilities.sessionModelSwitch, resumeCursors: task.resumeCursors,
+      resumeCursor: instance.adapter.capabilities.resumeCursor,
+      transcript: planBeforeSummary.needed || planBeforeSummary.status === "fits" ? planBeforeSummary.transcript : [],
+    }),
+    rewound,
+    recycle: shouldRecycleProviderSession({
+      compacted: false, rewound, recovering,
+      lastTurnToolRounds: countLastTurnToolRounds(messagesBeforeSummary, skipTranscript, task.providerSessionBoundId),
+      sessionToolRounds: countSessionToolRounds(messagesBeforeSummary, skipTranscript, task.providerSessionBoundId),
+      lastTurnInputTokens: task.usage?.lastInput,
+      nativeTokenBudget: instance.adapter.capabilities.turnInputIsPromptSize && catalogWindow ? nativeSessionTokenBudget(catalogWindow) : 0,
+      sessionPrompt,
+    }) || instance.adapter.hasBackgroundWork?.(threadId) === true,
+    local: Boolean(decodeInjectId(model)),
+    native: instance.adapter.capabilities.transcriptReplay !== true
+      ? { instanceId, cursor: task.resumeCursors[instanceId], seed: task.resumeSeed, prompt: sessionPrompt }
+      : undefined,
+  };
+  const graceInputs = { plan: planBeforeSummary, grace: summaryGrace, taskRecordText: durableTaskRecordText || "No durable task record is available.", reserveTokens: notesBeforeSummary?.tokens };
+  const summarySkipped = summaryBuild.inflight(threadId) && planSummaryGrace(graceInputs).safe;
+  let summaryWait: SummaryWait | undefined;
+  const onSummaryWait = (wait: SummaryWait) => { summaryWait = { ...wait, waitedMs: (summaryWait?.waitedMs ?? 0) + wait.waitedMs }; };
+  const logSummaryWait = () => {
+    if (summaryWait) console.info(`[summary-wait] ${JSON.stringify(summaryWait)}`);
+    summaryWait = undefined;
+  };
+  const summaryWaitMs = await summaryBuild.settle(threadId, instance, 90_000, () => planBeforeSummary.needed, { sendId: latencySendId, grace: graceInputs, onWait: onSummaryWait });
+  const activeMessages = summarySkipped ? messagesBeforeSummary : store.activePath(threadId);
+  // Inline replay carries this turn's notes after the reply marker, so they leave history and claim their room first.
+  let inlineNotes = summarySkipped ? notesBeforeSummary : instance.adapter.capabilities.transcriptReplay !== true
+    ? paneNotesForTurn(activeMessages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, true, modelContextWindow)
+    : null;
+  const prepareContext = (messages: Message[], waitedMs: number, grace?: SummaryGrace) => {
+    if (!grace) {
+      rewound = threadId === bot.threadId && Boolean(bot.rewound);
+      taskRecord = taskPacketForWrite(threadId);
+      if (taskRecord && selectionChanged) {
+        taskRecord = persistTaskPacket(stampTaskResumePacket(taskRecord, "engine-switch", {
+          now: Date.now(),
+          turnsAtWrite: task.usage?.turns ?? taskRecord.turnsAtWrite,
+        })) ?? taskRecord;
+      }
+      recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || lastUserInstruction(messages.filter((message) => !skipTranscript.has(message.id)))?.text || "";
+      durableTaskRecordText = taskRecord
+        ? taskRecordBlock(taskRecord, Math.max(512, Math.floor(modelContextWindow * 0.15) * 3),
+            recovering ? { recovering: true, latestUserText: recoveryLatestUserText } : undefined)
+        : "";
+      sessionPrompt = sessionPromptFor({ report: task.nativePrompt, cursor: task.resumeCursors[instanceId], model, catalogWindow });
+      reactions.delivered = task.reactionsDelivered;
+    }
+    const taskRecordToFlush = taskRecord;
+    return prepareModelContext({
+      messages,
+      contextWindow: modelContextWindow,
+      taskRecordText: durableTaskRecordText || "No durable task record is available.",
+      excludeIds: inlineNotes?.ids?.length ? new Set([...skipTranscript, ...inlineNotes.ids]) : skipTranscript,
+      reserveTokens: inlineNotes?.tokens,
+      summaryGrace: grace,
+      userName: cfg.profile?.name?.trim() || "User",
+      referenceMessages: store.messagesFor(threadId),
+      summarize: inlineSummarizer(instance, waitedMs),
+      onSummaryCall: (record) => logSummaryCall({
+        botId: bot.id,
+        threadId,
+        phase: "compact",
+        engine: instance.driverKind,
+        model: instance.textModel ?? null,
+        run: 0,
+        deadlineMs: inlineDeadlineMs(instance, waitedMs),
+      }, record),
+      beforeSummarize: taskRecordToFlush ? () => {
+        const saved = persistTaskPacket(stampTaskResumePacket(taskRecordToFlush, "pre-compaction", {
+          now: Date.now(),
+          turnsAtWrite: task.usage?.turns ?? taskRecordToFlush.turnsAtWrite,
+        }));
+        if (!saved) throw new Error("the durable task record could not be flushed");
+        taskRecord = saved;
+      } : undefined,
+    });
+  };
+  const prepared = await prepareContext(activeMessages, summaryWaitMs, summarySkipped ? summaryGrace : undefined);
   if (prepared.status !== "ready") {
     const detail = prepared.status === "unsupported"
       ? `This conversation uses context summary version ${String(prepared.version)}. Update Wink before continuing.`
@@ -4476,6 +4592,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       tool: { name: `error: ${detail}`, ok: false },
     });
     opts?.onDispatchError?.(detail);
+    logSummaryWait();
     return startedTurn(userMessage, { dispatchFailed: true, error: detail });
   }
   let latestCompactionId = prepared.compactionId ?? null;
@@ -4490,13 +4607,14 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         tool: { name: `error: ${detail}`, ok: false },
       });
       opts?.onDispatchError?.(detail);
+      logSummaryWait();
       return startedTurn(userMessage, { dispatchFailed: true, error: detail });
     }
   }
   ensureChatLatency({ sendId: latencySendId, threadId, userMessageId: userMessage.id });
   markChatLatency({ sendId: latencySendId, threadId, userMessageId: userMessage.id }, "prepare.completed");
-  const transcript = prepared.transcript;
-  const contextCompacted = prepared.compacted;
+  let transcript = prepared.transcript;
+  let contextCompacted = prepared.compacted;
   // `compacted` stays true for every turn after the first summary; only a new
   // summary should drop the session, or no later turn can ever resume.
   const compactedThisTurn = Boolean(prepared.compaction);
@@ -4533,13 +4651,6 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const knownWindow = instance.adapter.capabilities.turnInputIsPromptSize
     ? knownCatalogContextWindow(instance.models, model)
     : null;
-  // Engines that report each call's real prompt are judged on that alone.
-  const sessionPrompt = sessionPromptFor({
-    report: task.nativePrompt,
-    cursor: task.resumeCursors[instanceId],
-    model,
-    catalogWindow: knownCatalogContextWindow(instance.models, model),
-  });
   const supersededIds = supersededCompactionIds(activeMessages, latestCompactionId);
   const unseeded = !rewound && !fresh && resumeSessionUnseeded({
     instanceId,
@@ -4564,7 +4675,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   });
   // A recycle closes the live CLI and kills its background work. Resume it
   // instead; the first turn after that work settles recycles on the same checks.
-  const recycleDeferred = recycleWanted && !fresh && instance.adapter.hasBackgroundWork?.(threadId) === true;
+  let recycleDeferred = recycleWanted && !fresh && instance.adapter.hasBackgroundWork?.(threadId) === true;
   const recycled = recycleWanted && !recycleDeferred;
   // Transcript-replay engines never `--resume`; clearing an already-empty
   // map is a no-op. Resume-cursor engines drop the stale/fat session here.
@@ -4616,14 +4727,14 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     messages: store.activePath(threadId),
     userName: cfg.profile?.name?.trim() || "User",
     replayedTranscript: replaysTranscript ? transcript : undefined,
-    delivered: task.reactionsDelivered,
+    ...reactions,
   };
   const reactionsSeen = userTurnReactionKeys(turnOpts);
   const currentPrompt = [
     composeUserTurnPrompt(text, turnOpts),
     ...folded,
   ].join("\n\n");
-  const { notes: paneNotes, newestId: newestPaneNoteId } = paneNotesForTurn(
+  let { notes: paneNotes, newestId: newestPaneNoteId } = paneNotesForTurn(
     activeMessages,
     skipTranscript,
     task.paneNotesDeliveredId ?? undefined,
@@ -4636,8 +4747,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     ? []
     : routineCardsSinceLastUserTurn(activeMessages, skipTranscript, task.providerSessionBoundId);
   const turnNotes = [...paneNotes, ...routineCards];
-  const turnPrompt = turnNotes.length ? [...turnNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
-  const turnTranscript = withoutTurnNotes(transcript, paneNotes);
+  let turnPrompt = turnNotes.length ? [...turnNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
+  let turnTranscript = withoutTurnNotes(transcript, paneNotes);
   const { turnText, resume } = buildTurnContext({
     text: turnPrompt,
     transcript: turnTranscript,
@@ -4658,13 +4769,13 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
   });
-  const systemRecycleText = () => buildTurnContext({
+  const systemRecycleText = (compaction = false) => buildTurnContext({
     text: turnPrompt,
     transcript: turnTranscript,
     rewound: false,
     fresh: false,
     recycled: true,
-    recycleReason: "system",
+    recycleReason: compaction ? "compaction" : "system",
     replaysNatively,
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
@@ -4685,8 +4796,12 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   // busy flips immediately so the composer locks; the dispatch itself runs
   // in the background — box provisioning can take ~90s and must never
   // hang the HTTP request
-  if (currentTurnEpoch(bot.id) !== epoch) return startedTurn(userMessage);
+  if (currentTurnEpoch(bot.id) !== epoch) {
+    logSummaryWait();
+    return startedTurn(userMessage);
+  }
   if (opts?.sendId && isSendCancelled(opts.sendId)) {
+    logSummaryWait();
     return startedTurn(userMessage, { cancelled: true });
   }
   store.setActivity(bot.id, "working", threadId);
@@ -4695,6 +4810,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   if (currentTurnEpoch(bot.id) !== epoch) {
     store.setActivity(bot.id, "idle");
     clearSendRunning(bot.id);
+    logSummaryWait();
     return startedTurn(userMessage);
   }
   // a pane note, delegation, routine, or peer ask starting this turn is not
@@ -4705,6 +4821,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   turnStartedAtMs.set(threadId, Date.now());
   if (routineTurn) routineTurnThreads.add(threadId);
   else routineTurnThreads.delete(threadId);
+  if (opts?.paneNoteWake === true && folded.length === 0) paneNoteTurnThreads.add(threadId);
+  else paneNoteTurnThreads.delete(threadId);
   const seed = turnSeeds.set(threadId, {
     compactionId: turnSeedCompactionId({
       replayed: replaysTranscript,
@@ -4721,6 +4839,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   void (async () => {
     if (currentTurnEpoch(bot.id) !== epoch) {
       turnSeeds.release(threadId, seed);
+      logSummaryWait();
       return;
     }
     let systemSeed: ReturnType<typeof systemSeeds.set> | undefined;
@@ -5054,19 +5173,25 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       // new cursor with it.
       if (rewound) store.clearResumeCursors(bot.id, threadId);
       watchdog.watch(threadId, bot.id);
-      const started = await dispatchAdapterTurn(threadId, () => {
+      const started = await dispatchAdapterTurn(threadId, async () => {
         if (currentTurnEpoch(bot.id) !== epoch) {
           return Promise.reject(Object.assign(new Error("turn cancelled before dispatch"), { cancelled: true }));
         }
         const live = providerReload.started(threadId, instanceId);
         if (!live) return Promise.reject(new Error(`provider instance "${instanceId}" is unavailable`));
         // Sends during the setup awaits had no provider turn to steer, so they queued; they join here.
-        const late = foldQueuedSends(store, bot.id, threadId, claimMark);
-        if (late.length) {
+        const late: string[] = [];
+        const foldLate = () => {
+          const queued = foldQueuedSends(store, bot.id, threadId, claimMark);
+          if (!queued.length) return;
+          late.push(...queued);
           clearUnattended(bot.id);
           resumePaneWakes(bot.id);
           takeOverPeerTurn(threadId);
-        }
+          // the user joined this turn, so its finish alerts
+          paneNoteTurnThreads.delete(threadId);
+        };
+        foldLate();
         const notesPath = opensHostFiles(privateWorkspace, instance.driverKind) ? bot.projectNotes : undefined;
         const notesNotice = notesPath ? projectNotesCheck.take(bot.id, threadId, resume ? task.resumeCursors[instanceId] : undefined) : "";
         const memoryNotice = privateWorkspace ? memoryHealthCheck.take(bot.id, threadId, resume ? task.resumeCursors[instanceId] : undefined) : "";
@@ -5129,6 +5254,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         // conversation and defeat the context bubble
         let resumeCursor = resume ? task.resumeCursors[instanceId] : undefined;
         let text = withLate(turnText);
+        let systemRecycle = false;
         if (live.adapter.capabilities.pinnedSystem === true) {
           // The session still holds the system text it started with: what
           // changed since rides at the top of this turn, or recycles the
@@ -5139,16 +5265,55 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           const updated = (unknown ? null : withSystemChanges(text, delivered, system))
             ?? (live.adapter.hasBackgroundWork?.(threadId) === true ? withSystemChanges(text, delivered ?? "", system, Infinity) : null);
           if (updated !== null) text = updated;
-          else {
+          else systemRecycle = true;
+        }
+        const finalGraceInputs = { ...graceInputs, grace: { ...summaryGrace, requestText: text, recycle: summaryGrace.recycle || systemRecycle } };
+        const finalGrace = summarySkipped ? planSummaryGrace(finalGraceInputs) : null;
+        if (systemRecycle || (finalGrace && !finalGrace.safe)) {
+          const lateCount = late.length;
+          if (summarySkipped) {
+            onSummaryWait({ threadId, sendId: latencySendId, mode: "waited", waitedMs: 0, reason: finalGrace && !finalGrace.safe ? finalGrace.reason : "session-recycle" });
+            const waitedMs = await summaryBuild.settle(threadId, instance, 90_000, () => planBeforeSummary.needed, {
+              sendId: latencySendId, grace: finalGraceInputs, onWait: onSummaryWait,
+            });
+            foldLate();
+            const messages = store.activePath(threadId);
+            const replayedIds = new Set(activeMessages.map((message) => message.id));
+            for (const message of messages) if (message.steered && !replayedIds.has(message.id)) skipTranscript.add(message.id);
+            const refreshedNotes = paneNotesForTurn(messages, skipTranscript, task.paneNotesDeliveredId ?? undefined, true, !replaysNatively, modelContextWindow);
+            if (!replaysNatively) inlineNotes = refreshedNotes;
+            const compacted = await prepareContext(messages, waitedMs);
+            foldLate();
+            if (compacted.status !== "ready") throw new Error(compacted.status === "failed" ? compacted.error : "Unsupported context summary version");
+            latestCompactionId = compacted.compaction ? store.appendCompaction(threadId, compacted.compaction).id : compacted.compactionId ?? null;
+            transcript = compacted.transcript;
+            contextCompacted = compacted.compacted;
+            if (live.adapter.hasBackgroundWork?.(threadId) !== true) {
+              paneNotes = refreshedNotes.notes;
+              newestPaneNoteId = refreshedNotes.newestId;
+              const notes = [...paneNotes, ...routineCardsSinceLastUserTurn(messages, skipTranscript, task.providerSessionBoundId)];
+              turnPrompt = notes.length ? [...notes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
+            }
+            turnTranscript = withoutTurnNotes(transcript, paneNotes);
+            seed.compactionId = compacted.expanded ? null : latestCompactionId;
+            if (currentTurnEpoch(bot.id) !== epoch || (opts?.sendId && isSendCancelled(opts.sendId))) {
+              throw Object.assign(new Error("turn cancelled before dispatch"), { cancelled: true });
+            }
+          }
+          recycleDeferred = live.adapter.hasBackgroundWork?.(threadId) === true;
+          if (!recycleDeferred) {
             store.clearResumeCursors(bot.id, threadId);
             store.markProviderSessionBound(bot.id, threadId, opts?.cardContinuation ? activeMessages.at(-1)?.id ?? userMessage.id : userMessage.id);
             seed.cursor = undefined;
             resumeCursor = undefined;
-            text = withLate(systemRecycleText());
-            console.info(`[session] ${JSON.stringify({ threadId, reason: "system", lastTurnToolRounds, sessionToolRounds })}`);
-          }
+            text = withLate(systemRecycleText(!systemRecycle));
+          } else text = [text, ...late.slice(lateCount)].join("\n\n");
+          console.info(`[session] ${JSON.stringify({ threadId, reason: recycleDeferred ? "recycle-deferred-background" : systemRecycle ? "system" : "compaction", lastTurnToolRounds, sessionToolRounds })}`);
+        }
+        if (live.adapter.capabilities.pinnedSystem === true) {
           systemSeed = systemSeeds.set(threadId, { instanceId, cursor: resumeCursor, system });
         }
+        logSummaryWait();
         pendingInterruptThreads.started(threadId, bot.id, epoch);
         return live.adapter.sendTurn({
         threadId,
@@ -5224,6 +5389,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       paneWake.settled();
       drainConnectorResumes();
       drainSecretResumes();
+    } finally {
+      logSummaryWait();
     }
   })();
   return startedTurn(userMessage);
@@ -5926,6 +6093,7 @@ async function runClaimedGroupMemberTurn(
   if (readyBot.busy || botHasLiveTurn(bot.id, threadId)) {
     return queueBusyRoomMember(groupId, threadId, bot, hop, spoken, cardContinuation, onDispatchError, dispatchedInstructionId);
   }
+  const messagesAtStart = store.messagesFor(threadId).length;
   store.setActivity(bot.id, "working", threadId);
   dispatchedThreads.set(bot.id, threadId);
   releaseTurnStart?.();
@@ -6101,7 +6269,8 @@ async function runClaimedGroupMemberTurn(
   // duplicate group frame or clear a newer speaker's state.
   if (store.group(group.id)?.busyBotId === bot.id) {
     groupSpeakers.delete(threadId);
-    store.patchGroup(group.id, { busyBotId: null, unread: true });
+    const addedMessage = turnAddedMessage(store.messagesFor(threadId), messagesAtStart);
+    store.patchGroup(group.id, { busyBotId: null, ...(addedMessage ? { unread: true } : {}) });
     if (store.bot(bot.id)?.busy) store.setActivity(bot.id, "idle");
   }
   if (outcome === "dispatch_failed") {
@@ -7149,9 +7318,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const fromBotId = String(body.fromBotId ?? "");
         const fromThreadId = String(body.fromThreadId ?? "");
         const emoji = String(body.emoji ?? "").trim();
-        if (!(EXTENDED_REACTIONS as readonly string[]).includes(emoji)) {
-          return json(res, 400, { error: "unsupported emoji" });
-        }
         const from = store.bot(fromBotId);
         if (!from) return json(res, 403, { error: "unknown sender" });
         if (!connectorThread(from.id, fromThreadId)) {
@@ -7159,6 +7325,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const target = store.activePath(fromThreadId).findLast((m) => m.role === "user" && m.kind === "text");
         if (!target) return json(res, 200, { error: "no user message to react to yet" });
+        if (!(EXTENDED_REACTIONS as readonly string[]).includes(emoji) && !target.reactions?.some((reaction) => reaction.emoji === emoji && reaction.by === fromBotId)) {
+          return json(res, 400, { error: "unsupported emoji" });
+        }
         const patched = store.toggleReaction(fromThreadId, target.id, emoji, fromBotId);
         if (!patched) return json(res, 404, { error: "message not found" });
         return json(res, 200, { ok: true });
@@ -7936,6 +8105,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             return [bot.id, { held: snapshot.held, helpReason: snapshot.helpReason }];
           }),
         ),
+        cursor: `${STREAM_ID}:${lastSeq}`,
       });
     }
     if (method === "PUT" && path === "/api/bots/order") {
@@ -9512,6 +9682,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (threadSyncGate.enabled) await pullSyncedThread(threadId);
       else pullSyncedThread(threadId);
       const sendId = parseSendId(body.sendId);
+      const queueId = parseSendId(body.queueId);
       if (sendId) {
         ensureChatLatency({ sendId, threadId });
         markChatLatency({ sendId, threadId }, "post.received");
@@ -9520,7 +9691,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const receipt = await sendSequencer.run(
         sendId ? `bot:${bot.id}:${threadId}:${sendId}` : undefined,
         sendFingerprint(text, replyTo?.id),
-        async () => {
+        async () => withQueuedSend(bot.id, threadId, queueId, sendId, async () => {
           if (sendId) {
             const accepted = acceptedSendMatch(store.messagesFor(threadId), sendId, text, replyTo?.id);
             if (accepted.kind === "conflict") {
@@ -9541,7 +9712,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               if (queued.text !== text || queued.replyToId !== replyTo?.id) {
                 throw Object.assign(new Error("sendId already belongs to another message"), { status: 409 });
               }
-              return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
+              if (queueId !== queued.id) return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
+            } else if (queueId) {
+              return { ok: true as const, cancelled: true as const, threadId };
             }
           }
 
@@ -9567,6 +9740,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (currentAtStart.busy || botHasActiveTurn(bot.id, threadId)) {
             const adapter = registry.get(currentAtStart.modelSelection.instanceId)?.adapter;
             let steered = false;
+            // a steered message takes a peer turn over when the model reads
+            // it; without a read signal, when the route accepts the steer
+            const takeover = steerTakeover(threadId, adapter?.capabilities.steerConsumed === true);
             if (steersSend(adapter, currentAtStart.busy, body.deliver === "after")) {
               const turnOpts = {
                 replyTo,
@@ -9580,9 +9756,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               const prompt = consumable ? composeUserTurnPrompt(text, turnOpts) : promptWithReply(text, replyTo, turnOpts.userName);
               const reactions = consumable ? userTurnReactionKeys(turnOpts) : [];
               steered = await adapter
-                .steer(threadId, prompt, (taken) => {
+                .steer(threadId, prompt, (taken, afterReply) => {
                   if (taken) store.addReactionsDelivered(bot.id, threadId, reactions);
-                }, { fromUser: true })
+                  takeover.consumed(taken, afterReply);
+                }, { fromUser: true, peerTurn: hasPeerWatch(threadId) })
                 .catch(() => false);
             }
             // steer() is awaited adapter work. The turn can settle, the task can
@@ -9610,7 +9787,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               }
               clearUnattended(current.id);
               resumePaneWakes(current.id);
-              takeOverPeerTurn(threadId);
+              takeover.accepted();
+              // the user joined this turn, so its finish alerts
+              paneNoteTurnThreads.delete(threadId);
               const message = store.appendMessage(threadId, {
                 role: "user",
                 kind: "text",
@@ -9626,7 +9805,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
               return sendPostReceipt(started, threadId);
             }
-            const queued = queueSteeredMessage(current.id, threadId, text, {
+            const queued = queueId ? { id: queueId, skipped: false } : queueSteeredMessage(current.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
               after: body.deliver === "after",
@@ -9647,7 +9826,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           // are synchronous, so a settle cannot land between them and strand
           // the message; the drain on turn.completed takes it from there.
           if (botHasActiveTurn(bot.id, threadId)) {
-            const held = queueSteeredMessage(bot.id, threadId, text, {
+            const held = queueId ? { id: queueId, skipped: false } : queueSteeredMessage(bot.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
               after: body.deliver === "after",
@@ -9659,8 +9838,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
           const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
           return sendPostReceipt(started, threadId);
-        },
-      );
+        }),
+      ).finally(() => { if (queueId) drainQueuedSends(); });
       markChatLatency({ sendId, threadId }, "post.receipt");
       return json(res, 202, receipt);
     }
@@ -10770,29 +10949,38 @@ for (const bot of store.bots) {
     paneWake.noteArrived(bot.id, bot.threadId);
   }
 }
+// Saved probes steer automatic picks until the deferred refresh lands.
+rememberAutomaticAvailability(registry.describeSaved());
 const early = currentEarlyListen();
 if (early) {
   early.setHandler(handleRequest);
+  markServerServing();
 } else {
   const server = createServer(handleRequest);
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`wink server on http://127.0.0.1:${PORT}`);
+    markServerServing();
   });
 }
 phoneAccess.start(handleRequest).catch((error) => {
   console.error(`[phone-relay] start failed: ${error instanceof Error ? error.message : String(error)}`);
 });
-// PATH/CLI describe after the socket is accepting, and after this turn so
-// a queued first /api/bots can drain before `--version` scans start.
-setImmediate(() => {
-  void defaultSelection()
+// Let the first chat drain before refreshing the saved engine probes.
+void serverServing.then(() => setTimeout(() => {
+  void describeInstances("refresh")
+    .then(() => registry.describeCached())
+    .then((instances) => {
+      rememberAutomaticAvailability(instances);
+      broadcast({ kind: "instances", instances: withRateLimits(instances) });
+      return defaultSelection();
+    })
     .then((sel) => {
       bootSelection = sel;
     })
     .catch((error) => {
       console.error(`[boot] default engine scan failed: ${error instanceof Error ? error.message : String(error)}`);
     });
-});
+}, 1_000).unref());
 
 hostShutdown = () => {
   if (hostShutdownStarted) return;

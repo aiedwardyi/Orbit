@@ -10,9 +10,12 @@
 // on this machine, plus (async, best-effort) whatever PATH the user's
 // real login shell reports.
 import { execFile } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, readdirSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, extname, join } from "node:path";
+import { writeFileAtomic } from "./atomic.ts";
 
 /** nvm keeps every node version's bin dir separately; newest first so a
  * CLI installed under the latest node wins. */
@@ -80,22 +83,102 @@ export function windowsKnownDirs(): string[] {
 let cached: string | null = null;
 let probed = false;
 let loginShellPath: string | null = null;
+let diskLoaded = false;
+let scanGeneration = 0;
+const candidates = new Map<string, string[]>();
+const windowsFiles = new Map<string, string | null>();
 
-/** Drop the memoized PATH so the next augmentedPath() rescans. Called when
- * the app re-probes engines, so "check again" can find something installed
- * since launch instead of answering from the PATH we booted with. `probed`
- * must reset too: the login-shell probe merges rc-file PATH entries (e.g.
- * ~/.kimi-code/bin exported from .zshrc) into the cache asynchronously,
- * and without resetting it a rescan would rebuild the cache without those
- * entries and never re-probe — "check again" would permanently lose
- * anything only the login shell's rc file knows about. */
+function pathCacheFile(): string {
+  return join(process.env.OMB_DATA_DIR ?? join(homedir(), ".orbit"), "path-cache.json");
+}
+
+function pathCacheKey(): string {
+  return createHash("sha256").update(JSON.stringify([
+    process.platform, homedir(), process.env.PATH, process.env.PATHEXT,
+    process.env.OMB_EXTRA_PATH, process.env.APPDATA, process.env.LOCALAPPDATA, process.env.SystemRoot,
+  ])).digest("hex");
+}
+
+function loadPathCache(): void {
+  if (diskLoaded) return;
+  diskLoaded = true;
+  try {
+    const saved = JSON.parse(readFileSync(pathCacheFile(), "utf8"));
+    if (saved.key !== pathCacheKey() || typeof saved.path !== "string" || !Array.isArray(saved.entries)) return;
+    if (!saved.entries.every((entry: unknown) => Array.isArray(entry) && typeof entry[0] === "string" &&
+      Array.isArray(entry[1]) && entry[1].every((path: unknown) => typeof path === "string") &&
+      (entry[2] === null || typeof entry[2] === "string"))) return;
+    cached = saved.path;
+    loginShellPath = typeof saved.loginShellPath === "string" ? saved.loginShellPath : null;
+    for (const [name, found, file] of saved.entries) {
+      candidates.set(name, found);
+      windowsFiles.set(name, file);
+    }
+  } catch {}
+}
+
+/** Refresh filesystem discovery without walking PATH on the server loop. */
+export async function refreshPathCache(names: readonly string[]): Promise<void> {
+  const generation = scanGeneration;
+  const key = pathCacheKey();
+  const dirs = process.platform === "win32" ? windowsKnownDirs() : knownDirs();
+  const known = await Promise.all(dirs.map(async (dir) => (await stat(dir).catch(() => null)) ? dir : ""));
+  const path = mergePaths([
+    ...(process.env.OMB_EXTRA_PATH ?? "").split(delimiter),
+    ...(process.env.PATH ?? "").split(delimiter),
+    ...(loginShellPath ?? "").split(delimiter),
+    ...known,
+  ]);
+  const listings = await Promise.all(path.split(delimiter).map(async (dir) => ({
+    dir,
+    files: new Set((await readdir(dir).catch(() => [])).map((name) => process.platform === "win32" ? name.toLowerCase() : name)),
+  })));
+  const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean) : [""];
+  const entries = await Promise.all([...new Set(names)].filter((name) => name && !/[/\\\r\n]/.test(name)).map(async (name) => {
+    const found: string[] = [];
+    let file: string | null = null;
+    for (const { dir, files } of listings) {
+      const has = (word: string) => files.has(process.platform === "win32" ? word.toLowerCase() : word);
+      const candidate = exts.map((ext) => name + ext).find(has);
+      if (candidate && await stat(join(dir, candidate)).catch(() => null)) found.push(join(dir, candidate));
+      if (process.platform !== "win32" || file) continue;
+      const order = extname(name) ? [name, ...exts.map((ext) => name + ext)] : [...exts.map((ext) => name + ext), name];
+      for (const word of order.filter(has)) {
+        const target = join(dir, word);
+        if ((await stat(target).catch(() => null))?.isFile()) { file = target; break; }
+      }
+    }
+    return [name, found, file] as const;
+  }));
+  if (generation !== scanGeneration || key !== pathCacheKey()) return;
+  cached = path;
+  diskLoaded = true;
+  candidates.clear();
+  windowsFiles.clear();
+  for (const [name, found, file] of entries) {
+    candidates.set(name, found);
+    windowsFiles.set(name, file);
+  }
+  try {
+    const file = pathCacheFile();
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileAtomic(file, JSON.stringify({ key, path, loginShellPath, entries }), { mode: 0o600 });
+  } catch {}
+}
+
+/** A rescan must re-probe the login shell without losing its last usable PATH. */
 export function resetPathCache(): void {
   cached = null;
   probed = false;
+  diskLoaded = true;
+  scanGeneration += 1;
+  candidates.clear();
+  windowsFiles.clear();
 }
 
 /** Current best PATH, synchronously. Cheap after the first call. */
 export function augmentedPath(): string {
+  loadPathCache();
   if (cached === null) {
     cached = mergePaths([
       ...(process.env.OMB_EXTRA_PATH ? process.env.OMB_EXTRA_PATH.split(delimiter) : []),
@@ -147,6 +230,10 @@ export function resetPathCacheForTests(): void {
   cached = null;
   probed = false;
   loginShellPath = null;
+  diskLoaded = false;
+  scanGeneration += 1;
+  candidates.clear();
+  windowsFiles.clear();
 }
 
 /** Every `name` binary on the augmented PATH as absolute paths, in PATH
@@ -156,6 +243,9 @@ export function resetPathCacheForTests(): void {
 export function findCliCandidates(name: string): string[] {
   if (!name || /[\n\r]/.test(name)) return [];
   if (/[/\\]/.test(name) || /^[a-zA-Z]:/.test(name)) return [name];
+  augmentedPath();
+  const saved = candidates.get(name);
+  if (saved) return [...saved];
   const exts = process.platform === "win32" ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean) : [""];
   const out: string[] = [];
   for (const dir of augmentedPath().split(delimiter)) {
@@ -225,6 +315,8 @@ function isFile(p: string): boolean {
 
 /** PATHEXT-aware `which`. A path-ish cli is probed where it points. */
 function whichWin(cli: string): string | null {
+  augmentedPath();
+  if (windowsFiles.has(cli)) return windowsFiles.get(cli)!;
   const exts = (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
   // an extensionless name is not runnable on Windows, so PATHEXT wins over
   // the bare file — npm installs both `claude` (a sh script) and `claude.cmd`

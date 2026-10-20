@@ -43,7 +43,7 @@ type Translate = ReturnType<typeof useI18n>["t"];
 
 const INDEXES = scoredIndexes();
 const MARKS = markUniverse();
-// Terminal-Bench (the agentic data) sits under Coding and leads it: it covers more of the picker than DeepSWE.
+// Terminal-Bench (the agentic data) sits under Coding and leads it: it covers more of the picker than FrontierCode.
 const TABS = [...new Set(INDEXES.map((index): Tab => (index === "agentic" ? "coding" : index)))];
 const CODING = (["agentic", "coding"] as const).filter((index) => INDEXES.includes(index));
 const STALE_DAYS = 14;
@@ -53,6 +53,8 @@ const INDEX_KEY: Record<ModelIndexKey, MessageKey> = {
   intelligence: "modelIndex.index.intelligence",
   coding: "modelIndex.index.coding",
   agentic: "modelIndex.index.agentic",
+  design: "modelIndex.index.design",
+  security: "modelIndex.index.security",
   general: "modelIndex.index.general",
   legal: "modelIndex.index.legal",
   cost: "modelIndex.index.cost",
@@ -62,25 +64,30 @@ const AXIS_KEY: Record<ModelIndexKey, MessageKey> = {
   intelligence: "modelIndex.axis.intelligence",
   coding: "modelIndex.axis.coding",
   agentic: "modelIndex.axis.agentic",
+  design: "modelIndex.axis.design",
+  security: "modelIndex.axis.security",
   general: "modelIndex.axis.general",
   legal: "modelIndex.axis.legal",
   cost: "modelIndex.cost.hint",
 };
 
-// Each score's own run cost; Legal and Cost have none.
+// Each score's own run cost; Cost has none.
 const COST_KEY = new Map<ModelIndexKey, MessageKey>([
   ["intelligence", "modelIndex.axis.cost"],
   ["coding", "modelIndex.axis.costCoding"],
   ["agentic", "modelIndex.axis.costAgentic"],
+  ["security", "modelIndex.axis.costSecurity"],
   ["general", "modelIndex.axis.costGeneral"],
+  ["legal", "modelIndex.tooltip.runCost"],
 ]);
 
 const BENCH_KEY = {
   agentic: "modelIndex.bench.terminalBench",
-  coding: "modelIndex.bench.deepswe",
+  coding: "modelIndex.bench.frontierCode",
 } satisfies Record<Coding, MessageKey>;
 
-const PERCENT = new Set<ModelIndexKey>(["coding", "agentic", "legal"]);
+const PERCENT = new Set<ModelIndexKey>(["coding", "agentic", "security", "legal"]);
+const RATING = new Set<ModelIndexKey>(["design", "general"]);
 
 const PROVIDER_NAME: Record<Exclude<ChartProvider, "other">, string> = {
   anthropic: "Anthropic",
@@ -119,12 +126,12 @@ const formatCostTick = (usd: number) => `$${usd}`;
 const formatValue = (index: ModelIndexKey, point: ModelIndexPoint, priceText: (price: ModelPrice) => string) =>
   index === "cost" && point.price
     ? priceText(point.price)
-    : index === "general"
+    : RATING.has(index)
       ? Math.round(point.score).toLocaleString("en-US")
       : `${point.score.toFixed(1)}${PERCENT.has(index) ? "%" : ""}`;
 const formatInterval = (index: ModelIndexKey, { low, high }: { low: number; high: number }) =>
   `${low.toFixed(1)}-${high.toFixed(1)}${PERCENT.has(index) ? "%" : ""}`;
-const unitOf = (index: ModelIndexKey) => (PERCENT.has(index) ? "%" : index === "general" ? "elo" : "pts");
+const unitOf = (index: ModelIndexKey) => (PERCENT.has(index) ? "%" : RATING.has(index) ? "elo" : "pts");
 const formatTick = (unit: string, value: number) =>
   unit === "elo" ? value.toLocaleString("en-US") : `${value}${unit === "%" ? "%" : ""}`;
 const overlaps = (a: Box, b: Box) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -890,7 +897,6 @@ export function ModelIndexSection() {
 
   return (
     <div className="model-index flex flex-col gap-4">
-      <p className="text-[13px] leading-relaxed text-ink-secondary">{t("modelIndex.subtitle")}</p>
       <div className="rounded-xl border border-hairline/40 bg-card shadow-sm max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:shadow-none">
         <div className="flex flex-col gap-2.5 p-4 pb-3 max-md:px-0 max-md:pt-0">
           <div className="flex min-w-0 items-center gap-3">

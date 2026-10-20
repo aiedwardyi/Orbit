@@ -131,20 +131,24 @@ function PersonCard({ person, days, now, locale }: { person: TeamPerson; days: s
           );
         })}
       </div>
-      {tip && <p className="mt-1 whitespace-pre-line text-[12px] leading-snug text-ink">{tip}</p>}
       <div className="mt-1 flex justify-between text-[10px] text-ink-secondary">
         <span>{dayLabel(days[0] ?? "", locale).short}</span>
         <span>{dayLabel(days.at(-1) ?? "", locale).short}</span>
       </div>
-      <div className="mt-2.5 flex justify-between gap-2 text-[12px] text-ink-secondary">
-        <span className="tabular-nums">
-          {phoneToday.count === 0 ? t("team.mobileNone") : t(phoneToday.count === 1 ? "team.mobileOne" : "team.mobileMany", { n: phoneToday.count, time: visitTime(phoneToday.minutes) })}
-        </span>
-        <span>{t(active === 1 ? "team.dayActive" : "team.daysActive", { n: active })}</span>
+      <div className="grid">
+        <div className={tip ? "col-start-1 row-start-1 mt-2.5 invisible" : "col-start-1 row-start-1 mt-2.5"} aria-hidden={tip ? true : undefined}>
+          <div className="flex justify-between gap-2 text-[12px] text-ink-secondary">
+            <span className="tabular-nums">
+              {phoneToday.count === 0 ? t("team.mobileNone") : t(phoneToday.count === 1 ? "team.mobileOne" : "team.mobileMany", { n: phoneToday.count, time: visitTime(phoneToday.minutes) })}
+            </span>
+            <span>{t(active === 1 ? "team.dayActive" : "team.daysActive", { n: active })}</span>
+          </div>
+          <p className="mt-1 text-[12px] text-ink-secondary">
+            {t("team.busiest", { when, hours: hoursText(person.hours[peak] ?? 0) })}
+          </p>
+        </div>
+        {tip && <p className="col-start-1 row-start-1 whitespace-pre-line text-[12px] leading-snug text-ink">{tip}</p>}
       </div>
-      <p className="mt-1 text-[12px] text-ink-secondary">
-        {t("team.busiest", { when, hours: hoursText(person.hours[peak] ?? 0) })}
-      </p>
     </article>
   );
 }

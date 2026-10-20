@@ -1311,13 +1311,221 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       recorder.events.flatMap((e) => (e.type === "item.completed" && e.itemType === "assistant_text" ? [e.text] : []));
     const turnCount = (type: "turn.started" | "turn.completed") => recorder.events.filter((e) => e.type === type).length;
     const thought = (e: (typeof recorder.events)[number]) => e.type === "content.delta" && e.streamKind === "reasoning_text";
-    const start = async (threadId: string, interrupt = "") => {
-      await create("think-steer", { FAKE_CLAUDE_INTERRUPT: interrupt, FAKE_CLAUDE_STDIN_LOG: join(scratch, "stdin.log") });
+    const start = async (threadId: string, interrupt = "", environment: Record<string, string> = {}) => {
+      await create("think-steer", { FAKE_CLAUDE_INTERRUPT: interrupt, FAKE_CLAUDE_STDIN_LOG: join(scratch, "stdin.log"), ...environment });
       return instance.adapter.sendTurn({ threadId, text: "first" });
     };
+    const stalledRestart = async (interrupt: "result" | "hold", resultDelay = 0, rejectResume = false) => {
+      process.env.OMB_CLAUDE_MERGE_GUARD_MS = "400";
+      const cli = join(scratch, "stalled-restart.mjs");
+      const log = join(scratch, "prompts.jsonl");
+      const release = join(scratch, "release");
+      writeFileSync(cli, `#!/usr/bin/env node
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+const log = ${JSON.stringify(log)};
+const release = ${JSON.stringify(release)};
+const history = ${JSON.stringify(join(scratch, "history"))};
+const argv = process.argv.slice(2);
+const resume = argv.includes("--resume");
+const session = argv[argv.indexOf(resume ? "--resume" : "--session-id") + 1];
+const out = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
+const answer = (text) => {
+  out({ type: "system", subtype: "status", status: "requesting" });
+  out({ type: "assistant", message: { content: [{ type: "text", text }] } });
+  out({ type: "result", is_error: false, total_cost_usd: 0.02 });
+};
+let first = true;
+let pending = "";
+let ended = false;
+const gate = setInterval(() => {
+  if (!existsSync(release)) return;
+  clearInterval(gate);
+  if (!resume) answer("late reply to: " + pending);
+  if (ended) process.exit(0);
+}, 10);
+createInterface({ input: process.stdin }).on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.type === "control_request") {
+    out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "held partial" } } });
+    if (${JSON.stringify(interrupt)} === "result") setTimeout(() => out({ type: "result", is_error: true, total_cost_usd: 0 }), ${resultDelay});
+    return;
+  }
+  const text = message.message.content;
+  appendFileSync(log, JSON.stringify({ pid: process.pid, argv, text }) + "\\n");
+  if (resume && ${rejectResume}) {
+    process.stderr.write("session not found\\n");
+    process.exit(1);
+  }
+  if (text === "earlier" || (!resume && text.includes("\\n\\n"))) {
+    out({ type: "system", subtype: "init", session_id: session });
+    return answer("reply to: " + text);
+  }
+  if (first) {
+    first = false;
+    out({ type: "system", subtype: "init", session_id: session });
+    if (resume) return answer("reply to: " + readFileSync(history, "utf8") + " + steered: " + text);
+    writeFileSync(history, text);
+    out({ type: "system", subtype: "status", status: "requesting" });
+    out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "thinking" } } });
+  } else if (!resume && !pending) pending = text;
+  else if (resume) {
+    const wait = setInterval(() => {
+      if (!existsSync(release)) return;
+      clearInterval(wait);
+      answer("reply to: " + text);
+    }, 10);
+  }
+}).on("close", () => { ended = true; if (existsSync(release)) process.exit(0); });
+`);
+      chmodSync(cli, 0o755);
+      await create(undefined, {}, { cli });
+      return {
+        prompts: () => readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { pid: number; argv: string[]; text: string }),
+        release: () => writeFileSync(release, "ready"),
+      };
+    };
+
+    it("never attributes a stalled restart's late reply to the next send", async () => {
+      const fake = await stalledRestart("result");
+      const kill = vi.spyOn(procs, "killCliTree").mockImplementation((child) => { child.stdin?.end(); });
+      try {
+        const first = await instance.adapter.sendTurn({ threadId: "t-stall-late", text: "first" });
+        const session = await recorder.until((e) => e.type === "session.started");
+        await recorder.until(thought);
+        await instance.adapter.steer!("t-stall-late", "and also this", undefined, { fromUser: true });
+        await recorder.until((e) => e.type === "turn.completed", 2_000);
+        const next = await instance.adapter.sendTurn({ threadId: "t-stall-late", text: "third", resumeCursor: (session as { sessionId: string }).sessionId });
+        fake.release();
+        await recorder.until((e) => e.type === "turn.completed" && e.turnId === next.turnId);
+        await vi.waitFor(() => expect(readFileSync(join(DATA_DIR, "native", "t-stall-late.ndjson"), "utf8")).toContain("late reply to: and also this"));
+        expect(replies()).toEqual(["reply to: first + steered: and also this", "reply to: third"]);
+        expect(recorder.events.filter((e) => e.type === "item.completed" && e.itemType === "assistant_text" && e.turnId === first.turnId)).toHaveLength(1);
+        expect(fake.prompts().at(-1)?.pid).not.toBe(fake.prompts()[0].pid);
+        expect(turnCount("turn.started")).toBe(2);
+        expect(turnCount("turn.completed")).toBe(2);
+      } finally {
+        fake.release();
+        kill.mockRestore();
+      }
+    });
+
+    it("bounds a restart even when the CLI never answers its interrupt", async () => {
+      const fake = await stalledRestart("hold");
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "t-stall-hold", text: "first" });
+      await recorder.until(thought);
+      await instance.adapter.steer!("t-stall-hold", "and also this", undefined, { fromUser: true });
+      const done = await recorder.until((e) => e.type === "turn.completed", 2_000);
+      expect(done).toMatchObject({ turnId, ok: true });
+      expect(replies()).toEqual(["reply to: first + steered: and also this"]);
+      expect(fake.prompts()).toHaveLength(3);
+      expect(turnCount("turn.started")).toBe(1);
+      expect(turnCount("turn.completed")).toBe(1);
+    });
+
+    it("answers an expired restart once with the first message in resumed context", async () => {
+      const fake = await stalledRestart("result");
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "t-stall-answer", text: "first" });
+      const session = await recorder.until((e) => e.type === "session.started");
+      await recorder.until(thought);
+      const consumed = vi.fn();
+      await instance.adapter.steer!("t-stall-answer", "and also this", consumed, { fromUser: true });
+      const done = await recorder.until((e) => e.type === "turn.completed", 2_000);
+      expect(done).toMatchObject({ turnId, ok: true });
+      expect(replies()).toEqual(["reply to: first + steered: and also this"]);
+      expect(consumed.mock.calls).toEqual([[true]]);
+      expect(fake.prompts().map((prompt) => prompt.text)).toEqual(["first", "and also this", "and also this"]);
+      expect(fake.prompts()[2].argv).toContain("--resume");
+      expect(fake.prompts()[2].argv).toContain((session as { sessionId: string }).sessionId);
+      expect(turnCount("turn.started")).toBe(1);
+      expect(turnCount("turn.completed")).toBe(1);
+      expect(fake.prompts().filter((prompt) => prompt.text === "first")).toHaveLength(1);
+    });
+
+    it("keeps one bound from the interrupt across a delayed interrupted result", async () => {
+      const fake = await stalledRestart("result", 300);
+      await instance.adapter.sendTurn({ threadId: "t-stall-bound", text: "first" });
+      await recorder.until(thought);
+      const at = Date.now();
+      await instance.adapter.steer!("t-stall-bound", "and also this", undefined, { fromUser: true });
+      await recorder.until((e) => e.type === "turn.retrying" && e.reason === "timeout", 600);
+      expect(Date.now() - at).toBeLessThan(650);
+      await recorder.until((e) => e.type === "turn.completed", 2_000);
+      expect(fake.prompts()).toHaveLength(3);
+    });
+
+    it("recovers every pending steer after a stalled restart", async () => {
+      const fake = await stalledRestart("result");
+      await instance.adapter.sendTurn({ threadId: "t-stall-two", text: "first" });
+      await recorder.until(thought);
+      const first = vi.fn();
+      const second = vi.fn();
+      await instance.adapter.steer!("t-stall-two", "and also this", first, { fromUser: true });
+      await instance.adapter.steer!("t-stall-two", "and more", second, { fromUser: true });
+      const done = await recorder.until((e) => e.type === "turn.completed", 2_000);
+      expect(done).toMatchObject({ ok: true });
+      expect(replies()).toEqual(["reply to: first + steered: and also this\n\nand more"]);
+      expect(fake.prompts().map((prompt) => prompt.text)).toEqual(["first", "and also this", "and more", "and also this\n\nand more"]);
+      expect(first.mock.calls).toEqual([[true]]);
+      expect(second.mock.calls).toEqual([[true]]);
+      expect(turnCount("turn.started")).toBe(1);
+      expect(turnCount("turn.completed")).toBe(1);
+    });
+
+    it("recovers the current turn when a reused CLI has a stalled restart", async () => {
+      const fake = await stalledRestart("result");
+      const earlier = await instance.adapter.sendTurn({ threadId: "t-stall-warm", text: "earlier" });
+      await recorder.until((e) => e.type === "turn.completed");
+      const session = await recorder.until((e) => e.type === "session.started");
+      const current = await instance.adapter.sendTurn({ threadId: "t-stall-warm", text: "first", resumeCursor: (session as { sessionId: string }).sessionId });
+      await recorder.until(thought);
+      await instance.adapter.steer!("t-stall-warm", "and also this", undefined, { fromUser: true });
+      const done = await recorder.until((e) => e.type === "turn.completed" && e.turnId !== earlier.turnId, 2_000);
+      expect(done).toMatchObject({ turnId: current.turnId, ok: true });
+      expect(replies()).toEqual(["reply to: earlier", "reply to: first + steered: and also this"]);
+      expect(fake.prompts().map((prompt) => prompt.text)).toEqual(["earlier", "first", "and also this", "and also this"]);
+      expect(turnCount("turn.started")).toBe(2);
+      expect(turnCount("turn.completed")).toBe(2);
+    });
+
+    it("keeps both messages when a stalled restart's resume cursor is rejected", async () => {
+      const fake = await stalledRestart("result", 0, true);
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "t-stall-resume", text: "first" });
+      await recorder.until(thought);
+      await instance.adapter.steer!("t-stall-resume", "and also this", undefined, { fromUser: true });
+      const done = await recorder.until((e) => e.type === "turn.completed", 2_000);
+      expect(done).toMatchObject({ turnId, ok: true });
+      expect(replies()).toEqual(["reply to: first\n\nand also this"]);
+      expect(fake.prompts().map((prompt) => prompt.text)).toEqual(["first", "and also this", "and also this", "first\n\nand also this"]);
+      expect(turnCount("turn.started")).toBe(1);
+      expect(turnCount("turn.completed")).toBe(1);
+    });
+
+    it("settles once without a relaunch when Stop lands in the restart handoff", async () => {
+      const fake = await stalledRestart("result");
+      const consumed = vi.fn();
+      const unsubscribe = instance.adapter.onEvent((event) => {
+        if (event.type === "turn.retrying" && event.reason === "timeout") void instance.adapter.interruptTurn("t-stall-stop");
+      });
+      try {
+        await instance.adapter.sendTurn({ threadId: "t-stall-stop", text: "first" });
+        await recorder.until(thought);
+        await instance.adapter.steer!("t-stall-stop", "and also this", consumed, { fromUser: true });
+        const done = await recorder.until((e) => e.type === "turn.completed", 2_000);
+        expect(done).toMatchObject({ ok: false, stopReason: "interrupted" });
+        await recorder.until((e) => e.type === "turn.retrying" && e.reason === "timeout", 600);
+        expect(fake.prompts()).toHaveLength(2);
+        expect(consumed.mock.calls).toEqual([[false]]);
+        expect(replies()).toEqual([]);
+        expect(turnCount("turn.started")).toBe(1);
+        expect(turnCount("turn.completed")).toBe(1);
+      } finally {
+        unsubscribe();
+      }
+    });
 
     it("restarts it so one reply answers both", async () => {
-      const { turnId } = await start("t-merge");
+      const { turnId } = await start("t-merge", "", { FAKE_CLAUDE_THINK_MS: "10000", FAKE_CLAUDE_FOLD_MS: "300" });
       await recorder.until(thought);
       const consumed = vi.fn();
       await expect(instance.adapter.steer!("t-merge", "and also this", consumed, { fromUser: true })).resolves.toBe(true);
@@ -1331,7 +1539,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     });
 
     it("restarts once for two steers in a row", async () => {
-      const { turnId } = await start("t-merge-two");
+      const { turnId } = await start("t-merge-two", "", { FAKE_CLAUDE_THINK_MS: "10000", FAKE_CLAUDE_FOLD_MS: "300" });
       await recorder.until(thought);
       const first = vi.fn();
       const second = vi.fn();
@@ -1348,7 +1556,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     });
 
     it("drops output that raced the interrupt", async () => {
-      await start("t-merge-lag", "lag");
+      await start("t-merge-lag", "lag", { FAKE_CLAUDE_THINK_MS: "10000", FAKE_CLAUDE_FOLD_MS: "300" });
       await recorder.until(thought);
       await instance.adapter.steer!("t-merge-lag", "and also this", undefined, { fromUser: true });
       await recorder.until((e) => e.type === "turn.completed");
@@ -1358,7 +1566,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     });
 
     it("shows the reply when it finished before the interrupt", async () => {
-      const { turnId } = await start("t-merge-late", "late");
+      const { turnId } = await start("t-merge-late", "late", { FAKE_CLAUDE_THINK_MS: "10000" });
       await recorder.until(thought);
       await instance.adapter.steer!("t-merge-late", "and also this", undefined, { fromUser: true });
       const done = await recorder.until((e) => e.type === "turn.completed");
@@ -1368,18 +1576,19 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       expect(turnCount("turn.completed")).toBe(1);
     });
 
-    it("settles if the CLI never answers the follow-up after a restart", async () => {
+    it("resumes the follow-up if the CLI drops it after a restart", async () => {
       process.env.OMB_CLAUDE_MERGE_GUARD_MS = "300";
-      await start("t-merge-drops", "drops");
+      await start("t-merge-drops", "drops", { FAKE_CLAUDE_THINK_MS: "10000", FAKE_CLAUDE_FOLD_MS: "300" });
       await recorder.until(thought);
       const consumed = vi.fn();
       await instance.adapter.steer!("t-merge-drops", "and also this", consumed, { fromUser: true });
       const done = await recorder.until((e) => e.type === "turn.completed");
-      expect(stdinLog()).toEqual(["user", "interrupt", "user"]);
-      expect(done).toMatchObject({ ok: false, stopReason: "interrupted" });
-      expect(replies()).toEqual([]);
+      expect(stdinLog()).toEqual(["user", "interrupt", "user", "user"]);
+      expect(done).toMatchObject({ ok: true });
+      expect(replies()).toEqual(["reply to: and also this"]);
+      expect(turnCount("turn.started")).toBe(1);
       expect(turnCount("turn.completed")).toBe(1);
-      expect(consumed.mock.calls).toEqual([[false]]);
+      expect(consumed.mock.calls).toEqual([[true]]);
     });
 
     it("notes a follow-up the user can already see", async () => {
@@ -1395,7 +1604,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     });
 
     it("settles once when Stop lands during a restart", async () => {
-      await start("t-merge-stop", "hold");
+      await start("t-merge-stop", "hold", { FAKE_CLAUDE_THINK_MS: "10000" });
       await recorder.until(thought);
       const consumed = vi.fn();
       await instance.adapter.steer!("t-merge-stop", "and also this", consumed, { fromUser: true });
@@ -1434,6 +1643,56 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       await recorder.until((e) => e.type === "turn.completed");
       expect(stdinLog()).toEqual(["user", "user"]);
       expect(replies()).toEqual(["reply to: first + steered: and also this"]);
+    });
+
+    it("reports a steer the reply finished before as read after it", async () => {
+      const { turnId } = await start("t-after-reply");
+      await recorder.until(thought);
+      const consumed = vi.fn();
+      await expect(instance.adapter.steer!("t-after-reply", "and also this", consumed)).resolves.toBe(true);
+      expect(consumed).not.toHaveBeenCalled();
+      const done = await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "user"]);
+      expect(replies()).toEqual(["reply to: first", "reply to: and also this"]);
+      expect(done).toMatchObject({ turnId, ok: true });
+      expect(turnCount("turn.started")).toBe(1);
+      expect(turnCount("turn.completed")).toBe(1);
+      expect(consumed.mock.calls).toEqual([[true, true]]);
+    });
+
+    it("reports a steer read mid-reply without afterReply", async () => {
+      const { turnId } = await start("t-mid-reply");
+      await recorder.until((e) => e.type === "session.started");
+      const consumed = vi.fn();
+      await expect(instance.adapter.steer!("t-mid-reply", "and also this", consumed)).resolves.toBe(true);
+      const done = await recorder.until((e) => e.type === "turn.completed");
+      expect(replies()).toEqual(["reply to: first + steered: and also this"]);
+      expect(done).toMatchObject({ turnId, ok: true });
+      expect(consumed.mock.calls).toEqual([[true]]);
+    });
+
+    it("skips the restart for a peer turn's steer", async () => {
+      const { turnId } = await start("t-peer-turn");
+      await recorder.until(thought);
+      const consumed = vi.fn();
+      await expect(instance.adapter.steer!("t-peer-turn", "and also this", consumed, { fromUser: true, peerTurn: true })).resolves.toBe(true);
+      const done = await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "user"]);
+      expect(replies()).toEqual(["reply to: first", "reply to: and also this"]);
+      expect(done).toMatchObject({ turnId, ok: true });
+      expect(consumed.mock.calls).toEqual([[true, true]]);
+    });
+
+    it("still notes a peer turn's follow-up the user can already see", async () => {
+      await create("late-steer", { FAKE_CLAUDE_STDIN_LOG: join(scratch, "stdin.log") });
+      await instance.adapter.sendTurn({ threadId: "t-peer-note", text: "first" });
+      await recorder.until((e) => e.type === "content.delta" && e.delta === "reply");
+      await instance.adapter.steer!("t-peer-note", "and also this", undefined, { fromUser: true, peerTurn: true });
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(stdinLog()).toEqual(["user", "user"]);
+      expect(replies()).toContain(
+        "reply to: [Wink note: the user sent this while you were replying and saw what you showed so far; don't repeat it.]\n\nand also this",
+      );
     });
   });
 
@@ -1920,18 +2179,85 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     }
   });
 
-  it("denies a helper's late ask at once when the turn that started it was unattended", async () => {
+  it("keeps Auto approvals for a helper an unattended Auto turn left running", async () => {
     await create("background-task");
-    await instance.adapter.sendTurn({ threadId: "t-helper-unattended", text: "one", approval: "auto", attended: false });
-    await recorder.until((e) => e.type === "turn.completed");
-    expect(instance.adapter.hasBackgroundWork!("t-helper-unattended")).toBe(true);
-
-    const { conn, answer } = await askBetween("t-helper-unattended", { id: "ask-unattended", tool: "Bash", input: { command: "git status" } });
-    await expect(answer).resolves.toMatchObject({
-      id: "ask-unattended",
-      behavior: "deny",
-      message: "Wink: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report.",
+    const harness = instance.adapter.onEvent((e) => {
+      if (e.type !== "request.opened" || !e.requestId) return;
+      const verdict = autoVerdict({ autoApprove: true }, e.tool, e.summary);
+      void instance.adapter.respondToRequest(e.threadId, e.requestId, { behavior: verdict.approve ? "allow" : "deny" });
     });
+    try {
+      await instance.adapter.sendTurn({ threadId: "t-helper-unattended", text: "one", approval: "auto", attended: false });
+      await recorder.until((e) => e.type === "turn.completed");
+      expect(instance.adapter.hasBackgroundWork!("t-helper-unattended")).toBe(true);
+
+      const { conn, answer } = await askBetween("t-helper-unattended", { id: "ask-unattended", tool: "Bash", input: { command: "git status" } });
+      await expect(answer).resolves.toEqual({ t: "answer", id: "ask-unattended", behavior: "allow" });
+      expect(recorder.events).toContainEqual(
+        expect.objectContaining({ type: "request.opened", requestId: "ask-unattended", background: true }),
+      );
+      conn.end();
+    } finally {
+      harness();
+    }
+  });
+
+  it("denies a desktop ask at once from a helper an unattended Auto turn left running", async () => {
+    await create("background-task");
+    await instance.adapter.sendTurn({
+      threadId: "t-helper-desktop",
+      text: "one",
+      approval: "auto",
+      attended: false,
+      integrations: {
+        localComputer: { command: "/cua-driver", args: ["mcp"], env: {}, platform: "linux", scope: "local-computer" },
+      },
+    });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(instance.adapter.hasBackgroundWork!("t-helper-desktop")).toBe(true);
+
+    const { conn, answer } = await askBetween("t-helper-desktop", { id: "ask-desktop", tool: "mcp__computer__click", input: { x: 1, y: 1 } });
+    await expect(answer).resolves.toMatchObject({ id: "ask-desktop", behavior: "deny", message: "Wink: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report." });
+    expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
+    conn.end();
+  });
+
+  it("treats any computer tool from a helper as desktop, matching the scope autoVerdict reads", async () => {
+    await create("background-task");
+    const localComputer = { command: "/cua-driver", args: ["mcp"], env: {}, platform: "linux" as const, scope: "local-computer" as const };
+    const harness = instance.adapter.onEvent((e) => {
+      if (e.type !== "request.opened" || !e.requestId) return;
+      void instance.adapter.respondToRequest(e.threadId, e.requestId, { behavior: "deny" });
+    });
+    try {
+      await instance.adapter.sendTurn({ threadId: "t-scope-away", text: "one", approval: "auto", attended: false, integrations: { localComputer } });
+      await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-scope-away");
+      const away = await askBetween("t-scope-away", { id: "ask-type-away", tool: "mcp__computer__type_text", input: { text: "hi" } });
+      await expect(away.answer).resolves.toMatchObject({ id: "ask-type-away", behavior: "deny", message: "Wink: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report." });
+      away.conn.end();
+
+      await instance.adapter.sendTurn({ threadId: "t-scope-here", text: "one", approval: "auto", attended: true, integrations: { localComputer } });
+      await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-scope-here");
+      const here = await askBetween("t-scope-here", { id: "ask-type-here", tool: "mcp__computer__type_text", input: { text: "hi" } });
+      const opened = await recorder.until((e) => e.type === "request.opened" && e.requestId === "ask-type-here");
+      expect(opened).toMatchObject({ background: true, approvalScope: "local-computer" });
+      if (opened.type !== "request.opened") throw new Error("missing permission request");
+      expect(autoVerdict({ autoApprove: true }, opened.tool, opened.summary, { unattended: true, scope: opened.approvalScope }).source).toBe("away-desktop-deny");
+      await here.answer;
+      here.conn.end();
+    } finally {
+      harness();
+    }
+  });
+
+  it("denies a helper's late ask at once when the turn that started it was in Ask", async () => {
+    await create("background-task");
+    await instance.adapter.sendTurn({ threadId: "t-helper-ask", text: "one", approval: "ask", attended: true });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(instance.adapter.hasBackgroundWork!("t-helper-ask")).toBe(true);
+
+    const { conn, answer } = await askBetween("t-helper-ask", { id: "ask-ask", tool: "Bash", input: { command: "git status" } });
+    await expect(answer).resolves.toMatchObject({ id: "ask-ask", behavior: "deny", message: "Wink: this needs the user's approval, and the turn that started you has ended. Skip it and say so in your report." });
     expect(recorder.events.some((e) => e.type === "request.opened")).toBe(false);
     conn.end();
   });

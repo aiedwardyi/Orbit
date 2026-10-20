@@ -6,10 +6,16 @@ afterEach(() => {
 });
 
 describe("rainbow chat box preference", () => {
-  it.each([null, "invalid", "off", "on"])("loads %s with off as the default", async (stored) => {
+  it.each([
+    [null, "off"],
+    ["invalid", "off"],
+    ["off", "off"],
+    ["on", "rainbow"],
+    ["theme", "theme"],
+  ])("loads %s as %s", async (stored, mode) => {
     vi.stubGlobal("localStorage", { getItem: () => stored });
-    const { rainbowBoxEnabled } = await import("./rainbow-box");
-    expect(rainbowBoxEnabled()).toBe(stored === "on");
+    const { rainbowBoxMode } = await import("./rainbow-box");
+    expect(rainbowBoxMode()).toBe(mode);
   });
 
   it("restores the choice after a module reload", async () => {
@@ -19,9 +25,13 @@ describe("rainbow chat box preference", () => {
       setItem: (key: string, value: string) => values.set(key, value),
     });
     const { saveRainbowBox } = await import("./rainbow-box");
-    saveRainbowBox(true);
+    saveRainbowBox("rainbow");
+    expect(values.get("omb-rainbow-box")).toBe("on");
     vi.resetModules();
-    expect((await import("./rainbow-box")).rainbowBoxEnabled()).toBe(true);
+    expect((await import("./rainbow-box")).rainbowBoxMode()).toBe("rainbow");
+    (await import("./rainbow-box")).saveRainbowBox("theme");
+    vi.resetModules();
+    expect((await import("./rainbow-box")).rainbowBoxMode()).toBe("theme");
   });
 
   it("keeps the toggle usable when storage throws", async () => {
@@ -29,9 +39,9 @@ describe("rainbow chat box preference", () => {
       getItem: () => { throw new Error("blocked"); },
       setItem: () => { throw new Error("blocked"); },
     });
-    const { rainbowBoxEnabled, saveRainbowBox } = await import("./rainbow-box");
-    expect(rainbowBoxEnabled()).toBe(false);
-    saveRainbowBox(true);
-    expect(rainbowBoxEnabled()).toBe(true);
+    const { rainbowBoxMode, saveRainbowBox } = await import("./rainbow-box");
+    expect(rainbowBoxMode()).toBe("off");
+    saveRainbowBox("theme");
+    expect(rainbowBoxMode()).toBe("theme");
   });
 });

@@ -329,7 +329,7 @@ describe("installOrbitMsg", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "orbit-install-"));
     try {
       const bin = await installOrbitMsg(path.join(dir, "orbit-bin"), "win32");
-      expect(readdirSync(bin).sort()).toEqual(["claude-worker.json", "orbit-compact.ps1", "orbit-msg", "orbit-msg.cmd", "orbit-msg.ps1"]);
+      expect(readdirSync(bin).sort()).toEqual(["claude-worker.json", "orbit-compact.ps1", "orbit-msg", "orbit-msg.cmd", "orbit-msg.ps1", "orbit-status.ps1"]);
       const compact = readFileSync(path.join(bin, "orbit-compact.ps1"), "utf8");
       expect(compact).toMatch(/\r\n/);
       expect(compact).not.toMatch(/[^\r]\n/);
@@ -360,13 +360,14 @@ describe("installOrbitMsg", () => {
     }
   });
 
-  it("compacts Claude workers at a 500k window and hands back the card after", async () => {
+  it("compacts Claude workers at a 300k window and hands back the card after", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "orbit-install-"));
     try {
       const bin = await installOrbitMsg(path.join(dir, "orbit-bin"), "win32");
       const script = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${path.join(bin, "orbit-compact.ps1").replace(/\\/g, "/")}"`;
       expect(JSON.parse(readFileSync(path.join(bin, "claude-worker.json"), "utf8"))).toEqual({
-        autoCompactWindow: 500000,
+        autoCompactWindow: 300000,
+        statusLine: { type: "command", command: expect.stringContaining("orbit-status.ps1") },
         hooks: {
           Notification: [expect.any(Object)],
           SessionStart: [{ matcher: "compact", hooks: [

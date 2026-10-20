@@ -90,7 +90,9 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     setState({ status: "downloaded", version: info?.version });
   });
 
-  function check(manual = false) {
+  function check(manual = false, fresh = false) {
+    // A running check read the feed before the caller changed it.
+    if (checkOperation && fresh) return checkOperation.promise.then(() => check(manual));
     if (checkOperation) {
       // A manual caller upgrades the shared operation; a timer never downgrades it.
       if (manual) checkOperation.manual = true;
@@ -119,6 +121,13 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     downloadedVersion = null;
     withdrawn = true;
     setState({ status: "idle" });
+  }
+
+  // install runs whatever downloaded last, so a channel switch drops it first.
+  function reset() {
+    if (downloadOperation || installOperation) return false;
+    withdraw();
+    return true;
   }
 
   // downloadUpdate acts on the last check's result, which can be an hour stale.
@@ -223,5 +232,5 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
     }
   }
 
-  return { check, download, install };
+  return { check, download, install, reset };
 }

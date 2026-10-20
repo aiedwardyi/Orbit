@@ -45,11 +45,15 @@ export function buildNotification(
   bot: NotifyBot,
   threadId: string,
   detail: string,
+  opts?: { paneNoteTurn?: boolean },
 ): Notification | null {
   // The toggle means what it says: off is off, including for approvals.
   // A bot whose notifications you turned off can still block waiting for
   // you — that is the choice you made, and the chat still shows the card.
   if (bot.notifications === false) return null;
+
+  // A pane-note turn only relays worker news already in the chat.
+  if (kind === "done" && opts?.paneNoteTurn === true) return null;
 
   // Redact before the cut: truncation can strip the quote a matcher needs.
   const body = summarize(redactSecretsInText(detail));

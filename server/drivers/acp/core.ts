@@ -413,9 +413,10 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
       await refreshModels();
       const listeners = new Set<RuntimeEventListener>();
+      type SteerResult = { taken: boolean; afterReply?: boolean };
       interface Turn {
         stop: () => void;
-        steer: (text: string) => Promise<boolean>;
+        steer: (text: string) => Promise<SteerResult>;
         interrupt: () => void;
         turnId: string;
         asks: Map<string, (behavior: string, source?: "user" | "timeout" | "system") => string | null>;
@@ -662,7 +663,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         // orphan the first turn's controls. The real entry after spawn
         // replaces this placeholder; the gap between is synchronous, and
         // every early exit below releases it.
-        active.set(threadId, { stop: () => {}, steer: async () => false, interrupt: () => {}, turnId, asks: new Map() });
+        active.set(threadId, { stop: () => {}, steer: async () => ({ taken: false }), interrupt: () => {}, turnId, asks: new Map() });
         // The pre-spawn section runs as one unit so the reservation above is
         // released on every early exit; the sync gap between it and the real
         // entry below admits no interleaving, and only our own turnId is
@@ -726,7 +727,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         let canceledBeforePrompt = false;
         active.set(threadId, {
           stop: () => { canceledBeforePrompt = true; },
-          steer: async () => false,
+          steer: async () => ({ taken: false }),
           interrupt: () => { canceledBeforePrompt = true; },
           turnId,
           asks: new Map(),
@@ -815,7 +816,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               canceledBeforePrompt = true;
               killCliTree(warmChild);
             },
-            steer: async () => false,
+            steer: async () => ({ taken: false }),
             interrupt: () => {
               canceledBeforePrompt = true;
               killCliTree(warmChild);
@@ -886,25 +887,25 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           else killCliTree(child);
         };
 
-        const steer = (text: string): Promise<boolean> => {
+        const steer = (text: string): Promise<SteerResult> => {
           if (!support.grokInterjections || !state.promptSent || state.settled || interruptTimer || asks.size || !sessionId) {
-            return Promise.resolve(false);
+            return Promise.resolve({ taken: false });
           }
-          return new Promise<boolean>((resolve) => {
+          return new Promise<SteerResult>((resolve) => {
             const reply = request("session/prompt", { sessionId, prompt: [{ type: "text", text }] });
-            queuedSteers.set(reply, () => resolve(true));
+            queuedSteers.set(reply, () => resolve({ taken: true, afterReply: true }));
             reply.then(
               (result) => {
                 queuedSteers.delete(reply);
                 const promptId = result?._meta?.promptId;
-                if (result?.stopReason === "end_turn" || interjections.delete(promptId)) return resolve(true);
-                if (!promptId) return resolve(false);
+                if (result?.stopReason === "end_turn" || interjections.delete(promptId)) return resolve({ taken: true });
+                if (!promptId) return resolve({ taken: false });
                 // The result can beat its interjection notification.
                 let timer: ReturnType<typeof setTimeout> | undefined;
                 const finish = (delivered: boolean) => {
                   clearTimeout(timer);
                   interjectionWaiters.delete(promptId);
-                  resolve(delivered);
+                  resolve({ taken: delivered });
                 };
                 interjectionWaiters.set(promptId, finish);
                 timer = setTimeout(() => finish(false), 1_000);
@@ -912,7 +913,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               },
               () => {
                 queuedSteers.delete(reply);
-                resolve(false);
+                resolve({ taken: false });
               },
             );
           });
@@ -1520,9 +1521,12 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           sendTurn,
           steer: support.grokInterjections
             ? async (threadId, text, consumed) => {
-              const taken = await (active.get(threadId)?.steer(text) ?? false);
-              if (taken) consumed?.(true);
-              return taken;
+              const result: SteerResult = await (active.get(threadId)?.steer(text) ?? { taken: false });
+              if (result.taken) {
+                if (result.afterReply) consumed?.(true, true);
+                else consumed?.(true);
+              }
+              return result.taken;
             }
             : undefined,
           interruptTurn: async (threadId) => active.get(threadId)?.interrupt(),

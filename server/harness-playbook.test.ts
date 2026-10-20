@@ -111,7 +111,7 @@ describe("harness playbook", () => {
   it("keeps a progress file beside the card and hands it on", () => {
     const prompt = harnessPlaybookPrompt(true).replace(/\r\n/g, "\n");
     expect(prompt).toContain("## Progress\nKeep <card path minus .md>.progress.md current at each milestone:");
-    expect(prompt).toContain("Claude workers compact at about 500k and get their card and progress file back.");
+    expect(prompt).toContain("Claude workers compact at about 300k and get their card and progress file back.");
     expect(prompt).toContain("its progress file and \"continue from the uncommitted changes already here\"");
   });
 

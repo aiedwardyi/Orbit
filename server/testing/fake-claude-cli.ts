@@ -43,6 +43,12 @@
 //                      reading the interrupt) | lag (one text delta after the
 //                      ack) | hold (ack, never end) | drops (end, run nothing)
 //                      | tool (start a tool block; a steer rides the next request)
+//   FAKE_CLAUDE_THINK_MS  think-steer only: ms from `requesting` to the
+//                      natural reply on the first query of a session
+//                      started without --resume (default 400; later
+//                      queries and resumed sessions keep 400)
+//   FAKE_CLAUDE_FOLD_MS  think-steer only: ms after the interrupt to fold
+//                      queued steers (default 20)
 //   FAKE_CLAUDE_STDIN_LOG  path; each stdin line's type is appended, a
 //                      control request as its subtype
 //   FAKE_CLAUDE_USAGE  path; once it exists, usage-calls reads {first, last,
@@ -497,10 +503,15 @@ const watchTaskGate = () => {
 // ends the reply with an error `result` and answers every queued line in one
 // query, the first message still in its history (r3-r5).
 let onInterrupt: ((requestId: string) => void) | null = null;
+let thinkPinSpent = false;
 const ackInterrupt = (requestId: string) =>
   out({ type: "control_response", response: { subtype: "success", request_id: requestId, response: { still_queued: [] } } });
 const playThinkSteer = (prompt: JsonValue) => {
   const how = process.env.FAKE_CLAUDE_INTERRUPT;
+  const freshFirst = !argv.includes("--resume") && !thinkPinSpent;
+  thinkPinSpent = true;
+  const thinkMs = freshFirst ? Number(process.env.FAKE_CLAUDE_THINK_MS ?? 400) : 400;
+  const foldMs = Number(process.env.FAKE_CLAUDE_FOLD_MS ?? 20);
   const first = promptText(prompt);
   let folded: string[] = [];
   let thinking: ReturnType<typeof setInterval> | undefined;
@@ -542,7 +553,7 @@ const playThinkSteer = (prompt: JsonValue) => {
     thinking = setInterval(() => {
       out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: `step ${++step} ` } } });
     }, 50);
-    replyTimer = setTimeout(reply, 400);
+    replyTimer = setTimeout(reply, thinkMs);
     onInterrupt = (requestId) => {
       clearTimeout(replyTimer);
       if (how === "late") {
@@ -568,7 +579,7 @@ const playThinkSteer = (prompt: JsonValue) => {
         }
         turnRunning = false;
         finishIfDone();
-      }, 20);
+      }, foldMs);
     };
   }, 100);
 };

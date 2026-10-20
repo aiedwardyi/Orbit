@@ -2294,3 +2294,90 @@ describe("planCompaction", () => {
     expect(fits.transcript).toHaveLength(6);
   });
 });
+
+describe("summary grace context", () => {
+  const summaryGrace = {
+    knownWindow: 200_000,
+    requestText: "current request",
+    fresh: false,
+    rewound: false,
+    recycle: false,
+    local: false,
+    native: {
+      instanceId: "claude", cursor: "session",
+      seed: { instanceId: "claude", cursor: "session", compactionId: null as string | null },
+      prompt: { first: 25_000, last: 35_000, contextWindow: 200_000 },
+    },
+  };
+  const history = () => Array.from({ length: 70 }, (_, index) => [
+    message(`gu${index}`, `request ${index}`),
+    message(`gb${index}`, `outcome ${index}`, { role: "bot" }),
+  ]).flat();
+
+  it("prepares the previous summary and full later tail without another summary or flush", async () => {
+    const messages = history();
+    const previous = compactionMessage("previous", "gb0", {
+      v: 1, summary: "earlier accepted decisions", coveredThroughId: "gb0", firstKeptId: "gu1",
+      contextWindow: 200_000, estimatedTokensBefore: 1_000, sourceMessageCount: 2,
+    });
+    messages.splice(4, 0, previous);
+    messages.push(message("current", "current request"));
+    const summarize = vi.fn(async () => "SUMMARY\nduplicate");
+    const beforeSummarize = vi.fn();
+    const result = await prepareModelContext({
+      messages, contextWindow: 200_000, taskRecordText: "Goal: preserve context", excludeIds: new Set(["current"]),
+      summaryGrace: { ...summaryGrace, native: { ...summaryGrace.native, seed: { ...summaryGrace.native.seed, compactionId: "previous" } } },
+      summarize, beforeSummarize,
+    });
+    expect(summarize).not.toHaveBeenCalled();
+    expect(beforeSummarize).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: "ready", compacted: true, compactionId: "previous" });
+    if (result.status !== "ready") throw new Error(result.status);
+    expect(result.compaction).toBeUndefined();
+    expect(result.transcript[0]!.text).toContain("earlier accepted decisions");
+    expect(result.transcript.slice(1)).toEqual(messages.filter((item) => item.kind === "text" && item.id !== "current").slice(2).map((item) => ({
+      role: item.role === "bot" ? "assistant" : "user", text: item.text,
+    })));
+    expect(result.estimatedTokens).toBe(estimateContextTokens(result.transcript));
+    expect(result.estimatedTokens).toBeLessThanOrEqual(result.budgetTokens);
+  });
+
+  it("keeps unknown, small, local, fresh, rewound, unseeded and recycle paths unchanged", async () => {
+    const messages = history();
+    const input = { messages, contextWindow: 200_000, taskRecordText: "Goal: preserve context" };
+    const summarize = vi.fn(async () => "SUMMARY\nordinary summary");
+    await prepareModelContext({ ...input, summaryGrace, summarize });
+    expect(summarize).not.toHaveBeenCalled();
+    for (const patch of [
+      { knownWindow: null }, { knownWindow: 32_768 }, { local: true }, { fresh: true }, { rewound: true }, { recycle: true },
+      { native: { ...summaryGrace.native, prompt: undefined } },
+      { native: { ...summaryGrace.native, cursor: undefined } },
+      { native: { ...summaryGrace.native, seed: undefined } },
+      { native: { ...summaryGrace.native, seed: { ...summaryGrace.native.seed, cursor: "other" } } },
+      { native: { ...summaryGrace.native, seed: { ...summaryGrace.native.seed, compactionId: "other" } } },
+      { native: { ...summaryGrace.native, prompt: { first: 25_000, last: 195_000, contextWindow: 200_000 } } },
+    ]) {
+      summarize.mockClear();
+      const result = await prepareModelContext({ ...input, summaryGrace: { ...summaryGrace, ...patch }, summarize });
+      expect(summarize).toHaveBeenCalledOnce();
+      expect(result.status === "ready" && result.compaction?.summary).toBe("ordinary summary");
+    }
+  });
+
+  it("counts the current request, task record and reserved pane notes before granting headroom", async () => {
+    const messages = history();
+    const input = { messages, contextWindow: 200_000, taskRecordText: "Goal: preserve context", summaryGrace };
+    const summarize = vi.fn(async () => "SUMMARY\nordinary summary");
+    await prepareModelContext({ ...input, summarize });
+    expect(summarize).not.toHaveBeenCalled();
+    for (const patch of [
+      { summaryGrace: { ...summaryGrace, requestText: "large paste ".repeat(50_000) } },
+      { taskRecordText: "large task record ".repeat(30_000) },
+      { reserveTokens: 120_000 },
+    ]) {
+      summarize.mockClear();
+      await prepareModelContext({ ...input, ...patch, summarize });
+      expect(summarize).toHaveBeenCalled();
+    }
+  });
+});

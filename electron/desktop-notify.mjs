@@ -4,6 +4,9 @@
 export const WINDOWS_APP_USER_MODEL_ID = "com.orbit.agentdesk";
 export const DEV_WINDOWS_APP_USER_MODEL_ID = "com.orbit.agentdesk.dev";
 
+// Five minutes untouched counts as away; toasts then pile up for nobody.
+export const SYSTEM_IDLE_THRESHOLD_SECONDS = 300;
+
 export function windowsAppUserModelId(packagedOrOptions = true) {
   const packaged =
     typeof packagedOrOptions === "object" && packagedOrOptions !== null
@@ -14,7 +17,8 @@ export function windowsAppUserModelId(packagedOrOptions = true) {
 
 /** Minimized counts as background: Win10 renderer `document.hasFocus()` can
  * stay true after minimize and would otherwise swallow the toast. */
-export function shouldShowDesktopToast({ focused, minimized, visibleThreadId, frameThreadId }) {
+export function shouldShowDesktopToast({ focused, minimized, visibleThreadId, frameThreadId, idleState }) {
+  if (idleState === "idle" || idleState === "locked") return false;
   const attentive = focused === true && minimized !== true;
   return !(attentive && visibleThreadId === frameThreadId);
 }
@@ -157,6 +161,7 @@ export function handleDesktopNotify({
   icon,
   activate,
   sendClick,
+  idleState,
 }) {
   const parsed = parseNotifyPayload(payload);
   if (!parsed || !win || win.isDestroyed()) return { shown: false };
@@ -166,6 +171,7 @@ export function handleDesktopNotify({
       minimized: win.isMinimized(),
       visibleThreadId: parsed.visibleThreadId,
       frameThreadId: parsed.threadId,
+      idleState,
     })
   ) {
     return { shown: false };

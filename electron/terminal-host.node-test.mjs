@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import test from "node:test";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { createTerminalHost, createTerminalOutputParser, resolveBotSession, terminalEnvironment, terminalReadyTimeoutMs, trustedTerminalSender } from "./terminal-host.mjs";
+import { installOrbitMsg } from "./terminal-mailbox.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 
 function fixture(options = {}) {
@@ -17,11 +19,12 @@ function fixture(options = {}) {
     platform: "linux",
     env: { SHELL: "/bin/sh" },
     loadPty: () => ({ spawn: (shell, args, options) => {
-      const child = { shell, args, options, writes: [], sizes: [], killed: false, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize(...size) { this.sizes.push(size); }, kill() { this.killed = true; } };
+      const child = { pid: 101 + children.length, shell, args, options, writes: [], sizes: [], killed: false, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize(...size) { this.sizes.push(size); }, kill() { this.killed = true; } };
       children.push(child);
       return child;
     } }),
     freeMemory: () => 8 * 1024 ** 3,
+    setPriority: () => {},
     ...options,
   });
   return { host, event, owner, children, events, input: { botId: "bot-1", cols: 80, rows: 24 } };
@@ -1128,16 +1131,73 @@ test("openForBot names the whole-app cap and the bot's own count", async () => {
   await assert.rejects(f.host.openForBot("bot-1", { label: "extra" }), /Too many terminal sessions \(32 open across all bots and main terminals; 1 are yours\)\. Close one of yours with terminal_close/);
 });
 
-test("openForBot refuses a pane under 2 GiB free memory, but main terminals stay ungated", async () => {
+test("openForBot refuses a pane under its engine floor, but main terminals stay ungated", async () => {
   let owner;
-  let free = 2 * 1024 ** 3 - 1;
+  let free = 100 * 1024 ** 2 - 1;
   const f = fixture({ owner: () => owner, freeMemory: () => free });
   owner = f.owner;
-  await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /Not enough free memory for another terminal \(2\.0 GB free, 2 GB needed; 0 terminals open, 0 are yours\)\. Close a finished pane with terminal_close/);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /Not enough free memory for another terminal \(0\.1 GB free, 0\.1 GB needed; 0 terminals open, 0 are yours\)\. Close a finished pane with terminal_close/);
   await f.host.open(f.event, f.input);
   await assert.rejects(f.host.openForBot("bot-1", { label: "w" }), /1 terminals open, 0 are yours/);
-  free = 2 * 1024 ** 3;
+  free = 100 * 1024 ** 2;
   await f.host.openForBot("bot-1", { label: "w" });
+});
+
+test("worker panes drop to below-normal priority, main terminals stay normal, and a refusal never fails the spawn", async () => {
+  let owner;
+  const calls = [];
+  let refuse = false;
+  const f = fixture({ owner: () => owner, setPriority: (...args) => { calls.push(args); if (refuse) throw new Error("EACCES"); } });
+  owner = f.owner;
+  await f.host.open(f.event, f.input);
+  await f.host.openForBot("bot-1", { label: "w1" });
+  refuse = true;
+  await f.host.openForBot("bot-1", { label: "w2" });
+  assert.deepEqual(calls, [[102, os.constants.priority.PRIORITY_BELOW_NORMAL], [103, os.constants.priority.PRIORITY_BELOW_NORMAL]]);
+});
+
+test("a codex pane opens at 0.8 GB free", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.8 * 1024 ** 3 });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "worker", command: "codex --model gpt-5 'hi'" });
+  assert.ok(pane.sessionId);
+});
+
+test("a claude pane is refused at 0.5 GB with 0.6 GB needed", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.5 * 1024 ** 3 });
+  owner = f.owner;
+  await assert.rejects(f.host.openForBot("bot-1", { label: "worker", command: "claude --model opus 'hi'" }), /Not enough free memory for another terminal \(0\.5 GB free, 0\.6 GB needed;/);
+});
+
+test("a plain shell opens at 0.2 GB free", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.2 * 1024 ** 3 });
+  owner = f.owner;
+  const pane = await f.host.openForBot("bot-1", { label: "shell" });
+  assert.ok(pane.sessionId);
+});
+
+test("the gate reads the engine past $env prefixes, paths and extensions", async () => {
+  let owner;
+  let free = 0.35 * 1024 ** 3;
+  const f = fixture({ owner: () => owner, freeMemory: () => free });
+  owner = f.owner;
+  const agy = await f.host.openForBot("bot-1", { label: "a", command: "$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; agy --model gemini-4-argon-high -i 'hi'" });
+  assert.ok(agy.sessionId);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "c", command: "C:\\tools\\Claude.EXE --model opus 'hi'" }), /0\.6 GB needed/);
+  free = 0.2 * 1024 ** 3;
+  await assert.rejects(f.host.openForBot("bot-1", { label: "g", command: "grok -m g1 --effort high 'hi'" }), /0\.3 GB needed/);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "e", command: "echo ok" }), /0\.3 GB needed/);
+});
+
+test("the gate reads a quoted engine path with spaces", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 0.35 * 1024 ** 3 });
+  owner = f.owner;
+  await assert.rejects(f.host.openForBot("bot-1", { label: "c", command: "& \"C:\\Program Files\\Claude\\claude.exe\" --model opus 'hi'" }), /0\.6 GB needed/);
+  await assert.rejects(f.host.openForBot("bot-1", { label: "s", command: "'C:\\My Tools\\claude.cmd' --model opus 'hi'" }), /0\.6 GB needed/);
 });
 
 test("openForBot submits a command with exactly one Enter", async () => {
@@ -1639,9 +1699,145 @@ test("a worker pane that goes quiet without a report sends one stall note with i
   assert.equal(f.notes.length, 1);
 });
 
+for (const [engine, ellipsis] of [["agy", "..."], ["gemini", "…"]]) {
+  test(`${engine} braille busy tails avoid false stalls and still detect a frozen screen`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: `${engine} go` });
+    for (let tick = 0; tick < 8; tick += 1) {
+      f.children[0].data(`\r\x1b[2K  ${["⣽", "⣻", "⢿", "⡿"][tick % 4]}  Reading file${ellipsis}`);
+      await f.settle();
+      await f.advance(30_000);
+      assert.equal(f.notes.length, 0);
+    }
+    await f.advance(89_999);
+    assert.equal(f.notes.length, 0);
+    await f.advance(1);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /^STALLED: no screen change for 2 min/);
+    await f.advance(600_000);
+    assert.equal(f.notes.length, 1);
+  });
+}
+
+for (const jobs of ["1 shell", "2 shells, 1 monitor"]) {
+  test(`a Claude running-shell footer stalls after 30 minutes despite status ticks: ${jobs}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+    f.children[0].data(`${claudeIdle(jobs)}  96% context left · 12:01 PM\r\n`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 0);
+    await f.advance(13 * 60_000);
+    f.children[0].data(`${claudeIdle(jobs)}  95% context left · 12:16 PM\r\n`);
+    await f.settle();
+    await f.advance(15 * 60_000 - 1);
+    assert.equal(f.notes.length, 0);
+    await f.advance(1);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /^STALLED: no screen change for 30 min/);
+    f.children[0].data(`${claudeIdle(jobs)}  94% context left · 12:31 PM\r\n`);
+    await f.settle();
+    await f.advance(30 * 60_000);
+    assert.equal(f.notes.length, 1);
+    f.children[0].data(claudeIdle().replace("done 6:26 PM", `done 6:26 PM · ${jobs} still running`));
+    await f.settle();
+    await f.advance(119_999);
+    assert.equal(f.notes.length, 1);
+    await f.advance(1);
+    assert.equal(f.notes.length, 2);
+    assert.match(f.notes[1].text, /^STALLED: no screen change for 2 min/);
+  });
+}
+
 const CLAUDE_LIMIT = "  ⎿  You've hit your session limit · resets 3am (Asia/Seoul)\r\n\r\n  What do you want to do?\r\n  ❯ 1. Stop and wait for limit to reset\r\n    2. Upgrade your plan\r\n";
 const CODEX_LIMIT = "■ You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/\r\ncodex/settings/usage to purchase more credits or try again at 10:14 PM.\r\n\r\n\r\n  Approaching rate limits\r\n  Switch to gpt-6-luna for lower credit usage?\r\n\r\n\r\n› 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.\r\n  2. Keep current model\r\n";
 const limitNote = (engine, reset) => new RegExp(`^LIMIT: ${engine} hit its usage limit \\(resets ${reset}\\)\\. Its work so far stays in .+\\. Send "continue" after the reset, or move the job to another engine\\.$`);
+
+test("ordinary Markdown ellipses do not discard a completion note", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  f.children[0].data("  * Waiting for input...\r\n");
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "all green");
+  await f.advance(90_000);
+  assert.equal(f.notes.length, 1);
+  assert.equal(f.notes[0].text, "all green");
+});
+
+test("percentage-only shell progress keeps the worker moving", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  for (const percent of [12, 13, 14, 15]) {
+    f.children[0].data(`\r\x1b[2KDownloading archive ${percent}%`);
+    await f.settle();
+    await f.advance(70_000);
+    assert.equal(f.notes.length, 0);
+  }
+  await f.advance(50_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("a Claude reset excludes an adjacent menu without a blank row", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(CLAUDE_LIMIT.replace("\r\n\r\n", "\r\n"));
+  await f.settle();
+  await f.advance(120_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, limitNote("Claude", "3am \\(Asia/Seoul\\)"));
+});
+
+for (const [engine, screen, reset, nextReset] of [
+  ["claude", CLAUDE_LIMIT, "3am (Asia/Seoul)", "4am (Asia/Seoul)"],
+  ["codex", CODEX_LIMIT, "10:14 PM", "11:14 PM"],
+]) {
+  test(`${engine} selects the newest visible reset`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: `${engine} go` });
+    f.children[0].data(screen);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 1);
+    f.children[0].data(screen.replace(reset, nextReset));
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 2);
+    assert.ok(f.notes[1].text.includes(`resets ${nextReset}`));
+  });
+}
+
+test("a limit screen bypasses the live-shell hold", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(`${CLAUDE_LIMIT}\r\n⏵⏵ bypass permissions on · 1 shell · ← for agents\r\n`);
+  await f.settle();
+  await f.advance(120_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^LIMIT: /);
+});
+
+test("resumed output below an old limit stays live and later stalls normally", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(CLAUDE_LIMIT);
+  await f.settle();
+  for (let step = 0; step < 4; step += 1) {
+    await f.advance(60_000);
+    assert.equal(f.notes.length, 0);
+    f.children[0].data(`● Edited file ${step}\r\n`);
+    await f.settle();
+  }
+  await f.advance(120_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^STALLED: /);
+});
 
 test("a Claude usage limit sends one LIMIT note with the reset time as shown", async () => {
   const f = stallFixture();
@@ -1716,6 +1912,59 @@ test("a limit screen that only redraws a clock, wraps differently or gets keys s
   await f.advance(600_000);
   assert.equal(f.notes.length, 1);
 });
+
+for (const [engine, screen, reset, nextReset] of [
+  ["claude", CLAUDE_LIMIT, "3am (Asia/Seoul)", "4am (Asia/Seoul)"],
+  ["codex", CODEX_LIMIT, "10:14 PM", "11:14 PM"],
+]) {
+  test(`${engine} LIMIT notes stay once per reset across ticks, resizes and resumed turns`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    const pane = await f.host.openForBot("bot-1", { label: "W", command: `${engine} go` });
+    f.children[0].data(`${screen}\r\n  96% context left\r\n`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /^LIMIT: /);
+    f.children[0].data(`\x1b[2J\x1b[H${screen}\r\n  95% context left\r\n`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 1);
+    for (const cols of [50, 100]) {
+      f.host.resize(f.event, pane.sessionId, cols, 24);
+      await f.advance(5_000);
+      f.children[0].data(`\x1b[2J\x1b[H${screen}\r\n  94% context left\r\n`);
+      await f.settle();
+      await f.advance(120_000);
+      assert.equal(f.notes.length, 1);
+    }
+    f.host.sendBot("bot-1", { ...pane, text: "continue\r" });
+    f.children[0].data("\x1b[2J\x1b[HWorking again\r\n");
+    await f.settle();
+    await f.advance(10_000);
+    f.children[0].data(`\x1b[2J\x1b[H${screen}`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 1);
+    f.children[0].data(`\x1b[2J\x1b[H${screen.replace(reset, nextReset)}`);
+    await f.settle();
+    await f.advance(119_999);
+    assert.equal(f.notes.length, 1);
+    await f.advance(1);
+    assert.equal(f.notes.length, 2);
+    assert.ok(f.notes[1].text.includes(`resets ${nextReset}`));
+    f.children[0].data(`\x1b[2J\x1b[H${screen}`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 2);
+    await f.host.openForBot("bot-1", { label: "W2", command: `${engine} go` });
+    f.children[1].data(screen);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 3);
+    assert.notEqual(f.notes[2].scope.pane, pane.sessionId);
+  });
+}
 
 test("a limit pane that resumes after continue and stalls again sends a new note", async () => {
   const f = stallFixture();
@@ -1941,4 +2190,273 @@ test("a remote open refuses a bad bot, a folder pick or a missing window", async
   await assert.rejects(f.host.openMainForBot("../x"), /Invalid bot/);
   await assert.rejects(f.host.openMainForBot("bot-1"), /folder is unavailable/);
   assert.equal(f.children.length, 0);
+});
+
+const contextScreen = (footer) => `\x1b[2J\x1b[H✻ Worked for 54m 33s · done 12:11 AM\r\n${"─".repeat(40)}\r\n> \r\n${"─".repeat(40)}\r\n${footer}\r\n`;
+const contextNotes = (f) => f.notes.map((note) => note.text).filter((text) => text.startsWith("CONTEXT:"));
+const NO_SAVE = "It could not get the save line; terminal_read the pane.";
+const SAVE_LINE = "Context is getting full. Update your progress file now (done, in flight, left), then continue.";
+const busyScreen = (footer, typed = "") => `\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n${"─".repeat(40)}\r\n> ${typed}\r\n${"─".repeat(40)}\r\n${footer}\r\n`;
+
+for (const [name, engine, footer, context] of [
+  ["Claude near its 500k compact window", "claude", "  ⏵⏵ bypass permissions on · 3% until auto-compact", { left: 3 }],
+  ["Claude near a 300k compact window", "claude", "  ⏵⏵ bypass permissions on · 7% until auto-compact", { left: 7 }],
+  ["Claude worker status line", "claude", "  ▰▱▱▱▱ 20% │ ↑241.2k\r\n  ctx 241k/300k\r\n  ⏵⏵ bypass permissions on · 5% until auto-compact", { tokens: 241_000, window: 300_000, left: 20 }],
+  ["Claude with compaction off", "claude","  Context low (8% remaining) · Run /compact to compact & continue", { left: 8 }],
+  ["Claude below its warning, custom status line", "claude", "  ▰▰▰▱▱ 59% │ ↑409.3k ↓444 │ 5h: ▱▱▱▱▱ 0% (1h47m)\r\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents", undefined],
+  ["Codex footer", "codex", "  100% context left · ? for shortcuts", { left: 100 }],
+  ["Codex status line", "codex", "  gpt-6 high · Context 45% left · ~/work", { left: 45 }],
+  ["Grok", "grok", "  grok-4.5 · 32K / 256K", { tokens: 32_000, left: 88 }],
+  ["Grok's numbers on a Codex screen", "codex", "  grok-4.5 · 32K / 256K", undefined],
+  ["Muse", "muse", "  muse-2 · ready", undefined],
+]) {
+  test(`the pane list carries the context the screen shows: ${name}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openMainForBot("bot-1");
+    await f.host.openForBot("bot-1", { label: "W", command: `${engine} go` });
+    f.children[0].data(contextScreen("  10% context left"));
+    f.children[1].data(contextScreen(footer));
+    const panes = f.host.readBot("bot-1").panes;
+    assert.equal("context" in panes[0], false);
+    assert.deepEqual(panes[1].context, context);
+  });
+}
+
+test("a CONTEXT note goes once per crossing and again after a compaction", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "PIXEL | gpt-6 | high", command: "codex go" });
+  for (const left of [60, 51]) {
+    f.children[0].data(contextScreen(`  ${left}% context left · ? for shortcuts`));
+    await f.advance(10_000);
+  }
+  assert.deepEqual(contextNotes(f), []);
+  f.children[0].data(contextScreen("  45% context left · ? for shortcuts"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: PIXEL is at 55% of its window. ${NO_SAVE}`]);
+  assert.equal(f.notes.at(-1).scope.pane, pane.sessionId);
+  for (const left of [30, 12]) {
+    f.children[0].data(contextScreen(`  ${left}% context left · ? for shortcuts`));
+    await f.advance(10_000);
+  }
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(contextScreen("  95% context left · ? for shortcuts"));
+  await f.advance(10_000);
+  f.children[0].data(contextScreen("  48% context left · ? for shortcuts"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f).slice(1), [`CONTEXT: PIXEL is at 52% of its window. ${NO_SAVE}`]);
+  assert.equal(f.children[0].writes.join(""), "codex go\r");
+});
+
+test("a Grok CONTEXT note goes at 200k tokens, not at half its window", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "GROKKER | grok-4.5 | high", command: "grok go" });
+  f.children[0].data(contextScreen("  grok-4.5 · 199K / 256K"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), []);
+  f.children[0].data(contextScreen("  grok-4.5 · 213K / 256K"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: GROKKER is at 213k context (83% of its window). ${NO_SAVE}`]);
+});
+
+for (const output of ["213K / 256K", "Downloaded 213K / 256K", "Example: grok-4.5 · 213K / 256K"]) {
+  test(`a Grok CONTEXT note ignores ordinary output: ${output}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "GROKKER", command: "grok go" });
+    f.children[0].data(contextScreen(`  ${output}`));
+    await f.advance(10_000);
+    assert.deepEqual(contextNotes(f), []);
+    assert.equal("context" in f.host.readBot("bot-1").panes[0], false);
+  });
+}
+
+test("a Claude CONTEXT note waits for its own footer and stays once when it clears", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "SHOP | claude-opus-5-5 | high", command: "claude go" });
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), []);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 93% of its window. ${NO_SAVE}`]);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+});
+
+test("a Claude CONTEXT note re-arms after a compact signal", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  const signal = path.join(os.tmpdir(), `orbit-compact-${pane.sessionId}`);
+  t.after(() => fs.rmSync(signal, { force: true }));
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 93% of its window. ${NO_SAVE}`]);
+  fs.writeFileSync(signal, "");
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f).slice(1), [`CONTEXT: SHOP is at 94% of its window. ${NO_SAVE}`]);
+  assert.equal(f.children[0].options.env.ORBIT_COMPACT_SIGNAL, signal);
+  assert.equal(fs.existsSync(signal), false);
+});
+
+test("a Claude CONTEXT note waits for the low footer to clear after a compact signal", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  const signal = path.join(os.tmpdir(), `orbit-compact-${pane.sessionId}`);
+  t.after(() => fs.rmSync(signal, { force: true }));
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  fs.writeFileSync(signal, "");
+  await f.advance(10_000);
+  await f.advance(10_000);
+  f.children[0].data("\x1b[HReinjecting the card\r\n");
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents"));
+  await f.advance(10_000);
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [
+    `CONTEXT: SHOP is at 93% of its window. ${NO_SAVE}`,
+    `CONTEXT: SHOP is at 94% of its window. ${NO_SAVE}`,
+  ]);
+});
+
+test("a fresh worker command re-arms its CONTEXT note in the same pane", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 7% until auto-compact"));
+  await f.advance(10_000);
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "continue\r" });
+  await f.advance(10_000);
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(finishedMark(pane));
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "claude next\r" });
+  f.children[0].data(contextScreen("  ⏵⏵ bypass permissions on · 6% until auto-compact"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [
+    `CONTEXT: SHOP is at 93% of its window. ${NO_SAVE}`,
+    `CONTEXT: SHOP is at 94% of its window. ${NO_SAVE}`,
+  ]);
+  assert.equal(f.children.length, 1);
+});
+
+test("a Claude CONTEXT note waits for 80% of its compact window", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  f.children[0].data(contextScreen("  ctx 210k/300k"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), []);
+  f.children[0].data(contextScreen("  ctx 240k/300k"));
+  await f.advance(10_000);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: SHOP is at 240k of 300k. ${NO_SAVE}`]);
+});
+
+test("a busy worker gets the save line once per compaction cycle and the chief no note", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
+  f.children[0].data(busyScreen("  ctx 245k/300k"));
+  await f.advance(10_000);
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE]);
+  f.children[0].data(busyScreen("  ctx 246k/300k", SAVE_LINE));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  f.children[0].data(busyScreen("  ctx 262k/300k"));
+  await f.advance(10_000);
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE, "\r"]);
+  f.children[0].data(busyScreen("  ctx 31k/300k"));
+  await f.advance(10_000);
+  f.children[0].data(busyScreen("  ctx 250k/300k"));
+  await f.advance(10_000);
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE, "\r", SAVE_LINE]);
+  assert.deepEqual(contextNotes(f), []);
+});
+
+for (const [name, command, screen, note] of [
+  ["an idle prompt", "claude go", contextScreen("  ctx 245k/300k"), "CONTEXT: W is at 245k of 300k."],
+  ["a menu", "claude go", busyScreen("  ❯ 1. Yes\r\n    2. No\r\n  ctx 245k/300k"), "CONTEXT: W is at 245k of 300k."],
+  ["a Grok pane", "grok go", busyScreen("  grok-4.5 · 213K / 256K"), "CONTEXT: W is at 213k context (83% of its window)."],
+]) {
+  test(`the save line stays out of ${name} and the chief gets the note`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command });
+    f.children[0].data(screen);
+    await f.advance(10_000);
+    await f.advance(10_000);
+    assert.deepEqual(f.children[0].writes, [`${command}\r`]);
+    assert.deepEqual(contextNotes(f), [`${note} ${NO_SAVE}`]);
+  });
+}
+
+test("a save line that never shows gets no Enter and the chief gets the note", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  f.children[0].data(busyScreen("  Context 40% left"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(f.children[0].writes, ["codex go\r", SAVE_LINE]);
+  assert.deepEqual(contextNotes(f), [`CONTEXT: W is at 60% of its window. ${NO_SAVE}`]);
+});
+
+test("the worker status line prints its tokens of the compact window after the user's own line", { skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orbit-status-line-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const bin = await installOrbitMsg(path.join(dir, "bin"), "win32");
+  const script = path.join(bin, "orbit-status.ps1");
+  assert.equal(JSON.parse(fs.readFileSync(path.join(bin, "claude-worker.json"), "utf8")).statusLine.command,
+    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${script.replace(/\\/g, "/")}" 300000`);
+  fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ statusLine: { type: "command", command: "cat" } }));
+  const status = { model: { display_name: "Opus" }, context_window: { total_input_tokens: 241_234, context_window_size: 1_000_000, used_percentage: 24, remaining_percentage: 76 } };
+  const out = await new Promise((resolve, reject) => {
+    const child = execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "300000"],
+      { windowsHide: true, env: { ...process.env, CLAUDE_CONFIG_DIR: dir } },
+      (error, stdout) => error ? reject(error) : resolve(stdout));
+    child.stdin.end(JSON.stringify(status));
+  });
+  const [user, ctx] = out.split("\n");
+  assert.deepEqual(JSON.parse(user).context_window, { total_input_tokens: 241_234, context_window_size: 300_000, used_percentage: 80, remaining_percentage: 20 });
+  assert.equal(ctx, "ctx 241k/300k");
+});
+
+test("the compact hook signals only a confirmed compact SessionStart",{ skip: process.platform !== "win32", timeout: 30_000 }, async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "orbit-compact-signal-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const bin = await installOrbitMsg(path.join(dir, "bin"), "win32");
+  const signal = path.join(dir, "signal");
+  for (const [part, hook] of [
+    ["card", { hook_event_name: "SessionStart", source: "startup" }],
+    ["card", { hook_event_name: "Stop", source: "compact" }],
+    ["progress", { hook_event_name: "SessionStart", source: "compact" }],
+    ["card", { hook_event_name: "SessionStart", source: "compact" }],
+  ]) {
+    await new Promise((resolve, reject) => {
+      const child = execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(bin, "orbit-compact.ps1"), part],
+        { windowsHide: true, env: { ...process.env, ORBIT_COMPACT_SIGNAL: signal } },
+        (error) => error ? reject(error) : resolve());
+      child.stdin.end(JSON.stringify(hook));
+    });
+    assert.equal(fs.existsSync(signal), part === "card" && hook.hook_event_name === "SessionStart" && hook.source === "compact");
+  }
 });

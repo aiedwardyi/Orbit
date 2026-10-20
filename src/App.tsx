@@ -23,6 +23,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { GlobalTooltip } from "@/components/GlobalTooltip";
 import { LazyView } from "@/components/LazyView";
 import { DesktopCapabilitiesProvider } from "@/components/DesktopCapabilities";
 import { isEmptyEngineLaunch } from "@/lib/engine-rail";
@@ -41,6 +42,7 @@ import { SKINS, applySkin, nextSkin, readSkin, type SkinId } from "@/lib/skins";
 import { Presence } from "@/lib/use-presence";
 import { lazyView, useStaleBuildReload } from "@/lib/stale-build";
 import { markColdOpen, noteChatShown, startWarmOpenTiming } from "@/lib/cold-open-timing";
+import { startIdleMotion } from "@/lib/idle-motion";
 
 const Onboarding = lazyView(() => import("@/components/Onboarding").then((m) => ({ default: m.Onboarding })));
 const SettingsPanel = lazyView(() => import("@/components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
@@ -630,6 +632,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       {typeof window !== "undefined" && window.ogb?.platform === "win32" ? (
         <div className="orbit-windows-caption" aria-hidden />
       ) : null}
+      {/* the one tip layer for every title in the app */}
+      <GlobalTooltip />
       {/* fixed-position popup, bottom-left — outside the layout flow */}
       <UpdateBanner />
       {themeToast && (
@@ -812,6 +816,7 @@ function setOnboardingDone() {
 export default function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(() => !onboardingDone());
   useEffect(() => markColdOpen("mount"), []);
+  useEffect(() => startIdleMotion(), []);
   return (
     <I18nProvider>
       <DesktopCapabilitiesProvider>

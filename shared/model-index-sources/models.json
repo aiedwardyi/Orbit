@@ -3,11 +3,11 @@
     "provider": "anthropic",
     "label": "Claude Fable 5",
     "sources": {
-      "deepswe": [
-        "claude-fable-5"
-      ],
       "vals": [
         "anthropic/claude-fable-5"
+      ],
+      "lmarena": [
+        "Claude Fable 5"
       ],
       "list-prices": [
         "Claude Fable 5"
@@ -21,6 +21,9 @@
       "vals": [
         "anthropic/claude-fable-5-1"
       ],
+      "lmarena": [
+        "Claude Fable 5.1"
+      ],
       "list-prices": [
         "Claude Fable 5.1"
       ]
@@ -30,6 +33,12 @@
     "provider": "anthropic",
     "label": "Claude Opus 5.5",
     "sources": {
+      "vals": [
+        "anthropic/claude-opus-5-5"
+      ],
+      "lmarena": [
+        "Claude Opus 5.5"
+      ],
       "list-prices": [
         "Claude Opus 5.5"
       ]
@@ -39,6 +48,12 @@
     "provider": "anthropic",
     "label": "Claude Sonnet 5.5",
     "sources": {
+      "vals": [
+        "anthropic/claude-sonnet-5-5"
+      ],
+      "lmarena": [
+        "Claude Sonnet 5.5"
+      ],
       "list-prices": [
         "Claude Sonnet 5.5"
       ]
@@ -48,6 +63,12 @@
     "provider": "anthropic",
     "label": "Claude Haiku 5.5",
     "sources": {
+      "vals": [
+        "anthropic/claude-haiku-5-5"
+      ],
+      "lmarena": [
+        "Claude Haiku 5.5"
+      ],
       "list-prices": [
         "Claude Haiku 5.5"
       ]
@@ -60,6 +81,9 @@
       "vals": [
         "google/gemini-4-argon"
       ],
+      "lmarena": [
+        "Gemini 4 Argon"
+      ],
       "list-prices": [
         "gemini-4-argon"
       ]
@@ -69,11 +93,11 @@
     "provider": "google",
     "label": "Gemini 3.8 Flash",
     "sources": {
-      "deepswe": [
-        "gemini-3-8-flash"
-      ],
       "vals": [
         "google/gemini-3.8-flash"
+      ],
+      "lmarena": [
+        "Gemini 3.8 Flash"
       ],
       "list-prices": [
         "gemini-3.8-flash"
@@ -84,20 +108,33 @@
     "provider": "meta",
     "label": "Muse Spark 1.3",
     "sources": {
+      "vals": [
+        "meta/muse_spark_1_3",
+        "meta/muse_spark_1_3_max"
+      ],
+      "lmarena": [
+        "Muse Spark 1.3"
+      ],
       "list-prices": [
         "muse-spark-1.3"
       ]
+    },
+    "efforts": {
+      "vals": {
+        "meta/muse_spark_1_3": "xhigh",
+        "meta/muse_spark_1_3_max": "max"
+      }
     }
   },
   "gpt-5.6-terra": {
     "provider": "openai",
     "label": "GPT-5.6 Terra",
     "sources": {
-      "deepswe": [
-        "gpt-5-6-terra"
-      ],
       "vals": [
         "openai/gpt-5.6-terra"
+      ],
+      "lmarena": [
+        "GPT-5.6 Terra"
       ],
       "list-prices": [
         "gpt-5.6-terra"
@@ -108,8 +145,11 @@
     "provider": "openai",
     "label": "GPT-6 Astra",
     "sources": {
-      "deepswe": [
-        "gpt-6-astra"
+      "vals": [
+        "openai/gpt-6-astra"
+      ],
+      "lmarena": [
+        "GPT-6 Astra"
       ],
       "list-prices": [
         "gpt-6-astra"
@@ -120,6 +160,12 @@
     "provider": "openai",
     "label": "GPT-6 Luna",
     "sources": {
+      "vals": [
+        "openai/gpt-6-luna"
+      ],
+      "lmarena": [
+        "GPT-6 Luna"
+      ],
       "list-prices": [
         "gpt-6-luna"
       ]
@@ -129,6 +175,12 @@
     "provider": "openai",
     "label": "GPT-6.1 Sol",
     "sources": {
+      "vals": [
+        "openai/gpt-6.1-sol"
+      ],
+      "lmarena": [
+        "GPT-6.1 Sol"
+      ],
       "list-prices": [
         "gpt-6.1-sol"
       ]
@@ -138,11 +190,11 @@
     "provider": "xai",
     "label": "Grok 4.6",
     "sources": {
-      "deepswe": [
-        "grok-4-6"
-      ],
       "vals": [
         "grok/grok-4.6"
+      ],
+      "lmarena": [
+        "Grok 4.6"
       ],
       "list-prices": [
         "grok-4.6"
@@ -155,6 +207,9 @@
     "sources": {
       "vals": [
         "grok/grok-4.7"
+      ],
+      "lmarena": [
+        "Grok 4.7"
       ],
       "list-prices": [
         "grok-4.7"

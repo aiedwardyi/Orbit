@@ -44,13 +44,15 @@ export function replySlot(threadId: string, message: Message, transcript: Messag
   return `reply:${threadId}:${message.parentId ?? transcript[transcript.indexOf(message) - 1]?.id ?? ""}`;
 }
 
-/** The reply slot the mascot docks in: the live reply once its text shows,
- * kept until a row lands below it, and no longer live once the turn ends. */
+/** Docks in the streaming reply, and only keeps a finished one to fade out.
+ * A live dock after the buffer clears hides that reply's actions and sits on its time. */
 export function useReplyDock(liveSlot: string | null, tailSlot: string | null, waiting: boolean) {
   const [dock, setDock] = useState<{ slot: string; live: boolean } | null>(null);
   const next = liveSlot
     ? { slot: liveSlot, live: true }
-    : dock && dock.slot === tailSlot ? { slot: dock.slot, live: dock.live && waiting } : null;
+    : dock && dock.slot === tailSlot && !waiting
+      ? { slot: dock.slot, live: false }
+      : null;
   // Render-phase setState: React re-renders at once with the new dock.
   if (next?.slot !== dock?.slot || next?.live !== dock?.live) setDock(next);
   return next;

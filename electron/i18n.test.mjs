@@ -44,6 +44,13 @@ describe("packaged locale", () => {
     expect(ko["native.saveCopy"]).toBe("사본 저장…");
     expect(ko["native.copyPath"]).toBe("경로 복사");
   });
+
+  it("has Korean image menu labels", () => {
+    expect(en["native.copyImage"]).toBe("Copy Image");
+    expect(en["native.saveImage"]).toBe("Save Image As…");
+    expect(ko["native.copyImage"]).toBe("이미지 복사");
+    expect(ko["native.saveImage"]).toBe("이미지를 다른 이름으로 저장");
+  });
 });
 
 describe("desktop viewer copy", () => {

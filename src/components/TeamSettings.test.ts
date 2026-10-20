@@ -188,7 +188,7 @@ describe("Team settings", () => {
     };
     vi.stubGlobal("ogb", { platform: "win32", googleAccount: account });
     await render();
-    const signIn = () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Sign in with Google");
+    const signIn = () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Google sign-in");
     await vi.waitFor(() => expect(signIn()).toBeTruthy());
     expect(labels()).not.toContain("Team");
     await act(async () => signIn()!.dispatchEvent(new MouseEvent("click", { bubbles: true })));

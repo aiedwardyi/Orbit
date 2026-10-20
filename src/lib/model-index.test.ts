@@ -40,7 +40,7 @@ function instance(driverKind: string, ids: string[]): InstanceInfo {
 function entry(model: string, index: ModelIndexEntry["index"], score: number, effort = "high"): ModelIndexEntry {
   return {
     provider: "anthropic", model, label: model, effort, index, score, source: "https://example.com", sourceLabel: "Example",
-    benchmark: "deepswe", version: "1.1", kind: "independent", retrievedAt: "2026-09-30T00:00:00Z",
+    benchmark: "aa-frontiercode", version: "1.1", kind: "independent", retrievedAt: "2026-09-30T00:00:00Z",
   };
 }
 
@@ -91,10 +91,15 @@ describe("model index data", () => {
     for (const e of MODEL_INDEX_ENTRIES.filter((e) => e.cost !== undefined)) expect(e.cost, `${e.model} ${e.effort} ${e.index}`).toBeLessThan(50);
   });
 
-  it("charts DeepSWE v1.1 only on coding", () => {
-    for (const e of MODEL_INDEX_ENTRIES.filter((e) => e.index === "coding")) {
-      expect([e.benchmark, e.version], e.model).toEqual(["deepswe", "1.1"]);
-      expect(e.sourceLabel, e.model).toMatch(/DeepSWE v1\.1/);
+  it("charts AA FrontierCode 1.1 on coding, LMArena WebDev on design and Vals CyberBench 1.1 on security", () => {
+    const want = { coding: ["aa-frontiercode", "1.1", /FrontierCode 1\.1/], design: ["lmarena-webdev", MODEL_INDEX_SOURCES["lmarena-webdev"].updated, /LMArena WebDev.*CC BY 4\.0/], security: ["vals-cyberbench", "1.1", /CyberBench 1\.1/] } as const;
+    for (const [index, [benchmark, version, label]] of Object.entries(want)) {
+      const rows = MODEL_INDEX_ENTRIES.filter((e) => e.index === index);
+      expect(rows.length, index).toBeGreaterThan(0);
+      for (const e of rows) {
+        expect([e.benchmark, e.version], `${index} ${e.model}`).toEqual([benchmark, version]);
+        expect(e.sourceLabel, e.model).toMatch(label);
+      }
     }
   });
 
@@ -142,16 +147,6 @@ describe("sourced data", () => {
     }
   });
 
-  it("keeps DeepSWE's 95% intervals around each score", () => {
-    const coding = MODEL_INDEX_ENTRIES.filter((e) => e.index === "coding");
-    expect(coding.length).toBeGreaterThan(0);
-    for (const e of coding) {
-      expect(e.interval, e.model).toBeDefined();
-      expect(e.interval!.low, `${e.model} ${e.effort}`).toBeLessThanOrEqual(e.score);
-      expect(e.interval!.high, `${e.model} ${e.effort}`).toBeGreaterThanOrEqual(e.score);
-    }
-  });
-
   it("lists every core picker model under a score or as missing on each score tab", () => {
     const catalog = PICKER_MODEL_IDS.filter((id) => !id.endsWith("-contributor")).map((model) => ({ provider: "other", model, label: model }));
     for (const index of SCORES) {
@@ -170,15 +165,27 @@ describe("sourced data", () => {
       }
       expect(source.retrievedAt, id).toMatch(ISO);
     }
-    expect(MODEL_INDEX_SOURCES.deepswe.updated).toBe("2026-09-22");
     const newest = Math.max(...MODEL_INDEX_ENTRIES.map((e) => Date.parse(e.retrievedAt)));
     expect(MODEL_INDEX_AS_OF).toBe(new Date(newest).toISOString().slice(0, 10));
   });
 
-  it("charts Legal as bars: one score per model, no effort, no cost", () => {
+  it("charts Legal at each model's own Vals cost per test, one score per model", () => {
     const legal = MODEL_INDEX_ENTRIES.filter((e) => e.index === "legal");
     expect(legal.length).toBeGreaterThan(0);
-    for (const e of legal) expect([e.effort, e.cost], e.model).toEqual(["all", undefined]);
+    for (const e of legal) {
+      expect([e.effort, e.costBenchmark, e.costSource], e.model).toEqual(["all", "vals-legalbench", "https://www.vals.ai/benchmarks/legal_bench"]);
+      expect(e.cost, e.model).toBeGreaterThan(0);
+    }
+  });
+
+  it("charts Security at each config's own Vals cost per test, Muse Spark 1.3 at both efforts Vals runs", () => {
+    const security = MODEL_INDEX_ENTRIES.filter((e) => e.index === "security");
+    expect(security.length).toBeGreaterThan(0);
+    for (const e of security) {
+      expect([e.costBenchmark, e.costSource], e.model).toEqual(["vals-cyberbench", "https://www.vals.ai/benchmarks/cyber"]);
+      expect(e.cost, e.model).toBeGreaterThan(0);
+    }
+    expect(security.filter((e) => e.effort !== "all").map((e) => `${e.model} ${e.effort}`)).toEqual(["muse-spark-1.3 xhigh", "muse-spark-1.3 max"]);
   });
 
   it("records the Gemini 3.8 Flash promo end and the Haiku 5.5 prompt tier", () => {
@@ -198,10 +205,18 @@ describe("sourced data", () => {
     expect([argon?.next?.input, argon?.next?.output]).toEqual([4, 20]);
   });
 
-  it("charts Argon on Legal from Vals and nowhere else", () => {
+  it("charts Argon high on the four AA indexes and WebDev, and on Security and Legal from Vals", () => {
     const scored = MODEL_INDEX_ENTRIES.filter((e) => e.model === "gemini-4-argon" && e.index !== "cost");
-    expect(scored.map((e) => [e.index, e.benchmark, e.score])).toEqual([["legal", "vals-legalbench", 88.299]]);
-    expect(scored[0]?.kind).toBe("independent");
+    expect(scored.map((e) => [e.index, e.benchmark, e.effort, e.score, e.cost])).toEqual([
+      ["coding", "aa-frontiercode", "high", 43.4532, undefined],
+      ["general", "aa-gdpval", "high", 1623.99, 1.8192251097173668],
+      ["intelligence", "aa-intelligence-index", "high", 52.5605655745982, 1.990322379299008],
+      ["agentic", "aa-terminal-bench", "high", 57.0707070707071, 6.780140181187823],
+      ["design", "lmarena-webdev", "high", 1678.1422029716816, undefined],
+      ["security", "vals-cyberbench", "all", 77.857, 5.113798],
+      ["legal", "vals-legalbench", "all", 88.299, 0.016117],
+    ]);
+    for (const e of scored) expect(e.kind).toBe("independent");
   });
 });
 

@@ -63,6 +63,8 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("themes", "glow")).toBe(true);
     expect(settingsSectionMatches("themes", "animation")).toBe(true);
     expect(settingsSectionMatches("themes", "무지개")).toBe(true);
+    expect(settingsSectionMatches("themes", "theme colors")).toBe(true);
+    expect(settingsSectionMatches("themes", "테마 색상")).toBe(true);
     expect(settingsSectionMatches("general", "rainbow")).toBe(false);
     expect(settingsSectionMatches("themes", "lime cursor")).toBe(true);
     expect(settingsSectionMatches("themes", "yellow cursor")).toBe(true);
@@ -85,9 +87,9 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("general", "sign in")).toBe(false);
   });
 
-  it.each(["Google", "profile", "동기화", "프로필"])("finds %s on Account", (query) => {
+  it.each([["Google", false], ["profile", true], ["동기화", false], ["프로필", true]] as const)("finds %s on Account", (query, general) => {
     expect(settingsSectionMatches("account", query)).toBe(true);
-    expect(settingsSectionMatches("general", query)).toBe(false);
+    expect(settingsSectionMatches("general", query)).toBe(general);
     expect(settingsSectionMatches("connections", query)).toBe(false);
   });
 

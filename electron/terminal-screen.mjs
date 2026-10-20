@@ -403,8 +403,8 @@ export function createTerminalScreen({ cols = DEFAULT_COLS, rows = DEFAULT_ROWS,
         cursorY = scrollTop;
         wrapPending = false;
         break;
-      case "s": savedCursor = { x: cursorX, y: cursorY }; break;
-      case "u": cursorX = savedCursor.x; cursorY = savedCursor.y; wrapPending = false; break;
+      case "s": if (!/^[?>!=<]/.test(raw)) savedCursor = { x: cursorX, y: cursorY }; break;
+      case "u": if (!/^[?>!=<]/.test(raw)) { cursorX = savedCursor.x; cursorY = savedCursor.y; wrapPending = false; } break;
       case "h": if (a === 4) insertMode = true; break;
       case "l": if (a === 4) insertMode = false; break;
       case "m": if (!/^[?>!=<]/.test(raw)) pen = applySgr(pen, parsed.groups); break;

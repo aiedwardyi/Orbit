@@ -115,20 +115,21 @@ describe("quorum row", () => {
     expect([0, 1, 2].map((cell) => bars(cell).length)).toEqual([7, 7, 0]);
   });
 
-  it("draws a bar per day, a hairline for zero, and none for untracked days", async () => {
+  it("draws a baseline for untracked days and bars above zero", async () => {
     replies = [() => ok(stats({ tracking: { costSince: DAYS[3]!, visitorsSince: null } }))];
     await mount();
-    expect(bars(0).map((button) => button.querySelector("span") === null)).toEqual([true, true, true, false, false, false, false]);
+    expect(bars(0).map((button) => button.querySelector("span") === null)).toEqual([false, false, false, false, false, false, false]);
+    expect(bars(0)[2]!.querySelector("span")!.className).toContain("bg-ink-secondary/50");
     expect(bars(0)[2]!.getAttribute("aria-label")).toBe("Tue, Oct 13 · not tracked yet");
-    expect(bars(1).every((button) => button.querySelector("span") === null)).toBe(true);
+    expect(bars(1).map((button) => button.querySelector("span")!.className)).toEqual(Array(7).fill(expect.stringContaining("bg-ink-secondary/50")));
     expect(bigNumbers()).toEqual(["$0.83", "-", "4"]);
     expect(bars(0)[3]!.querySelector("span")!.className).toContain("bg-accent");
   });
 
-  it("draws zero as a hairline and the rest as accent bars", async () => {
+  it("draws zero as a baseline and the rest as accent bars", async () => {
     replies = [() => ok(stats({ days: [day(0, 0, 0, 0), day(1, 50, 2, 1), day(2, 0, 0, 0), day(3, 0, 0, 0), day(4, 0, 0, 0), day(5, 0, 0, 0), day(6, 0, 0, 0)] }))];
     await mount();
-    expect(bars(0)[0]!.querySelector("span")!.className).toContain("bg-hairline");
+    expect(bars(0)[0]!.querySelector("span")!.className).toContain("bg-ink-secondary/50");
     expect(bars(0)[1]!.querySelector("span")!.className).toContain("bg-accent");
   });
 
@@ -287,20 +288,74 @@ describe("quorum row", () => {
     await act(async () => release(Response.json(ok())));
     await tick(5 * 60_000);
     expect(calls()).toBe(2);
+    await act(async () => release(Response.json(ok())));
   });
 
   it("reads in Korean with every string present", async () => {
     localStorage.setItem("omb-locale", "ko");
     replies = [() => ok(stats({ budget: { dailyCapCents: 100, todayCountedCents: 80 } }))];
     await mount();
-    expect(host.textContent).toBe("Quorum$2.33지출 · 한도 80%21방문4가입");
+    expect(host.textContent).toBe("쿼럼$2.33지출 · 한도 80%21방문4가입");
     expect(host.textContent).not.toMatch(/오늘|최근|7일|전체/);
     await tap(bars(1)[6]!);
     expect(host.querySelector("section > p.whitespace-pre-line")?.textContent).toBe("토, 10월 17일 · 방문자 5명");
     await tap(bars(0)[6]!);
     expect(host.querySelector("section > p.whitespace-pre-line")?.textContent).toContain("Claude $0.20 · GPT $0.08 · Gemini $0.12 · Perplexity $0.10 · 검색 $0.02");
     const strings = Object.entries(ko).filter(([key]) => key.startsWith("quorum."));
-    expect(strings).toHaveLength(17);
+    expect(strings).toHaveLength(18);
     for (const [, phrase] of strings) expect(phrase).not.toMatch(/^[\x20-\x7e]*$/u);
+  });
+
+  it("paints the kept row at once while the refresh is still out", async () => {
+    await mount();
+    expect(bigNumbers()).toEqual(["$2.33", "21", "4"]);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    let release!: (value: Response) => void;
+    vi.mocked(fetch).mockImplementation(() => new Promise<Response>((resolve) => (release = resolve)));
+    await mount();
+    expect(bigNumbers()).toEqual(["$2.33", "21", "4"]);
+    await act(async () => release(Response.json(ok())));
+    await act(async () => root.unmount());
+    vi.resetModules();
+    const fresh = await import("./QuorumRow");
+    root = createRoot(host);
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(fresh.QuorumRow))));
+    expect(bigNumbers()).toEqual(["$2.33", "21", "4"]);
+  });
+
+  it("keeps the kept paint when the first refresh fails", async () => {
+    await mount();
+    expect(bigNumbers()).toEqual(["$2.33", "21", "4"]);
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    replies = [() => new Error("offline")];
+    await mount();
+    expect(bigNumbers()).toEqual(["$2.33", "21", "4"]);
+    expect(host.querySelector(".opacity-60")).not.toBeNull();
+    expect(host.textContent).toContain("updated 1 min ago");
+  });
+
+  it.each(["off", "denied", "notEnabled"])("clears persisted stats after %s and does not repaint them on remount", async (state) => {
+    await mount();
+    expect(localStorage.getItem("omb-quorum-kept")).not.toBeNull();
+    replies = [() => ({ state })];
+    await tick(5 * 60_000);
+    expect(localStorage.getItem("omb-quorum-kept")).toBeNull();
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    replies = [() => new Error("offline")];
+    await mount();
+    expect(bigNumbers()).toEqual([]);
+  });
+
+  it("drops the kept paint when the first reply is off", async () => {
+    await mount();
+    expect(host.querySelector("section")).not.toBeNull();
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    replies = [() => ({ state: "off" })];
+    await mount();
+    expect(host.innerHTML).toBe("");
   });
 });

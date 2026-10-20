@@ -264,6 +264,58 @@ describe("handleDesktopNotify", () => {
     notices[0].handlers.click();
     expect(clicks).toEqual([{ botId: "bot-1", threadId: "thread-1", openTerminal: true, terminalSessionId: "session-1" }]);
   });
+
+  it("does not show a toast while the PC is idle", () => {
+    const { FakeNotification, notices } = fakeNotificationClass();
+    const result = handleDesktopNotify({
+      win: fakeWindow(),
+      payload: frame,
+      Notification: FakeNotification,
+      nativeSupported: true,
+      idleState: "idle",
+    });
+    expect(result).toEqual({ shown: false });
+    expect(notices).toHaveLength(0);
+  });
+
+  it("does not show a toast while the PC is locked", () => {
+    const { FakeNotification, notices } = fakeNotificationClass();
+    const result = handleDesktopNotify({
+      win: fakeWindow(),
+      payload: frame,
+      Notification: FakeNotification,
+      nativeSupported: true,
+      idleState: "locked",
+    });
+    expect(result).toEqual({ shown: false });
+    expect(notices).toHaveLength(0);
+  });
+
+  it("shows a toast when the PC is active", () => {
+    const { FakeNotification, notices } = fakeNotificationClass();
+    const result = handleDesktopNotify({
+      win: fakeWindow(),
+      payload: frame,
+      Notification: FakeNotification,
+      nativeSupported: true,
+      idleState: "active",
+    });
+    expect(result).toEqual({ shown: true });
+    expect(notices).toHaveLength(1);
+  });
+
+  it("shows a toast when the idle state is unknown", () => {
+    const { FakeNotification, notices } = fakeNotificationClass();
+    const result = handleDesktopNotify({
+      win: fakeWindow(),
+      payload: frame,
+      Notification: FakeNotification,
+      nativeSupported: true,
+      idleState: "unknown",
+    });
+    expect(result).toEqual({ shown: true });
+    expect(notices).toHaveLength(1);
+  });
 });
 
 describe("toastIconFor", () => {

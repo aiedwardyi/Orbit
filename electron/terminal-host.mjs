@@ -33,18 +33,21 @@ const STALL_TRIES = 5;
 const RESIZE_REPAINT_MS = 2_000;
 // Script panes go quiet when they finish; only an agent CLI waits on its teacher.
 const WORKER_CLI_RE = /(?:^|[;&|\r\n])\s*&?\s*["']?(?:[^\s"';&|]*[\\/])?(claude|codex|muse|grok|gemini|agy)(?:\.(?:exe|cmd|ps1))?["']?(?=\s|$)/i;
-const AGENT_BUSY_RE = /(?:esc to interrupt|^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$))/mu;
+const AGENT_BUSY_RE = /(?:esc to interrupt|^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$)|^[ \t]*[\u2800-\u28ff][\s─]+\S[^\n]*(?:…|\.{3})(?:\s+\(|\s*$))/mu;
 // Claude Code's status line counts live jobs in a "·" segment; its "done ... still running" line is history and never clears.
 const AGENT_JOBS_RE = /^(?!.*still running)(?=.*·)(?:.*·)?\s*(?:\d+ [^,·]+, )*\d+ (?:shells?|monitors?|local agents?)(?:, \d+ [^,·]+)*\s*(?:·|$)/u;
 // Wrapping, borders, spinner glyphs and clocks change on a redraw without the worker moving; a busy agent's ticking timer still counts.
-const STALL_CHURN_RE = /[\u2500-\u257f\u2800-\u28ff✻✢✳✶✽·*●]|\b\d+[hms]\b|\d{1,2}:\d{2}(?::\d{2})?/gu;
+const STALL_CHURN_RE = /[\u2500-\u257f\u2800-\u28ff✻✢✳✶✽·*●]|\b\d+[hms]\b|\d{1,2}:\d{2}(?::\d{2})?|\b\d+(?:\.\d+)?%(?=\s+context left\b)/gu;
 const stallSignature = (screenText) => AGENT_BUSY_RE.test(screenText) ? screenText : screenText.replace(STALL_CHURN_RE, "").replace(/\s+/g, "");
-const agentJobsRunning = (screenText) => screenText.split("\n").filter((line) => line.trim()).slice(-JOBS_FOOTER_LINES).some((line) => AGENT_JOBS_RE.test(line));
+const agentJobsRunning = (screenText, shellsOnly = false) => screenText.split("\n").filter((line) => line.trim()).slice(-JOBS_FOOTER_LINES).some((line) => AGENT_JOBS_RE.test(line) && (!shellsOnly || /\b[1-9]\d* shells?\b/u.test(line)));
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 export const BOT_PANE_LIMIT = 16;
 const SESSION_LIMIT = 32;
-const MIN_FREE_MEMORY = 2 * 1024 ** 3;
+const MB = 1024 ** 2;
+const ENGINE_MEMORY_FLOOR = { claude: 600 * MB, codex: 150 * MB, muse: 150 * MB };
+const OTHER_MEMORY_FLOOR = 300 * MB;
+const SHELL_MEMORY_FLOOR = 100 * MB;
 const LABEL_LIMIT = 40;
 const MIN_ID_PREFIX_LEN = 8;
 const CLOSED_PANE_HISTORY_LIMIT = 32;
@@ -146,25 +149,105 @@ function normalizeTerminalText(text) {
 const CLAUDE_LIMIT_RE = /^\s*(?:⎿\s+)?You['’]ve hit your [^·\n]*limit\s*·\s*resets (\S.*)$/i;
 const CODEX_LIMIT_RE = /^\s*■\s+You['’]ve hit your usage limit\..{0,400}?try again at (.+?)\.(?: |$)/i;
 
-// Codex wraps the sentence, so it reads from the "■" line on, flattened.
-const LIMIT_READERS = {
-  claude: (lines) => lines.map((line) => CLAUDE_LIMIT_RE.exec(line)?.[1]).find(Boolean),
-  codex: (lines) => lines.map((line, i) => CODEX_LIMIT_RE.exec(lines.slice(i).join(" ").replace(/\s+/g, " "))?.[1]).find(Boolean),
-};
+const LIMIT_START = { claude: /^\s*(?:⎿\s+)?You['’]ve hit your /i, codex: /^\s*■\s+You['’]ve hit your usage limit\./i };
+const LIMIT_IDLE_RE = /^(?:What do you want to do\?|[❯›]?\s*\d+\. .+|Approaching rate limits|Switch to .+|Fast and affordable .+|gpt-.+|\d+(?:\.\d+)?% context left.*|⏵.*|[❯›?]|[─━]+)$/u;
 
-function usageLimit(lines, engine) {
-  const reset = LIMIT_READERS[engine]?.(lines)?.trim();
+function usageLimit(screenText, engine, cols = 80) {
+  const lines = screenText.split("\n").map((line) => line.trimEnd());
+  const nonempty = lines.flatMap((line, i) => line ? [i] : []);
+  const tail = [];
+  let wrapped = false;
+  for (const line of lines.slice(nonempty.at(-STALL_TAIL_LINES) ?? 0)) {
+    if (wrapped && line && !/^\s*[●•■❯›⎿]/u.test(line)) tail[tail.length - 1] += line;
+    else tail.push(line);
+    wrapped = line.length === cols;
+  }
+  const start = tail.findLastIndex((line) => LIMIT_START[engine]?.test(line));
+  if (start < 0) return null;
+  const reader = engine === "claude" ? CLAUDE_LIMIT_RE : CODEX_LIMIT_RE;
+  let end = start;
+  let text = tail[start];
+  let reset = reader.exec(text)?.[1];
+  while ((!reset || (reset.includes("(") && !reset.includes(")"))) && end + 1 < tail.length) {
+    const next = tail[end + 1];
+    if (!next.trim() || LIMIT_IDLE_RE.test(next.trim())) break;
+    text += next;
+    end += 1;
+    reset = reader.exec(text)?.[1];
+  }
+  if (tail.slice(end + 1).some((line) => line.trim() && !LIMIT_IDLE_RE.test(line.trim()))) return null;
+  reset = reset?.trim();
   return reset ? { engine: engine === "claude" ? "Claude" : "Codex", reset } : null;
 }
 
 // A turn that dies on a usage limit or a menu runs no engine hook, so the screen is the only signal.
-function stallNoteText(screenText, stallMs, cwd, engine) {
+function stallNoteText(screenText, stallMs, cwd, engine, cols) {
   const lines = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES);
-  const limit = usageLimit(lines, engine);
+  const limit = usageLimit(screenText, engine, cols);
   if (limit) return `LIMIT: ${limit.engine} hit its usage limit (resets ${limit.reset}). Its work so far stays in ${cwd}. Send "continue" after the reset, or move the job to another engine.`;
   const tail = lines.join("\n");
   return `STALLED: no screen change for ${Math.max(1, Math.round(stallMs / 60_000))} min and no report. It may be stuck on a usage limit, a menu or an error. terminal_read its pane, then act or tell the user. Last lines:\n${tail}`;
 }
+
+// What each engine's own footer shows; Claude's appears only near its compact threshold.
+const CONTEXT_RES = {
+  claude: [[/\b(\d{1,3})% until auto-compact\b/, "left"], [/\bContext low \((\d{1,3})% remaining\)/, "left"], [/\b(\d{1,3})% context used\b/, "used"]],
+  codex: [[/\b(\d{1,3})% context left\b/, "left"], [/\bContext (\d{1,3})% left\b/, "left"], [/\bContext (\d{1,3})% used\b/, "used"]],
+};
+const GROK_CONTEXT_RE = /^\s*grok-[\w.-]+ · (\d+(?:\.\d+)?)([KM])? \/ (\d+(?:\.\d+)?)([KM])\s*$/;
+// The Claude worker status line's own last line, scaled to its compact window.
+const CLAUDE_STATUS_RE = /^\s*ctx (\d+)k\/(\d+)k\s*$/;
+const CONTEXT_FOOTER_LINES = 6;
+const CONTEXT_NOTE_TOKENS = 200_000;
+const CONTEXT_EARLY_SHARE = 0.8;
+const CONTEXT_SAVE_LINE = "Context is getting full. Update your progress file now (done, in flight, left), then continue.";
+const CONTEXT_SAVE_TAIL = CONTEXT_SAVE_LINE.replace(/\s+/g, "").slice(-16);
+// Both queue typed text while busy; a menu would take the Enter as a pick.
+const SAVE_LINE_ENGINES = new Set(["claude", "codex"]);
+const PANE_MENU_RE = /^\s*[❯›]\s*\d+\.\s/u;
+const BRACKETED_PASTE_MODE = 2004;
+const SAVE_ENTER_MS = 5_000;
+const tokenCount = (value, unit) => Math.round(Number(value) * (unit === "M" ? 1_000_000 : unit === "K" ? 1_000 : 1));
+
+function paneContext(screenText, engine) {
+  const lines = screenText.split("\n").filter((line) => line.trim()).slice(-CONTEXT_FOOTER_LINES).reverse();
+  const status = engine === "claude" ? lines.map((line) => CLAUDE_STATUS_RE.exec(line)).find(Boolean) : null;
+  if (status && Number(status[2]) > 0) {
+    const tokens = Number(status[1]) * 1_000;
+    const windowTokens = Number(status[2]) * 1_000;
+    return { tokens, window: windowTokens, left: Math.max(0, Math.round((1 - tokens / windowTokens) * 100)) };
+  }
+  for (const line of lines) {
+    if (engine === "grok") {
+      const match = GROK_CONTEXT_RE.exec(line);
+      if (!match) continue;
+      const tokens = tokenCount(match[1], match[2]);
+      const windowTokens = tokenCount(match[3], match[4]);
+      if (windowTokens > 0 && tokens <= windowTokens) return { tokens, left: Math.round((1 - tokens / windowTokens) * 100) };
+      continue;
+    }
+    for (const [re, kind] of CONTEXT_RES[engine] ?? []) {
+      const match = re.exec(line);
+      const percent = match ? Number(match[1]) : NaN;
+      if (percent <= 100) return { left: kind === "left" ? percent : 100 - percent };
+    }
+  }
+  return null;
+}
+
+const contextOver = (context) => context.window ? context.tokens >= context.window * CONTEXT_EARLY_SHARE
+  : context.tokens !== undefined ? context.tokens >= CONTEXT_NOTE_TOKENS : context.left <= 50;
+
+function contextNoteText(label, context) {
+  const nick = label?.split("|")[0].trim() || "this worker";
+  const used = `${100 - context.left}% of its window`;
+  const size = context.window ? `${Math.round(context.tokens / 1000)}k of ${Math.round(context.window / 1000)}k`
+    : context.tokens !== undefined ? `${Math.round(context.tokens / 1000)}k context (${used})` : used;
+  return `CONTEXT: ${nick} is at ${size}. It could not get the save line; terminal_read the pane.`;
+}
+
+const canTakeSaveLine = (screenText, engine) => SAVE_LINE_ENGINES.has(engine) && AGENT_BUSY_RE.test(screenText)
+  && !screenText.split("\n").filter((line) => line.trim()).slice(-STALL_TAIL_LINES).some((line) => PANE_MENU_RE.test(line));
 
 function finishedNoteText(screenText) {
   const tail = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES).join("\n");
@@ -239,6 +322,16 @@ export function trustedTerminalSender(event, owner, origin) {
   }
 }
 
+// First command token names the pane's engine; $env:... assignments before it (agy line) do not.
+function paneMemoryFloor(command) {
+  if (!command || !command.trim()) return SHELL_MEMORY_FLOOR;
+  const bare = command.replace(/^(?:\s*\$env:[^;]*;)+/i, "").trim();
+  const m = bare.match(/^[&\s]*(?:"([^"]+)"|'([^']+)'|([^\s"';&|]+))/);
+  const token = m?.[1] ?? m?.[2] ?? m?.[3] ?? "";
+  const engine = token.split(/[\\/]/).pop().replace(/\.(exe|cmd|ps1)$/i, "").toLowerCase();
+  return ENGINE_MEMORY_FLOOR[engine] ?? OTHER_MEMORY_FLOOR;
+}
+
 function paneLabel(value) {
   if (value === undefined || value === null) return undefined;
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Labels cross the local proxy and IPC boundaries.
@@ -246,7 +339,7 @@ function paneLabel(value) {
   return value.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, LABEL_LIMIT) || undefined;
 }
 
-export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, prestartIdleMs = PRESTART_IDLE_MS, notePane = postPaneNote, now = () => Date.now(), freeMemory = () => os.freemem(), paneRuns = null }) {
+export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, prestartIdleMs = PRESTART_IDLE_MS, notePane = postPaneNote, now = () => Date.now(), freeMemory = () => os.freemem(), setPriority = os.setPriority, paneRuns = null }) {
   const sessions = new Map();
   const active = new Map();
   const generations = new Map();
@@ -365,6 +458,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (note.tries >= STALL_TRIES) settle(false);
     });
   };
+  const typeIntoPane = (session, data) => {
+    void Promise.resolve().then(() => session.pty.write(data)).catch((cause) => fail(session, cause));
+  };
   const postAuto = (session, auto) => postNote(session, auto, auto.text, (delivered) => {
     if (delivered) session.noteAt = now();
     if (session.autoNote !== auto) return;
@@ -400,9 +496,43 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         continue;
       }
       if (!session.worker || session.retired || session.exitCode !== null) continue;
+      if (session.engine === "claude" && session.compactSignal && fs.existsSync(session.compactSignal)) {
+        try {
+          fs.unlinkSync(session.compactSignal);
+          session.contextCompactPending = true;
+        } catch {}
+      }
+      const text = session.screen.text();
+      const context = paneContext(text, session.engine);
+      // The compact hook can run before Claude clears its old low-context footer.
+      if (session.contextCompactPending && (!context || !contextOver(context))) {
+        session.contextCompactPending = false;
+        session.contextNote = null;
+      }
+      // A compaction back under the line re-arms the note.
+      if (context && !contextOver(context)) session.contextNote = null;
+      else if (!session.contextCompactPending && context) {
+        const note = session.contextNote ??= { tries: 0, retryAt: 0, save: null, typedAt: 0 };
+        if (!note.save) {
+          note.save = canTakeSaveLine(text, session.engine) ? "typed" : "failed";
+          if (note.save === "typed") {
+            const paste = session.screen.snapshot({ maxScreenChars: 1, maxScrollbackChars: 0 }).modes?.includes(BRACKETED_PASTE_MODE);
+            note.typedAt = at;
+            session.pendingInputEcho = `${session.pendingInputEcho}${CONTEXT_SAVE_LINE}`.slice(-INPUT_ECHO_LIMIT);
+            typeIntoPane(session, paste ? `\x1b[200~${CONTEXT_SAVE_LINE}\x1b[201~` : CONTEXT_SAVE_LINE);
+          }
+        } else if (note.save === "typed" && at - note.typedAt >= SAVE_ENTER_MS) {
+          // Text plus Enter in one write can land in Claude Code as a paste that never submits.
+          note.save = text.replace(/\s+/g, "").includes(CONTEXT_SAVE_TAIL) ? "sent" : "failed";
+          if (note.save === "sent") typeIntoPane(session, "\r");
+        }
+        if (note.save === "failed" && session.mail && at >= note.retryAt) postNote(session, note, contextNoteText(session.label, context), () => { note.retryAt = Infinity; });
+      }
+      const limit = usageLimit(text, session.engine, session.cols);
+      const limitKey = limit ? JSON.stringify([session.engine, limit.reset.replace(/\s+/g, "")]) : null;
       if (session.stallDirty) {
         session.stallDirty = false;
-        const signature = stallSignature(session.screen.text());
+        const signature = limitKey ?? stallSignature(text);
         if (signature !== session.stallText) {
           session.stallText = signature;
           session.stallChangedAt = at;
@@ -410,16 +540,20 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           session.stallTries = 0;
         }
       }
-      if (session.stallFired || at - session.stallChangedAt < stallMs || at < session.stallRetryAt) continue;
+      const threshold = !limit && session.engine === "claude" && agentJobsRunning(text, true) ? JOBS_HOLD_MS : stallMs;
+      if (session.stallFired || at - session.stallChangedAt < threshold || at < session.stallRetryAt) continue;
+      if (limitKey && session.limitsNoted.has(limitKey)) continue;
       // Its report on this task, or a hook note on this task as the screen settled, already reached the teacher.
       if (session.reportAt >= session.stallArmedAt) continue;
       if (session.noteAt >= session.stallArmedAt && session.noteAt >= session.stallChangedAt - STALL_NOTE_SLACK_MS) continue;
       session.stallFired = true;
       if (!session.mail) continue;
+      if (limitKey) session.limitsNoted.add(limitKey);
       const scope = { pane: session.id, bot: session.botId, teacher: session.teacher };
       const stall = session.stallChangedAt;
       session.stallTries += 1;
-      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(session.screen.text(), stallMs, session.cwd, session.engine))).catch(() => {
+      void Promise.resolve().then(() => notePane(session.mail, scope, stallNoteText(text, threshold, session.cwd, session.engine, session.cols))).catch(() => {
+        if (limitKey) session.limitsNoted.delete(limitKey);
         // a post that did land raises noteAt, which stops the retry above
         if (session.stallChangedAt !== stall || session.stallTries >= STALL_TRIES) return;
         session.stallFired = false;
@@ -500,6 +634,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           }
         }
       }
+      if (session.compactSignal) { try { fs.unlinkSync(session.compactSignal); } catch {} }
       if (sessions.get(session.id) === session) sessions.delete(session.id);
     })();
     return session.stopPromise;
@@ -590,7 +725,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     // A pane without orbit-msg beats no pane at all.
     const mail = await Promise.resolve().then(mailbox).catch(() => null);
     const paneEnv = terminalPaneEnv(terminalEnvironment(env), { pane: id, bot: input.botId, teacher: folder.teacher, mailbox: mail });
-    if (botPane) Object.assign(paneEnv, BOT_PANE_ENV);
+    if (botPane) Object.assign(paneEnv, BOT_PANE_ENV, { ORBIT_COMPACT_SIGNAL: path.join(os.tmpdir(), `orbit-compact-${id}`) });
     let pty;
     try {
       pty = await loadPty().spawn(shell, platform === "win32" ? (botPane ? workerShellArgs(id) : ["-NoLogo"]) : [], {
@@ -603,10 +738,10 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       id, key, botId: input.botId, botPane, owner: event.sender, cwd, shell, pty, output: "", exitCode: null, seq: 0,
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
-      outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), pendingInputEcho: "", truncated: false,
-      workerReady: false, mail, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
-      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
-      reported: false, finished: [], autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false,
+      outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
+      workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
+      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
+      reported: false, finished: [], autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, contextNote: null, contextCompactPending: false,
     };
     session.outputParser = createTerminalOutputParser((osc) => {
       if (!session.botPane || osc !== `133;D;${session.id}`) return;
@@ -635,6 +770,10 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       // spawn. Always wait for ready (or ready failure) before retiring.
       await ready;
       session.workerReady = true;
+      // Workers yield a busy CPU to Wink; children inherit the class.
+      if (botPane && Number.isInteger(pty.pid)) {
+        try { setPriority(pty.pid, os.constants.priority.PRIORITY_BELOW_NORMAL); } catch {}
+      }
       if (session.failure) throw session.failure;
       let cancelled = false;
       await Promise.race([
@@ -665,6 +804,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const launched = session.botPane ? WORKER_CLI_RE.exec(text) : null;
       if (launched) {
         session.engine = launched[1].toLowerCase();
+        session.contextNote = null;
+        session.contextCompactPending = false;
         watchStalls(session);
       }
       if (session.botPane) paneRuns?.started({ id: session.id, botId: session.botId, teacher: session.teacher, label: session.label, cwd: session.cwd, spawnedAt: session.spawnedAt });
@@ -854,6 +995,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       try {
         const result = session.pty.resize(cols, rows);
         session.screen.resize(cols, rows);
+        session.cols = cols;
         // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PTY adapters may acknowledge operations synchronously or asynchronously.
         return result && typeof result.then === "function" ? result.catch((cause) => { fail(session, cause); throw cause; }) : result;
       } catch (cause) {
@@ -908,7 +1050,13 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           exitCode: session.exitCode,
           exited: session.exitCode !== null,
           ...session.screen.snapshot({ maxScreenChars, maxScrollbackChars }),
-          panes: live.map((pane) => ({ ...paneSummary(pane), screenText: pane.screen.text() })),
+          panes: live.map((pane) => {
+            const screenText = pane.screen.text();
+            const entry = { ...paneSummary(pane), screenText };
+            const context = pane.botPane ? paneContext(screenText, pane.engine) : null;
+            if (context) entry.context = context;
+            return entry;
+          }),
           closedPanes,
         };
       };
@@ -1029,8 +1177,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
       const yours = () => botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length + botReserved;
       if (liveSessions() + reservedPanes >= SESSION_LIMIT) throw new Error(`Too many terminal sessions (${SESSION_LIMIT} open across all bots and main terminals; ${yours()} are yours). Close one of yours with terminal_close, or ask the user to close others.`);
+      const floor = paneMemoryFloor(input.command);
       const free = freeMemory();
-      if (free < MIN_FREE_MEMORY) throw new Error(`Not enough free memory for another terminal (${(free / 1024 ** 3).toFixed(1)} GB free, 2 GB needed; ${liveSessions() + reservedPanes} terminals open, ${yours()} are yours). Close a finished pane with terminal_close.`);
+      if (free < floor) throw new Error(`Not enough free memory for another terminal (${(free / 1024 ** 3).toFixed(1)} GB free, ${(floor / 1024 ** 3).toFixed(1)} GB needed; ${liveSessions() + reservedPanes} terminals open, ${yours()} are yours). Close a finished pane with terminal_close.`);
       paneReservations.set(botId, botReserved + 1);
       reservedPanes += 1;
       let session;

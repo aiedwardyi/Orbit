@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DATA_DIR } from "./config.ts";
-import { knownCatalogContextWindow, prepareModelContext, supersededCompactionIds } from "./context-compaction.ts";
+import { knownCatalogContextWindow, planCompaction, prepareModelContext, supersededCompactionIds } from "./context-compaction.ts";
 import { STATIC_CLAUDE_MODELS } from "./drivers/claude.ts";
 import { closeMessageDb } from "./message-db.ts";
 import { Store } from "./store.ts";
@@ -615,6 +615,81 @@ describe("background summary before the next send", () => {
     closeMessageDb();
     await removeTempDir(DATA_DIR);
     mkdirSync(DATA_DIR, { recursive: true });
+  });
+
+  it("summary grace resumes the accepted cursor then replays the landed row exactly once", async () => {
+    vi.useFakeTimers();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const store = new Store(() => ({ instanceId: "claude", model: "claude-opus-5-5" }));
+      const bot = store.createBot({}, { seedMessages: false });
+      const threadId = bot.threadId;
+      for (let index = 0; index < 70; index++) {
+        store.appendMessage(threadId, { role: "user", kind: "text", text: `request ${index}` });
+        store.appendMessage(threadId, { role: "bot", kind: "text", text: `outcome ${index}` });
+      }
+      store.markTaskDispatched(bot.id, threadId, "claude", "claude-opus-5-5");
+      store.setResumeCursor(bot.id, "claude", "session-1", threadId);
+      store.markResumeSeeded(bot.id, threadId, { instanceId: "claude", cursor: "session-1", compactionId: null });
+      store.recordNativePrompt(bot.id, threadId, "claude", { first: 25_000, last: 35_000 }, 200_000);
+      let busy = false;
+      const generateText = vi.fn(() => new Promise<string>((resolve) => setTimeout(() => resolve("SUMMARY\nbuilt in the background"), 31_000)));
+      const instance = { driverKind: "claude", generateText, textTimeoutMs: 90_000 };
+      const { createSummaryBuild } = await import("./summary-build.ts");
+      const build = createSummaryBuild({
+        store, sendInputs: async () => ({ instance, contextWindow: 200_000, taskRecordText: "Goal: ship" }),
+        busy: () => busy, userName: () => "User",
+      });
+      build.onSettled(bot.id, threadId);
+      await vi.advanceTimersByTimeAsync(0);
+      busy = true;
+      const send = store.appendMessage(threadId, { role: "user", kind: "text", text: "current grace request" });
+      const task = store.taskByThread(bot.id, threadId)!;
+      const summaryGrace = {
+        knownWindow: 200_000, requestText: "current grace request", fresh: false, rewound: false, recycle: false, local: false,
+        native: { instanceId: "claude", cursor: task.resumeCursors.claude, seed: task.resumeSeed, prompt: sessionPromptFor({
+          report: task.nativePrompt, cursor: task.resumeCursors.claude, model: "claude-opus-5-5", catalogWindow: 200_000,
+        }) },
+      };
+      const input = { messages: store.activePath(threadId), contextWindow: 200_000, excludeIds: new Set([send.id]), taskRecordText: "Goal: ship" };
+      let dispatched = false;
+      const settled = build.settle(threadId, instance, 90_000, () => true, {
+        grace: { plan: planCompaction(input), taskRecordText: input.taskRecordText, grace: summaryGrace },
+      }).then(() => { dispatched = true; });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(dispatched).toBe(true);
+      await settled;
+      const summarize = vi.fn(async () => "SUMMARY\nduplicate");
+      const prepared = await prepareModelContext({ ...input, summaryGrace, summarize });
+      if (prepared.status !== "ready") throw new Error(prepared.status);
+      expect(summarize).not.toHaveBeenCalled();
+      expect(shouldRecycleProviderSession({ compacted: Boolean(prepared.compaction) })).toBe(false);
+      expect(buildTurnContext({ text: "current grace request", transcript: prepared.transcript, fresh: false, rewound: false, replaysNatively: false }).resume).toBe(true);
+      expect(task.resumeCursors.claude).toBe("session-1");
+      store.appendMessage(threadId, { role: "bot", kind: "text", text: "later verified artifact" });
+      await vi.advanceTimersByTimeAsync(31_000);
+      await build.idle();
+      expect(store.activePath(threadId).some((item) => item.kind === "compaction")).toBe(false);
+      busy = false;
+      build.onSettled(bot.id, threadId);
+      await build.idle();
+      const next = await prepareModelContext({ messages: store.activePath(threadId), contextWindow: 200_000, taskRecordText: "Goal: ship", summarize });
+      if (next.status !== "ready") throw new Error(next.status);
+      expect(next.compactionId).toBeTruthy();
+      const unseeded = () => resumeSessionUnseeded({ instanceId: "claude", cursor: task.resumeCursors.claude, seed: task.resumeSeed, latestCompactionId: next.compactionId ?? null });
+      expect(unseeded()).toBe(true);
+      const replay = buildTurnContext({ text: "next request", transcript: next.transcript, fresh: false, rewound: false, recycled: unseeded(), recycleReason: "compaction", replaysNatively: false });
+      expect(replay.resume).toBe(false);
+      expect(replay.turnText.match(/later verified artifact/g)).toHaveLength(1);
+      store.markResumeSeeded(bot.id, threadId, { instanceId: "claude", cursor: "session-1", compactionId: next.compactionId! });
+      expect(unseeded()).toBe(false);
+      expect(generateText).toHaveBeenCalledOnce();
+      expect(summarize).not.toHaveBeenCalled();
+      build.dispose();
+    } finally {
+      vi.useRealTimers();
+      info.mockRestore();
+    }
   });
 
   it("first send after a background row recycles as unseeded", async () => {

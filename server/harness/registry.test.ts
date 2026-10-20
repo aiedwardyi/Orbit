@@ -1,8 +1,12 @@
 // The registry's contract is forward/backward compatibility: a config
 // written by a newer or differently-built app must load as an
 // unavailable shadow, never crash the fleet. These tests pin that.
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
+import { findCliCandidates, refreshPathCache, resetPathCacheForTests } from "../env-path.ts";
 import * as procs from "../procs.ts";
 import { makeFakeDriver } from "../testing/fake-driver.ts";
 import { ProviderRegistry } from "./registry.ts";
@@ -41,6 +45,74 @@ const versions = (rows: { instanceId: string; snapshot: { version?: string | nul
   Object.fromEntries(rows.map((row) => [row.instanceId, row.snapshot.version]));
 
 describe("ProviderRegistry", () => {
+  it("answers from the persisted boot probe while its replacement is pending", async () => {
+    const cacheDir = mkdtempSync(join(homedir(), "probe-cache-"));
+    const configs = { a: { driver: "fake" } };
+    const first = countingDriver();
+    const previous = new ProviderRegistry([first.driver], { cacheDir });
+    await previous.load(configs);
+    Object.assign(previous.get("a")!, { models: { default: "discovered", options: [{ id: "discovered", label: "Discovered" }] } });
+    const saved = await previous.describe();
+    await previous.disposeAll();
+
+    const next = countingDriver();
+    const registry = new ProviderRegistry([next.driver], { cacheDir });
+    await registry.load(configs);
+    const release = next.hold();
+    const boot = registry.describe({ refresh: true });
+    let cached: Awaited<ReturnType<typeof registry.describeCached>> | undefined;
+    const read = registry.describeCached().then((rows) => { cached = rows; });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(cached).toEqual(saved);
+      expect(cached![0].models.default).toBe("discovered");
+    } finally {
+      release();
+      await Promise.all([boot, read]);
+    }
+    expect((await registry.describeCached())[0].models.default).toBe("fake-1");
+    expect(next.counts.snapshots).toBe(1);
+
+    registry.get("a")!.snapshot = async () => ({ state: "unavailable", reason: "removed since launch" });
+    await registry.describe({ refresh: true });
+    expect((await registry.describeCached())[0].snapshot).toEqual({ state: "unavailable", reason: "removed since launch" });
+    registry.get("a")!.snapshot = async () => ({ state: "available", version: "newly installed" });
+    await registry.describe({ refresh: true });
+    expect((await registry.describeCached())[0].snapshot.version).toBe("newly installed");
+    await registry.disposeAll();
+
+    const changed = new ProviderRegistry([makeFakeDriver().driver], { cacheDir });
+    await changed.load({ a: { driver: "fake", config: { changed: true } } });
+    expect((await changed.describeCached())[0].snapshot.version).toBe("0.0.0-fake");
+    await changed.disposeAll();
+    writeFileSync(join(cacheDir, "provider-probes.json"), "{broken");
+    const recovered = new ProviderRegistry([makeFakeDriver().driver], { cacheDir });
+    await recovered.load(configs);
+    expect((await recovered.describeCached())[0].snapshot.version).toBe("0.0.0-fake");
+    await recovered.disposeAll();
+  });
+
+  it("reads saved probe rows without probing", async () => {
+    const cacheDir = mkdtempSync(join(homedir(), "probe-cache-"));
+    try {
+      const configs = { a: { driver: "fake" }, b: { driver: "fake" } };
+      const previous = new ProviderRegistry([makeFakeDriver().driver], { cacheDir });
+      await previous.load({ a: configs.a });
+      previous.get("a")!.snapshot = async () => ({ state: "unavailable", reason: "signed out" });
+      await previous.describe();
+      await previous.disposeAll();
+
+      const next = countingDriver();
+      const registry = new ProviderRegistry([next.driver], { cacheDir });
+      await registry.load(configs);
+      expect(registry.describeSaved().map((row) => [row.instanceId, row.snapshot.state])).toEqual([["a", "unavailable"]]);
+      expect(next.counts.snapshots).toBe(0);
+      await registry.disposeAll();
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
+  });
+
   it("resolves sign-in only from the registered driver", async () => {
     const fake = makeFakeDriver();
     const registry = new ProviderRegistry([{ ...fake.driver, install: { signInCommand: "official login" } }]);
@@ -106,6 +178,45 @@ describe("ProviderRegistry", () => {
     now += 101;
     await registry.describe();
     expect(refreshes).toBe(2);
+  });
+
+  it("rediscovers models once a refresh repairs a stale cached CLI path", async () => {
+    const cacheDir = mkdtempSync(join(homedir(), "probe-cache-"));
+    const [moved, installed] = ["moved-bin-", "installed-bin-"].map((dir) => mkdtempSync(join(homedir(), dir)));
+    const name = "stale-shim-cli";
+    const shim = (dir: string) => join(dir, name + (process.platform === "win32" ? ".cmd" : ""));
+    process.env.OMB_EXTRA_PATH = [moved, installed].join(delimiter);
+    try {
+      writeFileSync(shim(moved), "fixture");
+      resetPathCacheForTests();
+      await refreshPathCache([name]);
+      rmSync(shim(moved));
+      writeFileSync(shim(installed), "fixture");
+      resetPathCacheForTests();
+      const fake = makeFakeDriver();
+      const originalCreate = fake.driver.create.bind(fake.driver);
+      fake.driver.create = async (input) => {
+        const instance = await originalCreate(input);
+        const refreshModels = async () => {
+          const found = existsSync(findCliCandidates(name)[0] ?? "");
+          Object.assign(instance, {
+            models: found ? { default: "real", options: [{ id: "real", label: "Real" }] } : fake.driver.models,
+          });
+        };
+        await refreshModels();
+        Object.assign(instance, { refreshModels });
+        return instance;
+      };
+      const registry = new ProviderRegistry([fake.driver], { cacheDir });
+      await registry.load({ a: { driver: "fake", config: { cli: name } } });
+      expect(registry.get("a")!.models.default).toBe("fake-1");
+      expect((await registry.describe({ refresh: true }))[0].models.default).toBe("real");
+      expect((await registry.describeCached())[0].models.default).toBe("real");
+      await registry.disposeAll();
+    } finally {
+      delete process.env.OMB_EXTRA_PATH;
+      resetPathCacheForTests();
+    }
   });
 
   it("coalesces concurrent model discovery refreshes", async () => {

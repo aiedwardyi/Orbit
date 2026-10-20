@@ -170,6 +170,7 @@
   --animate-panel-in: panel-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
   --animate-pop-in: pop-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
   --animate-fade-in: fade-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-tip-in: tip-in 0.1s ease-out;
   --animate-caret: caret-blink 1s step-end infinite;
   --animate-msg-in: msg-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
 
@@ -3891,6 +3892,16 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   animation: orbit-rainbow-spin 4s linear infinite paused;
 }
 
+[data-orbit-rainbow="theme"] > span {
+  background: repeating-conic-gradient(
+    var(--color-accent),
+    color-mix(in oklab, var(--color-accent) 50%, white) 12.5%,
+    var(--color-accent) 25%,
+    color-mix(in oklab, var(--color-accent) 75%, black) 37.5%,
+    var(--color-accent) 50%
+  );
+}
+
 [data-orbit-composer-frame]:focus-within > [data-orbit-rainbow] {
   opacity: 1;
 }
@@ -3991,6 +4002,9 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
   to { transform: scale(1) translateY(0); opacity: 1; }
 }
 @keyframes fade-in {
+  from { opacity: 0; }
+}
+@keyframes tip-in {
   from { opacity: 0; }
 }
 @keyframes fade-out {
@@ -5039,4 +5053,21 @@ button:disabled.bg-danger {
   color: var(--color-ink-secondary);
   white-space: nowrap;
   will-change: transform;
+}
+
+/* Paused in the background. The needs-you pulse stays. */
+html[data-orbit-idle] :is(
+  .orbit-mark-rings,
+  .mascot-avatar .mascot-idle,
+  .mascot-avatar .mascot-blink,
+  .orbit-ring-spin,
+  .thinking-sheen,
+  .thinking-sheen > span,
+  .animate-spin
+) {
+  animation-play-state: paused !important;
+}
+
+html[data-orbit-idle] [data-orbit-composer-frame]:focus-within > [data-orbit-rainbow] > span {
+  animation-play-state: paused;
 }

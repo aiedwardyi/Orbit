@@ -21,12 +21,12 @@ export type AcceptedSends = Record<string, AcceptedSend[]>;
 export function withAcceptedMessages(
   messages: Message[],
   accepted: readonly AcceptedSend[] = [],
-  pending: readonly { queueId: string; text: string; at?: number }[] = [],
+  pending: readonly { queueId: string; text: string; at?: number; sendId?: string }[] = [],
 ): Message[] {
   const seen = new Set(messages.flatMap((message) => [message.id, message.sendId, message.queueId]));
   const waiting = [
-    ...pending.map((entry) => ({ sendId: entry.queueId, text: entry.text, at: entry.at })),
-    ...accepted,
+    ...pending.filter((entry) => !entry.sendId || !seen.has(entry.sendId)).map((entry) => ({ sendId: entry.queueId, text: entry.text, at: entry.at })),
+    ...accepted.filter((entry) => !pending.some((held) => held.sendId === entry.sendId)),
   ];
   const added: Message[] = [];
   for (const entry of waiting) {

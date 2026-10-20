@@ -59,6 +59,68 @@ export async function saveFileCopy(filePath, { dialog, downloads, window, fsp = 
   return true;
 }
 
+// File name the Save dialog offers for an image menu target. A data: URL
+// takes its extension from the media type; a name-less path falls back to
+// image.png; the query never becomes the name.
+export function imageSaveName(srcURL) {
+  try {
+    if (typeof srcURL !== "string") return "image.png";
+    if (srcURL.startsWith("data:")) {
+      const media = srcURL.slice(5, srcURL.indexOf(",")).split(";")[0].trim().toLowerCase();
+      if (media === "image/jpeg") return "image.jpg";
+      if (media === "image/gif") return "image.gif";
+      if (media === "image/webp") return "image.webp";
+      return "image.png";
+    }
+    const name = path.basename(new URL(srcURL).pathname);
+    return name || "image.png";
+  } catch {
+    return "image.png";
+  }
+}
+
+// Same bytes the viewer's Download button fetches: the attachment route for
+// app images, the remote bytes for markdown ones, decoded for data: URLs.
+export async function imageBytes(srcURL, fetchImpl = fetch) {
+  if (typeof srcURL === "string" && srcURL.startsWith("data:")) {
+    const comma = srcURL.indexOf(",");
+    const binary = srcURL.slice(5, comma).includes(";base64");
+    const body = srcURL.slice(comma + 1);
+    return new Uint8Array(binary ? Buffer.from(body, "base64") : Buffer.from(decodeURIComponent(body), "utf8"));
+  }
+  const response = await fetchImpl(srcURL);
+  if (!response.ok) throw new Error(`That image could not be downloaded (${response.status})`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+// Fetch for image saves. The local server 401s /api/* without the bearer,
+// so same-origin saves carry it; the web never sees the token.
+export function imageFetchFor(srcURL, { origin, token, fetchImpl = fetch } = {}) {
+  return (url, init) => {
+    if (origin && token && typeof srcURL === "string" && !srcURL.startsWith("data:")) {
+      try {
+        if (new URL(srcURL).origin === origin) {
+          return fetchImpl(url, { ...init, redirect: "error", headers: { ...init?.headers, Authorization: `Bearer ${token}` } });
+        }
+      } catch {
+        // unparsable source: plain fetch below
+      }
+    }
+    return fetchImpl(url, init);
+  };
+}
+
+// The save dialog confirms before overwriting. Cancel writes nothing; a
+// fetch failure rejects for the caller's error box.
+export async function saveImageCopy(srcURL, { dialog, downloads, window, fetchImpl = fetch, fsp = fs.promises }) {
+  const { canceled, filePath } = await dialog.showSaveDialog(window, {
+    defaultPath: path.join(downloads, imageSaveName(srcURL)),
+  });
+  if (canceled || !filePath) return false;
+  await fsp.writeFile(filePath, await imageBytes(srcURL, fetchImpl));
+  return true;
+}
+
 // Resolves first, so a rejected path never gets a menu.
 export async function fileMenuFor(rawPath, { text, shell, clipboard, dialog, downloads, window, onSaveError, ...options }) {
   const { filePath, directory } = await resolveOpenTarget(rawPath, options);

@@ -25,7 +25,7 @@ export type RoutineRunTrigger = "schedule" | "manual" | "webhook";
 
 /** Triggers that begin with nobody at the keyboard. Manual runs are tapped
  * by a person (attended); schedule and webhook deliveries are not, so turns
- * they start must not inherit auto-approval. */
+ * they start keep Auto mode but not an Ask bot's grants. */
 export function routineTriggerIsUnattended(trigger?: RoutineRunTrigger): boolean {
   return trigger === "schedule" || trigger === "webhook";
 }

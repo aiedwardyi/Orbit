@@ -188,6 +188,7 @@ const AGY_API_DISABLED =
   "Agent Platform API has not been used in project my-personal-agy-vertex before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/aiplatform.googleapis.com/overview?project=my-personal-agy-vertex then retry. If you enabled this API recently, wait a few minutes for the action to propagate to our systems and retry.";
 const AGY_RETRIED_429 =
   "API error (attempt 1): RESOURCE_EXHAUSTED (code 429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.";
+const AGY_RETRIED_TIMEOUT = "API error (attempt 1): request failed: stream idle timeout (5m0s): context deadline exceeded";
 
 describe("isAgyAccountError", () => {
   it("matches auth and permission wording", () => {
@@ -485,6 +486,22 @@ describe("Antigravity turns (fake CLI)", () => {
       expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
         text: "done from fake agy",
       });
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "recovered_transient_error" });
+    } finally {
+      delete process.env.FAKE_AGY_RESULT_ERROR;
+      delete process.env.FAKE_AGY_RESULT_RESPONSE;
+    }
+  });
+
+  it("shows only the reply when a retried stream timeout comes with a real response", async () => {
+    process.env.FAKE_AGY_RESULT_ERROR = AGY_RETRIED_TIMEOUT;
+    process.env.FAKE_AGY_RESULT_RESPONSE = "done from fake agy";
+    try {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-agy-retried-timeout", text: "hi" });
+      await recorder.until((event) => event.type === "turn.completed");
+
+      expect(recorder.events.some((event) => event.type === "runtime.error")).toBe(false);
       expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "recovered_transient_error" });
     } finally {
       delete process.env.FAKE_AGY_RESULT_ERROR;

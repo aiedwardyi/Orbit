@@ -7,12 +7,13 @@
 // explicit rescan - or when WSL is already up; otherwise it is refused and
 // the engine reads as asleep until the user wakes it.
 import { AsyncLocalStorage } from "node:async_hooks";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { join } from "node:path";
 
 export type WslProbeReason = "turn" | "rescan" | "passive";
 
 const reasons = new AsyncLocalStorage<WslProbeReason>();
+const listings = new AsyncLocalStorage<boolean>();
 
 /** Every wsl.exe spawn under `fn` - probe, resolve, auth, turn - reads this. */
 export function withWslProbeReason<T>(reason: WslProbeReason, fn: () => T): T {
@@ -41,6 +42,20 @@ let gate = live;
 let runningAt = 0;
 let running = false;
 
+/** A registry refresh shares one asynchronous WSL listing across its probes. */
+export async function withWslProbeSnapshot<T>(fn: () => Promise<T>): Promise<T> {
+  if (gate.platform !== "win32" || gate.env.ORBIT_NO_WSL === "1") return fn();
+  const active = await new Promise<boolean>((resolve) => {
+    const exe = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "wsl.exe");
+    execFile(exe, ["--list", "--running", "--quiet"], { timeout: 3_000, windowsHide: true, encoding: "buffer" }, (error, out) => {
+      resolve(!error && out.toString("utf16le").trim().length > 0);
+    });
+  });
+  running = active;
+  runningAt = Date.now();
+  return listings.run(active, fn);
+}
+
 /** Test hook - the gate reads the real platform and the real wsl.exe otherwise. */
 export function setWslGateForTests(overrides: Partial<Gate> | null): void {
   gate = overrides ? { ...live, ...overrides } : live;
@@ -50,6 +65,8 @@ export function setWslGateForTests(overrides: Partial<Gate> | null): void {
 
 /** One listing per burst: a describe() asks once per WSL-backed instance. */
 function wslRunning(): boolean {
+  const snapshot = listings.getStore();
+  if (snapshot !== undefined) return snapshot;
   const now = Date.now();
   if (runningAt && now - runningAt < 3_000) return running;
   try {

@@ -60,7 +60,7 @@ function WorkerStatus({ state }: { state: WorkerShownState }) {
   );
 }
 
-function WorkerLine({ run, state }: ShownRun) {
+function WorkerLine({ run, state, nickFirst = false }: ShownRun & { nickFirst?: boolean }) {
   const { t } = useI18n();
   const effort = run.model && run.effort ? chipEffortLabel(run.effort, t) : "";
   const short = run.model && run.effort ? chipEffortShortLabel(run.effort, t) : "";
@@ -69,12 +69,18 @@ function WorkerLine({ run, state }: ShownRun) {
       <WorkerMark provider={run.provider} />
       <span className="flex min-w-0 flex-1 items-baseline gap-2">
         <span className="truncate font-medium text-ink">{run.nick}</span>
-        {run.model && (
+        {run.model && (nickFirst ? (
+          // Basis zero shrinks the model first and the cap, margin and pre keep the spaced dot beside it.
+          <>
+            <span className="min-w-0 max-w-max flex-1 -mr-2 truncate whitespace-nowrap text-ink-secondary">{run.model}</span>
+            {effort && <span className="shrink-0 whitespace-pre text-ink-secondary">{" · "}{short}</span>}
+          </>
+        ) : (
           <span className="shrink-0 whitespace-nowrap text-ink-secondary">
             {run.model}
             {effort && <> · {short === effort ? effort : (<><span className="max-md:hidden">{effort}</span><span className="md:hidden">{short}</span></>)}</>}
           </span>
-        )}
+        ))}
       </span>
       <WorkerStatus state={state} />
     </>
@@ -127,7 +133,7 @@ const FOCUSABLE =
 
 const ENTRY_CLASS = "flex w-full items-center gap-2.5 border-b border-hairline/40 py-2.5 text-left text-[13px] last:border-b-0";
 
-function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose, inset }: { runs: ShownRun[]; livePanes: Set<string> | null; onOpenTerminalPane?: (sessionId: string) => void; onClose: () => void; inset?: boolean }) {
+function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose, inset, nickFirst = false }: { runs: ShownRun[]; livePanes: Set<string> | null; onOpenTerminalPane?: (sessionId: string) => void; onClose: () => void; inset?: boolean; nickFirst?: boolean }) {
   const entry = cn(ENTRY_CLASS, inset && "px-3");
   return (
     <ul className="min-h-0 overflow-y-auto">
@@ -137,7 +143,7 @@ function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose, inset }: 
           return (
             <li key={shown.run.id}>
               <div className={entry}>
-                <WorkerLine {...shown} />
+                <WorkerLine {...shown} nickFirst={nickFirst} />
               </div>
             </li>
           );
@@ -152,7 +158,7 @@ function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose, inset }: 
               }}
               className={cn(entry, "hover:bg-raised/40")}
             >
-              <WorkerLine {...shown} />
+              <WorkerLine {...shown} nickFirst={nickFirst} />
             </button>
           </li>
         );
@@ -229,7 +235,7 @@ function WorkerList({ title, runs, livePanes, onClose, onOpenTerminalPane }: { t
             <X size={16} />
           </button>
         </div>
-        <WorkerEntries runs={runs} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} onClose={onClose} />
+        <WorkerEntries nickFirst runs={runs} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} onClose={onClose} />
       </div>
     </div>,
     document.body,
@@ -250,6 +256,7 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [right, setRight] = useState(0);
+  const [width, setWidth] = useState(440);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
@@ -273,10 +280,11 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
     const main = root.closest("main");
     const place = () => {
       // The menu hangs left of the chip; the chat column clips its edges.
-      const menuWidth = 300;
       const row = root.getBoundingClientRect();
       const bounds = main?.getBoundingClientRect();
       const [min, max] = bounds ? [bounds.left + 8, bounds.right - 8] : [8, window.innerWidth - 8];
+      const menuWidth = Math.min(440, max - min);
+      setWidth(menuWidth);
       setRight(row.right - Math.min(Math.max(row.right, min + menuWidth), max));
     };
     place();
@@ -359,12 +367,12 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
           data-worker-list
           role="dialog"
           aria-labelledby={titleId}
-          style={{ right }}
-          className="absolute top-full z-40 mt-1 w-[300px] overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50"
+          style={{ right, width }}
+          className="absolute top-full z-40 mt-1 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50"
         >
           <h2 id={titleId} className="px-3 py-2 text-[15px] font-semibold text-ink">{t("workers.title", { name })}</h2>
           <div className="max-h-[320px] overflow-y-auto">
-            <WorkerEntries inset runs={listed} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} onClose={close} />
+            <WorkerEntries inset nickFirst runs={listed} livePanes={livePanes} onOpenTerminalPane={onOpenTerminalPane} onClose={close} />
           </div>
         </div>
       )}

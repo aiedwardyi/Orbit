@@ -497,6 +497,24 @@ describe("terminal proxy", () => {
     expect(list[2]).toMatch(/B \| M \| H: sessionId s3 \(generation 2\), Claude: idle$/);
   });
 
+  it("adds each pane's context to the pane list, and nothing when its screen shows none", () => {
+    const text = terminalSnapshotText({
+      sessionId: "s1",
+      generation: 1,
+      panes: [
+        { sessionId: "s1", generation: 1, label: null, main: true },
+        { sessionId: "s2", generation: 1, label: "A | M | H", context: { tokens: 213_000, left: 17 } },
+        { sessionId: "s3", generation: 2, label: "B | M | H", context: { left: 45 } },
+        { sessionId: "s4", generation: 1, label: "C | M | H", exited: true },
+      ],
+    });
+    const list = text.split("Panes:\n")[1].split("\n");
+    expect(list[0]).toBe("- main: sessionId s1 (generation 1), main");
+    expect(list[1]).toBe("- A | M | H: sessionId s2 (generation 1) · context 213k");
+    expect(list[2]).toBe("- B | M | H: sessionId s3 (generation 2) · context 45% left");
+    expect(list[3]).toBe("- C | M | H: sessionId s4 (generation 1), exited");
+  });
+
   const IDLE_GT = [
     "✻ Worked for 54m 33s · done 12:11 AM",
     "────────────────────────────────────────────────────────",
