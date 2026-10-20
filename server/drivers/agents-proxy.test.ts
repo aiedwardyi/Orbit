@@ -158,9 +158,9 @@ beforeAll(async () => {
           return res.end(JSON.stringify({ messageId: "msg-custom", label: "Acme" }));
         }
         if (lastCredentialBody.credentialId === "openaiImageApiKey") {
-          return res.end(JSON.stringify({ alreadyConfigured: true, label: "OpenAI API key" }));
+          return res.end(JSON.stringify({ alreadyConfigured: true, label: "OpenAI API Key" }));
         }
-        res.end(JSON.stringify({ messageId: "msg-key", label: "Gemini API key" }));
+        res.end(JSON.stringify({ messageId: "msg-key", label: "Gemini API Key" }));
       });
       return;
     }
@@ -334,11 +334,13 @@ describe("agents-proxy MCP surface", () => {
   it("sets keep going through the harness and passes its refusal back", async () => {
     const list = await rpc("tools/list");
     const tool = list.result.tools.find((t: { name: string }) => t.name === "set_keep_going");
-    expect(tool.description).toContain("keep going, work on your own, or be agentic");
+    expect(tool.description).toContain("keep going, work on your own, be agentic, or agentic mode");
+    expect(tool.description).toContain("Agentic Mode");
     expect(tool.inputSchema.required).toEqual(["on"]);
     keepGoingResponse = { status: 200, body: { ok: true } };
     const on = await callTool("set_keep_going", { on: true });
     expect(on.result.isError).toBe(false);
+    expect(on.result.content[0].text).toContain("Agentic Mode is on");
     expect(lastKeepGoingBody).toEqual({ fromBotId: "bot-asker", fromThreadId: "thread-asker-routine", on: true });
     keepGoingResponse = { status: 403, body: { error: "only a turn the user started can turn keep going on" } };
     const refused = await callTool("set_keep_going", { on: true });
@@ -443,7 +445,7 @@ describe("agents-proxy MCP surface", () => {
 
   it("points a configured image key at generate_image", async () => {
     const res = await callTool("request_credential", { credential_id: "openaiImageApiKey" });
-    expect(res.result.content[0].text).toBe("OpenAI API key is already configured. Use generate_image.");
+    expect(res.result.content[0].text).toBe("OpenAI API Key is already configured. Use generate_image.");
   });
 
   it("forwards durable task progress with source ownership", async () => {
@@ -761,7 +763,7 @@ describe("agents-proxy MCP surface", () => {
       credential_id: "geminiApiKey",
       reason: "The selected model needs it.",
     });
-    expect(res.result.content[0].text).toContain("secure Gemini API key card");
+    expect(res.result.content[0].text).toContain("secure Gemini API Key card");
     expect(res.result.content[0].text).toContain("End this turn");
     expect(lastCredentialBody).toEqual({
       fromBotId: "bot-asker",

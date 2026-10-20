@@ -111,35 +111,35 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toContain("Profile");
     expect(html).not.toContain("Skin");
     expect(html).not.toContain("Applies instantly and is remembered");
-    expect(html).not.toContain("Work steps");
-    expect(html).not.toContain("Longer replies");
-    expect(html).not.toContain("Terminal alerts");
+    expect(html).not.toContain("Work Steps");
+    expect(html).not.toContain("Longer Replies");
+    expect(html).not.toContain("Terminal Alerts");
     expect(html).toContain('aria-expanded="false"');
     expect(html).not.toContain("data-settings-preferences");
     expect(html).toContain(">Auto<");
     expect(html).not.toContain("Uses English or Korean from the operating system.");
     expect(html).not.toContain("aria-describedby");
-    expect(html).toContain("Reply style");
+    expect(html).toContain("Reply Style");
     expect(html).toContain("English");
     expect(html).toContain("한국어");
     expect(html).not.toContain("Your name");
     expect(html).not.toContain("you@example.com");
     expect(html).not.toContain("Usage analytics");
     expect(html).not.toContain("Save name and email");
-    expect(html).not.toContain("Save name");
+    expect(html).not.toContain("Save Name");
     expect(html).toContain("Advanced");
     expect(html).not.toContain("data-settings-advanced");
-    expect(html).not.toContain('aria-label="Search settings"');
+    expect(html).not.toContain('aria-label="Search Settings"');
     expect(html).not.toMatch(/>Channel turns</);
     expect(html).not.toContain("Set one maximum duration");
-    expect(html).not.toContain("Maximum turn length");
+    expect(html).not.toContain("Maximum Turn Length");
     expect(html).not.toMatch(/>Experimental features</);
-    expect(html).not.toContain("Teach a skill");
+    expect(html).not.toContain("Teach a Skill");
     expect(html).not.toMatch(/>Diagnostics</);
     expect(html).not.toContain("Export Diagnostics");
-    expect(html).not.toContain("Show Local VM setup");
+    expect(html).not.toContain("Show Local VM Setup");
     expect(html).not.toContain("Cua Linux");
-    expect(html).not.toContain("Hide Local VM setup");
+    expect(html).not.toContain("Hide Local VM Setup");
     expect(html).not.toMatch(/>Local VM</);
     expect(html).not.toMatch(/>Phone</);
     expect(html).not.toContain("OpenMausBot");
@@ -247,7 +247,7 @@ describe("SettingsModal friends chrome", () => {
     const html = markup("general");
     const nav = html.slice(html.indexOf("<nav"), html.indexOf("</nav>"));
     expect([...nav.matchAll(/<button[^>]*aria-label="([^"]+)"/g)].map((match) => match[1])).toEqual([
-      "Account", "General", "Connections", "Themes", "Usage", "Model index", "Shortcuts",
+      "Account", "General", "Connections", "Themes", "Usage", "Model Index", "Shortcuts",
     ]);
   });
 
@@ -289,7 +289,7 @@ describe("SettingsModal friends chrome", () => {
   });
 
   it("flips Terminal alerts inside Advanced, off by default", () => {
-    const popupsSwitch = /<button role="switch" aria-checked="(true|false)" aria-label="Terminal alerts"/;
+    const popupsSwitch = /<button role="switch" aria-checked="(true|false)" aria-label="Terminal Alerts"/;
     expect(markup("general", true)).toContain("Notifications");
     expect(markup("general", true).match(popupsSwitch)?.[1]).toBe("false");
     saveTerminalPopups(true);
@@ -299,15 +299,15 @@ describe("SettingsModal friends chrome", () => {
   });
 
   it("picks the chat box ring from Off, Rainbow and Theme colors on Themes, off by default", () => {
-    expect(markup("general")).not.toContain('aria-label="Chat box"');
+    expect(markup("general")).not.toContain('aria-label="Chat Box"');
     const checked = () => [...markup("themes").matchAll(/<button type="button" role="radio" aria-checked="true"[^>]*>([^<]+)</g)].map((m) => m[1]);
-    const group = markup("themes").match(/<div role="radiogroup" aria-label="Chat box"[^>]*>(.*?)<\/div>/)?.[1] ?? "";
-    expect([...group.matchAll(/role="radio"[^>]*>([^<]+)</g)].map((m) => m[1])).toEqual(["Off", "Rainbow", "Theme colors"]);
+    const group = markup("themes").match(/<div role="radiogroup" aria-label="Chat Box"[^>]*>(.*?)<\/div>/)?.[1] ?? "";
+    expect([...group.matchAll(/role="radio"[^>]*>([^<]+)</g)].map((m) => m[1])).toEqual(["Off", "Rainbow", "Theme Colors"]);
     expect(checked()).toContain("Off");
     saveRainbowBox("rainbow");
     expect(checked()).toContain("Rainbow");
     saveRainbowBox("theme");
-    expect(checked()).toContain("Theme colors");
+    expect(checked()).toContain("Theme Colors");
     saveRainbowBox("off");
     expect(checked()).toContain("Off");
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
@@ -321,7 +321,7 @@ describe("SettingsModal friends chrome", () => {
     expect(html).not.toMatch(/>Channel turns</);
     expect(html).not.toContain("Set one maximum duration");
     expect(html).not.toMatch(/>Experimental features</);
-    expect(html).not.toContain("Teach a skill");
+    expect(html).not.toContain("Teach a Skill");
     expect(html).not.toMatch(/>Diagnostics</);
     expect(html).not.toContain("Export Diagnostics");
     expect(html).not.toMatch(/>Local VM</);
@@ -330,25 +330,25 @@ describe("SettingsModal friends chrome", () => {
 
   it("keeps Connections quiet without Gemini key or zoo services", () => {
     const html = markup("connections");
-    expect(html).not.toContain("Gemini API key");
+    expect(html).not.toContain("Gemini API Key");
     expect(html).not.toContain("Wink detects installed");
     expect(html).not.toContain("OpenCode API key");
-    expect(html).not.toContain("More services");
+    expect(html).not.toContain("More Services");
     expect(html).not.toContain("data-settings-more-services");
-    expect(html).not.toContain("Box API key");
+    expect(html).not.toContain("Box API Key");
     expect(html).not.toContain("AssemblyAI");
-    expect(html).not.toContain("Self-hosted VPS");
-    expect(html).not.toContain("Composio project key");
-    expect(html).not.toContain("Self-host connected apps");
+    expect(html).not.toContain("Self-Hosted VPS");
+    expect(html).not.toContain("Composio Project Key");
+    expect(html).not.toContain("Self-Host Connected Apps");
     expect(html).not.toContain("OpenMausBot");
     expect(html).not.toMatch(/>Engines</);
   });
 
   it("opens Engines as the unified Connections page", () => {
     const html = markup("engines");
-    expect(html).not.toContain("Gemini API key");
+    expect(html).not.toContain("Gemini API Key");
     expect(html).not.toContain("OpenCode API key");
-    expect(html).not.toContain("More services");
+    expect(html).not.toContain("More Services");
     expect(html).not.toMatch(/>Engines</);
   });
 
@@ -527,12 +527,12 @@ describe("updates card on the phone remote view", () => {
     const html = markup("general");
     expect(html).toContain("Restarting to update");
     expect(html).toContain("v1.0.52");
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Check for updates/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Check for Updates/);
   });
 
   it("stays hidden when the desktop updater is unavailable", () => {
     Object.defineProperty(window, "ogb", { value: undefined, configurable: true, writable: true });
     mock.updaterState = null;
-    expect(markup("general")).not.toContain("Check for updates");
+    expect(markup("general")).not.toContain("Check for Updates");
   });
 });

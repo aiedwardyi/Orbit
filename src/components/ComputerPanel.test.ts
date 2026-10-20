@@ -141,7 +141,7 @@ describe("ComputerPanel friends chrome", () => {
     expect(html).not.toContain("Pick where this bot");
     expect(html).not.toContain("computer lives");
     expect(html).not.toContain("Cua-controlled");
-    expect(html).not.toContain("Cloud backend");
+    expect(html).not.toContain("Cloud Backend");
     expect(html).not.toContain("Start VPS automatically");
     expect(html).not.toContain("Local VM");
     expect(html).not.toContain("Add a Box API key");
@@ -160,7 +160,7 @@ describe("ComputerPanel friends chrome", () => {
     expect(html).toContain("Pick where this bot");
     expect(html).toContain("computer lives");
     expect(html).toContain("Cua-controlled");
-    expect(html).toContain("Cloud backend");
+    expect(html).toContain("Cloud Backend");
     expect(html).toContain("Local VM");
     expect(html).toContain("This computer");
     expect(html).toContain("Scheduled tasks");
@@ -172,7 +172,7 @@ describe("ComputerPanel friends chrome", () => {
     expect(html).toContain("data-computer-host");
     expect(html).not.toContain("Pick where this bot");
     expect(html).not.toContain("computer lives");
-    expect(html).not.toContain("Cloud backend");
+    expect(html).not.toContain("Cloud Backend");
   });
 
   it("keeps Cloud, Box, backend, and schedules inside the folded advanced body", () => {

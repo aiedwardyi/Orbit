@@ -166,7 +166,7 @@ describe("SettingsPanel friends effort", () => {
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(SettingsPanel, { bot, defaultAdvancedOpen: true })),
     );
-    const fromLabel = html.slice(html.indexOf('aria-label="Ask me before contacting other bots"'));
+    const fromLabel = html.slice(html.indexOf('aria-label="Ask Me Before Contacting Other Bots"'));
     const buttonTag = fromLabel.slice(0, fromLabel.indexOf(">"));
 
     expect(buttonTag).not.toContain("disabled");
@@ -180,7 +180,7 @@ describe("SettingsPanel friends effort", () => {
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(SettingsPanel, { bot, defaultAdvancedOpen: true })),
     );
-    expect(html).not.toContain("Give this bot a built-in browser");
+    expect(html).not.toContain("Give This Bot a Built-in Browser");
   });
 });
 
@@ -216,14 +216,14 @@ describe("SettingsPanel Korean bot details", () => {
     expect(html).toContain(">터미널을 대화와 공유<");
     expect(html).toContain("aria-label=\"터미널을 대화와 공유\"");
     expect(html).not.toContain(">Notifications<");
-    expect(html).not.toContain("Share terminal with chat");
-    expect(html).not.toContain("Bot notifications");
+    expect(html).not.toContain("Share Terminal with Chat");
+    expect(html).not.toContain("Bot Notifications");
     expect(html).not.toContain(">연결 앱<");
     expect(html).not.toContain("Allow this bot to use connected apps");
     expect(html).not.toContain("Stays on the active engine by default");
     expect(html).not.toContain(">Bot details<");
-    expect(html).not.toContain("Collapse bot details");
-    expect(html).not.toContain("Close bot details");
+    expect(html).not.toContain("Collapse Bot Details");
+    expect(html).not.toContain("Close Bot Details");
     expect(html).not.toMatch(/>Connected apps</);
   });
 });
@@ -244,8 +244,8 @@ describe("SettingsPanel lean startup", () => {
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })),
     );
-    expect(html).toContain("Load skills &amp; plugins");
-    expect(html).toContain('aria-label="Load skills &amp; plugins"');
+    expect(html).toContain("Load Skills &amp; Plugins");
+    expect(html).toContain('aria-label="Load Skills &amp; Plugins"');
     expect(html).toContain('aria-checked="true"');
     expect(html).not.toContain("Lean startup");
     expect(html).not.toContain("project settings only");
@@ -262,7 +262,7 @@ describe("SettingsPanel lean startup", () => {
         createElement(SettingsPanel, { bot: { ...claudeBot, leanStartup: true } as Bot }),
       ),
     );
-    const labelAt = html.indexOf('aria-label="Load skills');
+    const labelAt = html.indexOf('aria-label="Load Skills');
     const buttonStart = html.lastIndexOf("<button", labelAt);
     const buttonTag = html.slice(buttonStart, html.indexOf(">", labelAt));
     expect(buttonTag).toContain('aria-checked="false"');
@@ -271,7 +271,7 @@ describe("SettingsPanel lean startup", () => {
 
 describe("SettingsPanel share terminal switch", () => {
   const terminalButtonTag = (html: string) => {
-    const labelAt = html.indexOf('aria-label="Share terminal with chat"');
+    const labelAt = html.indexOf('aria-label="Share Terminal with Chat"');
     return html.slice(html.lastIndexOf("<button", labelAt), html.indexOf(">", labelAt));
   };
 

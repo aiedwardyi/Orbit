@@ -1644,7 +1644,7 @@ describe("Store redacts bot-authored secrets on write", () => {
       kind: "secret",
       secret: {
         target: "xaiApiKey",
-        label: "xAI API key",
+        label: "xAI API Key",
         description: `The agent accidentally included ${key}`,
         placeholder: "xai-…",
         helpUrl: "https://console.x.ai/",

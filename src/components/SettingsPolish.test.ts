@@ -154,7 +154,7 @@ describe("Settings Polish", () => {
       (b) => b.textContent?.trim() === "Refresh",
     )).toHaveLength(0);
     const refreshButton = [...host.querySelectorAll("button")].find(
-      (b) => b.getAttribute("aria-label") === "Refresh all",
+      (b) => b.getAttribute("aria-label") === "Refresh All",
     );
     expect(refreshButton).toBeDefined();
     expect(refreshButton?.className).toContain("border border-hairline/40");
@@ -172,7 +172,7 @@ describe("Settings Polish", () => {
       });
 
       const refreshAllButton = [...host.querySelectorAll("button")].find(
-        (b) => b.getAttribute("aria-label") === "Refresh all",
+        (b) => b.getAttribute("aria-label") === "Refresh All",
       );
       expect(refreshAllButton).toBeDefined();
       await act(async () => {
@@ -208,7 +208,7 @@ describe("Settings Polish", () => {
       });
 
       const refreshAllButton = [...host.querySelectorAll("button")].find(
-        (b) => b.getAttribute("aria-label") === "Refresh all",
+        (b) => b.getAttribute("aria-label") === "Refresh All",
       );
       expect(refreshAllButton).toBeDefined();
 
@@ -236,7 +236,7 @@ describe("Settings Polish", () => {
       });
 
       expect([...host.querySelectorAll("button")].find(
-        (b) => b.getAttribute("aria-label") === "Refresh all",
+        (b) => b.getAttribute("aria-label") === "Refresh All",
       )).toBeDefined();
     } finally {
       mockState.instances = previousInstances;
@@ -251,7 +251,7 @@ describe("Settings Polish", () => {
     mockApi.mockClear();
     try {
       await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal, { defaultAdvancedOpen: true }))));
-      const toggle = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Longer replies"]');
+      const toggle = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Longer Replies"]');
       expect(toggle?.getAttribute("aria-checked")).toBe("false");
       await act(async () => toggle?.click());
       expect(mockApi).toHaveBeenCalledWith("/api/config", {
@@ -266,7 +266,7 @@ describe("Settings Polish", () => {
     mockState.appSettingsSection = "general";
     localStorage.removeItem("omb-reply-style");
     await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal))));
-    const choice = host.querySelector('[role="radiogroup"][aria-label="Reply style"] [role="radio"][aria-checked="true"]');
+    const choice = host.querySelector('[role="radiogroup"][aria-label="Reply Style"] [role="radio"][aria-checked="true"]');
     expect(choice?.textContent).toBe("Paragraphs");
   });
 
@@ -275,14 +275,14 @@ describe("Settings Polish", () => {
     localStorage.removeItem("omb-reply-style");
     mockApi.mockClear();
     await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal))));
-    const live = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) => button.textContent === "Live typing");
+    const live = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) => button.textContent === "Live Typing");
     mockApi.mockClear();
     await act(async () => live?.click());
     expect(localStorage.getItem("omb-reply-style")).toBe("live");
     expect(mockApi).not.toHaveBeenCalled();
     await act(async () => root.render(null));
     await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal))));
-    expect(host.querySelector('[role="radiogroup"][aria-label="Reply style"] [aria-checked="true"]')?.textContent).toBe("Live typing");
+    expect(host.querySelector('[role="radiogroup"][aria-label="Reply Style"] [aria-checked="true"]')?.textContent).toBe("Live Typing");
     localStorage.removeItem("omb-reply-style");
   });
 

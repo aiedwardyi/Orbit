@@ -61,7 +61,7 @@ async function renderProfile() {
   });
   const name = host.querySelector<HTMLInputElement>("#settings-profile-name");
   const email = host.querySelector<HTMLInputElement>("#settings-profile-email");
-  const save = host.querySelector<HTMLButtonElement>('button[aria-label="Save name"]');
+  const save = host.querySelector<HTMLButtonElement>('button[aria-label="Save Name"]');
   expect(name).toBeTruthy();
   expect(email).toBeNull();
   expect(save).toBeTruthy();

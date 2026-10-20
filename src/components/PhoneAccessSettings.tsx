@@ -226,7 +226,7 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
           setError(null);
         }}
         aria-label={t("settings.phoneAccess.setup.code")}
-        placeholder={t("settings.phoneAccess.setup.code")}
+        placeholder={locale === "en" ? "Setup code" : t("settings.phoneAccess.setup.code")}
         autoComplete="off"
         spellCheck={false}
         className="min-w-0 flex-1 rounded-lg border border-hairline bg-inset px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-accent"
@@ -327,7 +327,7 @@ export function PhoneAccessSettings({ request = api }: { request?: typeof api })
                 setError(null);
               }}
               aria-label={t("settings.phoneAccess.setup.code")}
-              placeholder={t("settings.phoneAccess.setup.code")}
+              placeholder={locale === "en" ? "Setup code" : t("settings.phoneAccess.setup.code")}
               autoComplete="off"
               spellCheck={false}
               className="min-w-0 flex-1 rounded-lg border border-hairline bg-inset px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-accent"

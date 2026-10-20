@@ -25,12 +25,12 @@ describe("SavedKeys", () => {
   it("lists only saved brokerable keys, never a value", () => {
     mockState.config = { imageGen: { configured: true }, xai: { configured: false }, box: { configured: true }, anthropic: { configured: true } };
     const html = render();
-    expect(html).toContain("OpenAI API key");
-    expect(html).toContain("Claude API key");
+    expect(html).toContain("OpenAI API Key");
+    expect(html).toContain("Claude API Key");
     expect(html).toContain("Not used yet");
-    expect(html).toContain('aria-label="Remove the saved key"');
-    expect(html).not.toContain("xAI API key");
-    expect(html).not.toContain("Box API key");
+    expect(html).toContain('aria-label="Remove the Saved Key"');
+    expect(html).not.toContain("xAI API Key");
+    expect(html).not.toContain("Box API Key");
     expect(html).not.toContain("type=\"password\"");
   });
 

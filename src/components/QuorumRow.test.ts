@@ -110,8 +110,8 @@ describe("quorum row", () => {
     expect(card?.querySelector("a")?.textContent).toBe("Quorum");
     expect(card?.querySelector("a")?.getAttribute("href")).toBe("https://heyquorum.com");
     expect(bigNumbers()).toEqual(["$2.33", "21", "4"]);
-    expect(labels()).toEqual(["spent", "visits", "sign-ups"]);
-    expect(host.textContent).toBe("Quorum$2.33spent21visits4sign-ups");
+    expect(labels()).toEqual(["Spent", "Visits", "Sign-Ups"]);
+    expect(host.textContent).toBe("Quorum$2.33Spent21Visits4Sign-Ups");
     expect([0, 1, 2].map((cell) => bars(cell).length)).toEqual([7, 7, 0]);
   });
 
@@ -166,11 +166,11 @@ describe("quorum row", () => {
       const cap = host.querySelector(".text-warning, .text-danger");
       if (text === null) {
         expect(cap).toBeNull();
-        expect(labels()[0]).toBe("spent");
+        expect(labels()[0]).toBe("Spent");
       } else {
         expect(cap?.textContent).toBe(text);
         expect(cap?.className).toBe(color);
-        expect(labels()[0]).toBe(`spent${text}`);
+        expect(labels()[0]).toBe(`Spent${text}`);
       }
       await act(async () => root.unmount());
     }

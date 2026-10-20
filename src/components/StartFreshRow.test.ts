@@ -36,7 +36,7 @@ it("cancel does nothing and repeated confirm calls reset only once", async () =>
     const field = document.querySelector('[role="dialog"] input');
     if (!(field instanceof HTMLInputElement)) throw new Error("missing confirm field");
     await act(async () => typeReset(field, "RESET"));
-    const confirm = buttons().find((button) => button.textContent === "Start fresh")!;
+    const confirm = buttons().find((button) => button.textContent === "Start Fresh")!;
     await act(async () => { click(confirm); click(confirm); });
     expect(startFresh).toHaveBeenCalledTimes(1);
   } finally {
@@ -73,7 +73,7 @@ it("stays disabled until the typed word matches, then Enter confirms and Escape 
   document.body.append(host);
   const root = createRoot(host);
   const click = (button: Element) => button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  const confirmButton = () => [...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent === "Start fresh");
+  const confirmButton = () => [...document.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent === "Start Fresh");
   try {
     await act(async () => root.render(createElement(I18nProvider, null, createElement(StartFreshRow))));
     await act(async () => click(host.querySelector("button")!));

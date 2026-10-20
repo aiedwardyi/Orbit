@@ -14,9 +14,9 @@ describe("KeyboardShortcuts", () => {
   });
 
   it.each([
-    ["en", "Win32", "Ctrl", "Queue message", "Hold Send on phone"],
+    ["en", "Win32", "Ctrl", "Queue Message", "Hold Send on Phone"],
     ["ko", "Win32", "Ctrl", "답변 후 보내기", "휴대폰에서 보내기 길게 누르기"],
-    ["en", "MacIntel", "Cmd", "Queue message", "Hold Send on phone"],
+    ["en", "MacIntel", "Cmd", "Queue Message", "Hold Send on Phone"],
     ["ko", "MacIntel", "Cmd", "답변 후 보내기", "휴대폰에서 보내기 길게 누르기"],
   ] as const)("lists queueing in one row, with no plain Enter row, in %s on %s", (locale, platform, mod, label, hold) => {
     persistPreference(locale);
@@ -31,12 +31,12 @@ describe("KeyboardShortcuts", () => {
     expect(rows.some((row) => row.querySelector("dd")?.getAttribute("aria-label") === "Enter")).toBe(false);
   });
 
-  it("lists Toggle Model index once with Alt+I only", () => {
+  it("lists Toggle Model Index once with Alt+I only", () => {
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(KeyboardShortcuts)),
     );
 
-    expect(html.match(/>Toggle Model index</g)).toHaveLength(1);
+    expect(html.match(/>Toggle Model Index</g)).toHaveLength(1);
     expect(html).toContain('aria-label="Alt + I"');
     expect(html).not.toContain("Shift + M");
   });
@@ -48,8 +48,8 @@ describe("KeyboardShortcuts", () => {
       const html = renderToStaticMarkup(
         createElement(I18nProvider, null, createElement(KeyboardShortcuts)),
       );
-      expect(html).toContain(">Cycle Model index tab<");
-      expect(html).toContain(">Toggle terminal<");
+      expect(html).toContain(">Cycle Model Index Tab<");
+      expect(html).toContain(">Toggle Terminal<");
 
       persistPreference("ko");
       const ko = renderToStaticMarkup(
@@ -66,7 +66,7 @@ describe("KeyboardShortcuts", () => {
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(KeyboardShortcuts)),
     );
-    expect(html).toContain(">Toggle terminal<");
+    expect(html).toContain(">Toggle Terminal<");
     expect(html).toContain("`");
   });
 

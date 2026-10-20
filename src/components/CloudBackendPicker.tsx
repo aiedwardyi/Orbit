@@ -16,7 +16,7 @@ export function CloudBackendPicker({
 }) {
   return (
     <div className="mt-3 rounded-lg bg-inset p-3">
-      <div className="text-[12px] font-medium text-ink">Cloud backend</div>
+      <div className="text-[12px] font-medium text-ink">Cloud Backend</div>
       <div className="mt-2 flex overflow-hidden rounded-lg border border-hairline/40">
         {(["box", "vps"] as const).map((backend, i) => {
           const disabled = backend === "vps" && !vpsSupported;
@@ -33,7 +33,7 @@ export function CloudBackendPicker({
                 value === backend ? "bg-raised text-ink" : "text-ink-secondary hover:bg-raised/60 hover:text-ink",
               )}
             >
-              {backend === "vps" ? "Self-hosted VPS" : "Box"}
+              {backend === "vps" ? "Self-Hosted VPS" : "Box"}
             </button>
           );
         })}

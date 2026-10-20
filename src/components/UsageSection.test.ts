@@ -129,7 +129,7 @@ describe("UsageSection friends plan card", () => {
 
   it("shows the featured engines in picker order and hides the per-bot table", () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-    expect(html).toContain("Plan usage");
+    expect(html).toContain("Plan Usage");
     expect(html).toContain("flex flex-col gap-5");
     expect(html).toContain("Grok");
     expect(html).toContain("Claude");
@@ -166,7 +166,7 @@ describe("UsageSection friends plan card", () => {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       const group = host.querySelector('[role="group"]');
-      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh All");
       expect(group).not.toBeNull();
       expect(refreshAll).toBeDefined();
       const row = group?.parentElement;
@@ -285,7 +285,7 @@ describe("UsageSection friends plan card", () => {
     try {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh All");
       expect(refreshAll).toBeDefined();
       expect(refreshAll?.getAttribute("aria-keyshortcuts")).toBe("Alt+R");
       await act(async () => {
@@ -318,7 +318,7 @@ describe("UsageSection friends plan card", () => {
     try {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
-      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh All");
       expect(refreshAll).toBeDefined();
       await act(async () => {
         refreshAll?.click();
@@ -396,7 +396,7 @@ describe("UsageSection friends plan card", () => {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       const refreshAll = () => [...host.querySelectorAll("button")].find((button) => (button.getAttribute("aria-label") ?? "").startsWith("Refresh"));
-      expect(refreshAll()?.getAttribute("aria-label")).toBe("Refresh all");
+      expect(refreshAll()?.getAttribute("aria-label")).toBe("Refresh All");
       await act(async () => {
         refreshAll()?.click();
         refreshAll()?.click();
@@ -407,7 +407,7 @@ describe("UsageSection friends plan card", () => {
       expect(refreshAll()?.getAttribute("aria-busy")).toBe("true");
       expect(refreshAll()?.querySelector(".animate-spin")).not.toBeNull();
       await act(async () => finish({ report: { windows: [{ id: "five_hour", usedPercent: 20 }], observedAt: new Date().toISOString() }, status: "fresh" }));
-      expect(refreshAll()?.getAttribute("aria-label")).toBe("Refresh all");
+      expect(refreshAll()?.getAttribute("aria-label")).toBe("Refresh All");
       expect(refreshAll()?.disabled).toBe(false);
     } finally {
       await act(async () => root.unmount());
@@ -430,7 +430,7 @@ describe("UsageSection friends plan card", () => {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       await act(async () => {
-        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")?.click();
+        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh All")?.click();
       });
       expect(host.textContent).toContain("Muse did not report limits. Showing the last good values.");
       expect(host.querySelector('[aria-label="5h: 78% remaining"]')).not.toBeNull();
@@ -495,7 +495,7 @@ describe("UsageSection friends plan card", () => {
     try {
       persistPreference("en");
       const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect((html.match(/aria-label="Refresh all"/g) ?? []).length).toBe(1);
+      expect((html.match(/aria-label="Refresh All"/g) ?? []).length).toBe(1);
       expect(html).not.toContain(">Refresh<");
       expect(html).toContain("lucide-refresh-cw");
       expect(html).toContain("rounded-full");
@@ -856,7 +856,7 @@ describe("UsageSection friends plan card", () => {
       mockApi.mockClear();
       deferred.clear();
       expect([...host.querySelectorAll("button")].filter((button) => button.textContent === "Refresh")).toHaveLength(0);
-      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all");
+      const refreshAll = [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh All");
       expect(refreshAll).toBeDefined();
       await act(async () => {
         refreshAll?.click();
@@ -877,7 +877,7 @@ describe("UsageSection friends plan card", () => {
         deferred.get("grok")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         deferred.get("muse")?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
       });
-      expect([...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")).toBeDefined();
+      expect([...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh All")).toBeDefined();
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -916,7 +916,7 @@ describe("UsageSection friends plan card", () => {
           deferred.get(name)?.({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
         }
       });
-      expect(host.querySelector('button[aria-label="Refresh all"]')).not.toBeNull();
+      expect(host.querySelector('button[aria-label="Refresh All"]')).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();
@@ -944,7 +944,7 @@ describe("UsageSection friends plan card", () => {
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       expect(host.textContent).not.toContain("Updated just now");
       await act(async () => {
-        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")?.click();
+        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh All")?.click();
       });
       // no confirmation while the run is still busy
       expect(host.textContent).not.toContain("Updated just now");
@@ -955,7 +955,7 @@ describe("UsageSection friends plan card", () => {
       expect(status?.textContent).toContain("Updated just now");
       // the next run clears the note until it succeeds again
       await act(async () => {
-        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")?.click();
+        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh All")?.click();
       });
       expect(host.textContent).not.toContain("Updated just now");
       await finish();
@@ -979,7 +979,7 @@ describe("UsageSection friends plan card", () => {
       persistPreference("en");
       await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
       await act(async () => {
-        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")?.click();
+        [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh All")?.click();
       });
       expect(host.textContent).not.toContain("Updated just now");
       expect(host.textContent).toContain("stale");
@@ -1006,7 +1006,7 @@ describe("UsageSection friends plan card", () => {
       const enRoot = createRoot(enHost);
       await act(async () => enRoot.render(createElement(I18nProvider, null, createElement(UsageSection))));
       await act(async () => {
-        [...enHost.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh all")?.click();
+        [...enHost.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh All")?.click();
       });
       expect(enHost.textContent).toContain("Could not refresh Claude limits Showing the last good values.");
       expect(enHost.textContent).toContain("Could not refresh Codex limits No usage data yet.");

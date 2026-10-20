@@ -1152,7 +1152,7 @@ const wireTask = ({
   ...task
 }: TaskRecord) => ({ ...task, taskState: store.taskPacket(task.threadId) ?? undefined });
 
-const KEEP_GOING_PAUSED_LINE = "Keep going paused: two tries in a row made no progress on the approved steps";
+const KEEP_GOING_PAUSED_LINE = "Agentic Mode paused: two tries made no progress";
 // Declared before wireBot reads it; its callbacks only run on the routines timer.
 const keepGoing = new KeepGoing({
   deviceId: () => profileSyncSettings.deviceId,
