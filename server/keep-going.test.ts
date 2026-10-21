@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +12,7 @@ import {
   KEEP_GOING_RULES,
   KEEP_GOING_USAGE_FRESH_MS,
   KeepGoing,
+  keepGoingPrompt,
   keepGoingTurnOptions,
   type KeepGoingDeps,
   type KeepGoingSkip,
@@ -155,18 +156,20 @@ describe("KeepGoing dispatch", () => {
   });
 });
 
-describe("KeepGoing approval receipt", () => {
-  it("never counts a step the bot added after approval until the user approves again", async () => {
+describe("KeepGoing task approval", () => {
+  it("dispatches a step the bot added after approval", async () => {
     const h = harness();
     setPlan(h, [{ step: "Write tests", status: "pending" }]);
     h.keepGoing.enable("b1", "t1", h.state.packet);
-    setPlan(h, [{ step: "Write tests", status: "done" }, { step: "Push to main", status: "pending" }]);
-    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "no-approved-step" });
-    expect(h.dispatch).not.toHaveBeenCalled();
+    setPlan(h, [{ step: "Write tests", status: "done" }, { step: "Re-walk demo", status: "pending" }]);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Re-walk demo" });
+  });
 
-    h.keepGoing.disable("b1");
+  it("dispatches a reworded pending step", async () => {
+    const h = harness();
     h.keepGoing.enable("b1", "t1", h.state.packet);
-    await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Push to main" });
+    setPlan(h, [{ step: "Cover the scheduler with regressions", status: "pending" }, { step: "Build UI", status: "pending" }]);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Cover the scheduler with regressions" });
   });
 
   it("matches approved steps by normalized text", async () => {
@@ -177,12 +180,22 @@ describe("KeepGoing approval receipt", () => {
     await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "write tests" });
   });
 
-  it("does not approve steps that were already done or active", async () => {
+  it.each(["active", "done"] as const)("dispatches a formerly %s step returned to pending", async (status) => {
     const h = harness();
-    setPlan(h, [{ step: "Write tests", status: "active" }]);
+    setPlan(h, [{ step: "Write tests", status }]);
     h.keepGoing.enable("b1", "t1", h.state.packet);
     setPlan(h, [{ step: "Write tests", status: "pending" }]);
-    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "no-approved-step" });
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Write tests" });
+  });
+
+  it("asks for the first pending step that needs no user and turns off if none qualify", () => {
+    const prompt = keepGoingPrompt("User login");
+    expect(prompt).toContain("first pending step");
+    expect(prompt).toContain("without the user");
+    expect(prompt).toContain("set_keep_going(on: false)");
+    expect(prompt).toContain("one line");
+    expect(prompt).not.toContain("only this step");
+    expect(prompt).not.toContain("approved this plan step");
   });
 });
 
@@ -244,6 +257,69 @@ describe("KeepGoing failure pause", () => {
     await h.keepGoing.check("b1");
     const reloaded = new KeepGoing(h.deps);
     expect(reloaded.receipts("b1")).toEqual([expect.objectContaining({ step: "Write tests", outcome: "pending" })]);
+  });
+
+  const plan: Plan = [
+    { step: "Write tests", status: "pending" },
+    { step: "Completed check", status: "done" },
+    { step: "Ongoing check", status: "active" },
+    { step: "Duplicate", status: "done" },
+    { step: "Duplicate", status: "pending" },
+  ];
+  const changes: Array<[string, Plan]> = [
+    ["done returning to pending", plan.map((item, i) => i === 1 ? { ...item, status: "pending" } : item)],
+    ["an active item completing", plan.map((item, i) => i === 2 ? { ...item, status: "done" } : item)],
+    ["an added item", [...plan, { step: "Re-walk demo", status: "pending" }]],
+    ["a removed item", plan.filter((_, i) => i !== 1)],
+    ["a reworded item", plan.map((item, i) => i === 1 ? { ...item, step: "Checked setup" } : item)],
+    ["reordered items", [plan[0]!, plan[2]!, plan[1]!, ...plan.slice(3)]],
+    ["a duplicate added", [...plan, plan[0]!]],
+    ["a duplicate changing status", plan.map((item, i) => i === 4 ? { ...item, status: "done" } : item)],
+  ];
+
+  it.each(changes)("counts %s anywhere in the plan as progress", async (_name, next) => {
+    const h = harness();
+    setPlan(h, plan);
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    await h.keepGoing.check("b1");
+    setPlan(h, next);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Write tests" });
+    expect(h.keepGoing.receipts("b1")[0]!.outcome).toBe("progress");
+    expect(h.paused).not.toHaveBeenCalled();
+  });
+
+  it("does not count unrelated task metadata as plan progress", async () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    await h.keepGoing.check("b1");
+    h.state.packet!.nextAction = "Still writing tests";
+    await h.keepGoing.check("b1");
+    expect(h.keepGoing.receipts("b1")[0]!.outcome).toBe("no-progress");
+  });
+
+  it.each(["completed", "removed"])("grades plan progress when all pending items are %s", async (change) => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    await h.keepGoing.check("b1");
+    setPlan(h, change === "removed" ? [] : h.state.packet!.plan.map((item) => ({ ...item, status: "done" })));
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "no-approved-step" });
+    expect(h.keepGoing.receipts("b1")[0]!.outcome).toBe("progress");
+    expect(h.dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads old keep-going files with legacy receipts and no delay", async () => {
+    const h = harness();
+    writeFileSync(h.deps.file!, JSON.stringify({
+      v: 1, bots: { b1: {
+        on: true, ownerDeviceId: "pc-a", threadId: "t1", revision: 1,
+        steps: ["write tests", "build ui"], approvedAt: NOON_KST - 60_000,
+        receipts: [{ at: NOON_KST - 30_000, step: "Write tests", outcome: "pending", before: { "write tests": "pending", "build ui": "pending" } }],
+      } },
+    }));
+    const reloaded = new KeepGoing(h.deps);
+    expect(reloaded.view("b1")).toEqual({ paused: null });
+    await expect(reloaded.check("b1")).resolves.toEqual({ dispatched: "Write tests" });
+    expect(reloaded.receipts("b1")[0]!.outcome).toBe("no-progress");
   });
 });
 
@@ -353,15 +429,15 @@ describe("KeepGoing set_keep_going", () => {
     expect(h.keepGoing.view("b1")).toBeNull();
   });
 
-  it("snapshots the approval from a turn the user started", async () => {
+  it("approves the task from a turn the user started", async () => {
     const h = harness();
     h.keepGoing.turnStarted("b1", "t1", true);
     expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet)).toEqual({ ok: true });
     expect(h.keepGoing.view("b1")).toEqual({ paused: null });
-    setPlan(h, [{ step: "Write tests", status: "done" }, { step: "Build UI", status: "pending" }, { step: "Push to main", status: "pending" }]);
+    setPlan(h, [{ step: "Write tests", status: "done" }, { step: "Build UI", status: "pending" }, { step: "Re-walk demo", status: "pending" }]);
     await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Build UI" });
-    setPlan(h, [{ step: "Build UI", status: "done" }, { step: "Push to main", status: "pending" }]);
-    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "no-approved-step" });
+    setPlan(h, [{ step: "Build UI", status: "done" }, { step: "Re-walk demo", status: "pending" }]);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Re-walk demo" });
   });
 
   it("turns off from any turn", () => {
@@ -370,6 +446,129 @@ describe("KeepGoing set_keep_going", () => {
     h.keepGoing.turnStarted("b1", "t9", false);
     expect(h.keepGoing.fromTool("b1", "t9", false, null)).toEqual({ ok: true });
     expect(h.keepGoing.view("b1")).toBeNull();
+  });
+});
+
+describe("KeepGoing start_after", () => {
+  const startAfter = "2026-10-20T12:30:00+09:00";
+
+  it("delays from any turn while on, survives restart, then clears at dispatch time", async () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.keepGoing.turnStarted("b1", "t1", false);
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, startAfter)).toEqual({ ok: true });
+    expect(JSON.parse(readFileSync(h.deps.file!, "utf8")).bots.b1.startAfter).toBe(startAfter);
+    const reloaded = new KeepGoing(h.deps);
+    h.state.now = Date.parse(startAfter) - 1;
+    await expect(reloaded.check("b1")).resolves.toEqual({ skipped: "waiting" });
+    expect(h.livePanes).not.toHaveBeenCalled();
+    expect(h.dispatch).not.toHaveBeenCalled();
+    expect(reloaded.receipts("b1")).toEqual([]);
+    h.state.now++;
+    await expect(reloaded.check("b1")).resolves.toEqual({ dispatched: "Write tests" });
+    expect(JSON.parse(readFileSync(h.deps.file!, "utf8")).bots.b1).not.toHaveProperty("startAfter");
+  });
+
+  it.each([false, true])("never turns an off switch on with start_after (user turn %s)", async (byUser) => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.keepGoing.disable("b1");
+    h.keepGoing.turnStarted("b1", "t1", byUser);
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, startAfter)).toHaveProperty("error");
+    expect(h.keepGoing.view("b1")).toBeNull();
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "off" });
+  });
+
+  it("clears start_after when turned off", () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.keepGoing.turnStarted("b1", "t1", true);
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, startAfter)).toEqual({ ok: true });
+    expect(JSON.parse(readFileSync(h.deps.file!, "utf8")).bots.b1.startAfter).toBe(startAfter);
+    const reloaded = new KeepGoing(h.deps);
+    reloaded.fromTool("b1", "t1", false, null);
+    expect(JSON.parse(readFileSync(h.deps.file!, "utf8")).bots.b1).not.toHaveProperty("startAfter");
+    expect(reloaded.view("b1")).toBeNull();
+  });
+
+  it.each(["tomorrow", "2026-10-20T12:30:00", "2026-10-20T12:30+09:00", "2026-02-30T12:30:00+09:00", 123])("rejects invalid start_after %j without changing approval", (value) => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.keepGoing.turnStarted("b1", "t1", true);
+    const before = readFileSync(h.deps.file!, "utf8");
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, value)).toHaveProperty("error");
+    expect(readFileSync(h.deps.file!, "utf8")).toBe(before);
+  });
+
+  it.each(["not-owner", "task-changed"])("cannot change a delay after %s", (reason) => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.keepGoing.turnStarted("b1", "t1", true);
+    if (reason === "not-owner") h.state.deviceId = "pc-b";
+    else h.state.threadId = "t2";
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, startAfter)).toHaveProperty("error");
+  });
+
+  it("does not let another thread set a delay", () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.keepGoing.turnStarted("b1", "t2", true);
+    expect(h.keepGoing.fromTool("b1", "t2", true, h.state.packet, startAfter)).toHaveProperty("error");
+  });
+
+  it("keeps the bench gate after a delay expires", async () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.keepGoing.turnStarted("b1", "t1", true);
+    const after = "2026-10-21T04:00:00+09:00";
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, after)).toEqual({ ok: true });
+    h.state.now = Date.parse(after);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "bench" });
+    h.state.now = Date.parse("2026-10-21T05:00:00+09:00");
+    h.state.usage!.observedAt = new Date(h.state.now).toISOString();
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Write tests" });
+  });
+
+  it.each(["usage", "panes"])("invalidates a check awaiting %s when a delay is set", async (waiting) => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.keepGoing.turnStarted("b1", "t1", true);
+    let answer!: () => void;
+    if (waiting === "usage") h.deps.usage = () => new Promise((resolve) => { answer = () => resolve(h.state.usage); });
+    else h.livePanes.mockImplementationOnce(() => new Promise((resolve) => { answer = () => resolve(0); }));
+    const check = h.keepGoing.check("b1");
+    await vi.waitFor(() => expect(answer).toBeTypeOf("function"));
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, startAfter)).toEqual({ ok: true });
+    answer();
+    await expect(check).resolves.toEqual({ skipped: "off" });
+    expect(h.dispatch).not.toHaveBeenCalled();
+    h.deps.usage = async () => h.state.usage;
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "waiting" });
+  });
+
+  it("refuses a delay while paused after failed tries", async () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    await h.keepGoing.check("b1");
+    await h.keepGoing.check("b1");
+    h.state.now++;
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "paused" });
+    h.keepGoing.turnStarted("b1", "t1", true);
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, startAfter)).toEqual({ error: expect.stringContaining("paused") });
+    expect(JSON.parse(readFileSync(h.deps.file!, "utf8")).bots.b1).not.toHaveProperty("startAfter");
+    h.state.now = Date.parse(startAfter);
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "paused" });
+    expect(h.dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops the turn rules until the delay ends", () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    expect(h.keepGoing.fromTool("b1", "t1", true, h.state.packet, startAfter)).toEqual({ ok: true });
+    h.state.now = Date.parse(startAfter) - 1;
+    expect(h.keepGoing.rules("b1")).toBe("");
+    h.state.now++;
+    expect(h.keepGoing.rules("b1")).toBe(` ${KEEP_GOING_RULES}`);
   });
 });
 
@@ -506,6 +705,25 @@ describe("KeepGoing server wiring", () => {
   const usageStart = source.indexOf("  usage:", source.indexOf("const keepGoing = new KeepGoing("));
   const usage = source.slice(usageStart + "  usage: ".length, source.indexOf(",\n  livePanes:", usageStart));
   const readUsage = new Function("scope", `with (scope) { return (${usage})("b1"); }`);
+
+  it("passes start_after through the internal tool route without booting the server", async () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    const routeStart = source.indexOf('      if (method === "POST" && path === "/api/internal/keep-going") {');
+    const route = source.slice(routeStart, source.indexOf('\n      // The ask_user tool:', routeStart));
+    const handle = new Function("scope", `with (scope) { return (async () => { ${route} })(); }`);
+    const startAfter = "2026-10-20T12:30:00+09:00";
+    const json = vi.fn();
+    await handle({
+      method: "POST", path: "/api/internal/keep-going", req: {}, res: {},
+      readBody: async () => ({ fromBotId: "b1", fromThreadId: "t1", on: true, start_after: startAfter }),
+      store: { bot: () => ({ id: "b1", threadId: "t1" }) },
+      keepGoing: h.keepGoing, taskPacketForWrite: () => h.state.packet,
+      json, wireBot: vi.fn(), broadcast: vi.fn(),
+    });
+    expect(json).toHaveBeenCalledWith({}, 200, { ok: true });
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "waiting" });
+  });
 
   it("resumes paused wakes when Settings enables Keep going, including an off/on retry", async () => {
     const h = harness();

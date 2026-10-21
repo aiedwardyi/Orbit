@@ -7228,7 +7228,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!from) return json(res, 403, { error: "unknown sender" });
         if (typeof body.on !== "boolean") return json(res, 400, { error: "on must be true or false" });
         const fromThreadId = String(body.fromThreadId ?? "");
-        const result = keepGoing.fromTool(from.id, fromThreadId, body.on, body.on ? taskPacketForWrite(fromThreadId) : null);
+        const result = keepGoing.fromTool(from.id, fromThreadId, body.on, body.on ? taskPacketForWrite(fromThreadId) : null, body.start_after);
         if ("error" in result) return json(res, 403, result);
         broadcast({ kind: "bot", bot: wireBot(from) });
         return json(res, 200, result);
@@ -8463,7 +8463,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (typeof body.on !== "boolean") return json(res, 400, { error: "on must be true or false" });
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      // Turning it on is the user's approval of the plan's pending steps as they stand now.
+      // Approval stays with this thread's task as its plan changes.
       if (body.on) {
         resumePaneWakes(bot.id);
         keepGoing.enable(bot.id, bot.threadId, taskPacketForWrite(bot.threadId));

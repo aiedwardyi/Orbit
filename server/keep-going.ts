@@ -16,7 +16,7 @@ const BENCH_FROM = 3 * 60 + 45;
 const BENCH_TO = 5 * 60;
 const RECEIPTS_KEPT = 40;
 export const KEEP_GOING_RULES =
-  `Agentic Mode is on. Don't end a turn while an approved step waits and nothing is running: start it. No question cards or "want me to" offers: decide on merit and report what you did. Ask only for logins, deletes, money, or push/merge/release rules.`;
+  `Agentic Mode is on. Don't end a turn while this task has a pending step you can do and nothing is running: start it. No question cards or "want me to" offers: decide on merit and report what you did. Ask only for logins, deletes, money, or push/merge/release rules.`;
 
 export type KeepGoingSkip =
   | "off"
@@ -27,6 +27,7 @@ export type KeepGoingSkip =
   | "busy"
   | "queued"
   | "bench"
+  | "waiting"
   | "daily-cap"
   | "no-task-record"
   | "blockers"
@@ -41,14 +42,16 @@ export type KeepGoingSkip =
 export type KeepGoingResult = { dispatched: string } | { skipped: KeepGoingSkip };
 export type KeepGoingView = { paused: "no-progress" | "bot-paused" | "other-pc" | "task-changed" | "usage-unknown" | "usage-stale" | null } | null;
 
-type StepStatus = TaskResumePacket["plan"][number]["status"];
-
 const statusSchema = z.enum(["pending", "active", "done", "skipped"]);
+const startAfterSchema = z.iso.datetime({ offset: true }).regex(/T\d{2}:\d{2}:\d{2}/);
 const receiptSchema = z.object({
   at: z.number(),
   step: z.string(),
   outcome: z.enum(["pending", "progress", "no-progress", "failed"]),
-  before: z.record(z.string(), statusSchema),
+  before: z.union([
+    z.array(z.object({ step: z.string(), status: statusSchema })),
+    z.record(z.string(), statusSchema),
+  ]),
 });
 const entrySchema = z.object({
   on: z.boolean(),
@@ -57,6 +60,7 @@ const entrySchema = z.object({
   revision: z.number().int().nonnegative(),
   steps: z.array(z.string()),
   approvedAt: z.number(),
+  startAfter: startAfterSchema.optional(),
   paused: z.enum(["no-progress", "bot-paused", "usage-unknown", "usage-stale"]).optional(),
   receipts: z.array(receiptSchema),
 });
@@ -102,7 +106,7 @@ export function keepGoingTurnOptions(threadId: string): KeepGoingTurnOptions {
 }
 
 export function keepGoingPrompt(step: string): string {
-  return `[Agentic Mode] Nothing is running and the user approved this plan step: "${step}". Start it now, and only this step: mark it active, launch its worker if it needs one, then end the turn.`;
+  return `[Agentic Mode] Start the first pending step in this approved task you can do without the user (first pending: "${step}"); mark it active and launch a worker if needed. If none can be done without the user, call set_keep_going(on: false) and say why in one line.`;
 }
 
 function seoulParts(now: number): Record<string, string> {
@@ -136,27 +140,18 @@ export function usageSkip(report: RateLimitsReport | null, now: number): KeepGoi
   return report.windows.every((window) => 100 - window.usedPercent > KEEP_GOING_MIN_LEFT_PERCENT) ? null : "usage-low";
 }
 
-function approvedStatuses(packet: TaskResumePacket, steps: string[]): Map<string, StepStatus> {
-  const approved = new Set(steps);
-  const statuses = new Map<string, StepStatus>();
-  for (const item of packet.plan) {
-    const key = normalizeStep(item.step);
-    if (approved.has(key) && !statuses.has(key)) statuses.set(key, item.status);
-  }
-  return statuses;
-}
-
-function moved(packet: TaskResumePacket | null, steps: string[], before: Receipt["before"]): boolean {
+function moved(packet: TaskResumePacket | null, before: Receipt["before"]): boolean {
   if (!packet) return false;
-  for (const [key, status] of approvedStatuses(packet, steps)) {
-    if ((status === "active" || status === "done" || status === "skipped") && before[key] !== status) return true;
+  if (Array.isArray(before)) {
+    return packet.plan.length !== before.length || packet.plan.some((item, i) => item.step !== before[i]!.step || item.status !== before[i]!.status);
   }
-  return false;
+  const current = Object.fromEntries(packet.plan.map((item) => [normalizeStep(item.step), item.status]));
+  return Object.keys(current).length !== Object.keys(before).length || Object.entries(current).some(([step, status]) => before[step] !== status);
 }
 
 const isBusyRejection = (error: unknown) => (error as { code?: unknown } | null)?.code === "BOT_BUSY";
 
-/** Per-bot switch: every 30 minutes, with no model call, starts one approved plan step when nothing runs. */
+/** Per-bot switch: every 30 minutes, with no model call, starts a pending task step when nothing runs. */
 export class KeepGoing {
   private readonly deps: KeepGoingDeps;
   private readonly file: string;
@@ -179,7 +174,7 @@ export class KeepGoing {
     }
   }
 
-  /** The user's approval: only the plan's pending steps right now count. */
+  /** Approval stays with this thread's task as its plan changes. */
   enable(botId: string, threadId: string, packet: TaskResumePacket | null): void {
     const previous = this.bots[botId];
     const now = this.now();
@@ -203,6 +198,7 @@ export class KeepGoing {
     entry.on = false;
     entry.revision++;
     delete entry.paused;
+    delete entry.startAfter;
     this.lastCheck.delete(botId);
     this.save();
   }
@@ -210,6 +206,8 @@ export class KeepGoing {
   /** Turn instructions while the switch is on and unpaused. */
   rules(botId: string): string {
     const view = this.view(botId);
+    const startAfter = this.bots[botId]?.startAfter;
+    if (startAfter && this.now() < Date.parse(startAfter)) return "";
     return view && !view.paused ? ` ${KEEP_GOING_RULES}` : "";
   }
 
@@ -218,10 +216,21 @@ export class KeepGoing {
     else this.userTurns.delete(botId);
   }
 
-  /** The set_keep_going tool: on is the user's approval, so only a turn they typed may give it. */
-  fromTool(botId: string, threadId: string, on: boolean, packet: TaskResumePacket | null): { ok: true } | { error: string } {
+  /** Only a user-typed turn may approve; any turn may delay or turn off. */
+  fromTool(botId: string, threadId: string, on: boolean, packet: TaskResumePacket | null, startAfter?: unknown): { ok: true } | { error: string } {
     if (!on) this.disable(botId);
-    else if (this.userTurns.get(botId) !== threadId) return { error: "only a turn the user started with their own message can turn Agentic Mode on" };
+    else if (startAfter !== undefined) {
+      const parsed = startAfterSchema.safeParse(startAfter);
+      if (!parsed.success) return { error: "start_after must be RFC3339 with an offset" };
+      const entry = this.bots[botId];
+      if (!entry?.on) return { error: "start_after requires Agentic Mode to be on" };
+      if (entry.paused) return { error: "Agentic Mode is paused; the user must turn it off and on" };
+      if (entry.ownerDeviceId !== this.deps.deviceId()) return { error: "Agentic Mode belongs to another PC" };
+      if (entry.threadId !== threadId || this.deps.botThreadId(botId) !== threadId) return { error: "Agentic Mode task changed" };
+      entry.startAfter = parsed.data;
+      entry.revision++;
+      this.save();
+    } else if (this.userTurns.get(botId) !== threadId) return { error: "only a turn the user started with their own message can turn Agentic Mode on" };
     else this.enable(botId, threadId, packet);
     return { ok: true };
   }
@@ -273,7 +282,10 @@ export class KeepGoing {
 
   private async evaluate(botId: string): Promise<KeepGoingResult> {
     const first = this.gate(botId);
-    if ("skipped" in first) return this.skip(botId, first.skipped);
+    if ("skipped" in first) {
+      if (first.skipped === "no-approved-step") this.settle(botId, 0);
+      return this.skip(botId, first.skipped);
+    }
     const revision = this.bots[botId]!.revision;
     const report = await this.deps.usage(botId);
     // off or re-approved while usage refreshed
@@ -332,7 +344,12 @@ export class KeepGoing {
     if (this.deps.busy(botId, threadId)) return { skipped: "busy" };
     if (this.deps.queuedSends(botId)) return { skipped: "queued" };
     const now = this.now();
+    if (entry.startAfter && now >= Date.parse(entry.startAfter)) {
+      delete entry.startAfter;
+      this.save();
+    }
     if (inBenchWindow(now)) return { skipped: "bench" };
+    if (entry.startAfter) return { skipped: "waiting" };
     const today = seoulDay(now);
     if (entry.receipts.filter((receipt) => seoulDay(receipt.at) === today).length >= KEEP_GOING_DAILY_CAP) {
       return { skipped: "daily-cap" };
@@ -340,10 +357,9 @@ export class KeepGoing {
     const packet = this.deps.packet(threadId);
     if (!packet) return { skipped: "no-task-record" };
     if (packet.blockers.length > 0) return { skipped: "blockers" };
-    const approved = new Set(entry.steps);
-    const next = packet.plan.find((item) => item.status === "pending" && approved.has(normalizeStep(item.step)));
+    const next = packet.plan.find((item) => item.status === "pending");
     if (!next) return { skipped: "no-approved-step" };
-    return { step: next.step, before: Object.fromEntries(approvedStatuses(packet, entry.steps)) };
+    return { step: next.step, before: structuredClone(packet.plan) };
   }
 
   /** Grades the last dispatch; two in a row without progress pause the switch. */
@@ -353,7 +369,7 @@ export class KeepGoing {
     const last = entry.receipts.at(-1);
     if (last?.outcome === "pending") {
       if (this.deps.busy(botId, entry.threadId)) return false;
-      last.outcome = panes > 0 || moved(this.deps.packet(entry.threadId), entry.steps, last.before) ? "progress" : "no-progress";
+      last.outcome = panes > 0 || moved(this.deps.packet(entry.threadId), last.before) ? "progress" : "no-progress";
       this.save();
     }
     const recent = entry.receipts.filter((receipt) => receipt.at >= entry.approvedAt).slice(-2);
