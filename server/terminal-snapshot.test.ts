@@ -410,7 +410,7 @@ describe("bot-closed panes", () => {
 
   it("tells the pane wake which notes came from a pane and which panes the bot closed", () => {
     const route = server.slice(server.indexOf('path === "/api/mailbox"'), server.indexOf('path.startsWith("/api/")', server.indexOf('path === "/api/mailbox"')));
-    expect(route).toContain("noteSteer.noteArrived(teacher.id, teacher.threadId, scope.pane)");
+    expect(route).toContain("noteSteer.noteArrived(source.id, source.threadId, scope.pane)");
     expect(server).toContain("wake: (botId, threadId, paneId) => paneWake.noteArrived(botId, threadId, paneId)");
     expect(server).toContain("botClosedPanes(terminalBridgeAccess, botId)");
   });

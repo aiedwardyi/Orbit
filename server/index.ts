@@ -264,7 +264,7 @@ import { botClosedPanes, paneLabel, raisePaneAttention, terminalPaneCountsRespon
 import { closeBotPanes } from "./terminal-cleanup.ts";
 import { commitLaunchNote, submittedAgo } from "./launch-note.ts";
 import { terminalResumeResponse } from "./terminal-resume.ts";
-import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxScope, mailboxSecretFor, readMailboxBody, resolveMailboxTeacher } from "./mailbox.ts";
+import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxRecipient, mailboxScope, mailboxSecretFor, readMailboxBody } from "./mailbox.ts";
 import { NoteSteerer, steerUntilTaken } from "./note-steer.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import { KEEP_GOING_USAGE_FRESH_MS, KeepGoing } from "./keep-going.ts";
@@ -6913,7 +6913,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!body.ok) return json(res, body.status, { error: body.error });
       const parsed = mailboxPostSchema.safeParse(body.value);
       if (!parsed.success) return json(res, 400, { error: "invalid mailbox message" });
-      const source = store.bot(scope.bot);
+      const source = mailboxRecipient(store.bots, scope);
       if (!source) return json(res, 404, { error: "no such bot" });
       let kind = parsed.data.kind;
       if (kind === "auto") {
@@ -6921,15 +6921,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         // No watcher to hand it to: store it now like a plain note, a duplicate beats a lost wake.
         kind = undefined;
       }
-      const teacher = store.bot(resolveMailboxTeacher(store.bots, scope.bot)) ?? source;
       const label = await paneLabel(terminalBridgeAccess, scope.bot, scope.pane);
       const note = mailboxNoteText(scope.pane, source.name || source.id, source.id, parsed.data.text, label);
       if (!note) return json(res, 400, { error: "empty message" });
       if (kind === "report") await raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, kind);
-      const message = store.appendMessage(teacher.threadId, { role: "bot", kind: "note", text: note, origin: profileSyncSettings.deviceId });
-      if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text, botNotifyIconPath(source)), { botId: teacher.id, threadId: teacher.threadId });
+      const message = store.appendMessage(source.threadId, { role: "bot", kind: "note", text: note, origin: profileSyncSettings.deviceId });
+      if (source.notifications !== false) phonePing(source.id, pingForMailbox(source.name || source.id, parsed.data.text, botNotifyIconPath(source)), { botId: source.id, threadId: source.threadId });
       if (kind !== "report") void raisePaneAttention(terminalBridgeAccess, scope.bot, scope.pane, kind);
-      void noteSteer.noteArrived(teacher.id, teacher.threadId, scope.pane);
+      void noteSteer.noteArrived(source.id, source.threadId, scope.pane);
       return json(res, 200, { ok: true, id: message.id });
     }
     if (path.startsWith("/api/") && !(method === "GET" && path === "/api/health") && !credentials.phoneSession &&
@@ -8842,7 +8841,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "GET") {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      return json(res, 200, { ...resolveBotTerminalFolder(bot), teacherId: resolveMailboxTeacher(store.bots, bot.id) });
+      return json(res, 200, { ...resolveBotTerminalFolder(bot), teacherId: bot.id });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/terminal$/);
     if (m && method === "GET") {
