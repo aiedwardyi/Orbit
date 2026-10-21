@@ -118,6 +118,47 @@ describe("ProviderRegistry", () => {
     }
   });
 
+  it.each(["replace", "remove"])("cancels and clears the login process tree on instance %s", async (action) => {
+    const dir = mkdtempSync(join(homedir(), "login-replace-"));
+    const script = join(dir, "cli.cjs");
+    writeFileSync(script, `
+      const fs = require('node:fs');
+      const file = process.argv[2];
+      const child = require('node:child_process').spawn(process.execPath,
+        ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore', windowsHide: true });
+      fs.writeFileSync(file, JSON.stringify([process.pid, child.pid]));
+      process.stdout.write('https://auth.example/device\\nCode: ABCD-EFGH\\n');
+      setInterval(() => {}, 1000);
+    `);
+    const first = join(dir, "first");
+    const second = join(dir, "second");
+    const cli = (file: string) => `"${process.execPath}" "${script}" "${file}"`;
+    const fake = makeFakeDriver();
+    const registry = new ProviderRegistry([{ ...fake.driver, install: { login: { args: ["login"], deviceArgs: ["login"] } } }]);
+    const alive = (pid: number) => {
+      try { process.kill(pid, 0); return true; } catch { return false; }
+    };
+    try {
+      await registry.load({ a: { driver: "fake", config: { cli: cli(first) } } });
+      await registry.startSignIn("a");
+      const pids: number[] = JSON.parse(readFileSync(first, "utf8"));
+      expect(pids.map(alive)).toEqual([true, true]);
+      if (action === "replace") await registry.load({ a: { driver: "fake", config: { cli: cli(second) } } });
+      else registry.remove("a");
+      await expect.poll(() => pids.map(alive), { timeout: 5000 }).toEqual([false, false]);
+      expect(registry.logins.state("a")).toBeUndefined();
+      expect(registry.logins.capture("a")).toEqual({});
+      if (action === "remove") await registry.load({ a: { driver: "fake", config: { cli: cli(second) } } });
+      await registry.startSignIn("a");
+      expect(existsSync(second)).toBe(true);
+      expect(registry.logins.state("a")).toBe("pending");
+      expect(JSON.parse(readFileSync(second, "utf8"))[0]).not.toBe(pids[0]);
+    } finally {
+      await registry.disposeAll();
+      await removeTempDir(dir);
+    }
+  });
+
   it.skipIf(process.platform !== "win32")("uses the resolved Muse CLI for login and logout", async () => {
     const registry = new ProviderRegistry([BUILT_IN_DRIVERS.find((driver) => driver.driverKind === "museAgent")!]);
     setWslGateForTests({ env: {}, listRunning: () => "test-distro" });

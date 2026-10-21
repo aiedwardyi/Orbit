@@ -91,6 +91,52 @@ describe("engine sign-in row", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("resets the pending flow and stops polling when switching engines", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => json(capture));
+    vi.stubGlobal("fetch", fetchMock);
+    await render(createElement(EngineSignIn, { instance: instance() }));
+    await click("Sign In");
+    expect(host.textContent).toContain(capture.code);
+    await act(async () => root!.render(createElement(I18nProvider, null,
+      createElement(EngineSignIn, { instance: instance("grokAgent") }))));
+    expect(host.textContent).toBe("Sign In");
+    await act(async () => vi.advanceTimersByTimeAsync(6000));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await click("Sign In");
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/instances/grokAgent/sign-in");
+  });
+
+  it("clears a failed flow when switching engines", async () => {
+    await render(createElement(EngineSignIn, { instance: instance("codex", { loginState: "failed" }) }));
+    expect(host.textContent).toContain("Didn't finish");
+    await act(async () => root!.render(createElement(I18nProvider, null,
+      createElement(EngineSignIn, { instance: instance("grokAgent") }))));
+    expect(host.textContent).toBe("Sign In");
+  });
+
+  it("clears the copied fallback when switching to another pending engine", async () => {
+    Object.assign(window, { ogb: { platform: "win32", openEngineSignIn: vi.fn(async () => "copied" as const) } });
+    vi.stubGlobal("fetch", vi.fn(async () => json({})));
+    await render(createElement(EngineSignIn, { instance: instance("antigravityAgent", { install: { signInCommand: "agy" } }) }));
+    await click("Sign In");
+    expect(host.querySelector("code")?.textContent).toBe("agy");
+    await act(async () => root!.render(createElement(I18nProvider, null,
+      createElement(EngineSignIn, { instance: instance("grokAgent", { loginState: "pending", loginCapture: capture }) }))));
+    expect([...host.querySelectorAll("code")].map((node) => node.textContent)).toEqual([capture.code]);
+  });
+
+  it("ignores the previous engine's late start response after switching", async () => {
+    let finish!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; })));
+    await render(createElement(EngineSignIn, { instance: instance() }));
+    await click("Sign In");
+    await act(async () => root!.render(createElement(I18nProvider, null,
+      createElement(EngineSignIn, { instance: instance("grokAgent", { loginState: "pending" }) }))));
+    await act(async () => finish(json(capture)));
+    expect(host.querySelector("code, a")).toBeNull();
+    expect(host.textContent).toContain("Cancel");
+  });
+
   it.each(["codex", "grokAgent", "museAgent"])("uses the phone device flow for %s", async (kind) => {
     vi.mocked(window.matchMedia).mockReturnValue({ matches: true } as MediaQueryList);
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => json(capture));
@@ -143,6 +189,7 @@ describe("engine sign-in row", () => {
     await click("Sign In");
     expect(host.querySelector("code")?.textContent).toBe("agy");
     expect(host.textContent).toContain("Cancel");
+    expect(host.textContent).toContain("Paste the command and press Enter.");
     expect(host.textContent).not.toContain("Didn't finish");
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
     if (mode === "no bridge") expect(copy).toHaveBeenCalledWith("agy");

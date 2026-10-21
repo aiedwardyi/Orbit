@@ -6,5 +6,6 @@ export async function openEngineSignIn(instanceId, { resolve, copy, open = openS
   if (!signIn?.command) throw new Error("Unknown engine sign-in");
   if (!/\bYOUR_[A-Z0-9_]+\b/.test(signIn.command) && await open(signIn)) return "running";
   copy(signIn.command);
-  return await blank() ? "opened" : "copied";
+  const opened = await blank();
+  return opened && signIn.driverKind !== "antigravityAgent" ? "opened" : "copied";
 }

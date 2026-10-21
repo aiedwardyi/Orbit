@@ -229,6 +229,14 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
   const path = `/api/instances/${encodeURIComponent(instance.instanceId)}/sign-in`;
 
   useEffect(() => {
+    setWaiting(instance.loginState === "pending");
+    setFailed(instance.loginState === "failed");
+    setCapture(instance.loginCapture ?? {});
+    setCopyFallback(false);
+    setBusy(false);
+    return () => { generation.current += 1; };
+  }, [instance.instanceId]);
+  useEffect(() => {
     setCurrent(instance);
     if (instance.loginState === "pending") {
       setWaiting(true);
@@ -236,7 +244,6 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
     }
     if (instance.snapshot.authenticated === true) setWaiting(false);
   }, [instance]);
-  useEffect(() => () => { generation.current += 1; }, []);
 
   useEngineLoginRefresh(waiting, (instances) => {
     const next = instances.find((row) => row.instanceId === instance.instanceId);
@@ -261,6 +268,7 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
       setCapture(result);
       if (external) {
         const opened = await window.ogb?.openEngineSignIn?.(instance.instanceId);
+        if (request !== generation.current) return;
         if (opened === "copied" || opened === undefined) {
           setCopyFallback(true);
           if (opened === undefined && instance.install?.signInCommand) {
@@ -277,14 +285,15 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
   };
   const cancel = async () => {
     if (busy) return;
-    generation.current += 1;
+    const request = ++generation.current;
     setBusy(true);
     try {
       await api(path, { method: "DELETE" });
+      if (request !== generation.current) return;
       setWaiting(false);
       setCapture({});
-    } catch { setFailed(true); }
-    finally { setBusy(false); }
+    } catch { if (request === generation.current) setFailed(true); }
+    finally { if (request === generation.current) setBusy(false); }
   };
 
   if (connected) return <span className="text-[12px] text-ink-secondary">{t("connections.connected")}</span>;
@@ -293,7 +302,10 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
     <div aria-live="polite" className="flex min-w-0 flex-col items-end gap-1.5 text-[12px] text-ink-secondary">
       {waiting ? <>
         <span>{t("engines.finishInBrowser")}</span>
-        {copyFallback && <code className="select-all break-all font-mono text-ink">{instance.install?.signInCommand}</code>}
+        {copyFallback && <>
+          <code className="select-all break-all font-mono text-ink">{instance.install?.signInCommand}</code>
+          <span>{t("engine.pasteAndEnter")}</span>
+        </>}
         {capture.code && <code className="select-all break-all font-mono text-[14px] text-ink">{capture.code}</code>}
         <div className="flex flex-wrap justify-end gap-3">
           {capture.url && <a href={capture.url} target="_blank" rel="noreferrer" className="text-ink underline">{t("engines.openAgain")}</a>}

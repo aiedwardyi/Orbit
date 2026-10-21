@@ -49,4 +49,13 @@ describe("engine sign-in", () => {
     expect(await openEngineSignIn("codex", d)).toBe("copied");
     expect(d.copy).toHaveBeenCalledExactlyOnceWith("codex login");
   });
+
+  it("reports a copied command when Antigravity falls back to a blank terminal", async () => {
+    const d = deps("agy");
+    d.resolve.mockResolvedValue({ driverKind: "antigravityAgent", command: "agy" });
+    d.open.mockResolvedValue(false);
+    expect(await openEngineSignIn("antigravityAgent", d)).toBe("copied");
+    expect(d.copy).toHaveBeenCalledExactlyOnceWith("agy");
+    expect(d.blank).toHaveBeenCalledOnce();
+  });
 });

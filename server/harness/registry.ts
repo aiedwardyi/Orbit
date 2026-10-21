@@ -171,6 +171,8 @@ export class ProviderRegistry {
       }
     }));
     for (const result of loaded) {
+      void this.logins.cancel(result.entry.instanceId);
+      this.logins.clear(result.entry.instanceId);
       this.forget(result.entry.instanceId);
       if (result.rawCli) this.cliByInstance.set(result.entry.instanceId, result.rawCli);
       else this.cliByInstance.delete(result.entry.instanceId);
@@ -310,6 +312,8 @@ export class ProviderRegistry {
 
   remove(instanceId: InstanceId): ProviderInstance | null {
     const live = this.get(instanceId);
+    void this.logins.cancel(instanceId);
+    this.logins.clear(instanceId);
     this.byId.delete(instanceId);
     this.cliByInstance.delete(instanceId);
     this.environmentByInstance.delete(instanceId);
