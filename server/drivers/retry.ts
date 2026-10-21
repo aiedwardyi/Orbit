@@ -122,7 +122,7 @@ export function classifyError(err: FailureInput): ErrorClassification {
 export const BUSY_RESUME_DELAYS_MS = [30_000, 60_000, 120_000] as const;
 
 const PROVIDER_BUSY = /\b(?:resource_exhausted|unavailable|overloaded|try again later)\b|(?<![\w-])(?:429|503)(?![\w-])/i;
-const PLAN_LIMIT = /\b(?:quota|limits?|upgrade|billing)\b/i;
+const PLAN_LIMIT = /\b(?:quota|upgrade|billing)\b|\b(?:usage|weekly|daily|monthly|plan|spending)\s+limits?\b/i;
 
 /** The transient reason when a CLI already gave up on a busy provider and a
  * later resume is worth it; null for plan or quota limits, which won't clear. */

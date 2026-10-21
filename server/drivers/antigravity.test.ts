@@ -457,7 +457,7 @@ describe("Antigravity turns (fake CLI)", () => {
   });
 
   it("reports a non-account ERROR without signIn", async () => {
-    process.env.FAKE_AGY_RESULT_ERROR = "429 rate limit";
+    process.env.FAKE_AGY_RESULT_ERROR = "500 internal server error";
     try {
       await create();
       await instance.adapter.sendTurn({ threadId: "t-agy-rate", text: "hi" });
@@ -465,7 +465,7 @@ describe("Antigravity turns (fake CLI)", () => {
 
       const err = recorder.events.find((event) => event.type === "runtime.error");
       expect(recorder.events.filter((event) => event.type === "runtime.error")).toHaveLength(1);
-      expect(err).toMatchObject({ type: "runtime.error", message: "429 rate limit" });
+      expect(err).toMatchObject({ type: "runtime.error", message: "500 internal server error" });
       expect(err && "signIn" in err ? err.signIn : undefined).toBeUndefined();
       expect(recorder.events.some((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toBe(false);
     } finally {
@@ -621,6 +621,7 @@ describe("Antigravity turns (fake CLI)", () => {
 
     it.each([
       ["a busy 429", AGY_RETRIED_429, "", true],
+      ["a rate-limit 429", "429 rate limit exceeded; try again later", "", true],
       ["a busy 503", "API error (attempt 3): UNAVAILABLE (code 503): The service is currently unavailable. Please try again later.", "", true],
       ["a busy 429 with a reply", AGY_RETRIED_429, "done from fake agy", false],
       ["a quota 429", "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Quota exceeded for quota metric 'Generate requests'.", "", false],
