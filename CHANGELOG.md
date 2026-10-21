@@ -2,6 +2,15 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.197] - 2026-10-21
+
+### Changed
+- Settings > Connections shows one Sign In or Sign Out per engine, with no path settings.
+
+### Fixed
+- Muse tool steps show in chat while a turn runs, when Show tool calls is on.
+- Grok sessions restart only when they're actually large, not after a fixed number of tool steps, so long Grok chats stop repeating themselves.
+
 ## [1.0.196] - 2026-10-21
 
 ### Added
@@ -139,6 +148,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.197]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.197
 [1.0.196]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.196
 [1.0.195]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.195
 [1.0.194]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.194
