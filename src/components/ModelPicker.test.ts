@@ -648,7 +648,7 @@ describe("ModelPicker centre guides", () => {
   it("keeps the setup card on dark tokens in light skins", () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const options = readFileSync(join(here, "ModelPicker.css"), "utf8").match(/\.model-cross-options \{([^}]*)\}/)?.[1] ?? "";
-    for (const token of ["ink", "ink-secondary", "control", "inset", "hairline", "accent", "accent-ink", "warning"]) {
+    for (const token of ["ink", "ink-secondary", "control", "inset", "hairline", "accent", "accent-ink", "success", "warning"]) {
       expect(options).toMatch(new RegExp(`--color-${token}:`));
     }
   });

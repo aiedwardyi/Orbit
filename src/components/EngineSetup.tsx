@@ -227,7 +227,7 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
   const login = instance.install?.login;
   const computerOnly = phone && (external || !login?.deviceArgs);
   // Same argv both ways is a device-only flow (Muse): nothing opens on desktop either.
-  const deviceFlow = phone || Boolean(login?.deviceArgs && login.deviceArgs.join(" ") === login.args.join(" "));
+  const deviceFlow = phone || Boolean(login?.deviceArgs && login.deviceArgs.length === login.args.length && login.deviceArgs.every((arg, i) => arg === login.args[i]));
   const connected = current.snapshot.state === "available" && current.snapshot.authenticated === true;
   const path = `/api/instances/${encodeURIComponent(instance.instanceId)}/sign-in`;
 

@@ -158,8 +158,9 @@ export class EngineLogin {
       if (url && !job.capture.url) {
         try {
           const parsed = new URL(url[1]);
-          const secret = /[?&#](?:access_token|refresh_token|id_token|token)=/i.test(parsed.href)
-            || (!authHosts.includes(parsed.hostname) && /[?&#]code=/i.test(parsed.href));
+          const names = [...parsed.searchParams.keys(), ...new URLSearchParams(parsed.hash.slice(1)).keys()].map((name) => name.toLowerCase());
+          const secret = names.some((name) => ["access_token", "refresh_token", "id_token", "token"].includes(name))
+            || (!authHosts.includes(parsed.hostname) && names.includes("code"));
           if (!parsed.username && !parsed.password && !secret) job.capture.url = parsed.href;
         } catch {}
       }

@@ -89,6 +89,11 @@ describe("EngineLogin", () => {
     expect(await replay("muse", REAL_OUTPUT.muse)).toEqual({ code: "BBDN-DDKV" });
   });
 
+  it("drops URLs whose secret parameter names are percent-encoded", async () => {
+    const output = "https://auth.meta.com/oauth/device/?access%5Ftoken=private\nhttps://auth.example/device/?c%6Fde=BBDN-DDKV\nhttps://auth.example/device#id_token=private\n";
+    expect(await replay("muse", output, ["auth.meta.com"])).toEqual({});
+  });
+
   it("does not inherit credentials outside the supplied login environment", async () => {
     vi.stubEnv("OMB_COMMS_TOKEN", "review-token");
     vi.stubEnv("ANTHROPIC_API_KEY", "review-key");

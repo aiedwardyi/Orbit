@@ -19,7 +19,7 @@ import { SECTION_PHRASE_KEYS } from "./settings-search";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-it.each(["signIn", "finishInBrowser", "openAgain", "openLink", "enterCode", "cancel", "signInFromComputer", "didntFinish", "moreEngines", "details", "signOut"])("translates engine login %s", (name) => {
+it.each(["signIn", "finishInBrowser", "openAgain", "openLink", "enterCode", "notSignedIn", "cancel", "signInFromComputer", "didntFinish", "moreEngines", "details", "signOut"])("translates engine login %s", (name) => {
   const key = `engines.${name}` as MessageKey;
   expect(en[key]).toBeTruthy();
   expect(ko[key]).toMatch(/[가-힣]/);
