@@ -19,11 +19,15 @@ import { SECTION_PHRASE_KEYS } from "./settings-search";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-it.each(["signIn", "finishInBrowser", "openAgain", "cancel", "signInFromComputer", "didntFinish", "moreEngines", "details", "signOut"])("translates engine login %s", (name) => {
+it.each(["signIn", "finishInBrowser", "openAgain", "openLink", "enterCode", "cancel", "signInFromComputer", "didntFinish", "moreEngines", "details", "signOut"])("translates engine login %s", (name) => {
   const key = `engines.${name}` as MessageKey;
   expect(en[key]).toBeTruthy();
   expect(ko[key]).toMatch(/[가-힣]/);
 });
+it("names the Gemini API key once in Korean", () => {
+  expect(ko["engine.needsKeyTitle"].replace("{name}", "Gemini API")).toBe("Gemini API 키 입력");
+});
+
 const css = readFileSync(join(here, "../styles.css"), "utf8");
 const updateBanner = readFileSync(join(here, "../components/UpdateBanner.tsx"), "utf8");
 const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");

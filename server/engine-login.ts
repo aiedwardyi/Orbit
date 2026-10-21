@@ -54,13 +54,13 @@ export class EngineLogin {
     return job?.state === "pending" || (job?.state === "complete" && !job.acknowledged);
   }
 
-  async start(engine: string, cli: string, args: string[], env: NodeJS.ProcessEnv = {}): Promise<LoginCapture> {
+  async start(engine: string, cli: string, args: string[], env: NodeJS.ProcessEnv = {}, authHosts: string[] = []): Promise<LoginCapture> {
     if (this.disposed) return {};
     let job = this.jobs.get(engine);
     if (job && job.state !== "pending") {
       await job.done;
       if (this.jobs.get(engine) === job) this.jobs.delete(engine);
-      return this.start(engine, cli, args, env);
+      return this.start(engine, cli, args, env, authHosts);
     }
     if (job?.state !== "pending") {
       job = this.create(engine);
@@ -73,8 +73,8 @@ export class EngineLogin {
         });
         job.child = child;
         child.stdin.on("error", () => {});
-        this.read(child.stdout, job);
-        this.read(child.stderr, job);
+        this.read(child.stdout, job, authHosts);
+        this.read(child.stderr, job, authHosts);
         child.once("error", () => job!.finish("failed"));
         child.once("close", (code) => job!.finish(code === 0 ? "complete" : "failed"));
       } catch {
@@ -146,7 +146,7 @@ export class EngineLogin {
     return job;
   }
 
-  private read(stream: NodeJS.ReadableStream, job: LoginJob): void {
+  private read(stream: NodeJS.ReadableStream, job: LoginJob, authHosts: string[]): void {
     let line = "";
     let dropping = false;
     stream.setEncoding("utf8");
@@ -154,11 +154,13 @@ export class EngineLogin {
       if (job.state !== "pending") { line = ""; return; }
       const clean = stripVTControlCharacters(line).trim();
       const url = /^(?:(?:If your browser (?:did not|didn't) open, (?:navigate to this URL|visit)|If the browser didn't open, visit|Visit|Open(?: this URL)?|Sign in(?: at)?|URL|Verification (?:URL|URI))\s*:?\s*)?(https:\/\/[^\s<>"\x00-\x1f]+)$/i.exec(clean);
-      const code = /^(?:(?:Enter (?:this |the )?(?:one-time |device |user )?code(?: \(expires in \d+ minutes\))?|(?:Your )?(?:one-time |device |user )?code)\s*:?\s*)?([A-Z0-9]{4}(?:-[A-Z0-9]{4}){1,2})$/i.exec(clean);
+      const code = /^(?:(?:Enter (?:this |the )?(?:one-time |device |user )?code(?: \(expires in \d+ minutes\))?|(?:Your )?(?:one-time |device |user )?code)\s*:?\s*)?([A-Z0-9]{4}(?:-[A-Z0-9]{4,5}){1,2})$/i.exec(clean);
       if (url && !job.capture.url) {
         try {
           const parsed = new URL(url[1]);
-          if (!parsed.username && !parsed.password && !/[?&#](?:access_token|refresh_token|id_token|token|code)=/i.test(parsed.href)) job.capture.url = parsed.href;
+          const secret = /[?&#](?:access_token|refresh_token|id_token|token)=/i.test(parsed.href)
+            || (!authHosts.includes(parsed.hostname) && /[?&#]code=/i.test(parsed.href));
+          if (!parsed.username && !parsed.password && !secret) job.capture.url = parsed.href;
         } catch {}
       }
       if (code && !job.capture.code) job.capture.code = code[1];

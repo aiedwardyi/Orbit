@@ -526,7 +526,7 @@ export interface EngineInstall {
   command?: Partial<Record<"darwin" | "win32" | "linux", string>>;
   docsUrl?: string;
   signInCommand?: string;
-  login?: { args: string[]; deviceArgs?: string[]; env?: Record<string, string> };
+  login?: { args: string[]; deviceArgs?: string[]; env?: Record<string, string>; authHosts?: string[] };
   logout?: string[];
   needsNode?: boolean;
 }

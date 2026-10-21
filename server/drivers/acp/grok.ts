@@ -323,7 +323,7 @@ export const grokSupport: AcpSupport = {
     },
     docsUrl: "https://x.ai/cli",
     signInCommand: "grok login",
-    login: { args: ["login"], deviceArgs: ["login", "--device-auth"] },
+    login: { args: ["login"], deviceArgs: ["login", "--device-auth"], authHosts: ["accounts.x.ai"] },
     logout: ["logout"],
   },
 

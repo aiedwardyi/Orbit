@@ -284,7 +284,7 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
       {current.snapshot.state !== "available" ? <EngineSetup instance={current} /> : <div className="flex min-h-[44px] items-start gap-2 text-[13px]">
         <span className="mt-2 shrink-0"><EngineMark instance={current} size={16} /></span>
         <span className="min-w-0 flex-1 break-words py-1.5 text-ink">{current.displayName}</span>
-        <div className="min-w-0 max-w-[65%] py-1.5">
+        <div className="min-w-0 max-w-[65%] py-1.5 has-[>div>button:first-child]:py-0">
           <EngineSignIn instance={current} onUpdated={(next) => {
             setCurrent(next);
             if (next.snapshot.authenticated === true) onConnected?.();
@@ -297,7 +297,7 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
       </button>
       {open && <div className="min-w-0 border-l border-hairline/40 pl-3">
         <CustomPicker instance={current} cliDefault={current.cliDefault} onClose={() => setOpen(false)} onSaved={refresh} />
-        {current.install?.logout && current.driverKind !== "antigravityAgent" &&
+        {current.install?.logout && current.driverKind !== "antigravityAgent" && current.snapshot.authenticated !== false &&
           <button type="button" onClick={() => void signOut()} disabled={busy}
             className="mt-3 text-[12px] text-ink underline disabled:opacity-50">{t("engines.signOut")}</button>}
         {error && <p role="alert" className="mt-1 text-[12px] text-ink-secondary">{t("engines.didntFinish")}</p>}

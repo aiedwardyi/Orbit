@@ -396,7 +396,8 @@ export interface EngineInstall {
   docsUrl?: string;
   /** Interactive sign-in run after installing, when install isn't enough. */
   signInCommand?: string;
-  login?: { args: string[]; deviceArgs?: string[]; env?: Record<string, string> };
+  /** A printed URL with `?code=` is kept only on `authHosts` (device links). */
+  login?: { args: string[]; deviceArgs?: string[]; env?: Record<string, string>; authHosts?: string[] };
   logout?: string[];
   /** `command` needs npm on PATH, so the UI can say so when Node is absent. */
   needsNode?: boolean;

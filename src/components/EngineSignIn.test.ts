@@ -66,9 +66,10 @@ describe("engine sign-in row", () => {
     await render(createElement(EngineSignIn, { instance: instance() }));
     await click("Sign In");
     expect(fetchMock.mock.calls[0]).toEqual(["/api/instances/codex/sign-in", expect.objectContaining({ method: "POST", body: '{"device":false}' })]);
-    expect(host.textContent).toContain("Finish in your browser");
+    expect(host.textContent).toContain("Enter this code in your browser");
     expect(host.textContent).toContain(capture.code);
     expect(host.querySelector("a")?.href).toBe(capture.url);
+    expect(host.querySelector("a")?.textContent).toBe("Open Again");
     expect(open).not.toHaveBeenCalled();
     await click("Cancel");
     expect(fetchMock.mock.calls.at(-1)).toEqual(["/api/instances/codex/sign-in", expect.objectContaining({ method: "DELETE" })]);
@@ -145,12 +146,22 @@ describe("engine sign-in row", () => {
     await click("Sign In");
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ body: '{"device":true}' });
     expect(host.textContent).toContain(capture.code);
+    expect(host.textContent).toContain("Enter this code in your browser");
+    expect(host.querySelector("a")?.textContent).toBe("Open Link");
+  });
+
+  it("offers Open Link when desktop Muse opened nothing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(capture)));
+    await render(createElement(EngineSignIn, { instance: instance("museAgent", { install: { login: { args: ["login"], deviceArgs: ["login"] } } }) }));
+    await click("Sign In");
+    expect(host.querySelector("a")?.textContent).toBe("Open Link");
+    expect(host.textContent).toContain("Enter this code in your browser");
   });
 
   it.each(["claudeAgent", "antigravityAgent"])("keeps %s on the computer without relaying a code", async (kind) => {
     vi.mocked(window.matchMedia).mockReturnValue({ matches: true } as MediaQueryList);
     await render(createElement(EngineSignIn, { instance: instance(kind, { install: { login: { args: ["login"] } }, loginState: "pending", loginCapture: capture }) }));
-    expect(host.textContent).toBe("Sign in from your computer");
+    expect(host.textContent).toBe("Sign in on a computer");
     expect(host.querySelector("button, a, code")).toBeNull();
   });
 
@@ -189,7 +200,8 @@ describe("engine sign-in row", () => {
     await click("Sign In");
     expect(host.querySelector("code")?.textContent).toBe("agy");
     expect(host.textContent).toContain("Cancel");
-    expect(host.textContent).toContain("Paste the command and press Enter.");
+    expect(host.querySelector("span")?.textContent).toBe("Paste the command in Terminal and press Enter.");
+    expect(host.textContent).not.toContain("Finish in your browser");
     expect(host.textContent).not.toContain("Didn't finish");
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
     if (mode === "no bridge") expect(copy).toHaveBeenCalledWith("agy");
@@ -241,6 +253,14 @@ describe("engine sign-in row", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/instances/codex/sign-out", expect.objectContaining({ method: "POST", body: "{}" }));
     expect(host.textContent).toContain("Sign In");
     expect(host.textContent).not.toContain("Connected");
+  });
+
+  it("hides sign-out for a signed-out engine", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ candidates: [] })));
+    await render(createElement(EngineRow, { instance: instance() }));
+    await click("Details");
+    expect(host.textContent).toContain("codex login");
+    expect(host.textContent).not.toContain("Sign Out");
   });
 
   it("never offers agy sign-out", async () => {

@@ -224,7 +224,10 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
   const generation = useRef(0);
   const phone = !window.ogb && isPhone();
   const external = instance.driverKind === "antigravityAgent";
-  const computerOnly = phone && (external || !instance.install?.login?.deviceArgs);
+  const login = instance.install?.login;
+  const computerOnly = phone && (external || !login?.deviceArgs);
+  // Same argv both ways is a device-only flow (Muse): nothing opens on desktop either.
+  const deviceFlow = phone || Boolean(login?.deviceArgs && login.deviceArgs.join(" ") === login.args.join(" "));
   const connected = current.snapshot.state === "available" && current.snapshot.authenticated === true;
   const path = `/api/instances/${encodeURIComponent(instance.instanceId)}/sign-in`;
 
@@ -301,14 +304,11 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
   return (
     <div aria-live="polite" className="flex min-w-0 flex-col items-end gap-1.5 text-[12px] text-ink-secondary">
       {waiting ? <>
-        <span>{t("engines.finishInBrowser")}</span>
-        {copyFallback && <>
-          <code className="select-all break-all font-mono text-ink">{instance.install?.signInCommand}</code>
-          <span>{t("engine.pasteAndEnter")}</span>
-        </>}
+        <span>{copyFallback ? t("engine.pasteAndEnter") : capture.code ? t("engines.enterCode") : t("engines.finishInBrowser")}</span>
+        {copyFallback && <code className="select-all break-all font-mono text-ink">{instance.install?.signInCommand}</code>}
         {capture.code && <code className="select-all break-all font-mono text-[14px] text-ink">{capture.code}</code>}
         <div className="flex flex-wrap justify-end gap-3">
-          {capture.url && <a href={capture.url} target="_blank" rel="noreferrer" className="text-ink underline">{t("engines.openAgain")}</a>}
+          {capture.url && <a href={capture.url} target="_blank" rel="noreferrer" className="text-ink underline">{deviceFlow ? t("engines.openLink") : t("engines.openAgain")}</a>}
           <button type="button" onClick={() => void cancel()} disabled={busy} className="text-ink underline disabled:opacity-50">{t("engines.cancel")}</button>
         </div>
       </> : <button type="button" onClick={() => void start()} className="rounded-lg bg-control px-3 py-2 font-medium text-ink hover:bg-raised-hover">{t("engines.signIn")}</button>}
@@ -337,6 +337,7 @@ export function EngineSetup({
   const keyOnly = intent === "cloud" && needsApiKey(instance);
   const signInOnly = intent === "cloud" && !keyOnly && (needsSignIn(instance) || (signIn && !needsCli(instance)));
   const command = keyOnly ? null : signInOnly ? signInCommand : installCommand;
+  const oneClick = signInOnly && Boolean(install?.login || instance.driverKind === "antigravityAgent");
   const title = keyOnly
     ? t("engine.needsKeyTitle", { name: instance.displayName })
     : signInOnly
@@ -344,11 +345,13 @@ export function EngineSetup({
       : t("engine.installName", { name: instance.displayName });
   const description = keyOnly
     ? t("engine.needsKey")
-    : signInOnly
-      ? t("engine.signInBody")
-      : intent === "inject"
-        ? t("engine.injectBody")
-        : signInCommand ? t("engine.installBodySignIn") : t("engine.installBody");
+    : oneClick
+      ? t("engines.notSignedIn")
+      : signInOnly
+        ? t("engine.signInBody")
+        : intent === "inject"
+          ? t("engine.injectBody")
+          : signInCommand ? t("engine.installBodySignIn") : t("engine.installBody");
 
   // Some engines are configured elsewhere (for example, a cloud computer
   // token) and intentionally have no install descriptor.
@@ -363,8 +366,6 @@ export function EngineSetup({
       </div>
     );
   }
-
-  const oneClick = signInOnly && (install.login || instance.driverKind === "antigravityAgent");
 
   return (
     <div className={cn("rounded-xl border border-hairline/40 bg-control/30 p-3", className)}>
