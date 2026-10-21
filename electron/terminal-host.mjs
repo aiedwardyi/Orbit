@@ -211,6 +211,20 @@ const BRACKETED_PASTE_MODE = 2004;
 const SAVE_ENTER_MS = 5_000;
 const tokenCount = (value, unit) => Math.round(Number(value) * (unit === "M" ? 1_000_000 : unit === "K" ? 1_000 : 1));
 
+function claudeTrustKeys(screenText) {
+  const lines = screenText.split("\n").map((line) => line.trim()).filter(Boolean);
+  const text = lines.join(" ");
+  if (!lines.includes("Accessing workspace:")
+    || !text.includes("Quick safety check: Is this a project you created or one you trust?")
+    || !text.includes("Claude Code'll be able to read, edit, and execute files here.")) return null;
+  const [no, yes, footer] = lines.slice(-3);
+  if (footer !== "Enter to confirm · Esc to cancel") return null;
+  // No is the default; Enter alone would exit.
+  if (/^[>❯] No, exit$/u.test(no) && yes === "Yes, I trust this folder") return "\x1b[B";
+  if (no === "No, exit" && /^[>❯] Yes, I trust this folder$/u.test(yes)) return "\r";
+  return null;
+}
+
 function paneContext(screenText, engine) {
   const lines = screenText.split("\n").filter((line) => line.trim()).slice(-CONTEXT_FOOTER_LINES).reverse();
   const status = engine === "claude" ? lines.map((line) => CLAUDE_STATUS_RE.exec(line)).find(Boolean) : null;
@@ -540,6 +554,15 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         } catch {}
       }
       const text = session.screen.text();
+      if (session.botPane && session.claudeTrust && !session.claudeTrustAnswered) {
+        const keys = claudeTrustKeys(text);
+        if (keys && (keys === "\r" || !session.claudeTrustMoved)) {
+          if (keys === "\r") session.claudeTrustAnswered = true;
+          else session.claudeTrustMoved = true;
+          typeIntoPane(session, keys);
+          continue;
+        }
+      }
       const context = paneContext(text, session.engine);
       // The compact hook can run before Claude clears its old low-context footer.
       if (session.contextCompactPending && (!context || !contextOver(context))) {
@@ -852,6 +875,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
       reported: false, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
+      claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false,
     };
     session.outputParser = createTerminalOutputParser((osc) => {
       if (!session.botPane || osc !== `133;D;${session.id}`) return;
@@ -914,6 +938,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const launched = session.botPane ? WORKER_CLI_RE.exec(text) : null;
       if (launched) {
         session.engine = launched[1].toLowerCase();
+        const args = text.slice(launched.index + launched[0].length).match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+        session.claudeTrust = session.engine === "claude" && args.includes("--dangerously-skip-permissions");
         session.agentSeen = false;
         session.agentEchoed = false;
         session.agentCommand = text.replace(/\s+/g, "");

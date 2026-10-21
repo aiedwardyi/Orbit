@@ -78,9 +78,10 @@ describe("terminal proxy", () => {
     expect(TOOLS[2].description).not.toContain("a new folder shows a trust prompt first");
   });
 
-  it("uses Grok's folder trust flag and keeps unsupported engines' menu fallback", () => {
+  it("answers Claude's folder trust menu and keeps Grok's trust fallback", () => {
     expect(TOOLS[2].description).toContain("grok -m <model-id> --effort <effort> --always-approve --trust '<prompt>'");
-    expect(TOOLS[2].description).toContain("If it shows a folder-trust menu, read it and pick Yes with terminal_send key presses");
+    expect(TOOLS[2].description).toContain("Wink answers the folder-trust menu itself");
+    expect(TOOLS[2].description).not.toContain("pick Yes with terminal_send");
     expect(TOOLS[2].description).toContain("it may ask a y/n trust question first; send y");
   });
 
