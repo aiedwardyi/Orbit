@@ -5,7 +5,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 ## [1.0.195] - 2026-10-21
 
 ### Added
-- The model picker shows each model's list price per 1M input and output tokens.
+- The model picker shows the list price per 1M input and output tokens for current models.
 - Change Photo and Remove Photo in Edit Profile. A new install fills your name and photo from Google sign-in, and a removed photo stays removed.
 - Agentic Mode can wait for a set start time before it runs the next step.
 
@@ -17,8 +17,8 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Workers run at high effort by default, and at max only in max mode.
 
 ### Fixed
-- A worker pane that exits early now tells its bot, and a pane that fails to start retries once.
-- Fewer repeated context notes, and no false stall notes for workers waiting to start.
+- A worker pane that exits early now tells its bot, and a pane whose shell fails to load on Windows retries once.
+- Fewer repeated context notes, and no early stall notes for workers still waiting to start.
 - Worker effort shows for labels with a trailing note, like "high API".
 
 ## [1.0.194] - 2026-10-20
