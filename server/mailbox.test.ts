@@ -222,15 +222,15 @@ describe("mailbox secret", () => {
 });
 
 describe("POST /api/mailbox", () => {
-  it("adds a plain note to the teacher chat without starting a turn", async () => {
+  it("adds a plain note to the owner's chat without starting a turn", async () => {
     const response = await post({ text: "report: <b>tests</b> pass" });
     expect(response.status).toBe(200);
-    expect(await transcript("teacher-thread")).toMatchObject([
+    expect(await transcript("worker-thread")).toMatchObject([
       { role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker (worker): report: <b>tests</b> pass" },
     ]);
     const { bots } = await (await fetch(`${base}/api/bots`, { headers: { authorization: `Bearer ${TOKEN}` } })).json() as { bots: Array<{ id: string; busy?: boolean }> };
-    expect(bots.find((bot) => bot.id === "teacher")?.busy).toBe(false);
-    expect(await transcript("worker-thread")).toEqual([]);
+    expect(bots.find((bot) => bot.id === "worker")?.busy).toBe(false);
+    expect(await transcript("teacher-thread")).toEqual([]);
   });
 
   it("defers auto notes to the pane watcher and keeps reports immediate", async () => {
@@ -255,12 +255,12 @@ describe("POST /api/mailbox", () => {
     expect(deferredNotes).not.toContain(UNWATCHED_TEXT);
   });
 
-  it("routes a self-addressed note to the section chief", async () => {
+  it("keeps a section member's note in its own chat", async () => {
     const scope = { ...SCOPE, teacher: "worker" };
     const response = await post({ text: "worker report" }, scope, mailboxGrant(MAILBOX_KEY, PANE, "worker", "worker"));
     expect(response.status).toBe(200);
-    expect((await transcript("teacher-thread")).slice(-1)).toMatchObject([{ role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker (worker): worker report" }]);
-    expect(await transcript("worker-thread")).toEqual([]);
+    expect((await transcript("worker-thread")).slice(-1)).toMatchObject([{ role: "bot", kind: "note", text: "[pane 0f3c9a1e] from worker (worker): worker report" }]);
+    expect(await transcript("teacher-thread")).toEqual([]);
   });
 
   it("keeps a self-addressed note when the section has no chief", async () => {
@@ -270,14 +270,14 @@ describe("POST /api/mailbox", () => {
     expect((await transcript("solo-thread")).slice(-1)).toMatchObject([{ role: "bot", kind: "note", text: "[pane 0f3c9a1e] from solo (solo): solo report" }]);
   });
 
-  it("tells the pane-open service the section chief", async () => {
+  it("tells the pane-open service the owning bot", async () => {
     const teacherOf = async (id: string) => {
       const response = await fetch(`${base}/api/bots/${id}/terminal-cwd`, { headers: { authorization: `Bearer ${TOKEN}` } });
       expect(response.status).toBe(200);
       // SAFETY: the terminal-cwd route always includes the resolved teacher id.
       return ((await response.json()) as { teacherId: string }).teacherId;
     };
-    expect(await teacherOf("worker")).toBe("teacher");
+    expect(await teacherOf("worker")).toBe("worker");
     expect(await teacherOf("teacher")).toBe("teacher");
     expect(await teacherOf("solo")).toBe("solo");
   });
@@ -466,7 +466,7 @@ describe("POST /api/mailbox", () => {
       JSON.stringify({ type: "agent-turn-complete", "last-assistant-message": "codex \"done\" & more" })]);
     expect(codex.stderr).toBe("");
     expect(codex.status).toBe(0);
-    expect((await transcript("teacher-thread")).slice(-2).map((message) => message.text)).toEqual([
+    expect((await transcript("worker-thread")).slice(-2).map((message) => message.text)).toEqual([
       "[pane 0f3c9a1e] from worker (worker): from the pane",
       "[pane 0f3c9a1e] from worker (worker): piped",
     ]);
@@ -500,7 +500,7 @@ describe("POST /api/mailbox", () => {
       expect(run.stdout).not.toContain("PWNED");
       expect(run.stderr).toBe("");
     }
-    const posted = (await transcript("teacher-thread")).slice(-texts.length).map((message) => message.text);
+    const posted = (await transcript("worker-thread")).slice(-texts.length).map((message) => message.text);
     expect(posted).toEqual(texts.map((text) => `[pane 0f3c9a1e] from worker (worker): ${text}`));
     expect(deferredNotes.slice(-2 * texts.length)).toEqual([...texts, ...texts]);
     expect(posted.join("\n")).not.toContain(paneEnv.ORBIT_MSG_AUTH);
