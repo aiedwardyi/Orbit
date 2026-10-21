@@ -104,7 +104,7 @@ describe("empty-engine first launch screen", () => {
     try {
       const html = markup();
       expect(html).toContain(">Sign In<");
-      expect(html).toContain(">Details<");
+      expect(html).not.toContain(">Details<");
       expect(html).not.toContain("Open Sign-in in Terminal");
       expect(html).toContain("Install Grok");
     } finally { Object.assign(claude, previous); }

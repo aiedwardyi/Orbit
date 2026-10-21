@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { applyLocale, I18nProvider, translate } from "@/lib/i18n";
+import { applyLocale, I18nProvider } from "@/lib/i18n";
 import type { InstanceInfo } from "@/state/store";
 
 const { mockInstances, refreshInstances, dispatch } = vi.hoisted(() => {
@@ -45,7 +45,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   };
 });
 
-import { CustomPicker, EngineRow, EnginesSettings, cliPickerCommitValue, inUseCliPath, isEngineConnected } from "./EnginesSettings";
+import { EngineRow, EnginesSettings, isEngineConnected } from "./EnginesSettings";
 import { EngineSetup } from "./EngineSetup";
 
 applyLocale("en");
@@ -61,7 +61,6 @@ it("shares signed-out instances with the model picker and onboarding", async () 
     await act(async () => root.render(createElement(I18nProvider, null, createElement(EngineRow, {
       instance: instance({ install: { logout: ["logout"] } }),
     }))));
-    await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Details"))!.click());
     await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Sign Out"))!.click());
     expect(dispatch).toHaveBeenCalledWith({ type: "instances", instances: [signedOut], preserveRateLimits: true });
   } finally {
@@ -70,9 +69,7 @@ it("shares signed-out instances with the model picker and onboarding", async () 
   }
 });
 
-const PATH_DEFAULT = "/usr/bin/claude";
 const OTHER = "/opt/homebrew/bin/claude";
-const CANDIDATES = [PATH_DEFAULT, OTHER];
 
 function instance(partial: Partial<InstanceInfo> = {}): InstanceInfo {
   return {
@@ -82,177 +79,103 @@ function instance(partial: Partial<InstanceInfo> = {}): InstanceInfo {
     snapshot: { state: "available", authenticated: true },
     models: { default: "sonnet", options: [] },
     cliDefault: "claude",
-    cliCandidates: CANDIDATES,
     ...partial,
   };
 }
 
-function pickerMarkup(partial: Partial<InstanceInfo> = {}) {
-  const inst = instance(partial);
-  return renderToStaticMarkup(
-    createElement(
-      I18nProvider,
-      null,
-      createElement(CustomPicker, {
-        instance: inst,
-        cliDefault: inst.cliDefault,
-        onClose: () => undefined,
-        onSaved: async () => undefined,
-      }),
-    ),
-  );
-}
-
-describe("inUseCliPath", () => {
-  it("uses the override when that path is a detected candidate", () => {
-    expect(inUseCliPath({ cli: OTHER }, CANDIDATES)).toBe(OTHER);
-  });
-
-  it("uses the PATH-default candidate when no override is set", () => {
-    expect(inUseCliPath({}, CANDIDATES)).toBe(PATH_DEFAULT);
-    expect(inUseCliPath({ cliDefault: "claude" }, CANDIDATES)).toBe(PATH_DEFAULT);
-  });
-
-  it("uses an exact cliDefault path when that is the driver default", () => {
-    expect(inUseCliPath({ cliDefault: OTHER }, CANDIDATES)).toBe(OTHER);
-  });
-
-  it("marks nothing when the override is a wrapper outside the list", () => {
-    expect(inUseCliPath({ cli: "/ag claude agp" }, CANDIDATES)).toBeUndefined();
-  });
-
-  it("does not invent a path when there are no candidates", () => {
-    expect(inUseCliPath({}, [])).toBeUndefined();
-    expect(inUseCliPath({ cli: PATH_DEFAULT }, [])).toBeUndefined();
-  });
-});
-
-describe("CLI-candidates in-use marker", () => {
-  it("labels only the in-use candidate and keeps every option value as the raw path", () => {
-    const html = pickerMarkup({ cli: OTHER });
-    expect(html).toMatch(
-      new RegExp(`<option[^>]*value="${OTHER}"[^>]*>${OTHER} · in use<`),
-    );
-    expect(html).toMatch(
-      new RegExp(`<option[^>]*value="${PATH_DEFAULT}"[^>]*>${PATH_DEFAULT}<`),
-    );
-    expect(html).not.toContain(`${PATH_DEFAULT} · in use`);
-    expect(html).not.toContain(`value="${OTHER} · in use"`);
-    const selectStart = html.indexOf("<select");
-    const selectEnd = html.indexOf("</select>", selectStart);
-    expect(selectStart).toBeGreaterThanOrEqual(0);
-    expect(selectEnd).toBeGreaterThanOrEqual(0);
-    const selectHtml = html.slice(selectStart, selectEnd);
-    expect(selectHtml.indexOf(PATH_DEFAULT)).toBeLessThan(selectHtml.indexOf(OTHER));
-  });
-
-  it("marks the PATH-default candidate when the engine is on the driver default", () => {
-    const html = pickerMarkup();
-    expect(html).toContain(`${PATH_DEFAULT} · in use`);
-    expect(html).not.toContain(`${OTHER} · in use`);
-    expect(html).toContain(`value="${PATH_DEFAULT}"`);
-    expect(html).toContain(`value="${OTHER}"`);
-  });
-
-  it("does not label any detected path when the override is a wrapper outside the list", () => {
-    const html = pickerMarkup({ cli: "/ag claude agp" });
-    expect(html).not.toContain(" · in use");
-    expect(html).toContain(`value="${PATH_DEFAULT}"`);
-    expect(html).toContain(`value="${OTHER}"`);
-  });
-
-  it("selecting a labeled option still commits the raw path", () => {
-    const inUse = inUseCliPath({ cli: OTHER }, CANDIDATES);
-    expect(inUse).toBe(OTHER);
-    const labeled = translate("en", "engines.inUseSuffix", { cli: OTHER });
-    expect(labeled).toBe(`${OTHER} · in use`);
-    expect(cliPickerCommitValue("", OTHER)).toBe(OTHER);
-    expect(cliPickerCommitValue("", OTHER)).not.toBe(labeled);
-    expect(cliPickerCommitValue("/tmp/wrapper", OTHER)).toBe("/tmp/wrapper");
-  });
-});
-
 describe("EnginesSettings friends Connections list", () => {
-  it.each([undefined, "/missing/grok"])("opens the missing engine path picker for %s", async (cli) => {
-    const grok = mockInstances.find((row) => row.instanceId === "grok")!;
-    const previous = { ...grok };
-    const previousFetch = globalThis.fetch;
-    grok.snapshot = { state: "unavailable" };
-    grok.cli = cli;
-    grok.install = { command: { linux: "install-grok" }, signInCommand: "grok login" };
-    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ candidates: [] })));
+  async function renderList() {
     const host = document.createElement("div");
     const root = createRoot(host);
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(EnginesSettings))));
+    const row = (id: string) => [...host.querySelectorAll("div")].find((node) => node.dataset.engineRow === id)!;
+    return { host, root, row };
+  }
+
+  function stage(id: string, partial: Partial<InstanceInfo>) {
+    const target = mockInstances.find((row) => row.instanceId === id)!;
+    const previous = { ...target };
+    Object.assign(target, partial);
+    return () => {
+      for (const key of Object.keys(target)) delete (target as unknown as Record<string, unknown>)[key];
+      Object.assign(target, previous);
+    };
+  }
+
+  it("shows a connected engine as Connected with a quiet Sign Out and nothing else", async () => {
+    const restore = stage("claude", { cli: OTHER, install: { logout: ["auth", "logout"], signInCommand: "claude", docsUrl: "https://example.com/claude" } });
+    const { root, row } = await renderList();
     try {
-      await act(async () => root.render(createElement(I18nProvider, null, createElement(EnginesSettings))));
+      expect(row("claude").textContent).toBe("ClaudeConnectedSign Out");
+      expect(row("claude").querySelector("input, select, code, a")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  it("shows a signed-out engine with only Sign In", async () => {
+    const restore = stage("codex", {
+      snapshot: { state: "available", authenticated: false },
+      install: { login: { args: ["login"] }, logout: ["logout"], signInCommand: "codex login", docsUrl: "https://example.com/codex" },
+    });
+    const { root, row } = await renderList();
+    try {
+      expect([...row("codex").querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Sign In"]);
+      expect(row("codex").textContent).toBe("CodexSign In");
+      expect(row("codex").querySelector("input, select, code, a")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
+  it.each([undefined, "/missing/grok"])("shows a missing engine as Not Installed with its install link for cli %s", async (cli) => {
+    const restore = stage("grok", {
+      snapshot: { state: "unavailable" },
+      cli,
+      install: { command: { win32: "install-grok", linux: "install-grok", darwin: "install-grok" }, signInCommand: "grok login", docsUrl: "https://x.ai/cli" },
+    });
+    const { host, root, row } = await renderList();
+    try {
+      expect(row("grok")).toBeUndefined();
       await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === "More Engines")!.click());
-      const row = [...host.querySelectorAll("div")].find((node) => node.dataset.engineRow === "grok");
-      expect(row).toBeDefined();
-      expect(row!.querySelector("input")).toBeNull();
-      await act(async () => [...row!.querySelectorAll("button")].find((button) => button.textContent === "Details")!.click());
-      expect(row!.querySelector("input")?.value).toBe(cli ?? "");
-      expect(row!.textContent?.includes("Reset")).toBe(Boolean(cli));
+      expect(row("grok").textContent).toBe("GrokNot InstalledInstall");
+      expect(row("grok").querySelector("a")?.getAttribute("href")).toBe("https://x.ai/cli");
+      expect(row("grok").querySelector("button, input, select, code")).toBeNull();
     } finally {
       await act(async () => root.unmount());
-      delete grok.cli;
-      delete grok.install;
-      Object.assign(grok, previous);
-      globalThis.fetch = previousFetch;
+      restore();
     }
   });
 
-  it("preserves usage reports after resetting a CLI path", async () => {
-    const row = instance({ cli: OTHER });
-    const refreshed = instance();
-    const previous = globalThis.fetch;
-    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ instances: [refreshed], candidates: CANDIDATES })));
-    dispatch.mockClear();
-    const host = document.createElement("div");
-    const root = createRoot(host);
+  it("omits the install link when an engine has no guide", async () => {
+    const restore = stage("grok", { snapshot: { state: "unavailable" } });
+    const { host, root, row } = await renderList();
     try {
-      await act(async () => root.render(createElement(I18nProvider, null, createElement(EngineRow, { instance: row }))));
-      await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Details")!.click());
-      await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Reset")!.click());
-      expect(dispatch).toHaveBeenCalledWith({ type: "instances", instances: [refreshed], preserveRateLimits: true });
+      await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === "More Engines")!.click());
+      expect(row("grok").textContent).toBe("GrokNot Installed");
+      expect(row("grok").querySelector("a")).toBeNull();
     } finally {
       await act(async () => root.unmount());
-      globalThis.fetch = previous;
+      restore();
     }
   });
 
-  it("shows installed engines once with quiet Connected rows and Details", () => {
+  it("shows installed engines once with no path or Details controls", () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(EnginesSettings)));
     for (const name of ["Claude", "Codex", "Grok", "Gemini (Antigravity)", "Meta Muse"]) {
       expect(html.split(name)).toHaveLength(2);
     }
     expect(html.match(/>Connected</g)).toHaveLength(5);
-    expect(html.match(/>Details</g)).toHaveLength(5);
+    expect(html).not.toContain("Details");
+    expect(html).not.toContain("Advanced");
+    expect(html).not.toMatch(/<(input|select|code)/);
     expect(html).not.toContain("lucide-triangle-alert");
     expect(html).not.toContain("lucide-check");
     expect(html).not.toContain("Set CLI");
     expect(html).not.toContain("Gemini API");
     expect(html).not.toContain("Kimi");
-  });
-
-  it("holds absent engines under More Engines until opened", async () => {
-    const grok = mockInstances.find((row) => row.instanceId === "grok")!;
-    const previous = grok.snapshot;
-    grok.snapshot = { state: "unavailable" };
-    grok.install = { command: { linux: "install-grok" }, signInCommand: "grok login" };
-    const host = document.createElement("div");
-    const root = createRoot(host);
-    try {
-      await act(async () => root.render(createElement(I18nProvider, null, createElement(EnginesSettings))));
-      expect(host.textContent).toContain("More Engines");
-      expect(host.textContent).not.toContain("Install Grok");
-      const more = [...host.querySelectorAll("button")].find((button) => button.textContent === "More Engines")!;
-      await act(async () => more.click());
-      expect(host.textContent).toContain("Install Grok");
-    } finally {
-      await act(async () => root.unmount());
-      grok.snapshot = previous;
-      delete grok.install;
-    }
   });
 });
 

@@ -60,7 +60,6 @@ describe("Onboarding engine check", () => {
     const next = () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Open Wink")!;
     expect(ready()).toBeDefined();
     expect(next().disabled).toBe(false);
-    await click("Details");
     await click("Sign Out");
     expect(ready()).toBeUndefined();
     expect(next().disabled).toBe(true);
@@ -80,7 +79,7 @@ describe("Onboarding engine check", () => {
     const next = [...host.querySelectorAll("button")].find((button) => button.textContent === "Continue")!;
     await act(async () => next.click());
     expect(host.textContent).toContain("Sign In");
-    expect(host.textContent).toContain("Details");
+    expect(host.textContent).not.toContain("Details");
     expect(host.textContent).not.toContain("Open Sign-in in Terminal");
   });
   it("asks an unpaired phone to sign in instead of blaming the engines", async () => {
