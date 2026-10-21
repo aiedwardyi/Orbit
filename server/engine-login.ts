@@ -25,8 +25,13 @@ export class EngineLogin {
   private jobs = new Map<string, LoginJob>();
   private nextGeneration = 0;
   private disposed = false;
+  private timeoutMs: number;
+  private captureMs: number;
 
-  constructor(private timeoutMs = 5 * 60_000, private captureMs = 10_000) {}
+  constructor(timeoutMs = 5 * 60_000, captureMs = 10_000) {
+    this.timeoutMs = timeoutMs;
+    this.captureMs = captureMs;
+  }
 
   state(engine: string): LoginState | undefined {
     return this.jobs.get(engine)?.state;
