@@ -554,15 +554,6 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         } catch {}
       }
       const text = session.screen.text();
-      if (session.botPane && session.claudeTrust && !session.claudeTrustAnswered) {
-        const keys = claudeTrustKeys(text);
-        if (keys && (keys === "\r" || !session.claudeTrustMoved)) {
-          if (keys === "\r") session.claudeTrustAnswered = true;
-          else session.claudeTrustMoved = true;
-          typeIntoPane(session, keys);
-          continue;
-        }
-      }
       const context = paneContext(text, session.engine);
       // The compact hook can run before Claude clears its old low-context footer.
       if (session.contextCompactPending && (!context || !contextOver(context))) {
@@ -768,6 +759,14 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       try {
         session.screen.consume(data);
       } catch {}
+      if (session.worker && session.exitCode === null && session.botPane && session.claudeTrust && !session.claudeTrustAnswered) {
+        const keys = claudeTrustKeys(session.screen.text());
+        if (keys && (keys === "\r" || !session.claudeTrustMoved)) {
+          if (keys === "\r") session.claudeTrustAnswered = true;
+          else session.claudeTrustMoved = true;
+          typeIntoPane(session, keys);
+        }
+      }
       if (session.worker && !session.agentSeen) {
         const chunk = parsed.text.replace(/\s+/g, "");
         const output = chunk.includes(session.agentCommand) ? chunk : session.screen.text().replace(/\s+/g, "");
