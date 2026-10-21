@@ -46,12 +46,14 @@ import type {
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { appendNative, finishNative } from "./native.ts";
-import { isResumeCursorRejected } from "./retry.ts";
+import { BUSY_RESUME_DELAYS_MS, busyResumeReason, interruptibleDelay, isResumeCursorRejected } from "./retry.ts";
 import { systemLedger } from "./system-ledger.ts";
 import { antigravitySignIn } from "./antigravity-auth.ts";
 
 const DRIVER_KIND = "antigravityAgent";
 const AGY_STOPPED_NOTE = "The bot stopped before finishing.";
+const AGY_BUSY_RESUME_PROMPT = "continue";
+const AGY_STILL_BUSY = "Gemini is still busy after 3 tries. Try another model.";
 const AGY_SYSTEM_NOTICE = /<SYSTEM_MESSAGE\b/i;
 const AGY_CONTEXT_CANCELLATION = /\bcontext\s+cancel(?:ed|led)\b/i;
 const AGY_ACCOUNT_ERROR =
@@ -450,7 +452,7 @@ export function buildAntigravityTurnArgv(input: AntigravityTurnArgvInput): strin
     "--output-format",
     "stream-json",
     "--print-timeout",
-    "10m",
+    "60m",
     "--add-dir",
     input.cwd,
   ];
@@ -567,7 +569,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
 
     // A resume fallback relaunch is the same logical turn: the harness holds
     // the first id as live and drops events from any other.
-    const sendTurn = async (turn: SendTurnInput, relaunchOf?: string) => {
+    const sendTurn = async (turn: SendTurnInput, relaunchOf?: string, busyResumes = 0, priorUsage = { input: 0, output: 0 }) => {
       const { threadId } = turn;
       if (disposed) throw new Error("Antigravity instance is disposed");
       if (active.has(threadId)) throw new Error("a turn is already running on this thread");
@@ -604,26 +606,30 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       // everything before it, so the next prompt re-sends the system text
       let checkpointed = false;
       // backstop watchdog: if agy hangs without emitting `result` and without
-      // exiting, the bot would stay busy forever (agy's own --print-timeout 10m
+      // exiting, the bot would stay busy forever (agy's own --print-timeout 60m
       // is the only other net). Assigned just below; settle() always clears it.
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       // Assigned once the child exists. A child can emit `result` and then
       // hang, so settling must still arrange for process and MCP cleanup.
       let armPostSettleCleanup = () => {};
+      const endAttempt = () => {
+        if (settled) return false;
+        settled = true;
+        const conversation = conversationId ?? resumeCursor;
+        if (conversation && checkpointed) systemHeld.forget(conversation);
+        else if (conversation && system && promptAccepted) systemHeld.record(conversation, system);
+        clearTimeout(watchdog);
+        armPostSettleCleanup();
+        return true;
+      };
       const settle = (
         ok: boolean,
         stopReason: string | null,
         cost: number | null = null,
         usage?: { input: number; output: number },
       ) => {
-        if (settled) return;
-        settled = true;
-        const conversation = conversationId ?? resumeCursor;
-        if (conversation && checkpointed) systemHeld.forget(conversation);
-        else if (conversation && system && promptAccepted) systemHeld.record(conversation, system);
-        clearTimeout(watchdog);
+        if (!endAttempt()) return;
         active.delete(threadId);
-        armPostSettleCleanup();
         emit({
           ...base(threadId, turnId),
           type: "turn.completed",
@@ -830,6 +836,37 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
 
       let cancelledTool = false;
 
+      // A busy resume is the same logical turn, so its usage carries forward.
+      const withPriorUsage = (usage: { input_tokens?: number; cache_read_tokens?: number; output_tokens?: number }) => ({
+        input: priorUsage.input + (usage.input_tokens || 0) + (usage.cache_read_tokens || 0),
+        output: priorUsage.output + (usage.output_tokens || 0),
+      });
+
+      // The thread stays held through the wait so Stop or a new message cancels it.
+      const resumeWhenFree = (conversation: string, reason: string, attemptUsage: { input: number; output: number }) => {
+        endAttempt();
+        const abort = new AbortController();
+        active.set(threadId, { stop: () => abort.abort(), interrupt: () => abort.abort(), turnId });
+        const delayMs = BUSY_RESUME_DELAYS_MS[busyResumes];
+        emit({ ...base(threadId, turnId), type: "turn.retrying", attempt: busyResumes + 1, delayMs, reason });
+        void interruptibleDelay(delayMs, abort.signal).promise.then(async (outcome) => {
+          active.delete(threadId);
+          if (outcome === "cancelled" || disposed) {
+            emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "interrupted", cost: null, promptAccepted: true });
+            return;
+          }
+          await sendTurn(
+            { ...turn, text: AGY_BUSY_RESUME_PROMPT, resumeCursor: conversation, resumeFallback: undefined },
+            turnId,
+            busyResumes + 1,
+            attemptUsage,
+          );
+        }).catch((error) => {
+          emit({ ...base(threadId, turnId), type: "runtime.error", message: error instanceof Error ? error.message : String(error) });
+          emit({ ...base(threadId, turnId), type: "turn.completed", ok: false, stopReason: "busy_resume_failed", cost: null });
+        });
+      };
+
       const handleLine = (line: string) => {
         let o: any;
         try {
@@ -864,12 +901,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
                 emit({ ...base(threadId, turnId), type: "item.completed", itemType: "tool", itemId, ok: false });
               }
             } else if (payload.step_type === "agent_response" && payload.usage) {
-              emit({
-                ...base(threadId, turnId),
-                type: "thread.token-usage.updated",
-                input: (payload.usage.input_tokens || 0) + (payload.usage.cache_read_tokens || 0),
-                output: payload.usage.output_tokens || 0,
-              });
+              emit({ ...base(threadId, turnId), type: "thread.token-usage.updated", ...withPriorUsage(payload.usage) });
             }
             break;
           }
@@ -884,6 +916,15 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             // agy leaves a retried attempt's 429/5xx/timeout on the result even when the reply came through
             const transient = AGY_NOT_ACCOUNT_ERROR.test(agyError) || (AGY_TIMEOUT_ERROR.test(agyError) && !AGY_ACCOUNT_ERROR.test(agyError));
             const recoveredTransient = agyResultError && realResponse && transient;
+            const busyReason =
+              agyResultError && !realResponse && !cancelledTool && !interrupted && !isAgyAccountError(agyError)
+                ? busyResumeReason(agyError)
+                : null;
+            const conversation = conversationId ?? resumeCursor;
+            if (busyReason && conversation && busyResumes < BUSY_RESUME_DELAYS_MS.length) {
+              resumeWhenFree(conversation, busyReason, payload.usage ? withPriorUsage(payload.usage) : priorUsage);
+              break;
+            }
             if (recoveredTransient) {
               console.warn(`agy turn for ${threadId} recovered with a full reply; dropping retried error: ${agyError}`);
             } else if (agyResultError) {
@@ -892,6 +933,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
               } else {
                 emit({ ...base(threadId, turnId), type: "runtime.error", message: agyError });
               }
+              if (busyReason && busyResumes > 0) emit({ ...base(threadId, turnId), type: "runtime.error", message: AGY_STILL_BUSY });
             }
             if (realResponse) {
               emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "assistant_text", delta: response });
@@ -900,12 +942,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
               emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: AGY_STOPPED_NOTE });
             }
             if (payload.usage) {
-              emit({
-                ...base(threadId, turnId),
-                type: "thread.token-usage.updated",
-                input: (payload.usage.input_tokens || 0) + (payload.usage.cache_read_tokens || 0),
-                output: payload.usage.output_tokens || 0,
-              });
+              emit({ ...base(threadId, turnId), type: "thread.token-usage.updated", ...withPriorUsage(payload.usage) });
             }
             // result.usage is the turn total (the per-step agent_response
             // figures above are its parts, not additions to it)
@@ -1015,7 +1052,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         turnId,
       });
 
-      // 11 min — just above agy's own 10m --print-timeout, so agy normally
+      // 61 min - just above agy's own 60m --print-timeout, so agy normally
       // settles first; this is the backstop for a fully wedged child.
       watchdog = setTimeout(() => {
         if (!settled) {
@@ -1023,7 +1060,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
           stop();
           settle(false, "timeout");
         }
-      }, 11 * 60_000);
+      }, 61 * 60_000);
       watchdog.unref?.();
 
       emit({ ...base(threadId, turnId), type: "turn.started" });

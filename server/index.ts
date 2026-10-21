@@ -146,7 +146,7 @@ import {
   type RequestOutcome,
   type RuntimeEvent,
 } from "./contracts.ts";
-import { RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
+import { BUSY_RESUME_DELAYS_MS, RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { claimAsk, clearAskBudget, MAX_ASKS_PER_TURN } from "./comms-budget.ts";
@@ -3157,6 +3157,9 @@ void (async () => {
   }
 })();
 
+// Threads whose driver is waiting out a busy provider; a queued send cancels the wait.
+const busyResumeThreads = new Set<string>();
+
 bus.subscribe((event: RuntimeEvent) => {
   const localVmTarget = localVmThreadTargets.get(event.threadId);
   if (localVmTarget) {
@@ -3184,6 +3187,8 @@ bus.subscribe((event: RuntimeEvent) => {
   } else if (event.type === "turn.completed") {
     markChatLatency({ threadId: event.threadId, turnId: event.turnId }, "turn.completed", { turnId: event.turnId });
   }
+  if (event.type === "turn.retrying" && event.delayMs >= BUSY_RESUME_DELAYS_MS[0]) busyResumeThreads.add(event.threadId);
+  else if (event.type === "turn.started" || event.type === "turn.completed") busyResumeThreads.delete(event.threadId);
   if (event.type === "account.rate-limits.updated" && event.providerInstanceId) {
     const observedAt = event.observedAt ?? event.createdAt;
     const current = rateLimitsByInstance.get(event.providerInstanceId);
@@ -3653,7 +3658,12 @@ bus.subscribe((event: RuntimeEvent) => {
       pushMessage({
         role: "bot",
         kind: "activity",
-        tool: { name: `retrying — attempt ${event.attempt + 1}/${RETRY_MAX_ATTEMPTS} in ${Math.round(event.delayMs / 1000)}s — ${event.reason}`, ok: true },
+        tool: {
+          name: busyResumeThreads.has(event.threadId)
+            ? `Gemini is busy. Retrying in ${event.delayMs < 60_000 ? `${Math.round(event.delayMs / 1000)} sec` : `${Math.round(event.delayMs / 60_000)} min`}.`
+            : `retrying — attempt ${event.attempt + 1}/${RETRY_MAX_ATTEMPTS} in ${Math.round(event.delayMs / 1000)}s — ${event.reason}`,
+          ok: true,
+        },
       });
       break;
     case "runtime.error":
@@ -9151,6 +9161,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             if (queued.skipped) {
               return { ok: true as const, cancelled: true as const, threadId };
             }
+            if (busyResumeThreads.has(threadId)) void adapter?.interruptTurn(threadId).catch(() => {});
             markChatLatency({ sendId, threadId }, "queue.decided", { queueId: queued.id });
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
           }
