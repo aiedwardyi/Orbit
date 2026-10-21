@@ -1,12 +1,16 @@
 import "./ProfileFields.test-dom.ts";
-import { act, createElement, type ReactElement } from "react";
+import { act, createElement, type ComponentProps, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyLocale, I18nProvider } from "@/lib/i18n";
-import type { InstanceInfo } from "@/state/store";
+import { StoreProvider, type InstanceInfo } from "@/state/store";
 import { EngineSignIn } from "./EngineSetup";
-import { EngineRow } from "./EnginesSettings";
+import { EngineRow as EngineRowView } from "./EnginesSettings";
+
+function EngineRow(props: ComponentProps<typeof EngineRowView>) {
+  return createElement(StoreProvider, null, createElement(EngineRowView, props));
+}
 
 let root: Root | undefined;
 let host: HTMLDivElement;
@@ -39,6 +43,7 @@ beforeEach(() => {
   document.body.append(host);
   applyLocale("en");
   vi.useFakeTimers();
+  vi.stubGlobal("EventSource", class { onmessage = null; close = vi.fn(); });
   Object.assign(window, { ogb: undefined });
   vi.spyOn(window, "matchMedia").mockReturnValue({ matches: false } as MediaQueryList);
 });

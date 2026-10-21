@@ -256,6 +256,7 @@ export function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
 
 export function EngineRow({ instance, onConnected }: { instance: InstanceInfo; onConnected?: () => void }) {
   const { t } = useI18n();
+  const { dispatch } = useStore();
   const [current, setCurrent] = useState(instance);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -264,6 +265,7 @@ export function EngineRow({ instance, onConnected }: { instance: InstanceInfo; o
   useEffect(() => { setOpen(false); }, [current.cli]);
   const refresh = async () => {
     const { instances } = await api("/api/instances?refresh=1");
+    dispatch({ type: "instances", instances });
     const next = (instances as InstanceInfo[]).find((row) => row.instanceId === instance.instanceId);
     if (next) setCurrent(next);
   };

@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { removeTempDir } from "./testing/cleanup.ts";
 import { EngineLogin } from "./engine-login.ts";
@@ -12,6 +12,8 @@ const dirs: string[] = [];
 afterEach(async () => {
   await Promise.all(managers.splice(0).map((manager) => manager.dispose()));
   await Promise.all(dirs.splice(0).map((dir) => removeTempDir(dir)));
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 function fixture(timeout = 5000, capture = 500) {
@@ -28,6 +30,10 @@ function fixture(timeout = 5000, capture = 500) {
       fs.writeFileSync(file + '.pid', String(child.pid));
     }
     if (mode === 'env') fs.writeFileSync(file, process.env.MUSE_LOGIN || 'missing');
+    if (mode === 'credentials') fs.writeFileSync(file, JSON.stringify({
+      token: process.env.OMB_COMMS_TOKEN, key: process.env.ANTHROPIC_API_KEY,
+      extra: process.env.SIGNIN_REVIEW_SECRET, config: process.env.CLAUDE_CONFIG_DIR,
+    }));
     if (mode === 'count') fs.appendFileSync(file, '.');
     process.stdin.on('end', () => process.exit(130));
     process.stdin.resume();
@@ -48,6 +54,37 @@ function fixture(timeout = 5000, capture = 500) {
 }
 
 describe("EngineLogin", () => {
+  it("does not inherit credentials outside the supplied login environment", async () => {
+    vi.stubEnv("OMB_COMMS_TOKEN", "review-token");
+    vi.stubEnv("ANTHROPIC_API_KEY", "review-key");
+    vi.stubEnv("SIGNIN_REVIEW_SECRET", "review-secret");
+    const { manager, cli, dir } = fixture();
+    const file = join(dir, "credentials");
+    await manager.start("claude", cli, ["credentials", file], { CLAUDE_CONFIG_DIR: dir });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ config: dir });
+  });
+
+  it("settles cancellation when the killed child never emits close", async () => {
+    const { manager, cli } = fixture();
+    const closeListeners: ((...args: unknown[]) => void)[] = [];
+    const { ChildProcess } = await import("node:child_process");
+    const original = ChildProcess.prototype.once;
+    const once = vi.spyOn(ChildProcess.prototype, "once");
+    once.mockImplementation(function (this: import("node:child_process").ChildProcess, event, listener) {
+      if (event === "close") { closeListeners.push(listener); return this; }
+      return original.call(this, event, listener);
+    });
+    await manager.start("fake", cli, ["normal"]);
+    expect(closeListeners.length).toBeGreaterThan(0);
+    const settled = await Promise.race([
+      manager.cancel("fake").then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2500)),
+    ]);
+    once.mockRestore();
+    if (!settled) for (const listener of closeListeners) listener(null, "SIGTERM");
+    expect(settled).toBe(true);
+  });
+
   it.each(["normal", "chunks", "stdout"])("captures only URL and code from %s output", async (mode) => {
     const { manager, cli } = fixture();
     expect(await manager.start("fake", cli, [mode])).toEqual({ url: "https://auth.example/device", code: "ABCD-EFGH" });

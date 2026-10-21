@@ -851,6 +851,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     },
     refreshModels,
     snapshot,
+    loginConfig: () => ({ cli: config.cli, env: childEnv() }),
     adapter: {
       provider: DRIVER_KIND,
       capabilities: {

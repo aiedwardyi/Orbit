@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { applyLocale, I18nProvider, translate } from "@/lib/i18n";
 import type { InstanceInfo } from "@/state/store";
 
-const { mockInstances, refreshInstances } = vi.hoisted(() => {
+const { mockInstances, refreshInstances, dispatch } = vi.hoisted(() => {
   const row = (instanceId: string, driverKind: string, displayName: string): InstanceInfo => ({
     instanceId,
     driverKind,
@@ -17,6 +17,7 @@ const { mockInstances, refreshInstances } = vi.hoisted(() => {
     cliDefault: instanceId,
   });
   return {
+    dispatch: vi.fn(),
     refreshInstances: vi.fn(async () => undefined),
     mockInstances: [
       row("claude", "claudeAgent", "Claude"),
@@ -38,14 +39,35 @@ vi.mock("@/state/store", async (importOriginal) => {
     useStore: () => ({
       state: { instances: mockInstances },
       refreshInstances,
+      dispatch,
     }),
   };
 });
 
-import { CustomPicker, EnginesSettings, cliPickerCommitValue, inUseCliPath, isEngineConnected } from "./EnginesSettings";
+import { CustomPicker, EngineRow, EnginesSettings, cliPickerCommitValue, inUseCliPath, isEngineConnected } from "./EnginesSettings";
 import { EngineSetup } from "./EngineSetup";
 
 applyLocale("en");
+
+it("shares signed-out instances with the model picker and onboarding", async () => {
+  const signedOut = instance({ snapshot: { state: "available", authenticated: false }, install: { logout: ["logout"] } });
+  const previous = globalThis.fetch;
+  globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ instances: [signedOut], candidates: [] }), { status: 200 }));
+  dispatch.mockClear();
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(EngineRow, {
+      instance: instance({ install: { logout: ["logout"] } }),
+    }))));
+    await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Details"))!.click());
+    await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Sign Out"))!.click());
+    expect(dispatch).toHaveBeenCalledWith({ type: "instances", instances: [signedOut] });
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.fetch = previous;
+  }
+});
 
 const PATH_DEFAULT = "/usr/bin/claude";
 const OTHER = "/opt/homebrew/bin/claude";

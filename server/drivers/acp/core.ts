@@ -1500,6 +1500,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         },
         refreshModels: support.resolveModels ? refreshModels : undefined,
         snapshot,
+        loginConfig: () => ({ cli: effectiveCli(), env: childEnv() }),
         adapter: {
           provider: DRIVER_KIND,
           capabilities: {

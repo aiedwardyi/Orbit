@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { writeFileAtomic } from "../atomic.ts";
+import { applyCredentialAllowlist } from "../config.ts";
 import { findCliCandidates, refreshPathCache, splitCliString } from "../env-path.ts";
 import { clearVersionCache } from "../procs.ts";
 import { EngineLogin } from "../engine-login.ts";
@@ -227,68 +228,74 @@ export class ProviderRegistry {
   private loginConfig(instanceId: InstanceId) {
     const live = this.get(instanceId);
     const driver = live && this.driversByKind.get(live.driverKind);
-    const cli = this.cliByInstance.get(instanceId) ?? cliDefaultOf(driver || undefined);
+    const resolved = live?.loginConfig?.();
+    const cli = resolved?.cli ?? this.cliByInstance.get(instanceId) ?? cliDefaultOf(driver || undefined);
+    const env = resolved?.env ?? { ...process.env, ...this.environmentByInstance.get(instanceId) };
+    if (!resolved) applyCredentialAllowlist(env);
     return live && driver && cli ? {
       engine: driver.driverKind, cli, install: driver.install,
-      env: { ...this.environmentByInstance.get(instanceId), ...driver.install?.login?.env },
+      env: { ...env, ...driver.install?.login?.env },
     } : null;
   }
 
   async startSignIn(instanceId: InstanceId, device = false) {
     const config = this.loginConfig(instanceId);
-    if (!config || this.signingOut.has(config.engine)) return null;
-    if (config.engine === "antigravityAgent" && !device) return this.logins.waitExternal(config.engine);
+    if (!config || this.signingOut.has(instanceId)) return null;
+    if (config.engine === "antigravityAgent" && !device) return this.logins.waitExternal(instanceId);
     const login = config.install?.login;
     const args = device ? login?.deviceArgs : login?.args;
     if (!args) return null;
-    const capture = await this.logins.start(config.engine, config.cli, args, config.env);
+    const capture = await this.logins.start(instanceId, config.cli, args, config.env);
     return login?.deviceArgs ? capture : capture.url ? { url: capture.url } : {};
   }
 
   async cancelSignIn(instanceId: InstanceId) {
     const config = this.loginConfig(instanceId);
     if (!config) return false;
-    if (this.signingOut.has(config.engine)) return true;
-    await this.logins.cancel(config.engine);
+    if (this.signingOut.has(instanceId)) return true;
+    await this.logins.cancel(instanceId);
     return true;
   }
 
   async signOut(instanceId: InstanceId) {
     const config = this.loginConfig(instanceId);
     if (!config?.install?.logout) return null;
-    if (this.signingOut.has(config.engine)) return false;
-    this.signingOut.add(config.engine);
+    if (this.signingOut.has(instanceId)) return false;
+    this.signingOut.add(instanceId);
     try {
-      await this.logins.cancel(config.engine);
-      await this.logins.start(config.engine, config.cli, config.install.logout, config.env);
-      await this.logins.wait(config.engine);
-      const success = this.logins.state(config.engine) === "complete";
+      await this.logins.cancel(instanceId);
+      await this.logins.start(instanceId, config.cli, config.install.logout, config.env);
+      await this.logins.wait(instanceId);
+      const success = this.logins.state(instanceId) === "complete";
       if (success) {
-        this.logins.clear(config.engine);
+        this.logins.clear(instanceId);
         const previous = this.probed.get(instanceId);
-        const snapshot = await this.get(instanceId)!.snapshot({ refresh: true });
-        if (previous) this.probed.set(instanceId, { ...previous, snapshot });
-        this.probeVersion += 1;
+        const live = this.get(instanceId);
+        if (live) {
+          const snapshot = await live.snapshot({ refresh: true });
+          if (previous && this.get(instanceId) === live) this.probed.set(instanceId, { ...previous, snapshot });
+          this.probeVersion += 1;
+        }
       }
       return success;
     } finally {
-      this.signingOut.delete(config.engine);
+      this.signingOut.delete(instanceId);
     }
   }
 
   async refreshLogins() {
     await Promise.all(this.entries().map(async (entry) => {
       const live = entry.live;
-      if (!live || this.signingOut.has(live.driverKind) || !this.logins.needsRefresh(live.driverKind)) return;
+      if (!live || this.signingOut.has(entry.instanceId) || !this.logins.needsRefresh(entry.instanceId)) return;
       const previous = this.probed.get(entry.instanceId);
       if (!previous) return;
-      const generation = this.logins.generation(live.driverKind);
+      const generation = this.logins.generation(entry.instanceId);
       const snapshot = await live.snapshot({ refresh: true });
-      if (this.signingOut.has(live.driverKind) || this.logins.generation(live.driverKind) !== generation || !this.logins.needsRefresh(live.driverKind)) return;
+      if (this.signingOut.has(entry.instanceId) || this.logins.generation(entry.instanceId) !== generation || !this.logins.needsRefresh(entry.instanceId)) return;
       this.probed.set(entry.instanceId, { ...previous, snapshot });
       this.probeVersion += 1;
-      if (snapshot.authenticated) this.logins.complete(live.driverKind);
-      this.logins.acknowledge(live.driverKind, snapshot.authenticated === true);
+      if (snapshot.authenticated) this.logins.complete(entry.instanceId);
+      this.logins.acknowledge(entry.instanceId, snapshot.authenticated === true);
     }));
   }
 
@@ -495,9 +502,10 @@ export class ProviderRegistry {
     const inst = entry.live;
     return {
       instanceId: inst.instanceId,
-      loginState: this.signingOut.has(inst.driverKind) ? "cancelled" : this.logins.state(inst.driverKind),
-      loginCapture: driver?.install?.login?.deviceArgs ? this.logins.capture(inst.driverKind)
-        : { url: this.logins.capture(inst.driverKind).url },
+      loginState: this.signingOut.has(inst.instanceId) ? "cancelled" : this.logins.state(inst.instanceId),
+      loginCapture: this.signingOut.has(inst.instanceId) ? {}
+        : driver?.install?.login?.deviceArgs ? this.logins.capture(inst.instanceId)
+        : { url: this.logins.capture(inst.instanceId).url },
       driverKind: inst.driverKind,
       displayName: inst.displayName ?? inst.driverKind,
       snapshot: probe.snapshot,

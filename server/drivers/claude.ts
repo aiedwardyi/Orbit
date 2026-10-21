@@ -2015,6 +2015,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       },
       refreshModels,
       snapshot,
+      loginConfig: () => ({ cli: config.cli, env: claudeEnvironment(undefined, { ...process.env, ...input.environment }) }),
       adapter: {
         provider: DRIVER_KIND,
         capabilities: {

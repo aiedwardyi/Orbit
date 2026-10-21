@@ -69,7 +69,7 @@ export class EngineLogin {
         const child = spawn(resolved.command, resolved.args, {
           stdio: "pipe", windowsHide: true,
           ...(process.platform === "win32" ? {} : { detached: true }),
-          env: { ...process.env, PATH: augmentedPath(), ...env },
+          env: { PATH: augmentedPath(), ...env },
         });
         job.child = child;
         child.stdin.on("error", () => {});
@@ -132,7 +132,9 @@ export class EngineLogin {
         job.state = state;
         clearTimeout(timer);
         if (job.child && job.child.exitCode === null && job.child.signalCode === null) {
-          job.child.once("close", closed);
+          const fallback = setTimeout(closed, 1000);
+          fallback.unref();
+          job.child.once("close", () => { clearTimeout(fallback); closed(); });
           killCliTree(job.child);
         } else closed();
         for (const notify of job.changed) notify();
