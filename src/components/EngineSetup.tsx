@@ -1,9 +1,10 @@
 // A focused setup card shared by onboarding, the model picker, and runtime
 // errors. The command has one inline copy action and one primary next step;
 // unusable model lists stay out of the way until the engine is ready.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Copy, Download, ExternalLink, KeyRound, LogIn, TerminalSquare } from "lucide-react";
-import { useStore, type EngineInstall, type InstanceInfo } from "@/state/store";
+import { api, useEngineLoginRefresh, useStore, type EngineInstall, type InstanceInfo } from "@/state/store";
+import { isPhone } from "@/lib/phone-swipe";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 
@@ -120,7 +121,7 @@ export function OpenConnectionsCta({ className }: { className?: string }) {
   );
 }
 
-function CommandRow({ command, actionLabel, signInInstanceId }: { command: string; actionLabel: string; signInInstanceId?: string }) {
+export function CommandRow({ command, actionLabel, signInInstanceId, quiet = false }: { command: string; actionLabel: string; signInInstanceId?: string; quiet?: boolean }) {
   const { t } = useI18n();
   const [status, setStatus] = useState<"copied" | "opened" | "running" | null>(null);
   const canOpen = Boolean(signInInstanceId ? window.ogb?.openEngineSignIn : window.ogb?.openInstallTerminal);
@@ -186,7 +187,8 @@ function CommandRow({ command, actionLabel, signInInstanceId }: { command: strin
           <button
             type="button"
             onClick={() => void openTerminal()}
-            className="mt-2 flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-accent-ink hover:brightness-110"
+            className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold",
+              quiet ? "bg-control text-ink hover:bg-raised-hover" : "whitespace-nowrap bg-accent text-accent-ink hover:brightness-110")}
           >
             {status === "opened" || status === "running" ? <Check size={14} /> : <TerminalSquare size={14} />}
             {status === "opened" || status === "running" ? t("engine.terminalOpened") : actionLabel}
@@ -207,6 +209,110 @@ function CommandRow({ command, actionLabel, signInInstanceId }: { command: strin
           {status === "copied" ? t("engine.commandCopied") : t("engine.copyCommand")}
         </button>
       )}
+    </div>
+  );
+}
+
+export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; onUpdated?: (instance: InstanceInfo) => void }) {
+  const { t } = useI18n();
+  const [current, setCurrent] = useState(instance);
+  const [waiting, setWaiting] = useState(instance.loginState === "pending");
+  const [failed, setFailed] = useState(instance.loginState === "failed");
+  const [capture, setCapture] = useState(instance.loginCapture ?? {});
+  const [copyFallback, setCopyFallback] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const generation = useRef(0);
+  const phone = !window.ogb && isPhone();
+  const external = instance.driverKind === "antigravityAgent";
+  const computerOnly = phone && (external || !instance.install?.login?.deviceArgs);
+  const connected = current.snapshot.state === "available" && current.snapshot.authenticated === true;
+  const path = `/api/instances/${encodeURIComponent(instance.instanceId)}/sign-in`;
+
+  useEffect(() => {
+    setWaiting(instance.loginState === "pending");
+    setFailed(instance.loginState === "failed");
+    setCapture(instance.loginCapture ?? {});
+    setCopyFallback(false);
+    setBusy(false);
+    return () => { generation.current += 1; };
+  }, [instance.instanceId]);
+  useEffect(() => {
+    setCurrent(instance);
+    if (instance.loginState === "pending") {
+      setWaiting(true);
+      setCapture(instance.loginCapture ?? {});
+    }
+    if (instance.snapshot.authenticated === true) setWaiting(false);
+  }, [instance]);
+
+  useEngineLoginRefresh(waiting, (instances) => {
+    const next = instances.find((row) => row.instanceId === instance.instanceId);
+    if (!next) return;
+    setCurrent(next);
+    setCapture(next.loginCapture ?? {});
+    onUpdated?.(next);
+    if (next.snapshot.authenticated === true) { setWaiting(false); setFailed(false); }
+    else if (next.loginState !== "pending") { setWaiting(false); setFailed(next.loginState !== "cancelled"); }
+  });
+
+  const start = async () => {
+    if (waiting || busy) return;
+    const request = ++generation.current;
+    setWaiting(true);
+    setFailed(false);
+    setCapture({});
+    setCopyFallback(false);
+    try {
+      const result = await api(path, { method: "POST", body: JSON.stringify({ device: phone }) });
+      if (request !== generation.current) return;
+      setCapture(result);
+      if (external) {
+        const opened = await window.ogb?.openEngineSignIn?.(instance.instanceId);
+        if (request !== generation.current) return;
+        if (opened === "copied" || opened === undefined) {
+          setCopyFallback(true);
+          if (opened === undefined && instance.install?.signInCommand) {
+            await navigator.clipboard?.writeText(instance.install.signInCommand).catch(() => {});
+          }
+        }
+      }
+    } catch {
+      if (request !== generation.current) return;
+      setWaiting(false);
+      setFailed(true);
+      void api(path, { method: "DELETE" }).catch(() => {});
+    }
+  };
+  const cancel = async () => {
+    if (busy) return;
+    const request = ++generation.current;
+    setBusy(true);
+    try {
+      await api(path, { method: "DELETE" });
+      if (request !== generation.current) return;
+      setWaiting(false);
+      setCapture({});
+    } catch { if (request === generation.current) setFailed(true); }
+    finally { if (request === generation.current) setBusy(false); }
+  };
+
+  if (connected) return <span className="text-[12px] text-ink-secondary">{t("connections.connected")}</span>;
+  if (computerOnly) return <span className="text-[12px] text-ink-secondary">{t("engines.signInFromComputer")}</span>;
+  return (
+    <div aria-live="polite" className="flex min-w-0 flex-col items-end gap-1.5 text-[12px] text-ink-secondary">
+      {waiting ? <>
+        <span>{t("engines.finishInBrowser")}</span>
+        {copyFallback && <>
+          <code className="select-all break-all font-mono text-ink">{instance.install?.signInCommand}</code>
+          <span>{t("engine.pasteAndEnter")}</span>
+        </>}
+        {capture.code && <code className="select-all break-all font-mono text-[14px] text-ink">{capture.code}</code>}
+        <div className="flex flex-wrap justify-end gap-3">
+          {capture.url && <a href={capture.url} target="_blank" rel="noreferrer" className="text-ink underline">{t("engines.openAgain")}</a>}
+          <button type="button" onClick={() => void cancel()} disabled={busy} className="text-ink underline disabled:opacity-50">{t("engines.cancel")}</button>
+        </div>
+      </> : <button type="button" onClick={() => void start()} className="rounded-lg bg-control px-3 py-2 font-medium text-ink hover:bg-raised-hover">{t("engines.signIn")}</button>}
+      {failed && <span>{t("engines.didntFinish")}</span>}
     </div>
   );
 }
@@ -258,6 +364,8 @@ export function EngineSetup({
     );
   }
 
+  const oneClick = signInOnly && (install.login || instance.driverKind === "antigravityAgent");
+
   return (
     <div className={cn("rounded-xl border border-hairline/40 bg-control/30 p-3", className)}>
       <div className="flex items-start gap-2.5">
@@ -272,6 +380,8 @@ export function EngineSetup({
 
       {keyOnly ? (
         <OpenConnectionsCta />
+      ) : oneClick ? (
+        <div className="mt-3 flex justify-end"><EngineSignIn instance={instance} /></div>
       ) : command ? (
         <CommandRow command={command} signInInstanceId={signInOnly ? instance.instanceId : undefined} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
       ) : (

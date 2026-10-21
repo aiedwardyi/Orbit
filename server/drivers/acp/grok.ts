@@ -308,6 +308,8 @@ export const grokSupport: AcpSupport = {
     },
     docsUrl: "https://x.ai/cli",
     signInCommand: "grok login",
+    login: { args: ["login"], deviceArgs: ["login", "--device-auth"] },
+    logout: ["logout"],
   },
 
   // Write the [model.slug] block with the instance HOME/GROK_HOME, then pass

@@ -241,6 +241,8 @@ const support: AcpSupport = {
     },
     docsUrl: "https://developer.meta.com/ai/products/muse-code/",
     signInCommand: museSignInCommand(),
+    login: { args: ["login"], deviceArgs: ["login"], env: { MUSE_LOGIN: "0" } },
+    logout: ["logout"],
   },
   transformEnv: (env) => {
     if (process.platform === "win32") withWslKeySharing(env);

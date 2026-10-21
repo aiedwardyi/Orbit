@@ -8,6 +8,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useStore } from "@/state/store";
 import { EngineSetup } from "@/components/EngineSetup";
+import { EngineRow } from "@/components/EnginesSettings";
 import { ProviderMark } from "@/components/ProviderIcons";
 import { firstLaunchConnectInstances } from "@/lib/engine-rail";
 import { useI18n } from "@/lib/i18n";
@@ -42,11 +43,13 @@ export function NoEngines() {
         <div className="mt-6 flex flex-col gap-2.5">
           {engines.map((instance) => (
             <div key={instance.instanceId} className="rounded-xl border border-hairline/40 bg-card p-3.5">
+              {instance.snapshot.state === "available" ? <EngineRow instance={instance} /> : <>
               <div className="flex items-center gap-2 text-[14px] font-medium text-ink">
                 <ProviderMark driverKind={instance.driverKind} size={16} />
                 {instance.displayName}
               </div>
               <EngineSetup instance={instance} intent="cloud" className="mt-0.5" />
+              </>}
             </div>
           ))}
         </div>

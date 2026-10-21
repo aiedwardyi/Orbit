@@ -1,18 +1,10 @@
-// Engines settings — per-instance CLI path override. One "Set CLI…" button
-// per engine reveals a picker: a "detected" dropdown of every binary the
-// server found on PATH, plus a manual path input. Saving first probes the
-// binary (`<cli> --version`, same PATH a real turn uses); a failed probe
-// asks before registering — the classic miss is a path the terminal sees
-// but this GUI app can't.
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Loader2, TriangleAlert } from "lucide-react";
 
-import { api, useStore, type InstanceInfo } from "@/state/store";
-import { EngineGroupLabel } from "./EngineGroupLabel";
+import { api, useOptionalStoreDispatch, useStore, type InstanceInfo } from "@/state/store";
 import { ProviderMark } from "./ProviderIcons";
-import { EngineSetup } from "./EngineSetup";
-import { isFriendsCliEngine, orderFriendsEngines, splitEngineRail, splitFriendsEngines } from "@/lib/engine-rail";
-import { showEngineRailZoo } from "@/lib/friends-chrome";
+import { CommandRow, EngineSetup, EngineSignIn } from "./EngineSetup";
+import { isFriendsCliEngine, orderFriendsEngines } from "@/lib/engine-rail";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 
@@ -37,16 +29,6 @@ export function inUseCliPath(
 
 export function isEngineConnected(instance: Pick<InstanceInfo, "snapshot">): boolean {
   return instance.snapshot.state === "available" && instance.snapshot.authenticated === true;
-}
-
-function needsAttention(instance: Pick<InstanceInfo, "snapshot">): boolean {
-  return instance.snapshot.state !== "available" || instance.snapshot.authenticated === false;
-}
-
-function engineStatus(instance: Pick<InstanceInfo, "snapshot">) {
-  if (instance.snapshot.state !== "available") return "engines.notInstalled";
-  if (instance.snapshot.authenticated === false) return "engines.needsSignIn";
-  return instance.snapshot.authenticated === true ? "connections.connected" : "engines.installed";
 }
 
 /** Value probed and PATCHed: a typed manual path wins over the dropdown. */
@@ -272,76 +254,58 @@ export function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
   );
 }
 
-function EngineRow({ instance }: { instance: InstanceInfo }) {
+export function EngineRow({ instance, onConnected, onUpdated }: { instance: InstanceInfo; onConnected?: () => void; onUpdated?: (instance: InstanceInfo) => void }) {
   const { t } = useI18n();
-  const { refreshInstances } = useStore();
+  const dispatch = useOptionalStoreDispatch();
+  const [current, setCurrent] = useState(instance);
   const [open, setOpen] = useState(false);
-  const wasOpenFor = useRef<string | null>(null);
-  const connected = isEngineConnected(instance);
-
-  // Close the picker when this instance's override changes to anything else
-  // — a save from this row, another tab, or the 5-min refresh. The picker
-  // initialized its fields from the OLD value and never re-syncs, so staying
-  // open would show stale state.
-  useEffect(() => {
-    if (wasOpenFor.current !== null && wasOpenFor.current !== instance.cli) {
-      setOpen(false);
-    }
-    wasOpenFor.current = instance.cli ?? null;
-  }, [instance.cli]);
-
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  useEffect(() => { setCurrent(instance); }, [instance]);
+  useEffect(() => { setOpen(false); }, [current.cli]);
+  const refresh = async () => {
+    const { instances } = await api("/api/instances?refresh=1");
+    dispatch?.({ type: "instances", instances, preserveRateLimits: true });
+    const next = (instances as InstanceInfo[]).find((row) => row.instanceId === instance.instanceId);
+    if (next) { setCurrent(next); onUpdated?.(next); }
+  };
+  const signOut = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(false);
+    try {
+      await api(`/api/instances/${encodeURIComponent(instance.instanceId)}/sign-out`, { method: "POST", body: "{}" });
+      await refresh();
+    } catch { setError(true); }
+    finally { setBusy(false); }
+  };
   return (
-    <div>
-      <div className="flex min-h-[44px] items-center gap-2 rounded-lg px-1 text-[13px] hover:bg-raised/50">
-        <span
-          role="img"
-          aria-label={t(engineStatus(instance))}
-          className={cn("size-1.5 shrink-0 rounded-full", connected ? "bg-accent" : "bg-raised-hover")}
-        />
-        <ProviderMark driverKind={instance.driverKind} size={14} />
-        <span className="min-w-0 shrink truncate text-ink">{instance.displayName}</span>
-        <span className="text-[11.5px] text-ink-secondary">{t(engineStatus(instance))}</span>
-        <span className="flex-1" />
-        <button
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          className={cn(
-            "shrink-0 rounded-lg border border-hairline/40 px-3 py-1 text-[12px]",
-            open ? "bg-accent/15 text-accent" : "text-ink-secondary hover:bg-raised/50 hover:text-ink",
-          )}
-        >
-          {t("engines.setCli")}
-        </button>
-      </div>
-      {instance.install && needsAttention(instance) && <EngineSetup instance={instance} className="mb-2" />}
-      {open && (
-        <CustomPicker
-          instance={instance}
-          cliDefault={instance.cliDefault}
-          onClose={() => setOpen(false)}
-          onSaved={() => refreshInstances(true)}
-        />
-      )}
-    </div>
-  );
-}
-
-function EngineGroup({
-  label,
-  rows,
-  spaced,
-}: {
-  label: string;
-  rows: InstanceInfo[];
-  spaced?: boolean;
-}) {
-  if (rows.length === 0) return null;
-  return (
-    <div className={cn("flex flex-col", spaced && "mt-3")}>
-      <EngineGroupLabel className="mb-1">{label}</EngineGroupLabel>
-      {rows.map((i) => (
-        <EngineRow key={i.instanceId} instance={i} />
-      ))}
+    <div data-engine-row={current.instanceId} className="min-w-0 py-2">
+      {current.snapshot.state !== "available" ? <EngineSetup instance={current} /> : <div className="flex min-h-[44px] items-start gap-2 text-[13px]">
+        <span className="mt-2 shrink-0"><ProviderMark driverKind={current.driverKind} size={16} /></span>
+        <span className="min-w-0 flex-1 break-words py-1.5 text-ink">{current.displayName}</span>
+        <div className="min-w-0 max-w-[65%] py-1.5">
+          <EngineSignIn instance={current} onUpdated={(next) => {
+            setCurrent(next);
+            if (next.snapshot.authenticated === true) onConnected?.();
+          }} />
+        </div>
+      </div>}
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}
+        className="flex items-center gap-1 py-1 text-[12px] text-ink-secondary hover:text-ink">
+        <ChevronDown size={12} className={cn(open && "rotate-180")} />{t("engines.details")}
+      </button>
+      {open && <div className="min-w-0 border-l border-hairline/40 pl-3">
+        <CustomPicker instance={current} cliDefault={current.cliDefault} onClose={() => setOpen(false)} onSaved={refresh} />
+        {current.install?.logout && current.driverKind !== "antigravityAgent" &&
+          <button type="button" onClick={() => void signOut()} disabled={busy}
+            className="mt-3 text-[12px] text-ink underline disabled:opacity-50">{t("engines.signOut")}</button>}
+        {error && <p role="alert" className="mt-1 text-[12px] text-ink-secondary">{t("engines.didntFinish")}</p>}
+        {current.install?.signInCommand && <CommandRow quiet command={current.install.signInCommand}
+          signInInstanceId={current.instanceId} actionLabel={t("engines.openInTerminal")} />}
+        {current.install?.docsUrl && <a href={current.install.docsUrl} target="_blank" rel="noreferrer"
+          className="mt-3 inline-block text-[12px] text-ink underline">{t("engine.viewGuide")}</a>}
+      </div>}
     </div>
   );
 }
@@ -379,74 +343,20 @@ export function EnginesSettings() {
       window.removeEventListener("focus", onFocus);
     };
   }, [refreshInstances]);
-  // every KNOWN-driver instance has cliDefault; unknown-driver shadows have
-  // neither unless an override was set. Including them keeps a Reset-able row
-  // (and a Set CLI… path) for engines the running build doesn't recognize.
-  const rows = state.instances.filter((i) => i.cli !== undefined || i.cliDefault !== undefined || i.snapshot.state === "unavailable");
-  const cliRows = orderFriendsEngines(rows.filter(isFriendsCliEngine));
-  const { friends, rest } = splitFriendsEngines(rows);
-  const zoo = showEngineRailZoo();
-  // Folding away every row would leave a lone toggle, so only fold when a
-  // friends engine stays on screen.
-  const collapsible = zoo && friends.length > 0 && rest.length > 0;
-  let visible = cliRows;
-  if (zoo && collapsible && !showAll) {
-    visible = friends.filter(isFriendsCliEngine);
-  } else if (zoo && showAll) {
-    visible = rows;
-  }
-
-  const { subscription, custom } = splitEngineRail(visible);
-  const anyDown = cliRows.some(needsAttention);
-  const [expanded, setExpanded] = useState(anyDown);
-  const listShown = expanded || anyDown || cliRows.length === 0;
-
+  const rows = orderFriendsEngines(state.instances.filter(isFriendsCliEngine));
+  const installed = rows.filter((row) => row.snapshot.state === "available");
+  const missing = rows.filter((row) => row.snapshot.state !== "available");
   return (
-    <div className="flex flex-col">
-      {cliRows.length > 0 && (
-        <button
-          type="button"
-          aria-expanded={listShown}
-          onClick={() => setExpanded(!listShown)}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-left hover:bg-control/60",
-            listShown && "mb-3",
-          )}
-        >
-          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-medium text-ink">
-            {cliRows.map((i) => (
-              <span key={i.instanceId} className="flex items-center gap-1">
-                {isEngineConnected(i)
-                  ? <Check size={13} className="text-success" aria-label={t("connections.connected")} />
-                  : i.snapshot.state === "available" && i.snapshot.authenticated === undefined
-                    ? <span role="img" className="size-1.5 rounded-full bg-ink-secondary" aria-label={t("engines.installed")} />
-                    : <TriangleAlert size={13} className="text-warning" aria-label={t(engineStatus(i))} />}
-                {i.displayName}
-              </span>
-            ))}
-          </span>
-          <ChevronDown size={16} className={cn("shrink-0 text-ink-secondary transition-transform", listShown && "rotate-180")} />
-        </button>
-      )}
-      {listShown && (
-      <>
-      {rows.length === 0 && (
-        <div className="text-[13px] text-ink-secondary">{t("engines.none")}</div>
-      )}
-      <EngineGroup label={t("engines.models")} rows={subscription} />
-      <EngineGroup label={t("noEngines.local")} rows={custom} spaced={subscription.length > 0} />
-      {collapsible && (
-        <button
-          type="button"
-          onClick={() => setShowAll((open) => !open)}
-          aria-expanded={showAll}
-          className="mt-3 self-start rounded-lg text-[12px] text-ink-secondary hover:text-ink"
-        >
-          {showAll ? t("engines.showFewer") : t("engines.showAll", { count: rest.length })}
-        </button>
-      )}
-      </>
-      )}
+    <div className="flex min-w-0 flex-col">
+      {rows.length === 0 && <p className="text-[13px] text-ink-secondary">{t("engines.none")}</p>}
+      {installed.map((instance) => <EngineRow key={instance.instanceId} instance={instance} />)}
+      {missing.length > 0 && <>
+        <button type="button" onClick={() => setShowAll(!showAll)} aria-expanded={showAll}
+          className="mt-3 self-start py-2 text-[12px] text-ink-secondary underline hover:text-ink">{t("engines.moreEngines")}</button>
+        {showAll && <div className="mt-2 flex min-w-0 flex-col gap-2">
+          {missing.map((instance) => <EngineRow key={instance.instanceId} instance={instance} />)}
+        </div>}
+      </>}
     </div>
   );
 }

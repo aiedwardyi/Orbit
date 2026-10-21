@@ -2,6 +2,23 @@ import { describe, expect, it } from "vitest";
 
 import { installCommandFor, isApiKeySetupMessage, needsApiKey, needsCli, needsSignIn, openInstallTerminalOrCopy, setupErrorAction } from "./EngineSetup";
 import type { InstanceInfo } from "@/state/store";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { I18nProvider } from "@/lib/i18n";
+import { EngineSetup } from "./EngineSetup";
+
+it("offers one-click sign-in for an installed CLI", () => {
+  const previous = globalThis.window;
+  Object.defineProperty(globalThis, "window", { value: { ogb: { platform: "win32" } }, configurable: true, writable: true });
+  try {
+    const row = { ...instance({ state: "available", authenticated: false }), install: { login: { args: ["login"] }, signInCommand: "fake login" } };
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(EngineSetup, { instance: row })));
+    expect(html).toContain(">Sign In<");
+    expect(html).not.toContain("fake login");
+  } finally {
+    Object.defineProperty(globalThis, "window", { value: previous, configurable: true, writable: true });
+  }
+});
 
 function instance(snapshot: InstanceInfo["snapshot"]): InstanceInfo {
   return {

@@ -32,6 +32,57 @@ function phoneWidth() {
 }
 
 describe("Onboarding engine check", () => {
+  it("updates Ready and disables continue after signing out the last ready engine", async () => {
+    let authenticated = false;
+    const instance = {
+      instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude",
+      snapshot: { state: "available", authenticated: false }, models: { default: "", options: [] },
+      install: { login: { args: ["auth", "login"] }, logout: ["auth", "logout"] },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("/sign-out")) authenticated = false;
+      return new Response(JSON.stringify(url.includes("cli-candidates") ? { candidates: [] }
+        : { instances: [{ ...instance, snapshot: { state: "available", authenticated } }] }));
+    }));
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    roots.push(root);
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(Onboarding, { onDone: vi.fn() }))));
+    const click = async (label: string) => {
+      const button = [...host.querySelectorAll("button")].find((node) => node.textContent === label);
+      expect(button, label).toBeDefined();
+      await act(async () => button!.click());
+    };
+    await click("Continue");
+    authenticated = true;
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    const ready = () => [...host.querySelectorAll("section")].find((section) => section.textContent?.startsWith("Ready"));
+    const next = () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Open Wink")!;
+    expect(ready()).toBeDefined();
+    expect(next().disabled).toBe(false);
+    await click("Details");
+    await click("Sign Out");
+    expect(ready()).toBeUndefined();
+    expect(next().disabled).toBe(true);
+  });
+
+  it("reuses the sign-in row for an installed engine", async () => {
+    const instance = {
+      instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude",
+      snapshot: { state: "available", authenticated: false }, models: { default: "", options: [] },
+      install: { login: { args: ["auth", "login"] }, signInCommand: "claude auth login" },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ instances: [instance] }))));
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    roots.push(root);
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(Onboarding, { onDone: vi.fn() }))));
+    const next = [...host.querySelectorAll("button")].find((button) => button.textContent === "Continue")!;
+    await act(async () => next.click());
+    expect(host.textContent).toContain("Sign In");
+    expect(host.textContent).toContain("Details");
+    expect(host.textContent).not.toContain("Open Sign-in in Terminal");
+  });
   it("asks an unpaired phone to sign in instead of blaming the engines", async () => {
     const host = await renderWith(401);
     expect(host.textContent).toContain("Sign in to this PC");

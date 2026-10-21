@@ -394,6 +394,8 @@ export interface EngineInstall {
   docsUrl?: string;
   /** Interactive sign-in run after installing, when install isn't enough. */
   signInCommand?: string;
+  login?: { args: string[]; deviceArgs?: string[]; env?: Record<string, string> };
+  logout?: string[];
   /** `command` needs npm on PATH, so the UI can say so when Node is absent. */
   needsNode?: boolean;
 }
@@ -434,6 +436,7 @@ export interface ProviderInstance {
   readonly modelsReady?: Promise<void>;
   /** Refresh a live catalog without recreating the provider instance. */
   readonly refreshModels?: () => Promise<void>;
+  loginConfig?(): { cli: string; env: Record<string, string | undefined> };
   readonly adapter: ProviderAdapter;
   /** `rescan` = the user asked (Check again, saved a CLI): probes that
    * would start WSL are allowed to, where a passive refresh may not.

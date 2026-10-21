@@ -1090,6 +1090,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
       return {
         instanceId,
         driverKind: DRIVER_KIND,
+        loginConfig: () => ({ cli: effectiveCli(), env: childEnv() }),
         displayName: input.displayName,
         enabled: input.enabled,
         get models() {

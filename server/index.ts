@@ -9713,6 +9713,28 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
 
     const engineSignIn = /^\/api\/instances\/([\w.-]+)\/sign-in$/.exec(path);
+    if (method === "POST" && engineSignIn) {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
+        return json(res, 415, { error: "content-type must be application/json" });
+      }
+      const body = await readBody(req);
+      if (body?.device !== undefined && typeof body.device !== "boolean") return json(res, 400, { error: "device must be a boolean" });
+      const capture = await registry.startSignIn(engineSignIn[1], body?.device === true);
+      return capture ? json(res, 200, capture) : json(res, 404, { error: "Unknown engine sign-in" });
+    }
+    if (method === "DELETE" && engineSignIn) {
+      return await registry.cancelSignIn(engineSignIn[1])
+        ? json(res, 200, {}) : json(res, 404, { error: "Unknown engine sign-in" });
+    }
+    const engineSignOut = /^\/api\/instances\/([\w.-]+)\/sign-out$/.exec(path);
+    if (method === "POST" && engineSignOut) {
+      if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {
+        return json(res, 415, { error: "content-type must be application/json" });
+      }
+      const signedOut = await registry.signOut(engineSignOut[1]);
+      return signedOut === null ? json(res, 404, { error: "Unknown engine sign-out" })
+        : signedOut ? json(res, 200, {}) : json(res, 502, { error: "Sign-out failed" });
+    }
     if (method === "GET" && engineSignIn) {
       const signIn = registry.signIn(engineSignIn[1]);
       return signIn ? json(res, 200, signIn) : json(res, 404, { error: "Unknown engine sign-in" });

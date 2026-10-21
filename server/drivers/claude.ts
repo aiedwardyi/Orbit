@@ -701,6 +701,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     needsNode: true,
     docsUrl: "https://claude.com/claude-code",
     signInCommand: "claude",
+    login: { args: ["auth", "login"] },
+    logout: ["auth", "logout"],
   },
   models: STATIC_CLAUDE_MODELS,
   decodeConfig,
@@ -2013,6 +2015,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       },
       refreshModels,
       snapshot,
+      loginConfig: () => ({ cli: config.cli, env: claudeEnvironment(undefined, { ...process.env, ...input.environment }) }),
       adapter: {
         provider: DRIVER_KIND,
         capabilities: {

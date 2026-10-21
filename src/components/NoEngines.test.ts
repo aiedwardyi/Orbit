@@ -96,6 +96,19 @@ function markup() {
 }
 
 describe("empty-engine first launch screen", () => {
+  it("reuses the quiet row for an installed unsigned-in engine", () => {
+    const claude = zoo.find((row) => row.driverKind === "claudeAgent")!;
+    const previous = { snapshot: claude.snapshot, install: claude.install };
+    claude.snapshot = { state: "available", authenticated: false };
+    claude.install = { ...claude.install, login: { args: ["auth", "login"] } };
+    try {
+      const html = markup();
+      expect(html).toContain(">Sign In<");
+      expect(html).toContain(">Details<");
+      expect(html).not.toContain("Open Sign-in in Terminal");
+      expect(html).toContain("Install Grok");
+    } finally { Object.assign(claude, previous); }
+  });
   it("screams one Claude or Grok connect path instead of the engine zoo", () => {
     const html = markup();
     expect(html).toContain("Connect Claude or Grok");
