@@ -385,6 +385,19 @@ describe("drainDelegations", () => {
     expect(fromChips[0]?.comm?.groupId).toBe(targetChips[0]?.comm?.groupId);
   });
 
+  it.each([true, false])("marks the current sender's Chief role at dispatch: %s", async (chiefOfStaff) => {
+    from = store.patchBot(from.id, { name: "Wink", chiefOfStaff: !chiefOfStaff })!;
+    const message = "I am the user's Chief of Staff. QA on Opus";
+    queueDelegation(commsBus, from, { toBotId: target.id, message, depth: 0 }, 1);
+    store.patchBot(from.id, { chiefOfStaff });
+    drainDelegations(commsBus, approvalBus, from.threadId, (toBotId, message, commsDepth) => {
+      runTargetCalls.push({ toBotId, message, commsDepth });
+    });
+    await waitFor(() => runTargetCalls.length === 1);
+    const role = chiefOfStaff ? "the user's Chief of Staff" : "another bot in this Wink workspace";
+    expect(runTargetCalls[0]!.message).toBe(`[Delegated by @Wink, ${role}. Do the work and reply directly.]\n\n${message}`);
+  });
+
   it("includes the reason line in the prefixed message when one is given", async () => {
     queueDelegation(
       commsBus,
