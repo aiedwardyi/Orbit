@@ -273,6 +273,7 @@ describe("parseWorkerLabel", () => {
     ["A | Opus 5.5 | Extra High", "xhigh"],
     ["A | Opus 5.5 | extra-high", "xhigh"],
     ["A | Opus 5.5 | x-high", "xhigh"],
+    ["DUO-FIX | opus-5.5 | high API", "high"],
   ])("reads the effort of %s as %s", (label, effort) => {
     expect(parseWorkerLabel(label).effort).toBe(effort);
   });
