@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { mailboxScope, mailboxGrant as serverGrant, resolveMailboxTeacher } from "../server/mailbox.ts";
+import { mailboxRecipient, mailboxScope, mailboxGrant as serverGrant } from "../server/mailbox.ts";
 import { removeTempDir } from "../server/testing/cleanup.ts";
 import { createTerminalHost } from "./terminal-host.mjs";
 import { installOrbitMsg, mailboxGrant, postPaneNote, terminalPaneEnv } from "./terminal-mailbox.mjs";
@@ -73,24 +73,22 @@ describe("terminal pane env", () => {
   });
 });
 
-describe("mailbox teacher routing", () => {
+describe("mailbox routing", () => {
   const roster = [
-    { id: "chief", section: "Team", chiefOfStaff: true },
-    { id: "worker", section: "Team" },
-    { id: "lone" },
-    { id: "hidden-chief", section: "Ops", chiefOfStaff: true, hidden: true },
-    { id: "ops-worker", section: "Ops" },
+    { id: "chief", section: "Team", chiefOfStaff: true, threadId: "chief-thread" },
+    { id: "worker", section: "Team", threadId: "worker-thread" },
   ];
 
-  it("routes a pane to its section chief", () => {
-    expect(resolveMailboxTeacher(roster, "worker")).toBe("chief");
+  it("delivers a pane's notes to the bot that launched it, not its section chief", () => {
+    expect(mailboxRecipient(roster, { bot: "worker", teacher: "worker" })?.threadId).toBe("worker-thread");
+    expect(mailboxRecipient(roster, { bot: "worker", teacher: "chief" })?.threadId).toBe("worker-thread");
+    expect(mailboxRecipient(roster, { bot: "chief", teacher: "chief" })?.threadId).toBe("chief-thread");
+    expect(mailboxRecipient(roster, { bot: "ghost", teacher: "chief" })).toBeUndefined();
   });
 
-  it("keeps a chief, a hidden-chief section and an unknown bot on itself", () => {
-    expect(resolveMailboxTeacher(roster, "chief")).toBe("chief");
-    expect(resolveMailboxTeacher(roster, "lone")).toBe("lone");
-    expect(resolveMailboxTeacher(roster, "ops-worker")).toBe("ops-worker");
-    expect(resolveMailboxTeacher(roster, "ghost")).toBe("ghost");
+  it("still rejects a grant whose teacher does not match the headers", () => {
+    const headers = { authorization: `Bearer ${serverGrant("secret", "pane-1", "worker", "chief")}`, "x-orbit-pane": "pane-1", "x-orbit-bot": "worker", "x-orbit-teacher": "worker" };
+    expect(mailboxScope(headers, "secret")).toEqual({ ok: false, error: "unauthorized" });
   });
 });
 

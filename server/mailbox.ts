@@ -119,9 +119,6 @@ export function readMailboxBody(req: IncomingMessage, maxBytes = MAILBOX_BODY_MA
   });
 }
 
-/** Roster row for mailbox teacher routing. */
-export type MailboxRosterBot = { id: string; section?: string | null; hidden?: boolean; chiefOfStaff?: boolean };
-
 // oxlint-disable-next-line no-control-regex -- keeps tab and newline; the name folds them to spaces
 const UNSAFE_CONTROLS = /[\x00-\x08\x0b-\x1f\x7f\u0080-\u009F\u200E-\u200F\u202A-\u202E\u2066-\u2069]/g;
 
@@ -130,12 +127,9 @@ function sanitizeMailboxName(from: string): string {
   return flat || "unknown";
 }
 
-/** A pane's notes land in its section chief's thread; a chief keeps its own. */
-export function resolveMailboxTeacher(bots: readonly MailboxRosterBot[], botId: string): string {
-  const self = bots.find((bot) => bot.id === botId);
-  if (!self) return botId;
-  const key = self.section?.trim() || "";
-  return bots.find((bot) => bot.chiefOfStaff && !bot.hidden && (bot.section?.trim() || "") === key)?.id ?? botId;
+/** A pane's notes go to the bot that launched it. Ignores `teacher`: older panes still name their section chief. */
+export function mailboxRecipient<T extends { id: string }>(bots: readonly T[], scope: { bot: string }): T | undefined {
+  return bots.find((bot) => bot.id === scope.bot);
 }
 
 /** Pane text is untrusted: strip escapes and controls, cap it, tag it. Null when nothing is left. */
