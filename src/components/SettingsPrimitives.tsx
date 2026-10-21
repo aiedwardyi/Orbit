@@ -29,7 +29,7 @@ export function Section({
   children,
 }: {
   title: string;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   return (

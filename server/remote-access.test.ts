@@ -16,7 +16,9 @@ import {
   remoteCookieAuthorized,
   remoteKeyMatches,
   remoteLinkUrl,
+  remoteHostRetry,
   resolveRemoteHost,
+  type RemoteSetup,
 } from "./remote-access.ts";
 
 const HOST = "home.tail1234.ts.net";
@@ -227,5 +229,98 @@ describe("remote access", () => {
       expect(host).toBe(HOST);
       expect(key).toMatch(/^[a-f0-9]{64}$/);
     });
+  });
+});
+
+describe("Phone Link setup", () => {
+  const enableUrl = "https://login.tailscale.com/f/serve?node=node123&next=%2F";
+  const running = JSON.stringify({ BackendState: "Running", Self: { DNSName: `${HOST}.` } });
+  const quiet = () => {};
+
+  function fake(failure?: Error) {
+    return async (_file: string, args: string[]) => {
+      if (args[0] === "status") return running;
+      if (args[1] === "status") return "{}";
+      if (failure) throw failure;
+      return "";
+    };
+  }
+
+  it("reports the exact Serve enable URL from output beyond the log limit", async () => {
+    let setup: RemoteSetup | undefined;
+    const error = Object.assign(new Error("command failed"), {
+      stderr: "progress ".repeat(100),
+      stdout: `Serve is not enabled on your tailnet.\nTo enable, visit:\n${enableUrl}\n`,
+    });
+    expect(await autoRemoteHost({}, 8799, fake(error), quiet, "linux", (value) => { setup = value; })).toBeUndefined();
+    expect(setup).toEqual({ state: "serve-disabled", enableUrl });
+  });
+
+  it.each([
+    "http://login.tailscale.com/f/serve?node=x",
+    "https://login.tailscale.com.evil.test/f/serve?node=x",
+    "https://login.tailscale.com@evil.test/f/serve?node=x",
+    "https://evil.test/f/serve?node=x",
+    "https://login.tailscale.com:444/f/serve?node=x",
+    "https://user@login.tailscale.com/f/serve?node=x",
+  ])("refuses an untrusted setup URL %s", async (url) => {
+    let setup: RemoteSetup | undefined;
+    await autoRemoteHost({}, 8799, fake(new Error(`Serve is not enabled on your tailnet. ${url}`)), quiet, "linux", (value) => { setup = value; });
+    expect(setup).toEqual({ state: "serve-disabled" });
+  });
+
+  it("does not offer an enable URL for an unrelated Serve failure", async () => {
+    let setup: RemoteSetup | undefined;
+    await autoRemoteHost({}, 8799, fake(new Error(`connection failed ${enableUrl}`)), quiet, "linux", (value) => { setup = value; });
+    expect(setup).toEqual({ state: "error" });
+  });
+
+  it.each([
+    [new Error("ENOENT"), "missing"],
+    [new Error("failed to connect to local tailscaled"), "not-running"],
+  ])("reports unavailable Tailscale: %s", async (error, state) => {
+    let setup: RemoteSetup | undefined;
+    await autoRemoteHost({}, 8799, async () => { throw error; }, quiet, "win32", (value) => { setup = value; });
+    expect(setup).toEqual({ state });
+  });
+
+  it.each(["Stopped", "NeedsLogin"])("reports Tailscale %s with a start/connect step", async (BackendState) => {
+    let setup: RemoteSetup | undefined;
+    await autoRemoteHost({}, 8799, async () => JSON.stringify({ BackendState }), quiet, "linux", (value) => { setup = value; });
+    expect(setup).toEqual({ state: "not-running" });
+  });
+
+  it.each(["missing", "not-running", "serve-disabled"])("recovers from %s without restarting or overlapping detection", async (initial) => {
+    let available = false;
+    let now = 0;
+    const hosts: string[] = [];
+    let calls = 0;
+    const exec = async (file: string, args: string[]) => {
+      calls++;
+      if (!available && initial === "missing") throw new Error("ENOENT");
+      if (!available && initial === "not-running") return JSON.stringify({ BackendState: "Stopped" });
+      return fake(!available ? new Error(`Serve is not enabled on your tailnet. ${enableUrl}`) : undefined)(file, args);
+    };
+    const retry = remoteHostRetry({}, 8799, (host) => hosts.push(host), exec, quiet, "linux", () => now);
+    await Promise.all([retry.refresh(), retry.refresh()]);
+    expect(retry.status().state).toBe(initial);
+    const firstCalls = calls;
+    available = true;
+    await retry.refresh();
+    expect(calls).toBe(firstCalls);
+    now = 5_000;
+    await Promise.all([retry.refresh(), retry.refresh()]);
+    expect(retry.status()).toEqual({ state: "ready" });
+    expect(hosts).toEqual([HOST]);
+    expect(calls - firstCalls).toBe(3);
+    now = 10_000;
+    await retry.refresh();
+    expect(hosts).toEqual([HOST]);
+  });
+
+  it("keeps explicit auto-off from starting Tailscale", async () => {
+    const retry = remoteHostRetry({ ORBIT_REMOTE_AUTO: "0" }, 8799, () => { throw new Error("unexpected host"); }, async () => { throw new Error("unexpected command"); }, quiet);
+    await retry.refresh();
+    expect(retry.status()).toEqual({ state: "disabled" });
   });
 });

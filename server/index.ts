@@ -311,13 +311,13 @@ import { RepeatDetector, repeatCall } from "./repeat-detector.ts";
 import { flushEndedMaskers, redactSecrets, redactSecretsInText, StreamSecretMasker } from "./redact.ts";
 import {
   apiRequestAuthorized,
-  autoRemoteHost,
   buildRemoteSetCookie,
   hostMatchesRemote,
   initRemoteAccess,
   originAllowedByRemote,
   remoteKeyMatches,
   remoteLinkUrl,
+  remoteHostRetry,
 } from "./remote-access.ts";
 import {
   DEVICE_HEARTBEAT_MS,
@@ -2132,15 +2132,12 @@ function startDevicePresence(): void {
   });
 }
 
-if (REMOTE_HOST !== undefined) {
+const remoteRetry = remoteHostRetry(process.env, PORT, (host) => {
+  ({ host: REMOTE_HOST, key: REMOTE_KEY } = initRemoteAccess(process.env, DATA_DIR, console.log, host));
   startDevicePresence();
-} else {
-  void autoRemoteHost(process.env, PORT).then((host) => {
-    if (host === undefined) return;
-    ({ host: REMOTE_HOST, key: REMOTE_KEY } = initRemoteAccess(process.env, DATA_DIR, console.log, host));
-    startDevicePresence();
-  });
-}
+});
+if (REMOTE_HOST !== undefined) startDevicePresence();
+else void remoteRetry.refresh();
 
 function syncMemory(botId: string): void {
   // a missing workspace is restored from Drive, so a deleted bot must not be a target
@@ -7938,7 +7935,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
     // ── phone link (this PC's own /remote?key= url, never synced) ──
     if (method === "GET" && path === "/api/remote-link") {
-      return json(res, 200, { url: remoteLinkUrl(REMOTE_HOST, REMOTE_KEY) ?? null });
+      if (REMOTE_HOST === undefined) await remoteRetry.refresh();
+      return json(res, 200, {
+        url: remoteLinkUrl(REMOTE_HOST, REMOTE_KEY) ?? null,
+        setup: REMOTE_HOST ? { state: "ready" } : remoteRetry.status(),
+      });
     }
 
     // ── device picker: PCs in the sync folder ──

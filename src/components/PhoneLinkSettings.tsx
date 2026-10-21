@@ -5,24 +5,72 @@ import { useI18n } from "@/lib/i18n";
 import { api } from "@/state/store";
 import { Section } from "./SettingsPrimitives";
 
+interface RemoteLink {
+  url: string | null;
+  setup?: {
+    state: "checking" | "disabled" | "missing" | "not-running" | "serve-disabled" | "error" | "ready";
+    enableUrl?: string;
+  };
+}
+
 export function PhoneLinkSettings() {
   const { t } = useI18n();
-  const [url, setUrl] = useState<string | null>(null);
+  const [status, setStatus] = useState<RemoteLink | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let live = true;
-    api("/api/remote-link")
-      .then((body: { url: string | null }) => {
-        if (live) setUrl(body.url);
-      })
-      .catch(() => {});
+    let pending = false;
+    const load = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const body: RemoteLink = await api("/api/remote-link");
+        if (!live) return;
+        setStatus(body);
+        if (body.url || body.setup?.state === "disabled") stop();
+      } catch {
+      } finally {
+        pending = false;
+      }
+    };
+    const timer = window.setInterval(load, 5_000);
+    const stop = () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", load);
+    };
+    window.addEventListener("focus", load);
+    void load();
     return () => {
       live = false;
+      stop();
     };
   }, []);
 
-  if (!url) return null;
+  const url = status?.url;
+  const setup = status?.setup;
+  if (!url) {
+    if (!setup || setup.state === "disabled") return null;
+    const help = setup.state === "missing" ? "settings.phoneLink.missing"
+      : setup.state === "not-running" ? "settings.phoneLink.notRunning"
+      : setup.state === "serve-disabled" ? "settings.phoneLink.serveDisabled"
+      : setup.state === "checking" ? "settings.phoneLink.checking"
+      : "settings.phoneLink.error";
+    return (
+      <Section title={t("settings.phoneLink.title")} subtitle={<span className="break-keep">{t(help)}</span>}>
+        {setup.state === "serve-disabled" && setup.enableUrl && (
+          <a
+            href={setup.enableUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-control/70"
+          >
+            {t("settings.phoneLink.enableServe")}
+          </a>
+        )}
+      </Section>
+    );
+  }
 
   const copy = async () => {
     try {
@@ -35,7 +83,7 @@ export function PhoneLinkSettings() {
   };
 
   return (
-    <Section title={t("settings.phoneLink.title")} subtitle={t("settings.phoneLink.help")}>
+    <Section title={t("settings.phoneLink.title")} subtitle={<span className="break-keep">{t("settings.phoneLink.help")}</span>}>
       <div className="flex flex-wrap items-center gap-2">
         <code className="min-w-0 flex-1 basis-full truncate rounded-lg bg-inset px-3 py-2 font-mono text-[13px] text-ink sm:basis-0">
           {new URL(url).host}/••••••••
