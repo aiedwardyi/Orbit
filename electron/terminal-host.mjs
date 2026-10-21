@@ -254,7 +254,7 @@ const canTakeSaveLine = (screenText, engine) => SAVE_LINE_ENGINES.has(engine) &&
 function canSubmitSaveLine(screen, engine) {
   const { screenText, cursor } = screen;
   const lines = screenText.split("\n");
-  if (!canTakeSaveLine(screenText, engine) || lines.some((line) => PANE_MENU_RE.test(line))
+  if (!SAVE_LINE_ENGINES.has(engine) || lines.some((line) => PANE_MENU_RE.test(line))
     || /Allow .+\?|Do you want to (?:proceed|allow|run)|Would you like to (?:proceed|run)|\(y\/n\)|esc to cancel|enter to (?:confirm|select)/i.test(screenText)) return false;
   if (cursor.col !== lines[cursor.row]?.length) return false;
   let start = cursor.row;
@@ -481,6 +481,21 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const typeIntoPane = (session, data) => {
     void Promise.resolve().then(() => session.pty.write(data)).catch((cause) => fail(session, cause));
   };
+  const submitSaveLine = (session, note) => {
+    void Promise.resolve().then(() => {
+      const screen = session.screen.snapshot({ maxScrollbackChars: 0 });
+      if (session.retired || session.exitCode !== null || session.contextNote !== note) return;
+      if (!canSubmitSaveLine(screen, session.engine)) {
+        if (note.save !== "sent") note.save = "failed";
+        return;
+      }
+      const busy = AGENT_BUSY_RE.test(screen.screenText);
+      if (note.save === "sent" && (busy || note.idleSent)) return;
+      note.save = "sent";
+      note.idleSent = !busy;
+      return session.pty.write("\r");
+    }).catch((cause) => fail(session, cause));
+  };
   const postAuto = (session, auto) => postNote(session, auto, auto.text, (delivered) => {
     if (delivered) session.noteAt = now();
     if (session.autoNote !== auto) return;
@@ -543,12 +558,19 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
             session.pendingInputEcho = `${session.pendingInputEcho}${CONTEXT_SAVE_LINE}`.slice(-INPUT_ECHO_LIMIT);
             typeIntoPane(session, paste ? `\x1b[200~${CONTEXT_SAVE_LINE}\x1b[201~` : CONTEXT_SAVE_LINE);
           }
-        } else if (note.save === "typed" && at - note.typedAt >= SAVE_ENTER_MS) {
+        } else if (note.typedAt && at - note.typedAt >= SAVE_ENTER_MS && !note.idleSent
+          && (note.save === "typed" || !AGENT_BUSY_RE.test(text))) {
           // Text plus Enter in one write can land in Claude Code as a paste that never submits.
-          note.save = canSubmitSaveLine(session.screen.snapshot({ maxScrollbackChars: 0 }), session.engine) ? "sent" : "failed";
-          if (note.save === "sent") typeIntoPane(session, "\r");
+          submitSaveLine(session, note);
         }
-        if (note.save === "failed" && session.mail && at >= note.retryAt) postNote(session, note, contextNoteText(session.label, context), () => { note.retryAt = Infinity; });
+        if (note.save === "failed" && session.mail && at >= note.retryAt) {
+          // The pane receipt can arrive even when the HTTP response is lost.
+          if (note.tries && session.noteAt > note.attendedAt) note.retryAt = Infinity;
+          else {
+            note.attendedAt = session.noteAt;
+            postNote(session, note, contextNoteText(session.label, context), () => { note.retryAt = Infinity; });
+          }
+        }
       }
       const limit = usageLimit(text, session.engine, session.cols);
       const limitKey = limit ? JSON.stringify([session.engine, limit.reset.replace(/\s+/g, "")]) : null;
@@ -562,7 +584,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           session.stallTries = 0;
         }
       }
-      const threshold = !limit && session.engine === "claude" && agentJobsRunning(text, true) ? JOBS_HOLD_MS : stallMs;
+      const threshold = !limit && (!session.agentSeen || session.engine === "claude" && agentJobsRunning(text, true)) ? JOBS_HOLD_MS : stallMs;
       if (session.stallFired || at - session.stallChangedAt < threshold || at < session.stallRetryAt) continue;
       if (limitKey && session.limitsNoted.has(limitKey)) continue;
       // Its report on this task, or a hook note on this task as the screen settled, already reached the teacher.
@@ -723,6 +745,15 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       try {
         session.screen.consume(data);
       } catch {}
+      if (session.worker && !session.agentSeen) {
+        const chunk = parsed.text.replace(/\s+/g, "");
+        const output = chunk.includes(session.agentCommand) ? chunk : session.screen.text().replace(/\s+/g, "");
+        const start = output.lastIndexOf(session.agentCommand);
+        if (start !== -1) {
+          session.agentEchoed = true;
+          session.agentSeen = output.length > start + session.agentCommand.length;
+        } else if (session.agentEchoed && parsed.text.trim()) session.agentSeen = true;
+      }
       for (const finished of session.finished) if (finished.text === null) finished.text = session.screen.text();
       if (now() - session.resizedAt >= RESIZE_REPAINT_MS) {
         const busy = AGENT_BUSY_RE.test(session.screen.text());
@@ -820,7 +851,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
-      reported: false, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, contextNote: null, contextCompactPending: false,
+      reported: false, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
     };
     session.outputParser = createTerminalOutputParser((osc) => {
       if (!session.botPane || osc !== `133;D;${session.id}`) return;
@@ -883,6 +914,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const launched = session.botPane ? WORKER_CLI_RE.exec(text) : null;
       if (launched) {
         session.engine = launched[1].toLowerCase();
+        session.agentSeen = false;
+        session.agentEchoed = false;
+        session.agentCommand = text.replace(/\s+/g, "");
         session.contextNote = null;
         session.contextCompactPending = false;
         watchStalls(session);

@@ -1254,7 +1254,7 @@ test("exited panes do not hold global slots and reclaiming them emits terminal:c
   await assert.rejects(f.host.open(f.event, { ...f.input, sessionId: exited[0] }), /Unknown terminal/);
 });
 
-function stallFixture({ failures = 0, ...options } = {}) {
+function stallFixture({ failures = 0, commandEcho = true, ...options } = {}) {
   let owner;
   let clock = Date.UTC(2026, 9, 4);
   let failing = failures;
@@ -1271,6 +1271,14 @@ function stallFixture({ failures = 0, ...options } = {}) {
     ...options,
   });
   owner = f.owner;
+  const openForBot = f.host.openForBot.bind(f.host);
+  f.host.openForBot = async (botId, input = {}) => {
+    const pane = await openForBot(botId, input);
+    if (commandEcho && input.command) {
+      f.children.find((child) => child.options.env.ORBIT_PANE === pane.sessionId).data(`${input.command}\r\n`);
+    }
+    return pane;
+  };
   // Lets the stall check sample the screen before the clock moves.
   const settle = () => wait(25);
   const advance = async (ms) => { clock += ms; await settle(); };
@@ -1294,7 +1302,7 @@ test("shell integration only wraps the prompt in worker PowerShell", { skip: pro
 });
 
 test("FINISHED fires once per command with the last screen lines", async (t) => {
-  const f = stallFixture();
+  const f = stallFixture({ commandEcho: false });
   t.after(() => f.host.dispose());
   const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   await f.advance(10_000);
@@ -1654,7 +1662,7 @@ test("a closed pane drops a held turn-end note and one waiting to retry after it
 });
 
 test("FINISHED that fails to post goes out once on a later check", async (t) => {
-  const f = stallFixture({ failures: 1 });
+  const f = stallFixture({ failures: 1, commandEcho: false });
   t.after(() => f.host.dispose());
   const pane = await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.children[0].data("Tests passed\r\n");
@@ -1685,7 +1693,7 @@ test("FINISHED pending when the pane exits is still delivered", async (t) => {
 const DLL_INIT_FAILED = -1073741502;
 
 test("a bot pane whose shell exits nonzero before a report sends one EXITED note", async (t) => {
-  const f = stallFixture();
+  const f = stallFixture({ commandEcho: false });
   t.after(() => f.host.dispose());
   await f.host.openForBot("bot-1", { label: "SCRIPT", command: "pnpm build" });
   f.children[0].data("boom\r\n");
@@ -1727,7 +1735,7 @@ test("EXITED that fails to post goes out once on a later check", async (t) => {
 });
 
 test("a shell that dies in DLL init respawns once in the same pane with its command", async (t) => {
-  const f = stallFixture();
+  const f = stallFixture({ commandEcho: false });
   t.after(() => f.host.dispose());
   const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
   await f.advance(1_000);
@@ -1748,7 +1756,7 @@ test("a shell that dies in DLL init respawns once in the same pane with its comm
 });
 
 test("a respawned shell that dies in DLL init again sends EXITED", async (t) => {
-  const f = stallFixture();
+  const f = stallFixture({ commandEcho: false });
   t.after(() => f.host.dispose());
   await f.host.openForBot("bot-1", { label: "AGENT", command: "codex go" });
   f.children[0].exit({ exitCode: DLL_INIT_FAILED });
@@ -1780,7 +1788,7 @@ function slowRespawnFixture({ slow = (index) => index > 0, ...options } = {}) {
   const children = [];
   let releaseReady;
   let failReady;
-  const f = stallFixture({ ...options, loadPty: () => ({ spawn: () => {
+  const f = stallFixture({ commandEcho: false, ...options, loadPty: () => ({ spawn: () => {
     const child = { pid: 101 + children.length, writes: [], killed: false, exit() {}, onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write(data) { this.writes.push(data); }, resize() {}, kill() { this.killed = true; } };
     if (slow(children.length)) child.ready = new Promise((resolve, reject) => { releaseReady = resolve; failReady = reject; });
     children.push(child);
@@ -1914,6 +1922,121 @@ test("a worker pane that goes quiet without a report sends one stall note with i
   await f.advance(600_000);
   assert.equal(f.notes.length, 1);
 });
+
+for (const echo of ["none", "whole", "split"]) {
+  test(`a silent wait loop uses the 30-minute stall backstop: echo ${echo}`, async (t) => {
+    const f = stallFixture({ commandEcho: false });
+    t.after(() => f.host.dispose());
+    const command = "$t=(Get-Date).AddMinutes(20); while((Get-Date) -lt $t){Start-Sleep 30}; codex go";
+    await f.host.openForBot("bot-1", { label: "WAIT", command });
+    if (echo === "whole") f.children[0].data(`PS C:\\work> ${command}\r\n`);
+    if (echo === "split") {
+      f.children[0].data("PS C:\\work");
+      await f.settle();
+      f.children[0].data(`> ${command.slice(0, 30)}`);
+      await f.settle();
+      f.children[0].data(`${command.slice(30)}\r\n`);
+    }
+    await f.settle();
+    await f.advance(120_000);
+    assert.deepEqual(f.notes, []);
+    await f.advance(28 * 60_000 - 1);
+    assert.deepEqual(f.notes, []);
+    await f.advance(1);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /^STALLED: no screen change for 30 min/);
+    await f.advance(30 * 60_000);
+    assert.equal(f.notes.length, 1);
+  });
+}
+
+for (const [name, prompt, wrapped] of [
+  ["posh whole", " Orbit-cards ›  split  ", false],
+  ["posh wrapped", " Orbit-cards ›  split  ", true],
+  ["bare >", "> ", false],
+]) {
+  test(`a wait loop ignores the prompt before its command echo: ${name}`, async (t) => {
+    const f = stallFixture({ commandEcho: false });
+    t.after(() => f.host.dispose());
+    const command = "$t=[datetime]'2026-10-21 01:53'; while((Get-Date) -lt $t){Start-Sleep 30}; codex --model gpt-6.1-sol -c model_reasoning_effort=max";
+    await f.host.openForBot("bot-1", { label: "WAIT", command });
+    f.children[0].data(`${prompt}${wrapped ? command.replace("gpt-6.1", "gpt-6\r\n.1") : command}\r\n`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.deepEqual(f.notes, []);
+    await f.advance(28 * 60_000);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /^STALLED: no screen change for 30 min/);
+    f.children[0].data("OpenAI Codex\r\n› Explain this codebase\r\n");
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 2);
+    assert.match(f.notes[1].text, /^STALLED: no screen change for 2 min/);
+  });
+}
+
+for (const prompt of [" Orbit-cards ›  split  ", "> "]) {
+  test(`a wait loop ignores prompt text and a partial command echo: ${prompt.trim()}`, async (t) => {
+    const f = stallFixture({ commandEcho: false });
+    t.after(() => f.host.dispose());
+    const command = "$t=[datetime]'2026-10-21 01:53'; while((Get-Date) -lt $t){Start-Sleep 30}; codex --model gpt-6.1-sol";
+    await f.host.openForBot("bot-1", { label: "WAIT", command });
+    f.children[0].data(prompt);
+    await f.settle();
+    await f.advance(120_000);
+    assert.deepEqual(f.notes, []);
+    f.children[0].data(command.slice(0, 70));
+    await f.settle();
+    await f.advance(120_000);
+    assert.deepEqual(f.notes, []);
+    f.children[0].data(`${command.slice(70)}\r\n`);
+    await f.settle();
+    await f.advance(120_000);
+    assert.deepEqual(f.notes, []);
+    f.children[0].data("\x1b[2J\x1b[HOpenAI Codex\r\n› Explain this codebase\r\n");
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /^STALLED: no screen change for 2 min/);
+  });
+}
+
+test("a command echo cleared by its first UI in the same chunk keeps the 2-minute stall", async (t) => {
+  const f = stallFixture({ commandEcho: false });
+  t.after(() => f.host.dispose());
+  const command = "Start-Sleep 300; codex go";
+  await f.host.openForBot("bot-1", { label: "WAIT", command });
+  f.children[0].data(` Orbit-cards › split ${command}\r\n\x1b[2J\x1b[HOpenAI Codex\r\n› Explain this codebase\r\n`);
+  await f.settle();
+  await f.advance(120_000);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^STALLED: no screen change for 2 min/);
+});
+
+for (const [engine, screen] of [
+  ["claude", "Claude Code\r\n❯ \r\n"],
+  ["codex", "OpenAI Codex\r\n› Explain this codebase\r\n"],
+  ["grok", "grok-4.5 · 32K / 256K\r\n"],
+  ["agy", "  ⣽  Reading file...\r\n"],
+  ["muse", "muse-2 · ready\r\n"],
+]) {
+  test(`${engine} keeps the 2-minute stall threshold after its UI appears`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "WAIT", command: `Start-Sleep 300; ${engine} go` });
+    await f.advance(120_000);
+    assert.deepEqual(f.notes, []);
+    f.children[0].data(screen);
+    await f.settle();
+    f.children[0].data("\x1b[2J\x1b[H");
+    await f.settle();
+    await f.advance(119_999);
+    assert.deepEqual(f.notes, []);
+    await f.advance(1);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, /^STALLED: no screen change for 2 min/);
+  });
+}
 
 for (const [engine, ellipsis] of [["agy", "..."], ["gemini", "…"]]) {
   test(`${engine} braille busy tails avoid false stalls and still detect a frozen screen`, async (t) => {
@@ -2413,6 +2536,7 @@ const contextNotes = (f) => f.notes.map((note) => note.text).filter((text) => te
 const NO_SAVE = "It could not get the save line; terminal_read the pane.";
 const SAVE_LINE = "Context is getting full. Update your progress file now (done, in flight, left), then continue.";
 const busyScreen = (footer, typed = "") => `\x1b[2J\x1b[H✻ Working… (5s · esc to interrupt)\r\n${"─".repeat(40)}\r\n> ${typed}\r\n${"─".repeat(40)}\r\n${footer}\r\n${typed ? `\x1b[${3 + Math.floor((typed.length + 2) / 120)};${(typed.length + 2) % 120 + 1}H` : ""}`;
+const idleSaveScreen = (footer, typed = SAVE_LINE) => busyScreen(footer, typed).replace("✻ Working… (5s · esc to interrupt)", "✻ Worked for 5s");
 
 for (const [name, engine, footer, context] of [
   ["Claude near its 500k compact window", "claude", "  ⏵⏵ bypass permissions on · 3% until auto-compact", { left: 3 }],
@@ -2554,7 +2678,7 @@ test("a Claude CONTEXT note waits for the low footer to clear after a compact si
   ]);
 });
 
-test("a fresh worker command re-arms its CONTEXT note in the same pane", async (t) => {
+test("a fresh worker command gets its own CONTEXT note in the same pane", async (t) => {
   const f = stallFixture();
   t.after(() => f.host.dispose());
   const pane = await f.host.openForBot("bot-1", { label: "SHOP", command: "claude go" });
@@ -2606,6 +2730,113 @@ test("a busy worker gets the save line once per compaction cycle and the chief n
   await f.advance(10_000);
   assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE, "\r", SAVE_LINE]);
   assert.deepEqual(contextNotes(f), []);
+});
+
+for (const engine of ["claude", "codex"]) {
+  test(`${engine} submits a queued save line once when the pane goes idle`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    const footer = engine === "claude" ? "ctx 245k/300k" : "Context 40% left";
+    await f.host.openForBot("bot-1", { label: "W", command: `${engine} go` });
+    f.children[0].data(busyScreen(footer));
+    await f.advance(10_000);
+    f.children[0].data(idleSaveScreen(footer));
+    await f.advance(10_000);
+    assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE, "\r"]);
+    for (let tick = 0; tick < 3; tick += 1) {
+      f.children[0].data(idleSaveScreen(footer));
+      await f.advance(10_000);
+    }
+    assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE, "\r"]);
+    assert.deepEqual(contextNotes(f), []);
+  });
+}
+
+test("a save line still queued after a busy Enter gets one idle Enter", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(busyScreen("ctx 245k/300k"));
+  await f.advance(10_000);
+  f.children[0].data(busyScreen("ctx 245k/300k", SAVE_LINE));
+  await f.advance(10_000);
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE, "\r"]);
+  f.children[0].data(idleSaveScreen("ctx 245k/300k"));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE, "\r", "\r"]);
+  assert.deepEqual(contextNotes(f), []);
+});
+
+test("an idle save-line Enter rechecks a menu that appears before the write", async (t) => {
+  let clock = Date.UTC(2026, 9, 4);
+  let onCheck = () => {};
+  const f = stallFixture({ now: () => { onCheck(); return clock; } });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(busyScreen("ctx 245k/300k"));
+  clock += 10_000;
+  await f.settle();
+  f.children[0].data(idleSaveScreen("ctx 245k/300k"));
+  onCheck = () => {
+    onCheck = () => {};
+    queueMicrotask(() => f.children[0].data(idleSaveScreen("❯ 1. Yes\r\n  2. No\r\nctx 245k/300k")));
+  };
+  clock += 10_000;
+  await f.settle();
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE]);
+  clock += 10_000;
+  await f.settle();
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE]);
+  assert.equal(contextNotes(f).length, 1);
+  f.children[0].data(idleSaveScreen("ctx 245k/300k"));
+  clock += 10_000;
+  await f.settle();
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE, "\r"]);
+  assert.equal(contextNotes(f).length, 1);
+});
+
+for (const compact of [false, true]) {
+  test(`a queued save line sends one acknowledged CONTEXT note per crossing: compact ${compact}`, async (t) => {
+    const posted = [];
+    const f = stallFixture({ notePane: async (mail, scope, text) => {
+      if (!text.startsWith("CONTEXT:")) return;
+      posted.push(text);
+      f.host.attendBot(scope.bot, scope.pane, "note");
+      throw new Error("response lost after delivery");
+    } });
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+    for (let cycle = 0; cycle < (compact ? 2 : 1); cycle += 1) {
+      if (cycle) {
+        f.children[0].data(contextScreen("ctx 30k/300k"));
+        await f.advance(10_000);
+      }
+      f.children[0].data(busyScreen("ctx 245k/300k"));
+      await f.advance(10_000);
+      await f.advance(10_000);
+      for (const used of [246, 247, 248, 249, 250]) {
+        f.children[0].data(busyScreen(`ctx ${used}k/300k`, SAVE_LINE));
+        await f.advance(61_000);
+      }
+    }
+    assert.equal(posted.length, compact ? 2 : 1);
+    assert.deepEqual(f.children[0].writes.slice(1), compact ? [SAVE_LINE, SAVE_LINE] : [SAVE_LINE]);
+  });
+}
+
+test("an undelivered CONTEXT note retries until it reaches the teacher", async (t) => {
+  const f = stallFixture({ failures: 2 });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(contextScreen("ctx 245k/300k"));
+  await f.advance(10_000);
+  await f.advance(61_000);
+  assert.deepEqual(contextNotes(f), []);
+  await f.advance(61_000);
+  assert.equal(contextNotes(f).length, 1);
+  await f.advance(61_000);
+  assert.equal(contextNotes(f).length, 1);
 });
 
 for (const [name, command, screen, note] of [

@@ -127,7 +127,13 @@ describe("pane notes from Wink", () => {
       mailbox: async () => ({ url: `http://127.0.0.1:${address.port}`, token: "secret", binDir: null }),
       platform: "linux",
       env: { SHELL: "/bin/sh" },
-      loadPty: () => ({ spawn: () => ({ onData() {}, onExit() {}, write() {}, resize() {}, kill() {} }) }),
+      loadPty: () => ({
+        spawn: () => {
+          let emit = () => {};
+          // The worker must draw after its command echo before the 2-minute stall clock applies.
+          return { onData: (cb) => { emit = cb; }, onExit() {}, write: (data) => setTimeout(() => emit(`${data}\r\nOpenAI Codex\r\n`), 0), resize() {}, kill() {} };
+        },
+      }),
       stallMs: 50,
       stallCheckMs: 10,
     });
