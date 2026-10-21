@@ -479,6 +479,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           model: null as string | null,
         };
         const kinds: ItemKinds = new Map();
+        const openTools = new Set<string>();
         const buffers = new Map<string, string>();
         let latestUsageObservedAt: string | null = null;
         let completionPending = false;
@@ -515,6 +516,10 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           pendingText = "";
           emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text });
         }
+        const completeTool = (itemId: string, ok: boolean) => {
+          if (!openTools.delete(itemId)) return;
+          emit({ ...base(threadId, turnId), type: "item.completed", itemType: "tool", itemId, ok });
+        };
         const settle = (ok: boolean, stopReason: string | null) => {
           if (state.settled) return;
           state.settled = true;
@@ -524,6 +529,7 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
           // event must see a free thread (adapter contract).
           active.delete(threadId);
           flushText();
+          for (const itemId of openTools) completeTool(itemId, false);
           turnTimer.mark("turnDone");
     turnTimer.finish();
     emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason });
@@ -855,8 +861,22 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               openUserInput(p);
               break;
             case "item/started": {
-              const item = p.item as { id?: string; kind?: string } | undefined;
-              if (typeof item?.id === "string" && typeof item?.kind === "string") kinds.set(item.id, item.kind);
+              const item = p.item;
+              const itemId = item?.itemId ?? item?.id;
+              if (typeof itemId !== "string" || typeof item?.kind !== "string") break;
+              const seen = kinds.has(itemId);
+              kinds.set(itemId, item.kind);
+              if (item.kind === "toolCall" && !seen) {
+                flushText();
+                openTools.add(itemId);
+                emit({
+                  ...base(threadId, turnId),
+                  type: "item.started",
+                  itemType: "tool",
+                  itemId,
+                  title: typeof item.tool === "string" ? item.tool.slice(0, 80) : "tool",
+                });
+              }
               break;
             }
             case "item/delta": {
@@ -870,6 +890,10 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               break;
             }
             case "item/completed": {
+              const itemId = p.item?.itemId ?? p.item?.id;
+              if (p.item?.kind === "toolCall" && typeof itemId === "string") {
+                completeTool(itemId, p.item.status === "completed");
+              }
               const item = p.item as { id?: string; kind?: string; text?: unknown } | undefined;
               if (item?.kind === "agentMessage") {
                 const text = typeof item.text === "string"
