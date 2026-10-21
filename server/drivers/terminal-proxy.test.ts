@@ -72,6 +72,18 @@ describe("terminal proxy", () => {
     expect(TOOLS[1].description).toContain("Text sent while a Claude worker is busy queues for its next step");
   });
 
+  it("trusts only the Codex worker folder for that launch", () => {
+    expect(TOOLS[2].description).toContain(`-c "projects={'<cwd>'={trust_level='trusted'}}" --dangerously-bypass-approvals-and-sandbox`);
+    expect(TOOLS[2].description).toContain("Use the pane's absolute native cwd in the trust table");
+    expect(TOOLS[2].description).not.toContain("a new folder shows a trust prompt first");
+  });
+
+  it("uses Grok's folder trust flag and keeps unsupported engines' menu fallback", () => {
+    expect(TOOLS[2].description).toContain("grok -m <model-id> --effort <effort> --always-approve --trust '<prompt>'");
+    expect(TOOLS[2].description).toContain("If it shows a folder-trust menu, read it and pick Yes with terminal_send key presses");
+    expect(TOOLS[2].description).toContain("it may ask a y/n trust question first; send y");
+  });
+
   it("lists every picker model of the four worker engines with its name and --model id", () => {
     const description = TOOLS[2].description;
     const names = (catalog: { options: { id: string; label: string }[] }) => catalog.options.map((option) => [option.label.replace(/^(Claude|Meta) /, ""), option.id]);
