@@ -19,7 +19,7 @@ import { SECTION_PHRASE_KEYS } from "./settings-search";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-it.each(["signIn", "finishInBrowser", "openAgain", "openLink", "enterCode", "notSignedIn", "cancel", "signInFromComputer", "didntFinish", "moreEngines", "details", "signOut"])("translates engine login %s", (name) => {
+it.each(["signIn", "finishInBrowser", "openAgain", "openLink", "enterCode", "notSignedIn", "cancel", "signInFromComputer", "didntFinish", "moreEngines", "signOut", "notInstalled", "install"])("translates engine login %s", (name) => {
   const key = `engines.${name}` as MessageKey;
   expect(en[key]).toBeTruthy();
   expect(ko[key]).toMatch(/[가-힣]/);
@@ -792,20 +792,10 @@ describe("first-run core path leftovers", () => {
     expect(ko["model.showAll"]).toContain("{count}");
     expect(en["engines.setCli"]).toBe("Set CLI…");
     expect(ko["engines.setCli"]).toBe("CLI 지정…");
-    expect(en["engines.inUseSuffix"]).toBe("{cli} · in use");
-    expect(ko["engines.inUseSuffix"]).toBe("{cli} · 사용 중");
-    expect(translate("en", "engines.inUseSuffix", { cli: "/usr/bin/claude" })).toBe("/usr/bin/claude · in use");
-    expect(translate("ko", "engines.inUseSuffix", { cli: "/usr/bin/claude" })).toBe("/usr/bin/claude · 사용 중");
     expect(en["connections.connected"]).toBe("Connected");
     expect(ko["connections.connected"]).toBe("연결됨");
     expect(en["engines.unavailable"]).toBe("Unavailable");
     expect(ko["engines.unavailable"]).toBe("사용 불가");
-    expect(en["engines.saveRestartWarning"]).toBe(
-      "Applies on the next turn.",
-    );
-    expect(ko["engines.saveRestartWarning"]).toBe(
-      "다음 차례부터 적용돼요.",
-    );
   });
 
   it("wires those phrases instead of hardcoded English", () => {
@@ -845,9 +835,9 @@ describe("first-run core path leftovers", () => {
     expect(modelPicker).not.toMatch(/Nothing matches/);
     expect(modelPicker).not.toMatch(/>Switch engine</);
     expect(modelPicker).not.toMatch(/>Cloud</);
-    expect(enginesSettings).toContain('t("engines.details")');
     expect(enginesSettings).toContain('t("engines.moreEngines")');
-    expect(enginesSettings).toContain('t("engines.inUseSuffix"');
+    expect(enginesSettings).toContain('t("engines.notInstalled")');
+    expect(enginesSettings).toContain('t("engines.install")');
     expect(enginesSettings).not.toMatch(/>Set CLI…</);
     expect(enginesSettings).not.toMatch(/· in use/);
     expect(enginesSettings).not.toMatch(/>Cloud</);

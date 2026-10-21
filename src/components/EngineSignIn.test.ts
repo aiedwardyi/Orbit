@@ -216,7 +216,6 @@ describe("engine sign-in row", () => {
       : json({ instances: [row], candidates: [] }));
     vi.stubGlobal("fetch", fetchMock);
     await render(createElement(EngineRowView, { instance: row }));
-    await click("Details");
     await click("Sign Out");
     expect(host.textContent).toContain("Connected");
     expect(host.textContent).toContain("Didn't finish");
@@ -235,48 +234,35 @@ describe("engine sign-in row", () => {
     expect(host.textContent).toBe("Sign In");
   });
 
-  it("holds path, terminal, copy, guide and sign-out under Details", async () => {
+  it("signs out from the connected row with no path or terminal controls", async () => {
     let signedOut = false;
     const row = instance("codex", { snapshot: { state: "available", authenticated: true } });
     const fetchMock = vi.fn(async (url: string) => {
       if (url.endsWith("/sign-out")) signedOut = true;
-      return json(url.includes("cli-candidates") ? { candidates: ["codex"] } : url.startsWith("/api/instances?") ? { instances: [{ ...row, snapshot: { state: "available", authenticated: !signedOut } }] } : {});
+      return json(url.startsWith("/api/instances?") ? { instances: [{ ...row, snapshot: { state: "available", authenticated: !signedOut } }] } : {});
     });
     vi.stubGlobal("fetch", fetchMock);
     await render(createElement(EngineRow, { instance: row }));
-    expect(host.querySelector("input")).toBeNull();
-    await click("Details");
-    expect(host.querySelector("input")).not.toBeNull();
-    expect(host.textContent).toContain("codex login");
-    expect(host.querySelector('a[href="https://example.com/guide"]')).not.toBeNull();
+    expect(host.textContent).toBe("codexConnectedSign Out");
+    expect(host.querySelector("input, select, code, a")).toBeNull();
     await click("Sign Out");
     expect(fetchMock).toHaveBeenCalledWith("/api/instances/codex/sign-out", expect.objectContaining({ method: "POST", body: "{}" }));
     expect(host.textContent).toContain("Sign In");
     expect(host.textContent).not.toContain("Connected");
   });
 
-  it("hides sign-out for a signed-out engine", async () => {
+  it("offers only Sign In for a signed-out engine", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ candidates: [] })));
     await render(createElement(EngineRow, { instance: instance() }));
-    await click("Details");
-    expect(host.textContent).toContain("codex login");
-    expect(host.textContent).not.toContain("Sign Out");
+    expect([...host.querySelectorAll("button")].map((node) => node.textContent)).toEqual(["Sign In"]);
+    expect(host.textContent).not.toContain("codex login");
+    expect(host.querySelector("input, select, code, a")).toBeNull();
   });
 
   it("never offers agy sign-out", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ candidates: [] })));
-    await render(createElement(EngineRow, { instance: instance("antigravityAgent", { install: { signInCommand: "agy" } }) }));
-    await click("Details");
-    expect(host.textContent).not.toContain("Sign Out");
-  });
-
-  it("closes a stale path picker when another client changes the CLI", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => json({ candidates: [] })));
-    const row = instance();
-    await render(createElement(EngineRow, { instance: row }));
-    await click("Details");
-    expect(host.querySelector("input")).not.toBeNull();
-    await act(async () => root!.render(createElement(I18nProvider, null, createElement(EngineRow, { instance: { ...row, cli: "other-cli" } }))));
-    expect(host.querySelector("input")).toBeNull();
+    await render(createElement(EngineRow, { instance: instance("antigravityAgent", { snapshot: { state: "available", authenticated: true }, install: { signInCommand: "agy" } }) }));
+    expect(host.textContent).toBe("antigravityAgentConnected");
+    expect(host.querySelector("button")).toBeNull();
   });
 });
