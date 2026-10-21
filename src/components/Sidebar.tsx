@@ -51,7 +51,7 @@ import {
   type TerminalAttention,
 } from "@/state/store";
 
-import { BotAvatar, InitialsAvatar } from "./Avatar";
+import { BotAvatar, InitialsAvatar, profileInitials } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
 import { useManualCheck, useUpdaterState } from "@/lib/updater";
 import { cn } from "@/lib/cn";
@@ -127,20 +127,6 @@ import { collapsedUnreadCount, formatCollapsedUnreadBadge, unreadConversationCou
 
 // Effect-level easing: getComputedTiming().progress is then the eased edge position.
 const SIDEBAR_MOTION = { duration: 300, easing: "cubic-bezier(0.32, 0.72, 0, 1)" };
-
-/** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
-function profileInitials(profile?: { name?: string; email?: string }): string {
-  const name = profile?.name?.trim();
-  if (name) {
-    const words = name.split(/\s+/);
-    return words
-      .slice(0, 2)
-      .map((w) => w[0]!.toUpperCase())
-      .join("");
-  }
-  const email = profile?.email?.trim();
-  return email ? email[0]!.toUpperCase() : "?";
-}
 
 export function compactSidebarModelLabel(label: string): string {
   return label.replace(/\s+Contributor$/i, " Cont.");

@@ -138,8 +138,10 @@ const appConfigSchema = z.object({
   /** Keys only call_api uses; never handed to an engine. */
   anthropic: z.object({ key: optionalText }).optional(),
   vertex: z.object({ key: optionalText }).optional(),
-  /** Non-secret profile details shown in the sidebar. */
-  profile: z.object({ name: optionalText, email: optionalText, avatarUrl: botAvatarUrlSchema.optional() }).optional(),
+  /** Non-secret profile details shown in the sidebar. The cleared markers stop Google sign-in refilling what the user removed. */
+  profile: z
+    .object({ name: optionalText, email: optionalText, avatarUrl: botAvatarUrlSchema.optional(), nameCleared: z.boolean().optional(), avatarCleared: z.boolean().optional() })
+    .optional(),
   rooms: roomConfigSchema.optional(),
   localVm: localVmConfigSchema.optional(),
   features: featureConfigSchema.optional(),
@@ -157,9 +159,17 @@ const customKeysSchema = z
   );
 /** call_api sends these as header values; a control character would make Headers throw with the key in its message. */
 const headerSafe = (key = "") => !/[\x00-\x1f\x7f]/.test(key.trim());
+/** An empty avatarUrl removes the photo; an undefined value drops its key when saveConfig writes the file. */
+const profilePatchSchema = z
+  .object({ name: optionalText, email: optionalText, avatarUrl: z.union([botAvatarUrlSchema, z.literal("")]).optional() })
+  .transform(({ avatarUrl, ...profile }) => ({
+    ...profile,
+    ...(profile.name === undefined ? {} : { nameCleared: profile.name.trim() ? undefined : true }),
+    ...(avatarUrl === undefined ? {} : { avatarUrl: avatarUrl || undefined, avatarCleared: avatarUrl ? undefined : true }),
+  }));
 const appConfigPatchSchema = appConfigSchema
   .omit({ instances: true, phoneRelay: true })
-  .extend({ customKeys: customKeysSchema.optional() })
+  .extend({ profile: profilePatchSchema.optional(), customKeys: customKeysSchema.optional() })
   .refine(
     (patch) =>
       (Object.keys(CREDENTIAL_BROKER) as BrokeredCredentialId[]).every((id) => headerSafe(credentialValue(patch, id))) &&
@@ -181,7 +191,7 @@ export interface AppConfig {
   anthropic?: { key?: string };
   vertex?: { key?: string };
   customKeys?: Record<string, CustomKey | null>;
-  profile?: { name?: string; email?: string; avatarUrl?: string };
+  profile?: { name?: string; email?: string; avatarUrl?: string; nameCleared?: boolean; avatarCleared?: boolean };
   rooms?: { turnTimeoutMinutes: number };
   /** Shared preserves the historical singleton. Per-bot gives every bot a
    * separate container, durable workspace, viewer and lease. */

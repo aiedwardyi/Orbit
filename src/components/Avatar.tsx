@@ -222,6 +222,20 @@ export function BotAvatar({ bot, size = 44, label, orbitRing = false, ...mascotP
   );
 }
 
+/** "Milind Soni" → "MS", "milind" → "M", "you@x.dev" → "Y", unset → "?" */
+export function profileInitials(profile?: { name?: string; email?: string }): string {
+  const name = profile?.name?.trim();
+  if (name) {
+    const words = name.split(/\s+/);
+    return words
+      .slice(0, 2)
+      .map((w) => w[0]!.toUpperCase())
+      .join("");
+  }
+  const email = profile?.email?.trim();
+  return email ? email[0]!.toUpperCase() : "?";
+}
+
 export function InitialsAvatar({
   initials,
   imageUrl,
