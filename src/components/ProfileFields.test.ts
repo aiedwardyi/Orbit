@@ -7,7 +7,7 @@ const mock = vi.hoisted(() => ({
   dispatch: vi.fn(),
   config: {
     profile: { name: "", email: "" },
-  } as { profile: { name: string; email: string } },
+  } as { profile: { name: string; email: string; avatarUrl?: string } },
 }));
 
 vi.mock("@/state/store", async (importOriginal) => {
@@ -144,5 +144,86 @@ describe("ProfileFields Save", () => {
     await act(async () => {
       root.unmount();
     });
+  });
+});
+
+describe("ProfileFields photo", () => {
+  afterEach(() => {
+    document.body.replaceChildren();
+    vi.unstubAllGlobals();
+    mock.dispatch.mockReset();
+    mock.config = { profile: { name: "", email: "" } };
+  });
+
+  const button = (host: HTMLElement, label: string) =>
+    [...host.querySelectorAll("button")].find((candidate) => candidate.textContent === label) ?? null;
+
+  function pick(host: HTMLElement, file: File) {
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  it("offers Change Photo and shows Remove Photo only when a photo is set", async () => {
+    const empty = await renderProfile();
+    expect(button(empty.host, "Change Photo")).toBeTruthy();
+    expect(button(empty.host, "Remove Photo")).toBeNull();
+    expect(empty.host.querySelector('input[type="file"]')?.getAttribute("accept")).toBe("image/png,image/jpeg,image/gif,image/webp");
+    expect(empty.host.textContent).toContain("PNG, JPEG, GIF, or WebP");
+    await act(async () => empty.root.unmount());
+
+    mock.config = { profile: { name: "Ada", email: "", avatarUrl: "/api/attachments/ada.png" } };
+    const set = await renderProfile();
+    expect(button(set.host, "Remove Photo")).toBeTruthy();
+    expect(set.host.querySelector("img")?.getAttribute("src")).toBe("/api/attachments/ada.png");
+    await act(async () => set.root.unmount());
+  });
+
+  it("uploads the picked image and saves it as the profile photo", async () => {
+    const saved = { profile: { name: "", email: "", avatarUrl: "/api/attachments/new.png" } };
+    const request = vi.fn(async (input: string, _init?: RequestInit): Promise<FetchResult> =>
+      input === "/api/attachments"
+        ? { ok: true, json: async () => ({ path: "C:/data/attachments/new.png", mime: "image/png", bytes: 4 }) }
+        : { ok: true, json: async () => saved });
+    vi.stubGlobal("fetch", request);
+
+    const { root, host } = await renderProfile();
+    await act(async () => pick(host, new File([new Uint8Array([1, 2, 3, 4])], "me.png", { type: "image/png" })));
+    await flush();
+
+    expect(request.mock.calls.map(([url, init]) => `${init?.method} ${url}`)).toEqual(["POST /api/attachments", "PUT /api/config"]);
+    expect(JSON.parse(String(request.mock.calls[1]![1]?.body))).toEqual({ profile: { avatarUrl: "/api/attachments/new.png" } });
+    expect(mock.dispatch).toHaveBeenCalledWith({ type: "configStatus", config: saved });
+    await act(async () => root.unmount());
+  });
+
+  it("refuses a file that is not a supported image", async () => {
+    const request = vi.fn();
+    vi.stubGlobal("fetch", request);
+
+    const { root, host } = await renderProfile();
+    await act(async () => pick(host, new File(["<svg/>"], "me.svg", { type: "image/svg+xml" })));
+    await flush();
+
+    expect(request).not.toHaveBeenCalled();
+    expect(host.querySelector("[role=alert]")?.textContent).toBe("Choose a PNG, JPEG, GIF, or WebP image");
+    await act(async () => root.unmount());
+  });
+
+  it("removes the photo", async () => {
+    mock.config = { profile: { name: "Ada", email: "", avatarUrl: "/api/attachments/ada.png" } };
+    const saved = { profile: { name: "Ada", email: "", avatarUrl: "" } };
+    const request = vi.fn(async (_input: string, _init?: RequestInit): Promise<FetchResult> => ({ ok: true, json: async () => saved }));
+    vi.stubGlobal("fetch", request);
+
+    const { root, host } = await renderProfile();
+    await act(async () => button(host, "Remove Photo")!.click());
+    await flush();
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]![1]?.method).toBe("PUT");
+    expect(JSON.parse(String(request.mock.calls[0]![1]?.body))).toEqual({ profile: { avatarUrl: "" } });
+    expect(mock.dispatch).toHaveBeenCalledWith({ type: "configStatus", config: saved });
+    await act(async () => root.unmount());
   });
 });

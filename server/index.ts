@@ -9820,6 +9820,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       const patch = parseConfigPatch(body);
       if (!Object.keys(patch).length) return json(res, 400, { error: "nothing to save" });
+      if (patch.profile?.avatarUrl && !storedAvatarExists(patch.profile.avatarUrl)) {
+        return json(res, 400, { error: "avatarUrl must reference an existing stored image" });
+      }
       const externalSecretStorage = url.searchParams.get("secretStorage") === "external";
       const customKeyError = customKeyStorageError(patch, req.headers, REMOTE_HOST, externalSecretStorage, relay);
       if (customKeyError) return json(res, 400, { error: customKeyError });

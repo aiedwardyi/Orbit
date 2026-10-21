@@ -367,6 +367,27 @@ describe("profile fill from Google sign-in", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it("does not fill back a photo or name the user removed", async () => {
+    const fetch = picture();
+    const save = saved();
+    expect(await googleProfileFill(idToken({ name: "Ada", picture: PICTURE }), SESSION.sub, () => ({ name: "", avatarCleared: true, nameCleared: true }), save, fetch)).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(await googleProfileFill(idToken({ name: "Ada", picture: PICTURE }), SESSION.sub, () => ({ avatarCleared: true }), save, fetch)).toEqual({ name: "Ada" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the photo removed when the user removes it while the picture was downloading", async () => {
+    let current: { avatarCleared?: boolean } = {};
+    const fetch = vi.fn(async () => {
+      current = { avatarCleared: true };
+      return new Response(PNG);
+    }) as unknown as typeof globalThis.fetch;
+    const save = saved();
+    expect(await googleProfileFill(idToken({ picture: PICTURE }), SESSION.sub, () => current, save, fetch)).toBeNull();
+    expect(save).not.toHaveBeenCalled();
+  });
+
   it("fills nothing from an old-scope token without name or picture", async () => {
     const fetch = picture();
     const save = saved();

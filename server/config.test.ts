@@ -48,6 +48,34 @@ describe("configuration boundaries", () => {
     expect(() => parseConfigPatch({ profile: { avatarUrl: "https://lh3.googleusercontent.com/a/photo" } })).toThrow("profile.avatarUrl");
   });
 
+  it("removes the profile photo with a marker that a new photo clears", () => {
+    rmSync(join(DATA_DIR, "config.json"), { force: true });
+    saveConfig(parseConfigPatch({ profile: { name: "Ada", avatarUrl: "/api/attachments/ada.png" } }));
+    saveConfig(parseConfigPatch({ profile: { avatarUrl: "" } }));
+    const file = () => JSON.parse(readFileSync(join(DATA_DIR, "config.json"), "utf8")).profile;
+    expect(file()).toEqual({ name: "Ada", avatarCleared: true });
+    expect(loadConfig().profile).toEqual({ name: "Ada", avatarCleared: true });
+    saveConfig(parseConfigPatch({ profile: { avatarUrl: "/api/attachments/new.png" } }));
+    expect(file()).toEqual({ name: "Ada", avatarUrl: "/api/attachments/new.png" });
+    expect(parseConfigPatch({ profile: { avatarCleared: false, nameCleared: false } })).toEqual({ profile: {} });
+  });
+
+  it("marks a cleared name so sign-in does not fill it back, and a new name clears the mark", () => {
+    rmSync(join(DATA_DIR, "config.json"), { force: true });
+    saveConfig(parseConfigPatch({ profile: { name: "Ada" } }));
+    saveConfig(parseConfigPatch({ profile: { name: "  " } }));
+    expect(loadConfig().profile).toMatchObject({ name: "  ", nameCleared: true });
+    saveConfig(parseConfigPatch({ profile: { name: "Countess" } }));
+    expect(loadConfig().profile).toEqual({ name: "Countess" });
+  });
+
+  it("parses a config saved before the cleared markers, and one with them", () => {
+    expect(parseStoredConfig({ profile: { name: "Ada", email: "", avatarUrl: "/api/attachments/ada.png" } })).toEqual({
+      profile: { name: "Ada", email: "", avatarUrl: "/api/attachments/ada.png" },
+    });
+    expect(parseStoredConfig({ profile: { name: "", avatarCleared: true, nameCleared: true } }).profile).toMatchObject({ name: "" });
+  });
+
   it("tool detail rejects a malformed capture flag", () => {
     expect(() => parseConfigPatch({ features: { toolDetailCapture: "yes" } })).toThrow("features.toolDetailCapture");
   });

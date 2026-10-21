@@ -21,6 +21,7 @@ import { LONG_PRESS_MS } from "@/lib/use-touch-drag";
 import { usePhoneSwipe } from "@/lib/use-phone-swipe";
 import { formatTime, StoreProvider, useStore, type Bot } from "@/state/store";
 
+import { ProfileFields } from "./ProfileFields";
 import { compactSidebarModelLabel, Sidebar } from "./Sidebar";
 
 vi.mock("@/lib/phone-swipe", async (importOriginal) => ({
@@ -803,6 +804,34 @@ describe("Sidebar layout controls", () => {
       await act(async () => image.dispatchEvent(new Event("error")));
       expect(row.querySelector("img")).toBeNull();
       expect(row.textContent).toContain("AL");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it("falls back to initials in the footer after Remove Photo", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const profile = { name: "Ada Lovelace", email: "", avatarUrl: "/api/attachments/ada.png" };
+    vi.stubGlobal("fetch", vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/bots?messages=200") return Response.json({ bots: [], groups: [] });
+      if (path === "/api/config" && init?.method === "PUT") return Response.json({ composio: { configured: false }, profile: { ...profile, avatarUrl: "" } });
+      if (path === "/api/config") return Response.json({ composio: { configured: false }, profile });
+      return Response.json({ error: "not in this test" }, { status: 404 });
+    }));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(SidebarSettingsProbe), createElement(ProfileFields))));
+      await act(async () => FakeEventSource.current!.onmessage?.({ data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }), lastEventId: "" }));
+      const row = host.querySelector("[data-sidebar-profile-row]")!;
+      await vi.waitFor(() => expect(row.querySelector("img")).not.toBeNull());
+      const remove = [...host.querySelectorAll("button")].find((button) => button.textContent === "Remove Photo")!;
+      await act(async () => remove.click());
+      await vi.waitFor(() => expect(row.querySelector("img")).toBeNull());
+      expect(row.textContent).toContain("AL");
+      expect([...host.querySelectorAll("button")].some((button) => button.textContent === "Remove Photo")).toBe(false);
     } finally {
       await act(async () => root.unmount());
       host.remove();

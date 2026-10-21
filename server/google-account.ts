@@ -111,9 +111,9 @@ async function fetchPicture(url: string, fetch: typeof globalThis.fetch): Promis
   }
 }
 
-type ProfileFields = { name?: string; avatarUrl?: string };
+type ProfileFields = { name?: string; avatarUrl?: string; nameCleared?: boolean; avatarCleared?: boolean };
 
-/** Profile fields to fill from a sign-in: only an empty name or an unset avatar. Null when there is nothing to fill. */
+/** Profile fields to fill from a sign-in: only an empty name or an unset avatar the user did not remove. Null when there is nothing to fill. */
 export async function googleProfileFill(
   idToken: string,
   sub: string,
@@ -123,17 +123,18 @@ export async function googleProfileFill(
 ): Promise<ProfileFields | null> {
   const claims = googleProfileClaims(idToken, sub);
   const fill: ProfileFields = {};
-  if (claims.picture && !current()?.avatarUrl) {
+  const unsetAvatar = () => !current()?.avatarUrl && !current()?.avatarCleared;
+  if (claims.picture && unsetAvatar()) {
     const picture = await fetchPicture(claims.picture, fetch);
     try {
       // Re-read after the fetch: the user may have set one meanwhile.
-      const avatarUrl = picture && !current()?.avatarUrl ? saveImage(picture.bytes, picture.mime) : null;
+      const avatarUrl = picture && unsetAvatar() ? saveImage(picture.bytes, picture.mime) : null;
       if (avatarUrl) fill.avatarUrl = avatarUrl;
     } catch {
       // A picture that cannot be stored leaves the default.
     }
   }
-  if (claims.name && !current()?.name?.trim()) fill.name = claims.name;
+  if (claims.name && !current()?.name?.trim() && !current()?.nameCleared) fill.name = claims.name;
   return fill.name || fill.avatarUrl ? fill : null;
 }
 
