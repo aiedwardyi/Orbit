@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
+import { peerMessagePrompt } from "./chief-of-staff.ts";
 import {
   commLink,
   getOrCreateChannel,
@@ -745,7 +746,7 @@ async function processOne(
 const reasonLine = (item: PendingDelegationItem) => item.reason ? `\n\n[Reason: ${item.reason}]` : "";
 
 const delegatedPrompt = (sender: BotRecord, item: PendingDelegationItem) =>
-  `[Delegated by @${sender.name}, another bot in this Wink workspace. Do the work and reply directly.]\n\n${item.message}${reasonLine(item)}`;
+  peerMessagePrompt(sender, `${item.message}${reasonLine(item)}`, "delegation");
 
 /** A delegated turn on the target's own thread, watched until it ends. */
 export interface DelegatedTurn {

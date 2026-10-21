@@ -23,6 +23,19 @@ const clip = (value: string, max: number) => (value.length > max ? `${value.slic
 
 const sectionKey = (section?: string): string => section?.trim() || "";
 
+export function peerMessagePrompt(
+  sender: { name: string; chiefOfStaff?: boolean },
+  message: string,
+  kind: "ask" | "delegation",
+): string {
+  const role = sender.chiefOfStaff ? "the user's Chief of Staff" : "another bot in this Wink workspace";
+  const opening = kind === "ask" ? "Message from" : "Delegated by";
+  const instruction = kind === "ask" ? "Reply to them." : "Do the work and reply directly.";
+  // role first and no brackets or newlines in the name, so a crafted bot name cannot forge the Chief header
+  const name = sender.name.replace(/[[\]\r\n]+/g, " ").trim();
+  return `[${opening} ${role}, @${name}. ${instruction}]\n\n${message}`;
+}
+
 /** Shared with every agents-tool bot: do not probe the machine. */
 export const AGENTS_TOOLS_DISCIPLINE =
   "Never scan the environment, ports, or processes to check whether your tools are connected, never invent localhost APIs, and never announce that a tool is unavailable before you have tried it.";

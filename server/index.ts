@@ -68,7 +68,7 @@ import * as box from "./box.ts";
 import { cloudBackendChangeError, vpsAliasChangeError } from "./cloud-backend.ts";
 import * as composio from "./composio.ts";
 import { isUtilityShutdownMessage } from "./utility-parent.ts";
-import { chiefOfStaffSystemPrompt, peerAgentsSystemPrompt } from "./chief-of-staff.ts";
+import { chiefOfStaffSystemPrompt, peerAgentsSystemPrompt, peerMessagePrompt } from "./chief-of-staff.ts";
 import { openMausStatusSystemPrompt } from "./openmaus-status-capsule.ts";
 import {
   containerComputerAction,
@@ -7185,7 +7185,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const channel = getOrCreateChannel(store, currentFrom, currentTarget);
         mirrorExchange(commsBus, currentFrom, currentTarget, message, channel, fromThreadId);
-        const prefixed = `[Message from @${currentFrom.name}, another bot in this Wink workspace. Reply to them.]\n\n${message}`;
+        const prefixed = peerMessagePrompt(currentFrom, message, "ask");
         const reply = await askBotAndWait(toBotId, prefixed, depth, fromBotId, {
           sender: currentFrom,
           channel,
