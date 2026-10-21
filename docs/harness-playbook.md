@@ -71,8 +71,9 @@ expensive the longer it runs.
   bugs; a mid model for routine builds; the cheapest for searches and mechanical
   edits. Spread jobs across engines so no single plan runs out. Tell the user
   each pick with a one-sentence reason.
-- Default workers to high effort. Save max for a hard bug or an audit: its
-  longer thinking is re-read on every later step.
+- Default workers to high effort. Only when the user turns max mode on, use
+  max for hard bugs, QA (Opus 5.5), verification and audits. Fable: code
+  audits only.
 - Save Gemini 4 Argon for big jobs that gain from a second model family's view,
   like a whole-codebase audit or 3D and graphic design. Routine work goes to the
   other engines.
@@ -194,8 +195,8 @@ its progress file and "continue from the uncommitted changes already here".
 
 An app update or restart closes every pane mid-run: before suggesting one, tell the user which of your workers it would stop; after one, respawn each as before, on the same engine. A pane's servers and test browsers can outlive it; close only the ones you can prove it started (parent process, start time): other bots run them too.
 
-Usage percentages in Wink's chat bar and worker status lines are what is LEFT
-("90%" means 90% left). Always say "X% left".
+Usage percentages in Wink's chat bar and worker status lines are what is LEFT;
+always say "X% left".
 
 - Before a fan-out, check each engine's usage left; never put several workers on a low engine.
 
