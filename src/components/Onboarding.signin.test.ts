@@ -32,6 +32,23 @@ function phoneWidth() {
 }
 
 describe("Onboarding engine check", () => {
+  it("reuses the sign-in row for an installed engine", async () => {
+    const instance = {
+      instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude",
+      snapshot: { state: "available", authenticated: false }, models: { default: "", options: [] },
+      install: { login: { args: ["auth", "login"] }, signInCommand: "claude auth login" },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ instances: [instance] }))));
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    roots.push(root);
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(Onboarding, { onDone: vi.fn() }))));
+    const next = [...host.querySelectorAll("button")].find((button) => button.textContent === "Continue")!;
+    await act(async () => next.click());
+    expect(host.textContent).toContain("Sign In");
+    expect(host.textContent).toContain("Details");
+    expect(host.textContent).not.toContain("Open Sign-in in Terminal");
+  });
   it("asks an unpaired phone to sign in instead of blaming the engines", async () => {
     const host = await renderWith(401);
     expect(host.textContent).toContain("Sign in to this PC");

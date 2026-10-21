@@ -526,6 +526,8 @@ export interface EngineInstall {
   command?: Partial<Record<"darwin" | "win32" | "linux", string>>;
   docsUrl?: string;
   signInCommand?: string;
+  login?: { args: string[]; deviceArgs?: string[]; env?: Record<string, string> };
+  logout?: string[];
   needsNode?: boolean;
 }
 
@@ -536,6 +538,8 @@ export interface RateLimitReport {
 
 /** One row of GET /api/instances — the model picker's data. */
 export interface InstanceInfo {
+  loginState?: "pending" | "complete" | "failed" | "cancelled";
+  loginCapture?: { url?: string; code?: string };
   instanceId: string;
   driverKind: string;
   displayName: string;
@@ -3639,6 +3643,28 @@ export function useStore() {
   const ctx = useContext(StoreContext);
   if (!ctx) throw new Error("useStore outside provider");
   return ctx;
+}
+
+export function useEngineLoginRefresh(waiting: boolean, onRefresh: (instances: InstanceInfo[]) => void) {
+  const store = useContext(StoreContext);
+  const refreshRef = useRef(onRefresh);
+  refreshRef.current = onRefresh;
+  useEffect(() => {
+    if (!waiting) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const refreshInstances = async () => {
+      try {
+        const { instances } = await api("/api/instances");
+        if (!active) return;
+        store?.dispatch({ type: "instances", instances, preserveRateLimits: true });
+        refreshRef.current(instances);
+      } catch {}
+      if (active) timer = setTimeout(refreshInstances, 2000);
+    };
+    timer = setTimeout(refreshInstances, 2000);
+    return () => { active = false; clearTimeout(timer); };
+  }, [waiting, store?.dispatch]);
 }
 
 /** dispatch alone: unlike useStore, it does not re-render on every state change. */

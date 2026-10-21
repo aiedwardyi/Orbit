@@ -12,6 +12,7 @@ import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import { findCliCandidates, refreshPathCache, splitCliString } from "../env-path.ts";
 import { clearVersionCache } from "../procs.ts";
+import { EngineLogin } from "../engine-login.ts";
 import { withWslProbeSnapshot } from "../wsl-gate.ts";
 import type {
   AnyProviderDriver,
@@ -88,6 +89,9 @@ function cliOfRaw(raw: unknown): string | undefined {
 }
 
 export class ProviderRegistry {
+  readonly logins = new EngineLogin();
+  private signingOut = new Set<string>();
+  private environmentByInstance = new Map<InstanceId, Record<string, string>>();
   private byId = new Map<InstanceId, RegistryEntry>();
   /** decoded per-instance `cli` overrides, for describe() — drivers spawn
    * from their own config; this map only reports what was configured */
@@ -117,6 +121,7 @@ export class ProviderRegistry {
       try { saved = JSON.parse(readFileSync(join(this.cacheDir, "provider-probes.json"), "utf8")); } catch {}
     }
     const loaded = await Promise.all(Object.entries(configs).map(async ([instanceId, entry]) => {
+      this.environmentByInstance.set(instanceId, entry.environment ?? {});
       const driver = this.driversByKind.get(entry.driver);
       if (!driver) {
         return {
@@ -219,6 +224,74 @@ export class ProviderRegistry {
     return command ? { driverKind: driver!.driverKind, command } : null;
   }
 
+  private loginConfig(instanceId: InstanceId) {
+    const live = this.get(instanceId);
+    const driver = live && this.driversByKind.get(live.driverKind);
+    const cli = this.cliByInstance.get(instanceId) ?? cliDefaultOf(driver || undefined);
+    return live && driver && cli ? {
+      engine: driver.driverKind, cli, install: driver.install,
+      env: { ...this.environmentByInstance.get(instanceId), ...driver.install?.login?.env },
+    } : null;
+  }
+
+  async startSignIn(instanceId: InstanceId, device = false) {
+    const config = this.loginConfig(instanceId);
+    if (!config || this.signingOut.has(config.engine)) return null;
+    if (config.engine === "antigravityAgent" && !device) return this.logins.waitExternal(config.engine);
+    const login = config.install?.login;
+    const args = device ? login?.deviceArgs : login?.args;
+    if (!args) return null;
+    const capture = await this.logins.start(config.engine, config.cli, args, config.env);
+    return login?.deviceArgs ? capture : capture.url ? { url: capture.url } : {};
+  }
+
+  async cancelSignIn(instanceId: InstanceId) {
+    const config = this.loginConfig(instanceId);
+    if (!config) return false;
+    if (this.signingOut.has(config.engine)) return true;
+    await this.logins.cancel(config.engine);
+    return true;
+  }
+
+  async signOut(instanceId: InstanceId) {
+    const config = this.loginConfig(instanceId);
+    if (!config?.install?.logout) return null;
+    if (this.signingOut.has(config.engine)) return false;
+    this.signingOut.add(config.engine);
+    try {
+      await this.logins.cancel(config.engine);
+      await this.logins.start(config.engine, config.cli, config.install.logout, config.env);
+      await this.logins.wait(config.engine);
+      const success = this.logins.state(config.engine) === "complete";
+      if (success) {
+        this.logins.clear(config.engine);
+        const previous = this.probed.get(instanceId);
+        const snapshot = await this.get(instanceId)!.snapshot({ refresh: true });
+        if (previous) this.probed.set(instanceId, { ...previous, snapshot });
+        this.probeVersion += 1;
+      }
+      return success;
+    } finally {
+      this.signingOut.delete(config.engine);
+    }
+  }
+
+  async refreshLogins() {
+    await Promise.all(this.entries().map(async (entry) => {
+      const live = entry.live;
+      if (!live || this.signingOut.has(live.driverKind) || !this.logins.needsRefresh(live.driverKind)) return;
+      const previous = this.probed.get(entry.instanceId);
+      if (!previous) return;
+      const generation = this.logins.generation(live.driverKind);
+      const snapshot = await live.snapshot({ refresh: true });
+      if (this.signingOut.has(live.driverKind) || this.logins.generation(live.driverKind) !== generation || !this.logins.needsRefresh(live.driverKind)) return;
+      this.probed.set(entry.instanceId, { ...previous, snapshot });
+      this.probeVersion += 1;
+      if (snapshot.authenticated) this.logins.complete(live.driverKind);
+      this.logins.acknowledge(live.driverKind, snapshot.authenticated === true);
+    }));
+  }
+
   entries(): RegistryEntry[] {
     return [...this.byId.values()];
   }
@@ -231,6 +304,7 @@ export class ProviderRegistry {
     const live = this.get(instanceId);
     this.byId.delete(instanceId);
     this.cliByInstance.delete(instanceId);
+    this.environmentByInstance.delete(instanceId);
     this.modelRefreshAt.delete(instanceId);
     this.modelRefreshInFlight.delete(instanceId);
     this.forget(instanceId);
@@ -256,6 +330,7 @@ export class ProviderRegistry {
 
   /** describe() rows from the last completed probe; only instances added or changed since are probed. */
   async describeCached() {
+    await this.refreshLogins();
     const read = async () => {
       const candidatesFor = this.candidateScan();
       const rows = await Promise.all(
@@ -420,6 +495,9 @@ export class ProviderRegistry {
     const inst = entry.live;
     return {
       instanceId: inst.instanceId,
+      loginState: this.signingOut.has(inst.driverKind) ? "cancelled" : this.logins.state(inst.driverKind),
+      loginCapture: driver?.install?.login?.deviceArgs ? this.logins.capture(inst.driverKind)
+        : { url: this.logins.capture(inst.driverKind).url },
       driverKind: inst.driverKind,
       displayName: inst.displayName ?? inst.driverKind,
       snapshot: probe.snapshot,
@@ -447,6 +525,8 @@ export class ProviderRegistry {
   }
 
   async disposeAll() {
+    await this.logins.dispose();
+    this.environmentByInstance.clear();
     await Promise.allSettled(this.instances().map((i) => i.dispose()));
     this.byId.clear();
     this.cliByInstance.clear();

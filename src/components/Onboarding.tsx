@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, Loader2, LockKeyhole, Sparkles, TerminalSquare } from "lucide-react";
 import type { InstanceInfo } from "@/state/store";
 import { EngineSetup } from "./EngineSetup";
+import { EngineRow } from "./EnginesSettings";
 import { OrbitMark } from "./OrbitMark";
-import { firstLaunchConnectInstances, isEmptyEngineLaunch } from "@/lib/engine-rail";
+import { firstLaunchConnectInstances, isEmptyEngineLaunch, isFriendsCliEngine } from "@/lib/engine-rail";
 import { useI18n } from "@/lib/i18n";
 import { isPhone } from "@/lib/phone-swipe";
 import { ProviderMark } from "./ProviderIcons";
@@ -66,7 +67,8 @@ function ReadyTile({ instance }: { instance: InstanceInfo }) {
   );
 }
 
-function SetupRow({ instance }: { instance: InstanceInfo }) {
+function SetupRow({ instance, onConnected }: { instance: InstanceInfo; onConnected: () => void }) {
+  if (instance.snapshot.state === "available" && isFriendsCliEngine(instance)) return <EngineRow instance={instance} onConnected={onConnected} />;
   return (
     <StatusRow
       ok={false}
@@ -188,7 +190,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     .filter((instance) => {
       if (!instance.install) return false;
       if (instance.driverKind === "geminiAgent" && geminiSubscriptionReady && !engineReady(instance)) return false;
-      return engineReady(instance) || CORE_DRIVERS.has(instance.driverKind);
+      return engineReady(instance) || CORE_DRIVERS.has(instance.driverKind) || (isFriendsCliEngine(instance) && instance.snapshot.state === "available");
     })
     .sort((a, b) => {
       const aOrder = ENGINE_ORDER.indexOf(a.driverKind);
@@ -274,14 +276,16 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                   <Loader2 size={15} className="animate-spin" /> {t("onboarding.checking")}
                 </div>
               ) : emptyConnect ? (
-                connectEngines.map((instance) => <SetupRow key={instance.instanceId} instance={instance} />)
+                connectEngines.map((instance) => <SetupRow key={instance.instanceId} instance={instance} onConnected={retryInstances} />)
               ) : (
                 <>
                   {readyEngines.length > 0 && (
                     <section>
                       <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{t("onboarding.ready")}</div>
                       <div className="grid grid-cols-2 gap-2.5">
-                        {readyEngines.map((instance) => <ReadyTile key={instance.instanceId} instance={instance} />)}
+                        {readyEngines.map((instance) => isFriendsCliEngine(instance)
+                          ? <EngineRow key={instance.instanceId} instance={instance} />
+                          : <ReadyTile key={instance.instanceId} instance={instance} />)}
                       </div>
                     </section>
                   )}
@@ -289,7 +293,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                     <section className={readyEngines.length ? "mt-2" : ""}>
                       <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{t("onboarding.optionalSetup")}</div>
                       <div className="flex flex-col gap-2.5">
-                        {setupEngines.map((instance) => <SetupRow key={instance.instanceId} instance={instance} />)}
+                        {setupEngines.map((instance) => <SetupRow key={instance.instanceId} instance={instance} onConnected={retryInstances} />)}
                       </div>
                     </section>
                   )}

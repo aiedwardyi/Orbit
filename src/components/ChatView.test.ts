@@ -1142,7 +1142,7 @@ describe("message bubbles", () => {
 });
 
 describe("agy sign-in error bubble", () => {
-  it("shows the sign-in button with command agy", async () => {
+  it("shows the one-click sign-in button", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     vi.stubGlobal("ResizeObserver", class {
@@ -1191,8 +1191,8 @@ describe("agy sign-in error bubble", () => {
     const root = createRoot(host);
     try {
       await act(async () => root.render(createElement(StoreProvider, null, createElement(Harness))));
-      expect(host.querySelector("code")?.textContent).toBe("agy");
-      expect(host.textContent).toContain("Open Sign-in in Terminal");
+      expect(host.querySelector("code")).toBeNull();
+      expect([...host.querySelectorAll("button")].some((b) => b.textContent === "Sign In")).toBe(true);
       expect(host.textContent).toContain("Sign in to Gemini (Antigravity)");
       expect(host.textContent).toContain("Retry");
     } finally {

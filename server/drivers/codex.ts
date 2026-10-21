@@ -170,6 +170,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     needsNode: true,
     docsUrl: "https://github.com/openai/codex",
     signInCommand: "codex login",
+    login: { args: ["login"], deviceArgs: ["login", "--device-auth"] },
+    logout: ["logout"],
   },
   models: STATIC_CODEX_MODELS,
   decodeConfig,

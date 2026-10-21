@@ -394,6 +394,8 @@ export interface EngineInstall {
   docsUrl?: string;
   /** Interactive sign-in run after installing, when install isn't enough. */
   signInCommand?: string;
+  login?: { args: string[]; deviceArgs?: string[]; env?: Record<string, string> };
+  logout?: string[];
   /** `command` needs npm on PATH, so the UI can say so when Node is absent. */
   needsNode?: boolean;
 }

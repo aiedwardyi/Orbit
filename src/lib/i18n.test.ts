@@ -18,6 +18,12 @@ import { SKIN_IDS } from "./skins";
 import { SECTION_PHRASE_KEYS } from "./settings-search";
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+it.each(["signIn", "finishInBrowser", "openAgain", "cancel", "signInFromComputer", "didntFinish", "moreEngines", "details", "signOut"])("translates engine login %s", (name) => {
+  const key = `engines.${name}` as MessageKey;
+  expect(en[key]).toBeTruthy();
+  expect(ko[key]).toMatch(/[가-힣]/);
+});
 const css = readFileSync(join(here, "../styles.css"), "utf8");
 const updateBanner = readFileSync(join(here, "../components/UpdateBanner.tsx"), "utf8");
 const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
@@ -835,8 +841,8 @@ describe("first-run core path leftovers", () => {
     expect(modelPicker).not.toMatch(/Nothing matches/);
     expect(modelPicker).not.toMatch(/>Switch engine</);
     expect(modelPicker).not.toMatch(/>Cloud</);
-    expect(enginesSettings).toContain('t("engines.setCli")');
-    expect(enginesSettings).toContain('t("engines.models")');
+    expect(enginesSettings).toContain('t("engines.details")');
+    expect(enginesSettings).toContain('t("engines.moreEngines")');
     expect(enginesSettings).toContain('t("engines.inUseSuffix"');
     expect(enginesSettings).not.toMatch(/>Set CLI…</);
     expect(enginesSettings).not.toMatch(/· in use/);
