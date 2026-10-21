@@ -569,7 +569,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
 
     // A resume fallback relaunch is the same logical turn: the harness holds
     // the first id as live and drops events from any other.
-    const sendTurn = async (turn: SendTurnInput, relaunchOf?: string, busyResumes = 0) => {
+    const sendTurn = async (turn: SendTurnInput, relaunchOf?: string, busyResumes = 0, priorUsage = { input: 0, output: 0 }) => {
       const { threadId } = turn;
       if (disposed) throw new Error("Antigravity instance is disposed");
       if (active.has(threadId)) throw new Error("a turn is already running on this thread");
@@ -836,8 +836,14 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
 
       let cancelledTool = false;
 
+      // A busy resume is the same logical turn, so its usage carries forward.
+      const withPriorUsage = (usage: { input_tokens?: number; cache_read_tokens?: number; output_tokens?: number }) => ({
+        input: priorUsage.input + (usage.input_tokens || 0) + (usage.cache_read_tokens || 0),
+        output: priorUsage.output + (usage.output_tokens || 0),
+      });
+
       // The thread stays held through the wait so Stop or a new message cancels it.
-      const resumeWhenFree = (conversation: string, reason: string) => {
+      const resumeWhenFree = (conversation: string, reason: string, attemptUsage: { input: number; output: number }) => {
         endAttempt();
         const abort = new AbortController();
         active.set(threadId, { stop: () => abort.abort(), interrupt: () => abort.abort(), turnId });
@@ -853,6 +859,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             { ...turn, text: AGY_BUSY_RESUME_PROMPT, resumeCursor: conversation, resumeFallback: undefined },
             turnId,
             busyResumes + 1,
+            attemptUsage,
           );
         }).catch((error) => {
           emit({ ...base(threadId, turnId), type: "runtime.error", message: error instanceof Error ? error.message : String(error) });
@@ -894,12 +901,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
                 emit({ ...base(threadId, turnId), type: "item.completed", itemType: "tool", itemId, ok: false });
               }
             } else if (payload.step_type === "agent_response" && payload.usage) {
-              emit({
-                ...base(threadId, turnId),
-                type: "thread.token-usage.updated",
-                input: (payload.usage.input_tokens || 0) + (payload.usage.cache_read_tokens || 0),
-                output: payload.usage.output_tokens || 0,
-              });
+              emit({ ...base(threadId, turnId), type: "thread.token-usage.updated", ...withPriorUsage(payload.usage) });
             }
             break;
           }
@@ -920,7 +922,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
                 : null;
             const conversation = conversationId ?? resumeCursor;
             if (busyReason && conversation && busyResumes < BUSY_RESUME_DELAYS_MS.length) {
-              resumeWhenFree(conversation, busyReason);
+              resumeWhenFree(conversation, busyReason, payload.usage ? withPriorUsage(payload.usage) : priorUsage);
               break;
             }
             if (recoveredTransient) {
@@ -940,12 +942,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
               emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: AGY_STOPPED_NOTE });
             }
             if (payload.usage) {
-              emit({
-                ...base(threadId, turnId),
-                type: "thread.token-usage.updated",
-                input: (payload.usage.input_tokens || 0) + (payload.usage.cache_read_tokens || 0),
-                output: payload.usage.output_tokens || 0,
-              });
+              emit({ ...base(threadId, turnId), type: "thread.token-usage.updated", ...withPriorUsage(payload.usage) });
             }
             // result.usage is the turn total (the per-step agent_response
             // figures above are its parts, not additions to it)

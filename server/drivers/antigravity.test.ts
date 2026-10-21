@@ -558,6 +558,7 @@ describe("Antigravity turns (fake CLI)", () => {
       expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
         text: "done from fake agy",
       });
+      expect(recorder.events.filter((event) => event.type === "thread.token-usage.updated").at(-1)).toMatchObject({ input: 210, output: 40 });
     });
 
     it("stops after 3 tries with the original error and a try-another-model line", async () => {
