@@ -122,6 +122,19 @@ describe("ProfileFields Save", () => {
     });
   });
 
+  it("skips a blank Save when no name is stored", async () => {
+    const request = vi.fn<(input: string, init?: RequestInit) => Promise<FetchResult>>();
+    vi.stubGlobal("fetch", request);
+    const { root, save } = await renderProfile();
+    await act(async () => {
+      save.click();
+    });
+    expect(request).not.toHaveBeenCalled();
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("does not dispatch configStatus when Save fails", async () => {
     const request = vi.fn<(input: string, init?: RequestInit) => Promise<FetchResult>>(async () => ({
       ok: false,

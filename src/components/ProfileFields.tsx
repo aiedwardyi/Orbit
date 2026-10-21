@@ -35,7 +35,9 @@ export function ProfileFields() {
     }
   };
 
-  const save = () => put(async () => ({ name: name.trim() }), "settings.profile.saveError");
+  // A blank Save with no stored name would mark the name cleared and block the Google fill.
+  const save = () =>
+    name.trim() || state.config?.profile?.name?.trim() ? put(async () => ({ name: name.trim() }), "settings.profile.saveError") : undefined;
 
   const changePhoto = async (file: File | undefined) => {
     if (!file) return;
