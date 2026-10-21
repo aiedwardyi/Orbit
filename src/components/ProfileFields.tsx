@@ -18,22 +18,28 @@ export function ProfileFields() {
     setName(state.config?.profile?.name ?? "");
   }, [state.config?.profile?.name]);
 
-  const put = async (profile: () => Promise<{ name?: string; avatarUrl?: string }>, fallback: MessageKey) => {
+  const send = async (request: () => Promise<ConfigStatus>, fallback: MessageKey) => {
     if (saving) return;
     setSaving(true);
     setError("");
     try {
-      const config: ConfigStatus = await api("/api/config", {
-        method: "PUT",
-        body: JSON.stringify({ profile: await profile() }),
-      });
-      dispatch({ type: "configStatus", config });
+      dispatch({ type: "configStatus", config: await request() });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t(fallback));
     } finally {
       setSaving(false);
     }
   };
+
+  const put = (profile: () => Promise<{ name?: string; avatarUrl?: string }>, fallback: MessageKey) =>
+    send(
+      async () =>
+        api("/api/config", {
+          method: "PUT",
+          body: JSON.stringify({ profile: await profile() }),
+        }),
+      fallback,
+    );
 
   // A blank Save with no stored name would mark the name cleared and block the Google fill.
   const save = () =>
@@ -51,10 +57,21 @@ export function ProfileFields() {
     if (fileRef.current) fileRef.current.value = "";
   };
 
+  const googlePhoto = () =>
+    send(
+      () =>
+        api("/api/profile/google-photo", { method: "POST" }).catch(() => {
+          throw new Error(t("settings.profile.photoError"));
+        }),
+      "settings.profile.photoError",
+    );
+
   const inputClass =
     "w-full rounded-lg border border-hairline/40 bg-inset px-3 py-1.5 text-[14px] text-ink placeholder:text-ink-secondary focus:border-hairline focus:outline-none disabled:cursor-wait disabled:opacity-50";
   const buttonClass =
     "whitespace-nowrap rounded-lg border border-hairline/40 px-3 py-1.5 text-[13px] text-ink hover:bg-control disabled:cursor-wait disabled:opacity-50";
+  const quietButtonClass =
+    "whitespace-nowrap rounded-lg px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink disabled:cursor-wait disabled:opacity-50";
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-3">
@@ -72,12 +89,17 @@ export function ProfileFields() {
           <button type="button" onClick={() => fileRef.current?.click()} disabled={saving} className={buttonClass}>
             {t("settings.profile.changePhoto")}
           </button>
+          {state.config?.profile?.googlePhoto ? (
+            <button type="button" onClick={() => void googlePhoto()} disabled={saving} className={quietButtonClass}>
+              {t("settings.profile.googlePhoto")}
+            </button>
+          ) : null}
           {avatarUrl ? (
             <button
               type="button"
               onClick={() => void put(async () => ({ avatarUrl: "" }), "settings.profile.photoError")}
               disabled={saving}
-              className="whitespace-nowrap rounded-lg px-2 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink disabled:cursor-wait disabled:opacity-50"
+              className={quietButtonClass}
             >
               {t("settings.profile.removePhoto")}
             </button>

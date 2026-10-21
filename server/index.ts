@@ -333,7 +333,7 @@ import {
 import { PhoneAccess } from "./phone-access.ts";
 import { postPhoneKeepAwake, type PhoneKeepAwakeMessage } from "./phone-keep-awake.ts";
 import { refuseVpsJoin, requestCredentials } from "./phone-auth.ts";
-import { GoogleAccount, applyGoogleAccountMessage, googleAccountRoute, googleProfileFill, takeGoogleEnv } from "./google-account.ts";
+import { GoogleAccount, applyGoogleAccountMessage, googleAccountRoute, googlePhotoOffered, googleProfileFill, googleProfilePhoto, takeGoogleEnv } from "./google-account.ts";
 import { quorumRoute } from "./quorum-route.ts";
 import { teamRoute } from "./team-route.ts";
 import { createGoogleSync, GOOGLE_MIRROR_DIR, googleSyncRoute } from "./google-sync.ts";
@@ -559,13 +559,23 @@ googleAccount.onSession(() => {
   if (!idToken || !sub) return;
   void googleProfileFill(idToken, sub, () => cfg.profile, (bytes, mime) => botAvatarUrlFromStoredPath(saveImage(bytes, mime).path)).then((fill) => {
     if (!fill || googleAccount.owner()?.sub !== sub) return;
-    saveConfig({ profile: fill });
+    saveConfig({ profile: fill.avatarUrl ? { ...fill, googleAvatarUrl: fill.avatarUrl } : fill });
     Object.assign(cfg, loadConfig());
     if (fill.name) phoneAccess.nameChanged();
     broadcast({ kind: "config", ...configStatus() });
   }).catch((error) => console.warn(`[google] profile fill failed: ${error instanceof Error ? error.message : String(error)}`));
 });
 googleAccount.onIdToken(() => phoneAccess.googleChanged());
+// A config frame also reloads every client's instances, so send one only when the offer flips.
+let googlePhotoSent = false;
+const googlePhotoChanged = () => {
+  const offered = googlePhotoOffered(googleAccount.idToken(), googleAccount.owner()?.sub, cfg.profile);
+  if (offered === googlePhotoSent) return;
+  googlePhotoSent = offered;
+  broadcast({ kind: "config", ...configStatus() });
+};
+googleAccount.onSession(googlePhotoChanged);
+googleAccount.onIdToken(googlePhotoChanged);
 
 /** Constant-time bearer check for the internal comms endpoints. The token
  * is high-entropy and loopback-only, so a timing oracle is a long shot —
@@ -6824,7 +6834,12 @@ function configStatus() {
     vertex: { configured: Boolean(cfg.vertex?.key) },
     customKeys: Object.entries(cfg.customKeys ?? {}).flatMap(([host, saved]) => (saved ? [{ host, name: saved.name }] : [])),
     // not a secret — the sidebar shows it
-    profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "", avatarUrl: cfg.profile?.avatarUrl ?? "" },
+    profile: {
+      name: cfg.profile?.name ?? "",
+      email: cfg.profile?.email ?? "",
+      avatarUrl: cfg.profile?.avatarUrl ?? "",
+      googlePhoto: googlePhotoOffered(googleAccount.idToken(), googleAccount.owner()?.sub, cfg.profile),
+    },
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     localVm: {
       mode: localVmMode(cfg),
@@ -9828,6 +9843,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (method === "GET" && path === "/api/google-account") {
       return json(res, 200, googleAccount.status());
+    }
+    if (method === "POST" && path === "/api/profile/google-photo") {
+      const profile = await googleProfilePhoto(googleAccount.idToken(), googleAccount.owner()?.sub, (bytes, mime) => botAvatarUrlFromStoredPath(saveImage(bytes, mime).path));
+      if (!profile) return json(res, 409, { error: "no Google photo to use" });
+      saveConfig({ profile });
+      Object.assign(cfg, loadConfig());
+      const status = configStatus();
+      broadcast({ kind: "config", ...status });
+      return json(res, 200, status);
     }
     if (method === "GET" && path === "/api/team") {
       const reply = await teamRoute(phoneAccess.base(), googleEnv.teamRelay, googleEnv.teamOwner, googleAccount.owner()?.email ?? null, googleAccount);
