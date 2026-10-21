@@ -57,6 +57,7 @@
 //   FAKE_MSP_RPC_DUMP  path to write the method sequence seen this run.
 //   FAKE_MSP_USAGE     JSON result for usage/read.
 //   FAKE_MSP_USAGE_CHANGED  JSON params for a usage/changed notification.
+//   FAKE_MSP_ITEMS     JSON item notifications before the scripted turn.
 //   FAKE_MSP_INIT_DELAY_MS  hold the initialize result this long.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
@@ -408,6 +409,11 @@ function handle(msg: any) {
         status: "accepted",
         turnId: TURN_ID,
       });
+      if (process.env.FAKE_MSP_ITEMS) {
+        for (const frame of JSON.parse(process.env.FAKE_MSP_ITEMS)) {
+          out({ jsonrpc: "2.0", ...frame, params: { sessionId: SESSION_ID, ...frame.params } });
+        }
+      }
       if (mode === "hang") return;
       if (mode === "quota" || mode === "quota-no-reset") {
         const message = `API error 429 [request_id=fake]: Subscription quota exhausted.${mode === "quota" ? " Your usage window resets at 2026-10-10T17:03:32Z." : ""} (rate_limit_error)`;

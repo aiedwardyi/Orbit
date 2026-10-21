@@ -107,6 +107,7 @@ describe("MSP turns (fake host)", () => {
     delete process.env.FAKE_MSP_RPC_DUMP;
     delete process.env.FAKE_MSP_USAGE;
     delete process.env.FAKE_MSP_USAGE_CHANGED;
+    delete process.env.FAKE_MSP_ITEMS;
     delete process.env.META_API_KEY;
     recorder?.stop();
     await instance?.dispose();
@@ -133,6 +134,77 @@ describe("MSP turns (fake host)", () => {
     expect(recorder.events).toContainEqual(
       expect.objectContaining({ type: "item.completed", text: "hello from fake msp" }),
     );
+  });
+
+  it("shows tool activity before reply text and completes each call once", async () => {
+    const item = { itemId: "tool-1", kind: "toolCall", tool: "read_file", status: "inProgress" };
+    process.env.FAKE_MSP_ITEMS = JSON.stringify([
+      { method: "item/started", params: { item } },
+      { method: "item/started", params: { item } },
+      { method: "item/delta", params: { itemId: item.itemId, field: "text", delta: "private tool output" } },
+      { method: "item/completed", params: { item: { ...item, status: "completed" } } },
+      { method: "item/completed", params: { item: { ...item, status: "completed" } } },
+    ]);
+    await create();
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-tool", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => "itemType" in e && e.itemType === "tool")).toEqual([
+      expect.objectContaining({ type: "item.started", itemId: "tool-1", title: "read_file", threadId: "t-tool", turnId }),
+      expect.objectContaining({ type: "item.completed", itemId: "tool-1", ok: true, threadId: "t-tool", turnId }),
+    ]);
+    const start = recorder.events.findIndex((e) => e.type === "item.started");
+    expect(start).toBeLessThan(recorder.events.findIndex((e) => e.type === "content.delta"));
+    expect(recorder.events.filter((e) => e.type === "content.delta").map((e) => e.delta)).toEqual(["hello from fake msp"]);
+  });
+
+  it.each(["failed", "cancelled", "rejected", "timedOut", "unknownTerminal"])("completes a %s tool without failing its turn", async (status) => {
+    const item = { itemId: "tool-fail", kind: "toolCall", tool: "shell", status: "inProgress" };
+    process.env.FAKE_MSP_ITEMS = JSON.stringify([
+      { method: "item/started", params: { item } },
+      { method: "item/completed", params: { item: { ...item, status } } },
+    ]);
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-tool-fail", text: "hi" });
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(recorder.events.filter((e) => "itemType" in e && e.itemType === "tool")).toEqual([
+      expect.objectContaining({ type: "item.started", itemId: "tool-fail", title: "shell" }),
+      expect.objectContaining({ type: "item.completed", itemId: "tool-fail", ok: false }),
+    ]);
+  });
+
+  it.each(["happy", "fail-after-text", "hang"])("settles an open tool when the turn ends (%s)", async (mode) => {
+    process.env.FAKE_MSP_ITEMS = JSON.stringify([
+      { method: "item/started", params: { item: { itemId: "tool-open", kind: "toolCall", tool: "shell", status: "inProgress" } } },
+    ]);
+    await create(mode);
+    await instance.adapter.sendTurn({ threadId: "t-tool-open", text: "hi" });
+    if (mode === "hang") {
+      expect(await recorder.until((e) => e.type === "item.started")).toMatchObject({ itemId: "tool-open" });
+      expect(recorder.events.some((e) => e.type === "turn.completed")).toBe(false);
+      await instance.adapter.interruptTurn("t-tool-open");
+    }
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => "itemType" in e && e.itemType === "tool")).toEqual([
+      expect.objectContaining({ type: "item.started", itemId: "tool-open" }),
+      expect.objectContaining({ type: "item.completed", itemId: "tool-open", ok: false }),
+    ]);
+    const done = recorder.events.findIndex((e) => e.type === "item.completed" && e.itemType === "tool");
+    expect(done).toBeLessThan(recorder.events.findIndex((e) => e.type === "turn.completed"));
+  });
+
+  it("keeps reasoning and reminder children out of tool activity", async () => {
+    process.env.FAKE_MSP_ITEMS = JSON.stringify([
+      { method: "item/started", params: { item: { id: "reason-1", kind: "reasoning" } } },
+      { method: "item/delta", params: { itemId: "reason-1", field: "text", delta: "thinking" } },
+      { method: "item/completed", params: { item: { id: "reason-1", kind: "reasoning", status: "completed" } } },
+      { method: "item/started", params: { item: { itemId: "reminder-1", kind: "reminderChild", status: "inProgress" } } },
+      { method: "item/completed", params: { item: { itemId: "reminder-1", kind: "reminderChild", status: "completed" } } },
+    ]);
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-tool-filter", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => "itemType" in e && e.itemType === "tool")).toEqual([]);
+    expect(recorder.events.filter((e) => e.type === "content.delta").map((e) => e.delta)).toEqual(["hello from fake msp"]);
   });
 
   it("folds stable usage/changed notifications into account windows", async () => {
