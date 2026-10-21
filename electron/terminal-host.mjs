@@ -780,6 +780,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (now() - session.resizedAt >= RESIZE_REPAINT_MS) {
         const busy = AGENT_BUSY_RE.test(session.screen.text());
         if (busy) {
+          // Past the trust menu, so stop scanning every chunk for it.
+          session.claudeTrustAnswered = true;
           session.autoNote = null;
           if (!session.agentBusy) {
             session.autoDelivered = false;
