@@ -154,7 +154,7 @@ const execText: ExecText = (file, args) =>
     execFile(file, args, { timeout: 15_000, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
       const detail = `${stderr}`.trim() || `${stdout}`.trim() || error.message;
-      reject(new Error(detail.replace(/\s+/g, " ").slice(0, 300)));
+      reject(Object.assign(new Error(detail.replace(/\s+/g, " ").slice(0, 300)), { stdout, stderr, code: error.code }));
     });
   });
 
@@ -178,6 +178,27 @@ function proxiesToPort(proxy: string | undefined, port: number): boolean {
   return Number(match?.[1]) === port;
 }
 
+export interface RemoteSetup {
+  state: "checking" | "disabled" | "missing" | "not-running" | "serve-disabled" | "error" | "ready";
+  enableUrl?: string;
+}
+
+function commandOutput(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return [error.message, "stdout" in error ? error.stdout : "", "stderr" in error ? error.stderr : ""].join("\n");
+}
+
+function serveEnableUrl(output: string): string | undefined {
+  for (const value of output.match(/https?:\/\/[^\s<>"']+/g) ?? []) {
+    if (!value.startsWith("https://login.tailscale.com/")) continue;
+    try {
+      const url = new URL(value);
+      if (url.origin === "https://login.tailscale.com" && !url.username && !url.password) return value;
+    } catch {}
+  }
+  return undefined;
+}
+
 /** Tailnet host from a running Tailscale, with 443 served to this port; undefined leaves remote off. */
 export async function autoRemoteHost(
   env: NodeJS.ProcessEnv,
@@ -185,41 +206,89 @@ export async function autoRemoteHost(
   exec: ExecText = execText,
   log: (line: string) => void = console.log,
   platform: NodeJS.Platform = process.platform,
+  onSetup: (setup: RemoteSetup) => void = () => {},
 ): Promise<string | undefined> {
   const auto = env.ORBIT_REMOTE_AUTO?.trim().toLowerCase();
-  if (env.ORBIT_REMOTE_HOST?.trim() || (auto !== undefined && FALSY_FLAG.has(auto))) return undefined;
+  if (env.ORBIT_REMOTE_HOST?.trim() || (auto !== undefined && FALSY_FLAG.has(auto))) {
+    onSetup({ state: "disabled" });
+    return undefined;
+  }
   let command: string | undefined;
   let status: z.infer<typeof tailscaleStatusSchema> | undefined;
+  let installed = false;
   for (const candidate of tailscaleCommands(platform)) {
     try {
       status = tailscaleStatusSchema.parse(parseJson(await exec(candidate, ["status", "--json"])));
       command = candidate;
       break;
-    } catch {
+    } catch (error) {
+      if (!(error instanceof Error && ("code" in error ? error.code === "ENOENT" : /ENOENT/.test(error.message)))) installed = true;
       // Not on PATH, daemon down, or unreadable: try the next location.
     }
   }
   if (!command || !status) {
     log("Remote auto: Tailscale not found, remote off");
+    onSetup({ state: installed ? "not-running" : "missing" });
     return undefined;
   }
   const host = cleanHost(status.Self?.DNSName.replace(/\.$/, ""));
   if (status.BackendState !== "Running" || !host) {
     log(`Remote auto: Tailscale not logged in (${status.BackendState}), remote off`);
+    onSetup({ state: "not-running" });
     return undefined;
   }
   try {
     const serve = serveStatusSchema.parse(parseJson((await exec(command, ["serve", "status", "--json"])).trim() || "{}"));
     const web = serve.Web?.[`${host}:443`];
-    if (proxiesToPort(web?.Handlers?.["/"]?.Proxy, port)) return host;
+    if (proxiesToPort(web?.Handlers?.["/"]?.Proxy, port)) {
+      onSetup({ state: "ready" });
+      return host;
+    }
     if (web || serve.TCP?.["443"] !== undefined) {
       log(`Remote auto: ${host}:443 already serves something else, remote off`);
+      onSetup({ state: "error" });
       return undefined;
     }
     await exec(command, ["serve", "--bg", "--https=443", `http://127.0.0.1:${port}`]);
+    onSetup({ state: "ready" });
     return host;
   } catch (error) {
+    const output = commandOutput(error);
+    if (/(?:Serve|HTTPS) is not enabled/i.test(output)) {
+      const enableUrl = serveEnableUrl(output);
+      onSetup({ state: "serve-disabled", ...(enableUrl ? { enableUrl } : {}) });
+    } else {
+      onSetup({ state: "error" });
+    }
     log(`Remote auto: tailscale serve failed, remote off: ${error instanceof Error ? error.message : String(error)}`);
     return undefined;
   }
+}
+
+export function remoteHostRetry(
+  env: NodeJS.ProcessEnv,
+  port: number,
+  onHost: (host: string) => void,
+  exec: ExecText = execText,
+  log: (line: string) => void = console.log,
+  platform: NodeJS.Platform = process.platform,
+  now: () => number = Date.now,
+) {
+  let setup: RemoteSetup = { state: "checking" };
+  let pending: Promise<void> | undefined;
+  let nextRetryAt = 0;
+  return {
+    status: () => setup,
+    refresh(): Promise<void> {
+      if (pending) return pending;
+      if (setup.state === "ready" || setup.state === "disabled" || now() < nextRetryAt) return Promise.resolve();
+      nextRetryAt = now() + 5_000;
+      pending = autoRemoteHost(env, port, exec, log, platform, (value) => { setup = value; })
+        .then((host) => {
+          if (host) onHost(host);
+        })
+        .finally(() => { pending = undefined; });
+      return pending;
+    },
+  };
 }
