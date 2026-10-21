@@ -370,6 +370,8 @@ export interface ProviderSnapshot {
   state: "available" | "unavailable";
   reason?: string;
   authenticated?: boolean;
+  /** Email or account name of the sign-in, read from the CLI's own status or auth file. */
+  account?: string;
   version?: string | null;
   /** How this instance is paid for, when the driver can tell: a reported
    * cost on a subscription is notional and the UI labels it as such. */

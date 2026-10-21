@@ -51,7 +51,7 @@ const savedProbeSchema = z.object({
   key: z.string(),
   snapshot: z.object({
     state: z.enum(["available", "unavailable"]), reason: z.string().optional(),
-    authenticated: z.boolean().optional(), version: z.string().nullable().optional(),
+    authenticated: z.boolean().optional(), account: z.string().optional(), version: z.string().nullable().optional(),
     billing: z.enum(["metered", "subscription"]).optional(),
   }),
   cliCandidates: z.array(z.string()),

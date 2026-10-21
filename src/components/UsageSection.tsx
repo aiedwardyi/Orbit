@@ -9,7 +9,7 @@ import { Check, RefreshCw } from "lucide-react";
 import { api, useStore, type InstanceInfo } from "@/state/store";
 import { MausAvatar } from "./Avatar";
 import { Card } from "./SettingsPrimitives";
-import { ProviderMark } from "./ProviderIcons";
+import { EngineMark } from "./EngineMark";
 import { useI18n } from "@/lib/i18n";
 import { showUsagePerBotTable } from "@/lib/friends-chrome";
 import { splitFriendsEngines } from "@/lib/engine-rail";
@@ -91,7 +91,7 @@ function EnginePlanRow({
   return (
     <div>
       <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
-        <ProviderMark driverKind={instance.driverKind} size={16} />
+        <EngineMark instance={instance} size={16} />
         <span className="truncate" title={canRefresh(instance) && instance.rateLimits
           ? t(instance.driverKind === "museAgent" ? "usage.limits.cachedAsOf" : "usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })
           : undefined}>{instance.displayName}</span>

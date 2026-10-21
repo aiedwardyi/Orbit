@@ -94,6 +94,17 @@ describe("delay", () => {
     expect(tip()?.textContent).toBe("late");
   });
 
+  it("stays quiet over an engine mark inside a titled button", () => {
+    const btn = titled("model");
+    const mark = document.createElement("span");
+    mark.setAttribute("data-engine-hover", "");
+    btn.append(mark);
+    over(mark);
+    vi.advanceTimersByTime(400);
+    expect(tip()).toBeNull();
+    expect(btn.getAttribute("title")).toBe("model");
+  });
+
   it("does not restart the delay moving within the anchor", () => {
     const btn = titled("steady");
     const icon = document.createElement("span");

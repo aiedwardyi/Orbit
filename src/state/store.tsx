@@ -547,6 +547,8 @@ export interface InstanceInfo {
     state: "available" | "unavailable";
     reason?: string;
     authenticated?: boolean;
+    /** email or account name of the sign-in, when the CLI names one */
+    account?: string;
     version?: string | null;
     /** a reported cost on a subscription is notional; the UI says so */
     billing?: "metered" | "subscription";

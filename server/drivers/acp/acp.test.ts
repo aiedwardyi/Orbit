@@ -2502,6 +2502,26 @@ describe("ACP snapshot", () => {
     }
   });
 
+  it("grok reports the account of its own GROK_HOME, only while signed in", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "omb-grok-account-"));
+    const instance = await GrokAgentDriver.create({
+      instanceId: "grok-account",
+      displayName: undefined,
+      environment: { GROK_HOME: scratch },
+      enabled: true,
+      config: { cli: FAKE_CLI, fullAuto: false },
+    });
+    try {
+      writeFileSync(join(scratch, "auth.json"), JSON.stringify({ a: { email: "grok@example.com" } }));
+      expect(await instance.snapshot()).toMatchObject({ authenticated: false, account: undefined });
+      writeFileSync(join(scratch, "auth.json"), JSON.stringify({ a: { key: "k", email: "grok@example.com" } }));
+      expect(await instance.snapshot()).toMatchObject({ authenticated: true, account: "grok@example.com" });
+    } finally {
+      await instance.dispose();
+      await removeTempDir(scratch);
+    }
+  });
+
   it("droid resolves the signed-in CLI before falling back to FACTORY_API_KEY", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "omb-droid-auth-"));
     // FACTORY_HOME_OVERRIDE replaces the CLI's HOME, not its data root: droid

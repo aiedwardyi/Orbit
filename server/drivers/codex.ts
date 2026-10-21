@@ -11,6 +11,7 @@
 // and falls back to a fresh thread/start. After Orbit compaction the
 // harness omits resumeCursor and injects the bounded transcript instead.
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
 
 import { applyCredentialAllowlist } from "../config.ts";
@@ -31,6 +32,7 @@ import type {
 import { newEventId, newId } from "../contracts.ts";
 import {
   awaitDyingAppServers,
+  codexHome,
   decodeCodexSelection,
   readCodexModelCatalog,
   retireAppServer,
@@ -41,11 +43,24 @@ import { augmentedPath } from "../env-path.ts";
 import { classifyError, computeBackoff, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { appendNative, finishNative } from "./native.ts";
 import { codexRateLimitWindows } from "./rate-limits.ts";
-import { cachedSignIn } from "./auth-status.ts";
+import { accountLabel, cachedSignIn, storedAccount } from "./auth-status.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
 const DRIVER_KIND = "codex";
+
+const codexAuthSchema = z.object({ auth_mode: z.string().nullish(), tokens: z.object({ id_token: z.string() }) });
+
+/** The ChatGPT login's email from the id token claims; an API-key login names no account. */
+export function codexAccount(env: Record<string, string | undefined>): string | undefined {
+  return storedAccount(join(codexHome(env), "auth.json"), (auth) => {
+    const parsed = codexAuthSchema.safeParse(auth);
+    if (!parsed.success || parsed.data.auth_mode === "apikey") return undefined;
+    const claims: unknown = JSON.parse(Buffer.from(parsed.data.tokens.id_token.split(".")[1] ?? "", "base64url").toString("utf8"));
+    const named = z.object({ email: z.unknown().optional(), name: z.unknown().optional() }).safeParse(claims);
+    return named.success ? accountLabel(named.data.email, named.data.name) : undefined;
+  });
+}
 
 const toolItemSchema = z.object({
   type: z.enum(["commandExecution", "fileChange", "mcpToolCall", "webSearch"]),
@@ -838,7 +853,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
     const authenticated = await signedIn(opts?.rescan || opts?.refresh);
     // childEnv drops OPENAI_API_KEY on purpose — turns run on the ChatGPT login
-    return { state: "available", version, authenticated, billing: "subscription" };
+    return { state: "available", version, authenticated, account: authenticated ? codexAccount(env) : undefined, billing: "subscription" };
   };
 
   return {

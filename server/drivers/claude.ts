@@ -62,32 +62,41 @@ import { appendNative, finishNative } from "./native.ts";
 import { claudeRateLimitWindows } from "./rate-limits.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { redactSecretsInText } from "../redact.ts";
-import { cachedSignIn } from "./auth-status.ts";
+import { accountLabel, cachedSignIn } from "./auth-status.ts";
 
-const claudeAuthSchema = z.object({ loggedIn: z.boolean() });
+const claudeAuthSchema = z.object({ loggedIn: z.boolean(), email: z.unknown().optional(), orgName: z.unknown().optional() });
 
-/** Whether `claude` has been signed in.
+/** Whether `claude` is signed in, and as whom.
  *
  * Credential storage is deliberately not inspected here. Claude Code uses the
  * macOS Keychain for OAuth, a JSON file on some platforms, and may gain other
  * backends over time. Presence checks also accept stale credentials. The CLI's
  * own machine-readable auth command is the source of truth for every backend.
  */
+export function claudeAuthStatus(
+  cli: string,
+  env: NodeJS.ProcessEnv,
+  run: typeof execCli = execCli,
+): Promise<{ signedIn?: boolean; account?: string }> {
+  return new Promise((resolve) => {
+    run(cli, ["auth", "status", "--json"], { timeout: 3000, env }, (_error, stdout) => {
+      try {
+        const parsed = claudeAuthSchema.safeParse(JSON.parse(stdout));
+        if (!parsed.success) resolve({});
+        else resolve({ signedIn: parsed.data.loggedIn, account: parsed.data.loggedIn ? accountLabel(parsed.data.email, parsed.data.orgName) : undefined });
+      } catch {
+        resolve({});
+      }
+    });
+  });
+}
+
 export function claudeSignedIn(
   cli: string,
   env: NodeJS.ProcessEnv,
   run: typeof execCli = execCli,
 ): Promise<boolean | undefined> {
-  return new Promise((resolve) => {
-    run(cli, ["auth", "status", "--json"], { timeout: 3000, env }, (_error, stdout) => {
-      try {
-        const parsed = claudeAuthSchema.safeParse(JSON.parse(stdout));
-        resolve(parsed.success ? parsed.data.loggedIn : undefined);
-      } catch {
-        resolve(undefined);
-      }
-    });
-  });
+  return claudeAuthStatus(cli, env, run).then((status) => status.signedIn);
 }
 
 /** The CLI environment shared by auth probes and real turns.
@@ -1896,8 +1905,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       return deliverSteer(s, threadId, text, true, consumed);
     };
 
-    const signedIn = cachedSignIn(() =>
-      claudeSignedIn(config.cli, claudeEnvironment(undefined, { ...process.env, ...input.environment })),
+    const authStatus = cachedSignIn(
+      () => claudeAuthStatus(config.cli, claudeEnvironment(undefined, { ...process.env, ...input.environment })),
+      (status) => status.signedIn === true,
     );
     const snapshot = async (opts?: { rescan?: boolean; refresh?: boolean }): Promise<ProviderSnapshot> => {
       const env = claudeEnvironment(undefined, { ...process.env, ...input.environment });
@@ -1907,11 +1917,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         );
       });
       if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-      const authenticated = await signedIn(opts?.rescan || opts?.refresh);
+      const { signedIn: authenticated, account } = await authStatus(opts?.rescan || opts?.refresh);
       // claudeEnvironment strips ANTHROPIC_API_KEY, so turns run on the
       // CLI's own login (Pro/Max): the cost it reports is what the call
       // WOULD bill, not a charge
-      return { state: "available", version, authenticated, billing: "subscription" };
+      return { state: "available", version, authenticated, account, billing: "subscription" };
     };
 
     /** Prompts go on stdin, never argv, since they can hold secrets.

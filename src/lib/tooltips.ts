@@ -172,6 +172,11 @@ export function mountGlobalTooltips() {
   function onOver(e: Event) {
     if (!isMouse(e)) return;
     pointerX = (e as PointerEvent).clientX;
+    // An engine mark shows its own account card, so a titled parent stays quiet.
+    if (e.target instanceof Element && e.target.closest("[data-engine-hover]")) {
+      teardown();
+      return;
+    }
     const chain = chainFrom(e.target);
     const next = chain.length > 0 ? chain[0].el : null;
     if (next === anchor) return;

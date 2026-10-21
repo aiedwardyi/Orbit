@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Loader2, TriangleAlert } from "lucide-react";
 
 import { api, useOptionalStoreDispatch, useStore, type InstanceInfo } from "@/state/store";
-import { ProviderMark } from "./ProviderIcons";
+import { EngineMark } from "./EngineMark";
 import { CommandRow, EngineSetup, EngineSignIn } from "./EngineSetup";
 import { isFriendsCliEngine, orderFriendsEngines } from "@/lib/engine-rail";
 import { cn } from "@/lib/cn";
@@ -282,7 +282,7 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
   return (
     <div data-engine-row={current.instanceId} className="min-w-0 py-2">
       {current.snapshot.state !== "available" ? <EngineSetup instance={current} /> : <div className="flex min-h-[44px] items-start gap-2 text-[13px]">
-        <span className="mt-2 shrink-0"><ProviderMark driverKind={current.driverKind} size={16} /></span>
+        <span className="mt-2 shrink-0"><EngineMark instance={current} size={16} /></span>
         <span className="min-w-0 flex-1 break-words py-1.5 text-ink">{current.displayName}</span>
         <div className="min-w-0 max-w-[65%] py-1.5">
           <EngineSignIn instance={current} onUpdated={(next) => {
