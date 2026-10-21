@@ -22,8 +22,8 @@ export const QUICK_REACTIONS = ["👍", "👎", "❤️", "😂", "😮", "🔥"
 
 /** Gutter the menu keeps off every window edge. */
 const EDGE = 8;
-const HOLD_MS = 500;
-const HOLD_SLOP = 10;
+export const HOLD_MS = 500;
+export const HOLD_SLOP = 10;
 
 export function copyShortcutHint(): string {
   const mac = /Mac/i.test(globalThis.navigator?.platform ?? "");
@@ -326,7 +326,7 @@ function menuKeyDown(ref: React.RefObject<HTMLDivElement | null>, e: React.Keybo
   }
 }
 
-const MENU_CLASS =
+export const MENU_CLASS =
   "animate-pop-in fixed z-40 rounded-xl border border-hairline/50 bg-card py-1.5 shadow-2xl shadow-black/60";
 const ROW_CLASS =
   "flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70";

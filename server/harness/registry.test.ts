@@ -363,6 +363,7 @@ describe("ProviderRegistry", () => {
     const previous = new ProviderRegistry([first.driver], { cacheDir });
     await previous.load(configs);
     Object.assign(previous.get("a")!, { models: { default: "discovered", options: [{ id: "discovered", label: "Discovered" }] } });
+    previous.get("a")!.snapshot = async () => ({ state: "available", authenticated: true, account: "me@example.com" });
     const saved = await previous.describe();
     await previous.disposeAll();
 
@@ -377,6 +378,7 @@ describe("ProviderRegistry", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(cached).toEqual(saved);
       expect(cached![0].models.default).toBe("discovered");
+      expect(cached![0].snapshot.account).toBe("me@example.com");
     } finally {
       release();
       await Promise.all([boot, read]);

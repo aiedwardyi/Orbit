@@ -11,7 +11,7 @@ import type { ModelCatalog, ProviderErrorCode } from "../../contracts.ts";
 import { augmentedPath, resolveCliSpawn } from "../../env-path.ts";
 import { wslProbeAllowed } from "../../wsl-gate.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
-import { storedSignIn } from "../auth-status.ts";
+import { accountLabel, storedAccount, storedSignIn } from "../auth-status.ts";
 
 export const STATIC_MUSE_MODELS: ModelCatalog = {
   default: "muse-spark-1.3",
@@ -39,6 +39,15 @@ function museAuthPath(env: Record<string, string | undefined>): string {
   // XDG_CONFIG_HOME names the config root only; the muse segment is appended
   // here, while the HOME fallback already includes it.
   return env.XDG_CONFIG_HOME ? join(dir, "muse", "auth.json") : join(dir, "auth.json");
+}
+
+/** A META_API_KEY bills instead of the login, so the account is unknown then. */
+export function museAccount(env: Record<string, string | undefined>): string | undefined {
+  if (nonBlank(env.META_API_KEY)) return undefined;
+  return storedAccount(museAuthPath(env), (auth) => {
+    const parsed = z.object({ providers: z.object({ meta: z.object({ user_email: z.unknown().optional(), user_full_name: z.unknown().optional() }) }) }).safeParse(auth);
+    return parsed.success ? accountLabel(parsed.data.providers.meta.user_email, parsed.data.providers.meta.user_full_name) : undefined;
+  });
 }
 
 /** Spawn command for this platform. The native Windows launcher is preferred;
@@ -267,6 +276,7 @@ const support: AcpSupport = {
   // WSL-crossing Meta turns on Windows; normal turns are unaffected.
   wslPathTranslation: true,
   isAuthenticated: museIsAuthenticated,
+  account: museAccount,
   requireAuthenticationBeforeSpawn: true,
   classifyError: classifyMuseError,
   buildPromptText: (turn) => (turn.system ? `${turn.system}\n\n${turn.text}` : turn.text),

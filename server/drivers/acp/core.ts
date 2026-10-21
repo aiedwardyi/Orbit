@@ -226,6 +226,7 @@ export interface AcpSupport {
   /** snapshot(): can this harness actually run a turn? (env already carries the
    *  merged config). May be async for harnesses that have to ask the CLI. */
   isAuthenticated(env: Record<string, string | undefined>, config: AcpConfig): boolean | Promise<boolean>;
+  account?(env: Record<string, string | undefined>): string | undefined;
   /** Refuse a first-party cloud turn before spawning when snapshot auth is
    * false. Local injected models deliberately bypass this subscription gate. */
   requireAuthenticationBeforeSpawn?: boolean;
@@ -1485,7 +1486,8 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           const probed = await resolveCli(env);
           if (!probed && gated) return lastSnapshot ?? { state: "unavailable", reason: wslBlockedReason(support.displayName) };
           if (!probed) return { state: "unavailable", reason: `\`${effectiveCli()}\` CLI not found` };
-          const ready: ProviderSnapshot = { state: "available", version: probed.version, authenticated: await support.isAuthenticated(env, config) };
+          const authenticated = await support.isAuthenticated(env, config);
+          const ready: ProviderSnapshot = { state: "available", version: probed.version, authenticated, account: authenticated ? support.account?.(env) : undefined };
           if (!gated) lastSnapshot = ready;
           return ready;
         });

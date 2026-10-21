@@ -66,6 +66,7 @@ export interface MspSupport {
   credentialEnv?: readonly string[];
   transformEnv?(env: Record<string, string | undefined>, config: MspMuseConfig): void;
   isAuthenticated(env: Record<string, string | undefined>, config: MspMuseConfig): boolean | Promise<boolean>;
+  account?(env: Record<string, string | undefined>): string | undefined;
   requireAuthenticationBeforeSpawn?: boolean;
   /** Map an MSP turn error to a provider code (auth shapes). */
   classifyError?(error: unknown): ProviderErrorCode | undefined;
@@ -1137,10 +1138,13 @@ export function createMspDriver(support: MspSupport): ProviderDriver<MspMuseConf
               if (gated) return lastSnapshot ?? { state: "unavailable", reason: wslBlockedReason(support.displayName) };
               return { state: "unavailable", reason: `\`${effectiveCli()}\` CLI not found` };
             }
+            const version = await probe(effectiveCli(), env);
+            const authenticated = await support.isAuthenticated(env, config);
             const ready: ProviderSnapshot = {
               state: "available",
-              version: await probe(effectiveCli(), env),
-              authenticated: await support.isAuthenticated(env, config),
+              version,
+              authenticated,
+              account: authenticated ? support.account?.(env) : undefined,
             };
             if (!gated) lastSnapshot = ready;
             return ready;

@@ -6,6 +6,7 @@ import type { ModelCatalog } from "../../contracts.ts";
 import {
   classifyMuseError,
   MuseAgentDriver,
+  museAccount,
   museDefaultCli,
   museIsAuthenticated,
   museSignInCommand,
@@ -53,6 +54,7 @@ export const MspMuseAgentDriver = createMspDriver({
     if (process.platform === "win32") withWslKeySharing(env);
   },
   isAuthenticated: (env, config) => museIsAuthenticated(env, config),
+  account: museAccount,
   requireAuthenticationBeforeSpawn: true,
   classifyError: classifyMuseError,
   wslProbeWrapper: museWslFallbackCli,

@@ -12,7 +12,7 @@ import { z } from "zod";
 import type { ModelCatalog } from "../../contracts.ts";
 import { decodeInjectId, hostApiKey, localHost, mergeLocalInject } from "../local-inject.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
-import { storedSignIn } from "../auth-status.ts";
+import { accountLabel, storedAccount, storedSignIn } from "../auth-status.ts";
 
 export const STATIC_GROK_MODELS: ModelCatalog = {
   default: "grok-4.6",
@@ -24,6 +24,9 @@ export const STATIC_GROK_MODELS: ModelCatalog = {
 
 const SLUG = /^[a-z0-9][a-z0-9._-]*$/i;
 const grokAuthSchema = z.record(z.string(), z.object({ key: z.string().optional(), refresh_token: z.string().optional() }));
+const grokAccountSchema = z.record(z.string(), z.object({
+  key: z.string().optional(), refresh_token: z.string().optional(), email: z.unknown().optional(), first_name: z.unknown().optional(), last_name: z.unknown().optional(),
+}));
 
 function grokHome(env: Record<string, string | undefined>): string {
   if (env.GROK_HOME) return env.GROK_HOME;
@@ -36,6 +39,18 @@ export function grokIsAuthenticated(env: Record<string, string | undefined>): bo
   return storedSignIn(join(grokHome(env), "auth.json"), (text) => {
     const parsed = grokAuthSchema.safeParse(JSON.parse(text));
     return parsed.success && Object.values(parsed.data).some((entry) => Boolean(entry.key?.trim() || entry.refresh_token?.trim()));
+  });
+}
+
+/** Two signed-in entries naming different people leave the account unknown. */
+export function grokAccount(env: Record<string, string | undefined>): string | undefined {
+  return storedAccount(join(grokHome(env), "auth.json"), (auth) => {
+    const parsed = grokAccountSchema.safeParse(auth);
+    if (!parsed.success) return undefined;
+    const labels = new Set(Object.values(parsed.data)
+      .filter((entry) => entry.key?.trim() || entry.refresh_token?.trim())
+      .map((entry) => accountLabel(entry.email, [entry.first_name, entry.last_name].filter((part) => typeof part === "string").join(" "))));
+    return labels.size === 1 ? [...labels][0] : undefined;
   });
 }
 
@@ -384,6 +399,7 @@ export const grokSupport: AcpSupport = {
   pickAuthMethod: (methods) => (methods.some((m) => m.id === "cached_token") ? "cached_token" : null),
   authFailure: "fail",
   isAuthenticated: grokIsAuthenticated,
+  account: grokAccount,
 
   // `--append-system-prompt`/`--rules` are accepted by the CLI but do NOT
   // reach the agent-stdio system prompt (verified against 1.0.0), so the

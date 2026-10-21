@@ -35,6 +35,7 @@ const { mockInstances } = vi.hoisted(() => {
         snapshot: {
           state: "available" as const,
           authenticated: true,
+          account: "me@example.com",
           version: "grok 1.0.13 (5e9a58528b76) [stable]",
         },
         models: {
@@ -540,6 +541,13 @@ describe("ModelPicker friends chip", () => {
     expect(html).toContain(`background-color:${modelFamilyAccent("grokAgent")}`);
     expect(chipText(html)).toContain("Northwind 9 Contributor Extended Edition High");
     expect(html).not.toContain(">high<");
+  });
+
+  it("keeps the account card out of the chat chip and the open picker", () => {
+    const html = markup(bot.modelSelection, true);
+    expect(html).toContain("Grok 4.6");
+    expect(html).not.toContain("data-engine-hover");
+    expect(html).not.toContain("me@example.com");
   });
 
   it("shows unresolved when automatic has no live model", () => {
