@@ -4070,7 +4070,7 @@ describe("harness HTTP API", () => {
     expect(saved.body.composio).toEqual({ configured: true, mode: "self-hosted" });
     expect(saved.body.gemini).toEqual({ configured: true });
     expect(saved.body.openaiCompat).toEqual({ configured: true });
-    expect(saved.body.profile).toEqual({ name: "External Store", email: "", avatarUrl: "" });
+    expect(saved.body.profile).toEqual({ name: "External Store", email: "", avatarUrl: "", googlePhoto: false });
     expect(JSON.stringify(saved.body)).not.toContain("ak_good");
     expect(JSON.stringify(saved.body)).not.toContain("gemini-external");
     expect(JSON.stringify(saved.body)).not.toContain("compat-external");
@@ -4100,10 +4100,10 @@ describe("harness HTTP API", () => {
   it("stores and echoes the user profile (not write-only, unlike keys)", async () => {
     const put = await api("PUT", "/api/config", { profile: { name: "Ada Lovelace", email: "Ada@Example.com" } });
     expect(put.status).toBe(200);
-    expect(put.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com", avatarUrl: "" });
+    expect(put.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com", avatarUrl: "", googlePhoto: false });
 
     const after = await api("GET", "/api/config");
-    expect(after.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com", avatarUrl: "" });
+    expect(after.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com", avatarUrl: "", googlePhoto: false });
   });
 
   it("creates an independent webhook, accepts a delivery, deduplicates it, and rotates its secret", async () => {
