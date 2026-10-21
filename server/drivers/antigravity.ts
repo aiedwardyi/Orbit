@@ -452,7 +452,7 @@ export function buildAntigravityTurnArgv(input: AntigravityTurnArgvInput): strin
     "--output-format",
     "stream-json",
     "--print-timeout",
-    "10m",
+    "60m",
     "--add-dir",
     input.cwd,
   ];
@@ -606,7 +606,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       // everything before it, so the next prompt re-sends the system text
       let checkpointed = false;
       // backstop watchdog: if agy hangs without emitting `result` and without
-      // exiting, the bot would stay busy forever (agy's own --print-timeout 10m
+      // exiting, the bot would stay busy forever (agy's own --print-timeout 60m
       // is the only other net). Assigned just below; settle() always clears it.
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       // Assigned once the child exists. A child can emit `result` and then
@@ -1055,7 +1055,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
         turnId,
       });
 
-      // 11 min — just above agy's own 10m --print-timeout, so agy normally
+      // 61 min - just above agy's own 60m --print-timeout, so agy normally
       // settles first; this is the backstop for a fully wedged child.
       watchdog = setTimeout(() => {
         if (!settled) {
@@ -1063,7 +1063,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
           stop();
           settle(false, "timeout");
         }
-      }, 11 * 60_000);
+      }, 61 * 60_000);
       watchdog.unref?.();
 
       emit({ ...base(threadId, turnId), type: "turn.started" });

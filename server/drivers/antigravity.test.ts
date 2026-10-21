@@ -1410,6 +1410,13 @@ describe("Antigravity computer MCP config", () => {
 });
 
 
+describe("buildAntigravityTurnArgv", () => {
+  it("gives a slow model a 60 minute print timeout", () => {
+    const argv = buildAntigravityTurnArgv({ fullAuto: true, cwd: "/work" });
+    expect(argv[argv.indexOf("--print-timeout") + 1]).toBe("60m");
+  });
+});
+
 describe("Antigravity Windows long-prompt transport", () => {
   let instance: ProviderInstance;
   let recorder: EventRecorder;
