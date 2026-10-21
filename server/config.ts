@@ -138,9 +138,9 @@ const appConfigSchema = z.object({
   /** Keys only call_api uses; never handed to an engine. */
   anthropic: z.object({ key: optionalText }).optional(),
   vertex: z.object({ key: optionalText }).optional(),
-  /** Non-secret profile details shown in the sidebar. The cleared markers stop Google sign-in refilling what the user removed. */
+  /** Non-secret profile details shown in the sidebar. The cleared markers stop Google sign-in refilling what the user removed; googleAvatarUrl is the photo that came from Google. */
   profile: z
-    .object({ name: optionalText, email: optionalText, avatarUrl: botAvatarUrlSchema.optional(), nameCleared: z.boolean().optional(), avatarCleared: z.boolean().optional() })
+    .object({ name: optionalText, email: optionalText, avatarUrl: botAvatarUrlSchema.optional(), nameCleared: z.boolean().optional(), avatarCleared: z.boolean().optional(), googleAvatarUrl: botAvatarUrlSchema.optional() })
     .optional(),
   rooms: roomConfigSchema.optional(),
   localVm: localVmConfigSchema.optional(),
@@ -191,7 +191,7 @@ export interface AppConfig {
   anthropic?: { key?: string };
   vertex?: { key?: string };
   customKeys?: Record<string, CustomKey | null>;
-  profile?: { name?: string; email?: string; avatarUrl?: string; nameCleared?: boolean; avatarCleared?: boolean };
+  profile?: { name?: string; email?: string; avatarUrl?: string; nameCleared?: boolean; avatarCleared?: boolean; googleAvatarUrl?: string };
   rooms?: { turnTimeoutMinutes: number };
   /** Shared preserves the historical singleton. Per-bot gives every bot a
    * separate container, durable workspace, viewer and lease. */

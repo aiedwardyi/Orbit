@@ -4,9 +4,10 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { loadConfig, parseConfigPatch, saveConfig } from "./config.ts";
 import { acpChildEnv } from "./drivers/acp/core.ts";
 import { grokSupport } from "./drivers/acp/grok.ts";
-import { GOOGLE_ACCOUNT_ENV, GoogleAccount, GoogleAccountError, applyGoogleAccountMessage, googleAccountRoute, googleProfileFill, takeGoogleEnv, type GoogleSession } from "./google-account.ts";
+import { GOOGLE_ACCOUNT_ENV, GoogleAccount, GoogleAccountError, applyGoogleAccountMessage, googleAccountRoute, googlePhotoOffered, googleProfileFill, googleProfilePhoto, takeGoogleEnv, type GoogleSession } from "./google-account.ts";
 
 const CLIENT = { id: "client-id-test", secret: "client-secret-test" };
 const SESSION: GoogleSession = { refreshToken: "refresh-token-SECRET", sub: "sub-1", email: "me@example.com" };
@@ -421,5 +422,46 @@ describe("profile fill from Google sign-in", () => {
       throw new Error("disk full");
     });
     expect(await googleProfileFill(idToken({ name: "Ada", picture: PICTURE }), SESSION.sub, () => undefined, save, picture())).toEqual({ name: "Ada" });
+  });
+
+  it("puts the Google picture back over a removed photo", async () => {
+    const fetch = picture();
+    const save = saved();
+    saveConfig(parseConfigPatch({ profile: { name: "Ada", avatarUrl: "" } }));
+    expect(loadConfig().profile?.avatarCleared).toBe(true);
+    const profile = await googleProfilePhoto(idToken({ picture: PICTURE }), SESSION.sub, save, fetch);
+    expect(String(fetch.mock.calls[0]![0])).toBe(PICTURE);
+    expect(save).toHaveBeenCalledWith(PNG, "image/png");
+    saveConfig({ profile: profile! });
+    expect(loadConfig().profile).toEqual({ name: "Ada", avatarUrl: "/api/attachments/saved.png", googleAvatarUrl: "/api/attachments/saved.png" });
+  });
+
+  it.each([
+    ["signed out", null, undefined],
+    ["a token without a picture", idToken({ name: "Ada" }), SESSION.sub],
+    ["a token for another account", idToken({ sub: "sub-2", picture: PICTURE }), SESSION.sub],
+  ])("refuses the Google photo when %s", async (_case, token, sub) => {
+    const fetch = picture();
+    const save = saved();
+    expect(await googleProfilePhoto(token, sub, save, fetch)).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("refuses the Google photo when the picture cannot be fetched", async () => {
+    const save = saved();
+    expect(await googleProfilePhoto(idToken({ picture: PICTURE }), SESSION.sub, save, picture(new Response("nope", { status: 404 })))).toBeNull();
+    expect(await googleProfilePhoto(idToken({ picture: "https://evil.example/photo.png" }), SESSION.sub, save, picture())).toBeNull();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("offers the Google photo only when signed in with a picture that is not already the photo", () => {
+    const token = idToken({ picture: PICTURE });
+    expect(googlePhotoOffered(token, SESSION.sub, undefined)).toBe(true);
+    expect(googlePhotoOffered(token, SESSION.sub, { avatarUrl: "/api/attachments/mine.png", googleAvatarUrl: "/api/attachments/g.png" })).toBe(true);
+    expect(googlePhotoOffered(token, SESSION.sub, { googleAvatarUrl: "/api/attachments/g.png" })).toBe(true);
+    expect(googlePhotoOffered(token, SESSION.sub, { avatarUrl: "/api/attachments/g.png", googleAvatarUrl: "/api/attachments/g.png" })).toBe(false);
+    expect(googlePhotoOffered(null, undefined, undefined)).toBe(false);
+    expect(googlePhotoOffered(idToken({ name: "Ada" }), SESSION.sub, undefined)).toBe(false);
   });
 });

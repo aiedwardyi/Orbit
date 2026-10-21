@@ -7,7 +7,7 @@ const mock = vi.hoisted(() => ({
   dispatch: vi.fn(),
   config: {
     profile: { name: "", email: "" },
-  } as { profile: { name: string; email: string; avatarUrl?: string } },
+  } as { profile: { name: string; email: string; avatarUrl?: string; googlePhoto?: boolean } },
 }));
 
 vi.mock("@/state/store", async (importOriginal) => {
@@ -237,6 +237,48 @@ describe("ProfileFields photo", () => {
     expect(request.mock.calls[0]![1]?.method).toBe("PUT");
     expect(JSON.parse(String(request.mock.calls[0]![1]?.body))).toEqual({ profile: { avatarUrl: "" } });
     expect(mock.dispatch).toHaveBeenCalledWith({ type: "configStatus", config: saved });
+    await act(async () => root.unmount());
+  });
+
+  it("shows Use Google Photo only when the server offers it", async () => {
+    mock.config = { profile: { name: "Ada", email: "", avatarUrl: "/api/attachments/ada.png" } };
+    const hidden = await renderProfile();
+    expect(button(hidden.host, "Use Google Photo")).toBeNull();
+    await act(async () => hidden.root.unmount());
+
+    mock.config = { profile: { name: "Ada", email: "", avatarUrl: "/api/attachments/ada.png", googlePhoto: true } };
+    const shown = await renderProfile();
+    expect(button(shown.host, "Use Google Photo")).toBeTruthy();
+    await act(async () => shown.root.unmount());
+  });
+
+  it("uses the Google photo without sending a URL", async () => {
+    mock.config = { profile: { name: "Ada", email: "", googlePhoto: true } };
+    const saved = { profile: { name: "Ada", email: "", avatarUrl: "/api/attachments/google.png", googlePhoto: false } };
+    const request = vi.fn(async (_input: string, _init?: RequestInit): Promise<FetchResult> => ({ ok: true, json: async () => saved }));
+    vi.stubGlobal("fetch", request);
+
+    const { root, host } = await renderProfile();
+    await act(async () => button(host, "Use Google Photo")!.click());
+    await flush();
+
+    expect(request.mock.calls.map(([url, init]) => `${init?.method} ${url}`)).toEqual(["POST /api/profile/google-photo"]);
+    expect(request.mock.calls[0]![1]?.body).toBeUndefined();
+    expect(mock.dispatch).toHaveBeenCalledWith({ type: "configStatus", config: saved });
+    await act(async () => root.unmount());
+  });
+
+  it("shows the photo error when the Google photo fails", async () => {
+    mock.config = { profile: { name: "Ada", email: "", googlePhoto: true } };
+    const request = vi.fn(async (): Promise<FetchResult> => ({ ok: false, status: 409, json: async () => ({ error: "no Google photo to use" }) }));
+    vi.stubGlobal("fetch", request);
+
+    const { root, host } = await renderProfile();
+    await act(async () => button(host, "Use Google Photo")!.click());
+    await flush();
+
+    expect(mock.dispatch).not.toHaveBeenCalled();
+    expect(host.querySelector("[role=alert]")?.textContent).toBe("Could not save photo.");
     await act(async () => root.unmount());
   });
 });

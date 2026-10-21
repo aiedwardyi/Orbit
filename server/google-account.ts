@@ -138,6 +138,25 @@ export async function googleProfileFill(
   return fill.name || fill.avatarUrl ? fill : null;
 }
 
+/** The account has a picture and the profile photo is not already it. */
+export function googlePhotoOffered(idToken: string | null, sub: string | undefined, profile: { avatarUrl?: string; googleAvatarUrl?: string } | undefined): boolean {
+  if (!idToken || !sub || !googleProfileClaims(idToken, sub).picture) return false;
+  return !profile?.avatarUrl || profile.avatarUrl !== profile.googleAvatarUrl;
+}
+
+/** The profile patch that puts the account's Google picture back. Null when there is none to use. */
+export async function googleProfilePhoto(
+  idToken: string | null,
+  sub: string | undefined,
+  saveImage: (bytes: Buffer, mime: string) => string | null,
+  fetch: typeof globalThis.fetch = globalThis.fetch,
+): Promise<{ avatarUrl: string; avatarCleared: undefined; googleAvatarUrl: string } | null> {
+  const url = idToken && sub ? googleProfileClaims(idToken, sub).picture : undefined;
+  const picture = url ? await fetchPicture(url, fetch) : null;
+  const avatarUrl = picture ? saveImage(picture.bytes, picture.mime) : null;
+  return avatarUrl ? { avatarUrl, avatarCleared: undefined, googleAvatarUrl: avatarUrl } : null;
+}
+
 /** Reads the clients and boot session, then deletes them so engine CLIs never inherit them. */
 export function takeGoogleEnv(env: NodeJS.ProcessEnv): { client: GoogleClient | null; webClientId: string | null; teamRelay: string | null; teamOwner: string | null; session: GoogleSession | null } {
   const id = env[GOOGLE_CLIENT_ID_ENV]?.trim();
