@@ -2,6 +2,25 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.195] - 2026-10-21
+
+### Added
+- The model picker shows each model's list price per 1M input and output tokens.
+- Change Photo and Remove Photo in Edit Profile. A new install fills your name and photo from Google sign-in, and a removed photo stays removed.
+- Agentic Mode can wait for a set start time before it runs the next step.
+
+### Changed
+- Keep going is now Agentic Mode. Turning it on approves the whole task, including steps a bot adds or rewords later.
+- Labels use Title Case.
+- Rules your Chief of Staff bot passes on count as your own for other bots.
+- Bots react to messages a little more often.
+- Workers run at high effort by default, and at max only in max mode.
+
+### Fixed
+- A worker pane that exits early now tells its bot, and a pane that fails to start retries once.
+- Fewer repeated context notes, and no false stall notes for workers waiting to start.
+- Worker effort shows for labels with a trailing note, like "high API".
+
 ## [1.0.194] - 2026-10-20
 
 ### Added
@@ -103,6 +122,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.195]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.195
 [1.0.194]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.194
 [1.0.193]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.193
 [1.0.192]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.192
