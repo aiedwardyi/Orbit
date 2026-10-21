@@ -283,7 +283,7 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
     <div data-engine-row={current.instanceId} className="min-w-0 py-2">
       {current.snapshot.state !== "available" ? <EngineSetup instance={current} /> : <div className="flex min-h-[44px] items-start gap-2 text-[13px]">
         <span className="mt-2 shrink-0"><EngineMark instance={current} size={16} /></span>
-        <span className="min-w-0 flex-1 break-words py-1.5 text-ink">{current.displayName}</span>
+        <span className="flex-1 break-words py-1.5 text-ink">{current.displayName}</span>
         <div className="min-w-0 max-w-[65%] py-1.5 has-[>div>button:first-child]:py-0">
           <EngineSignIn instance={current} onUpdated={(next) => {
             setCurrent(next);

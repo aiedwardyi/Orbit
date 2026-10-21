@@ -300,9 +300,9 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
   };
 
   if (connected) return <span className="text-[12px] text-ink-secondary">{t("connections.connected")}</span>;
-  if (computerOnly) return <span className="text-[12px] text-ink-secondary">{t("engines.signInFromComputer")}</span>;
+  if (computerOnly) return <span className="break-keep text-[12px] text-ink-secondary">{t("engines.signInFromComputer")}</span>;
   return (
-    <div aria-live="polite" className="flex min-w-0 flex-col items-end gap-1.5 text-[12px] text-ink-secondary">
+    <div aria-live="polite" className="flex min-w-0 flex-col items-end gap-1.5 break-keep text-[12px] text-ink-secondary">
       {waiting ? <>
         <span>{copyFallback ? t("engine.pasteAndEnter") : capture.code ? t("engines.enterCode") : t("engines.finishInBrowser")}</span>
         {copyFallback && <code className="select-all break-all font-mono text-ink">{instance.install?.signInCommand}</code>}
