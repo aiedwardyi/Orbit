@@ -1290,6 +1290,68 @@ const CLAUDE_FOLDER_TRUST = "\x1b[1t\x1b[c\x1b[?1004h\x1b[?9001h\x1b]0;claude\x1
 const CLAUDE_FOLDER_TRUST_YES = "\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n Accessing workspace:\n\n C:\\Users\\mredw\\AppData\\Local\\Temp\\wink-WORKER-TRUST-MENU\\fresh-iieFbG\n\n Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source\n project, or work from your team). If not, take a moment to review what's in this folder first.\n\n Claude Code'll be able to read, edit, and execute files here.\n\n Security guide\n\n   No, exit\n > Yes, I trust this folder\n\n Enter to confirm · Esc to cancel";
 const CLAUDE_TRUST_COMMAND = "claude --model opus --dangerously-skip-permissions 'Read card.md and do it.'";
 
+test("Claude folder trust answers screen updates within 1.5 seconds without a stall tick", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: Date.UTC(2026, 9, 21) });
+  const f = stallFixture({ commandEcho: false, stallCheckMs: 10_000, now: () => Date.now() });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { command: CLAUDE_TRUST_COMMAND });
+  const child = f.children[0];
+  const started = Date.now();
+  child.data(CLAUDE_FOLDER_TRUST);
+  await Promise.resolve();
+  assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B"]);
+  t.mock.timers.tick(200);
+  child.data("\x1b[?u\x1b[c");
+  await Promise.resolve();
+  assert.equal(child.writes.length, 2);
+  const redraw = "\x1b[1D\x1b[4B\r\x1b[1C\x1b[4A \x1b[4GNo, exit\r\x1b[1C\x1b[1B>\x1b[4GYes, I trust this folder\r\n\n\n\x1b[1C\x1b[3A";
+  const split = redraw.indexOf(">");
+  child.data(redraw.slice(0, split));
+  await Promise.resolve();
+  assert.equal(child.writes.length, 2);
+  t.mock.timers.tick(50);
+  child.data(redraw.slice(split));
+  await Promise.resolve();
+  assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B", "\r"]);
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 1_500);
+  t.diagnostic(`menu to Enter ${elapsed}ms fixture`);
+  child.data("\x1b[2J\x1b[H" + CLAUDE_FOLDER_TRUST);
+  t.mock.timers.tick(30_000);
+  await Promise.resolve();
+  assert.equal(child.writes.length, 3);
+});
+
+test("Claude folder trust stops scanning once Claude is working", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: Date.UTC(2026, 9, 21) });
+  const f = stallFixture({ commandEcho: false, stallCheckMs: 10_000, now: () => Date.now() });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { command: CLAUDE_TRUST_COMMAND });
+  const child = f.children[0];
+  t.mock.timers.tick(1_000);
+  child.data("✻ Reading card… (3s · esc to interrupt)\r\n");
+  await Promise.resolve();
+  child.data("\x1b[2J\x1b[H" + CLAUDE_FOLDER_TRUST);
+  await Promise.resolve();
+  assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r"]);
+});
+
+test("Claude folder trust re-arms when the pane launches Claude again", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: Date.UTC(2026, 9, 21) });
+  const f = stallFixture({ commandEcho: false, stallCheckMs: 10_000, now: () => Date.now() });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { command: CLAUDE_TRUST_COMMAND });
+  const child = f.children[0];
+  t.mock.timers.tick(1_000);
+  child.data("✻ Reading card… (3s · esc to interrupt)\r\n");
+  await Promise.resolve();
+  child.data("\x1b[2J\x1b[HPS C:\repo> ");
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: CLAUDE_TRUST_COMMAND + "\r" });
+  child.data("\x1b[2J\x1b[H" + CLAUDE_FOLDER_TRUST);
+  await Promise.resolve();
+  assert.deepEqual(child.writes.slice(-1), ["\x1b[B"]);
+});
+
 for (const [name, prompt] of [
   ["PS prompt", "PS C:\\repo> "],
   ["oh-my-posh prompt", "\x1b[32m repo \x1b[0m ❯ "],
