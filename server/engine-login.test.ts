@@ -53,7 +53,47 @@ function fixture(timeout = 5000, capture = 500) {
   return { manager, cli: `"${process.execPath}" "${script}"`, dir };
 }
 
+const REAL_OUTPUT = {
+  codex: "\nWelcome to Codex [v\x1b[90m0.163.0\x1b[0m]\n\nFollow these steps to sign in with ChatGPT using device code authorization:\n\n"
+    + "1. Open this link in your browser and sign in to your account\n   \x1b[94mhttps://auth.openai.com/codex/device\x1b[0m\n\n"
+    + "2. Enter this one-time code \x1b[90m(expires in 15 minutes)\x1b[0m\n   \x1b[94m8Y82-PFRXD\x1b[0m\n\n",
+  grok: "\nTo sign in, open this URL in your browser:\n\n  https://accounts.x.ai/oauth2/device?user_code=26XB-F54Z\n\n"
+    + "Confirm this code in your browser:\n\n  26XB-F54Z\n\nWaiting for authorization...\n",
+  muse: "Open this page to sign in:\n  https://auth.meta.com/oauth/device/?code=BBDN-DDKV\nconfirm this code matches:\n  BBDN-DDKV\n\nWaiting for approval…\n",
+  claude: "Opening browser to sign in…\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=x"
+    + "&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&state=x\nPaste code here if prompted > ",
+};
+
+async function replay(engine: string, output: string, authHosts?: string[]) {
+  const { manager, dir } = fixture(5000, 300);
+  const file = join(dir, "output.txt");
+  const script = join(dir, "replay.cjs");
+  writeFileSync(file, output);
+  writeFileSync(script, "process.stdout.write(require('node:fs').readFileSync(process.argv[2], 'utf8')); setInterval(() => {}, 1000);");
+  return manager.start(engine, `"${process.execPath}" "${script}"`, [file], {}, authHosts);
+}
+
 describe("EngineLogin", () => {
+  it.each([
+    ["codex", ["auth.openai.com"], { url: "https://auth.openai.com/codex/device", code: "8Y82-PFRXD" }],
+    ["grok", ["accounts.x.ai"], { url: "https://accounts.x.ai/oauth2/device?user_code=26XB-F54Z", code: "26XB-F54Z" }],
+    ["muse", ["auth.meta.com"], { url: "https://auth.meta.com/oauth/device/?code=BBDN-DDKV", code: "BBDN-DDKV" }],
+    ["claude", [], {}],
+  ] as const)("captures the real %s login output", async (engine, hosts, expected) => {
+    expect(await replay(engine, REAL_OUTPUT[engine], [...hosts])).toEqual(expected);
+  });
+
+  it("drops ?code= URLs off the engine's auth hosts", async () => {
+    const output = "https://auth.example/device/?code=BBDN-DDKV\nhttps://auth.meta.com/oauth/device/?code=BBDN-DDKV\n";
+    expect(await replay("muse", output, ["auth.meta.com"])).toEqual({ url: "https://auth.meta.com/oauth/device/?code=BBDN-DDKV" });
+    expect(await replay("muse", REAL_OUTPUT.muse)).toEqual({ code: "BBDN-DDKV" });
+  });
+
+  it("drops URLs whose secret parameter names are percent-encoded", async () => {
+    const output = "https://auth.meta.com/oauth/device/?access%5Ftoken=private\nhttps://auth.example/device/?c%6Fde=BBDN-DDKV\nhttps://auth.example/device#id_token=private\n";
+    expect(await replay("muse", output, ["auth.meta.com"])).toEqual({});
+  });
+
   it("does not inherit credentials outside the supplied login environment", async () => {
     vi.stubEnv("OMB_COMMS_TOKEN", "review-token");
     vi.stubEnv("ANTHROPIC_API_KEY", "review-key");

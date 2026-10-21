@@ -247,7 +247,7 @@ export class ProviderRegistry {
     const login = config.install?.login;
     const args = device ? login?.deviceArgs : login?.args;
     if (!args) return null;
-    const capture = await this.logins.start(instanceId, config.cli, args, config.env);
+    const capture = await this.logins.start(instanceId, config.cli, args, config.env, login?.authHosts);
     return login?.deviceArgs ? capture : capture.url ? { url: capture.url } : {};
   }
 

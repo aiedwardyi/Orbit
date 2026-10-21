@@ -14,7 +14,9 @@ it("offers one-click sign-in for an installed CLI", () => {
     const row = { ...instance({ state: "available", authenticated: false }), install: { login: { args: ["login"] }, signInCommand: "fake login" } };
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(EngineSetup, { instance: row })));
     expect(html).toContain(">Sign In<");
+    expect(html).toContain(">Not signed in<");
     expect(html).not.toContain("fake login");
+    expect(html).not.toContain("Terminal");
   } finally {
     Object.defineProperty(globalThis, "window", { value: previous, configurable: true, writable: true });
   }

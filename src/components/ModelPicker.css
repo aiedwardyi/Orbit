@@ -176,10 +176,18 @@ html[data-orbit-caption="win32"] .model-cross-header { top: calc(var(--orbit-cap
   max-height: 26dvh;
   overflow: auto;
   padding: 8px 24px;
+  --color-ink: #e1e3e9;
+  --color-ink-secondary: #a7a9b3;
+  --color-control: #191c23;
+  --color-raised-hover: #242832;
+  --color-inset: #11141a;
+  --color-hairline: #373a44;
+  --color-accent: var(--picker-accent);
+  --color-accent-ink: #030407;
+  --color-success: #7fdcae;
+  --color-warning: #f2c46b;
 }
 
-.model-cross-options .text-ink { color: #e1e3e9; }
-.model-cross-options .text-ink-secondary { color: #a7a9b3; }
 .model-cross-custom { width: min(420px, 100%); max-height: 140px; overflow: auto; }
 .model-cross-custom input { background: #191c23; }
 

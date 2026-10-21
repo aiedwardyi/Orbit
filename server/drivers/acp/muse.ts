@@ -250,7 +250,7 @@ const support: AcpSupport = {
     },
     docsUrl: "https://developer.meta.com/ai/products/muse-code/",
     signInCommand: museSignInCommand(),
-    login: { args: ["login"], deviceArgs: ["login"], env: { MUSE_LOGIN: "0" } },
+    login: { args: ["login"], deviceArgs: ["login"], env: { MUSE_LOGIN: "0" }, authHosts: ["auth.meta.com"] },
     logout: ["logout"],
   },
   transformEnv: (env) => {
