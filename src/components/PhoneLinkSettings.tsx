@@ -52,7 +52,7 @@ export function PhoneLinkSettings() {
       : setup.state === "checking" ? "settings.phoneLink.checking"
       : "settings.phoneLink.error";
     return (
-      <Section title={t("settings.phoneLink.title")} subtitle={t(help)}>
+      <Section title={t("settings.phoneLink.title")} subtitle={<span className="break-keep">{t(help)}</span>}>
         {setup.state === "serve-disabled" && setup.enableUrl && (
           <a
             href={setup.enableUrl}
@@ -78,7 +78,7 @@ export function PhoneLinkSettings() {
   };
 
   return (
-    <Section title={t("settings.phoneLink.title")} subtitle={t("settings.phoneLink.help")}>
+    <Section title={t("settings.phoneLink.title")} subtitle={<span className="break-keep">{t("settings.phoneLink.help")}</span>}>
       <div className="flex flex-wrap items-center gap-2">
         <code className="min-w-0 flex-1 basis-full truncate rounded-lg bg-inset px-3 py-2 font-mono text-[13px] text-ink sm:basis-0">
           {new URL(url).host}/••••••••
