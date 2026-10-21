@@ -45,14 +45,13 @@ export function workerProvider(model: string | null): string | null {
   return PROVIDERS.find(([pattern]) => pattern.test(model))?.[1] ?? null;
 }
 
-const EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
+const EFFORT_RE = /^(?:(?:extra|x)[\s-]*high|minimal|low|medium|high|max)\b/;
 
-/** Third label part, lowercased; `extra high` in any spelling reads as `xhigh`. */
+/** Third label part, lowercased; `extra high` in any spelling reads as `xhigh`, and a trailing note like `high API` is dropped. */
 function normalizeEffort(part: string | undefined): string | null {
-  const cleaned = (part ?? "").trim().toLowerCase();
-  const compact = cleaned.replace(/[\s-]+/g, "");
-  const id = compact === "extrahigh" || compact === "xhigh" ? "xhigh" : cleaned;
-  return EFFORTS.has(id) ? id : null;
+  const effort = EFFORT_RE.exec((part ?? "").trim().toLowerCase())?.[0];
+  if (!effort) return null;
+  return effort.endsWith("high") && effort !== "high" ? "xhigh" : effort;
 }
 
 export function parseWorkerLabel(label: string | null | undefined) {
