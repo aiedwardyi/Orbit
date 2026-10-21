@@ -86,7 +86,7 @@ import { usageLimitReset } from "@/lib/usage";
 import { useFindCurrentId, useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useForwardWindow, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
-import { activityVisibleInChat, groupActivityRuns, isServerLine, itemMatchesFind, localizeServerLine, sameNotices, shownRunStep, type LinkedApproval, type TranscriptItem } from "@/lib/activity-runs";
+import { activityVisibleInChat, busyRetryLabel, groupActivityRuns, isServerLine, itemMatchesFind, localizeServerLine, sameNotices, shownRunStep, type LinkedApproval, type TranscriptItem } from "@/lib/activity-runs";
 import { chatTranscriptRows, messageVisible } from "@/lib/chat-transcript";
 import { isShownMessage } from "@/lib/shown-message";
 import { detectChatOptions } from "@/lib/chat-options";
@@ -1979,6 +1979,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const activityLabel = turnStageLabel(
     turnPhase({ signal: stream.signal[bot.threadId], lastMessage, streaming, reasoning }),
     liveActivityLabel(lastMessage, showActivities),
+    busyRetryLabel(lastMessage),
   );
   const waiting = !reveal?.ended && turnPresenceWaiting({
     busy: bot.busy,

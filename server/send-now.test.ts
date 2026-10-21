@@ -33,17 +33,19 @@ function harness(steer = vi.fn(async () => true)) {
   const drainRun = vi.fn(() => { bot.busy = true; });
   const drain = () => queue.drainSteeredMessages(store, drainRun);
   const noop = () => {};
+  const interruptTurn = vi.fn(async () => {});
+  const busyResumeThreads = new Set<string>();
   const scope = {
     ...queue, acceptedSendMatch, parseSendId, sendFingerprint, steersSend, sendPostReceipt,
     store, startTurn, sendSequencer: new SendSequencer(), m: ["", bot.id], req: {}, res: {},
     readBody: async () => ({}), json: (_res: unknown, status: number, body: unknown) => ({ status, body }),
     noteTalked: noop, threadSyncGate: { enabled: false }, pullSyncedThread: noop,
     ensureChatLatency: noop, markChatLatency: noop, resolveReplyTarget: (_thread: string, id?: string) => messages.find((m) => m.id === id),
-    botHasActiveTurn: () => false, registry: new Map([["fake", { adapter: { capabilities: { queueing: true }, steer } }]]),
+    botHasActiveTurn: () => false, registry: new Map([["fake", { adapter: { capabilities: { queueing: true }, steer, interruptTurn } }]]),
     steerTakeover: () => ({ consumed: noop, accepted: noop }), cfg: {},
     composeUserTurnPrompt: (text: string) => text, promptWithReply: (text: string) => text,
     userTurnReactionKeys: () => [], hasPeerWatch: () => false, clearUnattended: noop,
-    resumePaneWakes: noop, paneNoteTurnThreads: new Set(), drainQueuedSends: drain,
+    resumePaneWakes: noop, paneNoteTurnThreads: new Set(), busyResumeThreads, drainQueuedSends: drain,
   };
   const hold = (text: string) => {
     const sendId = `send-now-${text.padEnd(16, "0")}`;
@@ -51,7 +53,7 @@ function harness(steer = vi.fn(async () => true)) {
     return { text, sendId, queueId: held.id, threadId: bot.threadId };
   };
   const post = (body: object) => runPost({ ...scope, readBody: async () => body });
-  return { bot, messages, store, steer, startTurn, drain, drainRun, hold, post };
+  return { bot, messages, store, steer, startTurn, drain, drainRun, hold, post, interruptTurn, busyResumeThreads };
 }
 
 describe("queued send through the message POST", () => {
@@ -78,6 +80,19 @@ describe("queued send through the message POST", () => {
     expect((await h.post(selected)).body).toMatchObject({ queued: true, queueId: selected.queueId });
     expect(h.steer).toHaveBeenCalledTimes(1);
     expect(queue.takeQueuedSteers("bot", "thread", 0).map((m) => m.text)).toEqual(["first"]);
+  });
+
+  it("cancels a busy-provider wait so a queued message runs at once", async () => {
+    const h = harness(vi.fn(async () => false));
+    h.busyResumeThreads.add("thread");
+    expect((await h.post({ text: "do this instead" })).body).toMatchObject({ queued: true });
+    expect(h.interruptTurn).toHaveBeenCalledWith("thread");
+  });
+
+  it("leaves a running turn alone when a message queues", async () => {
+    const h = harness(vi.fn(async () => false));
+    expect((await h.post({ text: "after this" })).body).toMatchObject({ queued: true });
+    expect(h.interruptTurn).not.toHaveBeenCalled();
   });
 
   it("coalesces simultaneous clicks and later retries onto the original send", async () => {

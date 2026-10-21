@@ -52,6 +52,7 @@ export function activityVisibleInChat(message: Message, showToolCalls: boolean):
 const ALWAYS_APPROVAL = /^auto-approved (.+?) \(always allowed\): ([\s\S]*)$/;
 const AUTO_APPROVAL = /^auto-approved ([^:]+): ([\s\S]*)$/;
 const REVIEW_APPROVAL = /^review approved ([^:]+): ([\s\S]*)$/;
+const BUSY_RETRY = /^Gemini is busy\. Retrying in (\d+) (sec|min)\.$/;
 
 function toolFromAllowKey(key: string): string {
   const rest = key.startsWith("local-computer:") ? key.slice("local-computer:".length) : key;
@@ -71,6 +72,7 @@ export function classifyServerNotice(name: string): ServerNotice | null {
   if (
     /^@.+ is waiting on your approval$/.test(name) ||
     /^retrying \u2014 attempt \d+\/\d+ in \d+s \u2014 /.test(name) ||
+    BUSY_RETRY.test(name) ||
     /^Same call repeated \d+× \u2014 /.test(name) ||
     name.endsWith(" is still stopping \u2014 this message was not dispatched")
   ) return { kind: "line" };
@@ -81,7 +83,7 @@ interface ServerLine {
   re: RegExp;
   pick: (m: RegExpExecArray) => [MessageKey, Record<string, string | number>];
   /** fixed English the server must keep writing, in `file`; the drift guard scans for it */
-  file: "comms-visibility.ts" | "delegations.ts" | "index.ts";
+  file: "comms-visibility.ts" | "delegations.ts" | "index.ts" | "drivers/antigravity.ts";
   needles: string[];
 }
 
@@ -150,6 +152,18 @@ export const SERVER_LINES: ServerLine[] = [
     file: "index.ts",
     needles: ["Agentic Mode paused: two tries made no progress"],
   },
+  {
+    re: BUSY_RETRY,
+    pick: (m) => [m[2] === "sec" ? "chat.busyRetrySeconds" : "chat.busyRetryMinutes", { count: m[1] }],
+    file: "index.ts",
+    needles: ["Gemini is busy. Retrying in ", " sec`", " min`"],
+  },
+  {
+    re: /^Gemini is still busy after 3 tries\. Try another model\.$/,
+    pick: () => ["chat.busyGaveUp", {}],
+    file: "drivers/antigravity.ts",
+    needles: ["Gemini is still busy after 3 tries. Try another model."],
+  },
   { re: /^Delegated turn stalled and was stopped$/, pick: () => ["chat.delegation.turnStalled", {}], file: "index.ts", needles: ["Delegated turn stalled and was stopped"] },
   {
     re: /^Delegated turn could not start \u2014 ([\s\S]*)$/,
@@ -171,6 +185,12 @@ export function localizeServerLine(name: string, t: Translate): string {
     }
   }
   return name;
+}
+
+/** The busy-provider wait line, as the live stage label shows it. */
+export function busyRetryLabel(message?: Message): string | undefined {
+  const name = message?.kind === "activity" ? message.tool?.name : undefined;
+  return name && BUSY_RETRY.test(name) ? localizeServerLine(name, translate) : undefined;
 }
 
 export function isServerLine(name: string): boolean {

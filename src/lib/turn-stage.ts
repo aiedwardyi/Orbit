@@ -377,7 +377,7 @@ export function retargetStreamTurn(
 }
 
 /** `toolLabel` stays authoritative for tools: it honours Show tool calls. */
-export function turnStageLabel(phase: TurnPhase, toolLabel: string): string {
+export function turnStageLabel(phase: TurnPhase, toolLabel: string, retryLabel?: string): string {
   switch (phase) {
     case "responding":
       return t("activity.responding");
@@ -386,7 +386,7 @@ export function turnStageLabel(phase: TurnPhase, toolLabel: string): string {
     case "reasoning":
       return t("activity.thinking");
     case "retrying":
-      return t("activity.reconnecting");
+      return retryLabel ?? t("activity.reconnecting");
     case "waiting":
       return t("activity.waitingModel");
     case "preparing":

@@ -509,21 +509,139 @@ describe("Antigravity turns (fake CLI)", () => {
     }
   });
 
-  it("still surfaces the retried 429 when the turn has no reply", async () => {
-    process.env.FAKE_AGY_RESULT_ERROR = AGY_RETRIED_429;
-    try {
-      await create();
-      await instance.adapter.sendTurn({ threadId: "t-agy-429-no-reply", text: "hi" });
-      await recorder.until((event) => event.type === "turn.completed");
+  describe("busy resume", () => {
+    let scratch: string;
+    let busy: string;
+    let dump: string;
+    const count = (type: string) => recorder.events.filter((event) => event.type === type).length;
 
-      const err = recorder.events.find((event) => event.type === "runtime.error");
-      expect(recorder.events.filter((event) => event.type === "runtime.error")).toHaveLength(1);
-      expect(err).toMatchObject({ type: "runtime.error", message: AGY_RETRIED_429 });
-      expect(err && "signIn" in err ? err.signIn : undefined).toBeUndefined();
-      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "no_final_text" });
-    } finally {
-      delete process.env.FAKE_AGY_RESULT_ERROR;
-    }
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      scratch = mkdtempSync(join(tmpdir(), "omb-agy-busy-"));
+      busy = join(scratch, "busy");
+      dump = join(scratch, "dump.json");
+      writeFileSync(busy, AGY_RETRIED_429);
+      process.env.FAKE_AGY_RESULT_ERROR_FILE = busy;
+      process.env.FAKE_AGY_DUMP = dump;
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      delete process.env.FAKE_AGY_RESULT_ERROR_FILE;
+      delete process.env.FAKE_AGY_DUMP;
+      rmSync(scratch, { recursive: true, force: true });
+    });
+
+    it("resumes the same conversation with continue 30s after a busy 429", async () => {
+      await create();
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "t-busy-resume", text: "hi" });
+      expect(await recorder.until((event) => event.type === "turn.retrying")).toMatchObject({
+        turnId,
+        attempt: 1,
+        delayMs: 30_000,
+        reason: "rate_limited",
+      });
+      expect(count("runtime.error")).toBe(0);
+      expect(count("turn.completed")).toBe(0);
+      expect(instance.adapter.hasSession("t-busy-resume")).toBe(true);
+
+      rmSync(busy);
+      await vi.advanceTimersByTimeAsync(29_000);
+      expect(count("session.started")).toBe(1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await recorder.until((event) => event.type === "turn.completed")).toMatchObject({ turnId, ok: true });
+
+      const invocation = JSON.parse(readFileSync(dump, "utf8"));
+      expect(invocation.prompt).toBe("continue");
+      expect(invocation.argv).toEqual(expect.arrayContaining(["--conversation", "conv-fake-123"]));
+      expect(count("turn.completed")).toBe(1);
+      expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
+        text: "done from fake agy",
+      });
+    });
+
+    it("stops after 3 tries with the original error and a try-another-model line", async () => {
+      await create();
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "t-busy-give-up", text: "hi" });
+      for (const [attempt, delayMs] of [[1, 30_000], [2, 60_000], [3, 120_000]]) {
+        await recorder.until((event) => event.type === "turn.retrying" && event.attempt === attempt);
+        await vi.advanceTimersByTimeAsync(delayMs);
+      }
+      expect(await recorder.until((event) => event.type === "turn.completed")).toMatchObject({
+        turnId,
+        ok: false,
+        stopReason: "no_final_text",
+      });
+
+      expect(recorder.events.filter((event) => event.type === "turn.retrying").map((event) => event.delayMs)).toEqual([30_000, 60_000, 120_000]);
+      expect(count("session.started")).toBe(4);
+      expect(recorder.events.filter((event) => event.type === "runtime.error").map((event) => event.message)).toEqual([
+        AGY_RETRIED_429,
+        "Gemini is still busy after 3 tries. Try another model.",
+      ]);
+      expect(recorder.events.every((event) => event.turnId === turnId)).toBe(true);
+      expect(count("turn.completed")).toBe(1);
+    });
+
+    it("cancels the pending resume at once and runs the next message normally", async () => {
+      await create();
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "t-busy-cancel", text: "hi" });
+      await recorder.until((event) => event.type === "turn.retrying");
+      await instance.adapter.interruptTurn("t-busy-cancel");
+      expect(await recorder.until((event) => event.type === "turn.completed")).toMatchObject({
+        turnId,
+        ok: false,
+        stopReason: "interrupted",
+      });
+      expect(instance.adapter.hasSession("t-busy-cancel")).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(count("session.started")).toBe(1);
+
+      rmSync(busy);
+      const next = await instance.adapter.sendTurn({ threadId: "t-busy-cancel", text: "do this instead", resumeCursor: "conv-fake-123" });
+      expect(await recorder.until((event) => event.type === "turn.completed" && event.turnId === next.turnId)).toMatchObject({ ok: true });
+      expect(JSON.parse(readFileSync(dump, "utf8")).prompt).toBe("do this instead");
+      expect(count("turn.retrying")).toBe(1);
+    });
+
+    it("drops a pending resume on dispose, never doubling it on restart", async () => {
+      await create();
+      await instance.adapter.sendTurn({ threadId: "t-busy-restart", text: "hi" });
+      await recorder.until((event) => event.type === "turn.retrying");
+      await instance.dispose();
+      rmSync(dump);
+
+      await create();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(existsSync(dump)).toBe(false);
+      expect(recorder.events).toEqual([]);
+      expect(instance.adapter.hasSession("t-busy-restart")).toBe(false);
+    });
+
+    it.each([
+      ["a busy 429", AGY_RETRIED_429, "", true],
+      ["a busy 503", "API error (attempt 3): UNAVAILABLE (code 503): The service is currently unavailable. Please try again later.", "", true],
+      ["a busy 429 with a reply", AGY_RETRIED_429, "done from fake agy", false],
+      ["a quota 429", "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Quota exceeded for quota metric 'Generate requests'.", "", false],
+      ["a weekly limit", "RESOURCE_EXHAUSTED: You have reached your weekly limit. Upgrade your plan or try again later.", "", false],
+      ["a billing message", "RESOURCE_EXHAUSTED (code 429): billing account required. Please try again later.", "", false],
+      ["an auth failure", AGY_AUTH_FAILED, "", false],
+      ["a disabled API", "Agent Platform API has not been used in project my-project-429 before or it is disabled.", "", false],
+      ["an invalid request", "API error (attempt 1): INVALID_ARGUMENT (code 400): invalid request. Please try again later.", "", false],
+    ])("resumes only provider-busy failures: %s", async (_label, error, response, resumes) => {
+      writeFileSync(busy, error);
+      if (response) process.env.FAKE_AGY_RESULT_RESPONSE = response;
+      try {
+        await create();
+        await instance.adapter.sendTurn({ threadId: "t-busy-boundary", text: "hi" });
+        await recorder.until((event) => event.type === "turn.retrying" || event.type === "turn.completed");
+        expect(count("turn.retrying")).toBe(resumes ? 1 : 0);
+        expect(count("turn.completed")).toBe(resumes ? 0 : 1);
+      } finally {
+        delete process.env.FAKE_AGY_RESULT_RESPONSE;
+      }
+    });
   });
 
   it("still surfaces an account error when the reply came through", async () => {

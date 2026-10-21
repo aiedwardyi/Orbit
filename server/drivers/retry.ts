@@ -118,6 +118,20 @@ export function classifyError(err: FailureInput): ErrorClassification {
   return { transient: false, reason: "unknown" };
 }
 
+/** Waits before resuming a turn the provider was too busy to finish: 30s / 1 min / 2 min. */
+export const BUSY_RESUME_DELAYS_MS = [30_000, 60_000, 120_000] as const;
+
+const PROVIDER_BUSY = /\b(?:resource_exhausted|unavailable|overloaded|try again later)\b|(?<![\w-])(?:429|503)(?![\w-])/i;
+const PLAN_LIMIT = /\b(?:quota|limits?|upgrade|billing)\b/i;
+
+/** The transient reason when a CLI already gave up on a busy provider and a
+ * later resume is worth it; null for plan or quota limits, which won't clear. */
+export function busyResumeReason(text: string): string | null {
+  if (!PROVIDER_BUSY.test(text) || PLAN_LIMIT.test(text)) return null;
+  const verdict = classifyError({ text });
+  return verdict.transient ? verdict.reason : null;
+}
+
 /** Capped exponential delay with jitter, in milliseconds. Attempt 0 (the
  * first retry) waits ~1s, then ~3s, then ~8s; beyond that the cap holds.
  * Jitter stays within ±25% so tests can bound it and a thundering herd of

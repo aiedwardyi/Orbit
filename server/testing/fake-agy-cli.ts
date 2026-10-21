@@ -10,6 +10,7 @@
 // while FAKE_AGY_RESUME_FAIL_FILE exists, `--conversation` launches fail.
 // FAKE_AGY_RESULT_ERROR, when set, is the result.error of a status ERROR turn.
 // FAKE_AGY_RESULT_RESPONSE, with it, is that turn's result.response (else "").
+// While FAKE_AGY_RESULT_ERROR_FILE exists, its text is that result.error.
 // Deterministic, no network.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
@@ -111,6 +112,8 @@ const out = (obj: unknown) => process.stdout.write(JSON.stringify(obj) + "\n");
 const CONV = "conv-fake-123";
 const systemNotice = "The following is a <SYSTEM_MESSAGE> not actually sent by the user.\n<SYSTEM_MESSAGE>internal notice</SYSTEM_MESSAGE>";
 const cancelledTool = process.env.FAKE_AGY_CANCELLED_TOOL === "1";
+const errorFile = process.env.FAKE_AGY_RESULT_ERROR_FILE;
+const resultError = process.env.FAKE_AGY_RESULT_ERROR || (errorFile && existsSync(errorFile) ? readFileSync(errorFile, "utf8") : undefined);
 
 // stream-json / --print with no prompt yields no turn (mirrors real CLI).
 if (!prompt) process.exit(0);
@@ -153,8 +156,8 @@ out({
   conversation_id: CONV,
   result: {
     conversation_id: CONV,
-    status: process.env.FAKE_AGY_RESULT_ERROR ? "ERROR" : "SUCCESS",
-    response: process.env.FAKE_AGY_RESULT_ERROR
+    status: resultError ? "ERROR" : "SUCCESS",
+    response: resultError
       ? (process.env.FAKE_AGY_RESULT_RESPONSE ?? "")
       : process.env.FAKE_AGY_SYSTEM_NOTICE === "1"
         ? systemNotice
@@ -163,7 +166,7 @@ out({
           : cancelledTool
             ? "final text after cancellation"
             : "done from fake agy",
-    error: process.env.FAKE_AGY_RESULT_ERROR,
+    error: resultError,
     duration_seconds: 1,
     num_turns: 1,
     usage: { input_tokens: 100, output_tokens: 20, thinking_tokens: 0, cache_read_tokens: 5, total_tokens: 125 },

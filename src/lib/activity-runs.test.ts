@@ -318,6 +318,7 @@ describe("server notices", () => {
     ["@Wink is waiting on your approval", { kind: "line" }],
     ["retrying \u2014 attempt 2/5 in 3s \u2014 connection reset", { kind: "line" }],
     ["Same call repeated 5× \u2014 Bash: npm test \u2014 it may be stuck", { kind: "line" }],
+    ["Gemini is busy. Retrying in 1 min.", { kind: "line" }],
     ["A room member is still stopping \u2014 this message was not dispatched", { kind: "line" }],
     ["Wink is still stopping \u2014 this message was not dispatched", { kind: "line" }],
   ])("classifies %s", (name, notice) => {
@@ -471,6 +472,9 @@ describe("localizeServerLine", () => {
     ["Delegated turn completed", "위임한 턴이 완료되었습니다"],
     ["Delegated turn stalled and was stopped", "위임한 턴이 멈춰서 중단되었습니다"],
     ["Delegated turn could not start \u2014 spawn failed", "위임한 턴을 시작하지 못했습니다 - spawn failed"],
+    ["Gemini is busy. Retrying in 30 sec.", "Gemini가 바쁩니다. 30초 후 다시 시도합니다."],
+    ["Gemini is busy. Retrying in 2 min.", "Gemini가 바쁩니다. 2분 후 다시 시도합니다."],
+    ["error: Gemini is still busy after 3 tries. Try another model.", "오류: Gemini가 3번 시도한 뒤에도 바쁩니다. 다른 모델을 써 보세요."],
   ];
 
   it.each(samples)("maps %s into Korean", (line, korean) => {
