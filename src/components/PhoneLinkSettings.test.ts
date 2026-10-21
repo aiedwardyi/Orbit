@@ -78,6 +78,19 @@ describe("Phone Link setup", () => {
     expect(store.api).toHaveBeenCalledTimes(count);
   });
 
+  it.each([
+    [{ url, setup: { state: "ready" } }],
+    [{ url: null, setup: { state: "disabled" } }],
+  ])("stops polling once settled: %o", async (body) => {
+    await render(body);
+    const count = store.api.mock.calls.length;
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(store.api).toHaveBeenCalledTimes(count);
+  });
+
   it("does not overlap slow status requests", async () => {
     let finish!: (response: object) => void;
     store.api.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));

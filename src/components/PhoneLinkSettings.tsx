@@ -26,19 +26,24 @@ export function PhoneLinkSettings() {
       pending = true;
       try {
         const body: RemoteLink = await api("/api/remote-link");
-        if (live) setStatus(body);
+        if (!live) return;
+        setStatus(body);
+        if (body.url || body.setup?.state === "disabled") stop();
       } catch {
       } finally {
         pending = false;
       }
     };
-    void load();
     const timer = window.setInterval(load, 5_000);
-    window.addEventListener("focus", load);
-    return () => {
-      live = false;
+    const stop = () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", load);
+    };
+    window.addEventListener("focus", load);
+    void load();
+    return () => {
+      live = false;
+      stop();
     };
   }, []);
 
