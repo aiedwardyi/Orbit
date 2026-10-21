@@ -2,6 +2,23 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.196] - 2026-10-21
+
+### Added
+- One-click sign-in for Claude, Codex, Grok and Muse in Settings > Connections. Gemini opens a terminal and detects sign-in.
+- Hovering an engine in Settings shows the account it's signed in with.
+- Use Google Photo in Account settings switches back to your Google picture.
+
+### Changed
+- Bots split several tasks at once into parallel visible workers.
+- A worker's notes go to the bot that started it.
+
+### Fixed
+- Workers no longer stop at Claude, Codex or Grok folder trust questions.
+- Worker icons show for model names written without a space, like "Opus5.5".
+- Phone Link shows the link to turn on Tailscale Serve and connects once it's on, with no restart.
+- Gemini retries by itself when its servers are busy, and long Gemini turns run up to 60 minutes.
+
 ## [1.0.195] - 2026-10-21
 
 ### Added
@@ -122,6 +139,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.196]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.196
 [1.0.195]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.195
 [1.0.194]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.194
 [1.0.193]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.193
