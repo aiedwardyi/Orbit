@@ -53,7 +53,7 @@ import { antigravitySignIn } from "./antigravity-auth.ts";
 const DRIVER_KIND = "antigravityAgent";
 const AGY_STOPPED_NOTE = "The bot stopped before finishing.";
 const AGY_BUSY_RESUME_PROMPT = "continue";
-const AGY_STILL_BUSY = `Gemini is still busy after ${BUSY_RESUME_DELAYS_MS.length} tries. Try another model.`;
+const AGY_STILL_BUSY = "Gemini is still busy after 3 tries. Try another model.";
 const AGY_SYSTEM_NOTICE = /<SYSTEM_MESSAGE\b/i;
 const AGY_CONTEXT_CANCELLATION = /\bcontext\s+cancel(?:ed|led)\b/i;
 const AGY_ACCOUNT_ERROR =
