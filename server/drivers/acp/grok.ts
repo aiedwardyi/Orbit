@@ -408,6 +408,17 @@ export const grokSupport: AcpSupport = {
   // Auto-compaction arrives as `_x.ai/session/update` (session records,
   // grok 1.0.46); the agent-mode docs also name `x.ai/session_notification`.
   compacted: (msg) => GROK_COMPACTION_UPDATES.has(msg.params?.update?.sessionUpdate),
+  promptReport: (result, modelState, selectedModel) => {
+    const input = result?._meta?.inputTokens;
+    if (!Number.isSafeInteger(input) || input < 0) return undefined;
+    const model = result?._meta?.modelId ?? selectedModel ?? modelState?.currentModelId;
+    const models = Array.isArray(modelState?.availableModels) ? modelState.availableModels : [];
+    const window = models.find((entry: any) => entry?.modelId === model)?._meta?.totalContextTokens;
+    return {
+      prompt: { first: input, last: input },
+      ...(Number.isSafeInteger(window) && window > 0 ? { contextWindow: window } : {}),
+    };
+  },
 };
 
 export const GrokAgentDriver = createAcpDriver(grokSupport);
