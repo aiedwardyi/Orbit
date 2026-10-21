@@ -540,11 +540,6 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         } catch {}
       }
       const text = session.screen.text();
-      if (!session.agentSeen) {
-        // Shell prompts and wrapped command echoes do not show that the agent has started.
-        const output = text.replace(/^\s*PS(?: [^\n>]*)?(?:> ?|$)/gm, "").replace(/\s+/g, "");
-        session.agentSeen = !!output && !session.agentCommand.startsWith(output);
-      }
       const context = paneContext(text, session.engine);
       // The compact hook can run before Claude clears its old low-context footer.
       if (session.contextCompactPending && (!context || !contextOver(context))) {
@@ -750,6 +745,15 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       try {
         session.screen.consume(data);
       } catch {}
+      if (session.worker && !session.agentSeen) {
+        const chunk = parsed.text.replace(/\s+/g, "");
+        const output = chunk.includes(session.agentCommand) ? chunk : session.screen.text().replace(/\s+/g, "");
+        const start = output.lastIndexOf(session.agentCommand);
+        if (start !== -1) {
+          session.agentEchoed = true;
+          session.agentSeen = output.length > start + session.agentCommand.length;
+        } else if (session.agentEchoed && parsed.text.trim()) session.agentSeen = true;
+      }
       for (const finished of session.finished) if (finished.text === null) finished.text = session.screen.text();
       if (now() - session.resizedAt >= RESIZE_REPAINT_MS) {
         const busy = AGENT_BUSY_RE.test(session.screen.text());
@@ -911,7 +915,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       if (launched) {
         session.engine = launched[1].toLowerCase();
         session.agentSeen = false;
+        session.agentEchoed = false;
         session.agentCommand = text.replace(/\s+/g, "");
+        session.contextNote = null;
         session.contextCompactPending = false;
         watchStalls(session);
       }
