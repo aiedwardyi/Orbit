@@ -41,6 +41,7 @@ vi.mock("@/state/store", async (importOriginal) => {
       refreshInstances,
       dispatch,
     }),
+    useOptionalStoreDispatch: () => dispatch,
   };
 });
 

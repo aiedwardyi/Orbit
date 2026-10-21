@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Loader2, TriangleAlert } from "lucide-react";
 
-import { api, useStore, type InstanceInfo } from "@/state/store";
+import { api, useOptionalStoreDispatch, useStore, type InstanceInfo } from "@/state/store";
 import { ProviderMark } from "./ProviderIcons";
 import { CommandRow, EngineSetup, EngineSignIn } from "./EngineSetup";
 import { isFriendsCliEngine, orderFriendsEngines } from "@/lib/engine-rail";
@@ -256,7 +256,7 @@ export function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
 
 export function EngineRow({ instance, onConnected }: { instance: InstanceInfo; onConnected?: () => void }) {
   const { t } = useI18n();
-  const { dispatch } = useStore();
+  const dispatch = useOptionalStoreDispatch();
   const [current, setCurrent] = useState(instance);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -265,7 +265,7 @@ export function EngineRow({ instance, onConnected }: { instance: InstanceInfo; o
   useEffect(() => { setOpen(false); }, [current.cli]);
   const refresh = async () => {
     const { instances } = await api("/api/instances?refresh=1");
-    dispatch({ type: "instances", instances });
+    dispatch?.({ type: "instances", instances });
     const next = (instances as InstanceInfo[]).find((row) => row.instanceId === instance.instanceId);
     if (next) setCurrent(next);
   };

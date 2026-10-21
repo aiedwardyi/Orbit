@@ -3674,6 +3674,10 @@ export function useStoreDispatch() {
   return dispatch;
 }
 
+export function useOptionalStoreDispatch() {
+  return useContext(DispatchContext);
+}
+
 const timeFormats = new Map<string, Intl.DateTimeFormat>();
 const zoneProbes = [new Date(Date.UTC(2026, 0, 15)), new Date(Date.UTC(2026, 6, 15))];
 let timeFormatsZone = "";
