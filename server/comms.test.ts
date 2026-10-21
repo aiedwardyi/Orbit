@@ -281,7 +281,7 @@ describe("comms e2e (fake ACP fleet)", () => {
       // plus a receive-side chip pointing at the same channel
       const helperBot = state.bots.find((b: any) => b.id === helper.id);
       const inbound = helperBot.messages.find((m: any) => m.role === "user" && m.kind === "text");
-      expect(inbound.text).not.toContain("[Message from @");
+      expect(inbound.text).not.toContain("[Message from ");
       expect(inbound.text).toBe("ping from fake");
       // the record itself has to say who wrote it: a text prefix is not
       // attribution, and without `from` this reads as the user's own line
@@ -513,7 +513,7 @@ describe("comms e2e (fake ACP fleet)", () => {
       const helperInbound = helperBot.messages.find(
         (m: any) => m.role === "user" && m.kind === "text",
       );
-      expect(helperInbound.text).not.toContain("[Delegated by @");
+      expect(helperInbound.text).not.toContain("[Delegated by ");
       expect(helperInbound.text).toContain("delegated task");
       expect(helperInbound.text).toContain("[Reason: followup]");
       const helperReply = helperBot.messages.findLast(

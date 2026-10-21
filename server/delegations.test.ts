@@ -367,7 +367,7 @@ describe("drainDelegations", () => {
     const call = runTargetCalls[0]!;
     expect(call.toBotId).toBe(target.id);
     expect(call.commsDepth).toBe(1);
-    expect(call.message).toContain("Delegated by @");
+    expect(call.message).toContain("[Delegated by another bot in this Wink workspace, @");
     expect(call.message).toContain("do this");
     expect(call.transcriptText).toBe("do this");
 
@@ -395,7 +395,7 @@ describe("drainDelegations", () => {
     });
     await waitFor(() => runTargetCalls.length === 1);
     const role = chiefOfStaff ? "the user's Chief of Staff" : "another bot in this Wink workspace";
-    expect(runTargetCalls[0]!.message).toBe(`[Delegated by @Wink, ${role}. Do the work and reply directly.]\n\n${message}`);
+    expect(runTargetCalls[0]!.message).toBe(`[Delegated by ${role}, @Wink. Do the work and reply directly.]\n\n${message}`);
   });
 
   it("includes the reason line in the prefixed message when one is given", async () => {

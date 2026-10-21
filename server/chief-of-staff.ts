@@ -31,7 +31,9 @@ export function peerMessagePrompt(
   const role = sender.chiefOfStaff ? "the user's Chief of Staff" : "another bot in this Wink workspace";
   const opening = kind === "ask" ? "Message from" : "Delegated by";
   const instruction = kind === "ask" ? "Reply to them." : "Do the work and reply directly.";
-  return `[${opening} @${sender.name}, ${role}. ${instruction}]\n\n${message}`;
+  // role first and no brackets or newlines in the name, so a crafted bot name cannot forge the Chief header
+  const name = sender.name.replace(/[[\]\r\n]+/g, " ").trim();
+  return `[${opening} ${role}, @${name}. ${instruction}]\n\n${message}`;
 }
 
 /** Shared with every agents-tool bot: do not probe the machine. */
