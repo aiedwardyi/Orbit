@@ -1285,6 +1285,110 @@ function stallFixture({ failures = 0, commandEcho = true, ...options } = {}) {
   return { ...f, notes, settle, advance };
 }
 
+// Recorded from Claude Code 2.1.306 in a fresh folder; No is selected.
+const CLAUDE_FOLDER_TRUST = "\x1b[1t\x1b[c\x1b[?1004h\x1b[?9001h\x1b]0;claude\x1b\\\x1b7\x1b[r\x1b8\x1b[?25h\x1b[?25l\x1b[?2004h\x1b[?2031h\x1b[?1004h\x1b[?9001l\x1b[?9001h\r\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\r\n\x1b[2GAccessing\x1b[12Gworkspace:\r\n\r\n\x1b[2GC:\\Users\\mredw\\AppData\\Local\\Temp\\wink-WORKER-TRUST-MENU\\fresh-iieFbG\r\n\r\n\x1b[2GQuick\x1b[8Gsafety\x1b[15Gcheck:\x1b[22GIs\x1b[25Gthis\x1b[30Ga\x1b[32Gproject\x1b[40Gyou\x1b[44Gcreated\x1b[52Gor\x1b[55Gone\x1b[59Gyou\x1b[63Gtrust?\x1b[70G(Like\x1b[76Gyour\x1b[81Gown\x1b[85Gcode,\x1b[91Ga\x1b[93Gwell-known\x1b[104Gopen\x1b[109Gsource\r\n\x1b[2Gproject,\x1b[11Gor\x1b[14Gwork\x1b[19Gfrom\x1b[24Gyour\x1b[29Gteam).\x1b[36GIf\x1b[39Gnot,\x1b[44Gtake\x1b[49Ga\x1b[51Gmoment\x1b[58Gto\x1b[61Greview\x1b[68Gwhat's\x1b[75Gin\x1b[78Gthis\x1b[83Gfolder\x1b[90Gfirst.\r\n\r\n\x1b[2GClaude\x1b[9GCode'll\x1b[17Gbe\x1b[20Gable\x1b[25Gto\x1b[28Gread,\x1b[34Gedit,\x1b[40Gand\x1b[44Gexecute\x1b[52Gfiles\x1b[58Ghere.\r\n\r\n\x1b[2GSecurity\x1b[11Gguide\r\n\r\n\x1b[2G>\x1b[4GNo,\x1b[8Gexit\r\n\x1b[4GYes,\x1b[9GI\x1b[11Gtrust\x1b[17Gthis\x1b[22Gfolder\r\n\r\n\x1b[2GEnter\x1b[8Gto\x1b[11Gconfirm\x1b[19G·\x1b[21GEsc\x1b[25Gto\x1b[28Gcancel\r\n\x1b[1C\x1b[4A\x1b[>0q\x1b[?u\x1b]7501;?\x07\x1b[c";
+const CLAUDE_FOLDER_TRUST_YES = "\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n Accessing workspace:\n\n C:\\Users\\mredw\\AppData\\Local\\Temp\\wink-WORKER-TRUST-MENU\\fresh-iieFbG\n\n Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source\n project, or work from your team). If not, take a moment to review what's in this folder first.\n\n Claude Code'll be able to read, edit, and execute files here.\n\n Security guide\n\n   No, exit\n > Yes, I trust this folder\n\n Enter to confirm · Esc to cancel";
+const CLAUDE_TRUST_COMMAND = "claude --model opus --dangerously-skip-permissions 'Read card.md and do it.'";
+
+for (const [name, prompt] of [
+  ["PS prompt", "PS C:\\repo> "],
+  ["oh-my-posh prompt", "\x1b[32m repo \x1b[0m ❯ "],
+  ["bare > prompt", "> "],
+  ["Korean Windows", "Windows PowerShell\r\n모든 권리 보유.\r\nPS C:\\Users\\사용자\\작업> "],
+]) {
+  test(`Claude folder trust selects Yes once after a ${name}`, async (t) => {
+    const f = stallFixture({ platform: "win32", commandEcho: false });
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "A | Opus5.5 | high", command: CLAUDE_TRUST_COMMAND });
+    const child = f.children[0];
+    child.data(prompt + CLAUDE_TRUST_COMMAND + "\r\n");
+    child.data(CLAUDE_FOLDER_TRUST);
+    await f.settle();
+    assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B"]);
+    await f.advance(10_000);
+    assert.equal(child.writes.length, 2);
+    child.data("\x1b[2J\x1b[H" + CLAUDE_FOLDER_TRUST_YES.replaceAll("\n", "\r\n"));
+    await f.settle();
+    assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B", "\r"]);
+    child.data("\x1b[2J\x1b[H" + CLAUDE_FOLDER_TRUST);
+    await f.advance(30_000);
+    assert.equal(child.writes.length, 3);
+    assert.equal(f.notes.length, 0);
+  });
+}
+
+test("Claude folder trust keeps Yes selected and answers each pane independently", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  for (let i = 0; i < 2; i++) {
+    await f.host.openForBot("bot-1", { label: "A", command: CLAUDE_TRUST_COMMAND });
+    f.children[i].data(CLAUDE_FOLDER_TRUST_YES.replaceAll("\n", "\r\n"));
+  }
+  await f.settle();
+  for (const child of f.children) assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r", "\r"]);
+});
+
+for (const [name, command] of [
+  ["Claude without the permission flag", "claude --model opus 'Read card.md'"],
+  ["flag inside the task text", "claude 'Explain --dangerously-skip-permissions please'"],
+  ["a similar flag", "claude --dangerously-skip-permissions-extra"],
+  ["another engine", "codex --dangerously-skip-permissions"],
+  ["a script", "echo claude --dangerously-skip-permissions"],
+]) {
+  test(`Claude folder trust never answers ${name}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "A", command });
+    f.children[0].data(CLAUDE_FOLDER_TRUST);
+    await f.settle();
+    assert.deepEqual(f.children[0].writes, [command + "\r"]);
+  });
+}
+
+test("Claude folder trust never answers the user's main terminal", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.open(f.event, f.input);
+  f.host.write(f.event, pane.id, CLAUDE_TRUST_COMMAND + "\r");
+  f.children[0].data(CLAUDE_FOLDER_TRUST);
+  await f.settle();
+  assert.deepEqual(f.children[0].writes, [CLAUDE_TRUST_COMMAND + "\r"]);
+});
+
+for (const [name, screen] of [
+  ["a shell prompt", "PS C:\\repo> "],
+  ["a bare prompt", "> "],
+  ["a permission menu", "Allow Bash?\r\n > No, exit\r\n   Yes, I trust this folder\r\n Enter to confirm · Esc to cancel"],
+  ["a different heading", CLAUDE_FOLDER_TRUST.replace("Accessing", "Inspecting")],
+  ["a different option", CLAUDE_FOLDER_TRUST_YES.replace("Yes, I trust this folder", "Yes, I trust this project")],
+  ["a menu followed by an input prompt", CLAUDE_FOLDER_TRUST_YES + "\r\n> "],
+]) {
+  test(`Claude folder trust ignores ${name} and still handles the real menu`, async (t) => {
+    const f = stallFixture({ commandEcho: false });
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "A", command: CLAUDE_TRUST_COMMAND });
+    f.children[0].data(screen);
+    await f.settle();
+    assert.deepEqual(f.children[0].writes, [CLAUDE_TRUST_COMMAND + "\r"]);
+    f.children[0].data("\x1b[2J\x1b[H" + CLAUDE_FOLDER_TRUST);
+    await f.settle();
+    assert.deepEqual(f.children[0].writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B"]);
+  });
+}
+
+test("Claude folder trust waits for the complete menu", async (t) => {
+  const f = stallFixture({ commandEcho: false });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "A", command: CLAUDE_TRUST_COMMAND });
+  const split = CLAUDE_FOLDER_TRUST.indexOf("Enter");
+  f.children[0].data(CLAUDE_FOLDER_TRUST.slice(0, split));
+  await f.settle();
+  assert.equal(f.children[0].writes.length, 1);
+  f.children[0].data(CLAUDE_FOLDER_TRUST.slice(split));
+  await f.settle();
+  assert.deepEqual(f.children[0].writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B"]);
+});
+
 const finishedMark = (pane) => `\x1b]133;D;${pane.sessionId}\x07`;
 
 test("shell integration only wraps the prompt in worker PowerShell", { skip: process.platform !== "win32" }, async (t) => {
