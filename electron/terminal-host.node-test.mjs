@@ -1336,6 +1336,22 @@ test("Claude folder trust stops scanning once Claude is working", async (t) => {
   assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r"]);
 });
 
+test("Claude folder trust re-arms when the pane launches Claude again", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: Date.UTC(2026, 9, 21) });
+  const f = stallFixture({ commandEcho: false, stallCheckMs: 10_000, now: () => Date.now() });
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { command: CLAUDE_TRUST_COMMAND });
+  const child = f.children[0];
+  t.mock.timers.tick(1_000);
+  child.data("✻ Reading card… (3s · esc to interrupt)\r\n");
+  await Promise.resolve();
+  child.data("\x1b[2J\x1b[HPS C:\repo> ");
+  f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: CLAUDE_TRUST_COMMAND + "\r" });
+  child.data("\x1b[2J\x1b[H" + CLAUDE_FOLDER_TRUST);
+  await Promise.resolve();
+  assert.deepEqual(child.writes.slice(-1), ["\x1b[B"]);
+});
+
 for (const [name, prompt] of [
   ["PS prompt", "PS C:\\repo> "],
   ["oh-my-posh prompt", "\x1b[32m repo \x1b[0m ❯ "],

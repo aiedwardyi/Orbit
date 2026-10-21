@@ -941,6 +941,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         session.engine = launched[1].toLowerCase();
         const args = text.slice(launched.index + launched[0].length).match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
         session.claudeTrust = session.engine === "claude" && args.includes("--dangerously-skip-permissions");
+        session.claudeTrustMoved = false;
+        session.claudeTrustAnswered = false;
         session.agentSeen = false;
         session.agentEchoed = false;
         session.agentCommand = text.replace(/\s+/g, "");
