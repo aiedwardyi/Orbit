@@ -254,7 +254,7 @@ export function CustomPicker({ instance, cliDefault, onClose, onSaved }: {
   );
 }
 
-export function EngineRow({ instance, onConnected }: { instance: InstanceInfo; onConnected?: () => void }) {
+export function EngineRow({ instance, onConnected, onUpdated }: { instance: InstanceInfo; onConnected?: () => void; onUpdated?: (instance: InstanceInfo) => void }) {
   const { t } = useI18n();
   const dispatch = useOptionalStoreDispatch();
   const [current, setCurrent] = useState(instance);
@@ -265,9 +265,9 @@ export function EngineRow({ instance, onConnected }: { instance: InstanceInfo; o
   useEffect(() => { setOpen(false); }, [current.cli]);
   const refresh = async () => {
     const { instances } = await api("/api/instances?refresh=1");
-    dispatch?.({ type: "instances", instances });
+    dispatch?.({ type: "instances", instances, preserveRateLimits: true });
     const next = (instances as InstanceInfo[]).find((row) => row.instanceId === instance.instanceId);
-    if (next) setCurrent(next);
+    if (next) { setCurrent(next); onUpdated?.(next); }
   };
   const signOut = async () => {
     if (busy) return;
@@ -281,7 +281,7 @@ export function EngineRow({ instance, onConnected }: { instance: InstanceInfo; o
   };
   return (
     <div data-engine-row={current.instanceId} className="min-w-0 py-2">
-      <div className="flex min-h-[44px] items-start gap-2 text-[13px]">
+      {current.snapshot.state !== "available" ? <EngineSetup instance={current} /> : <div className="flex min-h-[44px] items-start gap-2 text-[13px]">
         <span className="mt-2 shrink-0"><ProviderMark driverKind={current.driverKind} size={16} /></span>
         <span className="min-w-0 flex-1 break-words py-1.5 text-ink">{current.displayName}</span>
         <div className="min-w-0 max-w-[65%] py-1.5">
@@ -290,7 +290,7 @@ export function EngineRow({ instance, onConnected }: { instance: InstanceInfo; o
             if (next.snapshot.authenticated === true) onConnected?.();
           }} />
         </div>
-      </div>
+      </div>}
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}
         className="flex items-center gap-1 py-1 text-[12px] text-ink-secondary hover:text-ink">
         <ChevronDown size={12} className={cn(open && "rotate-180")} />{t("engines.details")}
@@ -354,7 +354,7 @@ export function EnginesSettings() {
         <button type="button" onClick={() => setShowAll(!showAll)} aria-expanded={showAll}
           className="mt-3 self-start py-2 text-[12px] text-ink-secondary underline hover:text-ink">{t("engines.moreEngines")}</button>
         {showAll && <div className="mt-2 flex min-w-0 flex-col gap-2">
-          {missing.map((instance) => <EngineSetup key={instance.instanceId} instance={instance} />)}
+          {missing.map((instance) => <EngineRow key={instance.instanceId} instance={instance} />)}
         </div>}
       </>}
     </div>

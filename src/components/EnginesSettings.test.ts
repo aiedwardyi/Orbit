@@ -63,7 +63,7 @@ it("shares signed-out instances with the model picker and onboarding", async () 
     }))));
     await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Details"))!.click());
     await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Sign Out"))!.click());
-    expect(dispatch).toHaveBeenCalledWith({ type: "instances", instances: [signedOut] });
+    expect(dispatch).toHaveBeenCalledWith({ type: "instances", instances: [signedOut], preserveRateLimits: true });
   } finally {
     await act(async () => root.unmount());
     globalThis.fetch = previous;
@@ -173,6 +173,53 @@ describe("CLI-candidates in-use marker", () => {
 });
 
 describe("EnginesSettings friends Connections list", () => {
+  it.each([undefined, "/missing/grok"])("opens the missing engine path picker for %s", async (cli) => {
+    const grok = mockInstances.find((row) => row.instanceId === "grok")!;
+    const previous = { ...grok };
+    const previousFetch = globalThis.fetch;
+    grok.snapshot = { state: "unavailable" };
+    grok.cli = cli;
+    grok.install = { command: { linux: "install-grok" }, signInCommand: "grok login" };
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ candidates: [] })));
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(EnginesSettings))));
+      await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === "More Engines")!.click());
+      const row = [...host.querySelectorAll("div")].find((node) => node.dataset.engineRow === "grok");
+      expect(row).toBeDefined();
+      expect(row!.querySelector("input")).toBeNull();
+      await act(async () => [...row!.querySelectorAll("button")].find((button) => button.textContent === "Details")!.click());
+      expect(row!.querySelector("input")?.value).toBe(cli ?? "");
+      expect(row!.textContent?.includes("Reset")).toBe(Boolean(cli));
+    } finally {
+      await act(async () => root.unmount());
+      delete grok.cli;
+      delete grok.install;
+      Object.assign(grok, previous);
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  it("preserves usage reports after resetting a CLI path", async () => {
+    const row = instance({ cli: OTHER });
+    const refreshed = instance();
+    const previous = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ instances: [refreshed], candidates: CANDIDATES })));
+    dispatch.mockClear();
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(EngineRow, { instance: row }))));
+      await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Details")!.click());
+      await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Reset")!.click());
+      expect(dispatch).toHaveBeenCalledWith({ type: "instances", instances: [refreshed], preserveRateLimits: true });
+    } finally {
+      await act(async () => root.unmount());
+      globalThis.fetch = previous;
+    }
+  });
+
   it("shows installed engines once with quiet Connected rows and Details", () => {
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(EnginesSettings)));
     for (const name of ["Claude", "Codex", "Grok", "Gemini (Antigravity)", "Meta Muse"]) {

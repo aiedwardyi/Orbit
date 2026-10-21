@@ -266,13 +266,14 @@ export class ProviderRegistry {
       await this.logins.cancel(instanceId);
       await this.logins.start(instanceId, config.cli, config.install.logout, config.env);
       await this.logins.wait(instanceId);
-      const success = this.logins.state(instanceId) === "complete";
+      let success = this.logins.state(instanceId) === "complete";
       if (success) {
         this.logins.clear(instanceId);
         const previous = this.probed.get(instanceId);
         const live = this.get(instanceId);
         if (live) {
           const snapshot = await live.snapshot({ refresh: true });
+          success = snapshot.authenticated === false;
           if (previous && this.get(instanceId) === live) this.probed.set(instanceId, { ...previous, snapshot });
           this.probeVersion += 1;
         }

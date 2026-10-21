@@ -284,7 +284,9 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                       <div className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-ink-secondary">{t("onboarding.ready")}</div>
                       <div className="grid grid-cols-2 gap-2.5">
                         {readyEngines.map((instance) => isFriendsCliEngine(instance)
-                          ? <EngineRow key={instance.instanceId} instance={instance} />
+                          ? <EngineRow key={instance.instanceId} instance={instance} onUpdated={(next) => {
+                            setInstances((rows) => rows?.map((row) => row.instanceId === next.instanceId ? next : row) ?? null);
+                          }} />
                           : <ReadyTile key={instance.instanceId} instance={instance} />)}
                       </div>
                     </section>

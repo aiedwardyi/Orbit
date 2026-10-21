@@ -219,6 +219,7 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
   const [waiting, setWaiting] = useState(instance.loginState === "pending");
   const [failed, setFailed] = useState(instance.loginState === "failed");
   const [capture, setCapture] = useState(instance.loginCapture ?? {});
+  const [copyFallback, setCopyFallback] = useState(false);
   const [busy, setBusy] = useState(false);
   const generation = useRef(0);
   const phone = !window.ogb && isPhone();
@@ -253,13 +254,19 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
     setWaiting(true);
     setFailed(false);
     setCapture({});
+    setCopyFallback(false);
     try {
       const result = await api(path, { method: "POST", body: JSON.stringify({ device: phone }) });
       if (request !== generation.current) return;
       setCapture(result);
       if (external) {
         const opened = await window.ogb?.openEngineSignIn?.(instance.instanceId);
-        if (opened !== "running" && opened !== "opened") throw new Error("terminal unavailable");
+        if (opened === "copied" || opened === undefined) {
+          setCopyFallback(true);
+          if (opened === undefined && instance.install?.signInCommand) {
+            await navigator.clipboard?.writeText(instance.install.signInCommand).catch(() => {});
+          }
+        }
       }
     } catch {
       if (request !== generation.current) return;
@@ -286,6 +293,7 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
     <div aria-live="polite" className="flex min-w-0 flex-col items-end gap-1.5 text-[12px] text-ink-secondary">
       {waiting ? <>
         <span>{t("engines.finishInBrowser")}</span>
+        {copyFallback && <code className="select-all break-all font-mono text-ink">{instance.install?.signInCommand}</code>}
         {capture.code && <code className="select-all break-all font-mono text-[14px] text-ink">{capture.code}</code>}
         <div className="flex flex-wrap justify-end gap-3">
           {capture.url && <a href={capture.url} target="_blank" rel="noreferrer" className="text-ink underline">{t("engines.openAgain")}</a>}

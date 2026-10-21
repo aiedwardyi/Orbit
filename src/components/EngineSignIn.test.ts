@@ -131,6 +131,41 @@ describe("engine sign-in row", () => {
     expect(host.textContent).not.toContain(capture.code);
   });
 
+  it.each(["copied", "no bridge"])("keeps waiting with the agy command after %s", async (mode) => {
+    const openEngineSignIn = vi.fn(async () => "copied" as const);
+    if (mode === "copied") Object.assign(window, { ogb: { platform: "win32", openEngineSignIn } });
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const row = instance("antigravityAgent", { install: { signInCommand: "agy" } });
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => json(url === "/api/instances"
+      ? { instances: [{ ...row, snapshot: { state: "available", authenticated: true } }] } : {}));
+    vi.stubGlobal("fetch", fetchMock);
+    await render(createElement(EngineSignIn, { instance: row }));
+    await click("Sign In");
+    expect(host.querySelector("code")?.textContent).toBe("agy");
+    expect(host.textContent).toContain("Cancel");
+    expect(host.textContent).not.toContain("Didn't finish");
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+    if (mode === "no bridge") expect(copy).toHaveBeenCalledWith("agy");
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(host.textContent).toBe("Connected");
+  });
+
+  it("keeps a still-authenticated engine Connected after failed sign-out without polling", async () => {
+    const row = instance("museAgent", { snapshot: { state: "available", authenticated: true } });
+    const fetchMock = vi.fn(async (url: string) => url.endsWith("/sign-out")
+      ? new Response(JSON.stringify({ error: "Sign-out failed" }), { status: 502 })
+      : json({ instances: [row], candidates: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await render(createElement(EngineRowView, { instance: row }));
+    await click("Details");
+    await click("Sign Out");
+    expect(host.textContent).toContain("Connected");
+    expect(host.textContent).toContain("Didn't finish");
+    const calls = fetchMock.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(6000));
+    expect(fetchMock).toHaveBeenCalledTimes(calls);
+  });
+
   it("ignores a late start response after cancellation", async () => {
     let finish!: (response: Response) => void;
     vi.stubGlobal("fetch", vi.fn((_: string, init: RequestInit) => init.method === "POST" ? new Promise<Response>((resolve) => { finish = resolve; }) : Promise.resolve(json({}))));

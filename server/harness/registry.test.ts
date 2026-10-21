@@ -49,6 +49,24 @@ const versions = (rows: { instanceId: string; snapshot: { version?: string | nul
   Object.fromEntries(rows.map((row) => [row.instanceId, row.snapshot.version]));
 
 describe("ProviderRegistry", () => {
+  it("rejects logout success while the refreshed engine remains authenticated", async () => {
+    const fake = makeFakeDriver({ kind: "museAgent" });
+    const registry = new ProviderRegistry([{ ...fake.driver, defaultConfig: () => ({ cli: "fake" }), install: { logout: ["logout"] } }]);
+    try {
+      await registry.load({ a: { driver: "museAgent", environment: { META_API_KEY: "review-meta" } } });
+      registry.get("a")!.snapshot = async () => ({ state: "available", authenticated: true });
+      await registry.describe();
+      vi.spyOn(registry.logins, "start").mockResolvedValue({});
+      vi.spyOn(registry.logins, "state").mockReturnValue("complete");
+      expect(await registry.signOut("a")).toBe(false);
+      expect(registry.describeSaved()[0].snapshot.authenticated).toBe(true);
+      expect(registry.logins.needsRefresh("a")).toBe(false);
+    } finally {
+      vi.restoreAllMocks();
+      await registry.disposeAll();
+    }
+  });
+
   it.each([
     ["claudeAgent", []], ["codex", ["GH_TOKEN"]], ["grokAgent", []], ["museAgent", ["META_API_KEY"]],
   ])("filters the %s login environment through its runtime policy", async (kind, allowed) => {
