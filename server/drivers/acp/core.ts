@@ -238,6 +238,7 @@ export interface AcpSupport {
   /** True when a notification says the agent compacted its own context, so
    * the next turn re-sends the system text. Without it, every turn sends it. */
   compacted?(msg: { method?: string; params?: any }): boolean;
+  promptReport?(result: any, modelState: any, model: string | undefined): { prompt: { first: number; last: number }; contextWindow?: number } | undefined;
   /** Rewrite a picker id (`omlx::model`) into the CLI-native id before spawn
    * and session/select. Local inject writers live here so the child sees a
    * model it already knows. */
@@ -868,6 +869,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
 
         // promptAccepted: the agent answered this prompt, so its session holds it
         const state = { settled: false, promptSent: false, promptAccepted: false, text: "" };
+        let promptReport: { prompt: { first: number; last: number }; contextWindow?: number } | undefined;
         const toolCalls = new Map<string, z.infer<typeof toolCallSchema>>();
         const interjections = new Set<string>();
         const interjectionWaiters = new Map<string, (delivered: boolean) => void>();
@@ -1005,6 +1007,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           stopReason,
           cost: null,
           ...(state.promptAccepted ? { promptAccepted: true } : {}),
+          ...promptReport,
         });
         };
 
@@ -1435,6 +1438,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               // an interjected reply only acknowledges; the prompt it joined decides the outcome
               result = (await Promise.all(replies)).findLast((r) => r?._meta?.completionKind !== "removedFromQueue") ?? result;
             }
+            promptReport = support.promptReport?.(result, init?._meta?.modelState, selectedModel ?? cliTurn.model);
             const reason = result?.stopReason;
             if (reason === "end_turn") settle(true, null, true);
             else if (reason === "cancelled") settle(true, "cancelled", true);

@@ -367,7 +367,7 @@ function handle(msg: any) {
         process.exit(3);
       }
       const authMethods = mode === "no-auth" ? [] : [{ id: "cached_token" }];
-      result(msg.id, { protocolVersion: 1, authMethods, _meta: { modelState: { currentModelId: "fake-acp-model" } } });
+      result(msg.id, { protocolVersion: 1, authMethods, _meta: { modelState: process.env.FAKE_ACP_MODEL_STATE ? JSON.parse(process.env.FAKE_ACP_MODEL_STATE) : { currentModelId: "fake-acp-model" } } });
       break;
     }
     case "authenticate":
@@ -550,7 +550,7 @@ function handle(msg: any) {
           // the result root with an empty _meta, instead of usage under _meta.
           process.env.FAKE_ACP_USAGE_ROOT
             ? { stopReason: "end_turn", usage: { inputTokens: 10, outputTokens: 5 }, _meta: {} }
-            : { stopReason: "end_turn", _meta: { inputTokens: 10, outputTokens: 5 } },
+            : { stopReason: "end_turn", _meta: process.env.FAKE_ACP_PROMPT_META ? JSON.parse(process.env.FAKE_ACP_PROMPT_META) : { inputTokens: 10, outputTokens: 5 } },
         );
         // SPEED-4: inject a late session/update after the prompt result so tests
         // can prove wrong-session / isReplay filtering. Untagged same-session
@@ -701,7 +701,12 @@ function handle(msg: any) {
           params: { sessionId: msg.params?.sessionId, update: { sessionUpdate: "auto_compact_completed", tokens_before: 400103, tokens_after: 27923 } },
         });
       }
-      if (mode === "interleave") playInterleaveTurn();
+      if (mode === "prompt-size") {
+        for (let i = 0; i < 60; i++) {
+          out({ jsonrpc: "2.0", method: "session/update", params: { sessionId: msg.params?.sessionId, _meta: { totalTokens: 450_000 }, update: { sessionUpdate: "tool_call", toolCallId: `tc-${i}`, title: "read" } } });
+          out({ jsonrpc: "2.0", method: "session/update", params: { sessionId: msg.params?.sessionId, _meta: { totalTokens: 450_000 }, update: { sessionUpdate: "tool_call_update", toolCallId: `tc-${i}`, status: "completed" } } });
+        }
+      } else if (mode === "interleave") playInterleaveTurn();
       else if (mode === "tool-progress") playToolProgressTurn();
       else if (mode !== "empty-reply") playTurn();
       if (mode === "permission" || mode === "permission-twice" || mode === "permission-edits") {
