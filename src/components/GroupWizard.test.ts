@@ -157,6 +157,25 @@ describe("GroupWizard members", () => {
     }
   });
 
+  it("goes back a step on Escape right after Enter on the name", async () => {
+    const { host, root } = await renderWizard();
+    const key = (target: Element | null, key: string) => target!.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
+    try {
+      await act(async () => {
+        key(host.querySelector('input[aria-label="Name your group"]'), "Enter");
+      });
+      expect(host.textContent).toContain("Add bots");
+      await act(async () => {
+        key(document.activeElement, "Escape");
+      });
+      expect(host.querySelector('input[aria-label="Name your group"]')).not.toBeNull();
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
   it("checks existing bots and creates with the setup defaults", async () => {
     const { host, root } = await renderWizard();
     try {
