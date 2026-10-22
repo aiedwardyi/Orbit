@@ -58,4 +58,9 @@ describe("memory save wiring", () => {
     const workspace = readFileSync(join(here, "workspace.ts"), "utf8");
     expect(workspace).toMatch(/corrects a memory note/i);
   });
+
+  it("tells the bot to save a lesson from a correction or its own mistake unprompted", () => {
+    const workspace = readFileSync(join(here, "workspace.ts"), "utf8");
+    expect(workspace).toMatch(/catch your own mistake, save the lesson/i);
+  });
 });
