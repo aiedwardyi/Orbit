@@ -759,6 +759,8 @@ export interface DelegatedTurn {
   takenOverBy?: string;
   /** An ask that outlived its wait: a takeover fails it, nothing reruns. */
   ask?: true;
+  /** The reply before a pane note joined this turn; later text answers the note. */
+  answer?: string;
 }
 
 /** The user's message joined a delegated turn: say so where the teammate waits. */
@@ -801,6 +803,7 @@ export function finishDelegatedTurn(
 ): boolean {
   // settled when the user took it over
   if (turn.ask && turn.takenOverBy !== undefined) return false;
+  if (turn.answer !== undefined) reply = turn.answer;
   const running = turn.taskId ? runningDelegations.get(turn.taskId) : undefined;
   if (turn.taskId) runningDelegations.delete(turn.taskId);
   const target = bus.store.bot(turn.toBotId);

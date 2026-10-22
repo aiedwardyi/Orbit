@@ -3,10 +3,14 @@ import type { ProviderAdapter } from "./contracts.ts";
 import type { Message } from "./store.ts";
 
 /** A steer resolving once the model took the text in; undefined when the engine cannot tell. */
-export function steerUntilTaken(adapter: Pick<ProviderAdapter, "capabilities" | "steer"> | undefined, threadId: string, text: string): Promise<boolean> | undefined {
+export function steerUntilTaken(adapter: Pick<ProviderAdapter, "capabilities" | "steer"> | undefined, threadId: string, text: string, onTaken?: () => void): Promise<boolean> | undefined {
   if (!adapter?.capabilities.queueing || !adapter.capabilities.steerConsumed || !adapter.steer) return undefined;
   let consumed: (taken: boolean) => void = () => {};
-  const taken = new Promise<boolean>((resolve) => (consumed = resolve));
+  // onTaken runs at the read itself, before the next request's text lands
+  const taken = new Promise<boolean>((resolve) => (consumed = (ok) => {
+    if (ok) onTaken?.();
+    resolve(ok);
+  }));
   adapter.steer(threadId, text, consumed).then((written) => written || consumed(false), () => consumed(false));
   return taken;
 }

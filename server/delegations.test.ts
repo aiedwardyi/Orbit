@@ -31,6 +31,7 @@ import {
   type DelegatedTurn,
 } from "./delegations.ts";
 import { peerAllowKey, resolvePeerComms } from "./peer-approval.ts";
+import { onPeerTakeover, peerInputJoined, takeOverPeerTurn } from "./peer-takeover.ts";
 import { _resetSteerQueue, cancelSteeredMessage, drainSteeredMessages, queueRoomParticipation, queueSteeredMessage } from "./steer-queue.ts";
 import { Store, type BotRecord, type GroupRecord } from "./store.ts";
 
@@ -1229,6 +1230,68 @@ describe("user takeover of a delegated turn", () => {
     expect(channelTexts(dispatched[0]!.channel!)).toEqual(["What changed in the resume?", "Two bullets were reworded."]);
     expect(findDelegationReceipt(queued.id!)).toMatchObject({ status: "done", result: "Two bullets were reworded." });
     expect(chip()).toMatchObject({ name: "@Wink replied", ok: true });
+  });
+
+  // index.ts wiring: a pane note the turn reads freezes the answer at the last text so far
+  function watchWithNote(turn: DelegatedTurn) {
+    let last = "";
+    const end = onPeerTakeover(wink.threadId, () => {}, () => {
+      turn.answer ??= last;
+    });
+    return { reply: (text: string) => (last = text), end };
+  }
+
+  it("mirrors only the reply from before a pane note joined the turn", async () => {
+    const queued = queueDelegation(commsBus, career, { toBotId: wink.id, message: "FYI: NIGHT-PAD is on the shared API key.", depth: 0 }, 1);
+    drain();
+    await waitFor(() => dispatched.length === 1 && _pendingCount(career.threadId) === 0);
+    const turn = turnOf(dispatched[0]!);
+    const watch = watchWithNote(turn);
+    watch.reply("Got Career's note: nothing of mine clashes with NIGHT-PAD.");
+    peerInputJoined(wink.threadId);
+    const last = watch.reply("The eval questions are ready. 1 of 2 done.");
+    watch.end();
+    finishDelegatedTurn(commsBus, turn, true, last);
+
+    const answer = "Got Career's note: nothing of mine clashes with NIGHT-PAD.";
+    expect(channelTexts(dispatched[0]!.channel!)).toEqual(["FYI: NIGHT-PAD is on the shared API key.", answer]);
+    expect(findDelegationReceipt(queued.id!)).toMatchObject({ status: "done", result: answer });
+    expect(store.messagesFor(career.threadId).filter((m) => m.comm?.peer === "reply").map((m) => m.text)).toEqual([answer]);
+  });
+
+  it("mirrors only the completed row when a pane note joined before any reply", async () => {
+    const queued = queueDelegation(commsBus, career, { toBotId: wink.id, message: "FYI: NIGHT-PAD is on the shared API key.", depth: 0 }, 1);
+    drain();
+    await waitFor(() => dispatched.length === 1 && _pendingCount(career.threadId) === 0);
+    const turn = turnOf(dispatched[0]!);
+    const watch = watchWithNote(turn);
+    peerInputJoined(wink.threadId);
+    const last = watch.reply("The eval questions are ready. 1 of 2 done.");
+    watch.end();
+    finishDelegatedTurn(commsBus, turn, true, last);
+
+    const channel = dispatched[0]!.channel!;
+    expect(channelTexts(channel)).toEqual(["FYI: NIGHT-PAD is on the shared API key."]);
+    expect(channelRows(channel)).toEqual(["Delegated turn completed"]);
+    expect(findDelegationReceipt(queued.id!)).toMatchObject({ status: "done", result: "" });
+    expect(store.messagesFor(career.threadId).filter((m) => m.comm?.peer === "reply")).toEqual([]);
+  });
+
+  it("still reruns on a user takeover after a pane note joined", async () => {
+    queueDelegation(commsBus, career, { toBotId: wink.id, message: "What changed in the resume?", depth: 0 }, 1);
+    drain();
+    await waitFor(() => dispatched.length === 1 && _pendingCount(career.threadId) === 0);
+    const turn = turnOf(dispatched[0]!);
+    const end = onPeerTakeover(wink.threadId, () => takeOverDelegatedTurn(commsBus, turn, "Edward"), () => {
+      turn.answer ??= "";
+    });
+    peerInputJoined(wink.threadId);
+    expect(takeOverPeerTurn(wink.threadId)).toBe(true);
+    end();
+    finishDelegatedTurn(commsBus, turn, true, "Edward, 1.0.157 is out.");
+    expect(chip()).toEqual({ name: paused });
+    drain();
+    await waitFor(() => dispatched.length === 2 && _pendingCount(career.threadId) === 0);
   });
 
   it("fails a taken-over turn that did not finish, without a rerun", async () => {

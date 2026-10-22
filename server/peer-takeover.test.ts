@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { hasPeerWatch, onPeerTakeover, peerAnswer, steerTakeover, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
+import { hasPeerWatch, onPeerTakeover, peerAnswer, peerInputJoined, steerTakeover, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
 import type { Message } from "./store.ts";
 
 function ask(threadId: string) {
@@ -80,6 +80,26 @@ describe("ask_bot takeover", () => {
     expect(answers).toEqual(["Wink switched to Edward's message before answering. Ask again later."]);
   });
 
+  it("answers the asker with only the text from before a pane note joined", () => {
+    const answers: Array<{ text: string; replied: boolean }> = [];
+    const answer = peerAnswer("t-ask-note", "Wink", () => "Edward", (text, replied) => answers.push({ text, replied }));
+    answer.add("Got the note.");
+    peerInputJoined("t-ask-note");
+    answer.add("The eval questions are ready.");
+    answer.end("(the bot finished without a text reply)");
+    expect(answers).toEqual([{ text: "Got the note.", replied: true }]);
+  });
+
+  it("does not report a reply when a pane note joined before any text", () => {
+    const answers: Array<{ text: string; replied: boolean }> = [];
+    const answer = peerAnswer("t-ask-note-empty", "Wink", () => "Edward", (text, replied) => answers.push({ text, replied }));
+    peerInputJoined("t-ask-note-empty");
+    answer.add("The eval questions are ready.");
+    answer.end("(the bot finished without a text reply)");
+    expect(answers).toEqual([{ text: "Wink took in a worker's note before answering. Ask again later.", replied: false }]);
+    expect(hasPeerWatch("t-ask-note-empty")).toBe(false);
+  });
+
   it("keeps the whole reply when nobody cuts in", () => {
     const { answer, answers } = ask("t-ask-3");
     answer.add("First.");
@@ -127,6 +147,20 @@ describe("peer turn registry", () => {
     expect(calls).toBe(1);
     expect(answers).toEqual(["Wink switched to Edward's message before answering. Ask again later."]);
     expect(takeOverPeerTurn("t-reg-4")).toBe(false);
+  });
+
+  it("tells every watch a pane note joined without taking the turn over", () => {
+    let joined = 0;
+    let taken = 0;
+    const end = onPeerTakeover("t-reg-note", () => taken++, () => joined++);
+    onPeerTakeover("t-reg-note", () => taken++);
+    peerInputJoined("t-reg-note");
+    peerInputJoined("t-other");
+    expect(joined).toBe(1);
+    expect(hasPeerWatch("t-reg-note")).toBe(true);
+    expect(takeOverPeerTurn("t-reg-note")).toBe(true);
+    expect(taken).toBe(2);
+    end();
   });
 
   it("hands the read state to every watch", () => {
