@@ -154,4 +154,25 @@ describe("idle motion attribute", () => {
       host.remove();
     }
   });
+
+  it("hides only the turn ring while idle, so a paused ring never reads as hung", () => {
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
+    const start = css.indexOf("html[data-orbit-idle] [data-turn-mascot] .orbit-ring {");
+    expect(start).toBeGreaterThan(-1);
+    const selector = css.slice(start, css.indexOf("{", start)).trim();
+    expect(css.slice(start, css.indexOf("}", start))).toContain("visibility: hidden");
+    const host = document.body.appendChild(document.createElement("div"));
+    host.innerHTML = `
+      <div data-turn-mascot><span id="turn" class="orbit-ring"></span><span id="timer">(42s)</span></div>
+      <div><span id="sidebar" class="orbit-ring"></span></div>
+    `;
+    try {
+      root.setAttribute("data-orbit-idle", "blur");
+      expect([...document.querySelectorAll(selector)].map((node) => node.id)).toEqual(["turn"]);
+      root.removeAttribute("data-orbit-idle");
+      expect(document.querySelectorAll(selector)).toHaveLength(0);
+    } finally {
+      host.remove();
+    }
+  });
 });
