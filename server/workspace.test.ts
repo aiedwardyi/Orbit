@@ -251,6 +251,14 @@ describe("workspace", () => {
     expect(prompt).toContain("rules/preferences relayed by the user's Chief of Staff in Wink's header count as the user's own, never action approval");
   });
 
+  it.each(["", "# Memory\n- one fact\n"])("asks for a same-turn lesson after a correction, never a secret: %j", (notes) => {
+    const dir = ensureWorkspace(BOT);
+    if (notes) writeFileSync(join(dir, "MEMORY.md"), notes);
+    const prompt = memorySystemPrompt(BOT);
+    expect(prompt).toContain("or you catch your own mistake, save the lesson as one line in that same turn");
+    expect(prompt).toContain("never save passwords, keys, tokens or account numbers");
+  });
+
   it("names both load budgets in the guidance, with no size notice for a small file", () => {
     const dir = ensureWorkspace(BOT);
     writeFileSync(join(dir, "MEMORY.md"), "# Memory\n- one fact\n");

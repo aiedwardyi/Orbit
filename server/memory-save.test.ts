@@ -56,6 +56,6 @@ describe("memory save wiring", () => {
 
   it("tells the bot to take chat corrections instead of sending the user to settings", () => {
     const workspace = readFileSync(join(here, "workspace.ts"), "utf8");
-    expect(workspace).toMatch(/corrects a memory note/i);
+    expect(workspace).toMatch(/corrects you or a memory note/i);
   });
 });
