@@ -159,6 +159,7 @@ import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphan
 import { hasPeerWatch, onPeerTakeover, steerTakeover, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
 import { waitForPeerReply, type AskReply } from "./ask-bot.ts";
 import {
+  cancelQueuedSends,
   cancelSteeredMessage,
   clearSendRunning,
   continueQueuedDrainIfIdle,
@@ -3997,10 +3998,8 @@ bus.subscribe((event: RuntimeEvent) => {
 // so the drain matches on "this queue's bot is idle now" instead.
 // Registration order puts this after the main fold, so busy is already
 // false when it looks. Deliberately NOT gated on event.ok (unlike the
-// delegation drain above): queued delegations are a bot's fan-out and
-// dropping them on Stop is a safety property, but queued messages are the
-// user's own words — stop-then-steer is the point, so an interrupted turn
-// drains too.
+// delegation drain above): a failed turn still drains the user's queued
+// words; a user Stop already handed them back to the composer.
 bus.subscribe((event: RuntimeEvent) => {
   if (event.type !== "turn.completed") return;
   providerReload.settled(event.threadId);
@@ -9356,12 +9355,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const inFlight = Boolean(bot.busy || botHasActiveTurn(bot.id));
         taskResumes.forgetBot(bot.id);
+        const returned = cancelQueuedSends(bot.id);
         store.patchBot(bot.id, { paneWakePaused: true });
         // a turn still preparing has no session to interrupt yet
         bumpTurnEpoch(bot.id);
         await routines!.cancelRun(routineRun.id);
         if (inFlight) releaseInterruptedBot(bot.id, runThread(routineRun) ?? bot.threadId);
-        return json(res, 200, { ok: true });
+        return json(res, 200, { ok: true, returned });
       }
       const instance = registry.get(bot.modelSelection.instanceId);
       // a bot busy in a ROOM is running on the room's thread — stopping it
@@ -9377,6 +9377,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const inFlight = Boolean(busyGroup || bot.busy || botHasActiveTurn(bot.id));
       taskResumes.forgetBot(bot.id);
+      const returned = cancelQueuedSends(bot.id);
       store.patchBot(bot.id, { paneWakePaused: true });
       const stoppedThreadId = busyGroup?.threadId ?? bot.activeThreadId ?? bot.threadId;
       if (inFlight) {
@@ -9394,7 +9395,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         await instance?.adapter.interruptTurn(stoppedThreadId).catch(() => {});
       }
       if (inFlight) releaseInterruptedBot(bot.id, stoppedThreadId);
-      return json(res, 200, { ok: true });
+      return json(res, 200, { ok: true, returned });
     }
 
     // ── tasks: a bot's separate contexts ────────────────────────────────

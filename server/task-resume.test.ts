@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as recovery from "./task-recovery-flush.ts";
 import {
   _resetSteerQueue,
+  cancelQueuedSends,
   cancelSteeredMessage,
   continueQueuedDrainIfIdle,
   drainSteeredMessages,
@@ -188,7 +189,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     TASK_RESUME_PROMPT: "resume",
   });
   const stop = route('/^\\/api\\/bots\\/([\\w-]+)\\/interrupt$/', {
-    store, taskResumes, botHasActiveTurn,
+    store, taskResumes, botHasActiveTurn, cancelQueuedSends,
     readBody: async () => ({}),
     routines: {
       activeRunForBot: () => options.routine && routineRun.status === "running" ? routineRun : null,

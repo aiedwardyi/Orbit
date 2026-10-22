@@ -4,12 +4,15 @@ import { ArrowUp, Clock, Mic, Paperclip, Square, TerminalSquare, Users, X } from
 import { useStore, visibleMessages, type Bot, type Group, type Message, api } from "@/state/store";
 import { cn } from "@/lib/cn";
 import {
+  botDraftId,
   draftRevision,
   forgetFailedComposerSend,
   getRoomHolds,
   markDraftEdited,
   recoverFailedComposerSend,
   rememberFailedComposerSend,
+  rememberQueuedDraft,
+  returnSendsToComposer,
   setRoomHolds,
   takeRestoredSendId,
   updateDraftAttachment,
@@ -247,7 +250,7 @@ export function Composer({
   // text and its attachment chips have to outlive it (see lib/drafts).
   const draftId = group
     ? `group:${group.id}:${group.threadId}`
-    : `bot:${bot?.id ?? ""}:${bot?.threadId ?? ""}`;
+    : botDraftId(bot?.id ?? "", bot?.threadId ?? "");
   const [text, setText, attachments, setAttachments] = useComposerDraft(
     draftId,
     !group && bot ? `bot:${bot.id}` : undefined,
@@ -550,6 +553,12 @@ export function Composer({
   const dropQueued = useCallback((sendId: string) => {
     commitQueued(queuedRef.current.filter((entry) => entry.draft.sendId !== sendId));
   }, [commitQueued]);
+  const stopRoom = (groupId: string) => {
+    // held lines would otherwise flush the moment the room settles
+    returnSendsToComposer(draftId, queuedRef.current.map((entry) => entry.draft));
+    commitQueued([]);
+    dispatch({ type: "interruptGroup", groupId });
+  };
   const [queuedMenu, setQueuedMenu] = useState<MessageMenuRequest | null>(null);
   const openQueuedMenu = (entry: QueuedGroupSend, x: number, y: number, opener: HTMLElement) => {
     setQueuedMenu({
@@ -677,6 +686,7 @@ export function Composer({
         onError: () => restoreDraft(sentDraft),
       });
     } else if (bot) {
+      if (busy) rememberQueuedDraft(sentDraft.sendId, { text: liveText, attachments: sentDraft.attachments });
       dispatch({
         type: "send",
         botId: bot.id,
@@ -972,7 +982,7 @@ export function Composer({
               threadId={threadId}
               bot={approvalBot}
               onCancelTurn={() => {
-                if (group) dispatch({ type: "interruptGroup", groupId: group.id });
+                if (group) stopRoom(group.id);
                 else if (bot) dispatch({ type: "interrupt", botId: bot.id });
               }}
             />
@@ -1175,7 +1185,7 @@ export function Composer({
           {busy && !locked && (
           <button
             onClick={() => {
-              if (group) dispatch({ type: "interruptGroup", groupId: group.id });
+              if (group) stopRoom(group.id);
               else if (bot && !stopping) {
                 const botId = bot.id;
                 setStoppingBotId(botId);
