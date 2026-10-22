@@ -440,7 +440,7 @@ it("folderBasename keeps root paths non-empty", () => {
 });
 
 it("same-id fallback preserves liveQueue events from the restart IPC gap", async () => {
-  const snapshot = { id: "session-gap", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null, launchProject: "C:\elsewhere" };
+  const snapshot = { id: "session-gap", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null, launchProject: "C:\\elsewhere" };
   let receive!: (event: { id: string; data: string; seq: number }) => void;
   let resolveFallback!: (value: typeof snapshot) => void;
   const open = vi.fn(async (opts: { restart?: boolean }) => {
@@ -492,7 +492,7 @@ it("same-id fallback preserves liveQueue events from the restart IPC gap", async
 });
 
 it("fallback resume after failed restart does not rewrite xterm scrollback", async () => {
-  const snapshot = { id: "session-same", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null, launchProject: "C:\elsewhere" };
+  const snapshot = { id: "session-same", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null, launchProject: "C:\\elsewhere" };
   let receive!: (event: { id: string; data: string; seq: number }) => void;
   const open = vi.fn(async (opts: { restart?: boolean }) => {
     if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
@@ -539,7 +539,7 @@ it("fallback resume after failed restart does not rewrite xterm scrollback", asy
 });
 
 it("does not flash needsFolder banner while restart fallback is pending", async () => {
-  const snapshot = { id: "session-pending", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null, launchProject: "C:\elsewhere" };
+  const snapshot = { id: "session-pending", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null, launchProject: "C:\\elsewhere" };
   let resolveFallback!: (value: typeof snapshot) => void;
   const open = vi.fn(async (opts: { restart?: boolean }) => {
     if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
@@ -711,7 +711,7 @@ it.each([null, 7])("retains replacement events before restart resolves with exit
   let resolveRestart!: (snapshot: TerminalSnapshot) => void;
   const open = vi.fn(async () => {
     if (open.mock.calls.length === 1) {
-      return { id: "old", cwd: "C:\\work", shell: "pwsh.exe", output: "OLD", seq: 10, exitCode: null, launchProject: "C:\elsewhere" };
+      return { id: "old", cwd: "C:\\work", shell: "pwsh.exe", output: "OLD", seq: 10, exitCode: null, launchProject: "C:\\elsewhere" };
     }
     return new Promise<TerminalSnapshot>((resolve) => { resolveRestart = resolve; });
   });
@@ -753,7 +753,7 @@ it.each([null, 7])("retains replacement events before restart resolves with exit
 });
 
 it("restores keyboard input forwarding when fallback restart IPC throws", async () => {
-  const snapshot = { id: "session-fallback-err", cwd: "C:\\work", shell: "pwsh.exe", output: "READY", seq: 1, exitCode: null as number | null, launchProject: "C:\elsewhere" };
+  const snapshot = { id: "session-fallback-err", cwd: "C:\\work", shell: "pwsh.exe", output: "READY", seq: 1, exitCode: null as number | null, launchProject: "C:\\elsewhere" };
   const write = vi.fn(async () => {});
   const open = vi.fn(async (opts: { restart?: boolean }) => {
     if (open.mock.calls.length === 1) return { ...snapshot };
@@ -834,7 +834,7 @@ it("preserves an exit received during snapshot replay", async () => {
 });
 
 it("restores replayComplete and drains gap events when openShell restart rejects on a live session", async () => {
-  const snapshot = { id: "session-live-rej", cwd: "C:\\work", shell: "pwsh.exe", output: "LIVE_SNAP", seq: 1, exitCode: null as number | null, launchProject: "C:\elsewhere" };
+  const snapshot = { id: "session-live-rej", cwd: "C:\\work", shell: "pwsh.exe", output: "LIVE_SNAP", seq: 1, exitCode: null as number | null, launchProject: "C:\\elsewhere" };
   let receive!: (event: { id: string; data: string; seq: number }) => void;
   let rejectRestart!: (error: Error) => void;
   const write = vi.fn(async () => {});
@@ -1029,7 +1029,7 @@ it("re-runs fit, refresh, and PTY sync when the terminal becomes visible again",
 });
 
 it("preserves exit received during a rejected restart attempt", async () => {
-  const snapshot = { id: "session-dying-rej", cwd: "C:\\work", shell: "pwsh.exe", output: "BEFORE", seq: 1, exitCode: null as number | null, launchProject: "C:\elsewhere" };
+  const snapshot = { id: "session-dying-rej", cwd: "C:\\work", shell: "pwsh.exe", output: "BEFORE", seq: 1, exitCode: null as number | null, launchProject: "C:\\elsewhere" };
   let receive!: (event: { id: string; data: string; seq: number }) => void;
   let exitHandler!: (event: { id: string; exitCode: number }) => void;
   let rejectRestart!: (error: Error) => void;
@@ -1905,7 +1905,7 @@ it("keeps new-session output from the restart fallback gap", async () => {
   let resolveFallback!: (value: TerminalSnapshot) => void;
   const open = vi.fn(async (opts: { restart?: boolean }) => {
     if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
-    if (open.mock.calls.length === 1) return { id: "session-old", cwd: "C:\\work", shell: "pwsh.exe", output: "OLD", seq: 1, exitCode: null as number | null, launchProject: "C:\elsewhere" };
+    if (open.mock.calls.length === 1) return { id: "session-old", cwd: "C:\\work", shell: "pwsh.exe", output: "OLD", seq: 1, exitCode: null as number | null, launchProject: "C:\\elsewhere" };
     return new Promise<TerminalSnapshot>((resolve) => { resolveFallback = resolve; });
   });
   const bridge: TerminalBridge = {
