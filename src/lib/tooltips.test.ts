@@ -372,6 +372,21 @@ describe("placement", () => {
     }
   });
 
+  it("keeps the tip out from under the Windows caption strip", () => {
+    const caption = document.createElement("div");
+    caption.className = "orbit-windows-caption";
+    stubRect(caption, 0, 0, 1000, 32);
+    document.body.append(caption);
+    const btn = titled("collapse");
+    stubRect(btn, 400, 40, 40);
+    try {
+      hoverAndShow(btn);
+      expect(tip()?.getAttribute("style")).toContain("top: 66px");
+    } finally {
+      caption.remove();
+    }
+  });
+
   it("centres on a narrow element", () => {
     const btn = titled("narrow");
     stubRect(btn, 400, 300, 40);
