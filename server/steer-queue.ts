@@ -1,6 +1,6 @@
 // Waiting user sends stay off the active transcript until the bot is idle.
 // Room waits keep live callbacks; their user lines are already in the transcript.
-// Stop preserves user sends; stopping a group discards its room waits.
+// A user Stop hands waiting sends back; stopping a group discards its room waits.
 
 import { mkdirSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
@@ -520,6 +520,35 @@ export function cancelSteeredMessage(botId: string, messageId: string): CancelSt
     return { cancelled: true };
   }
   return { cancelled: false, running: false };
+}
+
+export interface ReturnedSend {
+  threadId: string;
+  queueId: string;
+  sendId?: string;
+  text: string;
+}
+
+/** Drop every waiting 1:1 send of a bot the user stopped, oldest first. */
+export function cancelQueuedSends(botId: string): ReturnedSend[] {
+  const returned: Array<SteerItem & { threadId: string }> = [];
+  for (const [key, entry] of queues) {
+    if (entry.botId !== botId) continue;
+    const items = entry.items.filter((item) => {
+      if (isRoomItem(item)) return true;
+      if (!isSendCancelled(item.sendId)) returned.push({ ...item, threadId: entry.threadId });
+      if (item.sendId) rememberCancelledSend(item.sendId);
+      rememberCancelledSend(item.messageId);
+      return false;
+    });
+    if (items.length === entry.items.length) continue;
+    if (items.length === 0) queues.delete(key);
+    else queues.set(key, { botId: entry.botId, threadId: entry.threadId, items });
+  }
+  if (returned.length) saveQueueAfterAppend();
+  return returned
+    .sort((a, b) => a.seq - b.seq)
+    .map((item) => ({ threadId: item.threadId, queueId: item.messageId, sendId: item.sendId, text: item.text }));
 }
 
 /** Drop room participations for one stopped group task. */

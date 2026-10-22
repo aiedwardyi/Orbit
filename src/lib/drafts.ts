@@ -282,6 +282,37 @@ export function restoreComposerDraft(id: string, draft: DraftRestore): void {
   for (const listener of restoreListeners.get(id) ?? []) listener(draft);
 }
 
+export function botDraftId(botId: string, threadId: string): string {
+  return `bot:${botId}:${threadId}`;
+}
+
+const queuedDrafts = new Map<string, DraftRestore>();
+
+/** Keeps a mid-turn send's chips so a Stop can hand them back. */
+export function rememberQueuedDraft(sendId: string, draft: DraftRestore): void {
+  queuedDrafts.set(sendId, draft);
+  if (queuedDrafts.size > 64) queuedDrafts.delete(queuedDrafts.keys().next().value!);
+}
+
+export function takeQueuedDraft(sendId: string | undefined): DraftRestore | undefined {
+  const draft = sendId ? queuedDrafts.get(sendId) : undefined;
+  if (sendId) queuedDrafts.delete(sendId);
+  return draft;
+}
+
+/** Puts stopped sends back in the composer, in order, ahead of what is already typed. */
+export function returnSendsToComposer(id: string, sends: readonly DraftRestore[]): void {
+  if (!sends.length) return;
+  const store = getStore();
+  const all = [...sends, { text: getDraft(store, id), attachments: getDraftAttachments(store, id) }];
+  // a returned sendId is cancelled server-side, so the next Send needs a fresh one
+  markDraftEdited(id);
+  restoreComposerDraft(id, {
+    text: all.filter((draft) => draft.text.trim()).map((draft) => draft.text).join("\n\n"),
+    attachments: all.flatMap((draft) => draft.attachments),
+  });
+}
+
 function subscribeToDraftRestores(id: string, listener: DraftRestoreListener): () => void {
   const listeners = restoreListeners.get(id) ?? new Set<DraftRestoreListener>();
   listeners.add(listener);

@@ -36,6 +36,7 @@ import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { completedReopenDismissals } from "@/lib/task-recovery";
 import { openLiveEvents, snapshotCoversHello } from "@/lib/live-events";
 import { holdReload } from "@/lib/reload-hold";
+import { botDraftId, returnSendsToComposer, takeQueuedDraft } from "@/lib/drafts";
 import { hapticTick } from "@/lib/phone-swipe";
 import { isShownMessage } from "@/lib/shown-message";
 import { arrivalChatForFrame, arrivalChatForRoutinePatch, noteArrival } from "@/lib/arrival-glow";
@@ -2909,6 +2910,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const release = () => rawDispatch({ type: "stopReleased", botId: action.botId, until: action.until! });
           window.setTimeout(release, STOP_HOLD_MS);
           api(`/api/bots/${action.botId}/interrupt`, { method: "POST" })
+            .then((body) => {
+              const returned: Array<{ threadId: string; queueId: string; sendId?: string; text: string }> =
+                Array.isArray(body?.returned) ? body.returned : [];
+              for (const threadId of new Set(returned.map((send) => send.threadId))) {
+                const sends = returned.filter((send) => send.threadId === threadId);
+                for (const send of sends) {
+                  rawDispatch({ type: "cancelQueued", botId: action.botId, threadId, queueId: send.queueId });
+                }
+                returnSendsToComposer(
+                  botDraftId(action.botId, threadId),
+                  sends.map((send) => takeQueuedDraft(send.sendId) ?? { text: send.text, attachments: [] }),
+                );
+              }
+            })
             .catch((error) => {
               showError(error);
               release();
@@ -3425,6 +3440,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             held: frame.held === true,
             helpReason: typeof frame.helpReason === "string" ? frame.helpReason : null,
           });
+          break;
+        case "queue.cancelled":
+          for (const send of frame.sends ?? []) {
+            rawDispatch({ type: "cancelQueued", botId: frame.botId, threadId: send.threadId, queueId: send.queueId });
+          }
           break;
         case "bot.deleted":
           botPatchQueue.cancel(frame.botId);
