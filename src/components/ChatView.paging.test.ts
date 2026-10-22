@@ -935,7 +935,7 @@ describe("open window and jump pill", () => {
     expect(host.querySelector("[data-term-status]")?.textContent).not.toContain("/new-default");
   });
 
-  it.each(["chat", "room"] as const)("keeps the Terminal working timer when a %s reply docks", async (view) => {
+  it.each(["chat", "room"] as const)("keeps the working timer on every skin when a %s reply docks", async (view) => {
     applySkin("terminal");
     const threadId = view === "chat" ? "thread-a" : "thread-g";
     const thread = [{ ...say("prompt", null, "user", "fixture prompt;"), at: Date.now() - 125_000 }];
@@ -949,7 +949,7 @@ describe("open window and jump pill", () => {
       await vi.waitFor(() => expect(host.querySelector("[data-turn-mascot].turn-mascot-docked")).not.toBeNull());
       expect(host.querySelector("[data-turn-mascot].turn-mascot-docked")?.textContent).toMatch(/\(2m \d+s\)/);
       await act(async () => applySkin("precision"));
-      expect(host.querySelector("[data-turn-mascot].turn-mascot-docked")?.textContent).not.toMatch(/\(\d+m/);
+      expect(host.querySelector("[data-turn-mascot].turn-mascot-docked")?.textContent).toMatch(/\(2m \d+s\)/);
     } finally {
       live.current = { streaming: {}, reasoning: {}, signal: {}, gen: {}, turn: {} };
     }

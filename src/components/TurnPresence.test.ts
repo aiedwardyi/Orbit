@@ -29,7 +29,7 @@ describe("turn presence", () => {
   it.each([
     ["terminal", true, "(12s)"],
     ["terminal", false, null],
-    ["tui", true, null],
+    ["tui", true, "(12s)"],
   ])("%s docked live=%s shows its elapsed time", (skin, live, shown) => {
     vi.useFakeTimers();
     vi.setSystemTime(100_000);
@@ -41,6 +41,63 @@ describe("turn presence", () => {
     } finally {
       delete document.documentElement.dataset.skin;
       vi.useRealTimers();
+    }
+  });
+
+  it.each(["precision", "terminal", "community"])("%s shows the elapsed time during a live turn, focused or not", async (skin) => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    document.documentElement.dataset.skin = skin;
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    const timer = () => host.textContent?.match(/\(\d+s\)/)?.[0];
+    try {
+      await act(async () => root.render(createElement(TurnPresence, { avatar: null, visible: true, label: "Thinking", since: 88_000 })));
+      expect(timer()).toBe("(12s)");
+      await act(async () => {
+        document.documentElement.setAttribute("data-orbit-idle", "blur");
+        window.dispatchEvent(new Event("blur"));
+        vi.advanceTimersByTime(1_000);
+      });
+      expect(timer()).toBe("(13s)");
+      await act(async () => {
+        document.documentElement.removeAttribute("data-orbit-idle");
+        window.dispatchEvent(new Event("focus"));
+        vi.advanceTimersByTime(1_000);
+      });
+      expect(timer()).toBe("(14s)");
+      await act(async () => root.render(createElement(TurnPresence, { avatar: null, visible: false, label: "Thinking", since: 88_000 })));
+      expect(timer()).toBeUndefined();
+    } finally {
+      await act(async () => root.unmount());
+      document.documentElement.removeAttribute("data-orbit-idle");
+      delete document.documentElement.dataset.skin;
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("skips the elapsed tick while the document is hidden", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    const timer = () => host.textContent?.match(/\(\d+s\)/)?.[0];
+    try {
+      await act(async () => root.render(createElement(DockedPresence, { avatar: null, label: "Responding", live: true, since: 88_000 })));
+      await act(async () => { vi.advanceTimersByTime(5_000); });
+      expect(timer()).toBe("(12s)");
+      visibility.mockReturnValue("visible");
+      await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+      expect(timer()).toBe("(17s)");
+    } finally {
+      await act(async () => root.unmount());
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
     }
   });
 

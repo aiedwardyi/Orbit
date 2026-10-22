@@ -130,40 +130,26 @@ describe("idle motion attribute", () => {
     expect(css).toContain("html[data-orbit-idle] [data-orbit-composer-frame]:focus-within > [data-orbit-rainbow] > span {");
   });
 
-  it("steps only live indicator sharp rings while blurred and visible", () => {
+  it("keeps every indicator ring paused while blurred and visible", () => {
     const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
-    const rule = css.match(/(html\[data-orbit-idle="blur"\][^{]+)\{([^}]+)\}/);
-    expect(rule).not.toBeNull();
-    const [, selector, declarations] = rule!;
-    expect(css.indexOf(rule![0])).toBeGreaterThan(css.indexOf("animation-play-state: paused !important"));
-    expect(declarations).toContain("animation-play-state: running !important;");
-    expect(declarations).toContain("animation-timing-function: steps(24, end);");
-    expect(css).toContain("animation: orbit-ring-spin 2.4s linear infinite;");
-    expect(css.match(/@keyframes orbit-ring-spin \{\s*to \{([^}]+)\}/)?.[1].trim()).toBe("transform: rotate(1turn);");
+    expect(css).not.toContain('html[data-orbit-idle="blur"]');
+    const rule = css.slice(css.indexOf("html[data-orbit-idle] :is("));
+    const selector = rule.slice(0, rule.indexOf("{")).replace(/\s+/g, " ").replace(/\( | \)/g, (m) => m.trim());
     const host = document.body.appendChild(document.createElement("div"));
     host.innerHTML = `
       <div data-turn-mascot class="turn-mascot-in">
         <span class="orbit-ring orbit-ring-halo"><span id="halo" class="orbit-ring-spin"></span></span>
         <span class="orbit-ring"><span id="sharp" class="orbit-ring-spin"></span></span>
-        <span class="thinking-sheen"><span></span></span>
-        <span class="mascot-avatar"><span class="mascot-idle"></span><span class="mascot-blink"></span></span>
       </div>
       <div data-turn-mascot class="turn-mascot-docked turn-mascot-in">
-        <span class="orbit-ring orbit-ring-halo"><span class="orbit-ring-hole"><span class="orbit-ring-spin"></span></span></span>
         <span class="orbit-ring orbit-ring--hole"><span id="docked" class="orbit-ring-spin"></span></span>
       </div>
-      <div data-turn-mascot class="turn-mascot-out"><span class="orbit-ring"><span class="orbit-ring-spin"></span></span></div>
-      <aside><span class="orbit-mark-rings"></span><span class="orbit-ring"><span class="orbit-ring-spin"></span></span></aside>
-      <span class="animate-spin"></span>
-      <span data-orbit-rainbow><span></span></span>
     `;
     try {
       root.setAttribute("data-orbit-idle", "blur");
-      expect([...document.querySelectorAll(selector.trim())].map((node) => node.id)).toEqual(["sharp", "docked"]);
-      root.setAttribute("data-orbit-idle", "hidden");
-      expect(document.querySelectorAll(selector.trim())).toHaveLength(0);
+      expect([...document.querySelectorAll(selector)].map((node) => node.id)).toEqual(["halo", "sharp", "docked"]);
       root.removeAttribute("data-orbit-idle");
-      expect(document.querySelectorAll(selector.trim())).toHaveLength(0);
+      expect(document.querySelectorAll(selector)).toHaveLength(0);
     } finally {
       host.remove();
     }
