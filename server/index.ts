@@ -1707,11 +1707,14 @@ async function deleteBotFully(bot: BotRecord): Promise<void> {
   const target = perBotLocalVmTarget(bot.id);
   localVmIdles.get(target.key)?.cancel();
   localVmIdles.delete(target.key);
+  const threadIds = new Set([bot.threadId, ...(bot.tasks ?? []).map((t) => t.threadId)]);
   store.deleteBot(bot.id);
   for (const dir of [EVENTS_DIR, NATIVE_DIR]) {
-    try {
-      unlinkSync(join(dir, `${bot.threadId}.ndjson`));
-    } catch {}
+    for (const threadId of threadIds) {
+      try {
+        unlinkSync(join(dir, `${threadId}.ndjson`));
+      } catch {}
+    }
   }
 }
 

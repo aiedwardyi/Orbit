@@ -917,6 +917,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
     if (n && !hereRaf) hereRaf = requestAnimationFrame(updateHere);
     // phone: the rail wakes while the reader scrolls, never while a reply streams in
     if (touch && !following && enabled) {
+      approach();
       wake.to = 1;
       kick();
       clearTimeout(sleepTimer);

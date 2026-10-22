@@ -284,3 +284,56 @@ describe("zoom grab", () => {
     ui.rail.destroy();
   });
 });
+
+describe("touch", () => {
+  it("loads the turns when a scroll wakes the rail, so the first quick tap opens the card", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(hover: none)", media: query, addEventListener() {}, removeEventListener() {} }));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    });
+    vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(390);
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(382);
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(800);
+    const zone = document.createElement("div");
+    const scroller = document.createElement("div");
+    const host = document.createElement("div");
+    zone.append(scroller, host);
+    document.body.append(zone);
+    const times = Array.from({ length: 10 }, (_, t) => at(16, 9) + t * 600_000);
+    const turns: Turns = { ids: times.map((_, t) => `m${t}`), at: times, words: times.map((_, t) => `turn ${t}`), first: "m0", version: 1, stale: false, seen: { count: 0 } };
+    let fetches = 0;
+    let land!: () => void;
+    const rail = createTurnRail(host, scroller, {
+      turns: () => {
+        fetches++;
+        return new Promise<Turns>((resolve) => { land = () => resolve(turns); });
+      },
+      catchUp: () => false,
+      jump() {},
+      latest() {},
+      wheel() {},
+      day: () => "day",
+      time: () => "00:00",
+      label: () => "",
+      valueText: () => "",
+    });
+    rail.setThread("t");
+    rail.setEnabled(true);
+    rail.setFollowing(false);
+    const strip = host.querySelector<HTMLElement>("[data-turn-rail-strip]")!;
+    const card = host.querySelector<HTMLElement>("[data-turn-card]")!;
+    await vi.waitFor(() => expect(strip.style.height).toBe("792px"));
+
+    scroller.dispatchEvent(new Event("scroll"));
+    expect(fetches).toBe(1);
+    land();
+    await vi.waitFor(() => expect(strip.getAttribute("aria-valuemax")).toBe("10"));
+
+    const touch = (type: string) => strip.dispatchEvent(new PointerEvent(type, { pointerType: "touch", pointerId: 1, clientY: 400, bubbles: true, cancelable: true }));
+    touch("pointerdown");
+    touch("pointerup");
+    expect(card.classList.contains("live")).toBe(true);
+    rail.destroy();
+  });
+});

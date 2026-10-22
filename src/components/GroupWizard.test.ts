@@ -157,6 +157,25 @@ describe("GroupWizard members", () => {
     }
   });
 
+  it("goes back a step on Escape right after Enter on the name", async () => {
+    const { host, root } = await renderWizard();
+    const key = (target: Element | null, key: string) => target!.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true }));
+    try {
+      await act(async () => {
+        key(host.querySelector('input[aria-label="Name your group"]'), "Enter");
+      });
+      expect(host.textContent).toContain("Add bots");
+      await act(async () => {
+        key(document.activeElement, "Escape");
+      });
+      expect(host.querySelector('input[aria-label="Name your group"]')).not.toBeNull();
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
   it("checks existing bots and creates with the setup defaults", async () => {
     const { host, root } = await renderWizard();
     try {
@@ -250,7 +269,7 @@ describe("GroupWizard members", () => {
       expect(JSON.parse(String(apiCalls[1]!.init?.body))).toMatchObject({
         modelSelection: { instanceId: "muse-1", model: "muse-1-model" },
       });
-      expect(dispatched).toContainEqual(expect.objectContaining({ type: "botAdded" }));
+      expect(dispatched).toContainEqual(expect.objectContaining({ type: "botAdded", activate: false, focusComposer: false }));
       await act(async () => {
         button(host, "Create group · 2 bots").click();
       });

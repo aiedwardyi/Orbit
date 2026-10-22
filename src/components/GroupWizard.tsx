@@ -49,10 +49,16 @@ export function GroupWizard({
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!closing) nameRef.current?.focus();
   }, [closing]);
+
+  // step 1's focused field unmounts on Next, and Escape only reaches the overlay from inside it
+  useEffect(() => {
+    if (step === 2 && !dialogRef.current?.contains(document.activeElement)) dialogRef.current?.focus();
+  }, [step]);
 
   useEffect(() => {
     void refreshInstances?.();
@@ -91,7 +97,7 @@ export function GroupWizard({
         method: "POST",
         body: JSON.stringify(newBotPayload(job, selection)),
       });
-      dispatch({ type: "botAdded", bot: result.bot });
+      dispatch({ type: "botAdded", bot: result.bot, activate: false, focusComposer: false });
       setPicked((prev) => new Set(prev).add(result.bot.id));
       setAddedNew((n) => n + 1);
       setRows((prev) => prev.filter((r) => r.key !== row.key));
@@ -134,10 +140,12 @@ export function GroupWizard({
       onKeyDown={onKey}
     >
       <div
+        ref={dialogRef}
         role={closing ? undefined : "dialog"}
         aria-modal={!closing || undefined}
         aria-labelledby="group-wizard-title"
-        className="animate-pop-in w-[380px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl"
+        tabIndex={-1}
+        className="animate-pop-in w-[380px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl outline-none"
       >
         <div className="mb-1 flex items-center justify-between">
           <div id="group-wizard-title" className="text-[15px] font-semibold text-ink">{t("groupWizard.title")}</div>

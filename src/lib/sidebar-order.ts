@@ -155,7 +155,7 @@ export function moveSidebarItemWithinTier(
   const targetIndex = tier.indexOf(targetKey);
   if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return next;
   tier.splice(fromIndex, 1);
-  tier.splice(targetIndex + (place === "after" ? 1 : 0), 0, fromKey);
+  tier.splice(tier.indexOf(targetKey) + (place === "after" ? 1 : 0), 0, fromKey);
   for (const [index, slot] of slots.entries()) keys[slot] = tier[index]!;
   return next;
 }
