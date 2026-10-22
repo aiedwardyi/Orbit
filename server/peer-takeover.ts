@@ -7,9 +7,15 @@ import type { Message } from "./store.ts";
 //
 // Only user words take a turn over: the send route's steer and the queued
 // sends a starting turn folds in. Pane notes, narration notices and other
-// control-plane steers never call takeOverPeerTurn.
+// control-plane steers never call takeOverPeerTurn. A pane note the turn reads
+// ends the teammate's answer instead (peerInputJoined).
 
-const peerTurns = new Map<string, Set<(afterReply: boolean) => void>>(); // target threadId → takeovers
+interface PeerWatch {
+  takeOver: (afterReply: boolean) => void;
+  joined?: () => void;
+}
+
+const peerTurns = new Map<string, Set<PeerWatch>>(); // target threadId → watches
 
 /** True while a teammate's turn on `threadId` still waits for its reply. */
 export function hasPeerWatch(threadId: string): boolean {
@@ -32,12 +38,13 @@ export function takePeerReplyStamp(
 
 /** Watch one peer-started turn on `threadId` for a user takeover. Call the
  * returned function when that turn ends; other watches on the thread stay. */
-export function onPeerTakeover(threadId: string, handler: (afterReply: boolean) => void): () => void {
+export function onPeerTakeover(threadId: string, handler: (afterReply: boolean) => void, joined?: () => void): () => void {
   const handlers = peerTurns.get(threadId) ?? new Set();
-  handlers.add(handler);
+  const watch = { takeOver: handler, joined };
+  handlers.add(watch);
   peerTurns.set(threadId, handlers);
   return () => {
-    handlers.delete(handler);
+    handlers.delete(watch);
     if (!handlers.size && peerTurns.get(threadId) === handlers) peerTurns.delete(threadId);
   };
 }
@@ -48,8 +55,14 @@ export function takeOverPeerTurn(threadId: string, afterReply = false): boolean 
   const handlers = peerTurns.get(threadId);
   if (!handlers) return false;
   peerTurns.delete(threadId);
-  for (const handler of handlers) handler(afterReply);
+  for (const watch of handlers) watch.takeOver(afterReply);
   return true;
+}
+
+/** The running turn on `threadId` read an input that is not the user's (a
+ * pane note). A teammate's answer is what the turn said before it. */
+export function peerInputJoined(threadId: string): void {
+  for (const watch of [...(peerTurns.get(threadId) ?? [])]) watch.joined?.();
 }
 
 /** One mid-turn steer's takeover: when the model reads it and the route
@@ -82,7 +95,10 @@ export function steerTakeover(threadId: string, signaled: boolean): {
 export const askSwitchedText = (botName: string, userName: string) =>
   `${botName} switched to ${userName}'s message before answering. Ask again later.`;
 
-/** ask_bot's answer: the turn's text until it ends, or until the user takes it over. */
+const askJoinedText = (botName: string) =>
+  `${botName} took in a worker's note before answering. Ask again later.`;
+
+/** ask_bot's answer: the turn's text until it ends, the user takes it over, or a pane note joins. */
 export function peerAnswer(
   threadId: string,
   botName: string,
@@ -97,8 +113,10 @@ export function peerAnswer(
     endTakeover();
     resolve(out, replied && Boolean(text.trim()));
   };
-  const endTakeover = onPeerTakeover(threadId, () =>
-    finish(text || askSwitchedText(botName, userName())),
+  const endTakeover = onPeerTakeover(
+    threadId,
+    () => finish(text || askSwitchedText(botName, userName())),
+    () => finish(text || askJoinedText(botName)),
   );
   return {
     add: (step: string) => {

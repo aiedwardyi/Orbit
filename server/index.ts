@@ -156,7 +156,7 @@ import { turnIndex } from "./turn-index.ts";
 import { composeUserTurnPrompt, promptWithReply, turnReplaysTranscript, userTurnReactionKeys } from "./replies.ts";
 import { EXTENDED_REACTIONS, reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, finishDelegatedTurn, pendingDelegationSnapshot, pollDelegation, queueDelegation, resolveDelegationId, settleTakenOverDelegation, type DelegatedTurn, type QueueResult } from "./delegations.ts";
-import { hasPeerWatch, onPeerTakeover, steerTakeover, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
+import { hasPeerWatch, onPeerTakeover, peerInputJoined, steerTakeover, takeOverPeerTurn, takePeerReplyStamp } from "./peer-takeover.ts";
 import { waitForPeerReply, type AskReply } from "./ask-bot.ts";
 import {
   cancelQueuedSends,
@@ -3887,6 +3887,8 @@ function watchDelegatedTurn(targetThreadId: string, watched: DelegatedTurn & { s
     const finished = afterReply ? lastReply.get(targetThreadId)?.text : undefined;
     if (finished !== undefined) delegationWatch.delete(targetThreadId);
     settleTakenOverDelegation(commsBus, watched, cfg.profile?.name?.trim() || "User", finished);
+  }, () => {
+    watched.answer ??= lastReply.get(targetThreadId)?.text ?? "";
   });
 }
 
@@ -4068,7 +4070,7 @@ const noteSteer = new NoteSteerer({
   steer: (botId, threadId, text) => {
     const bot = store.bot(botId);
     const adapter = bot ? registry.get(bot.modelSelection.instanceId)?.adapter : undefined;
-    return steerUntilTaken(adapter, threadId, text);
+    return steerUntilTaken(adapter, threadId, text, () => peerInputJoined(threadId));
   },
   messages: (threadId) => store.activePath(threadId),
   deliveredId: (botId, threadId) => store.taskByThread(botId, threadId)?.paneNotesDeliveredId ?? undefined,

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ensureDirs } from "./config.ts";
 import { paneNotesForTurn, paneNoteText } from "./context-compaction.ts";
-import type { ProviderInstance } from "./contracts.ts";
+import type { ProviderAdapter, ProviderInstance } from "./contracts.ts";
 import { ClaudeDriver } from "./drivers/claude.ts";
 import { NoteSteerer, steerUntilTaken } from "./note-steer.ts";
 import { composeUserTurnPrompt, userTurnReactionKeys } from "./replies.ts";
@@ -45,6 +45,29 @@ function harness(overrides: { live?: string; steer?: (text: string) => Promise<b
   const arrive = (pane?: string) => steerer.noteArrived(bot.id, bot.threadId, pane);
   return { store, bot, state, steer, wake, note, delivered, nextPrefix, arrive };
 }
+
+describe("steerUntilTaken", () => {
+  it("calls onTaken at the read, and only when the model took the text in", async () => {
+    const taken: string[] = [];
+    const steerWith = (ok: boolean) => {
+      let read: ((taken: boolean) => void) | undefined;
+      const result = steerUntilTaken({
+        capabilities: { queueing: true, steerConsumed: true } as ProviderAdapter["capabilities"],
+        steer: async (_threadId, _text, consumed) => {
+          read = consumed;
+          return true;
+        },
+      }, "t-taken", "note", () => taken.push(String(ok)));
+      read?.(ok);
+      return result;
+    };
+    const yes = steerWith(true);
+    expect(taken).toEqual(["true"]);
+    await expect(yes).resolves.toBe(true);
+    await expect(steerWith(false)).resolves.toBe(false);
+    expect(taken).toEqual(["true"]);
+  });
+});
 
 describe("NoteSteerer", () => {
   it("steers a note into the busy teacher's live turn with the prefix text and skips the wake", async () => {
