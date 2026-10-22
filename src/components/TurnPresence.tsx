@@ -70,7 +70,7 @@ export function TurnPresence({
   /** The mascot moved under live reply text: leave at once, no exit fade. */
   docked?: boolean;
   label?: string;
-  /** When the turn began; the Terminal skin counts up from it. */
+  /** When the turn began; the label counts up from it. */
   since?: number;
 }) {
   const terminal = isTerminalSkin(useSkin());
@@ -93,7 +93,7 @@ export function TurnPresence({
       <div data-turn-mascot className={cn("flex max-w-full items-center gap-2", visible ? "turn-mascot-in" : "turn-mascot-out")}>
         {terminal ? <TermGlyph ring={visible} /> : ringFace(avatar, visible)}
         {visible ? <WorkingLabel label={label} /> : null}
-        {visible && terminal && since ? <Elapsed since={since} /> : null}
+        {visible && since ? <Elapsed since={since} /> : null}
       </div>
     </div>
   );
@@ -126,7 +126,7 @@ export function DockedPresence({ avatar, label, live, since, className }: { avat
     >
       {terminal ? <TermGlyph ring={live} /> : ringFace(avatar, live)}
       {live ? <WorkingLabel label={label} /> : null}
-      {live && terminal && since ? <Elapsed since={since} /> : null}
+      {live && since ? <Elapsed since={since} /> : null}
     </div>
   );
 }
@@ -152,8 +152,15 @@ function TermGlyph({ ring = false }: { ring?: boolean }) {
 function Elapsed({ since }: { since: number }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
+    const tick = () => {
+      if (document.visibilityState === "visible") setNow(Date.now());
+    };
+    const timer = setInterval(tick, 1000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
   }, []);
   return <span className="shrink-0 text-[13px] leading-none whitespace-nowrap text-ink-secondary tabular-nums">({termElapsed(now - since)})</span>;
 }

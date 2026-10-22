@@ -4,7 +4,8 @@ export function startIdleMotion(root: HTMLElement = document.documentElement): (
   let blurred = document.hasFocus() === false;
 
   const apply = () => {
-    if (blurred || document.visibilityState !== "visible") root.setAttribute("data-orbit-idle", "");
+    if (document.visibilityState !== "visible") root.setAttribute("data-orbit-idle", "hidden");
+    else if (blurred) root.setAttribute("data-orbit-idle", "blur");
     else root.removeAttribute("data-orbit-idle");
   };
 
