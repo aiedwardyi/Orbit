@@ -2758,7 +2758,7 @@ describe("harness HTTP API", () => {
       );
       const resumedPrompt = JSON.stringify(resumedDump.prompt);
       expect(resumedPrompt).toContain("Wink task record");
-      expect(resumedPrompt).toContain("Current request: Continue until I stop you");
+      expect(resumedPrompt).toContain("Unfinished request: Continue until I stop you");
       expect(resumedPrompt).toContain("The previous turn was interrupted. Continue from the conversation.");
       expect(resumedPrompt).not.toContain("Goal: Prepare a durable weekly brief");
       expect(resumedPrompt).not.toContain("Next action: Verify citations after stopping");
