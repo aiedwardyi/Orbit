@@ -21,7 +21,9 @@ import {
   turnSeedsSession,
   withSystemChanges,
 } from "./turn-context.ts";
-import { recordTaskCompletion, seedTaskResumePacket } from "./task-state-fold.ts";
+import { isRecoveringPacket, unsettledRequest } from "./task-recovery-flush.ts";
+import { recordTaskCompletion, recordTaskInstruction, seedTaskResumePacket, stampTaskResumePacket } from "./task-state-fold.ts";
+import type { TaskResumePacket } from "./task-state.ts";
 
 const transcript = [
   { role: "user" as const, text: "my dog is named Biscuit" },
@@ -416,6 +418,108 @@ describe("task record progress", () => {
     const text = taskRecordBlock(record);
     expect(text).toContain("Done recently: 1 total; Verified the final sources");
     expect(text).not.toContain("Long assistant reply");
+  });
+});
+
+describe("continue after an unsettled request", () => {
+  const file = '<attached-file path="C:/Users/dad/Wink/attachments/poki-1-3.txt" name="poki-1-3.txt" size="18204" />';
+  const messages = [
+    { id: "msg-a", role: "user", kind: "text", text: "Polish the 《천억짜리 하루》 script", at: 100 },
+    { id: "reply-a", role: "bot", kind: "text", text: "Polished all three scenes.", at: 200 },
+    { id: "msg-b", role: "user", kind: "text", text: "Review the 《열려라 포키》 1-3 script", at: 300 },
+    { id: "msg-b-file", role: "user", kind: "text", text: file, steered: true, at: 324 },
+  ];
+  const replay = [
+    { role: "user" as const, text: "Polish the 《천억짜리 하루》 script" },
+    { role: "assistant" as const, text: "Polished all three scenes." },
+    { role: "user" as const, text: "Review the 《열려라 포키》 1-3 script" },
+    { role: "user" as const, text: file },
+  ];
+  const unfinished = `Review the 《열려라 포키》 1-3 script | ${file}`;
+
+  // The record settles on A; B and its file reach only the transcript.
+  const startedB = () => {
+    const record = seedTaskResumePacket({
+      botId: "bot-1",
+      threadId: "thread-1",
+      text: "Polish the 《천억짜리 하루》 script",
+      messageId: "msg-a",
+      now: 100,
+      turnsAtWrite: 0,
+    });
+    record.goal = "Polish the 《천억짜리 하루》 script for the Friday read";
+    delete record.instructionGoal;
+    record.plan = [{ step: "Polish scenes 1-3", status: "done" }];
+    delete record.instructionStep;
+    record.completed.push({ note: "Polished scenes 1-3", at: 150 });
+    record.artifacts.push({ ref: "scripts/cheonok-polished.md", label: "Polished 《천억짜리 하루》" });
+    const settled = recordTaskCompletion(record, { ok: true, reply: "Polished all three scenes.", messageId: "reply-a", now: 200 });
+    return recordTaskInstruction(settled, { text: "Review the 《열려라 포키》 1-3 script", messageId: "msg-b", now: 300 });
+  };
+  const stoppedB = () => recordTaskCompletion(stampTaskResumePacket(startedB(), "stop", { now: 780 }), {
+    ok: false,
+    reply: "",
+    interrupted: true,
+    now: 781,
+  });
+
+  // "continue", built the way startClaimedTurn builds it.
+  const continuedRecord = (prior: TaskResumePacket, fresh = true) => {
+    const current = recordTaskInstruction(prior, { text: "콘틴뉴", messageId: "msg-c", now: 900 });
+    const recovering = isRecoveringPacket(prior);
+    const out = buildTurnContext({
+      text: "콘틴뉴",
+      transcript: replay,
+      rewound: false,
+      fresh,
+      replaysNatively: false,
+      recovering,
+      taskRecord: current,
+      taskRecordText: taskRecordBlock(current, 6_000, { recovering, latestUserText: "콘틴뉴", unsettledRequest: unfinished }),
+      currentRequestText: "콘틴뉴",
+    });
+    expect(out.resume).toBe(!fresh);
+    expect(out.turnText.endsWith("콘틴뉴")).toBe(true);
+    return out.turnText.split("\n\n")[0]!;
+  };
+
+  it("names the request a Stop cut short when continue switches engines", () => {
+    const stopped = stoppedB();
+
+    const record = continuedRecord(stopped);
+    expect(record).toContain(`Unfinished request: ${unfinished}`);
+    expect(record).toContain("Current request: 콘틴뉴");
+    expect(record).not.toContain("Goal:");
+    expect(unsettledRequest(stopped, messages)).toBe(unfinished);
+  });
+
+  it("names it on a same-engine resume and after a crash too", () => {
+    // the boot stamp store.ts writes over a crashed turn's packet
+    const crashed = { ...startedB(), flushReason: "crash" as const };
+    for (const prior of [stoppedB(), crashed]) {
+      expect(continuedRecord(prior, false)).toContain(`Unfinished request: ${unfinished}`);
+      expect(unsettledRequest(prior, messages)).toBe(unfinished);
+    }
+  });
+
+  it("drops the older goal when continue follows a turn that ended early", () => {
+    const failed = recordTaskCompletion(startedB(), { ok: false, reply: "", now: 781 });
+
+    const record = continuedRecord(failed);
+    expect(record).not.toContain("Goal: Polish");
+    expect(record).not.toContain("Next action:");
+    expect(record).toContain(`Unfinished request: ${unfinished}`);
+    expect(record).toContain("Current request: 콘틴뉴");
+    expect(unsettledRequest(failed, messages)).toBe(unfinished);
+  });
+
+  it("leaves a settled record's block as it was", () => {
+    const settled = recordTaskCompletion(startedB(), { ok: true, reply: "Reviewed scenes 1-3.", now: 781 });
+
+    expect(taskRecordBlock(settled, 6_000, { unsettledRequest: "" })).toBe(taskRecordBlock(settled));
+    expect(taskRecordBlock(settled, 6_000, { recovering: true, latestUserText: "next", unsettledRequest: "" }))
+      .toBe(taskRecordBlock(settled, 6_000, { recovering: true, latestUserText: "next" }));
+    expect(unsettledRequest(settled, messages)).toBe("");
   });
 });
 

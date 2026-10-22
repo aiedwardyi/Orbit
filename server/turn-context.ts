@@ -445,8 +445,10 @@ export const REPLY_MARKER = "[Now reply to the user's latest message:]";
 export interface TaskRecordBlockOptions {
   /** Stop / crash Resume — do not present a drifted Goal/Plan/Next as current work. */
   recovering?: boolean;
-  /** Latest real user turn; ignored unless `recovering` is set. */
+  /** Latest real user turn; only the recovery shape shows it. */
   latestUserText?: string;
+  /** A request no completion settled; it takes the recovery shape too. */
+  unsettledRequest?: string;
 }
 
 function compactValue(value: string, maxCharacters: number): string {
@@ -500,11 +502,13 @@ export function taskRecordBlock(
   maxCharacters = 6_000,
   options?: TaskRecordBlockOptions,
 ): string {
-  if (options?.recovering) {
-    const current = (options.latestUserText ?? "").trim();
+  const unsettled = (options?.unsettledRequest ?? "").trim();
+  if (options?.recovering || unsettled) {
+    const current = (options?.latestUserText ?? "").trim();
     return formatTaskRecordFields(
       "[Wink task record - local notes. The previous turn was interrupted. Continue from the conversation.]",
       [
+        ...(unsettled ? [["Unfinished request", unsettled] as const] : []),
         ...(current ? [["Current request", current] as const] : []),
         ...taskRecordProgressFields(record),
       ],
