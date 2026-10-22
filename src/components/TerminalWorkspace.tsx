@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent } from "react";
-import { ArrowLeft, ChevronDown, FolderOpen, RotateCcw, TerminalSquare, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, FolderOpen, TerminalSquare, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -751,15 +751,6 @@ export function TerminalWorkspace({
           </div>
         </div>
         {bot.busy && <span className="shrink-0 text-[11px] text-accent-text" role="status">{t("terminal.agentWorking")}</span>}
-        <button
-          type="button"
-          onClick={requestRestartHere}
-          disabled={replacing || choosing || pane !== null}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text disabled:opacity-60"
-        >
-          <RotateCcw size={13} className={replacing ? "animate-spin" : undefined} />
-          {t("terminal.headerRestart")}
-        </button>
       </header>
       {showProjectBanner && (
         <div role="status" className="flex min-h-8 flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline bg-inset px-5 py-1.5 text-[12px] text-ink">
