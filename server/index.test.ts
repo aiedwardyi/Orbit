@@ -2367,7 +2367,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("queues an after-this-turn send on a steering engine and runs it once Stop settles", async () => {
+  it("hands an after-this-turn send on a steering engine back on Stop instead of running it", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     const botState = async (messages: number) => (await api("GET", `/api/bots?messages=${messages}`)).body.bots.find(
       (candidate: { id: string }) => candidate.id === bot.id,
@@ -2384,11 +2384,16 @@ describe("harness HTTP API", () => {
       const later = await api("POST", `/api/bots/${bot.id}/messages`, { text: "after this turn", deliver: "after" });
       expect(later.body).toMatchObject({ ok: true, queued: true });
       expect(later.body.steered).toBeUndefined();
-      expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
-      await expect.poll(async () => (await botState(20))?.messages.some(
-        (message: { role: string; text?: string; steered?: boolean }) =>
-          message.role === "user" && message.text === "after this turn" && !message.steered,
-      ), { timeout: 10_000 }).toBe(true);
+      const stopped = await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
+      expect(stopped.status).toBe(200);
+      expect(stopped.body.returned).toEqual([
+        { threadId: later.body.threadId, queueId: later.body.queueId, text: "after this turn" },
+      ]);
+      await expect.poll(async () => (await botState(0))?.busy, { timeout: 10_000 }).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const settled = await botState(20);
+      expect(settled?.busy).toBe(false);
+      expect(settled?.messages.some((message: { text?: string }) => message.text === "after this turn")).toBe(false);
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
       await api("DELETE", `/api/bots/${bot.id}`);
@@ -5207,7 +5212,7 @@ describe("startTurn presence boundary", () => {
     }
   }, 30_000);
 
-  it("stops a drained send running on a task the open chat moved away from", async () => {
+  it("hands back a send queued on a task the open chat moved away from", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     const hanging = await hangingModel();
     let routineId = "";
@@ -5251,12 +5256,15 @@ describe("startTurn presence boundary", () => {
         const queued = await api("POST", `/api/bots/${bot.id}/messages`, { text: "after the routine" });
         expect(queued.body.queued).toBe(true);
         expect((await api("POST", `/api/bots/${bot.id}/tasks/${routineThread}`)).status).toBe(200);
-        expect((await api("POST", `/api/bots/${bot.id}/interrupt`, {})).status).toBe(200);
-        await started(viewed);
-        await expect.poll(snapshot).toMatchObject({ busy: true, threadId: routineThread, workingThreadId: viewed });
-
-        expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: routineThread })).status).toBe(200);
+        const stopped = await api("POST", `/api/bots/${bot.id}/interrupt`, {});
+        expect(stopped.status).toBe(200);
+        expect(stopped.body.returned).toEqual([
+          { threadId: viewed, queueId: queued.body.queueId, text: "after the routine" },
+        ]);
         await expect.poll(async () => (await snapshot())?.busy, { timeout: 10_000 }).toBe(false);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(await snapshot()).toMatchObject({ busy: false, threadId: routineThread });
+        expect(stream.frames.some((frame) => frame.kind === "turn.dispatch" && frame.threadId === viewed)).toBe(false);
       } finally {
         stream.close();
       }

@@ -790,7 +790,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
   );
 
   it(
-    "drains the queue after an interrupt — stop-then-steer",
+    "hands the queue back on an interrupt instead of draining it",
     async () => {
       const bot = await newBot("steerStop", "Stoppable");
 
@@ -809,28 +809,21 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
           return false;
         }
       }, "the hung prompt");
-      expect((await api("POST", `/api/bots/${bot.id}/interrupt`)).status).toBe(200);
+      const stopped = await api("POST", `/api/bots/${bot.id}/interrupt`);
+      expect(stopped.status).toBe(200);
+      expect(stopped.body.returned).toEqual([
+        { threadId: queued.body.threadId, queueId: queued.body.queueId, text: "after stop please" },
+      ]);
 
-      // the interrupt settles the hung turn (ACP cancel grace), and the
-      // drain consumes the queue: its message loses the queued flag while
-      // the steered turn waits on the still-missing gate
-      await until(async () => {
-        const snapshot = await botById(bot.id);
-        const message = snapshot.messages.find((m: any) => m.text === "after stop please");
-        return Boolean(message) && !message.queued;
-      }, "the post-interrupt drain");
-
+      // busy holds through the ACP cancel grace, so idle means the turn settled
+      await until(async () => !(await botById(bot.id)).busy, "the interrupted turn to settle");
+      // a drained turn would answer once the gate opens
       writeFileSync(stopGate, "open");
-      let snapshot: any;
-      await until(async () => {
-        snapshot = await botById(bot.id);
-        return !snapshot.busy && echoes(snapshot).length >= 1;
-      }, "the steered turn");
-
-      // the interrupted turn produced no reply; the steered one answers
-      const replies = echoes(snapshot);
-      expect(replies).toHaveLength(1);
-      expect(replies[0].text).toContain("after stop please");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const snapshot = await botById(bot.id);
+      expect(snapshot.busy).toBe(false);
+      expect(echoes(snapshot)).toHaveLength(0);
+      expect(snapshot.messages.some((m: any) => m.text === "after stop please")).toBe(false);
     },
     60_000,
   );
