@@ -2,6 +2,22 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.199] - 2026-10-23
+
+### Changed
+- The terminal header no longer has a Restart button; restart from the footer when the shell exits, or from the project-changed banner.
+
+### Fixed
+- Wrapped keyboard shortcut keys stay right-aligned on narrow screens.
+- A bot channel only gets the reply meant for that bot, not a status update for you.
+- Gemini Argon and Flash workers show the Gemini icon.
+- Deleting a bot removes the event logs of all its tasks.
+- Moving a pinned bot down lands it one row down, not two.
+- On phone, the first quick tap on a thread's turn rail opens it.
+- Adding a bot while creating a group keeps the current chat in view.
+- Escape closes step 2 of the group wizard without a click first.
+- The webhook "..." menu closes after Edit settings, and editing a webhook whose bot was deleted picks a live bot.
+
 ## [1.0.198] - 2026-10-22
 
 ### Added
@@ -163,6 +179,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.199]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.199
 [1.0.198]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.198
 [1.0.197]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.197
 [1.0.196]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.196
