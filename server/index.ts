@@ -4840,7 +4840,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
     contextCapped: contextCompacted,
-    recovering,
+    recovering: recovering || Boolean(unsettled),
     currentRequestText: recoveryLatestUserText,
   });
   const resumeFallback = buildResumeFallback({
@@ -4860,7 +4860,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
     contextCapped: contextCompacted,
-    recovering,
+    recovering: recovering || Boolean(unsettled),
     currentRequestText: recoveryLatestUserText,
   }).turnText;
 
