@@ -12,6 +12,7 @@ import {
   shouldStampRecoveryDismiss,
   shutdownStampsForClose,
   turnCompletionDisposition,
+  unsettledRequest,
 } from "./task-recovery-flush.ts";
 import { recordTaskCompletion, seedTaskResumePacket, stampTaskResumePacket } from "./task-state-fold.ts";
 
@@ -201,6 +202,41 @@ describe("Continuity Resume prompt", () => {
     expect(indexSource).toContain("startTurn(bot.id, TASK_RESUME_PROMPT");
     expect(indexSource).not.toContain("Continue the saved task from its recorded next action");
     expect(indexSource).not.toContain("Verify the record against the conversation before acting");
+  });
+});
+
+describe("unsettled request", () => {
+  const line = (id: string, text: string, steered?: true) => ({ id, role: "user", kind: "text", text, at: 0, steered });
+  const file = '<attached-file path="C:/b.txt" name="b.txt" size="9" />';
+  const path = [
+    line("a", "Polish the script"),
+    line("a-more", "Also tighten scene 2", true),
+    { id: "a-reply", role: "bot", kind: "text", text: "Polished.", at: 0 },
+    line("b", "Review the new script"),
+    line("b-file", file, true),
+  ];
+
+  it("reads each line since the record settled, with the ones sent into its turn", () => {
+    expect(unsettledRequest({ instructionId: "b", settledInstructionId: "a" }, path)).toBe(`Review the new script | ${file}`);
+    expect(unsettledRequest({ instructionId: "c", settledInstructionId: "a" }, [...path, line("c", "continue")]))
+      .toBe(`Review the new script | ${file} | continue`);
+    expect(unsettledRequest({ instructionId: "b" }, path)).toBe(`Review the new script | ${file}`);
+  });
+
+  it("is empty while the record is settled or behind the conversation", () => {
+    expect(unsettledRequest({ instructionId: "b", settledInstructionId: "b" }, path)).toBe("");
+    expect(unsettledRequest({}, path)).toBe("");
+    expect(unsettledRequest(null, path)).toBe("");
+    expect(unsettledRequest({ instructionId: "gone", settledInstructionId: "a" }, path)).toBe("");
+    expect(unsettledRequest({ instructionId: "b", settledInstructionId: "a" }, [...path, line("c", "Answered on another device")]))
+      .toBe("");
+  });
+
+  it("reads the packet from before this send, and a Resume card names it once", () => {
+    expect(indexSource).toContain('const unsettled = routineTurn ? "" : unsettledRequest(priorTaskPacket, earlierMessages);');
+    expect(indexSource).toContain('(opts?.cardContinuation ? "" : text.trim()) || (unsettled ? "" : latestUser?.text) || ""');
+    const options = "recovering || unsettled ? { recovering, latestUserText: recoveryLatestUserText, unsettledRequest: unsettled } : undefined";
+    expect(indexSource.split(options)).toHaveLength(3);
   });
 });
 

@@ -223,6 +223,7 @@ import {
   shutdownStampsForClose,
   TaskResumeScheduler,
   turnCompletionDisposition,
+  unsettledRequest,
   type RecoveryFlushReason,
 } from "./task-recovery-flush.ts";
 import { isCompletedTaskRecord } from "../shared/task-resume.ts";
@@ -4543,17 +4544,19 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     task.lastInstanceId !== instanceId ||
     (task.lastModel !== undefined && task.lastModel !== model)
   );
-  const latestUser = lastUserInstruction(messagesBeforeSummary.filter((message) => !skipTranscript.has(message.id)));
+  const earlierMessages = messagesBeforeSummary.filter((message) => !skipTranscript.has(message.id));
+  const latestUser = lastUserInstruction(earlierMessages);
+  const unsettled = routineTurn ? "" : unsettledRequest(priorTaskPacket, earlierMessages);
   // Recovery Current request must be this send's text. skipTranscript excludes
   // userMessage.id, so transcript lookup alone would show a prior user turn.
   // A Resume card carries no request of its own, so it falls back to the turn
-  // the interruption cut short.
-  let recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || latestUser?.text || "";
+  // the interruption cut short, unless the unsettled request already names it.
+  let recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || (unsettled ? "" : latestUser?.text) || "";
   let durableTaskRecordText = taskRecord
     ? taskRecordBlock(
       taskRecord,
       Math.max(512, Math.floor(modelContextWindow * 0.15) * 3),
-      recovering ? { recovering: true, latestUserText: recoveryLatestUserText } : undefined,
+      recovering || unsettled ? { recovering, latestUserText: recoveryLatestUserText, unsettledRequest: unsettled } : undefined,
     )
     : "";
   const catalogWindow = knownCatalogContextWindow(instance.models, model);
@@ -4619,10 +4622,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           turnsAtWrite: task.usage?.turns ?? taskRecord.turnsAtWrite,
         })) ?? taskRecord;
       }
-      recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || lastUserInstruction(messages.filter((message) => !skipTranscript.has(message.id)))?.text || "";
+      recoveryLatestUserText = (opts?.cardContinuation ? "" : text.trim()) || (unsettled ? "" : lastUserInstruction(messages.filter((message) => !skipTranscript.has(message.id)))?.text) || "";
       durableTaskRecordText = taskRecord
         ? taskRecordBlock(taskRecord, Math.max(512, Math.floor(modelContextWindow * 0.15) * 3),
-            recovering ? { recovering: true, latestUserText: recoveryLatestUserText } : undefined)
+            recovering || unsettled ? { recovering, latestUserText: recoveryLatestUserText, unsettledRequest: unsettled } : undefined)
         : "";
       sessionPrompt = sessionPromptFor({ report: task.nativePrompt, cursor: task.resumeCursors[instanceId], model, catalogWindow });
       reactions.delivered = task.reactionsDelivered;
@@ -4836,7 +4839,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
     contextCapped: contextCompacted,
-    recovering,
+    recovering: recovering || Boolean(unsettled),
     currentRequestText: recoveryLatestUserText,
   });
   const resumeFallback = buildResumeFallback({
@@ -4856,7 +4859,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
     taskRecord: taskRecord ?? undefined,
     taskRecordText: durableTaskRecordText || undefined,
     contextCapped: contextCompacted,
-    recovering,
+    recovering: recovering || Boolean(unsettled),
     currentRequestText: recoveryLatestUserText,
   }).turnText;
 

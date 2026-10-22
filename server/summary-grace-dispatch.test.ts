@@ -169,7 +169,7 @@ describe("summary grace dispatch", () => {
         reactions: {}, rewound: false, fresh: false, recycled: false, recycleReason: undefined, modelContextWindow: 200_000,
         recycleDeferred: false,
         transcript: prepared.transcript, contextCompacted: prepared.compacted, taskRecord: undefined, durableTaskRecordText: taskRecordText,
-        recovering: false, recoveryLatestUserText: "next request", latestCompactionId: null, seed,
+        recovering: false, unsettled: "", recoveryLatestUserText: "next request", latestCompactionId: null, seed,
         summarySkipped: true, summaryGrace, graceInputs, planBeforeSummary, summaryBuild: build, prepareContext,
         inlineNotes: null,
         onSummaryWait, logSummaryWait, latencySendId: "send", isSendCancelled: () => false,

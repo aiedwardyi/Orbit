@@ -116,6 +116,24 @@ export function lastUserInstruction(
   return null;
 }
 
+/** The request no completion settled, with the lines steered into its turn.
+ *  Pass the packet from before this send: recording a send moves instructionId to it. */
+export function unsettledRequest(
+  packet: { instructionId?: string; settledInstructionId?: string } | null | undefined,
+  messages: ReadonlyArray<{ id: string; role: string; kind?: string; text?: string; steered?: boolean }>,
+): string {
+  if (!packet?.instructionId || packet.instructionId === packet.settledInstructionId) return "";
+  const lines = messages.filter((message) =>
+    message.role === "user" && (message.kind === undefined || message.kind === "text") && message.text?.trim());
+  const index = lines.findIndex((line) => line.id === packet.instructionId);
+  // Each local send records its instruction, so a later unsteered line synced in from another device.
+  if (index < 0 || lines.slice(index + 1).some((line) => !line.steered)) return "";
+  const settled = lines.findIndex((line) => line.id === packet.settledInstructionId);
+  let start = settled < 0 ? index : settled + 1;
+  while (start < index && lines[start]!.steered) start++;
+  return lines.slice(start).map((line) => line.text!.trim()).join(" | ");
+}
+
 /** Decide whether a turn.completed belongs to the live turn or to a Stop/crash
  * that already handed the thread to a newer dispatch. */
 export function turnCompletionDisposition(input: {
