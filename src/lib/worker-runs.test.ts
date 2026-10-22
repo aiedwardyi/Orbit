@@ -298,9 +298,10 @@ describe("workerProvider", () => {
     ["Opus5.5", "claudeAgent"], ["opus-5-5", "claudeAgent"], ["Sonnet5.5", "claudeAgent"], ["Haiku5", "claudeAgent"],
     ["GPT6.1", "codex"], ["gpt-6.1-sol", "codex"], ["Grok4.7", "grokAgent"], ["Gemini4", "geminiAgent"],
     ["GPT-6 Astra", "codex"], ["GPT-6.1 Sol", "codex"], ["Astra", "codex"], ["Sol", "codex"], ["Terra", "codex"], ["Luna", "codex"],
-    ["Muse 1.3", "museAgent"],
+    ["Muse 1.3", "museAgent"], ["Argon", "geminiAgent"], ["Flash 3.8", "geminiAgent"], ["gemini-4-argon-high", "geminiAgent"],
     ["Grok 4.7", "grokAgent"], ["Gemini 3.8", "geminiAgent"], ["script", "script"], ["Mystery 2", null],
     ["solid", null], ["metadata", null], ["lunar", null], ["opuslike", null], ["megagpt6", null], ["geminiature", null],
+    ["argonaut", null], ["flashy", null],
   ])("maps %s to %s", (model, provider) => {
     expect(workerProvider(model)).toBe(provider);
   });
