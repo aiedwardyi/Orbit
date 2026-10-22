@@ -250,7 +250,7 @@ describe("GroupWizard members", () => {
       expect(JSON.parse(String(apiCalls[1]!.init?.body))).toMatchObject({
         modelSelection: { instanceId: "muse-1", model: "muse-1-model" },
       });
-      expect(dispatched).toContainEqual(expect.objectContaining({ type: "botAdded" }));
+      expect(dispatched).toContainEqual(expect.objectContaining({ type: "botAdded", activate: false, focusComposer: false }));
       await act(async () => {
         button(host, "Create group · 2 bots").click();
       });

@@ -91,7 +91,7 @@ export function GroupWizard({
         method: "POST",
         body: JSON.stringify(newBotPayload(job, selection)),
       });
-      dispatch({ type: "botAdded", bot: result.bot });
+      dispatch({ type: "botAdded", bot: result.bot, activate: false, focusComposer: false });
       setPicked((prev) => new Set(prev).add(result.bot.id));
       setAddedNew((n) => n + 1);
       setRows((prev) => prev.filter((r) => r.key !== row.key));
