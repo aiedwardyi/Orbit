@@ -38,6 +38,11 @@ describe("placeTooltip", () => {
     expect(top).toBeGreaterThanOrEqual(TOOLTIP_EDGE);
   });
 
+  it("drops below an anchor that sits just under the Windows caption strip", () => {
+    const { top } = placeTooltip({ anchor: anchor(400, 46), size, viewportWidth: 1000, viewportHeight: 1000, topInset: 32 });
+    expect(top).toBe(46 + 14 + TOOLTIP_GAP);
+  });
+
   it("still starts on screen when the tip is wider than the window", () => {
     const { left } = placeTooltip({ anchor: anchor(20), size: { width: 500, height: 24 }, viewportWidth: 380, viewportHeight: 1000 });
     expect(left).toBe(TOOLTIP_EDGE);
