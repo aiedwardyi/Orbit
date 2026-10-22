@@ -103,6 +103,11 @@ describe("sidebar item order", () => {
     )).toEqual({ [UNASSIGNED_SECTION_ID]: ["bot:p2", "bot:regular", "bot:p1"] });
   });
 
+  it("moves a tier item down by one row past a target that is not last", () => {
+    expect(moveSidebarItemWithinTier({ s: ["p1", "p2", "p3"] }, "s", "p1", "p2", ["p1", "p2", "p3"], "after"))
+      .toEqual({ s: ["p2", "p1", "p3"] });
+  });
+
   it("removes duplicate copies of a rapidly moved item before inserting it", () => {
     const next = moveSidebarItem(
       { [UNASSIGNED_SECTION_ID]: ["bot:b1", "bot:b1"], "section:Work": ["group:g1"] },
