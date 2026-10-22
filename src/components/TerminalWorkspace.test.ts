@@ -179,7 +179,6 @@ it("joins the snapshot to live output once and retains the renderer across visib
   await act(async () => { await Promise.resolve(); });
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["snapshot", "next"]);
   expect(host.textContent).toContain("work");
-  expect(host.textContent).toContain("Restart");
   await act(async () => render(false));
   await act(async () => { receive({ id: "session-1", data: "while hidden", seq: 3 }); });
   await act(async () => render(true));
@@ -384,7 +383,7 @@ it("queues live output until historical replay finishes and preserves seq order"
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SNAP", "live-a", "live-b"]);
 });
 
-it("shows header folder and restart controls for a private workspace", async () => {
+it("shows header folder controls for a private workspace", async () => {
   const open = vi.fn(async () => ({ id: "session-p", cwd: "C:\\Users\\private", shell: "pwsh.exe", output: "", seq: 0, exitCode: null }));
   const bridge: TerminalBridge = { appearance: vi.fn(async () => null), open, write: vi.fn(), resize: vi.fn(async () => {}), onData: () => vi.fn(), onExit: () => vi.fn() };
   Object.defineProperty(window, "ogb", {
@@ -404,7 +403,6 @@ it("shows header folder and restart controls for a private workspace", async () 
   })));
   await act(async () => { await Promise.resolve(); });
   expect(host.textContent).toMatch(/Private workspace/i);
-  expect(host.textContent).toMatch(/Restart/i);
   expect(host.textContent).toContain("Chief of Staff");
 });
 
@@ -442,7 +440,7 @@ it("folderBasename keeps root paths non-empty", () => {
 });
 
 it("same-id fallback preserves liveQueue events from the restart IPC gap", async () => {
-  const snapshot = { id: "session-gap", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null };
+  const snapshot = { id: "session-gap", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null, launchProject: "C:\elsewhere" };
   let receive!: (event: { id: string; data: string; seq: number }) => void;
   let resolveFallback!: (value: typeof snapshot) => void;
   const open = vi.fn(async (opts: { restart?: boolean }) => {
@@ -472,7 +470,7 @@ it("same-id fallback preserves liveQueue events from the restart IPC gap", async
   })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SCROLLBACK"]);
-  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Open terminal here"));
   expect(restartBtn).toBeTruthy();
   await act(async () => { restartBtn!.click(); });
   const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
@@ -494,7 +492,7 @@ it("same-id fallback preserves liveQueue events from the restart IPC gap", async
 });
 
 it("fallback resume after failed restart does not rewrite xterm scrollback", async () => {
-  const snapshot = { id: "session-same", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null };
+  const snapshot = { id: "session-same", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null, launchProject: "C:\elsewhere" };
   let receive!: (event: { id: string; data: string; seq: number }) => void;
   const open = vi.fn(async (opts: { restart?: boolean }) => {
     if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
@@ -522,7 +520,7 @@ it("fallback resume after failed restart does not rewrite xterm scrollback", asy
   })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["SCROLLBACK"]);
-  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Open terminal here"));
   expect(restartBtn).toBeTruthy();
   await act(async () => { restartBtn!.click(); });
   const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
@@ -541,7 +539,7 @@ it("fallback resume after failed restart does not rewrite xterm scrollback", asy
 });
 
 it("does not flash needsFolder banner while restart fallback is pending", async () => {
-  const snapshot = { id: "session-pending", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null };
+  const snapshot = { id: "session-pending", cwd: "C:\\work", shell: "pwsh.exe", output: "SCROLLBACK", seq: 2, exitCode: null as number | null, launchProject: "C:\elsewhere" };
   let resolveFallback!: (value: typeof snapshot) => void;
   const open = vi.fn(async (opts: { restart?: boolean }) => {
     if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
@@ -569,7 +567,7 @@ it("does not flash needsFolder banner while restart fallback is pending", async 
     onClose: vi.fn(),
   })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Open terminal here"));
   expect(restartBtn).toBeTruthy();
   await act(async () => { restartBtn!.click(); });
   const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
@@ -713,7 +711,7 @@ it.each([null, 7])("retains replacement events before restart resolves with exit
   let resolveRestart!: (snapshot: TerminalSnapshot) => void;
   const open = vi.fn(async () => {
     if (open.mock.calls.length === 1) {
-      return { id: "old", cwd: "C:\\work", shell: "pwsh.exe", output: "OLD", seq: 10, exitCode: null };
+      return { id: "old", cwd: "C:\\work", shell: "pwsh.exe", output: "OLD", seq: 10, exitCode: null, launchProject: "C:\elsewhere" };
     }
     return new Promise<TerminalSnapshot>((resolve) => { resolveRestart = resolve; });
   });
@@ -726,7 +724,7 @@ it.each([null, 7])("retains replacement events before restart resolves with exit
   await act(async () => root.render(createElement(TerminalWorkspace, {
     bot, visible: true, focusBlocked: false, onClose: vi.fn(),
   })));
-  const restart = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  const restart = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Open terminal here"));
   expect(restart).toBeTruthy();
   await act(async () => { restart!.click(); });
   const confirm = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
@@ -755,7 +753,7 @@ it.each([null, 7])("retains replacement events before restart resolves with exit
 });
 
 it("restores keyboard input forwarding when fallback restart IPC throws", async () => {
-  const snapshot = { id: "session-fallback-err", cwd: "C:\\work", shell: "pwsh.exe", output: "READY", seq: 1, exitCode: null as number | null };
+  const snapshot = { id: "session-fallback-err", cwd: "C:\\work", shell: "pwsh.exe", output: "READY", seq: 1, exitCode: null as number | null, launchProject: "C:\elsewhere" };
   const write = vi.fn(async () => {});
   const open = vi.fn(async (opts: { restart?: boolean }) => {
     if (open.mock.calls.length === 1) return { ...snapshot };
@@ -783,7 +781,7 @@ it("restores keyboard input forwarding when fallback restart IPC throws", async 
     onClose: vi.fn(),
   })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Open terminal here"));
   expect(restartBtn).toBeTruthy();
   await act(async () => { restartBtn!.click(); });
   const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
@@ -836,7 +834,7 @@ it("preserves an exit received during snapshot replay", async () => {
 });
 
 it("restores replayComplete and drains gap events when openShell restart rejects on a live session", async () => {
-  const snapshot = { id: "session-live-rej", cwd: "C:\\work", shell: "pwsh.exe", output: "LIVE_SNAP", seq: 1, exitCode: null as number | null };
+  const snapshot = { id: "session-live-rej", cwd: "C:\\work", shell: "pwsh.exe", output: "LIVE_SNAP", seq: 1, exitCode: null as number | null, launchProject: "C:\elsewhere" };
   let receive!: (event: { id: string; data: string; seq: number }) => void;
   let rejectRestart!: (error: Error) => void;
   const write = vi.fn(async () => {});
@@ -866,7 +864,7 @@ it("restores replayComplete and drains gap events when openShell restart rejects
   })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["LIVE_SNAP"]);
-  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Open terminal here"));
   expect(restartBtn).toBeTruthy();
   await act(async () => { restartBtn!.click(); });
   const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
@@ -927,7 +925,7 @@ it("never revives an exited session when openShell restart rejects", async () =>
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   expect(host.textContent).toMatch(/Shell exited \(5\)|exited \(5\)/i);
   expect(terminal.options.disableStdin).toBe(true);
-  const restartBtn = [...host.querySelectorAll("button")].find((el) => /Restart|다시 시작/i.test(el.textContent ?? ""));
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => /New shell|새 셸/i.test(el.textContent ?? ""));
   expect(restartBtn).toBeTruthy();
   await act(async () => { restartBtn!.click(); });
   await act(async () => { await Promise.resolve(); });
@@ -1031,7 +1029,7 @@ it("re-runs fit, refresh, and PTY sync when the terminal becomes visible again",
 });
 
 it("preserves exit received during a rejected restart attempt", async () => {
-  const snapshot = { id: "session-dying-rej", cwd: "C:\\work", shell: "pwsh.exe", output: "BEFORE", seq: 1, exitCode: null as number | null };
+  const snapshot = { id: "session-dying-rej", cwd: "C:\\work", shell: "pwsh.exe", output: "BEFORE", seq: 1, exitCode: null as number | null, launchProject: "C:\elsewhere" };
   let receive!: (event: { id: string; data: string; seq: number }) => void;
   let exitHandler!: (event: { id: string; exitCode: number }) => void;
   let rejectRestart!: (error: Error) => void;
@@ -1061,7 +1059,7 @@ it("preserves exit received during a rejected restart attempt", async () => {
     onClose: vi.fn(),
   })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Open terminal here"));
   expect(restartBtn).toBeTruthy();
   await act(async () => { restartBtn!.click(); });
   const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
@@ -1513,8 +1511,8 @@ it.each([null, 0])("gates every visible Restart entry point on a spawned pane wi
   await f.select(1);
   await f.render({ ...f.props, bot: { ...f.props.bot, cwd: "C:\\other" } });
   if (exitCode !== null) await act(async () => { f.exit({ id: "pane-one", exitCode }); });
-  const buttons = [...host.querySelectorAll<HTMLButtonElement>("button")].filter((button) => /^(Restart|Open terminal here|New shell)$/.test(button.textContent?.trim() ?? ""));
-  expect(buttons).toHaveLength(exitCode === null ? 2 : 3);
+  const buttons = [...host.querySelectorAll<HTMLButtonElement>("button")].filter((button) => /^(Open terminal here|New shell)$/.test(button.textContent?.trim() ?? ""));
+  expect(buttons).toHaveLength(exitCode === null ? 1 : 2);
   f.open.mockClear();
   for (const button of buttons) {
     expect(button.disabled).toBe(true);
@@ -1522,6 +1520,15 @@ it.each([null, 0])("gates every visible Restart entry point on a spawned pane wi
   }
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(f.open).not.toHaveBeenCalled();
+});
+
+it("has no header Restart button on the own terminal or a worker pane", async () => {
+  const f = paneFixture();
+  await f.render();
+  for (const index of [0, 1]) {
+    await f.select(index);
+    expect(host.querySelector("header")!.textContent).not.toContain("Restart");
+  }
 });
 
 it.each([false, true])("persists a folder without reattaching a spawned pane when attachment is pending: %s", async (pending) => {
@@ -1898,7 +1905,7 @@ it("keeps new-session output from the restart fallback gap", async () => {
   let resolveFallback!: (value: TerminalSnapshot) => void;
   const open = vi.fn(async (opts: { restart?: boolean }) => {
     if (opts.restart) return { needsFolder: true as const, reason: "explicit-unavailable" };
-    if (open.mock.calls.length === 1) return { id: "session-old", cwd: "C:\\work", shell: "pwsh.exe", output: "OLD", seq: 1, exitCode: null as number | null };
+    if (open.mock.calls.length === 1) return { id: "session-old", cwd: "C:\\work", shell: "pwsh.exe", output: "OLD", seq: 1, exitCode: null as number | null, launchProject: "C:\elsewhere" };
     return new Promise<TerminalSnapshot>((resolve) => { resolveFallback = resolve; });
   });
   const bridge: TerminalBridge = {
@@ -1923,7 +1930,7 @@ it("keeps new-session output from the restart fallback gap", async () => {
   })));
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   expect(terminal.write.mock.calls.map(([text]) => text)).toEqual(["OLD"]);
-  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Restart"));
+  const restartBtn = [...host.querySelectorAll("button")].find((el) => el.textContent?.includes("Open terminal here"));
   expect(restartBtn).toBeTruthy();
   await act(async () => { restartBtn!.click(); });
   const confirmBtn = [...document.querySelectorAll("button")].find((el) => el.textContent?.trim() === "Restart terminal");
