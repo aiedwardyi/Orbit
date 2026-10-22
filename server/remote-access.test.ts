@@ -1,10 +1,13 @@
 // Remote-mode gates without booting the harness: key file, handshake
 // compare, cookie minting, and the Host/Origin/API checks index.ts wires in.
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { sendStaticFile } from "./compression.ts";
 import {
   apiRequestAuthorized,
   autoRemoteHost,
@@ -14,6 +17,7 @@ import {
   loadOrCreateRemoteKey,
   originAllowedByRemote,
   remoteCookieAuthorized,
+  remoteCookieRefresh,
   remoteKeyMatches,
   remoteLinkUrl,
   remoteHostRetry,
@@ -85,6 +89,34 @@ describe("remote access", () => {
     expect(apiRequestAuthorized(false, `orbit_remote=${key}`, key, "/api/bots/bot-1/terminal")).toBe(true);
     expect(apiRequestAuthorized(true, undefined, key, "/api/bots/bot-1/terminal")).toBe(true);
     expect(apiRequestAuthorized(false, undefined, key, "/api/bots/bot-1/terminal")).toBe(false);
+  });
+
+  it("re-mints the cookie on a shell load it authorizes", async () => {
+    const key = loadOrCreateRemoteKey(freshDir());
+    const staticDir = freshDir();
+    writeFileSync(join(staticDir, "index.html"), "<!doctype html>");
+    const server = createServer((req, res) => {
+      const remoteCookie = remoteCookieRefresh(req.headers.cookie, key);
+      if (remoteCookie) res.setHeader("set-cookie", remoteCookie);
+      sendStaticFile(res, join(staticDir, "index.html"), "/", "text/html");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      // SAFETY: a TCP listen reports an AddressInfo, never a pipe name.
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+      const load = async (cookie?: string) => (await fetch(url, cookie ? { headers: { cookie } } : {})).headers.get("set-cookie");
+      expect(await load(`theme=dark; orbit_remote=${key}`)).toBe(buildRemoteSetCookie(key));
+      expect(await load("orbit_remote=wrong")).toBeNull();
+      expect(await load()).toBeNull();
+    } finally {
+      server.close();
+    }
+    expect(remoteCookieRefresh(`orbit_remote=${key}`, undefined)).toBeUndefined();
+    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+    const shell = index.slice(index.indexOf("if (method === \"GET\" && !path.startsWith(\"/api/\") && STATIC_DIR)"));
+    expect(shell).toContain("const remoteCookie = remoteCookieRefresh(req.headers.cookie, credentials.remoteKey);");
+    expect(shell).toContain("if (remoteCookie && safe === \"/index.html\") res.setHeader(\"set-cookie\", remoteCookie);");
+    expect(shell).toContain("if (remoteCookie) res.setHeader(\"set-cookie\", remoteCookie);\n          return sendStaticFile(res, join(STATIC_DIR, \"index.html\")");
   });
 
   it("rejects unrelated hostnames when remote mode is on", () => {

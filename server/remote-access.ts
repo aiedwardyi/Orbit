@@ -117,6 +117,11 @@ export function remoteCookieAuthorized(cookieHeader: string | undefined, remoteK
   return remoteKeyMatches(remoteCookieValue(cookieHeader), remoteKey);
 }
 
+/** Re-mint for a request the cookie already authorizes, so its Max-Age slides with use. */
+export function remoteCookieRefresh(cookieHeader: string | undefined, remoteKey: string | undefined): string | undefined {
+  return remoteKey !== undefined && remoteCookieAuthorized(cookieHeader, remoteKey) ? buildRemoteSetCookie(remoteKey) : undefined;
+}
+
 const BEARER_ONLY_PATHS = new Set(["/api/internal/terminal-bridge", "/api/internal/google-account"]);
 
 /** /api/* accepts the boot token or, when remote mode is on, the cookie; bearer-only paths refuse the cookie. */
