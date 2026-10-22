@@ -188,9 +188,19 @@ const AGY_API_DISABLED =
   "Agent Platform API has not been used in project my-personal-agy-vertex before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/aiplatform.googleapis.com/overview?project=my-personal-agy-vertex then retry. If you enabled this API recently, wait a few minutes for the action to propagate to our systems and retry.";
 const AGY_RETRIED_429 =
   "API error (attempt 1): RESOURCE_EXHAUSTED (code 429): Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.";
+const AGY_RESOURCE_EXHAUSTED =
+  "Resource exhausted. Please try again later. Please refer to https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429 for more details.";
+const AGY_PREAMBLE = "《열려라 포키》 1~3화 대본을 정리할게요.";
 const AGY_RETRIED_TIMEOUT = "API error (attempt 1): request failed: stream idle timeout (5m0s): context deadline exceeded";
 
 describe("isAgyAccountError", () => {
+  it.each([
+    "403 Resource exhausted",
+    "403 See https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429",
+  ])("ignores provider-busy wording in %j", (text) => {
+    expect(isAgyAccountError(text)).toBe(false);
+  });
+
   it("matches auth and permission wording", () => {
     for (const text of [
       AGY_AUTH_FAILED,
@@ -476,6 +486,7 @@ describe("Antigravity turns (fake CLI)", () => {
   it("shows only the reply when a retried 429 comes with a real response", async () => {
     process.env.FAKE_AGY_RESULT_ERROR = AGY_RETRIED_429;
     process.env.FAKE_AGY_RESULT_RESPONSE = "done from fake agy";
+    process.env.FAKE_AGY_RESULT_STATUS = "SUCCESS";
     try {
       await create();
       await instance.adapter.sendTurn({ threadId: "t-agy-retried-429", text: "hi" });
@@ -486,26 +497,30 @@ describe("Antigravity turns (fake CLI)", () => {
       expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
         text: "done from fake agy",
       });
-      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "recovered_transient_error" });
+      expect(recorder.events.some((event) => event.type === "turn.retrying")).toBe(false);
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "SUCCESS" });
     } finally {
       delete process.env.FAKE_AGY_RESULT_ERROR;
       delete process.env.FAKE_AGY_RESULT_RESPONSE;
+      delete process.env.FAKE_AGY_RESULT_STATUS;
     }
   });
 
   it("shows only the reply when a retried stream timeout comes with a real response", async () => {
     process.env.FAKE_AGY_RESULT_ERROR = AGY_RETRIED_TIMEOUT;
     process.env.FAKE_AGY_RESULT_RESPONSE = "done from fake agy";
+    process.env.FAKE_AGY_RESULT_STATUS = "SUCCESS";
     try {
       await create();
       await instance.adapter.sendTurn({ threadId: "t-agy-retried-timeout", text: "hi" });
       await recorder.until((event) => event.type === "turn.completed");
 
       expect(recorder.events.some((event) => event.type === "runtime.error")).toBe(false);
-      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "recovered_transient_error" });
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "SUCCESS" });
     } finally {
       delete process.env.FAKE_AGY_RESULT_ERROR;
       delete process.env.FAKE_AGY_RESULT_RESPONSE;
+      delete process.env.FAKE_AGY_RESULT_STATUS;
     }
   });
 
@@ -529,6 +544,7 @@ describe("Antigravity turns (fake CLI)", () => {
       vi.useRealTimers();
       delete process.env.FAKE_AGY_RESULT_ERROR_FILE;
       delete process.env.FAKE_AGY_DUMP;
+      delete process.env.FAKE_AGY_RESULT_RESPONSE;
       rmSync(scratch, { recursive: true, force: true });
     });
 
@@ -561,7 +577,82 @@ describe("Antigravity turns (fake CLI)", () => {
       expect(recorder.events.filter((event) => event.type === "thread.token-usage.updated").at(-1)).toMatchObject({ input: 210, output: 40 });
     });
 
+    it.each([
+      ["the exact Resource exhausted error", AGY_RESOURCE_EXHAUSTED],
+      ["RESOURCE_EXHAUSTED", AGY_RETRIED_429],
+      ["429", "429"],
+      ["503", "503"],
+      ["try again later", "503: Please try again later."],
+    ])("resumes after an ERROR preamble with %s", async (_label, error) => {
+      writeFileSync(busy, error);
+      process.env.FAKE_AGY_RESULT_RESPONSE = AGY_PREAMBLE;
+      await create();
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "t-busy-preamble", text: "hi" });
+      expect(await recorder.until((event) => event.type === "turn.retrying" || event.type === "turn.completed")).toMatchObject({
+        type: "turn.retrying", turnId, attempt: 1, delayMs: 30_000,
+      });
+      expect(count("turn.completed")).toBe(0);
+      expect(count("runtime.error")).toBe(0);
+      expect(recorder.events.filter((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toEqual([
+        expect.objectContaining({ text: AGY_PREAMBLE }),
+      ]);
+
+      rmSync(busy);
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(count("session.started")).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await recorder.until((event) => event.type === "turn.completed")).toMatchObject({ turnId, ok: true });
+      const invocation = JSON.parse(readFileSync(dump, "utf8"));
+      expect(invocation.prompt).toBe("continue");
+      expect(invocation.argv).toEqual(expect.arrayContaining(["--conversation", "conv-fake-123"]));
+      expect(count("turn.completed")).toBe(1);
+      expect(recorder.events.filter((event) => event.type === "thread.token-usage.updated").at(-1)).toMatchObject({ input: 210, output: 40 });
+    });
+
+    it("shows the ERROR preamble once across all busy resumes", async () => {
+      writeFileSync(busy, AGY_RESOURCE_EXHAUSTED);
+      process.env.FAKE_AGY_RESULT_RESPONSE = AGY_PREAMBLE;
+      await create();
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "t-preamble-once", text: "hi" });
+      for (const [attempt, delayMs] of [[1, 30_000], [2, 60_000], [3, 120_000]]) {
+        expect(await recorder.until((event) => event.type === "turn.retrying" && event.attempt === attempt || event.type === "turn.completed")).toMatchObject({
+          type: "turn.retrying", attempt, delayMs,
+        });
+        expect(recorder.events.filter((event) => event.type === "content.delta" && event.delta === AGY_PREAMBLE)).toHaveLength(1);
+        expect(recorder.events.filter((event) => event.type === "item.completed" && event.itemType === "assistant_text" && event.text === AGY_PREAMBLE)).toHaveLength(1);
+        if (attempt === 3) rmSync(busy);
+        await vi.advanceTimersByTimeAsync(delayMs);
+      }
+      expect(await recorder.until((event) => event.type === "turn.completed")).toMatchObject({ turnId, ok: true });
+      expect(recorder.events.filter((event) => event.type === "turn.retrying").map((event) => event.delayMs)).toEqual([30_000, 60_000, 120_000]);
+      expect(recorder.events.filter((event) => event.type === "content.delta").map((event) => event.delta)).toEqual([AGY_PREAMBLE, "done from fake agy"]);
+      expect(recorder.events.filter((event) => event.type === "item.completed" && event.itemType === "assistant_text").map((event) => event.text)).toEqual([AGY_PREAMBLE, "done from fake agy"]);
+      expect(count("turn.completed")).toBe(1);
+      expect(count("runtime.error")).toBe(0);
+      expect(recorder.events.every((event) => event.turnId === turnId)).toBe(true);
+      expect(recorder.events.filter((event) => event.type === "thread.token-usage.updated").at(-1)).toMatchObject({ input: 420, output: 80 });
+    });
+
+    it("never resumes or recovers a quota ERROR with a preamble", async () => {
+      const error = `${AGY_RESOURCE_EXHAUSTED} Quota exceeded for quota metric 'Generate requests'.`;
+      writeFileSync(busy, error);
+      process.env.FAKE_AGY_RESULT_RESPONSE = AGY_PREAMBLE;
+      await create();
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "t-quota-preamble", text: "hi" });
+      expect(await recorder.until((event) => event.type === "turn.completed")).toMatchObject({ turnId, ok: false, stopReason: "ERROR" });
+      expect(count("turn.retrying")).toBe(0);
+      expect(recorder.events.filter((event) => event.type === "runtime.error")).toEqual([
+        expect.objectContaining({ message: error }),
+      ]);
+      expect(recorder.events.filter((event) => event.type === "content.delta").map((event) => event.delta)).toEqual([AGY_PREAMBLE]);
+      await vi.advanceTimersByTimeAsync(210_000);
+      expect(count("session.started")).toBe(1);
+      expect(count("turn.completed")).toBe(1);
+    });
+
     it("stops after 3 tries with the original error and a try-another-model line", async () => {
+      writeFileSync(busy, AGY_RESOURCE_EXHAUSTED);
+      process.env.FAKE_AGY_RESULT_RESPONSE = AGY_PREAMBLE;
       await create();
       const { turnId } = await instance.adapter.sendTurn({ threadId: "t-busy-give-up", text: "hi" });
       for (const [attempt, delayMs] of [[1, 30_000], [2, 60_000], [3, 120_000]]) {
@@ -571,17 +662,19 @@ describe("Antigravity turns (fake CLI)", () => {
       expect(await recorder.until((event) => event.type === "turn.completed")).toMatchObject({
         turnId,
         ok: false,
-        stopReason: "no_final_text",
+        stopReason: "ERROR",
       });
 
       expect(recorder.events.filter((event) => event.type === "turn.retrying").map((event) => event.delayMs)).toEqual([30_000, 60_000, 120_000]);
       expect(count("session.started")).toBe(4);
       expect(recorder.events.filter((event) => event.type === "runtime.error").map((event) => event.message)).toEqual([
-        AGY_RETRIED_429,
+        AGY_RESOURCE_EXHAUSTED,
         "Gemini is still busy after 3 tries. Try another model.",
       ]);
       expect(recorder.events.every((event) => event.turnId === turnId)).toBe(true);
       expect(count("turn.completed")).toBe(1);
+      expect(recorder.events.filter((event) => event.type === "content.delta").map((event) => event.delta)).toEqual([AGY_PREAMBLE]);
+      expect(recorder.events.filter((event) => event.type === "item.completed" && event.itemType === "assistant_text").map((event) => event.text)).toEqual([AGY_PREAMBLE]);
     });
 
     it("cancels the pending resume at once and runs the next message normally", async () => {
@@ -624,13 +717,13 @@ describe("Antigravity turns (fake CLI)", () => {
       ["a busy 429", AGY_RETRIED_429, "", true],
       ["a rate-limit 429", "429 rate limit exceeded; try again later", "", true],
       ["a busy 503", "API error (attempt 3): UNAVAILABLE (code 503): The service is currently unavailable. Please try again later.", "", true],
-      ["a busy 429 with a reply", AGY_RETRIED_429, "done from fake agy", false],
-      ["a quota 429", "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Quota exceeded for quota metric 'Generate requests'.", "", false],
-      ["a weekly limit", "RESOURCE_EXHAUSTED: You have reached your weekly limit. Upgrade your plan or try again later.", "", false],
-      ["a billing message", "RESOURCE_EXHAUSTED (code 429): billing account required. Please try again later.", "", false],
-      ["an auth failure", AGY_AUTH_FAILED, "", false],
-      ["a disabled API", "Agent Platform API has not been used in project my-project-429 before or it is disabled.", "", false],
-      ["an invalid request", "API error (attempt 1): INVALID_ARGUMENT (code 400): invalid request. Please try again later.", "", false],
+      ["a busy 429 with a preamble", AGY_RETRIED_429, AGY_PREAMBLE, true],
+      ["a quota 429", "API error (attempt 3): RESOURCE_EXHAUSTED (code 429): Quota exceeded for quota metric 'Generate requests'.", AGY_PREAMBLE, false],
+      ["a weekly limit", "RESOURCE_EXHAUSTED: You have reached your weekly limit. Upgrade your plan or try again later.", AGY_PREAMBLE, false],
+      ["a billing message", "RESOURCE_EXHAUSTED (code 429): billing account required. Please try again later.", AGY_PREAMBLE, false],
+      ["an auth failure", AGY_AUTH_FAILED, AGY_PREAMBLE, false],
+      ["a disabled API", "Agent Platform API has not been used in project my-project-429 before or it is disabled.", AGY_PREAMBLE, false],
+      ["an invalid request", "API error (attempt 1): INVALID_ARGUMENT (code 400): invalid request. Please try again later.", AGY_PREAMBLE, false],
     ])("resumes only provider-busy failures: %s", async (_label, error, response, resumes) => {
       writeFileSync(busy, error);
       if (response) process.env.FAKE_AGY_RESULT_RESPONSE = response;
@@ -640,6 +733,7 @@ describe("Antigravity turns (fake CLI)", () => {
         await recorder.until((event) => event.type === "turn.retrying" || event.type === "turn.completed");
         expect(count("turn.retrying")).toBe(resumes ? 1 : 0);
         expect(count("turn.completed")).toBe(resumes ? 0 : 1);
+        if (!resumes) expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false });
       } finally {
         delete process.env.FAKE_AGY_RESULT_RESPONSE;
       }
@@ -670,6 +764,7 @@ describe("Antigravity turns (fake CLI)", () => {
   it("shows only the reply when a 503 comes with a real response", async () => {
     process.env.FAKE_AGY_RESULT_ERROR = "API error (attempt 2): UNAVAILABLE (code 503): The service is currently unavailable.";
     process.env.FAKE_AGY_RESULT_RESPONSE = "done from fake agy";
+    process.env.FAKE_AGY_RESULT_STATUS = "SUCCESS";
     try {
       await create();
       await instance.adapter.sendTurn({ threadId: "t-agy-503-with-reply", text: "hi" });
@@ -679,10 +774,12 @@ describe("Antigravity turns (fake CLI)", () => {
       expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
         text: "done from fake agy",
       });
-      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "recovered_transient_error" });
+      expect(recorder.events.some((event) => event.type === "turn.retrying")).toBe(false);
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "SUCCESS" });
     } finally {
       delete process.env.FAKE_AGY_RESULT_ERROR;
       delete process.env.FAKE_AGY_RESULT_RESPONSE;
+      delete process.env.FAKE_AGY_RESULT_STATUS;
     }
   });
 });

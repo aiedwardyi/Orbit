@@ -3,10 +3,20 @@ import { describe, expect, it } from "vitest";
 import {
   BACKOFF_BASE_MS,
   RETRY_MAX_ATTEMPTS,
+  busyResumeReason,
   classifyError,
   computeBackoff,
   isResumeCursorRejected,
 } from "./retry.ts";
+
+describe("busyResumeReason", () => {
+  it.each([
+    ["https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429", "rate_limited"],
+    ["https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-503", "server_error"],
+  ])("recognizes provider error-code URLs: %s", (text, reason) => {
+    expect(busyResumeReason(text)).toBe(reason);
+  });
+});
 
 describe("isResumeCursorRejected", () => {
   it.each([

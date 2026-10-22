@@ -156,7 +156,7 @@ out({
   conversation_id: CONV,
   result: {
     conversation_id: CONV,
-    status: resultError ? "ERROR" : "SUCCESS",
+    status: process.env.FAKE_AGY_RESULT_STATUS ?? (resultError ? "ERROR" : "SUCCESS"),
     response: resultError
       ? (process.env.FAKE_AGY_RESULT_RESPONSE ?? "")
       : process.env.FAKE_AGY_SYSTEM_NOTICE === "1"

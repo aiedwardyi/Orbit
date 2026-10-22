@@ -58,7 +58,7 @@ const AGY_SYSTEM_NOTICE = /<SYSTEM_MESSAGE\b/i;
 const AGY_CONTEXT_CANCELLATION = /\bcontext\s+cancel(?:ed|led)\b/i;
 const AGY_ACCOUNT_ERROR =
   /unauthorized|unauthenticated|\bforbidden\b|(?<![\w-])40[13](?![\w-])|not logged in|\bsign[\s-]?in\b|authentication failed|permission_denied|permission denied|has not been used in project|\bapi\b[^.\n]{0,120}\bdisabled\b/i;
-const AGY_NOT_ACCOUNT_ERROR = /\brate[\s-]?limit\b|(?<![\w-])429(?![\w-])|\btoo many requests\b|resource_exhausted|quota exceeded|exceeded[^.\n]{0,40}\bquota\b|(?<![\w-])5\d\d(?![\w-])|\b5xx\b/i;
+const AGY_NOT_ACCOUNT_ERROR = /\brate[\s-]?limit\b|(?<![\w-])429(?![\w-])|\berror-code-(?:429|5\d\d)\b|\btoo many requests\b|resource[ _]exhausted|quota exceeded|exceeded[^.\n]{0,40}\bquota\b|(?<![\w-])5\d\d(?![\w-])|\b5xx\b/i;
 const AGY_TIMEOUT_ERROR = /\b(?:watchdog timeout|timed out|time-out|timeout)\b/i;
 
 /** Account or permission failure. Rate limits, 5xx, and timeout-only lines are not. */
@@ -569,7 +569,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
 
     // A resume fallback relaunch is the same logical turn: the harness holds
     // the first id as live and drops events from any other.
-    const sendTurn = async (turn: SendTurnInput, relaunchOf?: string, busyResumes = 0, priorUsage = { input: 0, output: 0 }) => {
+    const sendTurn = async (turn: SendTurnInput, relaunchOf?: string, busyResumes = 0, priorUsage = { input: 0, output: 0 }, shownResponses = new Set<string>()) => {
       const { threadId } = turn;
       if (disposed) throw new Error("Antigravity instance is disposed");
       if (active.has(threadId)) throw new Error("a turn is already running on this thread");
@@ -860,6 +860,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             turnId,
             busyResumes + 1,
             attemptUsage,
+            shownResponses,
           );
         }).catch((error) => {
           emit({ ...base(threadId, turnId), type: "runtime.error", message: error instanceof Error ? error.message : String(error) });
@@ -913,21 +914,21 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             const parsedError = z.string().safeParse(payload.error);
             const agyError = parsedError.success ? parsedError.data : "";
             const agyResultError = payload.status === "ERROR" && agyError.length > 0;
-            // agy leaves a retried attempt's 429/5xx/timeout on the result even when the reply came through
-            const transient = AGY_NOT_ACCOUNT_ERROR.test(agyError) || (AGY_TIMEOUT_ERROR.test(agyError) && !AGY_ACCOUNT_ERROR.test(agyError));
-            const recoveredTransient = agyResultError && realResponse && transient;
             const busyReason =
-              agyResultError && !realResponse && !cancelledTool && !interrupted && !isAgyAccountError(agyError)
+              agyResultError && !cancelledTool && !interrupted && !isAgyAccountError(agyError)
                 ? busyResumeReason(agyError)
                 : null;
+            if (realResponse && !shownResponses.has(response)) {
+              shownResponses.add(response);
+              emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "assistant_text", delta: response });
+              emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: response });
+            }
             const conversation = conversationId ?? resumeCursor;
             if (busyReason && conversation && busyResumes < BUSY_RESUME_DELAYS_MS.length) {
               resumeWhenFree(conversation, busyReason, payload.usage ? withPriorUsage(payload.usage) : priorUsage);
               break;
             }
-            if (recoveredTransient) {
-              console.warn(`agy turn for ${threadId} recovered with a full reply; dropping retried error: ${agyError}`);
-            } else if (agyResultError) {
+            if (agyResultError) {
               if (isAgyAccountError(agyError)) {
                 emit({ ...base(threadId, turnId), type: "runtime.error", message: agyError, signIn: true });
               } else {
@@ -935,10 +936,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
               }
               if (busyReason && busyResumes > 0) emit({ ...base(threadId, turnId), type: "runtime.error", message: AGY_STILL_BUSY });
             }
-            if (realResponse) {
-              emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "assistant_text", delta: response });
-              emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: response });
-            } else if (!agyResultError) {
+            if (!realResponse && !agyResultError) {
               emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: AGY_STOPPED_NOTE });
             }
             if (payload.usage) {
@@ -947,14 +945,12 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             // result.usage is the turn total (the per-step agent_response
             // figures above are its parts, not additions to it)
             settle(
-              (payload.status === "SUCCESS" && Boolean(realResponse)) || recoveredTransient,
+              payload.status === "SUCCESS" && realResponse,
               cancelledTool
                 ? "cancelled_tool"
-                : recoveredTransient
-                  ? "recovered_transient_error"
-                  : realResponse
-                    ? payload.status ?? null
-                    : "no_final_text",
+                : realResponse
+                  ? payload.status ?? null
+                  : "no_final_text",
               null,
               payload.usage
                 ? {
