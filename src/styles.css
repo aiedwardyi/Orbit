@@ -5071,3 +5071,9 @@ html[data-orbit-idle] :is(
 html[data-orbit-idle] [data-orbit-composer-frame]:focus-within > [data-orbit-rainbow] > span {
   animation-play-state: paused;
 }
+
+/* Keep the live sharp edge moving without animating its blurred halo. */
+html[data-orbit-idle="blur"] [data-turn-mascot].turn-mascot-in .orbit-ring:not(.orbit-ring-halo) > .orbit-ring-spin {
+  animation-play-state: running !important;
+  animation-timing-function: steps(24, end);
+}
