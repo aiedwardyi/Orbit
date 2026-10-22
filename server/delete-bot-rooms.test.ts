@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // deleteBotFully and removeSyncedBots are private to index.ts, which these
 // tests must not boot; their wiring is pinned on source, same idiom as chief-of-staff.test.ts.
-const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
+const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8").replace(/\r\n/g, "\n");
 const fn = (name: string) => {
   const start = index.indexOf(`async function ${name}(`);
   return index.slice(start, index.indexOf("\n}\n", start));
