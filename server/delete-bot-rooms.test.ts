@@ -1,7 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // deleteBotFully and removeSyncedBots are private to index.ts, which these
@@ -98,5 +99,29 @@ describe("deleteBotFully", () => {
     expect(lookup).toBeGreaterThan(-1);
     expect(interrupt).toBeGreaterThan(lookup);
     expect(body.indexOf("store.deleteBot(bot.id);")).toBeGreaterThan(interrupt);
+  });
+
+  it("removes the event logs of every task, not just the open one", async () => {
+    home = mkdtempSync(join(tmpdir(), "omb-delete-bot-logs-"));
+    const dirs = ["events", "native"].map((name) => join(home, name));
+    for (const dir of dirs) {
+      mkdirSync(dir);
+      for (const threadId of ["t1", "t2"]) writeFileSync(join(dir, `${threadId}.ndjson`), "{}");
+    }
+    const noop = () => {};
+    const deps = {
+      registry: { get: () => undefined }, store: { groups: [], deleteBot: noop },
+      stopScreenPoller: noop, activeVpsThreads: new Map(), routines: { disableForBot: noop }, webhooks: { disableForBot: noop },
+      lastReply: new Map(), cancelPeerApprovalsFor: noop, discardDelegations: noop, commsBus: {}, discardDelegationsFrom: noop,
+      computerControl: { forget: noop }, paneWake: { forgetBot: noop }, taskResumes: { forgetBot: noop },
+      perBotLocalVmTarget: () => ({ key: "vm" }), localVmIdles: new Map(),
+      EVENTS_DIR: dirs[0], NATIVE_DIR: dirs[1], join, unlinkSync,
+    };
+    const javascript = ts.transpileModule(`${fn("deleteBotFully")}\n}`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
+    const deleteBotFully = new Function(...Object.keys(deps), `${javascript}\nreturn deleteBotFully;`)(...Object.values(deps));
+
+    await deleteBotFully({ id: "bot-1", threadId: "t1", modelSelection: { instanceId: "claude" }, tasks: [{ threadId: "t1" }, { threadId: "t2" }] });
+
+    for (const dir of dirs) expect(["t1", "t2"].map((threadId) => existsSync(join(dir, `${threadId}.ndjson`)))).toEqual([false, false]);
   });
 });
