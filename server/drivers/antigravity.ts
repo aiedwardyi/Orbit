@@ -923,7 +923,7 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
                 ? busyResumeReason(agyError)
                 : null;
             const recoveredTransient = agyResultError && realResponse && lastStepType === "agent_response" && lastStepState === "DONE"
-              && (busyReason !== null || (AGY_TIMEOUT_ERROR.test(agyError) && !AGY_ACCOUNT_ERROR.test(agyError)));
+              && (busyReason !== null || AGY_NOT_ACCOUNT_ERROR.test(agyError) || (AGY_TIMEOUT_ERROR.test(agyError) && !AGY_ACCOUNT_ERROR.test(agyError)));
             if (realResponse && !shownResponses.has(response)) {
               shownResponses.add(response);
               emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "assistant_text", delta: response });
