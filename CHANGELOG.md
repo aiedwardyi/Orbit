@@ -2,6 +2,21 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.198] - 2026-10-22
+
+### Added
+- The working indicator shows elapsed time for the whole turn, like "(1m 19s)".
+
+### Changed
+- One Stop ends the turn and puts any queued messages back in the message box, on every device.
+- While Wink isn't focused, the working ring hides and the timer keeps ticking, which saves CPU.
+- Bots save a lesson from each correction without being asked.
+
+### Fixed
+- "Continue" after a stopped turn picks up the request that never finished, not an older task.
+- A busy Gemini turn retries even after it already wrote a progress note.
+- Tooltips on the bot list header no longer hide under the Windows title bar.
+
 ## [1.0.197] - 2026-10-21
 
 ### Changed
@@ -148,6 +163,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.198]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.198
 [1.0.197]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.197
 [1.0.196]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.196
 [1.0.195]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.195
