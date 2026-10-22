@@ -9123,6 +9123,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 status: 409,
               });
             }
+            // a Stop during the steer await already handed a Send now back
+            if (sendId && isSendCancelled(sendId)) return { ok: true as const, cancelled: true as const, threadId };
             if (steered) {
               if (!current.busy) {
                 throw Object.assign(
@@ -9356,6 +9358,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const inFlight = Boolean(bot.busy || botHasActiveTurn(bot.id));
         taskResumes.forgetBot(bot.id);
         const returned = cancelQueuedSends(bot.id);
+        if (returned.length) broadcast({ kind: "queue.cancelled", botId: bot.id, sends: returned });
         store.patchBot(bot.id, { paneWakePaused: true });
         // a turn still preparing has no session to interrupt yet
         bumpTurnEpoch(bot.id);
@@ -9378,6 +9381,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const inFlight = Boolean(busyGroup || bot.busy || botHasActiveTurn(bot.id));
       taskResumes.forgetBot(bot.id);
       const returned = cancelQueuedSends(bot.id);
+      if (returned.length) broadcast({ kind: "queue.cancelled", botId: bot.id, sends: returned });
       store.patchBot(bot.id, { paneWakePaused: true });
       const stoppedThreadId = busyGroup?.threadId ?? bot.activeThreadId ?? bot.threadId;
       if (inFlight) {

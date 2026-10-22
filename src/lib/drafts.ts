@@ -308,7 +308,7 @@ export function returnSendsToComposer(id: string, sends: readonly DraftRestore[]
   // a returned sendId is cancelled server-side, so the next Send needs a fresh one
   markDraftEdited(id);
   restoreComposerDraft(id, {
-    text: all.map((draft) => draft.text.trim()).filter(Boolean).join("\n\n"),
+    text: all.filter((draft) => draft.text.trim()).map((draft) => draft.text).join("\n\n"),
     attachments: all.flatMap((draft) => draft.attachments),
   });
 }

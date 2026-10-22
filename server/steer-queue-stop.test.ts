@@ -4,8 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cancelQueuedSends,
   drainSteeredMessages,
+  isSendCancelled,
   queueRoomParticipation,
   queueSteeredMessage,
+  withQueuedSend,
   _queuedCount,
   _resetSteerQueue,
   type SteerStore,
@@ -76,6 +78,25 @@ describe("user stop on queued sends", () => {
       skipped: true,
       cancelled: true,
     });
+  });
+
+  it("hands back a Send now still in flight so it cannot start after Stop", async () => {
+    const bot = fakeBot("now-bot", "now-thread");
+    const queued = queueSteeredMessage(bot.id, bot.threadId, "now", { sendId: "send_now_000000000000" });
+    let steered!: () => void;
+    const steer = new Promise<void>((resolve) => { steered = resolve; });
+    const promotion = withQueuedSend(bot.id, bot.threadId, queued.id, "send_now_000000000000", async () => {
+      await steer;
+      return isSendCancelled("send_now_000000000000")
+        ? { ok: true as const, cancelled: true as const }
+        : { ok: true as const, started: true as const };
+    });
+    expect(cancelQueuedSends(bot.id)).toEqual([
+      { threadId: bot.threadId, queueId: queued.id, sendId: "send_now_000000000000", text: "now" },
+    ]);
+    steered();
+    await expect(promotion).resolves.toEqual({ ok: true, cancelled: true });
+    expect(_queuedCount(bot.threadId)).toBe(0);
   });
 
   it("leaves other bots and room waits alone", () => {

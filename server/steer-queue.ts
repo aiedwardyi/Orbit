@@ -535,7 +535,7 @@ export function cancelQueuedSends(botId: string): ReturnedSend[] {
   for (const [key, entry] of queues) {
     if (entry.botId !== botId) continue;
     const items = entry.items.filter((item) => {
-      if (isRoomItem(item) || promoting.has(item.messageId)) return true;
+      if (isRoomItem(item)) return true;
       if (!isSendCancelled(item.sendId)) returned.push({ ...item, threadId: entry.threadId });
       if (item.sendId) rememberCancelledSend(item.sendId);
       rememberCancelledSend(item.messageId);

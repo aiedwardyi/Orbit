@@ -3441,6 +3441,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             helpReason: typeof frame.helpReason === "string" ? frame.helpReason : null,
           });
           break;
+        case "queue.cancelled":
+          for (const send of frame.sends ?? []) {
+            rawDispatch({ type: "cancelQueued", botId: frame.botId, threadId: send.threadId, queueId: send.queueId });
+          }
+          break;
         case "bot.deleted":
           botPatchQueue.cancel(frame.botId);
           rawDispatch({ type: "deleteBot", botId: frame.botId });

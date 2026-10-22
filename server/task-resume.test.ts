@@ -190,6 +190,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
   });
   const stop = route('/^\\/api\\/bots\\/([\\w-]+)\\/interrupt$/', {
     store, taskResumes, botHasActiveTurn, cancelQueuedSends,
+    broadcast: (frame: Record<string, unknown>) => frames.push(frame),
     readBody: async () => ({}),
     routines: {
       activeRunForBot: () => options.routine && routineRun.status === "running" ? routineRun : null,
@@ -348,6 +349,15 @@ describe("task resume during cancelled preparation", () => {
     expect((await failure.resume()).body.pending).toBe(true);
     await failure.settle();
     expect(failure.frames).toContainEqual({ kind: "task.resume", botId: failure.bot.id, threadId: failure.bot.threadId, error: "model unavailable" });
+  });
+
+  it("tells every client which queued sends Stop handed back", async () => {
+    const f = rig({ live: true });
+    const queued = queueSteeredMessage(f.bot.id, f.bot.threadId, "from phone");
+    const stopped = await f.stop();
+    expect(stopped.body.returned).toHaveLength(1);
+    expect(f.frames).toContainEqual({ kind: "queue.cancelled", botId: f.bot.id, sends: stopped.body.returned });
+    expect(stopped.body.returned[0]).toMatchObject({ threadId: f.bot.threadId, queueId: queued.id });
   });
 
   it("does not let a cancelled earlier send hold Resume behind a later send", async () => {

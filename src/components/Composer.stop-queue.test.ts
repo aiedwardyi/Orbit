@@ -84,16 +84,19 @@ async function mount(target: { bot?: Bot; group?: Group }) {
   await vi.waitFor(() => expect(store.state.hydrated).toBe(true));
   await vi.waitFor(() => expect(store.state.instances).toHaveLength(1));
   const box = host.querySelector("textarea")!;
+  const type = (value: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, value);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   const send = async (value: string) => {
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, value);
-      box.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    await type(value);
     await act(async () =>
       box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true, cancelable: true })));
   };
   const stop = () => act(async () => host.querySelector<HTMLElement>('button[aria-label="Stop this turn"]')!.click());
-  return { box, host, posts, send, stop, store: () => store };
+  const frame = (data: Record<string, unknown>) =>
+    act(async () => FakeEventSource.last!.onmessage!({ data: JSON.stringify(data), lastEventId: "" }));
+  return { box, host, posts, type, send, stop, frame, store: () => store };
 }
 
 describe("stop with queued sends", () => {
@@ -109,6 +112,29 @@ describe("stop with queued sends", () => {
     expect(ui.store().state.pendingQueued[bot.threadId]).toBeUndefined();
     expect(getDraftAttachments(localStorage, `bot:${bot.id}:${bot.threadId}`)).toEqual([pasted]);
     expect(ui.posts.filter((post) => post.path.endsWith("/messages"))).toHaveLength(2);
+  });
+
+  it("keeps the indentation of what is already typed", async () => {
+    const ui = await mount({ bot });
+    await ui.send("first");
+    await vi.waitFor(() => expect(ui.store().state.pendingQueued[bot.threadId]).toHaveLength(1), { timeout: 5000 });
+    await ui.type("    indented();\n");
+    await ui.stop();
+    await vi.waitFor(() => expect(ui.box.value).toBe("first\n\n    indented();\n"), { timeout: 5000 });
+  });
+
+  it("clears a queued row when another client's Stop hands it back", async () => {
+    const ui = await mount({ bot });
+    await ui.send("from phone");
+    await vi.waitFor(() => expect(ui.store().state.pendingQueued[bot.threadId]).toHaveLength(1), { timeout: 5000 });
+    await ui.frame({
+      kind: "queue.cancelled",
+      botId: bot.id,
+      sends: [{ threadId: bot.threadId, queueId: "q-from phone", text: "from phone" }],
+    });
+    expect(ui.store().state.pendingQueued[bot.threadId]).toBeUndefined();
+    expect(ui.box.value).toBe("");
+    expect(ui.posts.map((post) => post.path)).toEqual([`/api/bots/${bot.id}/messages`]);
   });
 
   it("hands held room lines back instead of flushing them when the room settles", async () => {
