@@ -835,6 +835,8 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       };
 
       let cancelledTool = false;
+      let lastStepType: string | undefined;
+      let lastStepState: string | undefined;
 
       // A busy resume is the same logical turn, so its usage carries forward.
       const withPriorUsage = (usage: { input_tokens?: number; cache_read_tokens?: number; output_tokens?: number }) => ({
@@ -890,6 +892,8 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
           }
           case "step_update": {
             promptAccepted = true;
+            lastStepType = payload.step_type;
+            lastStepState = payload.state;
             if (payload.step_type === "checkpoint") checkpointed = true;
             if (payload.step_type === "tool") {
               cancelledTool ||= isCancelledTool(payload);
@@ -918,17 +922,19 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
               agyResultError && !cancelledTool && !interrupted && !isAgyAccountError(agyError)
                 ? busyResumeReason(agyError)
                 : null;
+            const recoveredTransient = agyResultError && realResponse && lastStepType === "agent_response" && lastStepState === "DONE"
+              && (busyReason !== null || (AGY_TIMEOUT_ERROR.test(agyError) && !AGY_ACCOUNT_ERROR.test(agyError)));
             if (realResponse && !shownResponses.has(response)) {
               shownResponses.add(response);
               emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "assistant_text", delta: response });
               emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: response });
             }
             const conversation = conversationId ?? resumeCursor;
-            if (busyReason && conversation && busyResumes < BUSY_RESUME_DELAYS_MS.length) {
+            if (busyReason && !recoveredTransient && conversation && busyResumes < BUSY_RESUME_DELAYS_MS.length) {
               resumeWhenFree(conversation, busyReason, payload.usage ? withPriorUsage(payload.usage) : priorUsage);
               break;
             }
-            if (agyResultError) {
+            if (agyResultError && !recoveredTransient) {
               if (isAgyAccountError(agyError)) {
                 emit({ ...base(threadId, turnId), type: "runtime.error", message: agyError, signIn: true });
               } else {
@@ -945,12 +951,14 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
             // result.usage is the turn total (the per-step agent_response
             // figures above are its parts, not additions to it)
             settle(
-              payload.status === "SUCCESS" && realResponse,
+              (payload.status === "SUCCESS" && realResponse) || recoveredTransient,
               cancelledTool
                 ? "cancelled_tool"
-                : realResponse
-                  ? payload.status ?? null
-                  : "no_final_text",
+                : recoveredTransient
+                  ? "recovered_transient_error"
+                  : realResponse
+                    ? payload.status ?? null
+                    : "no_final_text",
               null,
               payload.usage
                 ? {

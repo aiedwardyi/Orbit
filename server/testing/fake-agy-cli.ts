@@ -151,6 +151,9 @@ if (process.env.FAKE_AGY_SYSTEM_NOTICE === "1") {
   out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 2, state: "DONE", step_type: "agent_response", text_delta: systemNotice } });
 }
 out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 1, state: "DONE", step_type: "agent_response", usage: { input_tokens: 100, output_tokens: 20, thinking_tokens: 0, cache_read_tokens: 5, total_tokens: 125 } } });
+if (resultError && process.env.FAKE_AGY_LAST_STEP_TYPE) {
+  out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 2, state: process.env.FAKE_AGY_LAST_STEP_STATE ?? "DONE", step_type: process.env.FAKE_AGY_LAST_STEP_TYPE } });
+}
 out({
   event: "result",
   conversation_id: CONV,

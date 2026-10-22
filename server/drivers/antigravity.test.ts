@@ -486,7 +486,6 @@ describe("Antigravity turns (fake CLI)", () => {
   it("shows only the reply when a retried 429 comes with a real response", async () => {
     process.env.FAKE_AGY_RESULT_ERROR = AGY_RETRIED_429;
     process.env.FAKE_AGY_RESULT_RESPONSE = "done from fake agy";
-    process.env.FAKE_AGY_RESULT_STATUS = "SUCCESS";
     try {
       await create();
       await instance.adapter.sendTurn({ threadId: "t-agy-retried-429", text: "hi" });
@@ -497,30 +496,26 @@ describe("Antigravity turns (fake CLI)", () => {
       expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
         text: "done from fake agy",
       });
-      expect(recorder.events.some((event) => event.type === "turn.retrying")).toBe(false);
-      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "SUCCESS" });
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "recovered_transient_error" });
     } finally {
       delete process.env.FAKE_AGY_RESULT_ERROR;
       delete process.env.FAKE_AGY_RESULT_RESPONSE;
-      delete process.env.FAKE_AGY_RESULT_STATUS;
     }
   });
 
   it("shows only the reply when a retried stream timeout comes with a real response", async () => {
     process.env.FAKE_AGY_RESULT_ERROR = AGY_RETRIED_TIMEOUT;
     process.env.FAKE_AGY_RESULT_RESPONSE = "done from fake agy";
-    process.env.FAKE_AGY_RESULT_STATUS = "SUCCESS";
     try {
       await create();
       await instance.adapter.sendTurn({ threadId: "t-agy-retried-timeout", text: "hi" });
       await recorder.until((event) => event.type === "turn.completed");
 
       expect(recorder.events.some((event) => event.type === "runtime.error")).toBe(false);
-      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "SUCCESS" });
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "recovered_transient_error" });
     } finally {
       delete process.env.FAKE_AGY_RESULT_ERROR;
       delete process.env.FAKE_AGY_RESULT_RESPONSE;
-      delete process.env.FAKE_AGY_RESULT_STATUS;
     }
   });
 
@@ -538,6 +533,7 @@ describe("Antigravity turns (fake CLI)", () => {
       writeFileSync(busy, AGY_RETRIED_429);
       process.env.FAKE_AGY_RESULT_ERROR_FILE = busy;
       process.env.FAKE_AGY_DUMP = dump;
+      process.env.FAKE_AGY_LAST_STEP_TYPE = "error_message";
     });
 
     afterEach(() => {
@@ -545,6 +541,8 @@ describe("Antigravity turns (fake CLI)", () => {
       delete process.env.FAKE_AGY_RESULT_ERROR_FILE;
       delete process.env.FAKE_AGY_DUMP;
       delete process.env.FAKE_AGY_RESULT_RESPONSE;
+      delete process.env.FAKE_AGY_LAST_STEP_TYPE;
+      delete process.env.FAKE_AGY_LAST_STEP_STATE;
       rmSync(scratch, { recursive: true, force: true });
     });
 
@@ -607,6 +605,31 @@ describe("Antigravity turns (fake CLI)", () => {
       expect(invocation.argv).toEqual(expect.arrayContaining(["--conversation", "conv-fake-123"]));
       expect(count("turn.completed")).toBe(1);
       expect(recorder.events.filter((event) => event.type === "thread.token-usage.updated").at(-1)).toMatchObject({ input: 210, output: 40 });
+    });
+
+    it.each([
+      ["tool", "DONE"],
+      ["tool", "ACTIVE"],
+      ["agent_response", "ACTIVE"],
+    ])("resumes an ERROR 429 preamble after a last step of %s %s", async (type, state) => {
+      writeFileSync(busy, AGY_RESOURCE_EXHAUSTED);
+      process.env.FAKE_AGY_RESULT_RESPONSE = AGY_PREAMBLE;
+      process.env.FAKE_AGY_LAST_STEP_TYPE = type;
+      process.env.FAKE_AGY_LAST_STEP_STATE = state;
+      await create();
+      const { turnId } = await instance.adapter.sendTurn({ threadId: "t-last-step-preamble", text: "hi" });
+      expect(await recorder.until((event) => event.type === "turn.retrying" || event.type === "turn.completed")).toMatchObject({
+        type: "turn.retrying", turnId, attempt: 1, delayMs: 30_000,
+      });
+      expect(count("turn.completed")).toBe(0);
+      expect(count("runtime.error")).toBe(0);
+
+      rmSync(busy);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await recorder.until((event) => event.type === "turn.completed")).toMatchObject({ turnId, ok: true });
+      expect(JSON.parse(readFileSync(dump, "utf8")).argv).toEqual(expect.arrayContaining(["--conversation", "conv-fake-123"]));
+      expect(recorder.events.filter((event) => event.type === "content.delta").map((event) => event.delta)).toEqual([AGY_PREAMBLE, "done from fake agy"]);
+      expect(count("turn.completed")).toBe(1);
     });
 
     it("shows the ERROR preamble once across all busy resumes", async () => {
@@ -764,7 +787,6 @@ describe("Antigravity turns (fake CLI)", () => {
   it("shows only the reply when a 503 comes with a real response", async () => {
     process.env.FAKE_AGY_RESULT_ERROR = "API error (attempt 2): UNAVAILABLE (code 503): The service is currently unavailable.";
     process.env.FAKE_AGY_RESULT_RESPONSE = "done from fake agy";
-    process.env.FAKE_AGY_RESULT_STATUS = "SUCCESS";
     try {
       await create();
       await instance.adapter.sendTurn({ threadId: "t-agy-503-with-reply", text: "hi" });
@@ -774,12 +796,10 @@ describe("Antigravity turns (fake CLI)", () => {
       expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toMatchObject({
         text: "done from fake agy",
       });
-      expect(recorder.events.some((event) => event.type === "turn.retrying")).toBe(false);
-      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "SUCCESS" });
+      expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "recovered_transient_error" });
     } finally {
       delete process.env.FAKE_AGY_RESULT_ERROR;
       delete process.env.FAKE_AGY_RESULT_RESPONSE;
-      delete process.env.FAKE_AGY_RESULT_STATUS;
     }
   });
 });
