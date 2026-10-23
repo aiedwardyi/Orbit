@@ -278,7 +278,7 @@ export function createInternalRoutes(deps: InternalRouteDeps) {
       // An unknown sender used to fall through: no mirroring AND no
       // approval, while still running the peer turn. That made an
       // unresolvable id the cheapest way past the gate, so it is now a
-      // hard refusal — every peer turn has an accountable sender.
+      // hard refusal - every peer turn has an accountable sender.
       const from = store.bot(fromBotId);
       if (!from) return json(res, 403, { error: "unknown sender" });
       const fromThreadId = String(body.fromThreadId ?? from.threadId);
@@ -534,13 +534,13 @@ export function createInternalRoutes(deps: InternalRouteDeps) {
         fromThreadId,
       );
       if (queued.result !== "ok" || !queued.id) {
-        // the agent reads this string — a bare enum ("too_deep") tells it
+        // the agent reads this string - a bare enum ("too_deep") tells it
         // nothing about what to do instead
         const said: Record<Exclude<QueueResult, "ok">, string> = {
           self: "a bot cannot delegate to itself",
-          too_deep: "delegation chains are limited to one hop — do this one yourself",
+          too_deep: "delegation chains are limited to one hop - do this one yourself",
           no_target: "no such bot",
-          too_many: "too many delegations queued on this turn — finish some first",
+          too_many: "too many delegations queued on this turn - finish some first",
         };
         return json(res, 200, { error: said[queued.result === "ok" ? "no_target" : queued.result] });
       }
@@ -549,8 +549,8 @@ export function createInternalRoutes(deps: InternalRouteDeps) {
         queued: true,
         taskId: queued.id,
         message: from.approvePeerComms
-          ? `Queued for review — @${targetName} will only pick it up if the user approves after your turn finishes.`
-          : `Delegation queued — @${targetName} will pick it up after your current turn finishes.`,
+          ? `Queued for review - @${targetName} will only pick it up if the user approves after your turn finishes.`
+          : `Delegation queued - @${targetName} will pick it up after your current turn finishes.`,
       });
     },
     createBot: async (req: IncomingMessage, res: ServerResponse) => {
@@ -643,7 +643,7 @@ export function createInternalRoutes(deps: InternalRouteDeps) {
         : `${store.bot(memberIds[0])!.name} & co.`;
       if (name.length > 100) return json(res, 400, { error: "channel name must be at most 100 characters" });
       // The room joins the sender's section, always. Sections are the
-      // user's own filing — a free-text section here lets a bot invent
+      // user's own filing - a free-text section here lets a bot invent
       // sidebar sections and file the user's rooms into them.
       const section = sender.section;
       let bulletin = "";
@@ -654,7 +654,7 @@ export function createInternalRoutes(deps: InternalRouteDeps) {
           return json(res, 400, { error: "setup.bulletin must be at most 12000 characters" });
         }
       }
-      // A room the user asked for is usable the moment it exists — the
+      // A room the user asked for is usable the moment it exists - the
       // setup step would only stand between them and the bots they just
       // asked to assemble. The lead is the one decision worth taking off
       // the sender: memberIds[0] is always the sender, so picking it made
