@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { sidebarConversationRowTone } from "./sidebar-row";
 
 const sidebar = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../components/Sidebar.tsx"),
+  join(dirname(fileURLToPath(import.meta.url)), "../components/SidebarConversations.tsx"),
   "utf8",
 );
 
