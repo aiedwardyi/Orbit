@@ -571,10 +571,10 @@ describe("store delta sync", { timeout: 60_000 }, () => {
       await a.peer.call("flush");
       share(all, [a]);
       for (const item of all.slice(1)) await item.peer.call("pull");
-      await a.peer.call("batch", { count: 50 });
+      await a.peer.call("batch", { count: 2 });
       await a.peer.call("flush");
       const main = (await a.peer.snapshot()).leaf;
-      await c.peer.call("batch", { count: 4 });
+      await c.peer.call("batch", { count: 1 });
       await c.peer.call("flush");
       share(resolvers, [a, c]);
       const start = await Promise.all(all.map((item) => item.peer.snapshot()));
@@ -613,7 +613,7 @@ describe("store delta sync", { timeout: 60_000 }, () => {
     await a.peer.call("flush");
     share([c], [a]);
     await c.peer.call("pull");
-    await a.peer.call("batch", { count: 20 });
+    await a.peer.call("batch", { count: 2 });
     await a.peer.call("flush");
     const side = await c.peer.call<Message>("append", { text: "side" });
     await c.peer.call("flush");
