@@ -87,7 +87,7 @@ export interface Message {
     signIn?: boolean;
     usageLimit?: { resetsAt: number | null };
   };
-  /** user messages sent into a running turn — the model saw it mid-turn */
+  /** user messages sent into a running turn - the model saw it mid-turn */
   steered?: boolean;
   /** The engine replaced a longer mid-turn note with this short text. */
   summarized?: boolean;
@@ -105,7 +105,7 @@ export interface Message {
   hasImage?: boolean;
   at: number;
   /** the message this one follows; null = thread root. Edited messages
-   * share a parentId with the version they replace — that's a fork. */
+   * share a parentId with the version they replace - that's a fork. */
   parentId?: string | null;
   /** Flat reply reference for an inline quote; unrelated to branch ancestry. */
   replyToId?: string;
@@ -144,7 +144,7 @@ export interface Group {
   /** auto-created bot⇄bot channel (ask_bot exchanges mirror here) */
   dm?: boolean;
   busyBotId?: string | null;
-  /** the room's shared desk — where member turns run their shell tools,
+  /** the room's shared desk - where member turns run their shell tools,
    * overriding each member's own folder; absent = each member's own */
   cwd?: string;
   /** folder the room's turns actually run in, pinned on the first turn;
@@ -229,7 +229,7 @@ export interface TaskUsage {
   /** cached share of `input` (context the model re-read); absent on records
    * from builds before it was tracked */
   cachedInput?: number;
-  /** null until any turn reported a cost — most engines never do; records
+  /** null until any turn reported a cost - most engines never do; records
    * from builds before cost existed lack the field entirely */
   costUsd: number | null;
   turns: number;
@@ -327,7 +327,7 @@ export interface TerminalAttention {
 
 export type TerminalAttentionMap = Record<string, TerminalAttention>;
 
-/** GET /api/config — configured flags only; secrets are never echoed. */
+/** GET /api/config - configured flags only; secrets are never echoed. */
 export interface ConfigStatus {
   xai?: { configured: boolean };
   gemini?: { configured: boolean };
@@ -346,7 +346,7 @@ export interface ConfigStatus {
   anthropic?: { configured: boolean };
   vertex?: { configured: boolean };
   customKeys?: { host: string; name: string }[];
-  /** who's using the app — collected in onboarding, shown in the sidebar */
+  /** who's using the app - collected in onboarding, shown in the sidebar */
   profile?: { name: string; email: string; avatarUrl?: string; googlePhoto?: boolean };
   /** Opt-in flags. Absent means off, except memoryNotes. */
   features?: { skillRecorder: boolean; showToolCalls?: boolean; detailedReplies?: boolean; browser?: boolean; memoryNotes?: boolean; terminalHost?: boolean };
@@ -364,7 +364,7 @@ export type ConfigStatusFrame = Pick<
   "xai" | "gemini" | "openaiCompat" | "composio" | "box" | "vps" | "rooms" | "localVm" | "tts" | "imageGen" | "anthropic" | "vertex" | "customKeys" | "profile" | "features" | "browserProfiles"
 >;
 
-/** How an engine gets installed — declared by its driver, mirrors
+/** How an engine gets installed - declared by its driver, mirrors
  * EngineInstall in server/contracts.ts. Absent for engines that need no
  * local binary. `command` omits platforms that have no one-liner. */
 export interface EngineInstall {
@@ -381,7 +381,7 @@ export interface RateLimitReport {
   observedAt: string;
 }
 
-/** One row of GET /api/instances — the model picker's data. */
+/** One row of GET /api/instances - the model picker's data. */
 export interface InstanceInfo {
   loginState?: "pending" | "complete" | "failed" | "cancelled";
   loginCapture?: { url?: string; code?: string };
@@ -418,13 +418,13 @@ export interface InstanceInfo {
      * the Usage screen says the engine does not report a limit */
     rateLimits?: boolean;
   };
-  /** `custom` agents sit below the rail divider — no subscription catalog. */
+  /** `custom` agents sit below the rail divider - no subscription catalog. */
   access?: "subscription" | "custom";
   /** newest subscription-window report for this engine's account; absent
    * until a turn or refresh reports one (server keeps it in memory only) */
   rateLimits?: RateLimitReport;
   install?: EngineInstall;
-  /** Configured CLI path override — set ONLY when the user overrode it;
+  /** Configured CLI path override - set ONLY when the user overrode it;
    * absent means the driver default is in effect. */
   cli?: string;
   /** Driver's default binary name (e.g. "claude"). */
@@ -452,7 +452,7 @@ export interface AppState {
   groups: Group[];
   instances: InstanceInfo[];
   config: ConfigStatus | null;
-  /** selected chat — a bot id OR a group id */
+  /** selected chat - a bot id OR a group id */
   selectedId: string;
   activeView: "chat" | "team-map" | "routines" | "skill-recorder";
   /** a bot workspace covers the conversation surface while activeView stays "chat" */
