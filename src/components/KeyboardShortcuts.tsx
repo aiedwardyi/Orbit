@@ -20,6 +20,7 @@ export function KeyboardShortcuts() {
     ] },
     { title: "shortcuts.chat", rows: [
       ["shortcuts.model", [alt, "M"]],
+      ["shortcuts.workers", [alt, "W"]],
       ...terminal,
       ["shortcuts.queue", [mod, "Enter"], [t("shortcuts.holdSend")]],
     ] },

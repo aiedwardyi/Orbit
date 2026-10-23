@@ -145,6 +145,30 @@ describe("WorkerChip", () => {
     };
   };
 
+  it.each([false, true])("toggles on the app event and keeps dismissal with phone=%s", async (phone) => {
+    stubMedia({ matches: phone });
+    const { chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
+    const toggle = async () => { await act(async () => { window.dispatchEvent(new Event("orbit:toggle-worker-menu")); }); };
+    try {
+      await toggle();
+      expect(chip()!.getAttribute("aria-expanded")).toBe("true");
+      expect(document.body.querySelector("[data-worker-list]")).not.toBeNull();
+      await toggle();
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+      await toggle();
+      await act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+      await toggle();
+      const outside = phone ? document.body.querySelector("[data-worker-list]")!.parentElement! : document.body;
+      await act(async () => { outside.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); });
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+    await toggle();
+    expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+  });
+
   it("keeps Tab inside the phone worker list", async () => {
     applyLocale("en");
     // SAFETY: isPhone() only reads matches. The stub answers max-width queries.

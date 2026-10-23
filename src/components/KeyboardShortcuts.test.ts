@@ -31,6 +31,22 @@ describe("KeyboardShortcuts", () => {
     expect(rows.some((row) => row.querySelector("dd")?.getAttribute("aria-label") === "Enter")).toBe(false);
   });
 
+  it.each([
+    ["en", "Win32", "Chat", "Toggle Workers", "Alt"],
+    ["ko", "Win32", "대화", "작업자 열기 / 닫기", "Alt"],
+    ["en", "MacIntel", "Chat", "Toggle Workers", "Option"],
+    ["ko", "MacIntel", "대화", "작업자 열기 / 닫기", "Option"],
+  ] as const)("lists workers in Chat in %s on %s", (locale, platform, group, label, alt) => {
+    persistPreference(locale);
+    vi.spyOn(navigator, "platform", "get").mockReturnValue(platform);
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(createElement(I18nProvider, null, createElement(KeyboardShortcuts)));
+    const rows = [...host.querySelectorAll("dl > div")].filter((row) => row.querySelector("dt")?.textContent === label);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].querySelector("dd")?.getAttribute("aria-label")).toBe(`${alt} + W`);
+    expect(rows[0].closest("dl")?.parentElement?.previousElementSibling?.textContent).toBe(group);
+  });
+
   it("lists Toggle Model Index once with Alt+I only", () => {
     const html = renderToStaticMarkup(
       createElement(I18nProvider, null, createElement(KeyboardShortcuts)),
