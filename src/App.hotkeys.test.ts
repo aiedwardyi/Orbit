@@ -120,6 +120,123 @@ describe("settings section shortcuts", () => {
   });
 });
 
+describe("worker list shortcut", () => {
+  const mount = async (group = false, phone = false, workers = true) => {
+    localStorage.setItem("omb-onboarding-done", "true");
+    const messages = workers ? [{ id: "l1", at: 1, role: "bot", kind: "launch", text: "Launched WORK\nLabel: WORK | Opus 5.5 | high\nWorking folder: C:\\repo\nSession: aaaaaaaa-1" }] : [];
+    localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify({
+      bots: [{ id: "b1", threadId: "t1", name: "Scout", messages, modelSelection: { instanceId: "inst", model: "m" } }],
+      groups: group ? [{ id: "g1", threadId: "tg1", name: "Team", memberIds: ["b1"], defaultResponder: { kind: "everyone" }, bulletin: "", messages }] : [],
+      selectedId: group ? "g1" : "b1",
+    }));
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    vi.stubGlobal("EventSource", class { onmessage = null; close = vi.fn(); });
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: phone && query.includes("max-width"), media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }) as unknown as MediaQueryList);
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(App)));
+    return {
+      host,
+      press: async (init: KeyboardEventInit = {}) => {
+        const event = new KeyboardEvent("keydown", { code: "KeyW", key: "ㅈ", altKey: true, bubbles: true, cancelable: true, ...init });
+        await act(async () => { window.dispatchEvent(event); });
+        return event;
+      },
+      unmount: async () => {
+        await act(async () => root.unmount());
+        host.remove();
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+        localStorage.clear();
+      },
+    };
+  };
+
+  it.each([[false, false], [true, false], [false, true], [true, true]])("toggles the active conversation with group=%s phone=%s", async (group, phone) => {
+    const { host, press, unmount } = await mount(group, phone);
+    try {
+      const chip = host.querySelector("[data-worker-strip]")!;
+      expect(chip.getAttribute("aria-expanded")).toBe("false");
+      expect((await press()).defaultPrevented).toBe(true);
+      expect(chip.getAttribute("aria-expanded")).toBe("true");
+      const list = document.body.querySelector("[data-worker-list]")!;
+      expect(list.textContent).toContain(group ? "Team's workers" : "Scout's workers");
+      expect(list.getAttribute("aria-modal")).toBe(phone ? "true" : null);
+      await press();
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("prevents the Window mnemonic even when there are no workers", async () => {
+    const { host, press, unmount } = await mount(false, false, false);
+    try {
+      expect(host.querySelector("[data-worker-strip]")).toBeNull();
+      expect((await press()).defaultPrevented).toBe(true);
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("ignores extra modifiers, repeats and composition", async () => {
+    const { press, unmount } = await mount();
+    try {
+      expect((await press()).defaultPrevented).toBe(true);
+      await press();
+      for (const init of [{ shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { repeat: true }, { isComposing: true }, { altKey: false }]) {
+        expect((await press(init)).defaultPrevented).toBe(false);
+        expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+      }
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("leaves Alt+W to the open terminal", async () => {
+    const { host, press, unmount } = await mount();
+    try {
+      expect((await press()).defaultPrevented).toBe(true);
+      await press({ code: "Backquote", key: "`", ctrlKey: true, altKey: false });
+      expect(host.querySelector('.orbit-terminal-overlay[data-open="true"]')).not.toBeNull();
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+      expect((await press()).defaultPrevented).toBe(false);
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("leaves the worker list shut under App Settings", async () => {
+    const { press, unmount } = await mount();
+    try {
+      await press({ code: "KeyT", key: "t" });
+      expect((await press()).defaultPrevented).toBe(false);
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("hands focus back to the chip when Alt+W closes the list", async () => {
+    const { host, press, unmount } = await mount();
+    try {
+      await press();
+      const inside = document.body.querySelector<HTMLElement>("[data-worker-list]")!;
+      inside.tabIndex = -1;
+      inside.focus();
+      expect(document.activeElement).toBe(inside);
+      await press();
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+      expect(document.activeElement).toBe(host.querySelector("[data-worker-strip]"));
+    } finally {
+      await unmount();
+    }
+  });
+});
+
 describe("theme cycle shortcut", () => {
   const handler = () =>
     app.slice(app.indexOf("const onKey = (e: KeyboardEvent)"), app.indexOf("window.addEventListener(\"keydown\", onKey)"));
