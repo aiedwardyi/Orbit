@@ -705,6 +705,12 @@ describe("KeepGoing server wiring", () => {
   const usageStart = source.indexOf("  usage:", source.indexOf("const keepGoing = new KeepGoing("));
   const usage = source.slice(usageStart + "  usage: ".length, source.indexOf(",\n  livePanes:", usageStart));
   const readUsage = new Function("scope", `with (scope) { return (${usage})("b1"); }`);
+  const routeHandler = (file: string, name: string, params: string) => {
+    const routes = readFileSync(new URL(file, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+    const from = routes.indexOf("\n", routes.indexOf(`    ${name}: async (`)) + 1;
+    const body = routes.slice(from, routes.indexOf("\n    },", from));
+    return new Function("scope", `with (scope) { return async (${params}) => {${body}\n}; }`);
+  };
 
   it("passes start_after through the internal tool route without booting the server", async () => {
     const h = harness();
@@ -714,13 +720,15 @@ describe("KeepGoing server wiring", () => {
     const handle = new Function("scope", `with (scope) { return (async () => { ${route} })(); }`);
     const startAfter = "2026-10-20T12:30:00+09:00";
     const json = vi.fn();
-    await handle({
+    const scope = {
       method: "POST", path: "/api/internal/keep-going", req: {}, res: {},
       readBody: async () => ({ fromBotId: "b1", fromThreadId: "t1", on: true, start_after: startAfter }),
       store: { bot: () => ({ id: "b1", threadId: "t1" }) },
       keepGoing: h.keepGoing, taskPacketForWrite: () => h.state.packet,
       json, wireBot: vi.fn(), broadcast: vi.fn(),
-    });
+    };
+    Object.assign(scope, { internalRoutes: { setKeepGoing: routeHandler("./internal-routes.ts", "setKeepGoing", "req, res")(scope) } });
+    await handle(scope);
     expect(json).toHaveBeenCalledWith({}, 200, { ok: true });
     await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: "waiting" });
   });

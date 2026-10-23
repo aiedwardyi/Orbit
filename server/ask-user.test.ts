@@ -79,7 +79,8 @@ describe("ask-user endpoint", () => {
 
   it("is routed in the harness with the question alert and never sets waiting-on-you", () => {
     const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
-    const route = source.slice(source.indexOf('path === "/api/internal/ask-user"'));
+    const routes = readFileSync(new URL("./internal-routes.ts", import.meta.url), "utf8");
+    const route = routes.slice(routes.indexOf("askUser: async ("));
     const handler = route.slice(0, route.indexOf("return json(res, result.status, result.body);"));
     expect(handler).toContain("conversation: connectorThread");
     expect(handler).toContain('buildNotification("question", bot, target, question)');
@@ -87,6 +88,9 @@ describe("ask-user endpoint", () => {
     expect(handler).toContain("askHold.whenSettled(botId, threadId, post)");
     expect(source).toContain("askHold.flush();");
     expect(handler).not.toContain("waiting-on-you");
+    const dispatch = source.slice(source.indexOf('if (method === "POST" && path === "/api/internal/ask-user")'));
+    const guard = dispatch.slice(0, dispatch.indexOf("// terminal_spawn:"));
+    expect(guard).toMatch(/^if \(method === "POST" && path === "\/api\/internal\/ask-user"\) \{\s+return await internalRoutes\.askUser\(req, res\);\s+\}\s+$/);
   });
 
   it("lets a room persist only an ask_user card's answered or dismissed state", () => {

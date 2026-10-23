@@ -263,7 +263,8 @@ describe("importLocalImage", () => {
 
 describe("show-image route", () => {
   const indexSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
-  const route = indexSource.slice(indexSource.indexOf('path === "/api/internal/show-image"'));
+  const internalSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "internal-routes.ts"), "utf8");
+  const route = internalSource.slice(internalSource.indexOf("showImage: async ("));
 
   it("publishes into the sender's own thread as a screen message", () => {
     expect(route).toContain("connectorThread(from.id, fromThreadId)");

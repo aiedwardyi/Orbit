@@ -15,6 +15,7 @@ import { openMausStatusSystemPrompt } from "./openmaus-status-capsule.ts";
 // inside runClaimedGroupMemberTurn will break the slicing, not the behaviour.
 const here = dirname(fileURLToPath(import.meta.url));
 const index = readFileSync(join(here, "index.ts"), "utf8");
+const internal = readFileSync(join(here, "internal-routes.ts"), "utf8");
 
 describe("peerMessagePrompt", () => {
   it.each(["ask", "delegation"] as const)("marks a stored Chief on the %s path", (kind) => {
@@ -42,7 +43,7 @@ describe("peerMessagePrompt", () => {
   });
 
   it("builds the ask header from the revalidated sender record", () => {
-    const route = index.slice(index.indexOf('path === "/api/internal/ask-bot"'), index.indexOf('path === "/api/internal/react"'));
+    const route = internal.slice(internal.indexOf("askBot: async ("), internal.indexOf("react: async ("));
     expect(route).toContain('peerMessagePrompt(currentFrom, message, "ask")');
     expect(route.indexOf("currentFrom = freshFrom")).toBeLessThan(route.indexOf("peerMessagePrompt("));
   });
