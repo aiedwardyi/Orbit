@@ -2,6 +2,16 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.200] - 2026-10-23
+
+### Changed
+- Worker cards ask for the smallest diff in the repo's own voice, with new logic kept out of large files.
+
+### Fixed
+- Opening Wink on your phone renews its remote login, so uploads no longer fail as unauthorized after 30 days.
+- A Windows update cut off by a restart finishes at the next sign-in instead of leaving Wink uninstalled.
+- No false context note while a Claude worker compacts or its save line waits in the input.
+
 ## [1.0.199] - 2026-10-23
 
 ### Changed
@@ -179,6 +189,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.200]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.200
 [1.0.199]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.199
 [1.0.198]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.198
 [1.0.197]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.197
