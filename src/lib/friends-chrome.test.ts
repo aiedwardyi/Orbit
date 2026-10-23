@@ -99,8 +99,10 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(showBotNewTaskControl()).toBe(false);
     const taskPicker = readFileSync(join(components, "TaskPicker.tsx"), "utf8");
     const store = readFileSync(join(here, "../state/store.tsx"), "utf8");
+    const types = readFileSync(join(here, "../state/store-types.ts"), "utf8");
     expect(taskPicker).not.toContain('type: "newTask"');
     expect(store).not.toContain('"newTask"');
+    expect(types).not.toContain('"newTask"');
   });
 
   it("gates the Computer panel and bot new-task control in chat chrome", () => {

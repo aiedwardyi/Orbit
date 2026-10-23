@@ -14,6 +14,7 @@ const sources = {
   "Avatar.tsx": readFileSync(join(here, "Avatar.tsx"), "utf8"),
   "BotProfileAvatarCard.tsx": readFileSync(join(here, "BotProfileAvatarCard.tsx"), "utf8"),
   "store.tsx": readFileSync(join(here, "../state/store.tsx"), "utf8"),
+  "store-types.ts": readFileSync(join(here, "../state/store-types.ts"), "utf8"),
 } as const;
 
 const botAvatarFloors = {
@@ -70,7 +71,7 @@ describe("cute mascot renderer", () => {
   });
 
   it("types Bot.mascotStyle as the style union and does not animate style-only edits", () => {
-    expect(sources["store.tsx"]).toContain("mascotStyle?: BotAvatarChoice | null");
+    expect(sources["store-types.ts"]).toContain("mascotStyle?: BotAvatarChoice | null");
     expect(sources["store.tsx"]).not.toContain('hasOwnProperty.call(action.patch, "mascotStyle")');
     expect(sources["Avatar.tsx"]).toContain("scopeMascotSvgIds");
     expect(sources["Avatar.tsx"]).toContain("botAvatarAssetPath");
