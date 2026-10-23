@@ -12,7 +12,9 @@ import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 import type { Bot } from "@/state/store";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const sidebar = readFileSync(join(here, "Sidebar.tsx"), "utf8");
+const sidebar = ["Sidebar.tsx", "SidebarConversations.tsx"]
+  .map((file) => readFileSync(join(here, file), "utf8"))
+  .join("\n");
 
 Object.defineProperty(globalThis, "localStorage", { configurable: true, value: window.localStorage });
 

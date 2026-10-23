@@ -280,9 +280,9 @@ describe("Sidebar bot section drag", () => {
 
 describe("Sidebar row time", () => {
   it("keeps the active time visible and reveals inactive times on hover or focus", () => {
-    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "Sidebar.tsx"), "utf8");
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "SidebarConversations.tsx"), "utf8");
     const botTime = source.slice(source.indexOf("function BotListItem"), source.indexOf("function ArchivedBotsPanel"));
-    const groupTime = source.slice(source.indexOf("function GroupListItem"), source.indexOf("function RoomContextMenu"));
+    const groupTime = source.slice(source.indexOf("function GroupListItem"), source.indexOf("type SidebarRowDrag"));
     for (const row of [botTime, groupTime]) {
       expect(row).toContain('!selected && "hidden group-hover:inline group-focus-within:inline"');
       expect(row).not.toContain("group-hover:hidden");
@@ -840,6 +840,7 @@ describe("Sidebar layout controls", () => {
 
   it("keeps the update control in the footer rail and uses the tighter labeled row geometry", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "Sidebar.tsx"), "utf8");
+    const conversations = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "SidebarConversations.tsx"), "utf8");
     const footer = source.slice(source.indexOf("{/* Footer */}"), source.indexOf("{menu &&"));
     expect(footer).toContain("data-sidebar-update");
     expect(footer).toContain("<UpdateButton />");
@@ -851,8 +852,8 @@ describe("Sidebar layout controls", () => {
     expect(footer).toContain("overflow-x-hidden");
     expect(footer).not.toContain("border-t");
     expect(footer).not.toContain('t("chrome.teamMap")');
-    expect(source).toContain("density === \"compact\" ? 32 : 48");
-    expect(source).toContain("gap-2 px-3 py-1.5 pr-12");
+    expect(conversations).toContain("density === \"compact\" ? 32 : 48");
+    expect(conversations).toContain("gap-2 px-3 py-1.5 pr-12");
     expect(source).toContain("min-w-0 flex-1 overflow-x-hidden overflow-y-auto");
   });
 
@@ -1810,7 +1811,7 @@ describe("Sidebar bot second line", () => {
   });
 
   it("keeps terminal attention keyboard events inside the badge", () => {
-    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "Sidebar.tsx"), "utf8");
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "SidebarConversations.tsx"), "utf8");
     const badge = source.slice(source.indexOf("data-sidebar-terminal-attention"), source.indexOf("className=", source.indexOf("data-sidebar-terminal-attention")));
     expect(badge).toContain("onKeyDown={(event) => event.stopPropagation()}");
   });

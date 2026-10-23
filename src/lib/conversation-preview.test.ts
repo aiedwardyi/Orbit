@@ -186,10 +186,9 @@ describe("sidebar preview hides tool names when Show tool calls is off", () => {
   });
 
   it("passes Show tool calls into Sidebar 1:1 and room preview chrome", () => {
-    const sidebar = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../components/Sidebar.tsx"),
-      "utf8",
-    );
+    const sidebar = ["Sidebar.tsx", "SidebarConversations.tsx"]
+      .map((file) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../components", file), "utf8"))
+      .join("\n");
     expect(sidebar).toMatch(/conversationPreview\([^)]*showToolCalls/);
     expect(sidebar).toMatch(/roomConversationPreview\([^)]*showToolCalls/);
     expect(sidebar).not.toMatch(/last\.kind === "activity" && last\.tool \? last\.tool\.name/);
