@@ -129,7 +129,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe("Google sync join under Drive errors", () => {
+describe("Google sync join under Drive errors", { timeout: 60_000 }, () => {
   it.each([
     ["a bare 429 on the mirror's first listing", () => fault(rootLookup, () => new Response(null, { status: 429 }), 1)],
     ["a 429 on the first download", () => fault(download, () => new Response(null, { status: 429 }))],

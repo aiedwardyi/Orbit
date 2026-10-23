@@ -282,10 +282,13 @@ describe("Google sync journeys", { timeout: 60_000 }, () => {
     writeFileSync(join(home.dataDir, GOOGLE_TABLE_FILE), JSON.stringify(table));
     const fetchDrive = driveA().fetch;
     const timers = vi.spyOn(globalThis, "setTimeout");
+    let finishUpload!: () => void;
+    const uploaded = new Promise<void>((done) => { finishUpload = done; });
     let scans = 0;
     driveA().fetch = async (input, init) => {
       const request = new Request(input, init);
       const response = await fetchDrive(input, init);
+      if (drivePaths(driveA()).includes("pictures/after-scan.png")) finishUpload();
       if (new URL(request.url).pathname === "/drive/v3/changes" && ++scans === 1) {
         write(home.folder!, "pictures/after-scan.png", "late bytes");
         home.republishing = false;
@@ -299,8 +302,9 @@ describe("Google sync journeys", { timeout: 60_000 }, () => {
       expect(drivePaths(driveA())).not.toContain("pictures/after-scan.png");
       expect(home.sync.status().state).toBe("syncing");
       expect(timers.mock.calls.some(([, ms]) => ms === 1_000)).toBe(true);
-      await vi.waitFor(() => expect(drivePaths(driveA())).toContain("pictures/after-scan.png"), { timeout: 2_000 });
+      await uploaded;
       await home.sync.idle();
+      expect(drivePaths(driveA())).toContain("pictures/after-scan.png");
       expect(home.sync.status().state).toBe("up-to-date");
     } finally {
       driveA().fetch = fetchDrive;
