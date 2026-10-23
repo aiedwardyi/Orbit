@@ -84,8 +84,8 @@ describe("createMemoryHealthCheck", () => {
 
 describe("memory check refresh sites", () => {
   it("refreshes the check after a Memory box save", () => {
-    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
-    expect(index).toMatch(/const saved = saveMemoryFile\(m\[1\], parsed\.data\.text, parsed\.data\.baseRevision\);\r?\n\s*if \(saved\.conflict\) return json\(res, 409[^;]*;\r?\n\s*memoryHealthCheck\.refresh\(m\[1\]\);/);
+    const bots = readFileSync(new URL("./bot-routes.ts", import.meta.url), "utf8");
+    expect(bots).toMatch(/const saved = saveMemoryFile\(m\[1\], parsed\.data\.text, parsed\.data\.baseRevision\);\r?\n\s*if \(saved\.conflict\) return json\(res, 409[^;]*;\r?\n\s*memoryHealthCheck\.refresh\(m\[1\]\);/);
   });
 
   it("refreshes the check only when sync pulled or conflicted", () => {

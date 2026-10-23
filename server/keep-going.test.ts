@@ -747,6 +747,7 @@ describe("KeepGoing server wiring", () => {
       keepGoing: h.keepGoing, taskPacketForWrite: () => h.state.packet,
       resumePaneWakes, wireBot: vi.fn(), broadcast: vi.fn(),
     };
+    Object.assign(scope, { botRoutes: { setKeepGoing: routeHandler("./bot-routes.ts", "setKeepGoing", "req, res, m")(scope) } });
     for (const retry of [false, true]) {
       if (retry) {
         scope.readBody = async () => ({ on: false });
