@@ -28,7 +28,7 @@ import {
   type AutomaticCapability,
 } from "./automatic-selection.ts";
 import * as checkpoints from "./checkpoints.ts";
-import { appendDecision, readDecisions } from "./decision-log.ts";
+import { appendDecision } from "./decision-log.ts";
 import "./bot-cwd.ts";
 import { resolveBotTerminalFolder } from "./terminal-cwd.ts";
 import {
@@ -93,7 +93,7 @@ import {
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
 import { ComputerControl } from "./computer-control.ts";
-import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, paneNoteText, planCompaction, planSummaryGrace, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes, type SummaryGrace } from "./context-compaction.ts";
+import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, planCompaction, planSummaryGrace, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes, type SummaryGrace } from "./context-compaction.ts";
 import { decodeInjectId } from "./drivers/local-inject.ts";
 import { createSummaryBuild, inlineDeadlineMs, inlineSummarizer, type SummaryWait } from "./summary-build.ts";
 import { createSummaryRepair, logSummaryCall } from "./summary-repair.ts";
@@ -135,8 +135,8 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { clearAskBudget } from "./comms-budget.ts";
 import "./comms-visibility.ts";
 import type { CommsBus } from "./comms-visibility.ts";
-import { searchHaystack, searchMessages, searchSnippet } from "./message-db.ts";
-import { turnIndex } from "./turn-index.ts";
+import "./message-db.ts";
+import "./turn-index.ts";
 import { composeUserTurnPrompt, turnReplaysTranscript, userTurnReactionKeys } from "./replies.ts";
 import { reactionSystemGuidance, reactionToolGuidance } from "../shared/reactions.ts";
 import { _loadPending, discardDelegations, discardDelegationsFrom, discardOrphanedDelegations, drainDelegations, drainWaitingOn, failUnwatchedDelegation, finishDelegatedTurn, pendingDelegationSnapshot, settleTakenOverDelegation, type DelegatedTurn } from "./delegations.ts";
@@ -163,7 +163,7 @@ import {
 import { EventBus } from "./harness/bus.ts";
 import { ProviderReload } from "./harness/provider-reload.ts";
 import { ProviderRegistry } from "./harness/registry.ts";
-import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
+import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, type ApprovalBus } from "./peer-approval.ts";
 import {
   mentionedBots,
   redactBotAuthored,
@@ -364,7 +364,7 @@ import "./project-scout.ts";
 import "./team-library.ts";
 import "./bot-package.ts";
 import "./team-manifest.ts";
-import { readThreadEvents } from "./thread-events.ts";
+import "./thread-events.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { memberTurnSelection } from "./member-turn.ts";
 import { WebhookManager } from "./webhooks.ts";
@@ -381,6 +381,7 @@ import { createGroupRoutes } from "./group-routes.ts";
 import { createInternalRoutes } from "./internal-routes.ts";
 import { createBotRoutes } from "./bot-routes.ts";
 import { createBotChatRoutes } from "./bot-chat-routes.ts";
+import { createThreadRoutes } from "./thread-routes.ts";
 
 const PORT = Number(process.env.OMB_PORT || process.env.OGB_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.OMB_WEBHOOK_PORT || PORT + 1);
@@ -6942,6 +6943,21 @@ const botChatRoutes = createBotChatRoutes({
   secretMessage,
   resumeSecretCard,
 });
+const threadRoutes = createThreadRoutes({
+  cfg,
+  threadSyncGate,
+  store,
+  pullSyncedThread,
+  DEFAULT_PAGE,
+  pageSize,
+  clientMessage,
+  messagePage,
+  messageWindow,
+  answerRequest,
+  requestBehavior,
+  resolveAndSendRoutine,
+  approvalBus,
+});
 const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
   /** scratch for route matches, shared by every `path.match` below */
   let m: RegExpMatchArray | null = null;
@@ -7456,62 +7472,19 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // scrollback: the page before a message the client already holds
     m = path.match(/^\/api\/threads\/([\w-]+)\/messages$/);
     if (m && method === "GET") {
-      const threadId = m[1];
-      if (!store.botByThread(threadId) && !store.groupByThread(threadId)) {
-        return json(res, 404, { error: "no such conversation" });
-      }
-      const limit = pageSize(url.searchParams.get("limit"));
-      if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
-      if (threadSyncGate.enabled) await pullSyncedThread(threadId);
-      else pullSyncedThread(threadId);
-      const before = url.searchParams.get("before");
-      const around = url.searchParams.get("around");
-      if (before && around) return json(res, 400, { error: "before and around cannot be combined" });
-      if (around) {
-        const window = messageWindow(threadId, around, limit ?? DEFAULT_PAGE);
-        if (!window) return json(res, 404, { error: "no such message" });
-        return json(res, 200, window);
-      }
-      // An unknown cursor must not silently answer with the newest page —
-      // the client would paginate in a circle and never reach the top.
-      if (before && !store.messagesFor(threadId).some((msg) => msg.id === before)) {
-        return json(res, 404, { error: "no such message" });
-      }
-      return json(res, 200, messagePage(threadId, limit ?? DEFAULT_PAGE, before));
+      return await threadRoutes.listMessages(res, m, url);
     }
 
     // the timeline rail's turns, fetched once per chat on the first approach
     m = path.match(/^\/api\/threads\/([\w-]+)\/turns$/);
     if (m && method === "GET") {
-      const threadId = m[1];
-      if (!store.botByThread(threadId)) return json(res, 404, { error: "no such conversation" });
-      if (threadSyncGate.enabled) await pullSyncedThread(threadId);
-      else pullSyncedThread(threadId);
-      return json(res, 200, turnIndex(store.activePath(threadId)));
+      return await threadRoutes.turns(res, m);
     }
 
     // the pixels of one screen message, fetched only when something shows it
     m = path.match(/^\/api\/threads\/([\w-]+)\/messages\/([\w-]+)\/image$/);
     if (m && method === "GET") {
-      // Same guard as the page route above, and for the same reason twice
-      // over: an unknown id should 404 deliberately rather than by accident,
-      // and `messagesFor` materialises and caches a ThreadState for whatever
-      // it is handed. Without this, a client asking for images on ids that
-      // do not exist grows the thread map for as long as it keeps asking.
-      if (!store.botByThread(m[1]) && !store.groupByThread(m[1])) {
-        return json(res, 404, { error: "no such conversation" });
-      }
-      const message = store.messagesFor(m[1]).find((msg) => msg.id === m![2]);
-      const attachment = message?.image ? readAttachment(message.image) : null;
-      const bytes = attachment?.bytes ?? (message?.png ? Buffer.from(message.png, "base64") : null);
-      if (!bytes) return json(res, 404, { error: "no image on that message" });
-      res.writeHead(200, {
-        "content-type": attachment?.mime ?? message?.mime ?? "image/png",
-        "content-length": String(bytes.byteLength),
-        // a settled message's image never changes
-        "cache-control": "private, max-age=31536000, immutable",
-      });
-      return res.end(bytes);
+      return await threadRoutes.messageImage(res, m);
     }
 
     if (method === "POST" && path === "/api/attachments") {
@@ -7571,97 +7544,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // index to maintain. Hits resolve to the bot/room that owns the thread;
     // rows belonging to deleted conversations resolve to nothing and drop.
     if (method === "GET" && path === "/api/search") {
-      const q = url.searchParams.get("q") ?? "";
-      const rawLimit = url.searchParams.get("limit");
-      const limit = rawLimit ? Math.min(Math.max(Number(rawLimit) || 0, 1), 100) : 40;
-      const threadId = url.searchParams.get("threadId")?.trim() || undefined;
-      // in-chat find: the page after `before`, matched against what the chat's skin draws
-      const before = threadId ? url.searchParams.get("before") || undefined : undefined;
-      const chips = url.searchParams.get("view") === "chips";
-      if (threadId && !store.botByThread(threadId) && !store.groupByThread(threadId)) {
-        return json(res, 404, { error: "no such conversation" });
-      }
-      // whether each hit sits on its thread's visible branch — a click on
-      // one that does not has to switch versions first (and only then)
-      const activePaths = new Map<string, Set<string>>();
-      const onActivePath = (threadId: string, messageId: string) => {
-        let ids = activePaths.get(threadId);
-        if (!ids) activePaths.set(threadId, (ids = new Set(store.activePath(threadId).map((m) => m.id))));
-        return ids.has(messageId);
-      };
-      const threadRows = new Map<string, Map<string, Message>>();
-      const messageIn = (threadId: string, messageId: string) => {
-        let rows = threadRows.get(threadId);
-        if (!rows) threadRows.set(threadId, (rows = new Map(store.messagesFor(threadId).map((m) => [m.id, m]))));
-        return rows.get(messageId);
-      };
-      const needle = q.trim().toLowerCase();
-      const found = searchMessages(q, limit + 1, threadId, { before, chips });
-      const hits = found.slice(0, limit)
-        .map((hit) => {
-          const bot = store.botByThread(hit.threadId);
-          const group = bot ? undefined : store.groupByThread(hit.threadId);
-          if (!bot && !group) return null;
-          const active = onActivePath(hit.threadId, hit.messageId);
-          const message = messageIn(hit.threadId, hit.messageId);
-          const snippet = message ? searchSnippet(searchHaystack(clientMessage(message), chips), needle) : {};
-          if (bot) {
-            const task = store.taskByThread(bot.id, hit.threadId);
-            return { ...hit, ...snippet, botId: bot.id, name: bot.name, task: task?.title, onActivePath: active };
-          }
-          if (group) {
-            const task = store.groupTaskByThread(group.id, hit.threadId);
-            return { ...hit, ...snippet, groupId: group.id, name: group.name, task: task?.title, onActivePath: active };
-          }
-          return null;
-        })
-        .filter((hit): hit is NonNullable<typeof hit> => hit !== null);
-      return json(res, 200, { hits, more: found.length > limit });
+      return await threadRoutes.search(res, url);
     }
 
     // ── transcript export (the visible branch, human-readable) ──────────
     m = path.match(/^\/api\/threads\/([\w-]+)\/export$/);
     if (m && method === "GET") {
-      const threadId = m[1];
-      const bot = store.botByThread(threadId);
-      const group = bot ? undefined : store.groupByThread(threadId);
-      if (!bot && !group) return json(res, 404, { error: "no such conversation" });
-      const format = url.searchParams.get("format") ?? "markdown";
-      if (format !== "markdown" && format !== "json") {
-        return json(res, 400, { error: "format must be markdown or json" });
-      }
-      const title = bot
-        ? (store.taskByThread(bot.id, threadId)?.title || bot.name)
-        : (store.groupTaskByThread(group!.id, threadId)?.title || group!.name);
-      const filename = (title.replace(/[^\w\- ]+/g, "").trim() || "conversation").slice(0, 60);
-      const messages = store.activePath(threadId).filter((message) => !message.summarized).map(clientMessage);
-      if (format === "json") {
-        // pixels stripped — an export is for reading and archiving, and a
-        // base64 desktop frame is neither
-        const slim = messages.map(({ png: _png, mime: _mime, ...rest }) => rest);
-        res.writeHead(200, {
-          "content-type": "application/json",
-          "content-disposition": `attachment; filename="${filename}.json"`,
-        });
-        return res.end(JSON.stringify({ name: title, threadId, messages: slim }, null, 2));
-      }
-      const userName = cfg.profile?.name?.trim() || "User";
-      const lines: string[] = [`# ${title}`, ""];
-      for (const msg of messages) {
-        const who = msg.role === "user" ? userName : (msg.from?.name ?? bot?.name ?? "Bot");
-        if (msg.kind === "text" && msg.text) lines.push(`**${who}:**`, "", msg.text, "");
-        else if (msg.kind === "activity" && msg.tool) lines.push(`> ${msg.tool.name}`, "");
-        else if (msg.kind === "note" && msg.text) lines.push(paneNoteText(msg.text), "");
-        else if (msg.kind === "screen") lines.push("> [screen capture]", "");
-        else if (msg.kind === "options" && msg.card) {
-          lines.push(`> ${msg.card.title}${msg.card.answered ? ` — answered: ${msg.card.answered}` : ""}`, "");
-        }
-      }
-      res.writeHead(200, {
-        "content-type": "text/markdown; charset=utf-8",
-        "content-disposition": `attachment; filename="${filename}.md"`,
-      });
-      return res.end(lines.join("\n"));
+      return await threadRoutes.exportThread(res, m, url);
     }
 
     // ── channels (persisted internally as groups) ───────────────────────
@@ -7736,12 +7625,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // emoji reactions — works on any thread (1:1 or room)
     m = path.match(/^\/api\/threads\/([\w-]+)\/messages\/([\w-]+)\/reactions$/);
     if (m && method === "POST") {
-      const body = await readBody(req);
-      const emoji = String(body.emoji ?? "").slice(0, 8);
-      if (!emoji) return json(res, 400, { error: "emoji required" });
-      const patched = store.toggleReaction(m[1], m[2], emoji, typeof body.by === "string" ? body.by : "user");
-      if (!patched) return json(res, 404, { error: "no such message" });
-      return json(res, 200, { message: patched });
+      return await threadRoutes.reaction(req, res, m);
     }
     if (method === "POST" && path === "/api/bots") {
       return await botRoutes.create(req, res);
@@ -7984,49 +7868,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // owns the pending request is the one currently speaking there.
     m = path.match(/^\/api\/threads\/([\w-]+)\/respond$/);
     if (m && method === "POST") {
-      const threadId = m[1];
-      const body = await readBody(req);
-      const behavior = requestBehavior(body.behavior);
-      if (!behavior) return json(res, 400, { error: "behavior must be allow, deny, or answer" });
-      const requestId = String(body.requestId);
-      const routineCard = store.messagesFor(threadId).find(
-        (message) => message.card?.requestId === requestId && message.card.routineRequest,
-      );
-      if (routineCard?.card?.routineRequest) {
-        // Derive the owner from the conversation, not from the executable
-        // payload being authorized. Room cards carry their trusted sender;
-        // one-to-one tasks resolve through the store's thread ownership.
-        const routineBotId = routineCard.from?.botId ?? store.botByThread(threadId)?.id;
-        if (!routineBotId) return json(res, 400, { error: "this routine request has no valid owner" });
-        const routineOwner = store.bot(routineBotId);
-        if (resolveAndSendRoutine(res, {
-          botId: routineBotId,
-          botName: routineOwner?.name,
-          threadId,
-          requestId,
-          behavior,
-        })) return;
-      }
-      // peer-approval intercept (see /api/bots/:id/respond above). A peer card
-      // belongs to the bus rather than to a speaker, so resolve it before we go
-      // looking for one — a room between turns has no speaker to find.
-      if (resolvePeerComms(approvalBus, requestId, behavior)) {
-        return json(res, 200, { ok: true, outcome: behavior === "allow" ? "allowed-once" : "rejected" });
-      }
-      const group = store.groupByThread(threadId);
-      // busyBotId is in-memory only, so an approval that outlives its turn — or
-      // the process — leaves a durable card with no speaker behind it. Fall back
-      // to the member that raised it, and answer even when that member is gone:
-      // answerRequest closes an unreachable card, and a pending approval owns
-      // the composer, so a dead end here locks the room for good.
-      const pending = store.messagesFor(threadId).find((message) => message.card?.requestId === requestId);
-      const owner = group
-        ? (group.busyBotId ? store.bot(group.busyBotId) : undefined) ??
-          (pending?.from ? store.bot(pending.from.botId) : undefined)
-        : store.botByThread(threadId);
-      if (!owner && !pending) return json(res, 404, { error: "nothing is waiting on an answer in this conversation" });
-      const outcome = await answerRequest(threadId, owner?.modelSelection.instanceId ?? "", requestId, behavior, body.message, owner ? { id: owner.id, name: owner.name } : undefined);
-      return json(res, 200, { ok: true, outcome });
+      return await threadRoutes.respond(req, res, m);
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/prewarm$/);
     if (m && method === "POST") {
@@ -8227,18 +8069,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // belong to bots or rooms — anything else is not a thread we know.
     m = path.match(/^\/api\/threads\/([\w-]+)\/events$/);
     if (m && method === "GET") {
-      const threadId = m[1];
-      const known =
-        store.bots.some((b) => store.tasks(b.id).some((t) => t.threadId === threadId)) ||
-        Boolean(store.groupByThread(threadId));
-      if (!known) return json(res, 404, { error: "no such thread" });
-      const rawLimit = url.searchParams.get("limit");
-      const parsedLimit = rawLimit === null ? undefined : Number(rawLimit);
-      if (parsedLimit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit <= 0)) {
-        return json(res, 400, { error: "limit must be a positive whole number" });
-      }
-      const limit = parsedLimit;
-      return json(res, 200, readThreadEvents({ eventsDir: EVENTS_DIR, nativeDir: NATIVE_DIR, threadId, limit }));
+      return await threadRoutes.events(res, m, url);
     }
 
     // ── the fleet-wide authorization decision log ──
@@ -8246,12 +8077,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     // request.opened fold and in answerRequest; this only reads them back,
     // newest last, same order as thread events.
     if (method === "GET" && path === "/api/decisions") {
-      const rawLimit = url.searchParams.get("limit");
-      const parsedLimit = rawLimit === null ? undefined : Number(rawLimit);
-      if (parsedLimit !== undefined && (!Number.isInteger(parsedLimit) || parsedLimit <= 0)) {
-        return json(res, 400, { error: "limit must be a positive whole number" });
-      }
-      return json(res, 200, { decisions: readDecisions(DATA_DIR, parsedLimit ?? 200) });
+      return await threadRoutes.decisions(res, url);
     }
 
     // ── provider instances (model picker) ──
