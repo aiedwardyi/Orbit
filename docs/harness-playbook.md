@@ -31,6 +31,9 @@ What to build or fix, and why. Two to five lines.
 ## Constraints
 - Worktree path and branch. What not to touch. Push remote and
   branch, or no push.
+- Smallest diff. Match the repo's naming, voice and structure. Unless its
+  rules differ: comments only for a footgun, one line; new logic in a
+  focused file, not a large one.
 - If a choice this card does not cover would change the result, stop and report BLOCKED with the question.
 - Keep processes off the user's screen: run in the pane, start background work hidden.
 
