@@ -207,6 +207,7 @@ const CONTEXT_SAVE_LINE = "Context is getting full. Update your progress file no
 // Both queue typed text while busy; a menu would take the Enter as a pick.
 const SAVE_LINE_ENGINES = new Set(["claude", "codex"]);
 const PANE_MENU_RE = /^\s*[❯›]\s*\d+\.\s/u;
+const CLAUDE_COMPACTING_RE = /^[·✢✳✶✻✽*][\s─]+Compacting conversation…/mu;
 const BRACKETED_PASTE_MODE = 2004;
 const SAVE_ENTER_MS = 5_000;
 const tokenCount = (value, unit) => Math.round(Number(value) * (unit === "M" ? 1_000_000 : unit === "K" ? 1_000 : 1));
@@ -562,11 +563,15 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       }
       // A compaction back under the line re-arms the note.
       if (context && !contextOver(context)) session.contextNote = null;
-      else if (!session.contextCompactPending && context) {
+      // Claude's spinner counts as busy, but its own compaction needs no save line.
+      else if (!session.contextCompactPending && context && !(session.engine === "claude" && CLAUDE_COMPACTING_RE.test(text))) {
         const note = session.contextNote ??= { tries: 0, retryAt: 0, save: null, typedAt: 0 };
         if (!note.save) {
-          note.save = canTakeSaveLine(text, session.engine) ? "typed" : "failed";
-          if (note.save === "typed") {
+          // A compaction re-arms the note while the last save line can still sit unsent in the input.
+          const queued = canSubmitSaveLine(session.screen.snapshot({ maxScrollbackChars: 0 }), session.engine);
+          note.save = queued || canTakeSaveLine(text, session.engine) ? "typed" : "failed";
+          if (queued) note.typedAt = at;
+          else if (note.save === "typed") {
             const paste = session.screen.snapshot({ maxScreenChars: 1, maxScrollbackChars: 0 }).modes?.includes(BRACKETED_PASTE_MODE);
             note.typedAt = at;
             session.pendingInputEcho = `${session.pendingInputEcho}${CONTEXT_SAVE_LINE}`.slice(-INPUT_ECHO_LIMIT);
