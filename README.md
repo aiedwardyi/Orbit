@@ -12,31 +12,43 @@
 <p align="center">
   Your AI coding subscriptions, in one desktop app, at terminal speed.
   <br>
-  A lead bot plans the work, runs coding workers in real terminals, and remembers across sessions, models, PCs and your phone.
-  <br>
   Runs on the Claude Code, Codex, Gemini, Grok and Muse logins you already have. No API keys. No telemetry.
 </p>
 
 <p align="center">
+  <a href="https://github.com/aiedwardyi/orbit-releases/releases/latest/download/Wink-setup.exe"><b>Download for Windows</b></a> (10 / 11, x64)
+  <br>
   Built by <a href="https://github.com/aiedwardyi">Edward Yi</a>
 </p>
 
-<p align="center">
-  <img src="./assets/hero.png" alt="Wink with a team of five bots. Atlas plans in chat, three labeled terminal workers report DONE back into its thread, Sage's row glows because it has a question, and the same chat is open on a phone.">
-  <br>
-  <sub>Atlas hands out task cards, three terminal workers report back, and Sage's question glows without stopping the work.</sub>
-</p>
+<img src="./assets/readme/hero.png" alt="Wink with a team of five bots on five engines. Atlas picks up a plan from its notes and runs five workers, two of them done.">
 
-## Why Wink
+## Tour
 
-- **Type and go.** Opens straight to your bots after a short first run. Fast and light, like a terminal. No API keys.
-- **All your subscriptions, one app.** Claude Code, Codex, Gemini, Grok and Muse, on the logins you already pay for. `Alt+M` switches the model or engine mid-thread, and the thread and its task record carry over.
-- **A lead bot that runs the workers.** Ask once. It writes a task card per job, opens a labeled terminal pane per worker (`PARSER | Sonnet 5.5 | high`), and gets each DONE report back in its chat. A question never stops the work: the bot's row glows and the question waits above the composer. Or press `` Ctrl+` `` and drive the terminal yourself.
-- **Long tasks without losing the plot.** On its own, Claude Code runs until its window is nearly full, then squeezes the whole session into one summary. Wink steps in well before that. A bot moves to a fresh session with a summary, its task record and its memory. A Claude Code worker gets its task card and progress notes back. The full transcript stays on disk, and later turns send less context.
-- **Memory that grows with you.** Each bot keeps a `MEMORY.md` it writes itself and reads at the start of every session, plus topic files on demand. Sign in with Google, or point Wink at a Drive folder, and the same bots, memory and chats continue on your other PCs.
-- **Your phone and your PCs, any hour.** The same chats on your phone over your Tailscale tailnet, or QR pairing through a [relay you host](relay/README.md). Push notifications when a bot needs you, even after you've put the phone down. Every synced PC on your tailnet or relay is listed under **Your PCs** in the sidebar: open one and work with its bots from wherever you are.
-- **Pro moves.** `Ctrl+1..9` jumps to a bot, `Alt+1..9` to a pane in the open terminal, `Ctrl+K` opens the command palette, `Alt+I` the model index with benchmark scores and API prices.
-- **52 themes.** `Alt+Shift+T` cycles them, so the screen never gets boring. English and Korean.
+**1. A lead bot runs your workers**<br>
+Ask once. It writes a task card per job and starts each worker on any engine you have.
+
+<img src="./assets/readme/tour-1-workers.png" alt="Five worker rows, each with its engine's mark and model: three working, two done.">
+
+**2. Real terminals, one tab per worker**<br>
+Each worker runs its engine's own CLI in a labeled tab. Press `` Ctrl+` `` to drive it yourself.
+
+<img src="./assets/readme/tour-2-terminal.png" alt="Terminal tabs labeled LIMITER, DOCS and REVIEW with model and effort, over the LIMITER worker's session.">
+
+**3. Every coding subscription you pay for**<br>
+Give each bot its own engine and model. `Alt+M` switches mid-thread, and the thread carries over.
+
+<img src="./assets/readme/tour-3-team.png" alt="The bot list in two sections, each bot on a different engine and model.">
+
+**4. Never loses the plot**<br>
+Each bot keeps a `MEMORY.md` it reads every session, across models, PCs and your phone.
+
+<img src="./assets/readme/tour-4-memory.png" alt="Atlas's Memory box with its MEMORY.md notes on the Acme API.">
+
+**5. The same chats on your phone**<br>
+Over your Tailscale tailnet or a [relay you host](relay/README.md), with a push when a bot needs you.
+
+<img src="./assets/readme/tour-5-phone.png" alt="Atlas's chat and worker rows on a phone.">
 
 ## Quickstart
 
@@ -45,31 +57,6 @@
 3. Wink finds the engines on this PC. Create a bot, give it a job, and message it like anyone else.
 
 The installer isn't code-signed yet, so SmartScreen may say "Windows protected your PC". Choose **More info**, then **Run anyway**.
-
-<p align="center">
-  <img src="./assets/demo.gif" alt="Animation: the ask is typed, Atlas plans, three worker panes open one by one, Sage's row starts to glow, DONE notes land in Atlas's chat, and Atlas answers.">
-  <br>
-  <sub>Panes open one by one, DONE notes land in the chat, and Atlas answers. Sage waits for you without holding anyone up.</sub>
-</p>
-
-## How it works
-
-1. You ask a bot. Atlas, the planner here, splits the job and writes one task card per worker.
-2. It opens a labeled terminal pane per worker, on any engine CLI you have. The built-in playbook tells it to give each worker its own git worktree.
-3. Each card ends with `orbit-msg --report DONE <NICK>`. The report lands in Atlas's chat as a note with branch, sha and dirty state, and wakes Atlas.
-4. Atlas checks the work and answers you. If it needs a decision, it asks without stopping.
-5. Context carries over: each bot's `MEMORY.md` (up to 200 lines or 24,000 bytes) goes into every prompt, a task record survives compaction and model switches, and the transcript is never pruned.
-
-```mermaid
-flowchart LR
-  you([You]) -->|ask| atlas["Atlas, the planner"]
-  atlas -->|task cards| panes["Worker panes<br/>any engine CLI"]
-  panes -->|orbit-msg DONE| notes["Notes in Atlas's chat"]
-  notes --> check["Atlas checks the work"]
-  check -->|answer| you
-```
-
-Long threads compact: past half the context window or 60 turns, Wink writes a summary and continues in a fresh session with the summary and the recent turns. The full transcript stays on disk.
 
 ## Engines
 
@@ -94,6 +81,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://api.meta.ai/
 Engine logins stay in each CLI's own store. Wink drives the CLI with the session you already have. Add engines later in **Settings > Connections**. Muse runs natively and falls back to WSL.
 
 ## Trust and security
+
+- No analytics, telemetry or crash upload.
+- Listens on this PC only, behind a per-launch token.
+- Engine logins stay in each CLI's own store.
+
+<details>
+<summary>Everything Wink listens on, sends and stores</summary>
 
 Wink has no analytics, telemetry or crash upload. This is everything it listens on, sends and stores.
 
@@ -143,6 +137,8 @@ Wink has no analytics, telemetry or crash upload. This is everything it listens 
 - Pane shells don't inherit Wink's tokens or secrets, except `ORBIT_MSG_AUTH`: a token that only lets that one pane post its report to the bot that opened it. Panes close when Wink quits.
 
 Report vulnerabilities through [SECURITY.md](SECURITY.md).
+
+</details>
 
 ## Requirements
 
