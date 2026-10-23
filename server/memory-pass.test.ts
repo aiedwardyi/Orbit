@@ -756,6 +756,7 @@ describe("note generator", () => {
 describe("memory pass wiring", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const index = readFileSync(join(here, "index.ts"), "utf8");
+  const bots = readFileSync(join(here, "bot-routes.ts"), "utf8");
 
   it("runs every bot's pass on Claude, after 1:1 turns, without a session transcript", () => {
     expect(index).toMatch(/createMemoryPass\(\{[\s\S]*?generate: \(\) => noteGenerator\(registry\.instances\(\)\),[\s\S]*?botHasActiveTurn/);
@@ -770,7 +771,7 @@ describe("memory pass wiring", () => {
   });
 
   it("saves and syncs the switch on the bot record", () => {
-    expect(index).toContain("patch.memoryNotes = body.memoryNotes;");
+    expect(bots).toContain("patch.memoryNotes = body.memoryNotes;");
     expect(index).toContain("memoryNotes: bot.memoryNotes ?? null,");
     expect(index).toContain('if ("memoryNotes" in apply) patch.memoryNotes = typeof apply.memoryNotes === "boolean" ? apply.memoryNotes : undefined;');
     expect(index).toContain("ownOpSyncChanges(compatibleSyncChanges(synced, unsynced))");
