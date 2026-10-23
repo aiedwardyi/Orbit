@@ -273,8 +273,9 @@ function canSubmitSaveLine(screen, engine) {
     || /Allow .+\?|Do you want to (?:proceed|allow|run)|Would you like to (?:proceed|run)|\(y\/n\)|esc to cancel|enter to (?:confirm|select)/i.test(screenText)) return false;
   if (cursor.col !== lines[cursor.row]?.length) return false;
   let start = cursor.row;
-  while (start > 0 && !/^\s*[>❯›] /u.test(lines[start])) start -= 1;
-  const input = lines.slice(start, cursor.row + 1).join("").replace(/^\s*[>❯›] /u, "");
+  // Claude Code draws its live prompt with a no-break space, its transcript with a plain one.
+  while (start > 0 && !/^\s*[>❯›]\s/u.test(lines[start])) start -= 1;
+  const input = lines.slice(start, cursor.row + 1).join("").replace(/^\s*[>❯›]\s/u, "");
   return input.replace(/\s+/g, "") === CONTEXT_SAVE_LINE.replace(/\s+/g, "");
 }
 
