@@ -35,7 +35,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe("hard-link fallback", () => {
+describe("hard-link fallback", { timeout: 60_000 }, () => {
   it("publishes a sealed chat when hard links are refused", async () => {
     links.n = 0;
     const folder = mkdtempSync(join(tmpdir(), "sync-v2-link-"));

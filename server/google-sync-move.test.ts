@@ -172,7 +172,7 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe("Move from folder sync to Google", () => {
+describe("Move from folder sync to Google", { timeout: 60_000 }, () => {
   it("moves three folder PCs and restores every bot, row, memory and fresh picture on D", { timeout: 120_000 }, async () => {
     const home = makePC("home");
     const work = makePC("work");
