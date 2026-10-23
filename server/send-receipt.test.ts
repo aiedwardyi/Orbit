@@ -37,7 +37,8 @@ describe("send POST receipt", () => {
 
   it("wires prepare failure onto the 1:1 POST receipt", () => {
     const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
-    expect(index).toContain("sendPostReceipt(started, threadId)");
+    const botChat = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "bot-chat-routes.ts"), "utf8");
+    expect(botChat).toContain("sendPostReceipt(started, threadId)");
     expect(index).toContain("dispatchFailed: true");
   });
 

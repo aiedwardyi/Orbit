@@ -8,8 +8,8 @@ import { sendPostReceipt, startedTurn } from "./send-receipt.ts";
 import * as queue from "./steer-queue.ts";
 import type { BotRecord, Message } from "./store.ts";
 
-const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
-const start = source.indexOf('      const body = await readBody(req);', source.indexOf('m = path.match(/^\\/api\\/bots\\/([\\w-]+)\\/messages$/);'));
+const source = readFileSync(new URL("./bot-chat-routes.ts", import.meta.url), "utf8");
+const start = source.indexOf('      const body = await readBody(req);', source.indexOf('    send: async ('));
 const end = source.indexOf('      return json(res, 202, receipt);', start) + '      return json(res, 202, receipt);'.length;
 const route = ts.transpileModule(source.slice(start, end), { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
 // Run only the POST body; importing the server would boot its listeners.

@@ -184,15 +184,16 @@ describe("peer turn registry", () => {
 
   it("a control-plane steer doesn't take over", () => {
     const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const botChat = readFileSync(new URL("./bot-chat-routes.ts", import.meta.url), "utf8");
     const calls = index.match(/takeOverPeerTurn\(/g) ?? [];
     // the two folds of queued user sends; the send route's steer defers to the read
     const userJoins = index.match(/resumePaneWakes\((?:bot|current)\.id\);\r?\n\s*takeOverPeerTurn\(threadId\);/g) ?? [];
     expect(calls).toHaveLength(2);
     expect(userJoins).toHaveLength(2);
-    expect(index).toMatch(/const prompt = consumable \? composeUserTurnPrompt\(text, turnOpts\)/);
-    expect(index).toMatch(/\.steer\(threadId, prompt, \(taken, afterReply\) =>/);
-    expect(index).toMatch(/peerTurn: hasPeerWatch\(threadId\)/);
-    expect(index).toMatch(/takeover\.accepted\(\);/);
+    expect(botChat).toMatch(/const prompt = consumable \? composeUserTurnPrompt\(text, turnOpts\)/);
+    expect(botChat).toMatch(/\.steer\(threadId, prompt, \(taken, afterReply\) =>/);
+    expect(botChat).toMatch(/peerTurn: hasPeerWatch\(threadId\)/);
+    expect(botChat).toMatch(/takeover\.accepted\(\);/);
     const paneWake = index.slice(index.indexOf("const paneWake = new PaneWakeScheduler("));
     expect(paneWake.slice(0, paneWake.indexOf("\n});"))).not.toContain("takeOverPeerTurn");
     for (const driver of ["./drivers/claude.ts", "./drivers/codex.ts", "./drivers/acp/core.ts"]) {
