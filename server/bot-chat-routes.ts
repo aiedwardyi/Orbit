@@ -275,7 +275,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
               replyToId: replyTo?.id,
               sendId,
               after: body.deliver === "after",
-              // Reply quote only — startTurn wraps reactions when this drains.
+              // Reply quote only - startTurn wraps reactions when this drains.
               prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
             });
             if (queued.skipped) {
@@ -286,7 +286,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
           }
           // Stop cleared `busy`, but the driver holds the thread for up to
-          // the cancel grace and would refuse the dispatch. Queue it — that
+          // the cancel grace and would refuse the dispatch. Queue it - that
           // is already what a send to a busy bot does, and wireBot reports
           // this bot busy for exactly this window, so erroring here while
           // telling the client "busy" is the inconsistency. Check and enqueue
@@ -332,7 +332,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
       // never both get past this check: startTurn acquires the turn-start
       // claim before the next request is handled
       if (botHasActiveTurn(bot.id, bot.threadId)) {
-        return json(res, 409, { error: "the bot is working — stop it before editing" });
+        return json(res, 409, { error: "the bot is working - stop it before editing" });
       }
       const source = store.messagesFor(bot.threadId).find((msg) => msg.id === messageId);
       if (!source || source.role !== "user" || source.kind !== "text") {
@@ -340,7 +340,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
       }
       if (!registry.get(bot.modelSelection.instanceId)) {
         return json(res, 409, {
-          error: `provider instance "${bot.modelSelection.instanceId}" is unavailable — pick another model in settings`,
+          error: `provider instance "${bot.modelSelection.instanceId}" is unavailable - pick another model in settings`,
         });
       }
       const message = store.branchMessage(bot.threadId, messageId, text);
@@ -353,11 +353,11 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
     activeBranch: async (req: IncomingMessage, res: ServerResponse, m: RegExpMatchArray) => {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      if (bot.busy) return json(res, 409, { error: "the bot is working — stop it before switching versions" });
+      if (bot.busy) return json(res, 409, { error: "the bot is working - stop it before switching versions" });
       const body = await readBody(req);
       const leaf = store.setActiveLeaf(bot.threadId, String(body.messageId ?? ""));
       if (!leaf) return json(res, 404, { error: "no such message" });
-      // provider sessions still hold the other branch — next turn replays
+      // provider sessions still hold the other branch - next turn replays
       store.patchBot(bot.id, { rewound: true });
       return json(res, 200, { activeLeafId: leaf });
     },
@@ -423,7 +423,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
         return json(res, 200, { ok: true, returned });
       }
       const instance = registry.get(bot.modelSelection.instanceId);
-      // a bot busy in a ROOM is running on the room's thread — stopping it
+      // a bot busy in a ROOM is running on the room's thread - stopping it
       // from its own chat must reach that turn, not just the 1:1 thread
       const busyGroup = store.groups.find((g) => g.busyBotId === bot.id);
       if (busyGroup) {
@@ -510,7 +510,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
       if (botHasActiveTurn(bot.id)) {
-        return json(res, 409, { error: "this bot is working — let it finish before starting a task" });
+        return json(res, 409, { error: "this bot is working - let it finish before starting a task" });
       }
       // one chat per bot: native clients and MCP create_task get the chat it already has
       const task = store.activeTask(bot.id);
@@ -528,7 +528,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
         liveRoutineThreadId: runThread(routines!.activeRunForBot(bot.id) ?? {}),
       });
       if (!canSwitchWhileWorking(m[2], working)) {
-        return json(res, 409, { error: "this bot is working — stop it before switching tasks" });
+        return json(res, 409, { error: "this bot is working - stop it before switching tasks" });
       }
       if (threadSyncGate.enabled) {
         await pullSyncedThread(m[2]);
