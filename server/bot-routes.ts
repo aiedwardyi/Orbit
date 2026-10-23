@@ -264,7 +264,7 @@ export function createBotRoutes(deps: BotRouteDeps) {
       return json(res, 400, { error: "requireAvailableModel must be true or false" });
     }
     // Neither Codex (free-form string field) nor Grok (lazy, logs-only)
-    // rejects an unknown effort level at their own boundary — this is the
+    // rejects an unknown effort level at their own boundary  -  this is the
     // only real gate, so it stays. But it fires only when the target
     // instance actually resolves. An instance that isn't there declares no
     // levels, and rejecting against that empty list would 400 the *whole*
@@ -272,7 +272,7 @@ export function createBotRoutes(deps: BotRouteDeps) {
     // duplicateBot re-sends the source bot's entire modelSelection beside
     // its name, title and description, so a source engine that happens to
     // be offline would cost the copy all of them. Letting it through is
-    // safe — startTurn refuses to run a turn on an unavailable instance
+    // safe  -  startTurn refuses to run a turn on an unavailable instance
     // anyway, so an unverifiable level never reaches a CLI.
     const rawSelection = (body as Record<string, unknown>).modelSelection;
     if (body.requireAvailableModel === true && rawSelection === undefined) {
@@ -322,7 +322,7 @@ export function createBotRoutes(deps: BotRouteDeps) {
       }
     }
     // one pinned message per thread; null/"" clears. The id is not
-    // validated against the transcript here — a pin whose message was
+    // validated against the transcript here  -  a pin whose message was
     // edited to another branch or deleted simply resolves to nothing.
     if (body.pinnedMessageId !== undefined) {
       if (body.pinnedMessageId === null || body.pinnedMessageId === "") patch.pinnedMessageId = undefined;
@@ -403,7 +403,7 @@ export function createBotRoutes(deps: BotRouteDeps) {
     }
     // the permission fields decide what runs unattended, so they are
     // type-checked rather than copied through: a string alwaysAllow would
-    // still answer .includes() — with substring matches, not tool names
+    // still answer .includes()  -  with substring matches, not tool names
     if (body.autoApprove !== undefined) {
       if (typeof body.autoApprove !== "boolean") return json(res, 400, { error: "autoApprove must be true or false" });
       patch.autoApprove = body.autoApprove;
@@ -416,7 +416,7 @@ export function createBotRoutes(deps: BotRouteDeps) {
     }
     // Requires acknowledgeLocalAuto so the desktop dialog can't be skipped
     // by accident. It proves a human saw the warning only when the caller
-    // is that dialog — the server can't tell it apart from any other
+    // is that dialog  -  the server can't tell it apart from any other
     // holder of the API token, including a bot's own agent process, so
     // this is not a boundary against a hostile agent.
     const wantsComputer = body.computer !== undefined ? body.computer : existingBot?.computer;
@@ -512,7 +512,7 @@ export function createBotRoutes(deps: BotRouteDeps) {
     if (!parsed.success) return json(res, 400, { error: "text must be a string" });
     if (Buffer.byteLength(parsed.data.text, "utf8") > MEMORY_FILE_MAX_BYTES) {
       return json(res, 400, {
-        error: `memory is capped at ${MEMORY_FILE_MAX_BYTES / 1024}KB — move longer notes into memory/<topic>.md files`,
+        error: `memory is capped at ${MEMORY_FILE_MAX_BYTES / 1024}KB  -  move longer notes into memory/<topic>.md files`,
       });
     }
     const saved = saveMemoryFile(m[1], parsed.data.text, parsed.data.baseRevision);
@@ -560,7 +560,7 @@ export function createBotRoutes(deps: BotRouteDeps) {
     // Claim synchronously with the busy check. startTurn checks the same
     // lease before reserving the bot, so no turn can enter during the
     // awaited Git operation.
-    if (bot.busy) return json(res, 409, { error: "the bot is working — stop the turn before restoring files" });
+    if (bot.busy) return json(res, 409, { error: "the bot is working  -  stop the turn before restoring files" });
     if (checkpointRestoreLeases.has(bot.id)) {
       return json(res, 409, { error: "this bot's project files are already being restored" });
     }
