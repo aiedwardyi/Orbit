@@ -18,6 +18,7 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const indexSource = readFileSync(join(here, "index.ts"), "utf8");
+const internalSource = readFileSync(join(here, "internal-routes.ts"), "utf8");
 const repliesSource = readFileSync(join(here, "replies.ts"), "utf8");
 
 const message = (patch: {
@@ -288,6 +289,13 @@ describe("bot self-reactions", () => {
       return ts.forEachChild(node, find);
     };
     const route = find(parsed) as ts.IfStatement;
+    const internalParsed = ts.createSourceFile("internal-routes.ts", internalSource, ts.ScriptTarget.Latest, true);
+    const findHandler = (node: ts.Node): ts.Node | undefined => {
+      if (ts.isPropertyAssignment(node) && node.name.getText(internalParsed) === "react" && ts.isArrowFunction(node.initializer)
+        && node.initializer.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword)) return node.initializer;
+      return ts.forEachChild(node, findHandler);
+    };
+    const handler = findHandler(internalParsed)!;
     let toggled = false;
     const deps = {
       readBody: async () => ({ fromBotId: "bot-1", fromThreadId: "thread-1", emoji }),
@@ -301,7 +309,9 @@ describe("bot self-reactions", () => {
       },
     };
     const javascript = ts.transpileModule(`return async () => ${route.thenStatement.getText(parsed)};`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
-    const result = await new Function(...Object.keys(deps), javascript)(...Object.values(deps))();
+    const handlerJavascript = ts.transpileModule(`return ${handler.getText(internalParsed)};`, { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
+    const guardDeps = { ...deps, internalRoutes: { react: new Function(...Object.keys(deps), handlerJavascript)(...Object.values(deps)) } };
+    const result = await new Function(...Object.keys(guardDeps), javascript)(...Object.values(guardDeps))();
     return { ...result, toggled };
   }
 
@@ -335,9 +345,9 @@ describe("bot self-reactions", () => {
 
   it("reacts to the calling bot's own latest user message, never an arbitrary thread", () => {
     expect(indexSource).toContain('path === "/api/internal/react"');
-    expect(indexSource).toContain("connectorThread(from.id, fromThreadId)");
-    expect(indexSource).toContain("store.activePath(fromThreadId).findLast");
-    expect(indexSource).toContain("store.toggleReaction(fromThreadId, target.id, emoji, fromBotId)");
+    expect(internalSource).toContain("connectorThread(from.id, fromThreadId)");
+    expect(internalSource).toContain("store.activePath(fromThreadId).findLast");
+    expect(internalSource).toContain("store.toggleReaction(fromThreadId, target.id, emoji, fromBotId)");
   });
 
   it("exposes react as an agents-proxy tool restricted to the shared emoji set", () => {
