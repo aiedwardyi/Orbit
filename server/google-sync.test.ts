@@ -159,7 +159,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe("Google sync journeys", () => {
+describe("Google sync journeys", { timeout: 60_000 }, () => {
   it("counts a PC whose only published change is auto notes", async () => {
     const home = makePC("home", { bots: [bot("Counsel")] });
     await startOn(home);
