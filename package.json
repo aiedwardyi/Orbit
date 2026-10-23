@@ -23,6 +23,7 @@
   "scripts": {
     "clean": "node scripts/clean.mjs",
     "lint": "oxlint .",
+    "lint:slop": "oxlint -c .oxlintrc.slop.json .",
     "check:contrast": "node scripts/check-contrast.mjs",
     "dev": "node scripts/dev.mjs",
     "companion": "node --experimental-strip-types companion/src/index.ts",

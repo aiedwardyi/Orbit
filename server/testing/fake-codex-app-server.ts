@@ -240,7 +240,7 @@ process.stdin.on("data", (chunk) => {
           ? [
               "\"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\"",
               "-Command",
-              `\"Get-Content -Raw -LiteralPath 'C:\\Users\\Ada\\workspaces\\${"very-long-folder\\".repeat(8)}NOTES.md'\"`,
+              `"Get-Content -Raw -LiteralPath 'C:\\Users\\Ada\\workspaces\\${"very-long-folder\\".repeat(8)}NOTES.md'"`,
             ].join(" ")
           : "ls -la";
         if (mode !== "bench-quiet" && !process.env.FAKE_CODEX_TOOL_FIXTURE) {
