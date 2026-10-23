@@ -317,6 +317,7 @@ import {
   hostMatchesRemote,
   initRemoteAccess,
   originAllowedByRemote,
+  remoteCookieRefresh,
   remoteKeyMatches,
   remoteLinkUrl,
   remoteHostRetry,
@@ -10299,6 +10300,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "GET" && !path.startsWith("/api/") && STATIC_DIR) {
       const safe = path === "/" ? "/index.html" : path.replace(/\.\./g, "");
       const file = join(STATIC_DIR, safe);
+      // The installed phone app opens "/", never /remote: each shell load restarts the cookie's 30 days.
+      const remoteCookie = remoteCookieRefresh(req.headers.cookie, credentials.remoteKey);
       try {
         if (path === "/manifest.json") {
           const data = readFileSync(file);
@@ -10306,6 +10309,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const response = webManifestForUserAgent(req.headers["user-agent"], manifest);
           return sendText(res, 200, { "content-type": MIME[".json"], vary: "User-Agent" }, response === manifest ? data : JSON.stringify(response));
         }
+        if (remoteCookie && safe === "/index.html") res.setHeader("set-cookie", remoteCookie);
         return sendStaticFile(res, file, path, MIME[extname(file)] ?? "application/octet-stream");
       } catch {
         const missing = missingStaticResponse(path);
@@ -10315,6 +10319,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         // SPA fallback
         try {
+          if (remoteCookie) res.setHeader("set-cookie", remoteCookie);
           return sendStaticFile(res, join(STATIC_DIR, "index.html"), path, "text/html");
         } catch {
           /* fall through to 404 */
