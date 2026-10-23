@@ -393,7 +393,7 @@ const Bubble = memo(function Bubble({
             data-message-hover-actions
             className="pointer-events-none absolute right-0 bottom-0 z-20 flex items-center gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
           >
-            {/* editing rewinds the thread, so it waits for the turn to end —
+            {/* editing rewinds the thread, so it waits for the turn to end -
                 same rule as the version switcher below */}
             {message.kind === "text" && !webhookView && !busy && (
               <button
