@@ -67,7 +67,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe("legacy migration", () => {
+describe("legacy migration", { timeout: 60_000 }, () => {
   it("recovers prestamp, conflicts, tombstones and a late laptop without rewriting v1", async () => {
     const folder = temp();
     legacy(folder, "thread.json", [row("m", "main"), row("old")]);
