@@ -2898,6 +2898,43 @@ test("a busy worker gets the save line once per compaction cycle and the chief n
   assert.deepEqual(contextNotes(f), []);
 });
 
+for (const typed of [false, true]) {
+  test(`Claude compacting on its own gets no CONTEXT note: save line typed ${typed}`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+    if (typed) {
+      f.children[0].data(busyScreen("ctx 245k/300k"));
+      await f.advance(10_000);
+    }
+    for (const used of [246, 247, 248]) {
+      f.children[0].data(busyScreen(`ctx ${used}k/300k`).replace("✻ Working… (5s", "* Compacting conversation… (30s"));
+      await f.advance(10_000);
+    }
+    f.children[0].data(busyScreen("ctx 31k/300k"));
+    await f.advance(10_000);
+    assert.deepEqual(f.children[0].writes.slice(1), typed ? [SAVE_LINE] : []);
+    assert.deepEqual(contextNotes(f), []);
+  });
+}
+
+test("a save line left in the input after a compaction gets an Enter, not a second copy", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(busyScreen("ctx 245k/300k"));
+  await f.advance(10_000);
+  f.children[0].data(busyScreen("ctx 246k/300k", SAVE_LINE));
+  await f.advance(10_000);
+  f.children[0].data(busyScreen("ctx 31k/300k", SAVE_LINE));
+  await f.advance(10_000);
+  f.children[0].data(busyScreen("ctx 250k/300k", SAVE_LINE));
+  await f.advance(10_000);
+  await f.advance(10_000);
+  assert.deepEqual(f.children[0].writes.slice(1), [SAVE_LINE, "\r", "\r"]);
+  assert.deepEqual(contextNotes(f), []);
+});
+
 for (const engine of ["claude", "codex"]) {
   test(`${engine} submits a queued save line once when the pane goes idle`, async (t) => {
     const f = stallFixture();
