@@ -922,3 +922,116 @@ describe("bot delete publishing", () => {
     expect(plan.missing).toBe(0);
   });
 });
+
+describe("message pin sync", () => {
+  type Bot = { name: string; pinnedMessageId?: string };
+  let clock = 1_700_000_000_000;
+  const portable = (bot: Bot) => ({ name: bot.name, pinnedMessageId: bot.pinnedMessageId ?? null });
+
+  // index.ts publishProfileChanges and importProfileChanges, name and pin only
+  function pc(id: string, folder: string) {
+    const dataDir = mkdtempSync(join(tmpdir(), `orbit-profile-sync-pin-${id}-`));
+    roots.push(dataDir);
+    saveProfileSyncSettings(dataDir, { ...loadProfileSyncSettings(dataDir), deviceId: id });
+    const bots = new Map<string, Bot>();
+    const publish = () => {
+      const settings = loadProfileSyncSettings(dataDir);
+      const changed = unsyncedChanges(settings.syncedHashes, [...bots].map(([localId, bot]) => ({
+        entity: "bot" as const, entityId: (settings.botMap[localId] ??= `g-${id}-${localId}`), changes: portable(bot),
+      })));
+      for (const item of changed.flatMap((unsynced) => ownOpSyncChanges(compatibleSyncChanges(settings.syncedHashes, unsynced)))) {
+        const sequence = settings.nextSequence++;
+        try {
+          writeSyncOperation(folder, createSyncOperation({ ...item, operationId: `${id}-${sequence}`, deviceId: id, sequence, recordedAt: clock++ }));
+        } catch {
+          continue;
+        }
+        markSynced(settings.syncedHashes, item);
+      }
+      saveProfileSyncSettings(dataDir, settings);
+    };
+    const importAll = () => {
+      const settings = loadProfileSyncSettings(dataDir);
+      const state = applySyncOperations(emptyProfileSyncState(), readSyncOperations(folder).operations);
+      const plan = planProfileImport({
+        state, deviceId: id, workspaceId: settings.workspaceId, synced: settings.syncedHashes, botMap: settings.botMap,
+        local: [...bots].map(([localId, bot]) => ({ id: localId, name: bot.name, changes: portable(bot) })), localOrder: {},
+      });
+      for (const item of plan.bots) {
+        const remote = state.bots[item.globalId]!;
+        const localId = item.localId ?? `${id}-${item.globalId}`;
+        const bot = bots.get(localId) ?? { name: String(remote.name) };
+        if ("name" in item.apply) bot.name = String(item.apply.name);
+        if ("pinnedMessageId" in item.apply) bot.pinnedMessageId = typeof item.apply.pinnedMessageId === "string" ? item.apply.pinnedMessageId : undefined;
+        bots.set(localId, bot);
+        bindSyncId(settings.botMap, localId, item.globalId);
+        markImported(settings.syncedHashes, "bot", item.globalId, remote, item.apply, portable(bot));
+        if (!item.localId) markSynced(settings.syncedHashes, { entity: "bot", entityId: item.globalId, changes: Object.fromEntries(Object.entries(portable(bot)).filter(([field]) => !(field in remote))) });
+      }
+      saveProfileSyncSettings(dataDir, settings);
+    };
+    return { publish, importAll, bot: () => [...bots.values()][0]! };
+  }
+
+  // both PCs already share Tutor from an op an older build wrote
+  function pair() {
+    const folder = mkdtempSync(join(tmpdir(), "orbit-profile-sync-pin-"));
+    roots.push(folder);
+    writeSyncOperation(folder, operation({ operationId: "old-tutor", deviceId: "old", entityId: "g-tutor", recordedAt: clock++, changes: { name: "Tutor" } }));
+    const a = pc("a", folder);
+    const b = pc("b", folder);
+    a.importAll();
+    b.importAll();
+    return { folder, a, b };
+  }
+
+  it("carries a pin and its unpin to the other PC", () => {
+    const { folder, a, b } = pair();
+    a.bot().pinnedMessageId = "msg-1";
+    a.publish();
+    b.importAll();
+    expect(b.bot().pinnedMessageId).toBe("msg-1");
+    delete a.bot().pinnedMessageId;
+    a.publish();
+    b.importAll();
+    expect(b.bot().pinnedMessageId).toBeUndefined();
+    const log = readdirSync(join(folder, "changes"));
+    b.publish();
+    a.importAll();
+    a.publish();
+    expect(readdirSync(join(folder, "changes"))).toEqual(log);
+  });
+
+  it("keeps a pin out of the files a 1.0.200 PC reads, apart from a rename in the same pass", () => {
+    const { folder, a } = pair();
+    Object.assign(a.bot(), { name: "Coach", pinnedMessageId: "msg-1" });
+    a.publish();
+    const names = readdirSync(join(folder, "changes"));
+    expect(names.filter((name) => name.endsWith(".pin"))).toHaveLength(1);
+    // 1.0.200 scans .json, .notes and .paths, and its strict bot schema has no pinnedMessageId
+    const base = names.filter((name) => /\.(?:json|notes|paths)$/.test(name))
+      .map((name) => parseSyncOperationText(readFileSync(join(folder, "changes", name), "utf8")));
+    expect(base.every((op) => !("pinnedMessageId" in (op.changes ?? {})))).toBe(true);
+    const baseState = applySyncOperations(emptyProfileSyncState(), base);
+    expect(baseState.bots["g-tutor"]).toMatchObject({ name: "Coach" });
+    // the 1.0.200 PC renames the bot and re-publishes the only fields it knows
+    writeSyncOperation(folder, createSyncOperation({
+      operationId: "base-rename", deviceId: "old", sequence: 2, recordedAt: clock++, baseCheckpoint: baseState.checkpoint,
+      entity: "bot", entityId: "g-tutor", changes: { name: "Mentor" },
+    }));
+    const read = readSyncOperations(folder);
+    expect(read.invalidFiles).toEqual([]);
+    expect(applySyncOperations(emptyProfileSyncState(), read.operations).bots["g-tutor"]).toMatchObject({ name: "Mentor", pinnedMessageId: "msg-1" });
+  });
+
+  it("settles pins made on both PCs at once on the later one, like any other field", () => {
+    const { a, b } = pair();
+    a.bot().pinnedMessageId = "msg-a";
+    b.bot().pinnedMessageId = "msg-b";
+    a.publish();
+    b.publish();
+    a.importAll();
+    b.importAll();
+    expect([a.bot().pinnedMessageId, b.bot().pinnedMessageId]).toEqual(["msg-b", "msg-b"]);
+  });
+});

@@ -37,6 +37,7 @@ const portableBotChanges = z.object({
   memoryNotes: z.boolean().nullable().optional(),
   memoryDocument: z.string().trim().max(240).nullable().optional(),
   projectNotes: z.string().trim().max(1_024).nullable().optional(),
+  pinnedMessageId: ID.nullable().optional(),
 }).strict();
 const sectionChanges = z.object({
   name: z.string().trim().min(1).max(100).optional(),
@@ -413,17 +414,17 @@ export function parseSyncOperationText(text: string): ProfileSyncOperation {
 }
 
 // Bot fields older builds reject travel in their own op, under an extension those builds never read.
-const OWN_OP_EXTENSIONS = { memoryNotes: "notes", projectNotes: "paths" } as const;
+const OWN_OP_EXTENSIONS = { memoryNotes: "notes", projectNotes: "paths", pinnedMessageId: "pin" } as const;
 
 export function syncOperationFileName(operation: ProfileSyncOperation): string {
   const safe = (value: string) => value.replace(/[^A-Za-z0-9._-]/g, "_");
-  // Older readers scan only .json (1.0.184) or .json and .notes (1.0.185), and Drive mirrors only those.
+  // Older readers scan only .json (1.0.184), .json and .notes (1.0.185) or those and .paths (1.0.200), and Drive mirrors only those.
   const own = operation.entity === "bot" ? Object.entries(OWN_OP_EXTENSIONS).find(([field]) => field in (operation.changes ?? {})) : undefined;
   const ext = own?.[1] ?? "json";
   return `${String(operation.sequence).padStart(12, "0")}-${safe(operation.deviceId)}-${safe(operation.operationId)}.${ext}`;
 }
 
-const isSyncOperationFile = (name: string) => /\.(?:json|notes|paths)$/.test(name);
+const isSyncOperationFile = (name: string) => /\.(?:json|notes|paths|pin)$/.test(name);
 
 export function writeSyncOperation(folder: string, operation: ProfileSyncOperation): string {
   const parsed = parseSyncOperation(operation);
@@ -642,8 +643,8 @@ export function unsyncedChanges(synced: Record<string, string>, local: readonly 
   });
 }
 
-// 1.0.60 rejects a bot op carrying any of these keys, 1.0.184 one carrying memoryNotes, 1.0.185 projectNotes
-const LATER_BOT_DEFAULTS: Record<string, unknown> = { effort: null, modelMode: null, approvePeerComms: false, memoryNotes: null, projectNotes: null };
+// 1.0.60 rejects a bot op carrying any of these keys, 1.0.184 one carrying memoryNotes, 1.0.185 projectNotes, 1.0.200 pinnedMessageId
+const LATER_BOT_DEFAULTS: Record<string, unknown> = { effort: null, modelMode: null, approvePeerComms: false, memoryNotes: null, projectNotes: null, pinnedMessageId: null };
 const OWN_OP_BOT_FIELDS = Object.keys(OWN_OP_EXTENSIONS);
 
 /** Leaves never-synced defaults of LATER_BOT_DEFAULTS out of the op, marking them synced so a later change still publishes. */

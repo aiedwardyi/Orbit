@@ -1391,6 +1391,7 @@ function portableSyncChanges(bot: BotRecord, folder: string): Record<string, unk
     approvePeerComms: Boolean(bot.approvePeerComms),
     memoryNotes: bot.memoryNotes ?? null,
     projectNotes: bot.projectNotes ?? null,
+    pinnedMessageId: bot.pinnedMessageId ?? null,
   };
 }
 
@@ -1525,6 +1526,7 @@ function applySyncedBotFields(
     const notes = validateProjectNotes(apply.projectNotes);
     patch.projectNotes = notes.ok ? notes.path ?? undefined : undefined;
   }
+  if ("pinnedMessageId" in apply) patch.pinnedMessageId = typeof apply.pinnedMessageId === "string" ? apply.pinnedMessageId : undefined;
   if (["instanceId", "model", "effort", "modelMode"].some((field) => field in apply)) {
     patch.modelSelection = mergeSyncedModelSelection(bot.modelSelection, apply, instanceOffersModel);
   }
