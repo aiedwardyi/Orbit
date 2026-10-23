@@ -58,6 +58,24 @@ function groupRoute(name: string, deps: Record<string, unknown>) {
   return new Function(...Object.keys(deps), `${javascript}\nreturn ${name};`)(...Object.values(deps));
 }
 
+const botChatSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "bot-chat-routes.ts"), "utf8");
+const botChatParsed = ts.createSourceFile("bot-chat-routes.ts", botChatSource, ts.ScriptTarget.Latest, true);
+
+function botChatRoute(name: string, deps: Record<string, unknown>) {
+  const find = (node: ts.Node): ts.ArrowFunction | undefined =>
+    ts.isPropertyAssignment(node) && node.name.getText(botChatParsed) === name && ts.isArrowFunction(node.initializer)
+      && node.initializer.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword)
+      ? node.initializer
+      : ts.forEachChild(node, find);
+  const handler = find(botChatParsed);
+  expect(handler).toBeDefined();
+  const params = handler!.parameters.map((parameter) => parameter.name.getText(botChatParsed)).join(", ");
+  const javascript = ts.transpileModule(`async function ${name}(${params}) ${handler!.body.getText(botChatParsed)}`, {
+    compilerOptions: { target: ts.ScriptTarget.ESNext },
+  }).outputText;
+  return new Function(...Object.keys(deps), `${javascript}\nreturn ${name};`)(...Object.values(deps));
+}
+
 function interruptRig() {
   const interruptedTurnIds = new Set<string>();
   const liveTurnIdByThread = new Map<string, string>();
@@ -178,7 +196,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     drainQueuedSends: () => drainQueuedSends(),
     runGroupMemberTurn: () => startTurn(bot.id, "resume"),
   });
-  const invoke = route('/^\\/api\\/bots\\/([\\w-]+)\\/tasks\\/([\\w-]+)\\/resume$/', {
+  const resumeDeps = {
     store, startTurn, taskResumes, queueMark, drainQueuedSends, startGroupCardContinuation,
     groupIsWorking: () => claims.size > 0 || groupTaskResumes.size > 0,
     json: (_res: unknown, status: number, body: unknown) => ({ status, body }),
@@ -187,8 +205,9 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     isCompletedTaskRecord: () => false,
     resumePaneWakes: noop,
     TASK_RESUME_PROMPT: "resume",
-  });
-  const stop = route('/^\\/api\\/bots\\/([\\w-]+)\\/interrupt$/', {
+  };
+  const invoke = route('/^\\/api\\/bots\\/([\\w-]+)\\/tasks\\/([\\w-]+)\\/resume$/', { ...resumeDeps, botChatRoutes: { resumeTask: botChatRoute("resumeTask", resumeDeps) } });
+  const stopDeps = {
     store, taskResumes, botHasActiveTurn, cancelQueuedSends,
     broadcast: (frame: Record<string, unknown>) => frames.push(frame),
     readBody: async () => ({}),
@@ -203,7 +222,8 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     flushInterruptedTask: noop, closeOpenApprovals: noop,
     releaseInterruptedBot: () => { bot.busy = false; },
     json: (_res: unknown, status: number, body: unknown) => ({ status, body }),
-  });
+  };
+  const stop = route('/^\\/api\\/bots\\/([\\w-]+)\\/interrupt$/', { ...stopDeps, botChatRoutes: { interrupt: botChatRoute("interrupt", stopDeps) } });
   const cancelRun = route('/^\\/api\\/routine-runs\\/([\\w-]+)\\/(cancel|seen)$/', {
     store, botHasActiveTurn,
     routines: {

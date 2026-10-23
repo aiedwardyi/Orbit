@@ -19,6 +19,7 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const indexSource = readFileSync(join(here, "index.ts"), "utf8");
 const internalSource = readFileSync(join(here, "internal-routes.ts"), "utf8");
+const botChatSource = readFileSync(join(here, "bot-chat-routes.ts"), "utf8");
 const repliesSource = readFileSync(join(here, "replies.ts"), "utf8");
 
 const message = (patch: {
@@ -249,20 +250,21 @@ describe("reaction plumbing", () => {
   });
 
   it("marks reactions delivered only once the engine accepts the prompt", () => {
-    expect(indexSource.match(/delivered: (task|store\.taskByThread\(bot\.id, threadId\)\?)\.reactionsDelivered/g)).toHaveLength(2);
+    expect(indexSource.match(/delivered: (task|store\.taskByThread\(bot\.id, threadId\)\?)\.reactionsDelivered/g)).toHaveLength(1);
+    expect(botChatSource.match(/delivered: (task|store\.taskByThread\(bot\.id, threadId\)\?)\.reactionsDelivered/g)).toHaveLength(1);
     expect(indexSource).toContain("store.markPaneNotesDelivered(bot.id, threadId, newestPaneNoteId);");
     expect(indexSource).toContain("store.markReactionsDelivered(bot.id, threadId, reactionsSeen);");
     expect(indexSource).toContain("const reactionsSeen = userTurnReactionKeys(turnOpts);");
   });
 
   it("marks a steer's reactions only once the model took the steer in", () => {
-    expect(indexSource).toMatch(/\.steer\(threadId, prompt, \(taken, afterReply\) => \{\s+if \(taken\) store\.addReactionsDelivered\(bot\.id, threadId, reactions\);/);
+    expect(botChatSource).toMatch(/\.steer\(threadId, prompt, \(taken, afterReply\) => \{\s+if \(taken\) store\.addReactionsDelivered\(bot\.id, threadId, reactions\);/);
     expect(indexSource.match(/store\.markReactionsDelivered\(/g)).toHaveLength(1);
   });
 
   it("leaves reactions to the next turn on an engine that cannot report a steer consumed", () => {
-    expect(indexSource).toContain("const prompt = consumable ? composeUserTurnPrompt(text, turnOpts) : promptWithReply(text, replyTo, turnOpts.userName);");
-    expect(indexSource).toContain("const reactions = consumable ? userTurnReactionKeys(turnOpts) : [];");
+    expect(botChatSource).toContain("const prompt = consumable ? composeUserTurnPrompt(text, turnOpts) : promptWithReply(text, replyTo, turnOpts.userName);");
+    expect(botChatSource).toContain("const reactions = consumable ? userTurnReactionKeys(turnOpts) : [];");
   });
 
   it("keeps reaction delivery bookkeeping off the wire", () => {
@@ -270,8 +272,8 @@ describe("reaction plumbing", () => {
   });
 
   it("does not pre-bake reactions into the queued prompt that startTurn will wrap", () => {
-    expect(indexSource).toMatch(/queueSteeredMessage\([\s\S]{0,500}promptWithReply\(/);
-    expect(indexSource).not.toMatch(/queueSteeredMessage\([\s\S]{0,400}composeUserTurnPrompt/);
+    expect(botChatSource).toMatch(/queueSteeredMessage\([\s\S]{0,500}promptWithReply\(/);
+    expect(botChatSource).not.toMatch(/queueSteeredMessage\([\s\S]{0,400}composeUserTurnPrompt/);
   });
 
   it("omits already-replayed bot reactions from the 1:1 user-turn preamble", () => {

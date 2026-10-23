@@ -17,6 +17,7 @@ import {
 import { recordTaskCompletion, seedTaskResumePacket, stampTaskResumePacket } from "./task-state-fold.ts";
 
 const indexSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8");
+const botChatSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "bot-chat-routes.ts"), "utf8");
 
 const seed = () => seedTaskResumePacket({
   botId: "bot-1",
@@ -362,7 +363,7 @@ describe("turn completion disposition after stop", () => {
     expect(shouldStampRecoveryDismiss(current, {})).toBe(true);
     expect(shouldStampRecoveryDismiss(current, { updatedAt: 199, flushReason: "shutdown" })).toBe(false);
     expect(shouldStampRecoveryDismiss(current, { updatedAt: 200, flushReason: "stop" })).toBe(false);
-    expect(indexSource).toContain("shouldStampRecoveryDismiss");
+    expect(botChatSource).toContain("shouldStampRecoveryDismiss");
   });
 
   it("refuses a version claim it cannot verify instead of ignoring the field", () => {
@@ -376,7 +377,7 @@ describe("turn completion disposition after stop", () => {
   });
 
   it("reads the recovery packet after the request body, not before the await", () => {
-    const route = indexSource.slice(indexSource.indexOf("recovery$/"));
+    const route = botChatSource.slice(botChatSource.indexOf("taskRecovery: async ("));
     const handler = route.slice(0, route.indexOf("shouldStampRecoveryDismiss"));
     expect(handler.indexOf("await readBody(req)")).toBeLessThan(handler.indexOf("taskPacketForWrite"));
   });
