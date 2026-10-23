@@ -63,7 +63,7 @@ export function createThreadRoutes(deps: ThreadRouteDeps) {
         if (!window) return json(res, 404, { error: "no such message" });
         return json(res, 200, window);
       }
-      // An unknown cursor must not silently answer with the newest page —
+      // An unknown cursor must not silently answer with the newest page -
       // the client would paginate in a circle and never reach the top.
       if (before && !store.messagesFor(threadId).some((msg) => msg.id === before)) {
         return json(res, 404, { error: "no such message" });
@@ -109,7 +109,7 @@ export function createThreadRoutes(deps: ThreadRouteDeps) {
       if (threadId && !store.botByThread(threadId) && !store.groupByThread(threadId)) {
         return json(res, 404, { error: "no such conversation" });
       }
-      // whether each hit sits on its thread's visible branch — a click on
+      // whether each hit sits on its thread's visible branch - a click on
       // one that does not has to switch versions first (and only then)
       const activePaths = new Map<string, Set<string>>();
       const onActivePath = (threadId: string, messageId: string) => {
@@ -161,7 +161,7 @@ export function createThreadRoutes(deps: ThreadRouteDeps) {
       const filename = (title.replace(/[^\w\- ]+/g, "").trim() || "conversation").slice(0, 60);
       const messages = store.activePath(threadId).filter((message) => !message.summarized).map(clientMessage);
       if (format === "json") {
-        // pixels stripped — an export is for reading and archiving, and a
+        // pixels stripped - an export is for reading and archiving, and a
         // base64 desktop frame is neither
         const slim = messages.map(({ png: _png, mime: _mime, ...rest }) => rest);
         res.writeHead(200, {
@@ -179,7 +179,7 @@ export function createThreadRoutes(deps: ThreadRouteDeps) {
         else if (msg.kind === "note" && msg.text) lines.push(paneNoteText(msg.text), "");
         else if (msg.kind === "screen") lines.push("> [screen capture]", "");
         else if (msg.kind === "options" && msg.card) {
-          lines.push(`> ${msg.card.title}${msg.card.answered ? ` — answered: ${msg.card.answered}` : ""}`, "");
+          lines.push(`> ${msg.card.title}${msg.card.answered ? ` - answered: ${msg.card.answered}` : ""}`, "");
         }
       }
       res.writeHead(200, {
@@ -222,13 +222,13 @@ export function createThreadRoutes(deps: ThreadRouteDeps) {
       }
       // peer-approval intercept (see /api/bots/:id/respond above). A peer card
       // belongs to the bus rather than to a speaker, so resolve it before we go
-      // looking for one — a room between turns has no speaker to find.
+      // looking for one - a room between turns has no speaker to find.
       if (resolvePeerComms(approvalBus, requestId, behavior)) {
         return json(res, 200, { ok: true, outcome: behavior === "allow" ? "allowed-once" : "rejected" });
       }
       const group = store.groupByThread(threadId);
-      // busyBotId is in-memory only, so an approval that outlives its turn — or
-      // the process — leaves a durable card with no speaker behind it. Fall back
+      // busyBotId is in-memory only, so an approval that outlives its turn - or
+      // the process - leaves a durable card with no speaker behind it. Fall back
       // to the member that raised it, and answer even when that member is gone:
       // answerRequest closes an unreachable card, and a pending approval owns
       // the composer, so a dead end here locks the room for good.
