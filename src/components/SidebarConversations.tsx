@@ -321,7 +321,7 @@ function BotListItem({
           motion={mascotMotion?.kind ?? "none"}
           motionKey={mascotMotion?.nonce ?? 0}
           // Motion means something is happening. A resting bot holds a resting
-          // pose — N idle rows bobbing at display rate was most of the app's
+          // pose - N idle rows bobbing at display rate was most of the app's
           // visible-idle CPU (states are keyword-derived, so "working" can be
           // decorative; busy/unread/motion are the real signals).
           animated={Boolean(bot.busy) || Boolean(bot.unread) || (mascotMotion?.kind ?? "none") !== "none"}
@@ -464,7 +464,7 @@ function BotListItem({
     dispatch({ type: "select", id: bot.id });
   };
 
-  // Keep the rename <input> out of role="button" — a button's descendants
+  // Keep the rename <input> out of role="button" - a button's descendants
   // are presentational, which hides the field from assistive tech.
   if (renaming) {
     return (
