@@ -106,7 +106,9 @@ describe("laterUserAnswer", () => {
 
 describe("chat option chips wiring", () => {
   const dir = dirname(fileURLToPath(import.meta.url));
-  const chatView = readFileSync(join(dir, "../components/ChatView.tsx"), "utf8");
+  const chatView = ["ChatView.tsx", "ChatBubble.tsx"]
+    .map((file) => readFileSync(join(dir, "../components", file), "utf8"))
+    .join("\n");
   const groupView = readFileSync(join(dir, "../components/GroupView.tsx"), "utf8");
 
   it("renders chips from detectChatOptions on 1:1 and room bubbles", () => {

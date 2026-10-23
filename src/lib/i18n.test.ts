@@ -30,7 +30,9 @@ it("names the Gemini API key once in Korean", () => {
 
 const css = readFileSync(join(here, "../styles.css"), "utf8");
 const updateBanner = readFileSync(join(here, "../components/UpdateBanner.tsx"), "utf8");
-const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
+const chatView = ["ChatView.tsx", "ChatBubble.tsx"]
+  .map((file) => readFileSync(join(here, "../components", file), "utf8"))
+  .join("\n");
 const sidebar = ["Sidebar.tsx", "SidebarConversations.tsx"]
   .map((file) => readFileSync(join(here, "../components", file), "utf8"))
   .join("\n");

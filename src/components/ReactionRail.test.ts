@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 
 const sources = {
-  "ChatView.tsx": readFileSync(join(here, "ChatView.tsx"), "utf8"),
+  "ChatBubble.tsx": readFileSync(join(here, "ChatBubble.tsx"), "utf8"),
   "GroupView.tsx": readFileSync(join(here, "GroupView.tsx"), "utf8"),
   "Reactions.tsx": readFileSync(join(here, "Reactions.tsx"), "utf8"),
   "reactions.ts": readFileSync(join(here, "../../shared/reactions.ts"), "utf8"),
@@ -20,12 +20,12 @@ function reactionBarSource() {
 
 describe("reaction rail", () => {
   it("drops the picker from user messages in ChatView", () => {
-    expect(sources["ChatView.tsx"]).not.toContain('{user && message.kind === "text" && <ReactionBar');
+    expect(sources["ChatBubble.tsx"]).not.toContain('{user && message.kind === "text" && <ReactionBar');
   });
 
   it("keeps the picker on bot messages in ChatView", () => {
-    expect(sources["ChatView.tsx"]).toContain("<ReactionBar threadId={threadId} message={message} />");
-    expect(sources["ChatView.tsx"]).toMatch(/<ReactionChips\s+threadId=\{threadId\}/);
+    expect(sources["ChatBubble.tsx"]).toContain("<ReactionBar threadId={threadId} message={message} />");
+    expect(sources["ChatBubble.tsx"]).toMatch(/<ReactionChips\s+threadId=\{threadId\}/);
   });
 
   it("drops the picker from user messages in GroupView", () => {
@@ -38,7 +38,7 @@ describe("reaction rail", () => {
   });
 
   it("renders chips inside the message body, on the inner bottom corner", () => {
-    for (const file of ["ChatView.tsx", "GroupView.tsx"] as const) {
+    for (const file of ["ChatBubble.tsx", "GroupView.tsx"] as const) {
       const src = sources[file];
       const body = src.slice(src.indexOf("data-orbit-message-body"), src.indexOf("{optionChoices && ("));
       expect(body).toContain("<ReactionChips");
@@ -47,22 +47,22 @@ describe("reaction rail", () => {
   });
 
   it("folds copy, reply, pin, and regenerate into one horizontal hover row", () => {
-    expect(sources["ChatView.tsx"]).not.toContain("flex flex-col gap-0.5 self-end");
-    expect(sources["ChatView.tsx"]).toContain("data-message-hover-actions");
+    expect(sources["ChatBubble.tsx"]).not.toContain("flex flex-col gap-0.5 self-end");
+    expect(sources["ChatBubble.tsx"]).toContain("data-message-hover-actions");
     expect(sources["GroupView.tsx"]).toContain("data-message-hover-actions");
     // both ChatView rows dock under the bubble since the copy-buttons fix,
     // so only GroupView keeps the vertically-centered side float
-    expect(sources["ChatView.tsx"]).not.toContain("right-full");
-    expect(sources["ChatView.tsx"]).toContain("bottom-0");
+    expect(sources["ChatBubble.tsx"]).not.toContain("right-full");
+    expect(sources["ChatBubble.tsx"]).toContain("bottom-0");
     expect(sources["GroupView.tsx"]).toContain("left-full");
     expect(sources["GroupView.tsx"]).toContain("right-full");
-    const chatRows = sources["ChatView.tsx"].split("data-message-hover-actions").slice(1);
+    const chatRows = sources["ChatBubble.tsx"].split("data-message-hover-actions").slice(1);
     expect(chatRows.length).toBeGreaterThanOrEqual(2);
     expect(chatRows.every((row) => row.includes("items-center"))).toBe(true);
   });
 
   it("reveals the hover row on group hover and keyboard focus, not as a permanent tray", () => {
-    for (const file of ["ChatView.tsx", "GroupView.tsx"] as const) {
+    for (const file of ["ChatBubble.tsx", "GroupView.tsx"] as const) {
       const src = sources[file];
       const idxs: number[] = [];
       for (let i = src.indexOf("data-message-hover-actions"); i !== -1; i = src.indexOf("data-message-hover-actions", i + 1)) {
