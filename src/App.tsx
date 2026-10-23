@@ -225,6 +225,16 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   // first /api/instances response has not arrived yet.
   const noEngines = state.connected && isEmptyEngineLaunch(state.instances);
 
+  const nativeViewOverlayOpen =
+    drawerOpen ||
+    paletteOpen ||
+    state.settingsOpen ||
+    state.computerOpen ||
+    state.inspectorOpen ||
+    state.appSettingsOpen ||
+    state.pluginsOpen ||
+    state.createBotOpen;
+
   // App-wide shortcuts: Alt+T Themes · Alt+Shift+T Cycle theme · Alt+U Usage · Alt+I Model index · Alt+W Workers · Ctrl+1..9 Nth bot · Alt+1..9 Nth pane while the terminal is open, else Nth bot. Esc still closes panels.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -250,7 +260,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       }
       if (e.altKey && !mod && !e.shiftKey) {
         if (e.code === "KeyW") {
-          if (terminalOpen || e.repeat || e.isComposing) return;
+          if (terminalOpen || nativeViewOverlayOpen || onboardingOpen || e.repeat || e.isComposing) return;
           e.preventDefault();
           window.dispatchEvent(new Event("orbit:toggle-worker-menu"));
           return;
@@ -307,7 +317,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [state.appSettingsOpen, state.appSettingsSection, state.settingsOpen, terminalOpen, dispatch]);
+  }, [state.appSettingsOpen, state.appSettingsSection, state.settingsOpen, terminalOpen, nativeViewOverlayOpen, onboardingOpen, dispatch]);
 
   useEffect(() => {
     if (!themeToast) return;
@@ -476,15 +486,6 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     dispatch({ type: "toggleComputer", open: true });
   };
 
-  const nativeViewOverlayOpen =
-    drawerOpen ||
-    paletteOpen ||
-    state.settingsOpen ||
-    state.computerOpen ||
-    state.inspectorOpen ||
-    state.appSettingsOpen ||
-    state.pluginsOpen ||
-    state.createBotOpen;
   const createBotSheetOpen = !onboardingOpen && !noEngines && state.connected && state.hydrated && (state.createBotOpen || state.bots.length === 0);
   const secondaryViewOpen =
     onboardingOpen ||

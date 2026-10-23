@@ -208,6 +208,33 @@ describe("worker list shortcut", () => {
       await unmount();
     }
   });
+
+  it("leaves the worker list shut under App Settings", async () => {
+    const { press, unmount } = await mount();
+    try {
+      await press({ code: "KeyT", key: "t" });
+      expect((await press()).defaultPrevented).toBe(false);
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("hands focus back to the chip when Alt+W closes the list", async () => {
+    const { host, press, unmount } = await mount();
+    try {
+      await press();
+      const inside = document.body.querySelector<HTMLElement>("[data-worker-list]")!;
+      inside.tabIndex = -1;
+      inside.focus();
+      expect(document.activeElement).toBe(inside);
+      await press();
+      expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+      expect(document.activeElement).toBe(host.querySelector("[data-worker-strip]"));
+    } finally {
+      await unmount();
+    }
+  });
 });
 
 describe("theme cycle shortcut", () => {

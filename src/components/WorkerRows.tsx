@@ -322,10 +322,13 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
   }, [open, phone]);
   useEffect(() => {
     if (listed.length === 0) return;
-    const onToggle = () => setOpen((current) => !current);
+    const onToggle = () => {
+      if (open && rootRef.current?.contains(document.activeElement)) buttonRef.current?.focus();
+      setOpen(!open);
+    };
     window.addEventListener("orbit:toggle-worker-menu", onToggle);
     return () => window.removeEventListener("orbit:toggle-worker-menu", onToggle);
-  }, [listed.length]);
+  }, [listed.length, open]);
   useEffect(() => {
     if (!open) return;
     const onClose = () => setOpen(false);
