@@ -6,7 +6,7 @@ import { catchUpTurns, decodeTurns, forgetTurns, heldTurns, loadTurns } from "./
 
 const typed = (id: string, at: number, text = id): Message => ({ id, at, role: "user", kind: "text", text });
 const reply = (id: string, at: number): Message => ({ id, at, role: "bot", kind: "text", text: "ok" });
-const wire = { ids: ["a", "b"], at: [1_760_000_000, 90], words: ["first", "second"], first: "hello" };
+const wire = { ids: ["a", "b"], at: [1_760_000_000, 90], words: ["first", "second"], media: [0, 2], first: "hello" };
 
 function serve() {
   const calls: string[] = [];
@@ -35,7 +35,7 @@ describe("turn index loader", () => {
   });
 
   it("turns second gaps into times", () => {
-    expect(decodeTurns(wire)).toMatchObject({ ids: ["a", "b"], at: [1_760_000_000_000, 1_760_000_090_000], first: "hello", stale: false });
+    expect(decodeTurns(wire)).toMatchObject({ ids: ["a", "b"], at: [1_760_000_000_000, 1_760_000_090_000], media: [0, 2], first: "hello", stale: false });
   });
 
   it("asks again once the index went stale", async () => {
@@ -49,7 +49,7 @@ describe("turn index loader", () => {
 });
 
 describe("catching up with the live list", () => {
-  const loaded = () => decodeTurns({ ids: ["a", "b"], at: [100, 60], words: ["a", "b"], first: "a" });
+  const loaded = () => decodeTurns({ ids: ["a", "b"], at: [100, 60], words: ["a", "b"], media: [0, 0], first: "a" });
 
   it("adds what the user typed and what other bots sent, and nothing else", () => {
     const turns = loaded();
@@ -69,6 +69,16 @@ describe("catching up with the live list", () => {
     expect(turns.at.slice(2)).toEqual([200_000, 203_000]);
     expect(turns.version).toBe(1);
     expect(catchUpTurns(turns, [...grown])).toBe(false);
+  });
+
+  it("marks the attachments of turns it folds in", () => {
+    const turns = loaded();
+    const image = '<attached-image path="C:/a/shot.png" />';
+    const file = '<attached-file path="C:/a/notes.txt" name="notes.txt" size="12" />';
+    const live = [typed("a", 100_000), typed("b", 160_000), typed("c", 200_000, image), typed("d", 210_000, `see ${file}`), typed("e", 220_000, `${file}\n\n${image}`)];
+    expect(catchUpTurns(turns, live)).toBe(true);
+    expect(turns.media).toEqual([0, 0, 2, 1, 2]);
+    expect(turns.words.slice(2)).toEqual(["", "see notes.txt", "notes.txt"]);
   });
 
   it("skips a list it already folded in without walking it", () => {
@@ -102,7 +112,7 @@ describe("catching up with the live list", () => {
   });
 
   describe("goes stale when the chat moves back to a branch that ends earlier", () => {
-    const three = () => decodeTurns({ ids: ["a", "b", "c"], at: [100, 60, 60], words: ["a", "b", "c"], first: "a" });
+    const three = () => decodeTurns({ ids: ["a", "b", "c"], at: [100, 60, 60], words: ["a", "b", "c"], media: [0, 0, 0], first: "a" });
     const shown = [typed("a", 100_000), typed("b", 160_000), typed("c", 220_000)];
     it.each([
       ["an older branch", [typed("a", 100_000), typed("b-old", 150_000), reply("old-reply", 151_000)]],

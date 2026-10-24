@@ -15,7 +15,11 @@ export interface TurnRailHooks {
   day(ms: number): string;
   time(ms: number): string;
   label(): string;
-  valueText(at: number, words: string): string;
+  valueText(at: number, words: string, media: number): string;
+  /** The glyph a row leads with for its turn's attachment. */
+  glyph(media: number): Node;
+  /** What a row shows for an attachment sent with no text. */
+  mediaWords(media: number): string;
 }
 
 export interface TurnRail {
@@ -59,6 +63,8 @@ const NOTCH = 50;
 const FLING_MS = 360;
 const POOL_ROWS = 16;
 const POOL_HEADS = 6;
+// the row glyph and its gap, as styles.css draws them
+const MARK_W = 17;
 const RETRY_MS = 10_000;
 const INTENT_MS = 80;
 const INTENT_PX = 6;
@@ -692,7 +698,8 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   function wordsOf(t: number) {
     let text = fitted.get(t);
     if (text === undefined) {
-      text = fitWords(turns!.words[t] ?? "", wordsW, measure);
+      const media = turns!.media[t];
+      text = fitWords(turns!.words[t] || (media ? hooks.mediaWords(media) : ""), wordsW - (media ? MARK_W : 0), measure);
       fitted.set(t, text);
     }
     return text;
@@ -752,6 +759,8 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
         row.el.dataset.turn = String(t);
         row.time.textContent = hooks.time(turns!.at[t]!);
         row.words.textContent = wordsOf(t);
+        const media = turns!.media[t];
+        if (media) row.words.prepend(hooks.glyph(media));
       }
       const y = (cl.rowY[t]! - top).toFixed(1);
       if (row.y !== y) {
@@ -821,7 +830,7 @@ export function createTurnRail(host: HTMLElement, scroller: HTMLElement, hooks: 
   function announce() {
     if (!n || sel < 0) return;
     hit.setAttribute("aria-valuenow", String(sel + 1));
-    hit.setAttribute("aria-valuetext", hooks.valueText(turns!.at[sel]!, turns!.words[sel] ?? ""));
+    hit.setAttribute("aria-valuetext", hooks.valueText(turns!.at[sel]!, turns!.words[sel] ?? "", turns!.media[sel] ?? 0));
   }
   function apply(next: Turns) {
     turns = next;

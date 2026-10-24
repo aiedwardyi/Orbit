@@ -5008,6 +5008,13 @@ button:disabled.bg-danger {
   word-break: keep-all;
   overflow-wrap: normal;
 }
+/* Preflight makes an svg a block, which would put the glyph on a line of its own. */
+.turn-card-words svg {
+  display: inline-block;
+  margin: 3px 5px 0 0;
+  vertical-align: top;
+  color: var(--color-ink-secondary);
+}
 .turn-card-band {
   position: absolute;
   left: 6px;

@@ -1,3 +1,4 @@
+import { Image as ImageIcon, Paperclip } from "lucide-react";
 import { memo, useEffect, useRef, type RefObject } from "react";
 
 import { localeTag, useI18n } from "@/lib/i18n";
@@ -41,6 +42,7 @@ export const TurnRail = memo(function TurnRail({
   const { t, locale } = useI18n();
   const skin = useSkin();
   const hostRef = useRef<HTMLDivElement>(null);
+  const glyphsRef = useRef<HTMLDivElement>(null);
   const rail = useRef<Rail | null>(null);
   const latest = useRef({ threadId, messages, onJump, onLatest, onWheel, t, locale });
   latest.current = { threadId, messages, onJump, onLatest, onWheel, t, locale };
@@ -74,7 +76,12 @@ export const TurnRail = memo(function TurnRail({
       day,
       time,
       label: () => latest.current.t("timeline.label"),
-      valueText: (ms, words) => latest.current.t("timeline.turn", { day: day(ms), time: time(ms), words }),
+      valueText: (ms, words, media) => {
+        const attached = media ? latest.current.t(media === 2 ? "timeline.imageAttached" : "timeline.fileAttached") : "";
+        return latest.current.t("timeline.turn", { day: day(ms), time: time(ms), words: attached && words ? `${attached}, ${words}` : attached || words });
+      },
+      glyph: (media) => glyphsRef.current!.children[media - 1]!.cloneNode(true),
+      mediaWords: (media) => latest.current.t(media === 2 ? "timeline.image" : "timeline.file"),
     });
     rail.current = created;
     return () => {
@@ -90,5 +97,13 @@ export const TurnRail = memo(function TurnRail({
   useEffect(() => rail.current?.setLatestShown(latestShown), [latestShown]);
   useEffect(() => rail.current?.liveChanged(), [messages]);
 
-  return <div ref={hostRef} className="turn-rail-host" />;
+  return (
+    <>
+      <div ref={hostRef} className="turn-rail-host" />
+      <div ref={glyphsRef} hidden>
+        <Paperclip size={12} />
+        <ImageIcon size={12} />
+      </div>
+    </>
+  );
 });

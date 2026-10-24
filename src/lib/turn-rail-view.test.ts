@@ -27,7 +27,7 @@ describe("card day headers", () => {
     zone.append(scroller, host);
     document.body.append(zone);
     const times = [at(15, 9), at(15, 10), at(15, 11), ...Array.from({ length: 7 }, (_, t) => at(16, 9 + t))];
-    const turns: Turns = { ids: times.map((_, t) => `m${t}`), at: times, words: times.map((_, t) => `turn ${t}`), first: "m0", version: 1, stale: false, seen: { count: 0 } };
+    const turns: Turns = { ids: times.map((_, t) => `m${t}`), at: times, words: times.map((_, t) => `turn ${t}`), media: times.map(() => 0), first: "m0", version: 1, stale: false, seen: { count: 0 } };
     const rail = createTurnRail(host, scroller, {
       turns: async () => turns,
       catchUp: () => false,
@@ -38,6 +38,8 @@ describe("card day headers", () => {
       time: () => "00:00",
       label: () => "",
       valueText: () => "",
+      glyph: () => document.createElement("i"),
+      mediaWords: () => "",
     });
     rail.setThread("t");
     rail.setEnabled(true);
@@ -68,7 +70,7 @@ describe("hover intent", () => {
     zone.append(scroller, host);
     document.body.append(zone);
     const times = Array.from({ length: 40 }, (_, t) => at(16, 0) + t * 600_000);
-    const turns: Turns = { ids: times.map((_, t) => `m${t}`), at: times, words: times.map((_, t) => `turn ${t}`), first: "m0", version: 1, stale: false, seen: { count: 0 } };
+    const turns: Turns = { ids: times.map((_, t) => `m${t}`), at: times, words: times.map((_, t) => `turn ${t}`), media: times.map(() => 0), first: "m0", version: 1, stale: false, seen: { count: 0 } };
     const jumps: string[] = [];
     const rail = createTurnRail(host, scroller, {
       turns: async () => turns,
@@ -80,6 +82,8 @@ describe("hover intent", () => {
       time: () => "00:00",
       label: () => "",
       valueText: () => "",
+      glyph: () => document.createElement("i"),
+      mediaWords: () => "",
     });
     rail.setThread("t");
     rail.setEnabled(true);
@@ -189,7 +193,7 @@ describe("zoom grab", () => {
     Object.defineProperty(scroller, "scrollHeight", { get: () => chat.height });
     Object.defineProperty(scroller, "scrollTop", { get: () => chat.top, set: (v: number) => (chat.top = v) });
     const times = Array.from({ length: 40 }, (_, t) => at(16, 0) + t * 600_000);
-    const turns: Turns = { ids: times.map((_, t) => `m${t}`), at: times, words: times.map((_, t) => `turn ${t}`), first: "m0", version: 1, stale: false, seen: { count: 0 } };
+    const turns: Turns = { ids: times.map((_, t) => `m${t}`), at: times, words: times.map((_, t) => `turn ${t}`), media: times.map(() => 0), first: "m0", version: 1, stale: false, seen: { count: 0 } };
     const jumps: string[] = [];
     const rail = createTurnRail(host, scroller, {
       turns: async () => turns,
@@ -201,6 +205,8 @@ describe("zoom grab", () => {
       time: () => "00:00",
       label: () => "",
       valueText: () => "",
+      glyph: () => document.createElement("i"),
+      mediaWords: () => "",
     });
     rail.setThread("t");
     rail.setEnabled(true);
@@ -301,7 +307,7 @@ describe("touch", () => {
     zone.append(scroller, host);
     document.body.append(zone);
     const times = Array.from({ length: 10 }, (_, t) => at(16, 9) + t * 600_000);
-    const turns: Turns = { ids: times.map((_, t) => `m${t}`), at: times, words: times.map((_, t) => `turn ${t}`), first: "m0", version: 1, stale: false, seen: { count: 0 } };
+    const turns: Turns = { ids: times.map((_, t) => `m${t}`), at: times, words: times.map((_, t) => `turn ${t}`), media: times.map(() => 0), first: "m0", version: 1, stale: false, seen: { count: 0 } };
     let fetches = 0;
     let land!: () => void;
     const rail = createTurnRail(host, scroller, {
@@ -317,6 +323,8 @@ describe("touch", () => {
       time: () => "00:00",
       label: () => "",
       valueText: () => "",
+      glyph: () => document.createElement("i"),
+      mediaWords: () => "",
     });
     rail.setThread("t");
     rail.setEnabled(true);

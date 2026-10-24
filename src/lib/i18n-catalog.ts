@@ -1173,6 +1173,10 @@ export const en = {
   "find.close": "Close find",
   "timeline.label": "Timeline",
   "timeline.turn": "{day} {time}, {words}",
+  "timeline.image": "Image",
+  "timeline.file": "File",
+  "timeline.imageAttached": "Image attached",
+  "timeline.fileAttached": "File attached",
   "palette.openInspector": "Open Inspector",
   "palette.inspectorDescription": "Runtime events and protocol details for {name}.",
 
@@ -2668,6 +2672,10 @@ export const ko = {
   "find.close": "찾기 닫기",
   "timeline.label": "타임라인",
   "timeline.turn": "{day} {time}, {words}",
+  "timeline.image": "이미지",
+  "timeline.file": "파일",
+  "timeline.imageAttached": "이미지 첨부",
+  "timeline.fileAttached": "파일 첨부",
   "palette.openInspector": "검사기 열기",
   "palette.inspectorDescription": "{name}의 런타임 이벤트와 프로토콜 세부 정보입니다.",
 

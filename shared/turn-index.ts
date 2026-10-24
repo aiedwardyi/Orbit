@@ -12,6 +12,11 @@ const wide = (code: number) =>
   (code >= 0x1100 && code <= 0x115f) || (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3)
   || (code >= 0xf900 && code <= 0xfaff) || (code >= 0xff00 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6) || code >= 0x1f300;
 
+/** 2 when a turn attached an image, 1 for any other file, 0 for neither. */
+export function turnMedia(text: string): number {
+  return /<attached-image\s/.test(text) ? 2 : /<attached-file\s/.test(text) ? 1 : 0;
+}
+
 const ENTITY = new Map([["quot", "\""], ["lt", "<"], ["gt", ">"], ["amp", "&"]]);
 
 /** One line of a turn, cut at a word with an ellipsis once it outgrows a card row. */
