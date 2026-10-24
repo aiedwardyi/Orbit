@@ -20,7 +20,7 @@ import { workspaceDir } from "../workspace.ts";
 export interface ChatSpec { title: string; rows: number; pictureAges?: number[] }
 export interface BotSpec { name: string; memory?: string; chats?: ChatSpec[] }
 export interface ReportBot { name: string; syncId: string | null; chats: string[]; rows: string[]; memory: string | null; pictures: string }
-export interface TestArgs { bots?: BotSpec[]; bot?: string; to?: string; text?: string; chat?: ChatSpec; folder?: string | null }
+export interface TestArgs { bots?: BotSpec[]; bot?: string; to?: string; text?: string; chat?: ChatSpec; folder?: string | null; thread?: string; busy?: boolean }
 export type TestResult = ReportBot[] | boolean | undefined;
 
 const { dataDir } = z.object({ dataDir: z.string() }).parse(workerData);
@@ -33,6 +33,7 @@ ensureSyncV2Identity(settings.deviceId);
 ensureMemorySyncDevice(ledger);
 save();
 let v2: ReturnType<typeof createThreadSyncV2Store> = null;
+let busy = false;
 
 function save(): void {
   settings = saveProfileSyncSettings(dataDir, settings);
@@ -106,7 +107,7 @@ function chats() {
       return bot && botSyncId && store.taskByThread(bot.id, threadId) ? { botId: bot.id, botSyncId } : null;
     },
     bots: () => store.bots.flatMap((bot) => settings.botMap[bot.id] ? [{ botId: bot.id, botSyncId: settings.botMap[bot.id]! }] : []),
-    running: () => false,
+    running: () => busy,
     project: (message) => message,
     imported: (botId) => { store.followNewestTask(botId); },
     maintenance: () => {
@@ -213,6 +214,12 @@ async function run(method: string, args: TestArgs): Promise<TestResult> {
       await sync.poll();
       return;
     }
+    case "pull":
+      await chats()?.pull(args.thread!);
+      return;
+    case "busy":
+      busy = args.busy!;
+      return;
     case "report":
       return report();
     case "close":

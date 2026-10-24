@@ -2195,6 +2195,7 @@ const googleSync = createGoogleSync({
     return profileSyncSettings.workspaceId;
   },
   republishing: () => threadSyncV2?.republishing() ?? false,
+  pull: (threadId) => void pullSyncedThread(threadId),
 });
 const uploadCloudRoots = cloudSyncRoots();
 let uploadTarget: { folder: string | null; dir: string } | undefined;
