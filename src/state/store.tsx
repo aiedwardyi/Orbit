@@ -1429,6 +1429,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (action.type === "deleteBot") botPatchQueue.cancel(action.botId);
       if (action.type === "interrupt" && stateRef.current.stoppingBots[action.botId]) {
         action.onSettled?.();
+        action.onFailure?.();
         return;
       }
       if (action.type === "interrupt") {
@@ -1608,8 +1609,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (bot) clearStream(bot.threadId, "edited");
           api(`/api/bots/${action.botId}/messages/${action.messageId}/edit`, {
             method: "POST",
-            body: JSON.stringify({ text: action.text }),
-          }).catch(showError);
+            body: JSON.stringify({ text: action.text, ...(action.expectedSelection ? { expectedSelection: action.expectedSelection } : {}) }),
+          }).then(() => action.onSettled?.()).catch((error) => {
+            if (action.onSettled) action.onSettled(error);
+            else showError(error);
+          });
           break;
         }
         case "switchBranch":
@@ -1924,13 +1928,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "setModel":
           api(`/api/bots/${action.botId}`, {
             method: "PATCH",
-            body: JSON.stringify({ modelSelection: action.selection }),
-          }).catch(showError);
+            body: JSON.stringify({ modelSelection: action.selection, ...(action.holdForSwitch ? { holdForSwitch: true } : {}) }),
+          }).then((body) => action.onApplied?.(body.bot)).catch((error) => {
+            if (action.onFailure) action.onFailure();
+            else showError(error);
+          });
           break;
         case "interrupt": {
           const release = () => rawDispatch({ type: "stopReleased", botId: action.botId, until: action.until! });
           window.setTimeout(release, STOP_HOLD_MS);
-          api(`/api/bots/${action.botId}/interrupt`, { method: "POST" })
+          api(`/api/bots/${action.botId}/interrupt`, { method: "POST", ...(action.switchThreadId ? { body: JSON.stringify({ threadId: action.switchThreadId, requireSettled: true }) } : {}) })
             .then((body) => {
               const returned: Array<{ threadId: string; queueId: string; sendId?: string; text: string }> =
                 Array.isArray(body?.returned) ? body.returned : [];
@@ -1944,9 +1951,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   sends.map((send) => takeQueuedDraft(send.sendId) ?? { text: send.text, attachments: [] }),
                 );
               }
+              action.onStopped?.({ stopped: body.stopped === true, returned });
             })
             .catch((error) => {
-              showError(error);
+              if (action.onFailure) action.onFailure();
+              else showError(error);
               release();
             })
             .finally(() => action.onSettled?.());

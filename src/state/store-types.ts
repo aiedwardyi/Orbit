@@ -616,7 +616,7 @@ export type Action =
   | { type: "cancelQueued"; botId: string; threadId: string; queueId: string }
   | { type: "sendSettled"; threadId: string; sendId: string; queued?: boolean }
   | { type: "sendRejected"; threadId: string; sendId: string; botId?: string }
-  | { type: "editMessage"; botId: string; messageId: string; text: string }
+  | { type: "editMessage"; botId: string; messageId: string; text: string; expectedSelection?: ModelSelection; onSettled?: (error?: unknown) => void }
   | { type: "switchBranch"; botId: string; messageId: string }
   | { type: "threadActive"; threadId: string; activeLeafId: string }
   | { type: "answerCard"; botId: string; messageId: string; answer: string }
@@ -676,8 +676,8 @@ export type Action =
   | { type: "screenFrame"; botId: string; png: string; mime: string }
   | { type: "provisioning"; botId: string; on: boolean }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
-  | { type: "setModel"; botId: string; selection: ModelSelection }
-  | { type: "interrupt"; botId: string; until?: number; onSettled?: () => void }
+  | { type: "setModel"; botId: string; selection: ModelSelection; holdForSwitch?: boolean; onApplied?: (bot: Bot) => void; onFailure?: () => void }
+  | { type: "interrupt"; botId: string; until?: number; onSettled?: () => void; switchThreadId?: string; onStopped?: (result: { stopped: boolean; returned: unknown[] }) => void; onFailure?: () => void }
   | { type: "stopReleased"; botId: string; until: number }
   | { type: "connected"; value: boolean }
   | { type: "error"; message: string | null }
