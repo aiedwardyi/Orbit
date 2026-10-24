@@ -4778,7 +4778,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const routineCards = replaysTranscript
     ? []
     : routineCardsSinceLastUserTurn(activeMessages, skipTranscript, task.providerSessionBoundId);
-  const turnNotes = [...paneNotes, ...routineCards];
+  const syncNotes = threadSyncV2?.notes(threadId) ?? [];
+  const turnNotes = [...paneNotes, ...routineCards, ...syncNotes];
   let turnPrompt = turnNotes.length ? [...turnNotes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
   let turnTranscript = withoutTurnNotes(transcript, paneNotes);
   const { turnText, resume } = buildTurnContext({
@@ -5324,7 +5325,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
             if (live.adapter.hasBackgroundWork?.(threadId) !== true) {
               paneNotes = refreshedNotes.notes;
               newestPaneNoteId = refreshedNotes.newestId;
-              const notes = [...paneNotes, ...routineCardsSinceLastUserTurn(messages, skipTranscript, task.providerSessionBoundId)];
+              const notes = [...paneNotes, ...routineCardsSinceLastUserTurn(messages, skipTranscript, task.providerSessionBoundId), ...syncNotes];
               turnPrompt = notes.length ? [...notes, "Current message:", currentPrompt].join("\n\n") : currentPrompt;
             }
             turnTranscript = withoutTurnNotes(transcript, paneNotes);
