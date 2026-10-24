@@ -45,7 +45,8 @@ import { stateForBot } from "@/lib/mascot";
 import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
 import { composerIsBusy, splitQueuedSends, turnPresenceWaiting, withAcceptedMessages } from "@/lib/send-accept";
 import { liveActivityLabel } from "@/lib/live-activity";
-import { buffersForTurn, turnPhase, turnStageLabel } from "@/lib/turn-stage";
+import { useNoReply } from "@/lib/no-reply";
+import { buffersForTurn, currentTurnId, turnPhase, turnStageLabel } from "@/lib/turn-stage";
 import { Bubble, bubbleBot, versionProps } from "./ChatBubble";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { AskUserRecord } from "./AskUserRecord";
@@ -1383,10 +1384,13 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const turnSignal = stream.signal[bot.threadId];
   const reveal = stream.reveal?.[bot.threadId];
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
+  const phase = turnPhase({ signal: stream.signal[bot.threadId], lastMessage, streaming, reasoning });
+  const noReply = useNoReply(phase === "waiting" ? `${bot.threadId}:${currentTurnId(stream, bot.threadId, lastMessage?.id)}` : null, engine?.driverKind);
   const activityLabel = turnStageLabel(
-    turnPhase({ signal: stream.signal[bot.threadId], lastMessage, streaming, reasoning }),
+    phase,
     liveActivityLabel(lastMessage, showActivities),
     busyRetryLabel(lastMessage),
+    noReply?.label,
   );
   const waiting = !reveal?.ended && turnPresenceWaiting({
     busy: bot.busy,
@@ -1978,7 +1982,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             visible={waiting && !jump.messages && !dockLive}
             docked={dockLive}
             label={activityLabel}
-            since={lastUserMessage?.at}
+            quiet={noReply?.quiet}
+            wrap={Boolean(noReply)}
+            since={noReply ? undefined : lastUserMessage?.at}
           />
           {queued.map((m, index) => (
             <div key={m.id} className="contents" data-mid={m.id}>
