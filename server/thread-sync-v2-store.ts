@@ -89,6 +89,12 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     INSERT OR IGNORE INTO sync_v2_migration_log VALUES (1, 0);
   `));
   withMessageTransaction(initializeMigration);
+  const noticeHeads = new Map(withMessageTransaction((db) => z.array(z.object({
+    threadId: z.string(), leaf: z.string(), parent: z.string().nullable(),
+  })).parse(db.prepare(`SELECT s.thread_id AS threadId, m.id AS leaf, json_extract(m.json, '$.parentId') AS parent
+    FROM thread_state s JOIN messages m ON m.thread_id = s.thread_id AND m.id = s.active_leaf_id
+    WHERE m.kind = 'activity' AND json_extract(m.json, '$.tool.name') = ?`)
+    .all(`error: ${CONFLICT_NOTICE_V2}`))).map((notice) => [notice.threadId, notice]));
 
   function stored(threadId: string): StoredTask | undefined {
     return withMessageTransaction((db) => storedTaskSchema.optional().parse(db.prepare("SELECT * FROM sync_v2_store WHERE threadId = ?").get(threadId)));
@@ -141,7 +147,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       if (task.deleted && !deleted) restore(task);
       const changes = page.filter((change) => change.kind !== "delete" || deleted);
       withMessageTransaction((db) => {
-        host.store.applySyncChanges(task.botId, task.threadId, changes);
+        applyChanges(task, changes);
         for (const change of changes) {
           if (change.kind === "metadata") {
             // SAFETY: The sync engine validates metadata before adding a change page.
@@ -158,6 +164,16 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       });
     }
     return true;
+  }
+
+  function applyChanges(task: StoredTask, changes: SyncChange[]): void {
+    host.store.applySyncChanges(task.botId, task.threadId, changes.map((change) => {
+      const notice = noticeHeads.get(task.threadId);
+      // Equal peer tips omit the PC-local notice above them.
+      if (change.kind === "head" && notice && change.value === notice.parent) return { ...change, value: notice.leaf };
+      if (change.kind === "head" || change.kind === "delete") noticeHeads.delete(task.threadId);
+      return change;
+    }));
   }
 
   function restore(task: StoredTask): void {
@@ -207,6 +223,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       { cursor: 0, kind: "row", rowId: message.id, value: message, conflict: false },
       { cursor: 0, kind: "head", rowId: "", value: message.id, conflict: false },
     ]);
+    noticeHeads.set(task.threadId, { threadId: task.threadId, leaf: message.id, parent: message.parentId ?? null });
   }
 
   function removeMigrationNotices(task: StoredTask): void {
@@ -314,6 +331,8 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       });
       return outgoing.length > 0;
     });
+    if (mutations.some((mutation) => mutation.kind === "delete"
+      || (mutation.kind === "head" && mutation.value !== noticeHeads.get(threadId)?.leaf))) noticeHeads.delete(threadId);
     if (changed) schedule(threadId);
   });
 
@@ -403,7 +422,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     if (resolve) {
       // One head that has seen every head lets older builds, which pick by writer id, converge too.
       engine.commit(task, [{ kind: "head", value }], undefined, () => {
-        host.store.applySyncChanges(task.botId, task.threadId, [{ cursor: 0, kind: "head", rowId: "", value, conflict: false }]);
+        applyChanges(task, [{ cursor: 0, kind: "head", rowId: "", value, conflict: false }]);
       });
       schedule(task.threadId);
     }
