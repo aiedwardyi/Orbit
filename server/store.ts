@@ -146,6 +146,7 @@ export interface Message {
     detail?: ToolDetail;
     setup?: boolean;
     signIn?: boolean;
+    folder?: string;
     usageLimit?: { resetsAt: number | null };
     /** an auto-approval chip; the model replay skips it */
     approval?: boolean;

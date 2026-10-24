@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, useStore, type Bot } from "@/state/store";
 import { stateForBot } from "@/lib/mascot";
 import { CloudBackendPicker } from "./CloudBackendPicker";
+import { WorkingFolderField } from "./WorkingFolderField";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
@@ -244,24 +245,7 @@ function WorkingFolder({ bot }: { bot: Bot }) {
           )}
         </div>
       ) : (
-        <form
-          className="mt-3 flex items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            // an emptied field clears the folder — the server wants null
-            void save((draft ?? bot.cwd ?? "").trim() || null);
-          }}
-        >
-          <input
-            className={cn(inputCls, "font-mono text-[12.5px]")}
-            placeholder={t("bot.workingFolderPlaceholder")}
-            value={draft ?? bot.cwd ?? ""}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-          <button type="submit" disabled={saving || draft === null} className="shrink-0 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-50">
-            {t("bot.workingFolderSave")}
-          </button>
-        </form>
+        <WorkingFolderField value={draft ?? bot.cwd ?? ""} onChange={setDraft} onSave={() => void save((draft ?? bot.cwd ?? "").trim() || null)} disabled={saving || draft === null} />
       )}
       {error && <div className="mt-2 text-[12px] text-danger">{error}</div>}
       {pinnedElsewhere && (

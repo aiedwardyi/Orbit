@@ -1,3 +1,7 @@
+import { statSync } from "node:fs";
+
+import type { GroupRecord, Store } from "./store.ts";
+
 // How a room member's turn picks its working folder. The room's pinned
 // folder is a shared desk — it overrides the member's own default so every
 // member works on the same files — except for a member whose engine runs
@@ -18,4 +22,25 @@ export function groupTurnCwd(
 ): string | undefined {
   if (memberDefault === undefined) return undefined;
   return pinRoomCwd() ?? memberPin ?? memberDefault;
+}
+
+export function canChangeRoomCwd(pinned: string | null | undefined): boolean {
+  if (pinned === undefined) return true;
+  if (pinned === null) return false;
+  try {
+    return !statSync(pinned).isDirectory();
+  } catch (cause) {
+    const code = (cause as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR";
+  }
+}
+
+export function repinRoomCwd(store: Store, group: GroupRecord, cwd: string | undefined): void {
+  if (group.pinnedCwd === undefined) return;
+  const task = store.groupTaskByThread(group.id, group.threadId);
+  if (!task) return;
+  // The caller persists these pins with patchGroup after validating the whole patch.
+  task.pinnedCwd = cwd ?? null;
+  group.pinnedCwd = task.pinnedCwd;
+  for (const botId of group.memberIds) store.clearResumeCursors(botId, task.threadId);
 }

@@ -60,6 +60,7 @@ import { isShownMessage } from "@/lib/shown-message";
 import { roomRetry } from "@/lib/room-retry";
 import { nextBulletin } from "@/lib/room-bulletin";
 import { ActivityRun, ActivityStep, approvalHover } from "./ActivityRun";
+import { FolderFix } from "./FolderFix";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useSearchFindSeed } from "@/lib/chat-find";
@@ -106,10 +107,12 @@ export function RoomToolChip({
   message,
   notices,
   onRetry,
+  group,
 }: {
   message: Message;
   notices?: LinkedApproval[];
   onRetry?: (callbacks?: { onError?: () => void }) => void;
+  group?: Group;
 }) {
   const { dispatch, state } = useStore();
   const { t } = useI18n();
@@ -140,6 +143,7 @@ export function RoomToolChip({
       <RefreshCw size={12} /> {t("composer.retry")}
     </button>
   );
+  if (tool.folder) return <FolderFix folder={tool.folder} botId={message.from?.botId} group={group} onRetry={handleRetry} />;
   // A spent plan is the one failure a room can explain, so it gets the same
   // warning treatment as 1:1 — with the engine's own words kept on the title.
   if (tool.usageLimit) {
@@ -427,6 +431,7 @@ export const Transcript = memo(function Transcript({
                     .map((step) => (
                     <div key={step.id} className="contents" data-mid={step.id} data-find-for={item.notices?.get(step.id)?.map((notice) => notice.message.id).join(" ") || undefined}>
                       <RoomToolChip
+                        group={group}
                         message={step}
                         notices={item.notices?.get(step.id)}
                         onRetry={onRetryFor(step.id)}
@@ -513,6 +518,7 @@ export const Transcript = memo(function Transcript({
             </div>
           ) : m.kind === "activity" && m.tool ? (
             <RoomToolChip
+              group={group}
               message={m}
               notices={item.notices}
               onRetry={onRetryFor(m.id)}

@@ -115,11 +115,11 @@ function isDirectory(path: string): boolean {
  * each (ENOENT also fires for a missing cwd), and both are setup problems the
  * user can fix, so say which. The `setup` flag lets the UI offer "Install"
  * instead of a "Retry" that is guaranteed to fail the same way. */
-type SpawnFailure = { message: string; setup: boolean };
+type SpawnFailure = { message: string; setup: boolean; folder?: string };
 
 export function describeSpawnFailure(err: NodeJS.ErrnoException, cli: string, cwd?: string): SpawnFailure {
   if (err.code === "ENOENT" && cwd && !isDirectory(cwd))
-    return { message: `Project folder not found: \`${cwd}\`. Choose a folder that exists, then press Retry.`, setup: false };
+    return { message: `Project folder not found: \`${cwd}\`.`, setup: false, folder: cwd };
   if (err.code === "ENOENT")
     return { message: `\`${cli}\` isn't installed, or isn't on this app's PATH`, setup: true };
   if (err.code === "EACCES" || err.code === "EPERM")

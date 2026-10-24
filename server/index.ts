@@ -3627,6 +3627,7 @@ bus.subscribe((event: RuntimeEvent) => {
           setup: event.setup,
           usageLimit: event.usageLimit,
           signIn: event.signIn,
+          folder: event.folder,
         },
       });
       // a setup error means the engine could not even start: the bot is

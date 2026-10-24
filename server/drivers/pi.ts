@@ -742,7 +742,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
       child.on("error", (err) => {
         const fail = describeSpawnFailure(err as NodeJS.ErrnoException, config.cli, turn.cwd);
         rejectWaiters(new Error(fail.message));
-        emit({ ...base(threadId, turnId), type: "runtime.error", message: fail.message, setup: fail.setup });
+        emit({ ...base(threadId, turnId), type: "runtime.error", ...fail });
         settle(false);
       });
       child.on("close", () => {
