@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { join } from "node:path";
 
 import { readAttachment } from "./attachments.ts";
 import { DATA_DIR, EVENTS_DIR, NATIVE_DIR, type AppConfig } from "./config.ts";
@@ -13,11 +16,15 @@ import { readThreadEvents } from "./thread-events.ts";
 import type { createThreadSyncV2Gate } from "./thread-sync-v2-gate.ts";
 import { turnIndex } from "./turn-index.ts";
 
+// PC-local; never a profile-sync.json field, which builds through 1.0.205 read strictly.
+export const OPEN_THREAD_FILE = "open-thread.json";
+
 type ThreadRouteDeps = {
   cfg: AppConfig;
   threadSyncGate: ReturnType<typeof createThreadSyncV2Gate>;
   store: Store;
   pullSyncedThread: (threadId: string) => void | Promise<void>;
+  dataDir: string;
   DEFAULT_PAGE: number;
   pageSize: (raw: string | null) => number | null | undefined;
   clientMessage: (message: Message) => Message;
@@ -45,7 +52,9 @@ export function createThreadRoutes(deps: ThreadRouteDeps) {
     resolveAndSendRoutine,
     approvalBus,
   } = deps;
-  let openThread: string | null = null;
+  const openPath = join(deps.dataDir, OPEN_THREAD_FILE);
+  let openThread = readOpenThread(openPath);
+  let openTimer: ReturnType<typeof setTimeout> | undefined;
   return {
     openThread: () => openThread,
     listMessages: async (res: ServerResponse, m: RegExpMatchArray, url: URL) => {
@@ -55,7 +64,15 @@ export function createThreadRoutes(deps: ThreadRouteDeps) {
       }
       const limit = pageSize(url.searchParams.get("limit"));
       if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
-      openThread = threadId;
+      if (openThread !== threadId) {
+        openThread = threadId;
+        clearTimeout(openTimer);
+        openTimer = setTimeout(() => {
+          openTimer = undefined;
+          void writeFile(openPath, `${JSON.stringify({ threadId: openThread })}\n`).catch(() => {});
+        }, 1_000);
+        openTimer.unref?.();
+      }
       if (threadSyncGate.enabled) await pullSyncedThread(threadId);
       else pullSyncedThread(threadId);
       const before = url.searchParams.get("before");
@@ -267,4 +284,13 @@ export function createThreadRoutes(deps: ThreadRouteDeps) {
       return json(res, 200, { decisions: readDecisions(DATA_DIR, parsedLimit ?? 200) });
     },
   };
+}
+
+function readOpenThread(path: string): string | null {
+  try {
+    const { threadId } = JSON.parse(readFileSync(path, "utf8"));
+    return typeof threadId === "string" && threadId ? threadId : null;
+  } catch {
+    return null;
+  }
 }

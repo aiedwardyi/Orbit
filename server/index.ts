@@ -6951,6 +6951,7 @@ const threadRoutes = createThreadRoutes({
   threadSyncGate,
   store,
   pullSyncedThread,
+  dataDir: DATA_DIR,
   DEFAULT_PAGE,
   pageSize,
   clientMessage,
