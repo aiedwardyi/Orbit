@@ -51,4 +51,5 @@ export const SPAWNED_PROXIES = {
  * these ship too. */
 export const PACKAGED_FILES = {
   harnessPlaybook: join(SERVER_ROOT, "..", "docs", "harness-playbook.md"),
+  winkGuide: join(SERVER_ROOT, "..", "docs", "wink-guide.md"),
 } as const;

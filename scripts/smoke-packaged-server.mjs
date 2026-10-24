@@ -30,6 +30,7 @@ const dist = process.env.OMB_SMOKE_DIST ?? join(root, "dist-server");
 cpSync(dist, join(staging, "server"), { recursive: true });
 // docs/ sits beside the server dir in both the repo and Resources.
 cpSync(join(dist, "..", "docs", "harness-playbook.md"), join(staging, "docs", "harness-playbook.md"));
+cpSync(join(dist, "..", "docs", "wink-guide.md"), join(staging, "docs", "wink-guide.md"));
 
 const child = spawn(process.execPath, [join(staging, "server", "packaged-boot.js")], {
   cwd: staging,

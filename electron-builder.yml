@@ -80,6 +80,8 @@ extraResources:
     to: skills
   - from: docs/harness-playbook.md
     to: docs/harness-playbook.md
+  - from: docs/wink-guide.md
+    to: docs/wink-guide.md
   - from: dist-native/android-platform-tools
     to: android-platform-tools
 

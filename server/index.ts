@@ -371,6 +371,7 @@ import { WebhookManager } from "./webhooks.ts";
 import { SPAWNED_PROXIES } from "./proxy-paths.ts";
 import { loadBundledSkills, loadUserSkills, mergeSkills, renderSkillInstructions, selectBundledSkills } from "./skill-library.ts";
 import { harnessPlaybookPrompt } from "./harness-playbook.ts";
+import { CREDENTIAL_PROMPT } from "./wink-guide.ts";
 import { botBrowserEnabled, browserPrompt } from "./builtin-browser.ts";
 import { installedPlaybookInstructions } from "./installed-playbooks.ts";
 import "./package-export.ts";
@@ -5175,9 +5176,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         : integrations.agents && sectionPeers.length > 0
           ? peerAgentsSystemPrompt()
           : "";
-      const credentialPrompt = integrations.agents
-        ? " If a supported API key is missing, use request_credential to show the secure in-app card. Never ask the user to paste credentials into chat."
-        : "";
+      const credentialPrompt = integrations.agents ? ` ${CREDENTIAL_PROMPT}` : "";
       const routinePrompt = integrations.agents
         ? " If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. A proposal is not applied until the user confirms its in-app card, so never claim the action completed before that confirmation."
         : "";
@@ -6169,8 +6168,7 @@ async function runClaimedGroupMemberTurn(
     `Reply as yourself, ${detailedRepliesEnabled(cfg) ? "" : "briefly and "}conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
     reactionSystemGuidance(),
     coordinationPrompt,
-    integrations.agents &&
-      "If a supported API key is missing, use request_credential to show the secure in-app card. Never ask the user to paste credentials into chat.",
+    integrations.agents && CREDENTIAL_PROMPT,
     integrations.agents &&
       "If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. A proposal is not applied until the user confirms its in-app card, so never claim the action completed before that confirmation.",
     integrations.agents &&
