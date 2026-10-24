@@ -26,7 +26,9 @@ import {
 import type { Message } from "@/state/store";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
+const chatView = ["ChatView.tsx", "ChatBubble.tsx"]
+  .map((file) => readFileSync(join(here, "../components", file), "utf8"))
+  .join("\n");
 const groupView = readFileSync(join(here, "../components/GroupView.tsx"), "utf8");
 const composerView = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
 

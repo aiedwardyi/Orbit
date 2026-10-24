@@ -25,7 +25,9 @@ afterEach(() => {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const composer = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
-const chatView = readFileSync(join(here, "../components/ChatView.tsx"), "utf8");
+const chatView = ["ChatView.tsx", "ChatBubble.tsx"]
+  .map((file) => readFileSync(join(here, "../components", file), "utf8"))
+  .join("\n");
 
 const idle = "Message Scout";
 

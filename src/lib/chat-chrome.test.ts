@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const components = join(here, "../components");
-const chatView = readFileSync(join(components, "ChatView.tsx"), "utf8");
+const chatBubble = readFileSync(join(components, "ChatBubble.tsx"), "utf8");
+const chatView = [readFileSync(join(components, "ChatView.tsx"), "utf8"), chatBubble].join("\n");
 const groupView = readFileSync(join(components, "GroupView.tsx"), "utf8");
 const composer = readFileSync(join(components, "Composer.tsx"), "utf8");
 
@@ -55,7 +56,7 @@ function classTokens(markup: string): Set<string> {
 }
 
 describe("assistant message action bar", () => {
-  const bubbleFn = chatView.slice(chatView.indexOf("function Bubble("), chatView.indexOf("function ScreenFrame"));
+  const bubbleFn = chatBubble.slice(chatBubble.indexOf("const Bubble = memo("));
   const botRow = classTokens(bubbleFn.split("data-message-hover-actions").at(-1) ?? "");
 
   it("docks under the message instead of floating mid-scroll", () => {
@@ -80,7 +81,7 @@ describe("assistant message action bar", () => {
 });
 
 describe("message timestamp tooltip", () => {
-  const label = chatView.slice(chatView.indexOf("function TimestampLabel"), chatView.indexOf("function Bubble("));
+  const label = chatBubble.slice(chatBubble.indexOf("function TimestampLabel"), chatBubble.indexOf("function bubbleBot"));
 
   it("stops relying on the native title tooltip for the full timestamp", () => {
     expect(chatView).not.toContain("new Date(message.at).toLocaleString()");

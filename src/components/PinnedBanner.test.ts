@@ -164,7 +164,9 @@ describe("PinnedBanner", () => {
 
 describe("ChatView server imports", () => {
   it("does not import from server/ at runtime", () => {
-    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "ChatView.tsx"), "utf8");
+    const source = ["ChatView.tsx", "ChatBubble.tsx"]
+      .map((file) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), file), "utf8"))
+      .join("\n");
     const runtime = [...source.matchAll(/import\s+(type\s+)?[\s\S]*?\sfrom\s+["']([^"']+)["']/g)]
       .filter((match) => !match[1] && match[2].includes("server/"))
       .map((match) => match[2]);
