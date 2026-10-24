@@ -705,9 +705,8 @@ async function checkedModelSelection(
   const described = await fetcher("/api/instances");
   const instance = records(described.instances).find((candidate) => candidate.instanceId === instanceId);
   if (!instance) throw new ToolInputError(`model instance not found: ${instanceId}`);
-  if (instance.snapshot?.state !== "available" || isRetiredEngineKind(instance.driverKind)) {
-    throw new ToolInputError(`model instance is unavailable: ${instanceId}`);
-  }
+  if (isRetiredEngineKind(instance.driverKind)) throw new ToolInputError(`model instance uses a retired engine: ${instanceId}`);
+  if (instance.snapshot?.state !== "available") throw new ToolInputError(`model instance is unavailable: ${instanceId}`);
   const models = isRecord(instance.models) ? instance.models : {};
   const offered = records(models.options).map((option) => option.id).filter((id) => typeof id === "string");
   if (models.default !== model && !offered.includes(model)) {

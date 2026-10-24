@@ -371,9 +371,22 @@ describe("MCP tool execution", () => {
       throw new Error(`unexpected path ${path}`);
     });
     await expect(handleToolCall("create_bot", { name: "Mira", instance_id: "old", model: "old-model" }, fetcher))
-      .rejects.toThrow("model instance is unavailable: old");
+      .rejects.toThrow("model instance uses a retired engine: old");
     await expect(handleToolCall("set_bot_model", { bot_id: "bot-1", instance_id: "old", model: "old-model" }, fetcher))
-      .rejects.toThrow("model instance is unavailable: old");
+      .rejects.toThrow("model instance uses a retired engine: old");
+  });
+
+  it("refuses an engine that is not available", async () => {
+    const fetcher = vi.fn(async (path: string) => {
+      if (path === "/api/bots?messages=0") return { bots: [{ id: "bot-1" }] };
+      if (path === "/api/instances") return { instances: [{
+        instanceId: "codex", driverKind: "codex", snapshot: { state: "unavailable" },
+        models: { default: "gpt-6-sol", options: [{ id: "gpt-6-sol" }] },
+      }] };
+      throw new Error(`unexpected path ${path}`);
+    });
+    await expect(handleToolCall("set_bot_model", { bot_id: "bot-1", instance_id: "codex", model: "gpt-6-sol" }, fetcher))
+      .rejects.toThrow("model instance is unavailable: codex");
   });
 
   it("waits on a bot conversation and returns a compact attention tail", async () => {
