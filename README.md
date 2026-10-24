@@ -31,17 +31,17 @@ Give each bot its own engine and model. `Alt+M` switches mid-thread, and the thr
 <img src="./assets/readme/tour-models.png" alt="The model picker open on Atlas: Opus 5.5 at High effort, ringed in Anthropic orange, with Fable 5 and Sonnet 5.5 above and below.">
 
 **2. A lead bot runs your workers**<br>
-Ask once. It writes a task card per job and starts each worker on any engine you have.
+Ask once. It splits the job, picks each worker's engine, model and effort, and checks the work before it lands.
 
 <img src="./assets/readme/tour-workers.png" alt="Five worker rows, each with its engine's mark and model: three working, two done.">
 
 **3. Real terminals, one tab per worker**<br>
-Each worker runs its engine's own CLI in a labeled tab. Press `` Ctrl+` `` to drive it yourself.
+Each worker runs its engine's own CLI in a separate git worktree. Press `` Ctrl+` `` to drive it yourself.
 
 <img src="./assets/readme/tour-terminal.png" alt="Terminal tabs labeled LIMITER, DOCS and REVIEW with model and effort, over the LIMITER worker's session.">
 
 **4. Never loses the plot**<br>
-Each bot keeps a `MEMORY.md` it reads every session, across models, PCs and your phone.
+One thread per bot. No `/compact`, no starting over. Each bot's `MEMORY.md` carries across models, PCs and your phone.
 
 <img src="./assets/readme/tour-memory.png" alt="Atlas's Memory box with its MEMORY.md notes on the Acme API.">
 
