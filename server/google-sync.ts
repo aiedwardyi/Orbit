@@ -161,7 +161,6 @@ export function createGoogleSync(options: Options) {
   let soon = false;
   let stopped = false;
   let chatFirst = true;
-  syncHold.google(join(dataDir, GOOGLE_MIRROR_DIR));
 
   const mirrorPath = () => {
     const path = join(dataDir, GOOGLE_MIRROR_DIR);
@@ -171,6 +170,7 @@ export function createGoogleSync(options: Options) {
       return resolve(path);
     }
   };
+  syncHold.google(mirrorPath());
   function readMove(): z.infer<typeof moveSchema> | null {
     try {
       return moveSchema.parse(JSON.parse(readFileSync(movePath, "utf8")));
@@ -417,7 +417,7 @@ export function createGoogleSync(options: Options) {
     if (running) return running;
     const bound = runnable();
     if (!bound) {
-      syncHold.google(join(dataDir, GOOGLE_MIRROR_DIR));
+      syncHold.google(mirrorPath());
       schedule(0);
       return Promise.resolve();
     }
@@ -465,7 +465,7 @@ export function createGoogleSync(options: Options) {
   }
 
   const unsubscribe = account.onSession(() => {
-    syncHold.google(join(dataDir, GOOGLE_MIRROR_DIR));
+    syncHold.google(mirrorPath());
     catching = runnable() !== null;
     total = 0;
     problem = null;
@@ -490,7 +490,7 @@ export function createGoogleSync(options: Options) {
       void kick();
     },
     stop(): void {
-      syncHold.google(join(dataDir, GOOGLE_MIRROR_DIR));
+      syncHold.google(mirrorPath());
       stopped = true;
       soon = false;
       unsubscribe();

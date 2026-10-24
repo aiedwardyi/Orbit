@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -195,6 +195,20 @@ describe("sends while a chat catches up", () => {
     await h.sync.pull("thread");
     await vi.waitFor(() => expect(h.run).toHaveBeenCalledTimes(1));
     expect(h.run.mock.calls[0]![3]?.parentId).toBe("peer-tip");
+  });
+
+  it("releases a listed Google head on stop when the data folder uses a junction", async () => {
+    const early = await boot(true);
+    const dataDir = join(root, "linked-data");
+    symlinkSync(early.dataDir, dataDir, "junction");
+    const h = await googlePC({ ...early, dataDir, folder: realpathSync(early.folder) });
+    const pending = await h.listed();
+    const { syncHold } = await import("./sync-hold.ts");
+    expect(syncHold.until("thread")).toBeGreaterThan(Date.now());
+    h.google.stop();
+    expect((await h.send("after stop", "sync-hold-junction-stop-0001")).body.queued).not.toBe(true);
+    pending.release();
+    await pending.pass;
   });
 
   it("keeps a listed peer head held when it arrives as the transport pull finishes", async () => {

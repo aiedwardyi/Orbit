@@ -1,11 +1,10 @@
-import { createHash } from "node:crypto";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import type { DriveFile } from "./drive-client.ts";
 import { drivePathRule } from "./drive-mirror.ts";
 import type { DriveOwnIds } from "./drive-own-ids.ts";
 import { withMessageTransaction } from "./message-db.ts";
-import type { SyncApplyResult, SyncHead, SyncScope } from "./thread-sync-v2.ts";
+import type { SyncApplyResult, SyncScope } from "./thread-sync-v2.ts";
 
 const HOLD_MS = 10_000;
 const folderKey = (folder: string) => process.platform === "win32" ? resolve(folder).toLowerCase() : resolve(folder);
@@ -15,13 +14,6 @@ interface WaitingSend {
   messageId: string;
   threadId: string;
   syncUntil?: number;
-}
-
-export function notePulledHead(result: SyncApplyResult, root: string, scope: SyncScope, head: SyncHead, bytes: Buffer): void {
-  (result.heads ??= []).push({
-    path: `${basename(root)}/${scope.botSyncId}/${scope.threadId}/${head.writerId}/head.json`,
-    hash: createHash("md5").update(bytes).digest("hex"), writer: head.writerId, lastSeq: head.lastSeq, seen: head.seen,
-  });
 }
 
 const pending = new Map<string, Map<string, string>>();

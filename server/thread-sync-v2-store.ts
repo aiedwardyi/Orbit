@@ -402,7 +402,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     resolveHeads(task, task.cursor !== cursor, own);
     notifyConflict(task);
     if (task.cursor !== cursor) host.store.applySyncImport(() => host.imported(target.botId));
-    syncHold.pulled(workerFolder!, task, pulled.heads);
+    if (host.enabled() && host.folder() === workerFolder) syncHold.pulled(workerFolder!, task, pulled.heads);
   }
 
   function resolveHeads(task: StoredTask, changed: boolean, own: string | null | undefined): void {

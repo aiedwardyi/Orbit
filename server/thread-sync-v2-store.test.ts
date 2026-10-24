@@ -184,6 +184,47 @@ afterEach(async () => {
 });
 
 describe("store delta sync", { timeout: 60_000 }, () => {
+  it("does not note a pulled head after the folder switches while adoption awaits", async () => {
+    const { DATA_DIR } = await import("./config.ts");
+    const { Store } = await import("./store.ts");
+    const { syncHold } = await import("./sync-hold.ts");
+    const { createThreadSyncV2Store } = await import("./thread-sync-v2-store.ts");
+    const original = temp();
+    const replacement = temp();
+    const a = pc(original, "a");
+    await a.call("append", { text: "remote" });
+    await a.call("flush");
+    const store = new Store(() => ({ instanceId: "test", model: "test" }));
+    const bot = store.createBot({}, { seedMessages: false });
+    store.adoptSyncedTask(bot.id, { threadId: "thread", title: "Chat", createdAt: 1 }, [], null, true);
+    let folder = original;
+    const sync = createThreadSyncV2Store({
+      store, dataDir: DATA_DIR, deviceId: "local", folder: () => folder, enabled: () => true,
+      target: () => ({ botId: bot.id, botSyncId: "bot" }), bots: () => [{ botId: bot.id, botSyncId: "bot" }],
+      running: () => false, project: (message) => message, imported: () => {}, maintenance: () => {},
+    })!;
+    const apply = store.applySyncChanges.bind(store);
+    let scheduled = false;
+    vi.spyOn(store, "applySyncChanges").mockImplementation((...args) => {
+      apply(...args);
+      if (!scheduled) {
+        scheduled = true;
+        setImmediate(() => { folder = replacement; });
+      }
+    });
+    const pulled = vi.spyOn(syncHold, "pulled");
+    try {
+      await sync.pull("thread");
+      expect(scheduled).toBe(true);
+      expect(folder).toBe(replacement);
+      expect(pulled).not.toHaveBeenCalled();
+    } finally {
+      await sync.close();
+      syncHold.reset();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("prefers main history after a stale PC sees a newer conflict branch first", async () => {
     const main = temp();
     const stale = temp();
