@@ -46,6 +46,7 @@ import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
 import { composerIsBusy, splitQueuedSends, turnPresenceWaiting, withAcceptedMessages } from "@/lib/send-accept";
 import { liveActivityLabel } from "@/lib/live-activity";
 import { useNoReply } from "@/lib/no-reply";
+import { useNoReplySwitch } from "@/lib/no-reply-switch";
 import { buffersForTurn, currentTurnId, turnPhase, turnStageLabel } from "@/lib/turn-stage";
 import { Bubble, bubbleBot, versionProps } from "./ChatBubble";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
@@ -1386,13 +1387,14 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
   const phase = turnPhase({ signal: stream.signal[bot.threadId], lastMessage, streaming, reasoning });
   const noReply = useNoReply(phase === "waiting" ? `${bot.threadId}:${currentTurnId(stream, bot.threadId, lastMessage?.id)}` : null, engine?.driverKind);
+  const modelSwitch = useNoReplySwitch(bot, lastUserMessage?.id, turnSignal !== undefined);
   const activityLabel = turnStageLabel(
     phase,
     liveActivityLabel(lastMessage, showActivities),
     busyRetryLabel(lastMessage),
     noReply?.label,
   );
-  const waiting = !reveal?.ended && turnPresenceWaiting({
+  const waiting = modelSwitch.active || !reveal?.ended && turnPresenceWaiting({
     busy: bot.busy,
     turnActive: turnSignal !== undefined,
     activity: bot.activity,
@@ -1426,7 +1428,10 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
     slot: dockSlot,
     live: dockLive,
     label: activityLabel,
-    since: lastUserMessage?.at,
+    since: noReply ? undefined : lastUserMessage?.at,
+    quiet: noReply?.quiet,
+    wrap: Boolean(noReply),
+    onSwitch: noReply && !modelSwitch.active ? modelSwitch.open : undefined,
     avatar: (
       <BotAvatar
         bot={bot}
@@ -1437,7 +1442,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         trackPointer={false}
       />
     ),
-  } : null, [dockSlot, dockLive, activityLabel, lastUserMessage?.at, bot, toolInFlight]);
+  } : null, [dockSlot, dockLive, activityLabel, lastUserMessage?.at, bot, toolInFlight, noReply, modelSwitch.active, modelSwitch.open]);
 
   // regenerate = fork the last user message with the same text — reuses the
   // existing branch machinery, so the old answer stays reachable via ‹ ›
@@ -1739,7 +1744,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             <Search size={18} />
           </button>
           {showBotNewTaskControl() && <TaskPicker bot={bot} />}
-          <ModelPicker bot={bot} className="max-md:min-w-0" />
+          <ModelPicker bot={bot} className="max-md:min-w-0" switchControl={modelSwitch.pickerRef} onSwitching={modelSwitch.onSwitching} onRerunSettled={modelSwitch.onRerunSettled} />
           {callAvailable && <CallButton bot={bot} />}
           {showComputerPanelChrome() && (
           <button
@@ -1984,6 +1989,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             label={activityLabel}
             quiet={noReply?.quiet}
             wrap={Boolean(noReply)}
+            onSwitch={noReply && !modelSwitch.active ? modelSwitch.open : undefined}
             since={noReply ? undefined : lastUserMessage?.at}
           />
           {queued.map((m, index) => (
@@ -2055,6 +2061,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           key={`${bot.id}:${activeTask?.threadId ?? bot.threadId}`}
           bot={bot}
           packet={activeTask?.taskState}
+          busy={modelSwitch.active || bot.busy}
           turns={activeTask?.usage?.turns ?? 0}
         />
         {!terminal && (

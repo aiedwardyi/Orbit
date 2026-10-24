@@ -468,7 +468,7 @@ export function createBotRoutes(deps: BotRouteDeps) {
           ? store.setChiefOfStaff(bot.id)
           : [];
       if (chiefChanges === null) return json(res, 404, { error: "no such bot" });
-      if (normalizedSelection) await applyEffortPick(store, registry, bot.id, normalizedSelection);
+      if (normalizedSelection && body.holdForSwitch !== true) await applyEffortPick(store, registry, bot.id, normalizedSelection);
       return json(res, 200, { bot: wireBot(store.bot(bot.id) ?? bot) });
     },
     skills: async (res: ServerResponse, m: RegExpMatchArray) => {

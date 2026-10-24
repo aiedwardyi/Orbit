@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { credentialIsConfigured, credentialResumeOutcome } from "../shared/credential-request.ts";
 import { isCompletedTaskRecord } from "../shared/task-resume.ts";
 import { canSwitchWhileWorking, runThread, workingThreadId } from "../shared/working-thread.ts";
+import { sameModelSelection } from "../shared/model-selection.ts";
 import * as composio from "./composio.ts";
 import type { AppConfig } from "./config.ts";
 import type { RequestOutcome } from "./contracts.ts";
@@ -22,6 +23,9 @@ import { stampTaskResumePacket } from "./task-state-fold.ts";
 import type { TaskResumePacket } from "./task-state.ts";
 import type { createThreadSyncV2Gate } from "./thread-sync-v2-gate.ts";
 import { TASK_RESUME_PROMPT } from "./turn-context.ts";
+
+// A stopped thread stays held through the driver's cancel grace (ACP and MSP: 5 s), and an edit inside it is refused.
+const STOP_RELEASE_MS = 6_000;
 
 type BotChatRouteDeps = {
   cfg: AppConfig;
@@ -107,6 +111,14 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
     secretMessage,
     resumeSecretCard,
   } = deps;
+  const threadReleased = async (bot: BotRecord) => {
+    const deadline = Date.now() + STOP_RELEASE_MS;
+    while (botHasActiveTurn(bot.id, bot.threadId)) {
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return true;
+  };
   return {
     patchCard: async (req: IncomingMessage, res: ServerResponse, m: RegExpMatchArray) => {
       const bot = store.bot(m[1]);
@@ -334,6 +346,9 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
       if (botHasActiveTurn(bot.id, bot.threadId)) {
         return json(res, 409, { error: "the bot is working - stop it before editing" });
       }
+      if (body.expectedSelection && !sameModelSelection(bot.modelSelection, body.expectedSelection)) {
+        return json(res, 409, { error: "the model changed before the reply could be rerun" });
+      }
       const source = store.messagesFor(bot.threadId).find((msg) => msg.id === messageId);
       if (!source || source.role !== "user" || source.kind !== "text") {
         return json(res, 404, { error: "only user messages can be edited" });
@@ -402,6 +417,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
         return json(res, 400, { error: "body must be a JSON object" });
       }
       const body = rawBody ?? {};
+      const requireSettled = body.requireSettled === true;
       const expectedThreadId = body.threadId;
       if (expectedThreadId !== undefined && (typeof expectedThreadId !== "string" || !/^[\w-]+$/.test(expectedThreadId))) {
         return json(res, 400, { error: "threadId must be a task id" });
@@ -420,6 +436,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
         bumpTurnEpoch(bot.id);
         await routines!.cancelRun(routineRun.id);
         if (inFlight) releaseInterruptedBot(bot.id, runThread(routineRun) ?? bot.threadId);
+        if (requireSettled) return json(res, 200, { ok: true, stopped: inFlight && await threadReleased(bot), returned });
         return json(res, 200, { ok: true, returned });
       }
       const instance = registry.get(bot.modelSelection.instanceId);
@@ -435,6 +452,8 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
         return json(res, 409, { error: "the bot switched tasks before it could be interrupted" });
       }
       const inFlight = Boolean(busyGroup || bot.busy || botHasActiveTurn(bot.id));
+      if (requireSettled && !inFlight) return json(res, 200, { ok: true, stopped: false, returned: [] });
+      if (requireSettled && (!instance || busyGroup)) return json(res, 409, { error: "the waiting turn cannot be interrupted" });
       taskResumes.forgetBot(bot.id);
       const returned = cancelQueuedSends(bot.id);
       if (returned.length) broadcast({ kind: "queue.cancelled", botId: bot.id, sends: returned });
@@ -455,6 +474,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
         await instance?.adapter.interruptTurn(stoppedThreadId).catch(() => {});
       }
       if (inFlight) releaseInterruptedBot(bot.id, stoppedThreadId);
+      if (requireSettled) return json(res, 200, { ok: true, stopped: inFlight && await threadReleased(bot), returned });
       return json(res, 200, { ok: true, returned });
     },
     resumeTask: async (res: ServerResponse, m: RegExpMatchArray) => {

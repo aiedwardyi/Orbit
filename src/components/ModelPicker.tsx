@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useImperativeHandle, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";
 import { createPortal } from "react-dom";
 import { Atom, BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Hexagon, Leaf, MoonStar, Mountain, Orbit, Sparkle, Sparkles, Sun, X } from "lucide-react";
 import { shownModelSelection, useStore, type Bot, type ModelSelection } from "@/state/store";
@@ -8,6 +8,7 @@ import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, sele
 import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { pickerPrice } from "@/lib/model-index";
 import { usePresence } from "@/lib/use-presence";
+import { noReplySource, switchFromNoReply } from "@/lib/no-reply-switch";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
@@ -22,6 +23,9 @@ type ModelPickerProps = {
   contained?: boolean;
   label?: ReactNode;
   defaultOpen?: boolean;
+  switchControl?: Ref<(() => void) | null>;
+  onSwitching?: (stage: "saving" | "rerunning" | null) => void;
+  onRerunSettled?: () => void;
 };
 
 type PickerStore = {
@@ -36,7 +40,7 @@ export function ModelPicker(props: ModelPickerProps) {
 }
 
 export function ModelPickerControl({
-  bot, className, contained = false, label, defaultOpen = false, store,
+  bot, className, contained = false, label, defaultOpen = false, store, switchControl, onSwitching, onRerunSettled,
 }: ModelPickerProps & { store: PickerStore }) {
   const { t } = useI18n();
   const { state, dispatch, refreshInstances } = store;
@@ -53,6 +57,8 @@ export function ModelPickerControl({
   const dialogRef = useRef<HTMLDivElement>(null);
   const focusComposerAfterCloseRef = useRef(false);
   const openedWithShortcutRef = useRef(false);
+  const switchingRef = useRef(false);
+  const switchSourceRef = useRef<string | undefined>(undefined);
   const stageRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef({ x: 0, y: 0, stepped: true });
   const [stageWidth, setStageWidth] = useState(0);
@@ -93,14 +99,17 @@ export function ModelPickerControl({
   const filteredCustom = filterCustomModels(custom, query);
   const price = pickerPrice(draft.model);
 
-  const show = (viaShortcut = false) => {
+  const show = (viaShortcut = false, switching = false) => {
     setDraft(selection);
     setCustomOpen(false);
     setQuery("");
     focusComposerAfterCloseRef.current = false;
     openedWithShortcutRef.current = viaShortcut;
+    switchingRef.current = switching;
+    switchSourceRef.current = switching ? noReplySource(bot)?.id : undefined;
     setOpen(true);
   };
+  useImperativeHandle(switchControl, () => () => show(false, true));
   const close = () => setOpen(false);
   useEffect(() => {
     window.dispatchEvent(new CustomEvent("orbit:model-picker", { detail: { id: bindingsId, open } }));
@@ -112,8 +121,9 @@ export function ModelPickerControl({
   }, [bindingsId, open]);
   const save = (candidate: ModelSelection = draft, fromKeyboard = false) => {
     if (!canCommit(candidate)) return;
-    focusComposerAfterCloseRef.current = fromKeyboard && openedWithShortcutRef.current && !contained;
-    dispatch({ type: "setModel", botId: bot.id, selection: candidate });
+    focusComposerAfterCloseRef.current = fromKeyboard && (openedWithShortcutRef.current || switchingRef.current) && !contained;
+    if (switchingRef.current) switchFromNoReply(bot, candidate, switchSourceRef.current, state.instances, dispatch, onSwitching, onRerunSettled);
+    else dispatch({ type: "setModel", botId: bot.id, selection: candidate });
     close();
     if (focusComposerAfterCloseRef.current) {
       focusComposerOnActivation({ activatedElement: triggerRef.current });

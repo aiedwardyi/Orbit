@@ -386,6 +386,7 @@ const Bubble = memo(function Bubble({
         data-orbit-message-body
         data-strip={hasReactions || dockShown ? "" : undefined}
         className={cn("relative w-fit max-w-[min(42rem,78%)]", hasReactions ? "pb-11" : "pb-8")}
+        style={dock?.wrap && !hasReactions ? { paddingBottom: "2.5rem" } : undefined}
       >
         <div className="orbit-message-speaker hidden">{user ? (message.from?.name ?? t("chat.you")) : botName}</div>
         {user && !message.placeholder && (
@@ -502,7 +503,7 @@ const Bubble = memo(function Bubble({
             </MessageBoundary>
           ) : null}
         </div>
-        {dock && dockShown && <DockedPresence avatar={dock.avatar} label={dock.label} live={dock.live} since={dock.since} className="absolute bottom-0 left-0 h-[26px]" />}
+        {dock && dockShown && <DockedPresence {...dock} className="absolute bottom-0 left-0 min-h-[26px]" />}
         {!user && !streaming && !dock?.live && (
           <div
             data-message-hover-actions
