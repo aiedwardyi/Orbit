@@ -5,6 +5,7 @@ import { cloneElement, Component, isValidElement, useEffect, useState, type Reac
 import { cn } from "@/lib/cn";
 import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { termElapsed } from "@/lib/terminal-skin";
+import { SwitchModelAction } from "@/lib/no-reply-switch";
 import type { Message } from "@/state/store";
 import { BotAvatar, type BotAvatarProps } from "./Avatar";
 import { OrbitMark } from "./OrbitRing";
@@ -37,7 +38,7 @@ export class MessageBoundary extends Component<{ children: ReactNode; fallbackTe
   }
 }
 
-export type ReplyDock = { slot: string; live: boolean; avatar: ReactNode; label: string; since?: number };
+export type ReplyDock = { slot: string; live: boolean; avatar: ReactNode; label: string; since?: number; quiet?: boolean; wrap?: boolean; onSwitch?: () => void };
 
 // The parent identifies a reply slot before the server assigns its message id.
 export function replySlot(threadId: string, message: Message, transcript: Message[]) {
@@ -66,6 +67,7 @@ export function TurnPresence({
   quiet = false,
   wrap = false,
   since,
+  onSwitch,
 }: {
   avatar: ReactNode;
   visible: boolean;
@@ -78,6 +80,7 @@ export function TurnPresence({
   wrap?: boolean;
   /** When the turn began; the label counts up from it. */
   since?: number;
+  onSwitch?: () => void;
 }) {
   const terminal = isTerminalSkin(useSkin());
   const [wasVisible, setWasVisible] = useState(visible);
@@ -96,9 +99,10 @@ export function TurnPresence({
   if (docked || (!visible && !fading)) return null;
   return (
     <div className="turn-presence flex flex-col items-start">
-      <div data-turn-mascot className={cn("flex max-w-full items-center gap-2", visible ? "turn-mascot-in" : "turn-mascot-out")}>
+      <div data-turn-mascot className={cn("flex max-w-full items-center gap-2", terminal ? "text-[14px]" : "text-[13px]", visible ? "turn-mascot-in" : "turn-mascot-out")}>
         {terminal ? <TermGlyph ring={visible} /> : ringFace(avatar, visible)}
         {visible ? <WorkingLabel label={label} quiet={quiet} wrap={wrap} /> : null}
+        {visible && onSwitch ? <SwitchModelAction onClick={onSwitch} /> : null}
         {visible && since ? <Elapsed since={since} /> : null}
       </div>
     </div>
@@ -121,17 +125,18 @@ export function useDockFade(live: boolean): boolean {
 
 /** The mascot docked in a live reply's action strip. It fades out in place
  * when the turn ends, so the reply's own actions take the strip unmoved. */
-export function DockedPresence({ avatar, label, live, since, className }: { avatar: ReactNode; label: string; live: boolean; since?: number; className?: string }) {
+export function DockedPresence({ avatar, label, live, since, quiet, wrap, onSwitch, className }: Omit<ReplyDock, "slot"> & { className?: string }) {
   const terminal = isTerminalSkin(useSkin());
   if (!useDockFade(live)) return null;
   return (
     <div
       data-turn-mascot
       aria-hidden={!live}
-      className={cn("turn-mascot-docked pointer-events-none flex w-max max-w-[min(20rem,calc(100vw-4rem))] items-center gap-1.5", live ? "turn-mascot-in" : "turn-mascot-out", className)}
+      className={cn("turn-mascot-docked pointer-events-none flex w-max max-w-[min(20rem,calc(100vw-4rem))] items-center gap-1.5", terminal ? "text-[14px]" : "text-[13px]", live ? "turn-mascot-in" : "turn-mascot-out", className)}
     >
       {terminal ? <TermGlyph ring={live} /> : ringFace(avatar, live)}
-      {live ? <WorkingLabel label={label} /> : null}
+      {live ? <WorkingLabel label={label} quiet={quiet} wrap={wrap} /> : null}
+      {live && onSwitch ? <SwitchModelAction onClick={onSwitch} /> : null}
       {live && since ? <Elapsed since={since} /> : null}
     </div>
   );
