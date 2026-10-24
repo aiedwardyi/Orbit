@@ -83,7 +83,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     CREATE TABLE IF NOT EXISTS sync_v2_pictures (id INTEGER PRIMARY KEY, thread TEXT NOT NULL, json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sync_v2_migration_log (id INTEGER PRIMARY KEY, ended INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS sync_v2_notices (thread TEXT PRIMARY KEY, cursor INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS sync_v2_joins (thread TEXT PRIMARY KEY, missed INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS sync_v2_joins (thread TEXT PRIMARY KEY, missed INTEGER NOT NULL, tip TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS sync_v2_conflict_changes ON sync_v2_changes(thread, cursor) WHERE conflict = 1;
     INSERT OR IGNORE INTO sync_v2_migration_log VALUES (1, 0);
   `));
@@ -480,9 +480,10 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     const turns = rows.filter((row) => row.role === "user" && row.kind === "text").length;
     const reason = !rows.every((row) => mine(row.id)) ? "another writer"
       : edited || !appended(rows[0].id, branch[at - 1] ?? null) ? "edit or regenerate"
-      : based(pick.version.baseStamp) !== parentOf(tip) ? "branch switch"
+      : based(pick.version.baseStamp) !== parentOf(tip) || (kids.get(parentOf(rows[0].id)) ?? []).some((id) => id !== rows[0].id && mine(id)) ? "branch switch"
       : turns > JOIN_TURNS ? `${turns} user turns`
-      : !soonAfterWake(rows[0].at, JOIN_WINDOW_MS) ? "outside wake window" : undefined;
+      : !soonAfterWake(rows[0].at, JOIN_WINDOW_MS) ? "outside wake window"
+      : rows.some((row) => row.kind === "compaction") ? "compaction" : undefined;
     return { first: { ...rows[0], parentId: main }, tip, missed: trunk.slice(at).filter((id) => byId.get(id)!.kind === "text").length, reason };
   }
 
@@ -492,7 +493,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
         { cursor: 0, kind: "row", rowId: stale.first.id, value: stale.first, conflict: false },
         { cursor: 0, kind: "head", rowId: "", value: stale.tip, conflict: false },
       ]);
-      if (stale.missed) db.prepare("INSERT INTO sync_v2_joins VALUES (?, ?) ON CONFLICT(thread) DO UPDATE SET missed = excluded.missed").run(task.threadId, stale.missed);
+      if (stale.missed) db.prepare("INSERT INTO sync_v2_joins VALUES (?, ?, ?) ON CONFLICT(thread) DO UPDATE SET missed = excluded.missed, tip = excluded.tip").run(task.threadId, stale.missed, stale.tip);
     });
     schedule(task.threadId);
   }
@@ -636,12 +637,18 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       const task = stored(threadId);
       return task ? engine.variants(task, "row", messageId)[0]?.version.origin ?? null : null;
     },
-    /** Hands the next turn the note a join left, once. */
+    /** A failed turn leaves the note for the next prompt. */
     notes(threadId: string): string[] {
       const missed = withMessageTransaction((db) => {
-        const row = db.prepare("SELECT missed FROM sync_v2_joins WHERE thread = ?").get(threadId);
-        if (row) db.prepare("DELETE FROM sync_v2_joins WHERE thread = ?").run(threadId);
-        return Number(row?.missed ?? 0);
+        const row = db.prepare("SELECT missed, tip FROM sync_v2_joins WHERE thread = ?").get(threadId);
+        if (!row) return 0;
+        const path = host.store.activePath(threadId);
+        const at = path.findIndex((message) => message.id === row.tip);
+        if (at < 0 || path.slice(at + 1).some((message) => message.role === "bot" && message.kind === "text")) {
+          db.prepare("DELETE FROM sync_v2_joins WHERE thread = ?").run(threadId);
+          return 0;
+        }
+        return Number(row.missed);
       });
       return missed ? [`[Chat sync] ${missed} message${missed === 1 ? "" : "s"} from the other PC arrived before your last reply.`] : [];
     },

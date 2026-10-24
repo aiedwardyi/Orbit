@@ -132,6 +132,15 @@ function heads(dataDir: string): Array<{ writer: string; value: string | null }>
   }
 }
 
+function joinCount(dataDir: string): number {
+  const db = new DatabaseSync(join(dataDir, "messages.db"), { readOnly: true });
+  try {
+    return Number(db.prepare("SELECT COUNT(*) AS n FROM sync_v2_joins").get()!.n);
+  } finally {
+    db.close();
+  }
+}
+
 // A kept split puts its notice on top of the main tip.
 function tip(snapshot: Snapshot): string | null {
   const leaf = snapshot.rows.find((row) => row.id === snapshot.leaf);
@@ -457,7 +466,8 @@ describe("store delta sync", { timeout: 60_000 }, () => {
   });
 
   for (const [setup, reason] of [["4 user turns", "4 user turns"], ["outside wake window", "outside wake window"], ["edit of the stale send", "edit or regenerate"],
-    ["edit of a row both PCs had", "edit or regenerate"], ["switch back to the stale send", "branch switch"], ["another writer", "another writer"]]) {
+    ["edit of a row both PCs had", "edit or regenerate"], ["switch back to the stale send", "branch switch"], ["another writer", "another writer"],
+    ["edit, switch back, send again", "branch switch"], ["compaction in the stale rows", "compaction"]]) {
     it(`keeps a stale send split with a notice and a log line (${setup})`, async () => {
       const folder = temp();
       const a = pc(folder, "a", true, false, false, LOW);
@@ -477,10 +487,23 @@ describe("store delta sync", { timeout: 60_000 }, () => {
       if (setup === "4 user turns") await c.call("batch", { count: 4 });
       else if (setup === "outside wake window") await c.call("append", { text: "typed late", at: Date.now() + 11 * 60_000 });
       else if (setup === "edit of a row both PCs had") await c.call("branch", { id: base.id, text: "edited" });
-      else {
+      else if (setup === "compaction in the stale rows") {
+        const covered = await c.call<Message>("append", { text: "old work" });
+        const kept = await c.call<Message>("append", { text: "recent work" });
+        await c.call("compaction", { compaction: {
+          v: 1,
+          coveredThroughId: covered.id,
+          firstKeptId: kept.id,
+          contextWindow: 200_000,
+          estimatedTokensBefore: 900,
+          sourceMessageCount: 1,
+          summary: "old work summary",
+        } });
+      } else {
         const sent = await c.call<Message>("append", { text: "typed while stale" });
         if (setup !== "another writer") await c.call("branch", { id: sent.id, text: "edited" });
-        if (setup === "switch back to the stale send") await c.call("head", { id: sent.id });
+        if (setup === "switch back to the stale send" || setup === "edit, switch back, send again") await c.call("head", { id: sent.id });
+        if (setup === "edit, switch back, send again") await c.call("append", { text: "sent again" });
       }
       const stale = (await c.snapshot()).rows.slice(1);
       await exchange(a, c);
@@ -494,20 +517,88 @@ describe("store delta sync", { timeout: 60_000 }, () => {
     });
   }
 
-  it("notes the other PC's messages once after a join and never after a normal pull", async () => {
+  it("joins a stale send when only the main PC wrote another version at the fork", async () => {
+    const { a, c, main } = await behind();
+    await a.call("branch", { id: (await a.snapshot()).rows[1].id, text: "edited on main" });
+    await a.call("head", { id: main! });
+    await a.call("flush");
+    const sent = await c.call<Message>("append", { text: "typed while stale" });
+    await exchange(a, c);
+    for (const peer of [a, c]) {
+      const snapshot = await peer.snapshot();
+      expect(snapshot.leaf).toBe(sent.id);
+      expect(snapshot.rows.find((row) => row.id === sent.id)?.parentId).toBe(main);
+      expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+    }
+  });
+
+  it("notes the other PC's messages until a reply after a join and never after a normal pull", async () => {
     const { a, c } = await behind();
     await c.call("append", { text: "typed while stale" });
     await c.call("append", { text: "reply", role: "bot" });
     await exchange(a, c);
     await c.call("restart");
+    const next = await c.call<Message>("append", { text: "next turn" });
+    await c.call("append", { text: "reply on another branch", role: "bot" });
+    await c.call("branch", { id: next.id, text: "retry without a reply" });
     expect(await c.call("note")).toBe("[Chat sync] 50 messages from the other PC arrived before your last reply.");
-    expect(await c.call("note")).toBeNull();
+    expect(await c.call("note")).toBe("[Chat sync] 50 messages from the other PC arrived before your last reply.");
+    expect(joinCount(a.dataDir)).toBe(0);
     expect(await a.call("note")).toBeNull();
+    expect(joinCount(a.dataDir)).toBe(0);
+    await exchange(a, c);
     await a.call("append", { text: "after the join" });
     await a.call("flush");
     await c.call("pull");
+    expect(await c.call("note")).toBe("[Chat sync] 50 messages from the other PC arrived before your last reply.");
+    await c.call("append", { text: "next reply", role: "bot" });
     expect(await c.call("note")).toBeNull();
+    expect(joinCount(c.dataDir)).toBe(0);
+    await exchange(a, c);
+    await a.call("append", { text: "a normal pull" });
+    await a.call("flush");
+    await c.call("pull");
+    expect(await c.call("note")).toBeNull();
+    expect(joinCount(c.dataDir)).toBe(0);
   });
+
+  for (const change of ["a reply from the other PC", "a branch switch"]) {
+    it(`drops a join note after ${change}`, async () => {
+      const { a, c } = await behind();
+      const sent = await c.call<Message>("append", { text: "typed while stale" });
+      await c.call("append", { text: "reply", role: "bot" });
+      await exchange(a, c);
+      if (change === "a reply from the other PC") {
+        await a.call("append", { text: "continued on the other PC" });
+        await a.call("append", { text: "later reply", role: "bot" });
+        await a.call("flush");
+        await c.call("pull");
+      } else await c.call("branch", { id: sent.id, text: "another version" });
+      expect(await c.call("note")).toBeNull();
+      expect(joinCount(c.dataDir)).toBe(0);
+    });
+  }
+
+  for (const outcome of ["a failed turn", "an empty stopped turn"]) {
+    it(`keeps a join note after ${outcome} until a reply follows`, async () => {
+      const { a, c } = await behind();
+      await c.call("append", { text: "typed while stale" });
+      await c.call("append", { text: "reply", role: "bot" });
+      await exchange(a, c);
+      await c.call("append", { text: "next turn" });
+      expect(await c.call("note")).toBe("[Chat sync] 50 messages from the other PC arrived before your last reply.");
+      if (outcome === "a failed turn") {
+        const error = await c.call<Message>("notice");
+        await c.call("patch", { id: error.id, patch: { tool: { name: "error: provider unavailable", ok: false } } });
+      }
+      await c.call("restart");
+      expect(await c.call("note")).toBe("[Chat sync] 50 messages from the other PC arrived before your last reply.");
+      expect(joinCount(c.dataDir)).toBe(1);
+      await c.call("append", { text: "retry replied", role: "bot" });
+      expect(await c.call("note")).toBeNull();
+      expect(joinCount(c.dataDir)).toBe(0);
+    });
+  }
 
   it("converges on one head when the main PC keeps typing during a join", async () => {
     const { a, c } = await behind();
