@@ -2,6 +2,11 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.204] - 2026-10-24
+
+### Added
+- The timeline marks messages that carry an image or a file.
+
 ## [1.0.203] - 2026-10-24
 
 ### Added
@@ -219,6 +224,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.204]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.204
 [1.0.203]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.203
 [1.0.202]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.202
 [1.0.201]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.201
