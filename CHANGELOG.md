@@ -2,6 +2,23 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.203] - 2026-10-24
+
+### Added
+- When an engine hasn't replied for 2 minutes, the waiting line names it and counts the minutes.
+- Changing a Claude bot's effort mid-turn applies at its next step, in the same session.
+- When a bot's project folder is missing, Choose folder picks a new one in place of Retry.
+
+### Changed
+- The chat header drops its busy spinner, and step spinners hide while Wink is out of focus.
+
+### Removed
+- Untested engine drivers. Wink runs Claude Code, Codex, Gemini, Grok and Muse.
+
+### Fixed
+- Chats synced from your other PCs show new messages within seconds instead of up to 30 s.
+- New Claude Code workers no longer get stuck on the folder trust prompt.
+
 ## [1.0.202] - 2026-10-24
 
 ### Added
@@ -202,6 +219,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.203]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.203
 [1.0.202]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.202
 [1.0.201]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.201
 [1.0.200]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.200
