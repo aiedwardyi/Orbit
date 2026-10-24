@@ -63,6 +63,8 @@ export function TurnPresence({
   visible,
   docked = false,
   label = "Thinking",
+  quiet = false,
+  wrap = false,
   since,
 }: {
   avatar: ReactNode;
@@ -70,6 +72,10 @@ export function TurnPresence({
   /** The mascot moved under live reply text: leave at once, no exit fade. */
   docked?: boolean;
   label?: string;
+  /** Label changes that screen readers should not hear again. */
+  quiet?: boolean;
+  /** A second line instead of an ellipsis when the label does not fit. */
+  wrap?: boolean;
   /** When the turn began; the label counts up from it. */
   since?: number;
 }) {
@@ -92,7 +98,7 @@ export function TurnPresence({
     <div className="turn-presence flex flex-col items-start">
       <div data-turn-mascot className={cn("flex max-w-full items-center gap-2", visible ? "turn-mascot-in" : "turn-mascot-out")}>
         {terminal ? <TermGlyph ring={visible} /> : ringFace(avatar, visible)}
-        {visible ? <WorkingLabel label={label} /> : null}
+        {visible ? <WorkingLabel label={label} quiet={quiet} wrap={wrap} /> : null}
         {visible && since ? <Elapsed since={since} /> : null}
       </div>
     </div>
@@ -165,9 +171,9 @@ function Elapsed({ since }: { since: number }) {
   return <span className="shrink-0 text-[13px] leading-none whitespace-nowrap text-ink-secondary tabular-nums">({termElapsed(now - since)})</span>;
 }
 
-function WorkingLabel({ label }: { label: string }) {
+function WorkingLabel({ label, quiet = false, wrap = false }: { label: string; quiet?: boolean; wrap?: boolean }) {
   return (
-    <span className="thinking-shimmer min-w-0 text-[13px] leading-none whitespace-nowrap text-ellipsis" aria-live="polite">
+    <span className={cn("thinking-shimmer min-w-0 text-[13px]", wrap ? "leading-snug" : "leading-none whitespace-nowrap text-ellipsis")} aria-live={quiet ? "off" : "polite"}>
       {label}
       <span className="thinking-sheen" aria-hidden="true">
         <span className="overflow-x-clip text-ellipsis">{label}</span>
