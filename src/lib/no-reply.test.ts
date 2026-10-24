@@ -156,6 +156,7 @@ describe("no reply hint", () => {
   it("names the engine the turn runs on, not a pending pick", () => {
     expect(chatView).toContain("const engine = state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId);");
     expect(chatView).toMatch(/useNoReply\([^;]*, engine\?\.driverKind\)/);
+    expect(chatView).toMatch(/turnStageLabel\([^;]*noReply\?\.label,?\s*\)/);
     expect(chatView).toContain("quiet={noReply?.quiet}");
   });
 
