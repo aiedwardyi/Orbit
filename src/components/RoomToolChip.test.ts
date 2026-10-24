@@ -290,43 +290,9 @@ describe("RoomToolChip", () => {
       window.ogb = prevOgb;
     }
 
-    const botBob = {
-      id: "b2",
-      name: "Bob",
-      color: "orange",
-      modelSelection: { model: "auto", instanceId: "gemini" },
-    } as unknown as Bot;
-    const geminiInstance = {
-      instanceId: "gemini",
-      driverKind: "geminiAgent",
-      displayName: "Gemini",
-      models: { default: "auto", options: [] },
-      snapshot: { state: "available", authenticated: false, version: "0.1.0" },
-    } as unknown as InstanceInfo;
-    mockState = {
-      bots: [botAlice, botBob],
-      instances: [claudeInstance, geminiInstance],
-    };
-
-    // API key setup error renders OpenConnectionsCta
-    const keyMessage: Message = {
-      id: "a2",
-      role: "bot",
-      kind: "activity",
-      tool: { name: "error: Gemini API key missing", ok: false, setup: true },
-      from: { botId: "b2", name: "Bob", color: "amber" as any },
-      at: 3,
-    };
-
-    await act(async () => {
-      root.render(createElement(RoomToolChip, { message: keyMessage, onRetry: () => {} }));
-    });
-
-    expect(host.querySelector("button")?.textContent).toMatch(/enter api key/i);
-
     // Without onRetry/canSetup (not sole responder or not last activity), no setup action exposed
     await act(async () => {
-      root.render(createElement(RoomToolChip, { message: keyMessage }));
+      root.render(createElement(RoomToolChip, { message: cliMessage }));
     });
 
     expect(host.querySelector("button")).toBeNull();

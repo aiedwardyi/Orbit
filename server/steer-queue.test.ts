@@ -40,6 +40,7 @@ import { spawnHarness as spawn, harnessFetch as fetch } from "./testing/harness-
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLI = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
+const FAKE_MSP_CLI = join(SERVER_DIR, "testing", "fake-msp-cli.ts");
 const PORT = 18800 + Math.floor(Math.random() * 10_000);
 const BASE = `http://127.0.0.1:${PORT}`;
 
@@ -600,14 +601,15 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
     }
   };
 
-  const newBot = async (instanceId: string, name: string) => {
+  const newBot = async (instanceId: string, name: string, model = "fake-model") => {
     const bot = (await api("POST", "/api/bots")).body.bot;
-    await api("PATCH", `/api/bots/${bot.id}`, { name, modelSelection: { instanceId, model: "fake-model" } });
+    await api("PATCH", `/api/bots/${bot.id}`, { name, modelSelection: { instanceId, model } });
     return bot;
   };
 
   beforeAll(async () => {
     chmodSync(FAKE_CLI, 0o755);
+    chmodSync(FAKE_MSP_CLI, 0o755);
     home = mkdtempSync(join(tmpdir(), "omb-steer-test-"));
     mkdirSync(join(home, ".orbit"), { recursive: true });
     mkdirSync(join(home, "gates"), { recursive: true });
@@ -622,9 +624,9 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
       JSON.stringify({
         instances: {
           steer: {
-            driver: "geminiAgent",
-            environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: drainGate },
-            config: { cli: FAKE_CLI, fullAuto: true },
+            driver: "museAgent",
+            environment: { FAKE_MSP_MODE: "echo-gated", FAKE_MSP_GATE_FILE: drainGate, META_API_KEY: "fixture-meta-key" },
+            config: { cli: FAKE_MSP_CLI, fullAuto: true },
           },
           grokResultFirst: {
             driver: "grokAgent",
@@ -636,17 +638,18 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
             environment: { FAKE_ACP_MODE: "steer-original-first", FAKE_ACP_RPC_DUMP: join(home, "grokOriginalFirst.rpc") },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
-          // the RPC dump lets the interrupt test wait for session/prompt to
+          // the RPC dump lets the interrupt test wait for turn/start to
           // be in flight — interrupting earlier would be a no-op on a turn
           // the driver has not registered yet
           steerStop: {
-            driver: "geminiAgent",
+            driver: "museAgent",
             environment: {
-              FAKE_ACP_MODE: "echo-gated",
-              FAKE_ACP_GATE_FILE: stopGate,
-              FAKE_ACP_RPC_DUMP: stopRpcDump,
+              FAKE_MSP_MODE: "echo-gated",
+              FAKE_MSP_GATE_FILE: stopGate,
+              FAKE_MSP_RPC_DUMP: stopRpcDump,
+              META_API_KEY: "fixture-meta-key",
             },
-            config: { cli: FAKE_CLI, fullAuto: true },
+            config: { cli: FAKE_MSP_CLI, fullAuto: true },
           },
           // Immediate echo — the free room member while another bot is gated.
           steerNow: {
@@ -730,7 +733,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
   it(
     "queues sends while busy and drains them as separate attended turns",
     async () => {
-      const bot = await newBot("steer", "Steerable");
+      const bot = await newBot("steer", "Steerable", "muse-spark-1.3");
 
       // the first send starts a turn that stays open until the gate exists
       const first = await api("POST", `/api/bots/${bot.id}/messages`, { text: "first task please" });
@@ -792,7 +795,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
   it(
     "hands the queue back on an interrupt instead of draining it",
     async () => {
-      const bot = await newBot("steerStop", "Stoppable");
+      const bot = await newBot("steerStop", "Stoppable", "muse-spark-1.3");
 
       const first = await api("POST", `/api/bots/${bot.id}/messages`, { text: "long job" });
       expect(first.status).toBe(202);
@@ -804,7 +807,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
       // wait for the prompt to be genuinely in flight before stopping it
       await until(async () => {
         try {
-          return readFileSync(stopRpcDump, "utf8").includes("session/prompt");
+          return readFileSync(stopRpcDump, "utf8").includes("turn/start");
         } catch {
           return false;
         }
@@ -815,7 +818,7 @@ describe("steer-queue e2e (fake ACP fleet)", () => {
         { threadId: queued.body.threadId, queueId: queued.body.queueId, text: "after stop please" },
       ]);
 
-      // busy holds through the ACP cancel grace, so idle means the turn settled
+      // busy holds through the interrupt grace, so idle means the turn settled
       await until(async () => !(await botById(bot.id)).busy, "the interrupted turn to settle");
       // a drained turn would answer once the gate opens
       writeFileSync(stopGate, "open");

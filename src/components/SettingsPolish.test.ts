@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/lib/i18n";
 import type { Bot, InstanceInfo } from "@/state/store";
 
-const { mockState, mockApi, claudeInstance, codexInstance, grokInstance, geminiInstance } = vi.hoisted(() => {
+const { mockState, mockApi, claudeInstance, codexInstance, grokInstance, antigravityInstance } = vi.hoisted(() => {
   const claudeInstance: InstanceInfo = {
     instanceId: "claude",
     driverKind: "claudeAgent",
@@ -35,10 +35,10 @@ const { mockState, mockApi, claudeInstance, codexInstance, grokInstance, geminiI
     models: { default: "grok-4", options: [] },
     capabilities: { rateLimits: true },
   };
-  const geminiInstance: InstanceInfo = {
-    instanceId: "gemini",
-    driverKind: "geminiAgent",
-    displayName: "Gemini",
+  const antigravityInstance: InstanceInfo = {
+    instanceId: "antigravity",
+    driverKind: "antigravityAgent",
+    displayName: "Antigravity",
     snapshot: { state: "available", authenticated: true },
     models: { default: "gemini-2.5", options: [] },
     capabilities: { rateLimits: false },
@@ -65,7 +65,7 @@ const { mockState, mockApi, claudeInstance, codexInstance, grokInstance, geminiI
     claudeInstance,
     codexInstance,
     grokInstance,
-    geminiInstance,
+    antigravityInstance,
   };
 });
 
@@ -162,9 +162,9 @@ describe("Settings Polish", () => {
     expect(refreshButton?.className).toContain("hover:text-ink");
   });
 
-  it("with Claude, Codex, Grok and one Gemini instance, clicking the button labelled 'Refresh all' POSTs /api/usage/refresh/ once for each of claude, codex and grok, and never for gemini", async () => {
+  it("with Claude, Codex, Grok and one Antigravity instance, clicking the button labelled 'Refresh all' POSTs /api/usage/refresh/ once for each of claude, codex and grok, and never for antigravity", async () => {
     const previousInstances = mockState.instances;
-    mockState.instances = [claudeInstance, codexInstance, grokInstance, geminiInstance];
+    mockState.instances = [claudeInstance, codexInstance, grokInstance, antigravityInstance];
     mockApi.mockClear();
     try {
       await act(async () => {
@@ -182,7 +182,7 @@ describe("Settings Polish", () => {
       expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/claude", { method: "POST" });
       expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/codex", { method: "POST" });
       expect(mockApi).toHaveBeenCalledWith("/api/usage/refresh/grok", { method: "POST" });
-      expect(mockApi).not.toHaveBeenCalledWith(expect.stringContaining("gemini"), expect.anything());
+      expect(mockApi).not.toHaveBeenCalledWith(expect.stringContaining("antigravity"), expect.anything());
       expect(mockApi).toHaveBeenCalledTimes(3);
     } finally {
       mockState.instances = previousInstances;
@@ -191,7 +191,7 @@ describe("Settings Polish", () => {
 
   it("disables 'Refresh all' while a refresh is running and ignores clicks", async () => {
     const previousInstances = mockState.instances;
-    mockState.instances = [claudeInstance, codexInstance, grokInstance, geminiInstance];
+    mockState.instances = [claudeInstance, codexInstance, grokInstance, antigravityInstance];
     let resolveClaude: () => void = () => {};
     mockApi.mockReset();
     mockApi.mockImplementation((path: string) => {

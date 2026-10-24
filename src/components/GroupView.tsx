@@ -34,7 +34,7 @@ import { PeerMessageBody, commLabel } from "./PeerMessage";
 import { detectChatOptions, laterUserAnswer } from "@/lib/chat-options";
 import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from "@/lib/focus-composer";
 import { Composer } from "./Composer";
-import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
+import { EngineSetup, setupErrorAction } from "./EngineSetup";
 import { TaskRecoveryCard } from "./TaskRecoveryCard";
 import { roomRecoveryBusy, roomRecoveryPacket } from "@/lib/task-recovery";
 import { ChatFindBar } from "./ChatFindBar";
@@ -210,7 +210,7 @@ export function RoomToolChip({
   const status = isServerLine(tool.name);
   const setupAction =
     (tool.setup || tool.signIn) && onRetry
-      ? setupErrorAction(tool.name.startsWith("error:") ? tool.name.slice(6).trim() : tool.name, instance, tool.signIn)
+      ? setupErrorAction(instance, tool.signIn)
       : undefined;
 
   return (
@@ -240,8 +240,6 @@ export function RoomToolChip({
             <EngineSetup instance={instance} signIn={tool.signIn} className="mt-2 text-ink-secondary" />
             {tool.signIn && retryButton}
           </>
-        ) : setupAction === "key" ? (
-          <OpenConnectionsCta />
         ) : (
           retryButton
         )}

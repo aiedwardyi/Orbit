@@ -7,6 +7,7 @@
 // no catalog/health I/O); when nothing is usable the caller omits
 // modelSelection and the server path is unchanged.
 import type { InstanceInfo, ModelSelection } from "@/state/store";
+import { isRetiredEngineKind } from "../../shared/model-selection.ts";
 
 export function defaultModelSelection(
   instances: readonly InstanceInfo[] | undefined,
@@ -14,7 +15,7 @@ export function defaultModelSelection(
   if (!instances) return null;
   const now = Date.now();
   const eligible = instances.filter(
-    (instance) => instance.snapshot.state === "available" && Boolean(instance.models.default),
+    (instance) => instance.snapshot.state === "available" && Boolean(instance.models.default) && !isRetiredEngineKind(instance.driverKind),
   );
   const exhausted = (instance: InstanceInfo): boolean =>
     instance.rateLimits?.windows.some(

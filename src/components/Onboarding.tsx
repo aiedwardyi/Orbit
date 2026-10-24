@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, Check, Loader2, LockKeyhole, Sparkles, TerminalSquare } from "lucide-react";
 import type { InstanceInfo } from "@/state/store";
+import { isRetiredEngineKind } from "../../shared/model-selection.ts";
 import { EngineSetup } from "./EngineSetup";
 import { EngineRow } from "./EnginesSettings";
 import { OrbitMark } from "./OrbitMark";
@@ -9,10 +10,9 @@ import { useI18n } from "@/lib/i18n";
 import { isPhone } from "@/lib/phone-swipe";
 import { ProviderMark } from "./ProviderIcons";
 
-const CORE_DRIVERS = new Set(["grokAgent", "claudeAgent", "codex", "geminiAgent"]);
-// Leads with the DEFAULT_FLEET order like the rail does. Gemini API stays on this
-// list even though it is off-rail: onboarding is about connecting CLIs.
-const ENGINE_ORDER = ["claudeAgent", "codex", "grokAgent", "antigravityAgent", "geminiAgent"];
+const CORE_DRIVERS = new Set(["grokAgent", "claudeAgent", "codex"]);
+// Leads with the DEFAULT_FLEET order like the rail does.
+const ENGINE_ORDER = ["claudeAgent", "codex", "grokAgent", "antigravityAgent"];
 
 function StatusRow({
   ok,
@@ -183,13 +183,10 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     onDone();
   };
 
-  const geminiSubscriptionReady = (instances ?? []).some(
-    (instance) => instance.driverKind === "antigravityAgent" && engineReady(instance),
-  );
-  const engines = (instances ?? [])
+  const live = (instances ?? []).filter((instance) => !isRetiredEngineKind(instance.driverKind));
+  const engines = live
     .filter((instance) => {
       if (!instance.install) return false;
-      if (instance.driverKind === "geminiAgent" && geminiSubscriptionReady && !engineReady(instance)) return false;
       return engineReady(instance) || CORE_DRIVERS.has(instance.driverKind) || (isFriendsCliEngine(instance) && instance.snapshot.state === "available");
     })
     .sort((a, b) => {
@@ -199,7 +196,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     });
   const readyEngines = engines.filter(engineReady);
   const setupEngines = engines.filter((instance) => !engineReady(instance));
-  const hasReadyEngine = (instances ?? []).some(engineReady);
+  const hasReadyEngine = live.some(engineReady);
   const connectEngines = emptyConnect ? firstLaunchConnectInstances(instances) : setupEngines;
 
   return (

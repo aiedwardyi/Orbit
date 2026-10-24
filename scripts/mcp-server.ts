@@ -3,6 +3,8 @@
 // Standard JSON-RPC 2.0 stdio transport for external agent orchestration (Hermes, Claude Desktop, Cursor, etc.).
 import readline from "node:readline";
 
+import { isRetiredEngineKind } from "../shared/model-selection.ts";
+
 export function validateBaseUrl(url: string): string {
   const trimmed = url.replace(/\/+$/, "");
   let parsed: URL;
@@ -703,6 +705,7 @@ async function checkedModelSelection(
   const described = await fetcher("/api/instances");
   const instance = records(described.instances).find((candidate) => candidate.instanceId === instanceId);
   if (!instance) throw new ToolInputError(`model instance not found: ${instanceId}`);
+  if (isRetiredEngineKind(instance.driverKind)) throw new ToolInputError(`model instance uses a retired engine: ${instanceId}`);
   if (instance.snapshot?.state !== "available") throw new ToolInputError(`model instance is unavailable: ${instanceId}`);
   const models = isRecord(instance.models) ? instance.models : {};
   const offered = records(models.options).map((option) => option.id).filter((id) => typeof id === "string");
@@ -1112,7 +1115,7 @@ export async function handleToolCall(
     case "list_available_models": {
       const res = await fetcher("/api/instances");
       return {
-        instances: records(res.instances).map((instance) => ({
+        instances: records(res.instances).filter((instance) => !isRetiredEngineKind(instance.driverKind)).map((instance) => ({
           instanceId: instance.instanceId,
           driverKind: instance.driverKind,
           displayName: instance.displayName,

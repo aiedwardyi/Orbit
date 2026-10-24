@@ -68,6 +68,13 @@ const { mockInstances } = vi.hoisted(() => {
       readyEngine("qwen", "qwenAgent", "Qwen"),
       readyEngine("cursor", "cursorAgent", "Cursor"),
       readyEngine("hermes", "hermesAgent", "Hermes", { access: "custom" }),
+      readyEngine("grokApi", "grok", "Grok API"),
+      readyEngine("droid", "droidAgent", "Droid"),
+      readyEngine("openaiCompat", "openai-compat", "OpenAI-compatible"),
+      readyEngine("pi", "piAgent", "Pi"),
+      readyEngine("minimax", "minimax", "MiniMax"),
+      readyEngine("opencodeGo", "opencodeGo", "OpenCode Go"),
+      readyEngine("future", "futureAgent", "Future"),
     ],
   };
 });
@@ -148,13 +155,8 @@ function markup(
   );
 }
 
-const NON_FRIENDS_LABELS = [
-  'data-model-row="kimi"',
-  'data-model-row="qwen"',
-  'data-model-row="cursor"',
-  'data-model-row="hermes"',
-  'data-model-row="gemini"',
-];
+const RETIRED_IDS = ["gemini", "grokApi", "kimi", "droid", "cursor", "qwen", "hermes", "openaiCompat", "pi", "minimax", "opencodeGo"];
+const NON_FRIENDS_LABELS = RETIRED_IDS.map((id) => `data-model-row="${id}"`);
 const FRIENDS_LABELS = [
   'data-model-row="grok"',
   'data-model-row="claude"',
@@ -585,6 +587,16 @@ describe("ModelPicker friends chip", () => {
     expect(list).toContain('data-model-cell="grok-4.5" aria-pressed="true"');
   });
 
+  it.each(RETIRED_IDS)("opens a bot pinned to retired %s with its saved label and no row for it", (instanceId) => {
+    const saved = mockInstances.find((instance) => instance.instanceId === instanceId)!.models.options[0]!;
+    const html = markup({ instanceId, model: saved.id, mode: "pinned" }, true);
+    const list = html.slice(html.indexOf("data-model-picker-content"));
+    expect(html.slice(0, html.indexOf("data-model-picker-content"))).toContain(saved.label);
+    expect(list).not.toContain(`data-model-row="${instanceId}"`);
+    expect(list).toContain('data-model-row="grok"');
+    expect(list).toContain("Current (not in list)");
+  });
+
   it("gives a pinned custom model its own selected cell", () => {
     const html = markup({ instanceId: "grok", model: "omlx::local", mode: "pinned" }, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
@@ -628,10 +640,10 @@ describe("ModelPicker friends chip", () => {
   });
 
   it("preserves a non-featured pin in its own row without exposing other engines", () => {
-    const html = markup({ instanceId: "kimi", model: "kimi-default", mode: "pinned" }, true);
+    const html = markup({ instanceId: "future", model: "future-default", mode: "pinned" }, true);
     const list = html.slice(html.indexOf("data-model-picker-content"));
-    expect(list).toContain('data-model-row="kimi"');
-    expect(list).toContain('data-model-cell="kimi-default" aria-pressed="true"');
+    expect(list).toContain('data-model-row="future"');
+    expect(list).toContain('data-model-cell="future-default" aria-pressed="true"');
     expect(list).not.toContain('data-model-row="gemini"');
     expect(list).not.toContain("Show all engines");
   });

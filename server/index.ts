@@ -5222,7 +5222,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           paneNoteTurnThreads.delete(threadId);
         };
         foldLate();
-        const notesPath = opensHostFiles(privateWorkspace, instance.driverKind) ? bot.projectNotes : undefined;
+        const notesPath = opensHostFiles(privateWorkspace) ? bot.projectNotes : undefined;
         const notesNotice = notesPath ? projectNotesCheck.take(bot.id, threadId, resume ? task.resumeCursors[instanceId] : undefined) : "";
         const memoryNotice = privateWorkspace ? memoryHealthCheck.take(bot.id, threadId, resume ? task.resumeCursors[instanceId] : undefined) : "";
         const withLate = (base: string) =>
@@ -5235,7 +5235,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           // only the path, which is pinned per task: a resumed session is told
           // each change to this text, so anything that moved between turns
           // would cost a reminder on every send.
-          projectFolderPrompt(cwd, privateWorkspace, instance.driverKind) +
+          projectFolderPrompt(cwd, privateWorkspace) +
           projectNotesPrompt(notesPath) +
           (computerKind === "vm"
             ? localVmMode(cfg) === "per-bot"
@@ -6195,7 +6195,7 @@ async function runClaimedGroupMemberTurn(
   const cwd = groupTurnCwd(workspace, () => store.pinGroupCwd(group.id, threadId), bot.cwd);
   const roomSystem =
     system +
-    projectFolderPrompt(cwd, workspace, instance.driverKind) +
+    projectFolderPrompt(cwd, workspace) +
     (detailedRepliesEnabled(cfg) ? DETAILED_REPLY_INSTRUCTIONS : ALWAYS_REPLY_INSTRUCTIONS) +
     CORPUS_SEARCH_INSTRUCTIONS +
     sectionContextSystemPrompt(bot.section) +

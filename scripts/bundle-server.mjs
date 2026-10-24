@@ -19,7 +19,7 @@
 // that lookup is unaffected.
 import { build } from "esbuild";
 import { execFile } from "node:child_process";
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -87,16 +87,6 @@ await build({
   allowOverwrite: true,
   logLevel: "info",
 });
-
-// pi-mcp-extension.ts is NOT an OpenMausBot entry point: it is loaded by the
-// external `pi` process (pi's own jiti), which resolves its
-// @earendil-works/pi-coding-agent and typebox imports from pi's install. Ship
-// it verbatim as .ts so the packaged app has it too — never bundle it, or
-// esbuild would inline pi's packages and the extension would stop loading.
-const piMcpExtSrc = join(server, "drivers", "pi-mcp-extension.ts");
-const piMcpExtDest = join(root, "dist-server", "drivers", "pi-mcp-extension.ts");
-mkdirSync(dirname(piMcpExtDest), { recursive: true });
-copyFileSync(piMcpExtSrc, piMcpExtDest);
 
 // A bundle that declares its own top-level `require` collides with the banner,
 // and that only shows when the file is parsed, so parse every file now.

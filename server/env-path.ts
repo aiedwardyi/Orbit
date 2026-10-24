@@ -36,7 +36,6 @@ function knownDirs(): string[] {
   return [
     join(home, ".local", "bin"), // claude and muse installer default
     join(home, ".npm-global", "bin"), // npm prefix ~/.npm-global (claude)
-    join(home, ".kimi-code", "bin"), // kimi-code installer
     join(home, ".grok", "bin"), // x.ai installer
     join(home, ".claude", "local"), // claude "local install"
     "/opt/homebrew/bin", // brew, Apple silicon
@@ -73,7 +72,7 @@ export function windowsKnownDirs(): string[] {
     join(localAppData, "agy", "bin"), // Antigravity installer
     join(home, ".local", "bin"), // claude native installer
     join(home, ".claude", "local"),
-    join(home, "bin"), // Factory droid installer (%USERPROFILE%\bin)
+    join(home, "bin"),
     join(home, ".bun", "bin"),
     join(home, ".deno", "bin"),
     join(home, "go", "bin"),

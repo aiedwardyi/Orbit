@@ -111,7 +111,7 @@ Wink has no analytics, telemetry or crash upload. This is everything it listens 
 - Phone relay, after you paste a setup code: a connection to your relay at every launch. TLS runs end to end between phone and PC, so the relay passes bytes it can't read. Wink also gets this PC's certificate from Let's Encrypt and checks crt.sh daily for certificates issued for its relay name.
 - Phone notifications, once you allow them on the phone, go out encrypted through the phone browser's push service.
 - Sync writes only to the folder you choose.
-- Services you add a key for (Composio, ElevenLabs, AssemblyAI, OpenRouter or another OpenAI-compatible API, the xAI or MiniMax APIs, Box (ascii.dev), OpenAI images, and custom providers in your Codex config) are called with that key when you or a bot use them. Composio is also called at every launch once its key is set, and each custom Codex provider is asked for its model list at launch.
+- Services you add a key for (Composio, ElevenLabs, AssemblyAI, the xAI API, Box (ascii.dev), OpenAI images, and custom providers in your Codex config) are called with that key when you or a bot use them. Composio is also called at every launch once its key is set, and each custom Codex provider is asked for its model list at launch.
 
 **Sends only when you act**
 

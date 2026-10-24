@@ -20,7 +20,9 @@ const defaultBots = [
 ] as Bot[];
 let bots: Bot[] = [...defaultBots];
 
-const engine = (instanceId: string, driverKind: string, displayName: string): InstanceInfo => ({
+const RETIRED_KINDS = ["grok", "geminiAgent", "kimiAgent", "droidAgent", "cursorAgent", "qwenAgent", "hermesAgent", "openai-compat", "piAgent", "minimax", "opencodeGo"];
+
+const engine =(instanceId: string, driverKind: string, displayName: string): InstanceInfo => ({
   instanceId,
   driverKind,
   displayName,
@@ -528,10 +530,10 @@ describe("GroupWizard members", () => {
     }
   });
 
-  it("hides a connected retired engine from the engine dropdown", async () => {
+  it.each(RETIRED_KINDS)("hides a connected retired %s engine from the engine dropdown", async (kind) => {
     instances = [
       engine("codex-1", "codex", "Codex"),
-      engine("gem-1", "geminiAgent", "Gemini"),
+      engine("old-1", kind, "Old engine"),
       engine("muse-1", "museAgent", "Meta Muse"),
     ];
     const { host, root } = await renderWizard();

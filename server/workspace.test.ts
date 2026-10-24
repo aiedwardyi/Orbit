@@ -359,9 +359,7 @@ describe("workspace", () => {
 
   it("only sends file-backed memory to engines with local workspace files", () => {
     expect(supportsWorkspaceFiles("claudeAgent")).toBe(true);
-    expect(supportsWorkspaceFiles("geminiAgent")).toBe(true);
-    for (const driverKind of ["grok", "openai-compat", "minimax", "boxAgent"]) {
-      expect(supportsWorkspaceFiles(driverKind), driverKind).toBe(false);
-    }
+    expect(supportsWorkspaceFiles("grokAgent")).toBe(true);
+    expect(supportsWorkspaceFiles("boxAgent")).toBe(false);
   });
 });

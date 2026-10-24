@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { PICKER_MODEL_IDS, pickerModels, movePicker, pickerRows, pickerEfforts, selectPickerModel, withPickerEffort } from "./cross-model-picker";
 import type { InstanceInfo } from "@/state/store";
 
+const RETIRED_KINDS = ["grok", "geminiAgent", "kimiAgent", "droidAgent", "cursorAgent", "qwenAgent", "hermesAgent", "openai-compat", "piAgent", "minimax", "opencodeGo"];
+
 describe("picker catalogs", () => {
   it("offers only the declared effort levels", () => {
     const instance: InstanceInfo = {
@@ -152,18 +154,32 @@ describe("picker catalogs", () => {
     expect(cells.at(-1)).toMatchObject({ offList: true, options: [{ id: retired }] });
   });
 
-  it("hides a retired geminiAgent row without changing the saved selection", () => {
-    const selection = { instanceId: "gemini", model: "auto", mode: "automatic" as const };
+  it.each(RETIRED_KINDS)("hides a retired %s row without changing the saved selection", (driverKind) => {
+    const selection = { instanceId: "old", model: "auto", mode: "automatic" as const };
     const instance: InstanceInfo = {
-      instanceId: "gemini", driverKind: "geminiAgent", displayName: "Gemini API", snapshot: { state: "available" },
+      instanceId: "old", driverKind, displayName: "Old engine", snapshot: { state: "available" },
       models: {
         default: "auto",
-        options: [{ id: "auto", label: "Auto (recommended)" }, { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash" }],
+        options: [{ id: "auto", label: "Auto (recommended)" }, { id: "old-model", label: "Old Model" }],
       },
     };
-    const rows = pickerRows([instance], selection);
-    expect(rows).toHaveLength(0);
-    expect(selection).toEqual({ instanceId: "gemini", model: "auto", mode: "automatic" });
+    const grok: InstanceInfo = {
+      instanceId: "grok", driverKind: "grokAgent", displayName: "Grok", snapshot: { state: "available" },
+      models: { default: "grok-4.6", options: [{ id: "grok-4.6", label: "Grok 4.6" }] },
+    };
+    const rows = pickerRows([instance, grok], selection);
+    expect(rows.map((row) => row.instance.instanceId)).toEqual(["grok"]);
+    expect(selectPickerModel(grok, "grok-4.6", selection)).toEqual({ instanceId: "grok", model: "grok-4.6", mode: "pinned" });
+    expect(selection).toEqual({ instanceId: "old", model: "auto", mode: "automatic" });
+  });
+
+  it("keeps a foreign unknown current engine as its own row", () => {
+    const instance: InstanceInfo = {
+      instanceId: "future", driverKind: "futureAgent", displayName: "Future", snapshot: { state: "available" },
+      models: { default: "future-1", options: [{ id: "future-1", label: "Future 1" }] },
+    };
+    const rows = pickerRows([instance], { instanceId: "future", model: "future-1" });
+    expect(rows.map((row) => [row.instance.instanceId, row.label])).toEqual([["future", "Future"]]);
   });
 
   it("collapses a duplicated roster entry to one row", () => {

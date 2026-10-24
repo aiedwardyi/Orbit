@@ -16,7 +16,7 @@ import { spawnHarness as spawn, harnessFetch as fetch } from "./testing/harness-
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
-const FAKE_ACP = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
+const FAKE_MSP = join(SERVER_DIR, "testing", "fake-msp-cli.ts");
 const PORT = 18800 + Math.floor(Math.random() * 10_000);
 const BASE = `http://127.0.0.1:${PORT}`;
 const posixOnly = describe.skipIf(process.platform === "win32");
@@ -46,7 +46,7 @@ posixOnly("mid-turn steering e2e", () => {
 
   beforeAll(async () => {
     chmodSync(FAKE_CLAUDE, 0o755);
-    chmodSync(FAKE_ACP, 0o755);
+    chmodSync(FAKE_MSP, 0o755);
     home = mkdtempSync(join(tmpdir(), "omb-steer-"));
     mkdirSync(join(home, ".orbit"), { recursive: true });
     steerGate = join(home, "delayed-steer.gate");
@@ -61,7 +61,7 @@ posixOnly("mid-turn steering e2e", () => {
             config: { cli: FAKE_CLAUDE, permissionMode: "bypassPermissions" },
           },
           // no live session: a message while busy uses the server-side queue
-          acp: { driver: "geminiAgent", environment: { FAKE_ACP_MODE: "hang" }, config: { cli: FAKE_ACP, fullAuto: true } },
+          muse: { driver: "museAgent", environment: { FAKE_MSP_MODE: "hang", META_API_KEY: "fixture-meta-key" }, config: { cli: FAKE_MSP, fullAuto: true } },
         },
       }),
     );
@@ -167,7 +167,7 @@ posixOnly("mid-turn steering e2e", () => {
 
   it("an engine without a live session preserves the message in the server-side queue", async () => {
     const created = (await api("POST", "/api/bots")).body.bot;
-    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "acp", model: "fake-model" } });
+    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "muse", model: "muse-spark-1.3" } });
     expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "first" })).status).toBe(202);
     await waitFor(async () => (await getBot(created.id)).busy === true, "the hung turn to start");
     const queued = await api("POST", `/api/bots/${created.id}/messages`, { text: "second" });

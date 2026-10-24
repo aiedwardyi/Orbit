@@ -14,6 +14,8 @@ import {
   visibleFriendsRail,
 } from "./engine-rail";
 
+const RETIRED_KINDS = ["grok", "geminiAgent", "kimiAgent", "droidAgent", "cursorAgent", "qwenAgent", "hermesAgent", "openai-compat", "piAgent", "minimax", "opencodeGo"];
+
 describe("isEngineRailOpen", () => {
   it("shows the Models rail when more than one featured engine is present", () => {
     expect(isEngineRailOpen({ featuredCount: 5 })).toBe(true);
@@ -40,6 +42,17 @@ describe("splitEngineRail", () => {
     const rows = [{ instanceId: "claude" }];
     expect(splitEngineRail(rows).custom).toEqual([]);
   });
+
+  it("drops retired kinds from both groups and keeps foreign ones", () => {
+    const { subscription, custom } = splitEngineRail([
+      { instanceId: "claude", driverKind: "claudeAgent" },
+      ...RETIRED_KINDS.map((driverKind) => ({ instanceId: driverKind, driverKind })),
+      ...RETIRED_KINDS.map((driverKind) => ({ access: "custom", instanceId: `${driverKind}-local`, driverKind })),
+      { access: "custom", instanceId: "future", driverKind: "futureAgent" },
+    ]);
+    expect(subscription.map((row) => row.instanceId)).toEqual(["claude"]);
+    expect(custom.map((row) => row.instanceId)).toEqual(["future"]);
+  });
 });
 
 describe("splitFriendsEngines", () => {
@@ -63,16 +76,26 @@ describe("splitFriendsEngines", () => {
       "antigravity",
       "muse",
     ]);
-    expect(rest.map((row) => row.instanceId)).toEqual(["kimi", "qwen", "gemini", "cursor", "hermes"]);
+    expect(rest.map((row) => row.instanceId)).toEqual([]);
   });
 
   it("does not promote a local CLI override onto the featured rail", () => {
     const { friends, rest } = splitFriendsEngines([
-      { instanceId: "hermes", driverKind: "hermesAgent", cli: "/opt/hermes/bin/hermes" },
+      { instanceId: "local", driverKind: "localAgent", cli: "/opt/local/bin/agent" },
       { instanceId: "pi", driverKind: "piAgent" },
     ]);
     expect(friends.map((row) => row.instanceId)).toEqual([]);
-    expect(rest.map((row) => row.instanceId)).toEqual(["hermes", "pi"]);
+    expect(rest.map((row) => row.instanceId)).toEqual(["local"]);
+  });
+
+  it("drops every retired kind and keeps foreign ones in the rest", () => {
+    const { friends, rest } = splitFriendsEngines([
+      { instanceId: "claude", driverKind: "claudeAgent" },
+      ...RETIRED_KINDS.map((driverKind) => ({ instanceId: driverKind, driverKind })),
+      { instanceId: "future", driverKind: "futureAgent" },
+    ]);
+    expect(friends.map((row) => row.instanceId)).toEqual(["claude"]);
+    expect(rest.map((row) => row.instanceId)).toEqual(["future"]);
   });
 
   it("treats Gemini API as off-rail and Antigravity as the Gemini CLI slot", () => {
@@ -152,6 +175,11 @@ describe("empty-engine first launch", () => {
       { snapshot: { state: "unavailable" } },
       { snapshot: { state: "unavailable" } },
     ])).toBe(true);
+  });
+
+  it("stays empty when only retired engines claim to be available", () => {
+    expect(isEmptyEngineLaunch(RETIRED_KINDS.map((driverKind) => ({ driverKind, snapshot: { state: "available" } })))).toBe(true);
+    expect(isEmptyEngineLaunch([{ driverKind: "futureAgent", snapshot: { state: "available" } }])).toBe(false);
   });
 
   it("keeps only Claude and Grok, Claude first, from the default-fleet zoo", () => {

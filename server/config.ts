@@ -1,6 +1,6 @@
 // Config + data dirs. One file, ~/.orbit/config.json, env fallbacks:
 //   { "xai": {"key":"xai-…"}, "composio": {"apiKey":"ak_…"}, "box": {"token":"…"},
-//     "instances": { "<instanceId>": {"driver":"grok", …} } }
+//     "instances": { "<instanceId>": {"driver":"grokAgent", …} } }
 import { readFileSync, mkdirSync } from "node:fs";
 import type { IncomingHttpHeaders } from "node:http";
 import { homedir } from "node:os";
@@ -546,7 +546,7 @@ export function saveConfig(patch: Partial<AppConfig>): void {
  * PERSISTABLE: instanceConfigs() injects credential env into consuming
  * drivers' entries for the live fleet, so those injected keys are stripped
  * back out before the map is returned — otherwise saving an override would
- * copy xai/box secrets into the instances section of
+ * copy the box token into the instances section of
  * config.json. */
 export function withInstanceCli(
   cfg: AppConfig,
@@ -591,17 +591,10 @@ interface InstanceCliUpdate {
 
 /** The credential env instanceConfigs() injects for one driver — shared with
  * withInstanceCli() so the inject rule and the strip rule cannot drift apart.
- * Each secret goes only to the driver that actually reads it: the API-key
- * Grok reads XAI_API_KEY, Gemini reads GEMINI_API_KEY, and Computer reads
+ * Each secret goes only to the driver that actually reads it: Computer reads
  * BOX_TOKEN. */
 function injectedEnvironment(cfg: AppConfig, driver: string): Map<string, string> {
   const environment = new Map<string, string>();
-  if (driver === "grok" && cfg.xai?.key) environment.set("XAI_API_KEY", cfg.xai.key);
-  if (driver === "geminiAgent" && cfg.gemini?.apiKey) environment.set("GEMINI_API_KEY", cfg.gemini.apiKey);
-  if (driver === "openai-compat" && cfg.openaiCompat?.key)
-    environment.set("OPENAI_COMPAT_API_KEY", cfg.openaiCompat.key);
-  if (driver === "openai-compat" && cfg.openaiCompat?.url)
-    environment.set("OPENAI_COMPAT_URL", cfg.openaiCompat.url);
   if (driver === "boxAgent" && cfg.box?.token) environment.set("BOX_TOKEN", cfg.box.token);
   return environment;
 }
@@ -612,12 +605,9 @@ function injectedEnvironment(cfg: AppConfig, driver: string): Map<string, string
 // see them without needing real process env vars — but only into the
 // driver that consumes each key (injectedEnvironment above).
 export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
-  // The default `grok` instance rides the `grokAgent` driver, not the API-key
-  // one: like claude and codex it needs no credential from us, just the CLI
-  // installed and logged in (it shows up unavailable otherwise). The API-key
-  // `grok` driver stays registered but out of the default fleet — that key is
-  // a credential Milind doesn't want to manage; an `instances` entry brings
-  // it back anytime.
+  // The default `grok` instance rides the `grokAgent` driver: like claude and
+  // codex it needs no credential from us, just the CLI installed and logged
+  // in (it shows up unavailable otherwise).
   //
   // Order reflects real usage, not alphabetical or install order: every
   // user's main engine is claude, so a new bot with nothing else deciding
@@ -629,31 +619,13 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
     codex: { driver: "codex" },
     grok: { driver: "grokAgent" },
     antigravity: { driver: "antigravityAgent" },
-    gemini: { driver: "geminiAgent" },
-    kimi: { driver: "kimiAgent" },
-    droid: { driver: "droidAgent" },
-    cursor: { driver: "cursorAgent" },
     muse: { driver: "museAgent" },
     computer: { driver: "boxAgent" },
-    openaiCompat: { driver: "openai-compat" },
-    qwen: { driver: "qwenAgent" },
-    hermes: { driver: "hermesAgent" },
-    pi: { driver: "piAgent" },
   };
-  const CUSTOM_ONLY = {
-    qwen: { driver: "qwenAgent" },
-    hermes: { driver: "hermesAgent" },
-    pi: { driver: "piAgent" },
-  } as const;
   // New default-fleet engines that existing product configs would otherwise
-  // never see. Custom-only engines stay in CUSTOM_ONLY so a one-off test map
-  // is not expanded, matching the claude/grok/codex product-fleet probe.
+  // never see.
   const PRODUCT_FLEET_ADDITIONS = {
-    cursor: { driver: "cursorAgent" },
-    gemini: { driver: "geminiAgent" },
     muse: { driver: "museAgent" },
-    openaiCompat: { driver: "openai-compat" },
-    ...CUSTOM_ONLY,
   } as const;
   const configured = cfg.instances && Object.keys(cfg.instances).length ? cfg.instances : null;
   const map: InstanceConfigMap = configured ? { ...configured } : { ...DEFAULT_FLEET };
@@ -668,35 +640,13 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
     }
   }
   for (const [id, sourceEntry] of Object.entries(map)) {
-    // instanceConfigs() builds a transient runtime map. Never mutate the
-    // caller's persisted entries while injecting workspace defaults: doing so
-    // would turn the first workspace URL into a stale per-instance override.
+    // instanceConfigs() builds a transient runtime map: never mutate the
+    // caller's persisted entries.
     const entry = { ...sourceEntry };
     map[id] = entry;
     const environment = { ...entry.environment };
     for (const [key, value] of injectedEnvironment(cfg, entry.driver)) environment[key] = value;
     entry.environment = environment;
-    // The driver URL is configuration, not a credential. Environment is
-    // intentionally not consulted by ProviderRegistry when it decodes a
-    // driver's config, so carry the workspace default into the transient
-    // instance map while preserving a per-instance override.
-    if (entry.driver === "openai-compat" && cfg.openaiCompat) {
-      const defaults: Record<string, string> = {};
-      if (cfg.openaiCompat.url) defaults.url = cfg.openaiCompat.url;
-      if (cfg.openaiCompat.model) defaults.model = cfg.openaiCompat.model;
-      if (cfg.openaiCompat.provider) defaults.provider = cfg.openaiCompat.provider;
-      if (Object.keys(defaults).length) {
-        const raw = entry.config;
-        const current =
-          typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
-        const merged = { ...current };
-        // A per-instance value always wins over the workspace default.
-        for (const [k, v] of Object.entries(defaults)) {
-          if (typeof merged[k] !== "string" || !(merged[k] as string).trim()) merged[k] = v;
-        }
-        entry.config = merged;
-      }
-    }
   }
   return map;
 }

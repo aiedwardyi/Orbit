@@ -16,7 +16,7 @@ import { freePortBlock } from "./testing/ports.ts";
 import { spawnHarness as spawn, harnessFetch as fetch } from "./testing/harness-auth.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
-const FAKE_ACP_CLI = join(SERVER_DIR, "testing", "fake-acp-cli.ts");
+const FAKE_MSP_CLI = join(SERVER_DIR, "testing", "fake-msp-cli.ts");
 const SLOW_CLI = join(SERVER_DIR, "testing", "slow-version-cli.ts");
 // The slow probe latency. Lower bounds are exact (setTimeout never fires
 // early); the fast-path upper bound below stays orders of magnitude above
@@ -48,8 +48,8 @@ beforeAll(async () => {
     join(home, ".orbit", "config.json"),
     JSON.stringify({
       instances: {
-        fast: { driver: "geminiAgent", displayName: "Fast", config: { cli: FAKE_ACP_CLI } },
-        slow: { driver: "geminiAgent", displayName: "Slow", config: { cli: SLOW_CLI } },
+        fast: { driver: "museAgent", displayName: "Fast", environment: { META_API_KEY: "fixture-meta-key" }, config: { cli: FAKE_MSP_CLI } },
+        slow: { driver: "museAgent", displayName: "Slow", environment: { META_API_KEY: "fixture-meta-key" }, config: { cli: SLOW_CLI } },
       },
     }),
   );
@@ -100,7 +100,7 @@ describe("POST /api/bots engine discovery", () => {
   }, 20_000);
 
   it("returns without waiting for discovery when the selection is explicit", async () => {
-    const selection = { mode: "automatic", instanceId: "fast", model: "auto" };
+    const selection = { mode: "automatic", instanceId: "fast", model: "muse-spark-1.3" };
     const started = Date.now();
     const { status, body } = await api("POST", "/api/bots", { job: "explicit path", modelSelection: selection });
     const elapsed = Date.now() - started;

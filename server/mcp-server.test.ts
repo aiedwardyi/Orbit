@@ -12,6 +12,7 @@ import {
 } from "../scripts/mcp-server.ts";
 
 const ORIGINAL_FETCH = globalThis.fetch;
+const RETIRED_KINDS = ["grok", "geminiAgent", "kimiAgent", "droidAgent", "cursorAgent", "qwenAgent", "hermesAgent", "openai-compat", "piAgent", "minimax", "opencodeGo"];
 
 function jsonResponse(body: unknown, options: { ok?: boolean; status?: number; statusText?: string } = {}) {
   return {
@@ -360,6 +361,34 @@ describe("MCP tool execution", () => {
     expect(JSON.stringify(result)).not.toContain("pixels");
   });
 
+  it.each(RETIRED_KINDS)("refuses a retired %s engine as a new model choice", async (driverKind) => {
+    const fetcher = vi.fn(async (path: string) => {
+      if (path === "/api/bots?messages=0") return { bots: [{ id: "bot-1" }] };
+      if (path === "/api/instances") return { instances: [{
+        instanceId: "old", driverKind, snapshot: { state: "available" },
+        models: { default: "old-model", options: [{ id: "old-model" }] },
+      }] };
+      throw new Error(`unexpected path ${path}`);
+    });
+    await expect(handleToolCall("create_bot", { name: "Mira", instance_id: "old", model: "old-model" }, fetcher))
+      .rejects.toThrow("model instance uses a retired engine: old");
+    await expect(handleToolCall("set_bot_model", { bot_id: "bot-1", instance_id: "old", model: "old-model" }, fetcher))
+      .rejects.toThrow("model instance uses a retired engine: old");
+  });
+
+  it("refuses an engine that is not available", async () => {
+    const fetcher = vi.fn(async (path: string) => {
+      if (path === "/api/bots?messages=0") return { bots: [{ id: "bot-1" }] };
+      if (path === "/api/instances") return { instances: [{
+        instanceId: "codex", driverKind: "codex", snapshot: { state: "unavailable" },
+        models: { default: "gpt-6-sol", options: [{ id: "gpt-6-sol" }] },
+      }] };
+      throw new Error(`unexpected path ${path}`);
+    });
+    await expect(handleToolCall("set_bot_model", { bot_id: "bot-1", instance_id: "codex", model: "gpt-6-sol" }, fetcher))
+      .rejects.toThrow("model instance is unavailable: codex");
+  });
+
   it("waits on a bot conversation and returns a compact attention tail", async () => {
     const fetcher = vi.fn(async (path: string) => {
       if (path === "/api/bots?messages=0") return {
@@ -538,6 +567,16 @@ describe("MCP tool execution", () => {
     expect(result.instances[0]).not.toHaveProperty("cliCandidates");
     expect(result.instances[0]).not.toHaveProperty("install");
     expect(result.instances[0].snapshot).toEqual({ state: "available" });
+  });
+
+  it("lists no retired engine, even one a cached probe calls available", async () => {
+    const fetcher = vi.fn(async () => ({ instances: [
+      { instanceId: "codex", driverKind: "codex", snapshot: { state: "available" } },
+      ...RETIRED_KINDS.map((driverKind, index) => ({ instanceId: driverKind, driverKind, snapshot: { state: index % 2 ? "available" : "unavailable" } })),
+      { instanceId: "future", driverKind: "futureAgent", snapshot: { state: "unavailable" } },
+    ] }));
+    const result: any = await handleToolCall("list_available_models", {}, fetcher);
+    expect(result.instances.map((instance: any) => instance.instanceId)).toEqual(["codex", "future"]);
   });
 });
 

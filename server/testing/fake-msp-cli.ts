@@ -46,6 +46,9 @@
 //                     replay error; afterwards happy)
 //                   | usage-auth (usage/read returns an auth error)
 //                   | usage-transport (usage/read exits before a result)
+//                   | echo-gated (a happy turn that replies `echo: <input>`
+//                     and, when FAKE_MSP_GATE_FILE is set, holds the turn
+//                     open until that file exists)
 //   FAKE_MSP_STATE  path to a JSON file holding per-session models across
 //                   the one-process-per-turn spawns, so a switch sticks.
 //   FAKE_MSP_DUMP   path to write {argv, env, cwd} as JSON, so a test can assert
@@ -59,9 +62,10 @@
 //   FAKE_MSP_USAGE_CHANGED  JSON params for a usage/changed notification.
 //   FAKE_MSP_ITEMS     JSON item notifications before the scripted turn.
 //   FAKE_MSP_INIT_DELAY_MS  hold the initialize result this long.
+//   FAKE_MSP_GATE_FILE  gate file for echo-gated.
 //
 // Keep this file dependency-free — it runs as a bare `node` subprocess.
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const mode = process.env.FAKE_MSP_MODE ?? "happy";
 
@@ -233,7 +237,7 @@ const usageChanged = () => {
   }
 };
 
-function playHappyTurn(sessionId: string) {
+function playHappyTurn(sessionId: string, text = "hello from fake msp") {
   out({
     jsonrpc: "2.0",
     method: "turn/started",
@@ -247,12 +251,12 @@ function playHappyTurn(sessionId: string) {
   out({
     jsonrpc: "2.0",
     method: "item/delta",
-    params: { itemId: ITEM_ID, delta: "hello from fake msp", sessionId, viewCursor: "v:4" },
+    params: { itemId: ITEM_ID, delta: text, sessionId, viewCursor: "v:4" },
   });
   out({
     jsonrpc: "2.0",
     method: "item/completed",
-    params: { item: { id: ITEM_ID, kind: "agentMessage", text: "hello from fake msp" }, sessionId, viewCursor: "v:5" },
+    params: { item: { id: ITEM_ID, kind: "agentMessage", text }, sessionId, viewCursor: "v:5" },
   });
   out({
     jsonrpc: "2.0",
@@ -480,6 +484,20 @@ function handle(msg: any) {
             viewCursor: "v:5",
           },
         });
+        return;
+      }
+      if (mode === "echo-gated") {
+        const finish = () => playHappyTurn(SESSION_ID, `echo: ${String(msg.params?.input?.[0]?.text ?? "")}`);
+        const gate = process.env.FAKE_MSP_GATE_FILE;
+        if (gate && !existsSync(gate)) {
+          const poll = setInterval(() => {
+            if (!existsSync(gate)) return;
+            clearInterval(poll);
+            finish();
+          }, 50);
+          return;
+        }
+        finish();
         return;
       }
       playHappyTurn(SESSION_ID);

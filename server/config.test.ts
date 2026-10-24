@@ -236,20 +236,16 @@ describe("default fleet", () => {
     expect(Object.keys(map)[0]).toBe("claude");
   });
 
-  it("ships Qwen and Hermes as custom-only engines", () => {
+  it("seeds only the kept engines", () => {
     const map = instanceConfigs({});
-    expect(map.qwen).toEqual({ driver: "qwenAgent", environment: {} });
-    expect(map.hermes).toEqual({ driver: "hermesAgent", environment: {} });
-  });
-
-  it("ships Cursor as a default-fleet subscription engine", () => {
-    const map = instanceConfigs({});
-    expect(map.cursor).toEqual({ driver: "cursorAgent", environment: {} });
-  });
-
-  it("ships Gemini API in the default fleet", () => {
-    const map = instanceConfigs({});
-    expect(map.gemini).toEqual({ driver: "geminiAgent", environment: {} });
+    expect(Object.entries(map).map(([id, entry]) => [id, entry.driver])).toEqual([
+      ["claude", "claudeAgent"],
+      ["codex", "codex"],
+      ["grok", "grokAgent"],
+      ["antigravity", "antigravityAgent"],
+      ["muse", "museAgent"],
+      ["computer", "boxAgent"],
+    ]);
   });
 
   it("ships Meta Muse in the default fleet", () => {
@@ -258,60 +254,9 @@ describe("default fleet", () => {
     expect(map.opencodeGo).toBeUndefined();
   });
 
-  it("carries the saved OpenAI-compatible URL into the live default instance", () => {
-    const map = instanceConfigs({
-      openaiCompat: { key: "secret", url: "https://models.example.test/v1" },
-    });
-    expect(map.openaiCompat.config).toEqual({ url: "https://models.example.test/v1" });
-    expect(map.openaiCompat.environment).toEqual({
-      OPENAI_COMPAT_API_KEY: "secret",
-      OPENAI_COMPAT_URL: "https://models.example.test/v1",
-    });
-  });
-
-  it("preserves a per-instance OpenAI-compatible URL override", () => {
-    const map = instanceConfigs({
-      openaiCompat: { url: "https://workspace.example.test/v1" },
-      instances: {
-        custom: {
-          driver: "openai-compat",
-          config: { url: "https://instance.example.test/v1", apiKeyEnv: "CUSTOM_KEY" },
-        },
-      },
-    });
-    expect(map.custom.config).toEqual({
-      url: "https://instance.example.test/v1",
-      apiKeyEnv: "CUSTOM_KEY",
-    });
-  });
-
-  it("does not retain an injected OpenAI-compatible URL across config refreshes", () => {
-    const config: AppConfig = {
-      openaiCompat: { url: "https://first.example.test/v1" },
-      instances: {
-        custom: { driver: "openai-compat" },
-      },
-    };
-
-    expect(instanceConfigs(config).custom.config).toEqual({
-      url: "https://first.example.test/v1",
-    });
-    config.openaiCompat = { url: "https://second.example.test/v1" };
-    expect(instanceConfigs(config).custom.config).toEqual({
-      url: "https://second.example.test/v1",
-    });
-    expect(config.instances?.custom.config).toBeUndefined();
-  });
-
-  it("adds missing custom-only engines onto an existing product fleet", () => {
+  it("adds only missing kept engines onto an existing product fleet", () => {
     const map = instanceConfigs({ instances: { claude: { driver: "claudeAgent" } } });
-    expect(map.claude.driver).toBe("claudeAgent");
-    expect(map.qwen?.driver).toBe("qwenAgent");
-    expect(map.hermes?.driver).toBe("hermesAgent");
-    expect(map.cursor?.driver).toBe("cursorAgent");
-    expect(map.gemini?.driver).toBe("geminiAgent");
-    expect(map.muse?.driver).toBe("museAgent");
-    expect(map.openaiCompat?.driver).toBe("openai-compat");
+    expect(Object.keys(map)).toEqual(["claude", "muse"]);
   });
 
   it("does not expand a one-off shadow fleet", () => {
@@ -376,6 +321,37 @@ describe("Instance CLI override", () => {
     const custom = { instances: { claude: { driver: "claudeAgent", environment: { MY_FLAG: "1" } } } };
     const kept = withInstanceCli(custom, "claude", "/x");
     expect(kept.config.instances!.claude.environment).toEqual({ MY_FLAG: "1" });
+  });
+
+  it("keeps every raw retired and foreign entry through load and save", () => {
+    const raw = {
+      grokApi: { driver: "grok", displayName: "Grok API" },
+      gemini: { driver: "geminiAgent", enabled: false },
+      kimi: { driver: "kimiAgent" },
+      droid: { driver: "droidAgent" },
+      cursor: { driver: "cursorAgent", config: { cli: "/opt/cursor-agent" } },
+      qwen: { driver: "qwenAgent" },
+      hermes: { driver: "hermesAgent" },
+      openaiCompat: { driver: "openai-compat" },
+      pi: { driver: "piAgent" },
+      minimax: { driver: "minimax", environment: { MY_FLAG: "1" } },
+      opencodeGo: { driver: "opencodeGo" },
+      future: { driver: "futureAgent", displayName: "Tomorrow" },
+    };
+    mkdirSync(DATA_DIR, { recursive: true });
+    writeFileSync(
+      join(DATA_DIR, "config.json"),
+      JSON.stringify({
+        openaiCompat: { url: "https://workspace.example.test/v1" },
+        instances: { claude: { driver: "claudeAgent" }, ...raw },
+      }),
+    );
+    const result = withInstanceCli(loadConfig(), "claude", "/opt/claude");
+    saveConfig({ instances: result.config.instances });
+    const { claude, muse, ...rest } = loadConfig().instances!;
+    expect(claude).toEqual({ driver: "claudeAgent", config: { cli: "/opt/claude" } });
+    expect(muse).toEqual({ driver: "museAgent" });
+    expect(rest).toEqual(raw);
   });
 });
 
@@ -468,18 +444,21 @@ describe("credential env narrowing", () => {
     const cfg: AppConfig = {
       xai: { key: "SECRET-XAI" },
       gemini: { apiKey: "SECRET-GEMINI" },
+      openaiCompat: { key: "SECRET-COMPAT", url: "https://models.example.test/v1" },
       box: { token: "SECRET-BOX" },
       instances: {
         grokApi: { driver: "grok" },
         gemini: { driver: "geminiAgent" },
+        openaiCompat: { driver: "openai-compat" },
         computer: { driver: "boxAgent" },
         claude: { driver: "claudeAgent" },
         codex: { driver: "codex" },
       },
     };
     const instances = instanceConfigs(cfg);
-    expect(instances.grokApi.environment).toEqual({ XAI_API_KEY: "SECRET-XAI" });
-    expect(instances.gemini.environment).toEqual({ GEMINI_API_KEY: "SECRET-GEMINI" });
+    expect(instances.grokApi.environment).toEqual({});
+    expect(instances.gemini.environment).toEqual({});
+    expect(instances.openaiCompat.environment).toEqual({});
     expect(instances.computer.environment).toEqual({ BOX_TOKEN: "SECRET-BOX" });
     // engines that bring their own login receive NO workspace credential
     expect(instances.claude.environment).toEqual({});
@@ -487,8 +466,8 @@ describe("credential env narrowing", () => {
   });
 
   it("hands no credential to any default-fleet CLI engine except the Computer", () => {
-    // the default `grok` instance is the CLI-login grokAgent, not the
-    // API-key driver, so a configured xai key reaches nobody by default
+    // the default `grok` instance is the CLI-login grokAgent, so a
+    // configured xai key reaches nobody
     const cfg: AppConfig = { xai: { key: "SECRET-XAI" }, box: { token: "SECRET-BOX" } };
     const instances = instanceConfigs(cfg);
     for (const [id, entry] of Object.entries(instances)) {

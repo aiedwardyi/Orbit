@@ -2,8 +2,8 @@
 // errors. The command has one inline copy action and one primary next step;
 // unusable model lists stay out of the way until the engine is ready.
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, Download, ExternalLink, KeyRound, LogIn, TerminalSquare } from "lucide-react";
-import { api, useEngineLoginRefresh, useStore, type EngineInstall, type InstanceInfo } from "@/state/store";
+import { Check, Copy, Download, ExternalLink, LogIn, TerminalSquare } from "lucide-react";
+import { api, useEngineLoginRefresh, type EngineInstall, type InstanceInfo } from "@/state/store";
 import { isPhone } from "@/lib/phone-swipe";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
@@ -36,26 +36,6 @@ export function needsCli(instance: InstanceInfo | undefined): boolean {
   return instance?.snapshot.state !== "available";
 }
 
-const API_KEY_DRIVERS = new Set(["geminiAgent"]);
-
-export function isApiKeyEngine(instance: { driverKind?: string } | undefined): boolean {
-  return API_KEY_DRIVERS.has(instance?.driverKind ?? "");
-}
-
-/** Installed CLI that still needs a pasted API key (Gemini). */
-export function needsApiKey(instance: InstanceInfo | undefined): boolean {
-  return Boolean(instance && isApiKeyEngine(instance) && needsSignIn(instance));
-}
-
-export function isApiKeySetupMessage(message: string): boolean {
-  return /api key/i.test(message);
-}
-
-/** Null-instance fallback: Gemini copy only, not "Invalid API key". */
-function isGeminiApiKeyMessage(message: string): boolean {
-  return /gemini api key/i.test(message);
-}
-
 /** Open a terminal with the install command, falling back to the clipboard.
  *
  * The `engine:open-terminal` invoke rejects when the packaged main has no
@@ -83,42 +63,14 @@ export async function openInstallTerminalOrCopy(
   return opened ? "opened" : "copied";
 }
 
-/** What a failed turn should offer: install/sign-in, paste a key, or Retry.
- *
- * `/api key/` in the error text is not enough on its own — Claude/Grok can
- * say "Invalid API key" and still need Terminal, not Connections. With an
- * instance, match that text only for key engines (Gemini with `authenticated`
- * true/unset still gets the paste CTA). With no instance — ChatView omits it
- * when the error is not `setup` — only Gemini copy counts. */
+/** What a failed turn should offer: install/sign-in or Retry. */
 export function setupErrorAction(
-  message: string,
   instance: InstanceInfo | undefined,
   signIn?: boolean,
-): "cli" | "key" | "retry" {
+): "cli" | "retry" {
   if (instance && needsCli(instance)) return "cli";
-  if (needsApiKey(instance)) return "key";
-  if (instance && isApiKeyEngine(instance) && isApiKeySetupMessage(message)) return "key";
-  if (instance == null && isGeminiApiKeyMessage(message)) return "key";
   if (instance && (needsSignIn(instance) || signIn)) return "cli";
   return "retry";
-}
-
-export function OpenConnectionsCta({ className }: { className?: string }) {
-  const { t } = useI18n();
-  const { dispatch } = useStore();
-  return (
-    <button
-      type="button"
-      onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "connections" })}
-      className={cn(
-        "mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12.5px] font-semibold text-accent-ink hover:brightness-110",
-        className,
-      )}
-    >
-      <KeyRound size={14} />
-      {t("engine.openConnections")}
-    </button>
-  );
 }
 
 export function CommandRow({ command, actionLabel, signInInstanceId, quiet = false }: { command: string; actionLabel: string; signInInstanceId?: string; quiet?: boolean }) {
@@ -334,24 +286,19 @@ export function EngineSetup({
   const install = instance.install;
   const installCommand = installCommandFor(install);
   const signInCommand = install?.signInCommand;
-  const keyOnly = intent === "cloud" && needsApiKey(instance);
-  const signInOnly = intent === "cloud" && !keyOnly && (needsSignIn(instance) || (signIn && !needsCli(instance)));
-  const command = keyOnly ? null : signInOnly ? signInCommand : installCommand;
+  const signInOnly = intent === "cloud" && (needsSignIn(instance) || (signIn && !needsCli(instance)));
+  const command = signInOnly ? signInCommand : installCommand;
   const oneClick = signInOnly && Boolean(install?.login || instance.driverKind === "antigravityAgent");
-  const title = keyOnly
-    ? t("engine.needsKeyTitle", { name: instance.displayName })
+  const title = signInOnly
+    ? t("engine.signInTo", { name: instance.displayName })
+    : t("engine.installName", { name: instance.displayName });
+  const description = oneClick
+    ? t("engines.notSignedIn")
     : signInOnly
-      ? t("engine.signInTo", { name: instance.displayName })
-      : t("engine.installName", { name: instance.displayName });
-  const description = keyOnly
-    ? t("engine.needsKey")
-    : oneClick
-      ? t("engines.notSignedIn")
-      : signInOnly
-        ? t("engine.signInBody")
-        : intent === "inject"
-          ? t("engine.injectBody")
-          : signInCommand ? t("engine.installBodySignIn") : t("engine.installBody");
+      ? t("engine.signInBody")
+      : intent === "inject"
+        ? t("engine.injectBody")
+        : signInCommand ? t("engine.installBodySignIn") : t("engine.installBody");
 
   // Some engines are configured elsewhere (for example, a cloud computer
   // token) and intentionally have no install descriptor.
@@ -362,7 +309,6 @@ export function EngineSetup({
         <p className="mt-1 text-[12px] leading-relaxed text-ink-secondary">
           {instance.snapshot.reason ?? t("engine.notAvailable")}
         </p>
-        {(keyOnly || isApiKeyEngine(instance)) && <OpenConnectionsCta />}
       </div>
     );
   }
@@ -371,7 +317,7 @@ export function EngineSetup({
     <div className={cn("rounded-xl border border-hairline/40 bg-control/30 p-3", className)}>
       <div className="flex items-start gap-2.5">
         <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-inset text-ink-secondary">
-          {keyOnly ? <KeyRound size={14} /> : signInOnly ? <LogIn size={14} /> : <Download size={14} />}
+          {signInOnly ? <LogIn size={14} /> : <Download size={14} />}
         </span>
         <div className="min-w-0">
           <div className="text-[13px] font-semibold text-ink">{title}</div>
@@ -379,9 +325,7 @@ export function EngineSetup({
         </div>
       </div>
 
-      {keyOnly ? (
-        <OpenConnectionsCta />
-      ) : oneClick ? (
+      {oneClick ? (
         <div className="mt-3 flex justify-end"><EngineSignIn instance={instance} /></div>
       ) : command ? (
         <CommandRow command={command} signInInstanceId={signInOnly ? instance.instanceId : undefined} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
@@ -392,7 +336,7 @@ export function EngineSetup({
       )}
 
       {/* needsNode is engine-wide; only show it when this machine's command is npm. */}
-      {!signInOnly && !keyOnly && install.needsNode && (installCommand?.includes("npm") ?? true) && (
+      {!signInOnly && install.needsNode && (installCommand?.includes("npm") ?? true) && (
         <p className="mt-2 text-[11px] leading-relaxed text-ink-secondary/70">
           {t("engine.needsNode")}
         </p>

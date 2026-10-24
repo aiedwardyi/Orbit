@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { defaultModelSelection } from "./default-engine";
 import type { InstanceInfo } from "@/state/store";
 
+const RETIRED_KINDS = ["grok", "geminiAgent", "kimiAgent", "droidAgent", "cursorAgent", "qwenAgent", "hermesAgent", "openai-compat", "piAgent", "minimax", "opencodeGo"];
+
 const engine = (
   instanceId: string,
   extra: Partial<InstanceInfo> = {},
@@ -34,6 +36,11 @@ describe("defaultModelSelection", () => {
       instanceId: "ready",
       model: "ready-model",
     });
+  });
+
+  it.each(RETIRED_KINDS)("never picks a retired %s engine a cached snapshot calls available", (driverKind) => {
+    expect(defaultModelSelection([engine("old", { driverKind }), engine("ready")])?.instanceId).toBe("ready");
+    expect(defaultModelSelection([engine("old", { driverKind })])).toBeNull();
   });
 
   it("prefers a non-exhausted engine but still falls back to an eligible one", () => {

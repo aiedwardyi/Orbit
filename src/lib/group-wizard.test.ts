@@ -7,7 +7,10 @@ import {
   isEngineConnected,
   newBotPayload,
   suggestEngine,
+  wizardEngineOptions,
 } from "./group-wizard";
+
+const RETIRED_KINDS = ["grok", "geminiAgent", "kimiAgent", "droidAgent", "cursorAgent", "qwenAgent", "hermesAgent", "openai-compat", "piAgent", "minimax", "opencodeGo"];
 
 const engine = (
   instanceId: string,
@@ -23,15 +26,15 @@ const engine = (
 });
 
 describe("wizard engine suggestion", () => {
-  it("prefers Gemini first and Codex second when both are connected", () => {
-    const instances = [engine("codex-1", "codex"), engine("gem-1", "geminiAgent")];
-    expect(suggestEngine(instances, ["geminiAgent"])?.instance.instanceId).toBe("gem-1");
+  it.each(RETIRED_KINDS)("never prefers a connected retired %s engine", (kind) => {
+    const instances = [engine("old-1", kind), engine("codex-1", "codex")];
+    expect(suggestEngine(instances, [kind])).toEqual({ instance: instances[1], substituted: true });
     expect(suggestEngine(instances, ["codex"])?.instance.instanceId).toBe("codex-1");
   });
 
   it("skips a disconnected preferred engine and marks the substitute", () => {
-    const instances = [engine("gem-1", "geminiAgent", "available", false), engine("codex-1", "codex")];
-    const pick = suggestEngine(instances, ["geminiAgent"])!;
+    const instances = [engine("muse-1", "museAgent", "available", false), engine("codex-1", "codex")];
+    const pick = suggestEngine(instances, ["museAgent"])!;
     expect(pick.instance.instanceId).toBe("codex-1");
     expect(pick.substituted).toBe(true);
   });
@@ -41,15 +44,29 @@ describe("wizard engine suggestion", () => {
     expect(suggestEngine([], ["codex"])).toBeNull();
   });
 
-  it("skips retired engines when substituting for a missing preferred kind", () => {
-    const instances = [engine("gem-1", "geminiAgent"), engine("ag-1", "antigravityAgent")];
+  it.each(RETIRED_KINDS)("skips a retired %s engine when substituting for a missing preferred kind", (kind) => {
+    const instances = [engine("old-1", kind), engine("ag-1", "antigravityAgent")];
     const pick = suggestEngine(instances, ["codex"])!;
     expect(pick.instance.instanceId).toBe("ag-1");
     expect(pick.substituted).toBe(true);
   });
 
-  it("returns null when only retired fallback engines are connected", () => {
-    expect(suggestEngine([engine("gem-1", "geminiAgent")], ["codex"])).toBeNull();
+  it.each(RETIRED_KINDS)("returns null when only a retired %s fallback engine is connected", (kind) => {
+    expect(suggestEngine([engine("old-1", kind)], ["codex"])).toBeNull();
+  });
+
+  it("still substitutes a foreign unknown engine", () => {
+    expect(suggestEngine([engine("future-1", "futureAgent")], ["codex"])?.instance.instanceId).toBe("future-1");
+  });
+
+  it.each(RETIRED_KINDS)("never lists a retired %s engine, even as the current pick", (kind) => {
+    const instances = [engine("old-1", kind), engine("codex-1", "codex")];
+    expect(wizardEngineOptions(instances, instances[0]!).map((i) => i.instanceId)).toEqual(["codex-1"]);
+  });
+
+  it("keeps a foreign unknown current pick selectable", () => {
+    const instances = [engine("future-1", "futureAgent", "unavailable"), engine("codex-1", "codex")];
+    expect(wizardEngineOptions(instances, instances[0]!).map((i) => i.instanceId)).toEqual(["future-1", "codex-1"]);
   });
 
   it("treats missing auth as connected but explicit false as not", () => {

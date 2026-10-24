@@ -187,12 +187,6 @@ export interface AcpSupport {
   /** Mutate the child env in place: strip a key, inject a policy. Receives the
    *  instance config so a support can vary with fullAuto. */
   transformEnv?(env: Record<string, string | undefined>, config: AcpConfig): void;
-  /** Mutate the child env after the turn model is known. Catalog refresh and
-   *  snapshot share `transformEnv` and must not see a per-turn overlay. */
-  applyTurnEnv?(
-    env: Record<string, string | undefined>,
-    ctx: { model?: string; requestedModel?: string; approval?: SendTurnInput["approval"]; cwd?: string },
-  ): void;
   /** Pick the ACP authenticate methodId from initialize's advertised
    * authMethods; return null to skip the authenticate step. */
   pickAuthMethod(authMethods: Array<{ id?: string }>): string | null;
@@ -255,12 +249,6 @@ export interface AcpSupport {
     sessionId: string;
     config: AcpConfig;
     turn: SendTurnInput;
-    /** `session/new` (or `session/load`) advertised model list, verbatim. Some
-     * CLIs namespace their ACP model ids differently from their argv `--model`
-     * slugs (Cursor answers `default[]` where the CLI calls it `auto`), so a
-     * driver that only knows the argv slug cannot form a valid set_model
-     * without this. Empty when the agent advertised none. */
-    sessionModels: Array<{ modelId?: string; name?: string }>;
     /** Raw `session/new` (or `session/load`) result, verbatim. Carries
      * affordances like `configOptions` for drivers that pin a setting over
      * the wire (grok's reasoning effort); drivers tolerate a missing or
@@ -685,7 +673,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
               return { early: true as const };
             }
             const resolvedModel = support.resolveTurnModel?.(turn.model, env);
-            support.applyTurnEnv?.(env, { model: resolvedModel, requestedModel: turn.model, approval: turn.approval, cwd });
             const allowed = new Set(support.credentialEnv ?? []);
             for (const key of LOCAL_HOST_KEY_ENVS) {
               if (!allowed.has(key)) delete env[key];
@@ -772,37 +759,16 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           const candidate = handshakeWarm;
           await candidate.ready.catch(() => {});
           const argsKey = support.spawnArgs(config, cliTurn).join("\0");
-          // applyTurnEnv can inject per-turn credentials/model overlays the
-          // create-time stub never saw (droid/kimi). Refuse reuse then.
-          const envWouldDiverge = Boolean(
-            support.applyTurnEnv
-            && (cliTurn.model || turn.effort || turn.approval),
-          );
           const eligible =
             handshakeWarm === candidate
             && !candidate.failed
-            && !envWouldDiverge
             && candidate.connection.healthy
             && candidate.cli === effectiveCli()
             && candidate.argsKey === argsKey
             && candidate.spawnCwd === cwd
             && !disposed;
           if (!eligible) {
-            // Keep a healthy stub handshake for a later matching turn when the
-            // only mismatch is applyTurnEnv divergence on this turn.
-            if (
-              handshakeWarm === candidate
-              && (
-                candidate.failed
-                || !candidate.connection.healthy
-                || candidate.cli !== effectiveCli()
-                || candidate.argsKey !== argsKey
-                || candidate.spawnCwd !== cwd
-                || disposed
-              )
-            ) {
-              discardHandshakeWarm(candidate);
-            }
+            if (handshakeWarm === candidate) discardHandshakeWarm(candidate);
           } else {
             handshakeWarm = null;
             clearTimeout(candidate.timer);
@@ -1373,9 +1339,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
                   sessionId: activeSessionId,
                   config,
                   turn: cliTurn,
-                  sessionModels: Array.isArray(sessionResult?.models?.availableModels)
-                    ? sessionResult.models.availableModels
-                    : [],
                   sessionResult,
                 });
                 // initialize's currentModelId is the CLI default (grok-4.6),

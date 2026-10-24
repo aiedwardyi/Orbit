@@ -357,7 +357,6 @@ export function NewBotRow({
 
 /** Friendly engine name for the substitution notice; unknown kinds print raw. */
 function preferredLabel(kind: string): string {
-  if (kind === "geminiAgent") return "Gemini";
   if (kind === "codex") return "Codex";
   if (kind === "museAgent") return "Meta Muse";
   return kind;
