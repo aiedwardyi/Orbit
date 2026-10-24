@@ -109,6 +109,19 @@ afterEach(() => {
 });
 
 describe("turn footer after a mid-turn send", () => {
+  it("renders no busy spinner in the 1:1 header", async () => {
+    const { host, render, unmount } = mount();
+    try {
+      await render({ ...bot([prompt]), chiefOfStaff: true });
+      const header = host.querySelector("[class*='@container/chathead']");
+      expect(header).not.toBeNull();
+      expect(header?.querySelector(".animate-spin")).toBeNull();
+      expect(host.querySelector("[data-turn-mascot]")).not.toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
   it("keeps settled reply actions and leaves the wait row without that reply's time", async () => {
     const { host, render, unmount } = mount();
     try {
