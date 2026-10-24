@@ -22,16 +22,16 @@
 
 ## Where things live
 
-- Wink's data folder is `~\.orbit` (`~/.orbit` on Mac).
-- Each bot's workspace is `~\.orbit\workspaces\<bot id>`. It holds `MEMORY.md` and `memory\<topic>.md`.
-- Chat attachments are in `~\.orbit\attachments`.
+- Wink's data folder is `~/.orbit`.
+- Each bot's workspace is `~/.orbit/workspaces/<bot id>`. It holds `MEMORY.md` and `memory/<topic>.md`.
+- Chat attachments are in `~/.orbit/attachments`.
 - Project Folder is the folder the user picks in a bot's profile. `generate_image` saves to `generated-images` and `call_api` files to `api-files`, in the task's folder, else the Project Folder, else the workspace.
 
 ## Sync and phone
 
 - Sync is under Settings > Account. Google Sign-in syncs through a folder in the user's own Google Drive. Drive Folder syncs through a folder the user picks instead.
 - What syncs across the user's PCs: bot profiles and settings, sections and their order, chats, memory files and chat pictures. Keys and engine sign-ins stay on each PC.
-- If a chat changed on two PCs at once, Wink keeps both and the chat says "This chat also changed on another PC. Both versions were kept." A memory file edited on two PCs keeps the other copy beside it as `memory\<name>.conflict-<hash>.md`.
+- If a chat changed on two PCs at once, Wink keeps both and the chat says "This chat also changed on another PC. Both versions were kept." A memory file edited on two PCs keeps the other copy beside it as `memory/<name>.conflict-<hash>.md`.
 - The phone opens Wink in its browser and reaches a PC running Wink, with that PC's chats. Set it up under Settings > Account: Phone Access (a relay; Add a Phone shows a pairing code) or Phone Link (over Tailscale). With sync on, the phone can switch between the user's PCs.
 
 ## Keyboard shortcuts

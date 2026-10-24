@@ -6,7 +6,7 @@ import { CREDENTIAL_PROMPT, loadCredentialPrompt } from "./wink-guide.ts";
 
 describe("wink guide", () => {
   it("tries signed-in engines before asking for a key", () => {
-    expect(CREDENTIAL_PROMPT).toContain("Before asking for an API key, try an engine the user is signed into, as a worker pane or a teammate bot: it needs no key. If none can do the job, use request_credential to show the secure in-app card. Never ask the user to paste credentials into chat.");
+    expect(CREDENTIAL_PROMPT).toContain("Before asking for an API key, try a signed-in engine as a worker pane or teammate bot; if the one the job needs is signed out, say so. Use request_credential only when a job needs a provider's own API. Never ask the user to paste credentials into chat.");
   });
 
   it("points to the packaged guide", () => {
@@ -17,7 +17,7 @@ describe("wink guide", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const file = join("missing", "wink-guide.md");
     const prompt = loadCredentialPrompt(file);
-    expect(prompt).toContain("use request_credential");
+    expect(prompt).toContain("Use request_credential");
     expect(prompt).not.toContain("How Wink itself works");
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(file));
     warn.mockRestore();
