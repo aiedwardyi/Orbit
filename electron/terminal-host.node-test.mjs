@@ -1290,14 +1290,86 @@ const CLAUDE_FOLDER_TRUST = "\x1b[1t\x1b[c\x1b[?1004h\x1b[?9001h\x1b]0;claude\x1
 const CLAUDE_FOLDER_TRUST_YES = "\n────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\n Accessing workspace:\n\n C:\\Users\\mredw\\AppData\\Local\\Temp\\wink-WORKER-TRUST-MENU\\fresh-iieFbG\n\n Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source\n project, or work from your team). If not, take a moment to review what's in this folder first.\n\n Claude Code'll be able to read, edit, and execute files here.\n\n Security guide\n\n   No, exit\n > Yes, I trust this folder\n\n Enter to confirm · Esc to cancel";
 const CLAUDE_TRUST_COMMAND = "claude --model opus --dangerously-skip-permissions 'Read card.md and do it.'";
 
+function trustFixture(t, options = {}) {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout", "setInterval"], now: Date.UTC(2026, 9, 24) });
+  const f = stallFixture({ stallCheckMs: 10_000, now: () => Date.now(), ...options });
+  const advance = async (ms) => { t.mock.timers.tick(ms); await Promise.resolve(); };
+  return { ...f, settle: () => advance(500), advance };
+}
+
+test("Claude folder trust waits for the recorded startup redraw to settle", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout", "setInterval"], now: Date.UTC(2026, 9, 24) });
+  const recorded = JSON.parse(fs.readFileSync(new URL("./terminal-host.trust.fixture.json", import.meta.url), "utf8"));
+  const f = stallFixture({ commandEcho: false, stallCheckMs: 10_000, now: () => Date.now() });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { command: CLAUDE_TRUST_COMMAND });
+  const child = f.children[0];
+  let elapsed = 0;
+  for (const entry of recorded.redraw) {
+    t.mock.timers.tick(entry.t - elapsed);
+    elapsed = entry.t;
+    child.data(entry.data);
+    await Promise.resolve();
+    assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r"]);
+  }
+  t.mock.timers.tick(499);
+  await Promise.resolve();
+  assert.equal(child.writes.length, 1);
+  t.mock.timers.tick(1);
+  await Promise.resolve();
+  assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B"]);
+  child.data(recorded.redraw.find((entry) => entry.data.includes("1B>")).data);
+  await Promise.resolve();
+  assert.equal(child.writes.length, 2);
+  t.mock.timers.tick(500);
+  await Promise.resolve();
+  assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B", "\r"]);
+  for (const entry of recorded.redraw) child.data(entry.data);
+  t.mock.timers.tick(1_000);
+  await Promise.resolve();
+  assert.equal(child.writes.length, 3);
+});
+
+test("Claude folder trust never confirms a transient Yes selection", async (t) => {
+  const recorded = JSON.parse(fs.readFileSync(new URL("./terminal-host.trust.fixture.json", import.meta.url), "utf8"));
+  const f = trustFixture(t, { commandEcho: false });
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { command: CLAUDE_TRUST_COMMAND });
+  const child = f.children[0];
+  child.data(recorded.redraw[0].data);
+  await f.settle();
+  child.data(recorded.redraw.find((entry) => entry.data.includes("1B>")).data);
+  await f.advance(165);
+  child.data(recorded.redraw.at(-1).data);
+  await f.advance(1_000);
+  assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B"]);
+});
+
+for (const action of ["busy", "exit", "close", "relaunch"]) {
+  test(`Claude folder trust drops pending keys on ${action}`, async (t) => {
+    const f = trustFixture(t, { commandEcho: false });
+    t.after(() => f.host.dispose());
+    const pane = await f.host.openForBot("bot-1", { command: CLAUDE_TRUST_COMMAND });
+    const child = f.children[0];
+    child.data(CLAUDE_FOLDER_TRUST);
+    if (action === "busy") child.data("✻ Reading card… (3s · esc to interrupt)\r\n");
+    if (action === "exit") child.exit({ exitCode: 0 });
+    if (action === "close") await f.host.closeBotPanes("bot-1");
+    if (action === "relaunch") f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: "codex\r" });
+    await f.advance(1_000);
+    assert.deepEqual(child.writes, action === "relaunch" ? [CLAUDE_TRUST_COMMAND + "\r", "codex\r"] : [CLAUDE_TRUST_COMMAND + "\r"]);
+  });
+}
+
 test("Claude folder trust answers screen updates within 1.5 seconds without a stall tick", async (t) => {
-  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: Date.UTC(2026, 9, 21) });
+  t.mock.timers.enable({ apis: ["Date", "setTimeout", "setInterval"], now: Date.UTC(2026, 9, 21) });
   const f = stallFixture({ commandEcho: false, stallCheckMs: 10_000, now: () => Date.now() });
   t.after(() => f.host.dispose());
   await f.host.openForBot("bot-1", { command: CLAUDE_TRUST_COMMAND });
   const child = f.children[0];
   const started = Date.now();
   child.data(CLAUDE_FOLDER_TRUST);
+  t.mock.timers.tick(500);
   await Promise.resolve();
   assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B"]);
   t.mock.timers.tick(200);
@@ -1311,6 +1383,7 @@ test("Claude folder trust answers screen updates within 1.5 seconds without a st
   assert.equal(child.writes.length, 2);
   t.mock.timers.tick(50);
   child.data(redraw.slice(split));
+  t.mock.timers.tick(500);
   await Promise.resolve();
   assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r", "\x1b[B", "\r"]);
   const elapsed = Date.now() - started;
@@ -1323,7 +1396,7 @@ test("Claude folder trust answers screen updates within 1.5 seconds without a st
 });
 
 test("Claude folder trust stops scanning once Claude is working", async (t) => {
-  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: Date.UTC(2026, 9, 21) });
+  t.mock.timers.enable({ apis: ["Date", "setTimeout", "setInterval"], now: Date.UTC(2026, 9, 21) });
   const f = stallFixture({ commandEcho: false, stallCheckMs: 10_000, now: () => Date.now() });
   t.after(() => f.host.dispose());
   await f.host.openForBot("bot-1", { command: CLAUDE_TRUST_COMMAND });
@@ -1332,12 +1405,13 @@ test("Claude folder trust stops scanning once Claude is working", async (t) => {
   child.data("✻ Reading card… (3s · esc to interrupt)\r\n");
   await Promise.resolve();
   child.data("\x1b[2J\x1b[H" + CLAUDE_FOLDER_TRUST);
+  t.mock.timers.tick(500);
   await Promise.resolve();
   assert.deepEqual(child.writes, [CLAUDE_TRUST_COMMAND + "\r"]);
 });
 
 test("Claude folder trust re-arms when the pane launches Claude again", async (t) => {
-  t.mock.timers.enable({ apis: ["Date", "setInterval"], now: Date.UTC(2026, 9, 21) });
+  t.mock.timers.enable({ apis: ["Date", "setTimeout", "setInterval"], now: Date.UTC(2026, 9, 21) });
   const f = stallFixture({ commandEcho: false, stallCheckMs: 10_000, now: () => Date.now() });
   t.after(() => f.host.dispose());
   const pane = await f.host.openForBot("bot-1", { command: CLAUDE_TRUST_COMMAND });
@@ -1348,6 +1422,7 @@ test("Claude folder trust re-arms when the pane launches Claude again", async (t
   child.data("\x1b[2J\x1b[HPS C:\repo> ");
   f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text: CLAUDE_TRUST_COMMAND + "\r" });
   child.data("\x1b[2J\x1b[H" + CLAUDE_FOLDER_TRUST);
+  t.mock.timers.tick(500);
   await Promise.resolve();
   assert.deepEqual(child.writes.slice(-1), ["\x1b[B"]);
 });
@@ -1359,7 +1434,7 @@ for (const [name, prompt] of [
   ["Korean Windows", "Windows PowerShell\r\n모든 권리 보유.\r\nPS C:\\Users\\사용자\\작업> "],
 ]) {
   test(`Claude folder trust selects Yes once after a ${name}`, async (t) => {
-    const f = stallFixture({ platform: "win32", commandEcho: false });
+    const f = trustFixture(t, { platform: "win32", commandEcho: false });
     t.after(() => f.host.dispose());
     await f.host.openForBot("bot-1", { label: "A | Opus5.5 | high", command: CLAUDE_TRUST_COMMAND });
     const child = f.children[0];
@@ -1380,7 +1455,7 @@ for (const [name, prompt] of [
 }
 
 test("Claude folder trust keeps Yes selected and answers each pane independently", async (t) => {
-  const f = stallFixture();
+  const f = trustFixture(t);
   t.after(() => f.host.dispose());
   for (let i = 0; i < 2; i++) {
     await f.host.openForBot("bot-1", { label: "A", command: CLAUDE_TRUST_COMMAND });
@@ -1398,7 +1473,7 @@ for (const [name, command] of [
   ["a script", "echo claude --dangerously-skip-permissions"],
 ]) {
   test(`Claude folder trust never answers ${name}`, async (t) => {
-    const f = stallFixture();
+    const f = trustFixture(t);
     t.after(() => f.host.dispose());
     await f.host.openForBot("bot-1", { label: "A", command });
     f.children[0].data(CLAUDE_FOLDER_TRUST);
@@ -1408,7 +1483,7 @@ for (const [name, command] of [
 }
 
 test("Claude folder trust never answers the user's main terminal", async (t) => {
-  const f = stallFixture();
+  const f = trustFixture(t);
   t.after(() => f.host.dispose());
   const pane = await f.host.open(f.event, f.input);
   f.host.write(f.event, pane.id, CLAUDE_TRUST_COMMAND + "\r");
@@ -1426,7 +1501,7 @@ for (const [name, screen] of [
   ["a menu followed by an input prompt", CLAUDE_FOLDER_TRUST_YES + "\r\n> "],
 ]) {
   test(`Claude folder trust ignores ${name} and still handles the real menu`, async (t) => {
-    const f = stallFixture({ commandEcho: false });
+    const f = trustFixture(t, { commandEcho: false });
     t.after(() => f.host.dispose());
     await f.host.openForBot("bot-1", { label: "A", command: CLAUDE_TRUST_COMMAND });
     f.children[0].data(screen);
@@ -1439,7 +1514,7 @@ for (const [name, screen] of [
 }
 
 test("Claude folder trust waits for the complete menu", async (t) => {
-  const f = stallFixture({ commandEcho: false });
+  const f = trustFixture(t, { commandEcho: false });
   t.after(() => f.host.dispose());
   await f.host.openForBot("bot-1", { label: "A", command: CLAUDE_TRUST_COMMAND });
   const split = CLAUDE_FOLDER_TRUST.indexOf("Enter");

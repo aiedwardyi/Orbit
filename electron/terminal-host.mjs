@@ -210,6 +210,7 @@ const PANE_MENU_RE = /^\s*[❯›]\s*\d+\.\s/u;
 const CLAUDE_COMPACTING_RE = /^[·✢✳✶✻✽*][\s─]+Compacting conversation…/mu;
 const BRACKETED_PASTE_MODE = 2004;
 const SAVE_ENTER_MS = 5_000;
+const CLAUDE_TRUST_SETTLE_MS = 500;
 const tokenCount = (value, unit) => Math.round(Number(value) * (unit === "M" ? 1_000_000 : unit === "K" ? 1_000 : 1));
 
 function claudeTrustKeys(screenText) {
@@ -667,6 +668,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     const wasRetired = session.retired;
     session.retired = true;
     clearActivityTimer(session);
+    clearTimeout(session.claudeTrustTimer);
     if (active.get(session.key) === session.id) active.delete(session.key);
     if (!wasRetired) emit(session, "terminal:closed", { id: session.id, botId: session.botId });
     const exited = session.pty.exited;
@@ -765,12 +767,20 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       try {
         session.screen.consume(data);
       } catch {}
+      clearTimeout(session.claudeTrustTimer);
       if (session.worker && session.exitCode === null && session.botPane && session.claudeTrust && !session.claudeTrustAnswered) {
         const keys = claudeTrustKeys(session.screen.text());
         if (keys && (keys === "\r" || !session.claudeTrustMoved)) {
-          if (keys === "\r") session.claudeTrustAnswered = true;
-          else session.claudeTrustMoved = true;
-          typeIntoPane(session, keys);
+          // Startup can redraw No after the first menu frame.
+          session.claudeTrustTimer = setTimeout(() => {
+            session.claudeTrustTimer = null;
+            if (session.retired || session.pty !== pty || !session.worker || session.exitCode !== null
+              || !session.claudeTrust || session.claudeTrustAnswered || claudeTrustKeys(session.screen.text()) !== keys) return;
+            if (keys === "\r") session.claudeTrustAnswered = true;
+            else session.claudeTrustMoved = true;
+            typeIntoPane(session, keys);
+          }, CLAUDE_TRUST_SETTLE_MS);
+          session.claudeTrustTimer.unref?.();
         }
       }
       if (session.worker && !session.agentSeen) {
@@ -882,7 +892,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
       reported: false, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
-      claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false,
+      claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false, claudeTrustTimer: null,
     };
     session.outputParser = createTerminalOutputParser((osc) => {
       if (!session.botPane || osc !== `133;D;${session.id}`) return;
@@ -935,6 +945,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     const submit = isSubmitInput(text);
     // only a command the user typed arms their alert
     if (submit) {
+      clearTimeout(session.claudeTrustTimer);
       session.autoNote = null;
       session.autoDelivered = false;
       session.autoReported = false;
