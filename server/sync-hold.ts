@@ -102,16 +102,18 @@ export const syncHold = {
     if (!files) return this.google(folder);
     google.set(key, true);
     const heads = pending.get(key) ?? new Map<string, string>();
+    let cleared = false;
     for (const [path, copies] of files) {
       const threadId = threadFor(path);
       if (!threadId || drivePathRule(path, ids) !== "peer") continue;
       const file = [...copies].sort((a, b) => Date.parse(b.modifiedTime) - Date.parse(a.modifiedTime) || Date.parse(b.createdTime) - Date.parse(a.createdTime) || a.id.localeCompare(b.id))[0];
       if (!file?.md5Checksum) continue;
       notePeer(threadId, `${key}/${path}`, "feed", file.md5Checksum);
-      if (applied.get(key)?.get(path) === file.md5Checksum) heads.delete(path);
+      if (applied.get(key)?.get(path) === file.md5Checksum) cleared = heads.delete(path) || cleared;
       else heads.set(path, file.md5Checksum);
     }
     pending.set(key, heads);
+    if (cleared) wake();
   },
   pulled(folder: string, scope: SyncScope, heads: SyncApplyResult["heads"] = []): void {
     const key = folderKey(folder);
