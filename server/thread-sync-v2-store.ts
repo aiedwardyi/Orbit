@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 
 import { lastMessageAt, withMessageTransaction } from "./message-db.ts";
+import { soonAfterWake, wakeClock } from "./pc-wake.ts";
 import { publishThreadPictures } from "./picture-sync.ts";
 import type { Message, Store } from "./store.ts";
 import { CONFLICT_NOTICE, CONFLICT_NOTICE_V2, isConflictNotice, shared, THREAD_SYNC_POLL_MS } from "./thread-sync.ts";
@@ -13,10 +14,19 @@ import { initializeMigration, registerMigration, type MigrationProgress } from "
 import { ThreadSyncV2, type SyncChange, type SyncMutation, type SyncOptions, type SyncScope } from "./thread-sync-v2.ts";
 
 const FLUSH_DELAY_MS = 3_000;
+const JOIN_WINDOW_MS = 10 * 60_000;
+const JOIN_TURNS = 3;
 
 interface Target {
   botId: string;
   botSyncId: string;
+}
+
+interface StaleBranch {
+  first: Message;
+  tip: string;
+  missed: number;
+  reason?: string;
 }
 
 const storedTaskSchema = z.object({
@@ -24,6 +34,7 @@ const storedTaskSchema = z.object({
   createdAt: z.number(), deleted: z.number(), eligible: z.number(), cursor: z.number(),
 });
 type StoredTask = z.infer<typeof storedTaskSchema>;
+const packetSchema = z.object({ seq: z.number(), value: z.unknown(), baseStamp: z.string().nullable().optional() });
 
 export interface SyncStoreHost {
   store: Store;
@@ -53,6 +64,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
   }
   const options: SyncOptions = { dataDir: host.dataDir, deviceId: host.deviceId, folder: join(host.dataDir, "sync-v2-staging"), staged: true };
   const engine = createSyncEngine(options);
+  const writer = String(withMessageTransaction((db) => db.prepare("SELECT writer FROM sync_v2_identity WHERE id = 1").get()!.writer));
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   const retry = new Set<string>();
   let pollTimer: ReturnType<typeof setInterval> | undefined;
@@ -71,6 +83,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     CREATE TABLE IF NOT EXISTS sync_v2_pictures (id INTEGER PRIMARY KEY, thread TEXT NOT NULL, json TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sync_v2_migration_log (id INTEGER PRIMARY KEY, ended INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS sync_v2_notices (thread TEXT PRIMARY KEY, cursor INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS sync_v2_joins (thread TEXT PRIMARY KEY, missed INTEGER NOT NULL, tip TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS sync_v2_conflict_changes ON sync_v2_changes(thread, cursor) WHERE conflict = 1;
     INSERT OR IGNORE INTO sync_v2_migration_log VALUES (1, 0);
   `));
@@ -175,20 +188,24 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       db.prepare("INSERT INTO sync_v2_notices VALUES (?, ?) ON CONFLICT(thread) DO UPDATE SET cursor = excluded.cursor")
         .run(task.threadId, conflict);
       if (!engine.conflicted(task)) return;
-      const noticed = db.prepare(`WITH RECURSIVE path(id) AS (
-        SELECT active_leaf_id FROM thread_state WHERE thread_id = ?
-        UNION SELECT json_extract(m.json, '$.parentId') FROM messages m JOIN path ON m.id = path.id WHERE m.thread_id = ?
-      ) SELECT 1 FROM path JOIN messages m ON m.id = path.id
-        WHERE m.thread_id = ? AND json_extract(m.json, '$.tool.name') IN (?, ?) LIMIT 1`)
-        .get(task.threadId, task.threadId, task.threadId, `error: ${CONFLICT_NOTICE}`, `error: ${CONFLICT_NOTICE_V2}`);
-      if (noticed) return;
-      const parent = db.prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?").get(task.threadId)?.active_leaf_id;
-      const message: Message = { id: randomUUID(), at: Date.now(), parentId: parent ? String(parent) : null, role: "bot", kind: "activity", tool: { name: `error: ${CONFLICT_NOTICE_V2}`, ok: false } };
-      host.store.applySyncChanges(task.botId, task.threadId, [
-        { cursor: 0, kind: "row", rowId: message.id, value: message, conflict: false },
-        { cursor: 0, kind: "head", rowId: "", value: message.id, conflict: false },
-      ]);
+      addNotice(task, db);
     });
+  }
+
+  function addNotice(task: StoredTask, db: DatabaseSync): void {
+    const noticed = db.prepare(`WITH RECURSIVE path(id) AS (
+      SELECT active_leaf_id FROM thread_state WHERE thread_id = ?
+      UNION SELECT json_extract(m.json, '$.parentId') FROM messages m JOIN path ON m.id = path.id WHERE m.thread_id = ?
+    ) SELECT 1 FROM path JOIN messages m ON m.id = path.id
+      WHERE m.thread_id = ? AND json_extract(m.json, '$.tool.name') IN (?, ?) LIMIT 1`)
+      .get(task.threadId, task.threadId, task.threadId, `error: ${CONFLICT_NOTICE}`, `error: ${CONFLICT_NOTICE_V2}`);
+    if (noticed) return;
+    const parent = db.prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?").get(task.threadId)?.active_leaf_id;
+    const message: Message = { id: randomUUID(), at: Date.now(), parentId: parent ? String(parent) : null, role: "bot", kind: "activity", tool: { name: `error: ${CONFLICT_NOTICE_V2}`, ok: false } };
+    host.store.applySyncChanges(task.botId, task.threadId, [
+      { cursor: 0, kind: "row", rowId: message.id, value: message, conflict: false },
+      { cursor: 0, kind: "head", rowId: "", value: message.id, conflict: false },
+    ]);
   }
 
   function removeMigrationNotices(task: StoredTask): void {
@@ -360,25 +377,123 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     await transport.pull(task);
     if (!host.enabled() || host.folder() !== workerFolder || host.running(threadId)) return;
     const cursor = task.cursor;
+    const own = ownHead(threadId);
     await adopt(task);
-    resolveHeads(task);
+    resolveHeads(task, task.cursor !== cursor, own);
     notifyConflict(task);
     if (task.cursor !== cursor) host.store.applySyncImport(() => host.imported(target.botId));
   }
 
-  function resolveHeads(task: StoredTask): void {
+  function resolveHeads(task: StoredTask, changed: boolean, own: string | null | undefined): void {
     if (host.running(task.threadId) || task.deleted || engine.variants(task, "delete").some((item) => !item.version.legacy) || engine.changes(task, task.cursor, 1).length) return;
     const heads = engine.variants(task, "head").filter((item) => !item.version.legacy);
-    if (heads.length < 2) return;
-    if (heads.every((item) => item.version.value === heads[0].version.value)) {
+    if (!heads.length) return;
+    let resolve = heads.length > 1;
+    if (resolve && heads.every((item) => item.version.value === heads[0].version.value)) {
       // Equal heads still look like a fork to older builds; one elected writer folds them so the others never race it.
       const resolvers = heads.filter((item) => engine.automatic(task, item));
-      if ((resolvers.length ? resolvers : heads).map((item) => item.writerId).sort()[0] !== engine.state(task).writerId) return;
+      resolve = (resolvers.length ? resolvers : heads).map((item) => item.writerId).sort()[0] === writer;
     }
-    // One head that has seen every head lets older builds, which pick by writer id, converge too.
+    if (!resolve && !changed) return;
     const value = z.string().nullable().parse(heads[0].version.value);
-    engine.commit(task, [{ kind: "head", value }], undefined, () => {
-      host.store.applySyncChanges(task.botId, task.threadId, [{ cursor: 0, kind: "head", rowId: "", value, conflict: false }]);
+    const stale = own && value ? staleBranch(task, value, own) : undefined;
+    if (stale && !stale.reason) return joinStale(task, stale);
+    if (resolve) {
+      // One head that has seen every head lets older builds, which pick by writer id, converge too.
+      engine.commit(task, [{ kind: "head", value }], undefined, () => {
+        host.store.applySyncChanges(task.botId, task.threadId, [{ cursor: 0, kind: "head", rowId: "", value, conflict: false }]);
+      });
+      schedule(task.threadId);
+    }
+    if (!stale?.reason) return;
+    withMessageTransaction((db) => addNotice(task, db));
+    console.log(`chat sync v2: kept ${task.threadId} split (${stale.reason})`);
+  }
+
+  function ownHead(threadId: string): string | null | undefined {
+    const row = withMessageTransaction((db) => db.prepare(`SELECT json_extract(json, '$.value') AS value FROM sync_v2_frontier
+      WHERE thread = ? AND kind = 'head' AND row_id = '' AND writer = ? AND json_extract(json, '$.legacy') IS NULL ORDER BY seq DESC LIMIT 1`)
+      .get(threadId, writer));
+    return row && z.string().nullable().parse(row.value);
+  }
+
+  /** The branch this PC last picked, once `main` hid it, with the reason it stays split if it can't join. */
+  function staleBranch(task: StoredTask, main: string, own: string): StaleBranch | undefined {
+    const picks = withMessageTransaction((db) => db.prepare(`SELECT json FROM sync_v2_packets WHERE thread = ? AND writer = ?
+      AND json_extract(json, '$.kind') = 'head' AND json_extract(json, '$.legacy') IS NULL ORDER BY seq DESC LIMIT 8`).all(task.threadId, writer));
+    const pick = picks.map((row) => ({ writerId: writer, version: JSON.parse(String(row.json)) })).find((item) => !engine.automatic(task, item));
+    const tip = pick ? z.string().nullable().parse(pick.version.value) : null;
+    if (!pick || tip !== own || tip === main) return;
+    const messages = host.store.messagesFor(task.threadId);
+    const byId = new Map(messages.map((message) => [message.id, message]));
+    // Local conflict notices never sync, so a row under one belongs to the notice's parent.
+    const parentOf = (id: string): string | null | undefined => {
+      let parent = byId.get(id)?.parentId ?? null;
+      for (let hops = 0; parent !== null && hops <= messages.length; hops++) {
+        const row = byId.get(parent);
+        if (!row) return undefined;
+        if (!isConflictNotice(row)) return parent;
+        parent = row.parentId ?? null;
+      }
+      return parent === null ? null : undefined;
+    };
+    const chain = (leaf: string): string[] | undefined => {
+      const ids = [leaf];
+      for (let parent = parentOf(leaf); parent !== null; parent = parentOf(parent)) {
+        if (parent === undefined || ids.length > messages.length) return undefined;
+        ids.push(parent);
+      }
+      return byId.has(leaf) ? ids.reverse() : undefined;
+    };
+    const trunk = chain(main);
+    const branch = chain(tip);
+    if (!trunk || !branch || trunk.includes(tip)) return;
+    const at = branch.findIndex((id, i) => id !== trunk[i]);
+    if (trunk[at] === undefined) return;
+    const rows = branch.slice(at).map((id) => byId.get(id)!);
+    const kids = new Map<string | null | undefined, string[]>();
+    for (const message of messages) {
+      if (isConflictNotice(message)) continue;
+      const parent = parentOf(message.id);
+      kids.set(parent, [...(kids.get(parent) ?? []), message.id]);
+    }
+    const mine = (id: string) => {
+      const variants = engine.variants(task, "row", id);
+      return variants.length === 1 && variants[0].writerId === writer && variants[0].version.origin === host.deviceId;
+    };
+    const packet = (stamp: string) => {
+      const [seq, writerId] = stamp.split(":");
+      const row = withMessageTransaction((db) => db.prepare("SELECT json FROM sync_v2_packets WHERE thread = ? AND writer = ? AND seq = ?").get(task.threadId, writerId, Number(seq)));
+      return row ? packetSchema.parse(JSON.parse(String(row.json))) : undefined;
+    };
+    const based = (stamp: string | null | undefined) => stamp ? packet(stamp)?.value : null;
+    // An append bases its head on the new row's parent; an edit or a branch switch bases it on the old leaf.
+    const appended = (id: string, parent: string | null) => {
+      let version = packet(`${engine.variants(task, "row", id)[0].version.seq}:${writer}`);
+      while (version?.baseStamp) version = packet(version.baseStamp);
+      const head = version && withMessageTransaction((db) => db.prepare(`SELECT json FROM sync_v2_packets WHERE thread = ? AND writer = ? AND seq > ?
+        AND json_extract(json, '$.kind') = 'head' ORDER BY seq LIMIT 1`).get(task.threadId, writer, version.seq));
+      const created = head ? packetSchema.parse(JSON.parse(String(head.json))) : undefined;
+      return created?.value === id && based(created.baseStamp) === parent;
+    };
+    const edited = rows.some((row, i) => (kids.get(row.id)?.length ?? 0) !== (i < rows.length - 1 ? 1 : 0));
+    const turns = rows.filter((row) => row.role === "user" && row.kind === "text").length;
+    const reason = !rows.every((row) => mine(row.id)) ? "another writer"
+      : edited || !appended(rows[0].id, branch[at - 1] ?? null) ? "edit or regenerate"
+      : based(pick.version.baseStamp) !== parentOf(tip) || (kids.get(parentOf(rows[0].id)) ?? []).some((id) => id !== rows[0].id && mine(id)) ? "branch switch"
+      : turns > JOIN_TURNS ? `${turns} user turns`
+      : !soonAfterWake(rows[0].at, JOIN_WINDOW_MS) ? "outside wake window"
+      : rows.some((row) => row.kind === "compaction") ? "compaction" : undefined;
+    return { first: { ...rows[0], parentId: main }, tip, missed: trunk.slice(at).filter((id) => byId.get(id)!.kind === "text").length, reason };
+  }
+
+  function joinStale(task: StoredTask, stale: StaleBranch): void {
+    engine.commit(task, project(task.threadId, [{ kind: "row", value: stale.first }, { kind: "head", value: stale.tip }]), undefined, (db) => {
+      host.store.applySyncChanges(task.botId, task.threadId, [
+        { cursor: 0, kind: "row", rowId: stale.first.id, value: stale.first, conflict: false },
+        { cursor: 0, kind: "head", rowId: "", value: stale.tip, conflict: false },
+      ]);
+      if (stale.missed) db.prepare("INSERT INTO sync_v2_joins VALUES (?, ?, ?) ON CONFLICT(thread) DO UPDATE SET missed = excluded.missed, tip = excluded.tip").run(task.threadId, stale.missed, stale.tip);
     });
     schedule(task.threadId);
   }
@@ -522,11 +637,30 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
       const task = stored(threadId);
       return task ? engine.variants(task, "row", messageId)[0]?.version.origin ?? null : null;
     },
+    /** A failed turn leaves the note for the next prompt. */
+    notes(threadId: string): string[] {
+      const missed = withMessageTransaction((db) => {
+        const row = db.prepare("SELECT missed, tip FROM sync_v2_joins WHERE thread = ?").get(threadId);
+        if (!row) return 0;
+        const path = host.store.activePath(threadId);
+        const at = path.findIndex((message) => message.id === row.tip);
+        if (at < 0 || path.slice(at + 1).some((message) => message.role === "bot" && message.kind === "text")) {
+          db.prepare("DELETE FROM sync_v2_joins WHERE thread = ?").run(threadId);
+          return 0;
+        }
+        return Number(row.missed);
+      });
+      return missed ? [`[Chat sync] ${missed} message${missed === 1 ? "" : "s"} from the other PC arrived before your last reply.`] : [];
+    },
     start(): void {
       const moved = followBotIds();
       void serial(poll).catch(() => {});
       if (!pollTimer) {
-        pollTimer = setInterval(() => void serial(poll).catch(() => {}), THREAD_SYNC_POLL_MS);
+        const tick = wakeClock(THREAD_SYNC_POLL_MS);
+        pollTimer = setInterval(() => {
+          tick();
+          void serial(poll).catch(() => {});
+        }, THREAD_SYNC_POLL_MS);
         pollTimer.unref?.();
       }
       const tasks = withMessageTransaction((db) => z.array(z.object({ threadId: z.string() })).parse(db.prepare("SELECT threadId FROM sync_v2_store").all()));

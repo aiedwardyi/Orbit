@@ -15,6 +15,7 @@ import type { ContextCompactionV1 } from "../../shared/context-compaction.ts";
 export interface TestArgs {
   threadId?: string;
   text?: string;
+  role?: Message["role"];
   id?: string;
   patch?: Partial<Message>;
   count?: number;
@@ -40,6 +41,7 @@ export interface Snapshot {
   historyScans: number;
   headChecks: number;
   pulls: string[];
+  logs: string[];
 }
 
 export type TestResult = Snapshot | Message | TaskRecord | BotRecord | string | null | undefined;
@@ -100,6 +102,12 @@ function traceQueries(): void {
   };
 }
 traceQueries();
+const logs: string[] = [];
+const log = console.log;
+console.log = (...args: Parameters<typeof console.log>) => {
+  logs.push(args.join(" "));
+  log(...args);
+};
 const transports = new Set<ThreadSyncV2>();
 const originalFlush = ThreadSyncV2.prototype.flush;
 ThreadSyncV2.prototype.flush = function (scope, crash, through) {
@@ -125,7 +133,7 @@ parentPort!.on("message", async ({ id, method, args = {} }: { id: number; method
     const threadId = args.threadId ?? "thread";
     switch (method) {
       case "seed": store.adoptSyncedTask(bot.id, { threadId, title: "Chat", createdAt: 1 }, args.rows ?? [], args.leaf ?? null, true); break;
-      case "append": value = store.appendMessage(threadId, { role: "user", kind: "text", text: args.text }); break;
+      case "append": value = store.appendMessage(threadId, { role: args.role ?? "user", kind: "text", text: args.text, at: args.at ?? Date.now() }); break;
       case "compaction": value = store.appendCompaction(threadId, args.compaction!); break;
       case "batch":
         for (let i = 0; i < Number(args.count); i++) store.appendMessage(threadId, { role: "user", kind: "text", text: `row ${i}` });
@@ -158,6 +166,7 @@ parentPort!.on("message", async ({ id, method, args = {} }: { id: number; method
       case "race": live = false; runningCalls = 0; startAt = 3; break;
       case "flush": value = await sync?.flush(threadId); break;
       case "pull": await sync?.pull(threadId); break;
+      case "note": value = sync?.notes(threadId)[0] ?? null; break;
       case "consumeForkByWriter": {
         const scope = { botSyncId: "bot", threadId };
         const engine = createSyncEngine({ folder: input.folder, dataDir: input.dataDir, deviceId: input.deviceId, staged: true });
@@ -216,7 +225,7 @@ parentPort!.on("message", async ({ id, method, args = {} }: { id: number; method
         const outbox = hasSync ? Number(db.prepare("SELECT COUNT(*) AS n FROM sync_v2_packets WHERE writer = (SELECT writer FROM sync_v2_identity)").get()!.n) : 0;
         const pending = hasSync ? Number(db.prepare("SELECT COUNT(*) AS n FROM sync_v2_packets WHERE applied = 0").get()!.n) : 0;
         const disk = db.prepare("SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid").all(threadId).map((row) => JSON.parse(String(row.json)));
-        value = { rows: store.messagesFor(threadId), disk, leaf: store.activeLeaf(threadId), events: events.splice(0), tasks: store.tasks(bot.id), outbox, pending, files: readdirSync(input.dataDir), hasSync, noticeChecks, historyScans, headChecks, pulls: pulls.splice(0) };
+        value = { rows: store.messagesFor(threadId), disk, leaf: store.activeLeaf(threadId), events: events.splice(0), tasks: store.tasks(bot.id), outbox, pending, files: readdirSync(input.dataDir), hasSync, noticeChecks, historyScans, headChecks, pulls: pulls.splice(0), logs };
         break;
       }
       case "close":

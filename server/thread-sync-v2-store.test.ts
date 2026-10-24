@@ -132,6 +132,52 @@ function heads(dataDir: string): Array<{ writer: string; value: string | null }>
   }
 }
 
+function joinCount(dataDir: string): number {
+  const db = new DatabaseSync(join(dataDir, "messages.db"), { readOnly: true });
+  try {
+    return Number(db.prepare("SELECT COUNT(*) AS n FROM sync_v2_joins").get()!.n);
+  } finally {
+    db.close();
+  }
+}
+
+// A kept split puts its notice on top of the main tip.
+function tip(snapshot: Snapshot): string | null {
+  const leaf = snapshot.rows.find((row) => row.id === snapshot.leaf);
+  return leaf && isConflictNotice(leaf) ? leaf.parentId ?? null : snapshot.leaf;
+}
+
+function path(snapshot: Snapshot): string[] {
+  const ids: string[] = [];
+  for (let id = snapshot.leaf; id;) {
+    ids.unshift(id);
+    id = snapshot.rows.find((row) => row.id === id)?.parentId ?? null;
+  }
+  return ids;
+}
+
+// c pulled only the base row before a typed 50 more.
+async function behind() {
+  const folder = temp();
+  const a = pc(folder, "a", true, false, false, LOW);
+  const c = pc(folder, "c", true, false, false, HIGH);
+  await a.call("append", { text: "base" });
+  await a.call("flush");
+  await c.call("pull");
+  await a.call("batch", { count: 50 });
+  await a.call("flush");
+  return { a, c, main: (await a.snapshot()).leaf };
+}
+
+async function exchange(a: ReturnType<typeof pc>, c: ReturnType<typeof pc>): Promise<void> {
+  await c.call("flush");
+  await a.call("pull");
+  await a.call("flush");
+  await c.call("pull");
+  await c.call("flush");
+  await a.call("pull");
+}
+
 afterEach(async () => {
   await Promise.all(peers.splice(0).map((peer) => peer.close()));
   await Promise.all(roots.splice(0).map(removeTempDir));
@@ -390,37 +436,189 @@ describe("store delta sync", { timeout: 60_000 }, () => {
       for (const peer of [a, b]) await peer.call("pull");
       for (const peer of [a, b, c]) {
         const snapshot = await peer.snapshot();
-        expect(snapshot.leaf).toBe(main);
-        expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+        expect(tip(snapshot)).toBe(main);
+        expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(peer === c ? 1 : 0);
         expect(stale.every((row) => snapshot.rows.some((message) => message.id === row.id))).toBe(true);
         await peer.call("restart");
         await peer.call("poll");
-        expect((await peer.snapshot()).leaf).toBe(main);
+        expect(tip(await peer.snapshot())).toBe(main);
       }
       expect(await b.call("head", { id: stale[0].id })).toBe(stale.at(-1)!.id);
     });
   }
 
-  it("keeps every PC on the main branch when a stale PC types once", async () => {
-    const folder = temp();
-    const a = pc(folder, "a", true, false, false, "1a000000-0000-4000-8000-000000000000");
-    const c = pc(folder, "c", true, false, false, "fc000000-0000-4000-8000-000000000000");
-    await a.call("append", { text: "base" });
+  it("joins a stale PC's send and reply onto the main branch on every PC", async () => {
+    const { a, c, main } = await behind();
+    const typed = await c.call<Message>("append", { text: "typed while stale" });
+    const reply = await c.call<Message>("append", { text: "reply", role: "bot" });
+    await exchange(a, c);
+    for (const peer of [a, c]) {
+      const snapshot = await peer.snapshot();
+      expect(snapshot.leaf).toBe(reply.id);
+      expect(snapshot.rows.find((message) => message.id === typed.id)?.parentId).toBe(main);
+      expect(path(snapshot)).toHaveLength(snapshot.rows.length);
+      expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+      expect(heads(peer.dataDir).map((head) => head.value)).toEqual([reply.id]);
+      await peer.call("restart");
+      await peer.call("poll");
+      expect(path(await peer.snapshot())).toEqual(path(snapshot));
+    }
+  });
+
+  for (const [setup, reason] of [["4 user turns", "4 user turns"], ["outside wake window", "outside wake window"], ["edit of the stale send", "edit or regenerate"],
+    ["edit of a row both PCs had", "edit or regenerate"], ["switch back to the stale send", "branch switch"], ["another writer", "another writer"],
+    ["edit, switch back, send again", "branch switch"], ["compaction in the stale rows", "compaction"]]) {
+    it(`keeps a stale send split with a notice and a log line (${setup})`, async () => {
+      const folder = temp();
+      const a = pc(folder, "a", true, false, false, LOW);
+      const c = pc(folder, "c", true, false, false, HIGH);
+      const base = await a.call<Message>("append", { text: "base" });
+      await a.call("flush");
+      if (setup === "another writer") {
+        const b = pc(folder, "b", true, false, false, MID);
+        await b.call("pull");
+        await b.call("append", { text: "from another PC" });
+        await b.call("flush");
+      }
+      await c.call("pull");
+      await a.call("batch", { count: 50 });
+      await a.call("flush");
+      const main = (await a.snapshot()).leaf;
+      if (setup === "4 user turns") await c.call("batch", { count: 4 });
+      else if (setup === "outside wake window") await c.call("append", { text: "typed late", at: Date.now() + 11 * 60_000 });
+      else if (setup === "edit of a row both PCs had") await c.call("branch", { id: base.id, text: "edited" });
+      else if (setup === "compaction in the stale rows") {
+        const covered = await c.call<Message>("append", { text: "old work" });
+        const kept = await c.call<Message>("append", { text: "recent work" });
+        await c.call("compaction", { compaction: {
+          v: 1,
+          coveredThroughId: covered.id,
+          firstKeptId: kept.id,
+          contextWindow: 200_000,
+          estimatedTokensBefore: 900,
+          sourceMessageCount: 1,
+          summary: "old work summary",
+        } });
+      } else {
+        const sent = await c.call<Message>("append", { text: "typed while stale" });
+        if (setup !== "another writer") await c.call("branch", { id: sent.id, text: "edited" });
+        if (setup === "switch back to the stale send" || setup === "edit, switch back, send again") await c.call("head", { id: sent.id });
+        if (setup === "edit, switch back, send again") await c.call("append", { text: "sent again" });
+      }
+      const stale = (await c.snapshot()).rows.slice(1);
+      await exchange(a, c);
+      for (const peer of [a, c]) {
+        const snapshot = await peer.snapshot();
+        expect(tip(snapshot)).toBe(main);
+        expect(stale.every((row) => snapshot.rows.some((message) => message.id === row.id))).toBe(true);
+        expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(peer === c ? 1 : 0);
+      }
+      expect((await c.snapshot()).logs).toContain(`chat sync v2: kept thread split (${reason})`);
+    });
+  }
+
+  it("joins a stale send when only the main PC wrote another version at the fork", async () => {
+    const { a, c, main } = await behind();
+    await a.call("branch", { id: (await a.snapshot()).rows[1].id, text: "edited on main" });
+    await a.call("head", { id: main! });
+    await a.call("flush");
+    const sent = await c.call<Message>("append", { text: "typed while stale" });
+    await exchange(a, c);
+    for (const peer of [a, c]) {
+      const snapshot = await peer.snapshot();
+      expect(snapshot.leaf).toBe(sent.id);
+      expect(snapshot.rows.find((row) => row.id === sent.id)?.parentId).toBe(main);
+      expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
+    }
+  });
+
+  it("notes the other PC's messages until a reply after a join and never after a normal pull", async () => {
+    const { a, c } = await behind();
+    await c.call("append", { text: "typed while stale" });
+    await c.call("append", { text: "reply", role: "bot" });
+    await exchange(a, c);
+    await c.call("restart");
+    const next = await c.call<Message>("append", { text: "next turn" });
+    await c.call("append", { text: "reply on another branch", role: "bot" });
+    await c.call("branch", { id: next.id, text: "retry without a reply" });
+    expect(await c.call("note")).toBe("[Chat sync] 50 messages from the other PC arrived before your last reply.");
+    expect(await c.call("note")).toBe("[Chat sync] 50 messages from the other PC arrived before your last reply.");
+    expect(joinCount(a.dataDir)).toBe(0);
+    expect(await a.call("note")).toBeNull();
+    expect(joinCount(a.dataDir)).toBe(0);
+    await exchange(a, c);
+    await a.call("append", { text: "after the join" });
     await a.call("flush");
     await c.call("pull");
-    await a.call("batch", { count: 50 });
+    expect(await c.call("note")).toBe("[Chat sync] 50 messages from the other PC arrived before your last reply.");
+    await c.call("append", { text: "next reply", role: "bot" });
+    expect(await c.call("note")).toBeNull();
+    expect(joinCount(c.dataDir)).toBe(0);
+    await exchange(a, c);
+    await a.call("append", { text: "a normal pull" });
     await a.call("flush");
-    const main = (await a.snapshot()).leaf;
-    const typed = await c.call<Message>("append", { text: "typed while stale" });
+    await c.call("pull");
+    expect(await c.call("note")).toBeNull();
+    expect(joinCount(c.dataDir)).toBe(0);
+  });
+
+  for (const change of ["a reply from the other PC", "a branch switch"]) {
+    it(`drops a join note after ${change}`, async () => {
+      const { a, c } = await behind();
+      const sent = await c.call<Message>("append", { text: "typed while stale" });
+      await c.call("append", { text: "reply", role: "bot" });
+      await exchange(a, c);
+      if (change === "a reply from the other PC") {
+        await a.call("append", { text: "continued on the other PC" });
+        await a.call("append", { text: "later reply", role: "bot" });
+        await a.call("flush");
+        await c.call("pull");
+      } else await c.call("branch", { id: sent.id, text: "another version" });
+      expect(await c.call("note")).toBeNull();
+      expect(joinCount(c.dataDir)).toBe(0);
+    });
+  }
+
+  for (const outcome of ["a failed turn", "an empty stopped turn"]) {
+    it(`keeps a join note after ${outcome} until a reply follows`, async () => {
+      const { a, c } = await behind();
+      await c.call("append", { text: "typed while stale" });
+      await c.call("append", { text: "reply", role: "bot" });
+      await exchange(a, c);
+      await c.call("append", { text: "next turn" });
+      expect(await c.call("note")).toBe("[Chat sync] 50 messages from the other PC arrived before your last reply.");
+      if (outcome === "a failed turn") {
+        const error = await c.call<Message>("notice");
+        await c.call("patch", { id: error.id, patch: { tool: { name: "error: provider unavailable", ok: false } } });
+      }
+      await c.call("restart");
+      expect(await c.call("note")).toBe("[Chat sync] 50 messages from the other PC arrived before your last reply.");
+      expect(joinCount(c.dataDir)).toBe(1);
+      await c.call("append", { text: "retry replied", role: "bot" });
+      expect(await c.call("note")).toBeNull();
+      expect(joinCount(c.dataDir)).toBe(0);
+    });
+  }
+
+  it("converges on one head when the main PC keeps typing during a join", async () => {
+    const { a, c } = await behind();
+    await c.call("append", { text: "typed while stale" });
+    await c.call("append", { text: "reply", role: "bot" });
     await c.call("flush");
     await a.call("pull");
     await a.call("flush");
     await c.call("pull");
-    for (const peer of [a, c]) {
-      const snapshot = await peer.snapshot();
-      expect(snapshot.leaf).toBe(main);
-      expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
-      expect(snapshot.rows.some((message) => message.id === typed.id)).toBe(true);
+    await a.call("append", { text: "typed on main before the join landed" });
+    for (let round = 0; round < 4; round++) {
+      for (const peer of [a, c]) await peer.call("flush");
+      for (const peer of [a, c]) await peer.call("pull");
+    }
+    const [left, right] = await Promise.all([a.snapshot(), c.snapshot()]);
+    expect(right.leaf).toBe(left.leaf);
+    for (const [peer, snapshot] of [[a, left], [c, right]] as const) {
+      expect(heads(peer.dataDir).map((head) => head.value)).toEqual([snapshot.leaf]);
+      expect(snapshot.rows).toHaveLength(54);
+      expect(path(snapshot)).toHaveLength(54);
     }
   });
 
@@ -472,15 +670,15 @@ describe("store delta sync", { timeout: 60_000 }, () => {
       expect(heads(c.dataDir)).toHaveLength(2);
       await c.call("pull");
       const after = await c.snapshot();
-      expect(after.leaf).toBe(main);
-      expect(db.prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?").get("thread")?.active_leaf_id).toBe(main);
+      expect(tip(after)).toBe(main);
+      expect(db.prepare("SELECT active_leaf_id FROM thread_state WHERE thread_id = ?").get("thread")?.active_leaf_id).toBe(after.leaf);
       expect(after.disk).toEqual(after.rows);
       expect(after.events.some((event) => event.type === "thread" && event.activeLeafId === main && event.importing)).toBe(true);
       expect(after.outbox).toBe(before.outbox + 1);
       expect(heads(c.dataDir).map((head) => head.value)).toEqual([main]);
       await c.call("restart");
       await c.call("poll");
-      expect((await c.snapshot()).leaf).toBe(main);
+      expect(tip(await c.snapshot())).toBe(main);
       expect((await c.snapshot()).outbox).toBe(after.outbox);
     } finally {
       db.close();
@@ -525,12 +723,12 @@ describe("store delta sync", { timeout: 60_000 }, () => {
     await a.call("pull");
     for (const peer of [a, c]) {
       const after = await peer.snapshot();
-      expect(after.leaf).toBe(main);
-      expect(after.rows.filter(isConflictNotice)).toHaveLength(0);
+      expect(tip(after)).toBe(main);
+      expect(after.rows.filter(isConflictNotice)).toHaveLength(peer === c ? 1 : 0);
       expect(after.disk).toEqual(after.rows);
       await peer.call("restart");
       await peer.call("poll");
-      expect((await peer.snapshot()).leaf).toBe(main);
+      expect(tip(await peer.snapshot())).toBe(main);
       expect((await peer.snapshot()).outbox).toBe(after.outbox);
     }
     expect(readFileSync(join(dir, "thread.deleted.json"), "utf8")).toBe(tombstone);
@@ -588,7 +786,7 @@ describe("store delta sync", { timeout: 60_000 }, () => {
       await a.peer.call("batch", { count: 2 });
       await a.peer.call("flush");
       const main = (await a.peer.snapshot()).leaf;
-      await c.peer.call("batch", { count: 1 });
+      await c.peer.call("append", { text: "row 0", at: 1 });
       await c.peer.call("flush");
       share(resolvers, [a, c]);
       const start = await Promise.all(all.map((item) => item.peer.snapshot()));
@@ -613,8 +811,8 @@ describe("store delta sync", { timeout: 60_000 }, () => {
       expect(after.map((snapshot) => snapshot.outbox)).toEqual(settled.map((snapshot) => snapshot.outbox));
       expect(settled.reduce((sum, snapshot, i) => sum + snapshot.outbox - start[i].outbox, 0)).toBe(count + 1);
       for (const [i, item] of all.entries()) {
-        expect(after[i].leaf).toBe(main);
-        expect(after[i].rows.filter(isConflictNotice)).toHaveLength(0);
+        expect(tip(after[i])).toBe(main);
+        expect(after[i].rows.filter(isConflictNotice)).toHaveLength(item === c ? 1 : 0);
         expect(heads(item.peer.dataDir).map((head) => head.value)).toEqual([main]);
       }
     });
@@ -664,7 +862,7 @@ describe("store delta sync", { timeout: 60_000 }, () => {
     await a.call("batch", { count: 20 });
     await a.call("flush");
     const main = (await a.snapshot()).leaf!;
-    const side = await c.call<Message>("append", { text: "side" });
+    const side = await c.call<Message>("append", { text: "side", at: 1 });
     await c.call("flush");
     for (let round = 0; round < 2; round++) {
       for (const peer of [a, c]) await peer.call("pull");

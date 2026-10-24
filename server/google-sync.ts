@@ -13,6 +13,7 @@ import { createDriveClient, DriveClientError, type DriveClient } from "./drive-c
 import { createDriveMirror, decodeDrivePath, DriveMirrorError, drivePathRule, type DriveHashes, type DriveMirrorSummary } from "./drive-mirror.ts";
 import { readDriveOwnIds, type DriveOwnIds } from "./drive-own-ids.ts";
 import { GoogleAccountError, type GoogleAccountStatus } from "./google-account.ts";
+import { lateTick } from "./pc-wake.ts";
 import { PROFILE_SYNC_WORKSPACE_FILE, readSyncOperations } from "./profile-sync.ts";
 
 export const GOOGLE_BINDING_FILE = "google-binding.json";
@@ -291,7 +292,7 @@ export function createGoogleSync(options: Options) {
     timer = setTimeout(() => {
       timer = undefined;
       soon = false;
-      if (now() - due > 60_000) chatFirst = true;
+      if (lateTick(due, ms, now())) chatFirst = true;
       void kick();
     }, ms);
     timer.unref?.();
