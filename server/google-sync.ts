@@ -80,6 +80,7 @@ type Options = {
   republishing?: () => boolean;
   /** Pulls a chat whose peer head a pass just downloaded. */
   pull?: (threadId: string) => void;
+  openThread?: () => string | null;
   ownIds?: () => DriveOwnIds;
   fetch?: typeof fetch;
   now?: () => number;
@@ -157,6 +158,7 @@ export function createGoogleSync(options: Options) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let soon = false;
   let stopped = false;
+  let chatFirst = true;
 
   const mirrorPath = () => {
     const path = join(dataDir, GOOGLE_MIRROR_DIR);
@@ -285,9 +287,11 @@ export function createGoogleSync(options: Options) {
     soon = false;
     if (!runnable()) return;
     soon = ms === 0;
+    const due = now() + ms;
     timer = setTimeout(() => {
       timer = undefined;
       soon = false;
+      if (now() - due > 60_000) chatFirst = true;
       void kick();
     }, ms);
     timer.unref?.();
@@ -359,7 +363,14 @@ export function createGoogleSync(options: Options) {
         total = new Set([...remote, ...await mirrorFiles(bound.mirrorPath)]).size;
       }
       ids = ownIds();
-      summary = await createDriveMirror({ owner, mirrorPath: bound.mirrorPath, statePath, ownIds: ids, client, now, uploads, hashes }).syncOnce();
+      summary = await createDriveMirror({
+        owner, mirrorPath: bound.mirrorPath, statePath, ownIds: ids, client, now, uploads, hashes, chatFirst,
+        openThread: chatFirst ? options.openThread?.() : null,
+        downloaded: (path) => {
+          if (bound.phase !== "ready") return;
+          for (const threadId of peerHead(path, ids)) options.pull?.(threadId);
+        },
+      }).syncOnce();
     } catch (error) {
       const offline = error instanceof GoogleAccountError || (error instanceof DriveClientError && (error.status === 0 || error.status >= 500 || error.status === 429));
       problem = offline ? "offline" : "error";
@@ -368,7 +379,7 @@ export function createGoogleSync(options: Options) {
     }
     problem = null;
     lastSyncAt = now();
-    if (bound.phase === "ready") for (const threadId of new Set(summary.downloaded.flatMap((path) => peerHead(path, ids)))) options.pull?.(threadId);
+    if (summary.retryAfterMs === null && summary.failed.length === 0) chatFirst = false;
     if (!summary.driveFull) {
       fullStrikes = 0;
       uploadAt = 0;
@@ -463,6 +474,7 @@ export function createGoogleSync(options: Options) {
       const bound = binding.kind === "ok" ? binding.binding : null;
       if (bound?.phase === "ready" && !lost() && !folderMode() && (!options.folder() || !existsSync(republishedPath))) activate(bound.mirrorPath);
       catching = runnable() !== null;
+      chatFirst = true;
       void kick();
     },
     stop(): void {
