@@ -1088,8 +1088,8 @@ describe("ChatView header avatar tap", () => {
     expect(await tap(true)).toEqual({ open: true, avatar: 0 });
   });
 
-  it("opens the avatar picker from the header icon on desktop", async () => {
-    expect(await tap(false)).toEqual({ open: true, avatar: 1 });
+  it("opens bot details without an avatar request on desktop", async () => {
+    expect(await tap(false)).toEqual({ open: true, avatar: 0 });
   });
 });
 

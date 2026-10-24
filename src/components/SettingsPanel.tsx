@@ -26,20 +26,27 @@ import { shortPath } from "@/lib/short-path";
 import { instanceSupportsLocalComputer, localComputerDisabledReason, localComputerSelectable } from "@/lib/local-computer";
 import { BotAvatar } from "./Avatar";
 import { BotProfileAvatarCard } from "./BotProfileAvatarCard";
+import { Expand } from "./Expand";
+import { BotSaveStatus, SaveStatus } from "./SaveStatus";
 import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { VoiceSettings } from "./VoiceSettings";
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 
 function Field({
   label,
+  status,
   children,
 }: {
   label: string;
+  status?: ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <label className="block">
-      <div className="mb-1.5 text-[13px] text-ink-secondary">{label}</div>
+      <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[13px] text-ink-secondary">
+        <span>{label}</span>
+        {status}
+      </div>
       {children}
     </label>
   );
@@ -298,7 +305,9 @@ function MemoryCard({ bot }: { bot: Bot }) {
   const [truncated, setTruncated] = useState(false);
   const [topics, setTopics] = useState<MemoryTopic[]>([]);
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const [topic, setTopic] = useState<{ name: string; text: string } | null>(null);
+  const [topic, setTopic] = useState<string | null>(null);
+  const [topicTexts, setTopicTexts] = useState(new Map<string, string>());
+  const topicRequest = useRef(0);
   const [conflict, setConflict] = useState<MemoryLatest | null>(null);
   const savedFade = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -309,6 +318,7 @@ function MemoryCard({ bot }: { bot: Bot }) {
     setLoading(true);
     setError(null);
     setTopic(null);
+    topicRequest.current++;
     try {
       const result = await read();
       setTruncated(result.truncated);
@@ -363,9 +373,18 @@ function MemoryCard({ bot }: { bot: Bot }) {
   const openTopic = async (name: string) => {
     void flushMemory(botId);
     setError(null);
+    const request = ++topicRequest.current;
+    if (topic === name) {
+      setTopic(null);
+      return;
+    }
+    setTopic(name);
     try {
-      setTopic(await api(`/api/bots/${bot.id}/memory/topics/${encodeURIComponent(name)}`));
+      const result: { text: string } = await api(`/api/bots/${botId}/memory/topics/${encodeURIComponent(name)}`);
+      if (request === topicRequest.current) setTopicTexts((texts) => new Map(texts).set(name, result.text));
     } catch (e) {
+      if (request !== topicRequest.current) return;
+      setTopic(null);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
@@ -420,30 +439,11 @@ function MemoryCard({ bot }: { bot: Bot }) {
     <div>
       <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[13px] text-ink-secondary">
         <span>{t("bot.memory")}</span>
-        <span role="status" className="text-[12px]">
-          {status === "saving" ? t("bot.memorySaving") : status === "saved" ? t("bot.memorySaved") : null}
-        </span>
+        <SaveStatus status={status} />
       </div>
-      {loading && <div className="text-[13px] text-ink-secondary">Loading…</div>}
+      {loading && <div className="text-[13px] text-ink-secondary">{t("bot.memoryLoading")}</div>}
 
-      {!loading && topic && (
-        <div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="truncate font-mono text-[12.5px] text-ink">memory/{topic.name}</span>
-            <button
-              onClick={() => setTopic(null)}
-              className="shrink-0 rounded-md px-2 py-1 text-[13px] text-ink-secondary hover:bg-control hover:text-ink"
-            >
-              Back
-            </button>
-          </div>
-          <pre className="mt-2 max-h-[240px] overflow-auto whitespace-pre-wrap rounded-lg border border-hairline/40 bg-inset p-3 font-mono text-[12.5px] leading-relaxed text-ink">
-            {topic.text}
-          </pre>
-        </div>
-      )}
-
-      {!loading && !topic && (
+      {!loading && (
         <div>
           <textarea
             className={cn(inputCls, "min-h-[160px] resize-y font-mono text-[12.5px] leading-relaxed")}
@@ -470,25 +470,38 @@ function MemoryCard({ bot }: { bot: Bot }) {
           )}
           {truncated && (
             <div className="mt-2 text-[11.5px] text-ink-secondary">
-              Only the top loads each turn.
+              {t("bot.memoryTopOnly")}
             </div>
           )}
           {topics.length > 0 && (
             <div className="mt-3">
-              <div className="mb-1.5 text-[12px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
-                Topic files
+              <div className="mb-1.5 text-[12px] font-medium text-ink-secondary">
+                {t("bot.memoryTopics")}
               </div>
               <div className="overflow-hidden rounded-lg border border-hairline/40">
-                {topics.map((entry) => (
-                  <button
-                    key={entry.name}
-                    onClick={() => void openTopic(entry.name)}
-                    className="flex w-full items-center justify-between gap-2 border-b border-hairline/40 px-3 py-2 text-left last:border-b-0 hover:bg-control/60"
-                  >
-                    <span className="truncate font-mono text-[12.5px] text-ink">{entry.name}</span>
-                    <span className="shrink-0 text-[11.5px] text-ink-secondary">{formatBytes(entry.bytes)}</span>
-                  </button>
-                ))}
+                {topics.map((entry) => {
+                  const open = topic === entry.name;
+                  const text = topicTexts.get(entry.name);
+                  return (
+                    <div key={entry.name} className="border-b border-hairline/40 last:border-b-0">
+                      <button
+                        onClick={() => void openTopic(entry.name)}
+                        aria-expanded={open}
+                        aria-busy={(open && text === undefined) || undefined}
+                        className={cn("flex w-full items-center gap-2 px-3 py-2 text-left", open ? "bg-control" : "hover:bg-control/60")}
+                      >
+                        <ChevronDown size={12} className={cn("shrink-0 text-ink-secondary transition-transform", open && "rotate-180")} aria-hidden="true" />
+                        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">{entry.name}</span>
+                        <span className="shrink-0 text-[11.5px] text-ink-secondary">{open && text === undefined ? t("bot.memoryLoading") : formatBytes(entry.bytes)}</span>
+                      </button>
+                      <Expand open={open && text !== undefined}>
+                        <pre className="mx-3 mb-3 mt-2 max-h-[240px] overflow-auto whitespace-pre-wrap rounded-lg border border-hairline/40 bg-inset p-3 font-mono text-[12.5px] leading-relaxed text-ink">
+                          {text}
+                        </pre>
+                      </Expand>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -529,10 +542,12 @@ function MemoryCard({ bot }: { bot: Bot }) {
 export function SettingsPanel({
   bot,
   closing = false,
+  enter = false,
   defaultAdvancedOpen = false,
 }: {
   bot: Bot;
   closing?: boolean;
+  enter?: boolean;
   /** Start with Advanced expanded (tests). */
   defaultAdvancedOpen?: boolean;
 }) {
@@ -642,7 +657,7 @@ export function SettingsPanel({
     {/* Below md the sidebar is already a drawer, so docking here would leave a
         ~200px chat column at the window floor. Take the content area instead,
         z-30 to cover the drawer button, still under the drawer itself at z-40. */}
-    <aside ref={panelRef} data-settings-panel="" data-closing={closing || undefined} inert={closing} className="animate-panel-in relative z-20 flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-30 max-md:w-full">
+    <aside ref={panelRef} data-settings-panel="" data-closing={closing || undefined} inert={closing} className={cn(enter && "animate-panel-in", "relative z-20 flex h-full w-[400px] shrink-0 flex-col border-l border-hairline/40 bg-panel max-md:absolute max-md:inset-y-0 max-md:right-0 max-md:z-30 max-md:w-full")}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3">
         <button
@@ -699,28 +714,31 @@ export function SettingsPanel({
             )}
           </div>
 
-          <Field label={t("bot.name")}>
+          <Field label={t("bot.name")} status={<BotSaveStatus botId={bot.id} field="name" />}>
             <input
               className={inputCls}
               maxLength={BOT_PROFILE_LIMITS.name}
+              aria-label={t("bot.name")}
               value={bot.name}
               onChange={(e) => patch({ name: e.target.value })}
             />
           </Field>
-          <Field label={t("bot.title")}>
+          <Field label={t("bot.title")} status={<BotSaveStatus botId={bot.id} field="title" />}>
             <input
               className={inputCls}
               maxLength={BOT_PROFILE_LIMITS.title}
               placeholder={t("bot.titlePlaceholder")}
+              aria-label={t("bot.title")}
               value={bot.title}
               onChange={(e) => patch({ title: e.target.value })}
             />
           </Field>
-          <Field label={t("bot.description")}>
+          <Field label={t("bot.description")} status={<BotSaveStatus botId={bot.id} field="description" />}>
             <textarea
               className={cn(inputCls, "min-h-[96px] resize-none")}
               maxLength={BOT_PROFILE_LIMITS.description}
               placeholder={t("bot.descriptionPlaceholder")}
+              aria-label={t("bot.description")}
               value={bot.description}
               onChange={(e) => patch({ description: e.target.value })}
             />

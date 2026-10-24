@@ -64,6 +64,7 @@ export interface BotPatchQueueOptions {
   reconcile: (botId: string, signal: AbortSignal) => Promise<BotAnnouncement | null>;
   onAuthoritative: (bot: BotAnnouncement, optimisticOverlay: BotUpdatePatch) => void;
   onError: (error: Error) => void;
+  onStatus?: (botId: string, patch: BotUpdatePatch, status: "saving" | "saved" | "idle", pending?: BotUpdatePatch) => void;
 }
 
 export interface BotPatchQueue {
@@ -117,6 +118,7 @@ export function createBotPatchQueue(options: BotPatchQueueOptions): BotPatchQueu
       if (disposed || entry.cancelled) return;
       entry.fallback = bot;
       options.onAuthoritative(bot, stateOverlay(entry.pending));
+      options.onStatus?.(entry.botId, patch, "saved", entry.pending);
     } catch (caught) {
       if (!disposed && !entry.cancelled) {
         // A rejected patch is no longer optimistic. Re-read before rolling back
@@ -135,6 +137,7 @@ export function createBotPatchQueue(options: BotPatchQueueOptions): BotPatchQueu
         if (disposed || entry.cancelled) return;
         if (bot) options.onAuthoritative(bot, stateOverlay(entry.pending));
         options.onError(caught instanceof Error ? caught : new Error(String(caught)));
+        options.onStatus?.(entry.botId, patch, "idle", entry.pending);
       }
     } finally {
       entry.controller = null;
@@ -172,6 +175,7 @@ export function createBotPatchQueue(options: BotPatchQueueOptions): BotPatchQueu
       entries.set(botId, entry);
       entry.pending = { ...entry.pending, ...patch };
       schedule(entry);
+      options.onStatus?.(botId, patch, "saving");
     },
 
     flush(botId) {
@@ -199,6 +203,7 @@ export function createBotPatchQueue(options: BotPatchQueueOptions): BotPatchQueu
       if (entry.timer !== null) clearTimeout(entry.timer);
       entry.controller?.abort();
       entries.delete(botId);
+      options.onStatus?.(botId, { ...entry.inFlight, ...entry.pending }, "idle");
       for (const resolve of entry.idleWaiters.splice(0)) resolve();
     },
 
@@ -212,6 +217,7 @@ export function createBotPatchQueue(options: BotPatchQueueOptions): BotPatchQueu
         entry.cancelled = true;
         if (entry.timer !== null) clearTimeout(entry.timer);
         entry.controller?.abort();
+        options.onStatus?.(entry.botId, { ...entry.inFlight, ...entry.pending }, "idle");
         for (const resolve of entry.idleWaiters.splice(0)) resolve();
       }
       entries.clear();

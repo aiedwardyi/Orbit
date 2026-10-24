@@ -290,7 +290,7 @@ describe("SettingsPanel memory autosave", () => {
     });
   };
   const box = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Memory"]')!;
-  const status = () => host.querySelector('[role="status"]')?.textContent ?? "";
+  const status = () => box().parentElement?.parentElement?.querySelector('[role="status"] > :not([data-closing])')?.textContent ?? "";
   const notice = () => host.querySelector('[role="alert"]')?.firstElementChild?.textContent ?? "";
   const button = (label: string) => Array.from(host.querySelectorAll("button")).find((each) => each.textContent === label)!;
   const stored = (id: string) => JSON.parse(localStorage.getItem(`omb-memory-draft:${id}`) ?? "null");
@@ -412,11 +412,11 @@ describe("SettingsPanel memory autosave", () => {
       box().dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
     });
     await act(async () => {
-      host.querySelector<HTMLButtonElement>("button[class*='last:border-b-0']")!.click();
+      Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("prefs.md"))!.click();
     });
-    expect(host.textContent).toContain("memory/prefs.md");
+    expect(host.querySelector("pre")?.textContent).toBe("tea");
     await act(async () => {
-      Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Back")!.click();
+      Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("prefs.md"))!.click();
     });
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     await act(async () => {

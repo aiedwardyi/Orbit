@@ -1658,7 +1658,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         <div ref={phoneClusterRef} className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-lg px-1.5 py-1 max-md:flex-[0_1000_auto]">
           <button
             data-orbit-chat-focus-fallback=""
-            onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}
+            onClick={() => dispatch({ type: "toggleSettings", open: true })}
             className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised/50"
             title={t("chat.openProfile", { name: bot.name })}
             aria-label={t("chat.openProfile", { name: bot.name })}
@@ -1682,14 +1682,15 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
             {bot.name}
           </button>
           <div className="min-w-0 flex-1 overflow-hidden max-md:hidden">
-            <RenameTitle
-              value={bot.name}
-              onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
-              onActivate={() => dispatch({ type: "toggleSettings", open: true })}
-              showEditButton
-              className="truncate text-[15px] font-semibold text-ink"
-              inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
-            />
+            <button
+              type="button"
+              onClick={() => dispatch({ type: "toggleSettings", open: true })}
+              title={t("chat.openProfile", { name: bot.name })}
+              aria-label={t("chat.openProfile", { name: bot.name })}
+              className="max-w-full truncate text-left text-[15px] font-semibold text-ink"
+            >
+              {bot.name}
+            </button>
           </div>
           <DeviceTag />
           {bot.chiefOfStaff && (
