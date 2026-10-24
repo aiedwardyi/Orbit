@@ -56,7 +56,7 @@ export interface DriveMirrorSummary {
 
 /** Local md5s by path, trusted while size and mtime hold; outlives one mirror so later passes skip rehashing. */
 export type DriveHashes = Map<string, { size: bigint; mtimeNs: bigint; md5: string }>;
-type Options = { owner: DriveOwner; mirrorPath: string; statePath: string; ownIds: DriveOwnIds; client: DriveClient; now?: () => number; uploads?: boolean; hashes?: DriveHashes };
+type Options = { owner: DriveOwner; mirrorPath: string; statePath: string; ownIds: DriveOwnIds; client: DriveClient; now?: () => number; uploads?: boolean; hashes?: DriveHashes; chatFirst?: boolean; openThread?: string | null; downloaded?: (path: string) => void };
 const passes = new Set<string>();
 const samePath = (a: string, b: string) => process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 const md5 = (bytes: Uint8Array) => createHash("md5").update(bytes).digest("hex");
@@ -94,16 +94,19 @@ export function drivePathRule(path: string, ids: DriveOwnIds): DrivePathRule {
   return "unknown";
 }
 
-function priority(path: string): number {
+function priority(path: string, chatFirst = false, openThread?: string | null): number {
   if (path === "workspace.json") return 0;
   if (path.startsWith("assets/")) return 1;
-  if (path.startsWith("pictures/")) return 2;
-  if (/\/seg-[1-9]\d*-[1-9]\d*\.json\.gz$/.test(path)) return 3;
-  if (path.startsWith("changes/")) return 4;
-  if (/^memory-v2(?: \([1-9]\d*\))?\//.test(path)) return 6;
-  if (path.endsWith("/head.json")) return 7;
-  if (path.startsWith("devices/")) return 8;
-  return 5;
+  const thread = /^threads-v2(?: \([1-9]\d*\))?\/[^/]+\/([^/]+)\/[^/]+\/(seg-[1-9]\d*-[1-9]\d*\.json\.gz|head\.json)$/.exec(path);
+  if (chatFirst && thread) return (thread[1] === openThread ? 2 : 4) + Number(thread[2] === "head.json");
+  const offset = chatFirst ? 4 : 0;
+  if (path.startsWith("pictures/")) return 2 + offset;
+  if (/\/seg-[1-9]\d*-[1-9]\d*\.json\.gz$/.test(path)) return 3 + offset;
+  if (path.startsWith("changes/")) return 4 + offset;
+  if (/^memory-v2(?: \([1-9]\d*\))?\//.test(path)) return 6 + offset;
+  if (path.endsWith("/head.json")) return 7 + offset;
+  if (path.startsWith("devices/")) return 8 + offset;
+  return 5 + offset;
 }
 
 function canonicalPath(path: string): string {
@@ -610,6 +613,7 @@ export function createDriveMirror(options: Options) {
           if (written) summary.downloaded.push(path);
           else summary.skipped.push(path);
           track(path, file);
+          if (written) options.downloaded?.(path);
         } else if (!summary.conflicts.includes(path)) summary.conflicts.push(path);
       }
     }
@@ -639,10 +643,10 @@ export function createDriveMirror(options: Options) {
     // One priority tier at a time; a throw still waits for the rest in flight so no save lands after the pass.
     async function each(items: Iterable<string>): Promise<void> {
       const tiers = new Map<number, string[]>();
-      for (const path of [...items].sort((a, b) => priority(a) - priority(b) || a.localeCompare(b))) {
-        const tier = tiers.get(priority(path));
+      for (const path of [...items].sort((a, b) => priority(a, options.chatFirst, options.openThread) - priority(b, options.chatFirst, options.openThread) || a.localeCompare(b))) {
+        const tier = tiers.get(priority(path, options.chatFirst, options.openThread));
         if (tier) tier.push(path);
-        else tiers.set(priority(path), [path]);
+        else tiers.set(priority(path, options.chatFirst, options.openThread), [path]);
       }
       const thrown: unknown[] = [];
       for (const tier of tiers.values()) {

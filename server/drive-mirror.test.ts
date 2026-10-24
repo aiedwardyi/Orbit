@@ -5,12 +5,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { createDriveClient } from "./drive-client.ts";
 import { createDriveMirror, decodeDrivePath, drivePathHash, drivePathRule, encodeDrivePath, renameDriveFile, DriveMirrorError, type DriveHashes, type DriveOwner } from "./drive-mirror.ts";
 import { DriveIdentityError, readDriveOwnIds, type DriveOwnIds } from "./drive-own-ids.ts";
+import { GoogleAccount } from "./google-account.ts";
+import { GOOGLE_BINDING_FILE, GOOGLE_MIRROR_DIR, GOOGLE_TABLE_FILE, createGoogleSync, type GoogleSync } from "./google-sync.ts";
 import { applySyncOperations, createSyncOperation, emptyProfileSyncState, readSyncOperations, syncOperationFileName, writeSyncOperation } from "./profile-sync.ts";
 import { FakeDrive } from "./testing/fake-drive.ts";
 
@@ -193,6 +195,139 @@ describe("Drive mirror", () => {
     for (const path of paths.toReversed()) seed(path, path);
     expect((await pcs[1].mirror.syncOnce()).downloaded).toEqual(paths);
     expect(drive.downloads.map((id) => decodeDrivePath(drive.records.get(id)!.file.name))).toEqual(paths);
+  });
+
+  describe("boot and wake catch-up", () => {
+    let sync: GoogleSync | undefined;
+    const open = "threads-v2/bot/z-open/writer-home";
+    const other = "threads-v2 (1)/aaa/a-other/writer-home";
+    const downloaded = () => drive.downloads.map((id) => decodeDrivePath(drive.records.get(id)!.file.name)!);
+
+    async function boot(clock: { now: number }, opened: () => string | null, pull: (threadId: string) => void, pc = pcs[1]) {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const dataDir = dirname(pc.statePath);
+      pc.folder = join(dataDir, GOOGLE_MIRROR_DIR);
+      pc.statePath = join(dataDir, GOOGLE_TABLE_FILE);
+      mkdirSync(pc.folder);
+      await mirrorFor(pc).syncOnce();
+      writeFileSync(join(dataDir, GOOGLE_BINDING_FILE), JSON.stringify({
+        version: 1, spaceId: "test-space", owner: OWNER, emailHint: "test@example.com", transport: "google-drive",
+        rootId: drive.root().id, mirrorPath: pc.folder, transportStatePath: pc.statePath, workspaceId: "test-workspace", heldBots: [], phase: "ready",
+      }));
+      const account = new GoogleAccount({ id: "test-client", secret: "test-secret" }, null, {
+        fetch: async () => Response.json({ access_token: "test-access", expires_in: 3600 }), log: () => {},
+      });
+      account.setSession({ refreshToken: "test-refresh", sub: OWNER.sub, email: "test@example.com" });
+      sync = createGoogleSync({
+        dataDir, account, folder: () => pc.folder, prepare: () => {}, unusedBots: () => [], activate: () => "test-workspace",
+        ownIds: () => pc.ids, fetch: withParents, now: () => clock.now, openThread: opened, pull, log: () => {},
+      });
+      return sync;
+    }
+
+    function backlog(prefix: string) {
+      drive.pageSize = 1000;
+      for (let i = 0; i < 40; i++) seed(`pictures/${prefix}-${i}.png`, "picture");
+      seed(`${other}/seg-1-2.json.gz`, "other rows");
+      seed(`${other}/head.json`, "other head");
+      const segments = Array.from({ length: 10 }, (_, i) => `${open}/seg-${i * 2 + 1}-${i * 2 + 2}.json.gz`);
+      for (const path of segments) seed(path, "open rows");
+      const head = seed(`${open}/head.json`, "open head");
+      seed("memory-v2/bot/aaaaaaaaaaaa.json", "memory");
+      seed("devices/device-home.json", "device");
+      return { head, segments };
+    }
+
+    afterEach(() => {
+      sync?.stop();
+      sync = undefined;
+      vi.useRealTimers();
+    });
+
+    it("lands chat heads before 40 pictures on boot with no open thread", async () => {
+      const google = await boot({ now: 1_800_000_000_000 }, () => null, () => {});
+      const { segments } = backlog("no-open");
+      const readyAtHead: boolean[] = [];
+      drive.onDownload = async (file) => {
+        if (decodeDrivePath(file.name)!.endsWith("/head.json")) {
+          readyAtHead.push([...segments, `${other}/seg-1-2.json.gz`].every((path) => existsSync(join(pcs[1].folder, path))));
+        }
+      };
+      google.resume();
+      await google.kick();
+      const paths = downloaded();
+      const picture = paths.findIndex((path) => path.startsWith("pictures/"));
+      expect(paths.indexOf(`${open}/head.json`)).toBeLessThan(picture);
+      expect(paths.indexOf(`${other}/head.json`)).toBeLessThan(picture);
+      expect(readyAtHead).toEqual([true, true]);
+    });
+
+    it("lands the open chat before 40 pictures on boot and keeps normal passes picture-first", async () => {
+      const pulls: string[] = [];
+      const google = await boot({ now: 1_800_000_000_000 }, () => "z-open", (threadId) => { pulls.push(threadId); });
+      const { head, segments } = backlog("boot");
+      const readyAtHead: boolean[] = [];
+      const pulledAtPicture: boolean[] = [];
+      let active = 0;
+      let peak = 0;
+      drive.onDownload = async (file) => {
+        peak = Math.max(peak, ++active);
+        const path = decodeDrivePath(file.name)!;
+        if (path === `${open}/head.json`) readyAtHead.push(segments.every((segment) => existsSync(join(pcs[1].folder, segment))));
+        if (path.startsWith("pictures/")) pulledAtPicture.push(pulls.includes("z-open"));
+        await delay(path.includes("/seg-") ? 2 : 0);
+        active--;
+      };
+      google.resume();
+      await google.kick();
+      const paths = downloaded();
+      expect(paths.indexOf(`${open}/head.json`)).toBeLessThan(paths.findIndex((path) => path.startsWith("pictures/")));
+      expect(paths.slice(0, segments.length)).toEqual(segments.toSorted());
+      expect(paths.indexOf(`${open}/head.json`)).toBeLessThan(paths.indexOf(`${other}/seg-1-2.json.gz`));
+      expect(paths.indexOf(`${other}/head.json`)).toBeLessThan(paths.findIndex((path) => path.startsWith("pictures/")));
+      expect(readyAtHead).toEqual([true]);
+      expect(pulledAtPicture).toEqual(Array(40).fill(true));
+      expect(pulls.filter((threadId) => threadId === "z-open")).toHaveLength(1);
+      expect(peak).toBe(8);
+
+      drive.downloads.length = 0;
+      drive.onDownload = undefined;
+      seed("pictures/normal.png", "new picture");
+      seed(`${open}/seg-21-22.json.gz`, "new rows");
+      drive.edit(head.id, Buffer.from("new head"));
+      await google.kick();
+      expect(downloaded()).toEqual(["pictures/normal.png", `${open}/seg-21-22.json.gz`, `${open}/head.json`]);
+
+      google.stop();
+      const unopened = await boot({ now: 1_800_000_000_000 }, () => null, () => {}, pcs[2]);
+      drive.downloads.length = 0;
+      seed("pictures/unopened.png", "new picture");
+      drive.edit(head.id, Buffer.from("unopened head"));
+      unopened.resume();
+      await unopened.kick();
+      expect(downloaded()).toEqual([`${open}/head.json`, "pictures/unopened.png"]);
+    });
+
+    it("uses chat-first only when a scheduled tick is over 60 seconds late", async () => {
+      const clock = { now: 1_800_000_000_000 };
+      const google = await boot(clock, () => "z-open", () => {});
+      google.resume();
+      await google.kick();
+      const { head } = backlog("boundary");
+      clock.now += 30_000 + 60_000;
+      await vi.advanceTimersByTimeAsync(30_000);
+      await google.kick();
+      expect(downloaded()[0]).toMatch(/^pictures\//);
+
+      drive.downloads.length = 0;
+      seed("pictures/wake.png", "new picture");
+      seed(`${open}/seg-21-22.json.gz`, "wake rows");
+      drive.edit(head.id, Buffer.from("wake head"));
+      clock.now += 30_000 + 60_001;
+      await vi.advanceTimersByTimeAsync(30_000);
+      await google.kick();
+      expect(downloaded()).toEqual([`${open}/seg-21-22.json.gz`, `${open}/head.json`, "pictures/wake.png"]);
+    });
   });
 
   it("seeds pre-existing peer files too when Drive lacks them", async () => {

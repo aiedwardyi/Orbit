@@ -295,6 +295,20 @@ describe("store delta sync", { timeout: 60_000 }, () => {
     expect((await a.snapshot()).historyScans).toBe(first.historyScans);
   });
 
+  it("polls the most recently opened thread first, once per poll", async () => {
+    const a = pc(temp(), "a");
+    for (const threadId of ["a-other", "z-open"]) {
+      await a.call("seed", { threadId });
+      await a.call("append", { threadId, text: threadId });
+      await a.call("flush", { threadId });
+    }
+    await a.call("open", { threadId: "a-other" });
+    await a.call("open", { threadId: "z-open" });
+    await a.snapshot();
+    await a.call("poll");
+    expect((await a.snapshot()).pulls).toEqual(["z-open", "a-other"]);
+  });
+
   it("checks the active path once per new conflict and keeps one notice", async () => {
     const folder = temp();
     const a = pc(folder, "a");

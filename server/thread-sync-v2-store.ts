@@ -34,6 +34,7 @@ export interface SyncStoreHost {
   target(threadId: string): Target | null;
   bots(): Target[];
   running(threadId: string): boolean;
+  openThread?(): string | null;
   project(message: Message): Message;
   imported(botId: string): void;
   maintenance(): void | Promise<void>;
@@ -496,8 +497,13 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
         console.log(`chat sync v2: migration complete (${status.threads} threads, ${status.rows} local rows, ${status.published} versions)`);
       }
     }
+    const openThread = host.openThread?.();
+    const openTarget = openThread ? host.target(openThread) : null;
+    if (openThread && openTarget) await pull(openThread, openTarget);
     for (const target of host.bots()) {
-      for (const threadId of await transport.threads(target.botSyncId)) await pull(threadId, target);
+      for (const threadId of await transport.threads(target.botSyncId)) {
+        if (threadId !== openThread || !openTarget) await pull(threadId, target);
+      }
     }
   }
 

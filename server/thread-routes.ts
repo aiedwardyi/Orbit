@@ -45,7 +45,9 @@ export function createThreadRoutes(deps: ThreadRouteDeps) {
     resolveAndSendRoutine,
     approvalBus,
   } = deps;
+  let openThread: string | null = null;
   return {
+    openThread: () => openThread,
     listMessages: async (res: ServerResponse, m: RegExpMatchArray, url: URL) => {
       const threadId = m[1];
       if (!store.botByThread(threadId) && !store.groupByThread(threadId)) {
@@ -53,6 +55,7 @@ export function createThreadRoutes(deps: ThreadRouteDeps) {
       }
       const limit = pageSize(url.searchParams.get("limit"));
       if (limit === null) return json(res, 400, { error: "limit must be a non-negative whole number" });
+      openThread = threadId;
       if (threadSyncGate.enabled) await pullSyncedThread(threadId);
       else pullSyncedThread(threadId);
       const before = url.searchParams.get("before");

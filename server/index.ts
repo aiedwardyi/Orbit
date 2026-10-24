@@ -1974,6 +1974,7 @@ function initializeThreadSyncV2() {
       return botSyncId ? [{ botId: bot.id, botSyncId }] : [];
     }),
     running: (threadId) => threadSyncHost(profileSyncSettings.folder ?? "").running(threadId),
+    openThread: () => threadRoutes.openThread(),
     project: clientMessage,
     imported: (botId) => {
       if (botHasActiveTurn(botId)) pendingSyncFollows.add(botId);
@@ -2196,6 +2197,7 @@ const googleSync = createGoogleSync({
   },
   republishing: () => threadSyncV2?.republishing() ?? false,
   pull: (threadId) => void pullSyncedThread(threadId),
+  openThread: () => threadRoutes.openThread(),
 });
 const uploadCloudRoots = cloudSyncRoots();
 let uploadTarget: { folder: string | null; dir: string } | undefined;
