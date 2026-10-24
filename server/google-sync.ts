@@ -78,6 +78,8 @@ type Options = {
   activate: (mirrorPath: string, move: boolean) => string;
   /** The engines are still writing what activate republished. */
   republishing?: () => boolean;
+  /** Pulls a chat whose peer head a pass just downloaded. */
+  pull?: (threadId: string) => void;
   ownIds?: () => DriveOwnIds;
   fetch?: typeof fetch;
   now?: () => number;
@@ -128,6 +130,7 @@ function workspaceId(bytes: Buffer): string | null {
   }
 }
 
+const peerHead = (path: string, ids: DriveOwnIds) => path.startsWith("threads-v2") && path.endsWith("/head.json") && drivePathRule(path, ids) === "peer" ? [path.split("/")[2]] : [];
 const blocksJoin = (path: string) => path === PROFILE_SYNC_WORKSPACE_FILE || path.startsWith("changes/") || path.startsWith("devices/");
 
 export function createGoogleSync(options: Options) {
@@ -344,6 +347,7 @@ export function createGoogleSync(options: Options) {
   async function pass(bound: GoogleBinding): Promise<number> {
     const owner = { issuer: ISSUER, sub: bound.owner.sub } as const;
     let summary: DriveMirrorSummary;
+    let ids: DriveOwnIds;
     // A republish that ends mid-pass may have written files after the scan.
     const busy = options.republishing?.() ?? false;
     const uploads = now() >= uploadAt;
@@ -354,7 +358,8 @@ export function createGoogleSync(options: Options) {
         const remote = root ? (await client.listChildren(root.id)).flatMap((file) => decodeDrivePath(file.name) ?? []) : [];
         total = new Set([...remote, ...await mirrorFiles(bound.mirrorPath)]).size;
       }
-      summary = await createDriveMirror({ owner, mirrorPath: bound.mirrorPath, statePath, ownIds: ownIds(), client, now, uploads, hashes }).syncOnce();
+      ids = ownIds();
+      summary = await createDriveMirror({ owner, mirrorPath: bound.mirrorPath, statePath, ownIds: ids, client, now, uploads, hashes }).syncOnce();
     } catch (error) {
       const offline = error instanceof GoogleAccountError || (error instanceof DriveClientError && (error.status === 0 || error.status >= 500 || error.status === 429));
       problem = offline ? "offline" : "error";
@@ -363,6 +368,7 @@ export function createGoogleSync(options: Options) {
     }
     problem = null;
     lastSyncAt = now();
+    if (bound.phase === "ready") for (const threadId of new Set(summary.downloaded.flatMap((path) => peerHead(path, ids)))) options.pull?.(threadId);
     if (!summary.driveFull) {
       fullStrikes = 0;
       uploadAt = 0;

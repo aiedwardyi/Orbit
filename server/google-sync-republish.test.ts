@@ -21,7 +21,7 @@ const BOTS: BotSpec[] = [
 ];
 
 interface PC {
-  dataDir: string; account: GoogleAccount; sync: GoogleSync; activations: number; fixed: boolean; deferActivate: boolean;
+  dataDir: string; account: GoogleAccount; sync: GoogleSync; activations: number; fixed: boolean; deferActivate: boolean; pulls: string[];
   call(method: string, args?: TestArgs): Promise<TestResult>;
   report(): Promise<ReportBot[]>;
   close(): Promise<void>;
@@ -58,6 +58,10 @@ function boot(pc: Booting): GoogleSync {
       if (pc.fixed) void pc.call("republish");
       return workspaceId;
     },
+    pull: (threadId) => {
+      pc.pulls.push(threadId);
+      void pc.call("pull", { thread: threadId });
+    },
     fetch: (input, init) => drive.fetch(input, init),
     log: () => {},
   });
@@ -78,7 +82,7 @@ function makePC(name: string, fixed = true): PC {
   });
   const exited = new Promise<void>((resolve) => worker.on("exit", () => resolve()));
   const base: Booting = {
-    dataDir, activations: 0, fixed, deferActivate: false,
+    dataDir, activations: 0, fixed, deferActivate: false, pulls: [],
     account: new GoogleAccount(CLIENT, null, { fetch: tokenFetch, log: () => {} }),
     call: (method, args = {}) => new Promise<TestResult>((resolve, reject) => {
       const id = ++sequence;
@@ -278,5 +282,35 @@ describe("Google Start after folder sync", () => {
     expect(remote.find((bot) => bot.name === "Counsel")?.chats).toEqual(["After sync:3", "Case one:32"]);
     expect(drivePaths().some((path) => path.startsWith(`threads-v2/${qa?.syncId}/`))).toBe(true);
     expect([home.sync.status().state, work.sync.status().state]).toEqual(["up-to-date", "up-to-date"]);
+  });
+});
+
+describe("Google sync catch-up", () => {
+  it("pulls a chat when its peer head arrives, unless a turn is running", { timeout: 120_000 }, async () => {
+    const { home } = await folderEra(true);
+    await start(home);
+    await rounds(2);
+    const work = makePC("work");
+    await start(work);
+    await rounds(3);
+    const chats = async (pc: PC) => (await pc.report()).find((bot) => bot.name === "Counsel")!.chats;
+    expect(await chats(work)).toEqual(["After sync:3", "Case one:32"]);
+
+    work.pulls = [];
+    await home.call("append", { bot: "Counsel", chat: { title: "Case one", rows: 30 } });
+    await pass(home);
+    await work.sync.kick();
+    await work.sync.idle();
+    expect(await chats(work)).toEqual(["After sync:3", "Case one:62"]);
+    expect(work.pulls).toHaveLength(1);
+
+    await work.call("busy", { busy: true });
+    await home.call("append", { bot: "Counsel", chat: { title: "Case one", rows: 2 } });
+    await pass(home);
+    await work.sync.kick();
+    await work.sync.idle();
+    expect(await chats(work)).toEqual(["After sync:3", "Case one:62"]);
+    expect(work.pulls).toHaveLength(2);
+    expect(new Set(work.pulls).size).toBe(1);
   });
 });
