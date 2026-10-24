@@ -14,6 +14,7 @@ const effortRequest = (requestId: string, effort: EffortLevel) => ({
 /** The spawn contract a process switched to this effort now matches; one
  * spawned without --effort matches none, so its next turn relaunches. */
 const keyWithEffort = (argsKey: string, effort: EffortLevel): string => {
+  if (!argsKey) return "";
   const key: { args: string[] } = JSON.parse(argsKey);
   const at = key.args.indexOf("--effort");
   if (at === -1) return "";

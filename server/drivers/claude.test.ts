@@ -1274,6 +1274,18 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(readFileSync(efforts, "utf8").split("\n").filter(Boolean)).toEqual(["max", "high", "high", "high"]);
   });
 
+  it("takes a second effort switch on a turn spawned without one", async () => {
+    const efforts = join(scratch, "efforts.log");
+    await create("slow", { FAKE_CLAUDE_SLOW_UNTIL_STEER: "1", FAKE_CLAUDE_EFFORT_LOG: efforts });
+    await instance.adapter.sendTurn({ threadId: "t-effort-twice", text: "first" });
+    await recorder.until((e) => e.type === "item.completed" && e.itemType === "tool");
+    await expect(instance.adapter.applyEffort?.("t-effort-twice", "high")).resolves.toBe(true);
+    await expect(instance.adapter.applyEffort?.("t-effort-twice", "max")).resolves.toBe(true);
+    await expect(instance.adapter.steer!("t-effort-twice", "and also this")).resolves.toBe(true);
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(readFileSync(efforts, "utf8").split("\n").filter(Boolean)).toEqual(["max"]);
+  });
+
   it.each(["error", "none"])("keeps the running effort when the CLI answers %s to the switch", async (reply) => {
     process.env.OMB_CLAUDE_EFFORT_REPLY_MS = "200";
     const efforts = join(scratch, "efforts.log");
