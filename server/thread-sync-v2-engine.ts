@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { applySyncedRows, messageDatabase, withMessageTransaction } from "./message-db.ts";
 import type { Message } from "./store.ts";
+import { notePulledHead } from "./sync-hold.ts";
 import { syncRoots, syncWriteRoot } from "./sync-roots.ts";
 import { THREAD_SYNC_V2_HEAD_BYTES } from "./thread-sync-v2.ts";
 import { redactToolMessage } from "./tool-detail.ts";
@@ -755,8 +756,9 @@ export function createSyncEngine(input: SyncOptions) {
             result.rejected++;
             continue;
           }
-          if (ingest(scope, writer, head, bytes, segment, result) && segment) {
-            sql("INSERT OR IGNORE INTO sync_v2_files VALUES (?, ?, ?)").run(scope.threadId, writer, name);
+          if (ingest(scope, writer, head, bytes, segment, result)) {
+            if (segment) sql("INSERT OR IGNORE INTO sync_v2_files VALUES (?, ?, ?)").run(scope.threadId, writer, name);
+            else notePulledHead(result, root, scope, head, bytes);
           }
         }
       }

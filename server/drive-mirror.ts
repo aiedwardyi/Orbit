@@ -56,7 +56,7 @@ export interface DriveMirrorSummary {
 
 /** Local md5s by path, trusted while size and mtime hold; outlives one mirror so later passes skip rehashing. */
 export type DriveHashes = Map<string, { size: bigint; mtimeNs: bigint; md5: string }>;
-type Options = { owner: DriveOwner; mirrorPath: string; statePath: string; ownIds: DriveOwnIds; client: DriveClient; now?: () => number; uploads?: boolean; hashes?: DriveHashes; chatFirst?: boolean; openThread?: string | null; downloaded?: (path: string) => void };
+type Options = { owner: DriveOwner; mirrorPath: string; statePath: string; ownIds: DriveOwnIds; client: DriveClient; now?: () => number; uploads?: boolean; hashes?: DriveHashes; chatFirst?: boolean; openThread?: string | null; downloaded?: (path: string) => void; listed?: (files: ReadonlyMap<string, readonly DriveFile[]> | null) => void };
 const passes = new Set<string>();
 const samePath = (a: string, b: string) => process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 const md5 = (bytes: Uint8Array) => createHash("md5").update(bytes).digest("hex");
@@ -447,12 +447,15 @@ export function createDriveMirror(options: Options) {
     if (savedToken) {
       try {
         const page = await drive(() => client.listChanges(savedToken));
-        if (!page) return summary;
+        if (!page) { options.listed?.(null); return summary; }
         const byId = tracked();
         for (const change of page.changes) ingestChange(change, byId);
         cursor = page.newStartPageToken;
       } catch (error) {
-        if (!(error instanceof DriveClientError) || error.rateLimited || (error.status !== 404 && error.status !== 410)) throw error;
+        if (!(error instanceof DriveClientError) || error.rateLimited || (error.status !== 404 && error.status !== 410)) {
+          options.listed?.(null);
+          throw error;
+        }
         delete table.changeToken;
         fullList = true;
       }
@@ -466,6 +469,7 @@ export function createDriveMirror(options: Options) {
       if (!files) return summary;
       for (const file of files) accept(file);
     }
+    options.listed?.(remote);
     const paths = new Set([...remotePaths, ...Object.keys(table.files)]);
     let awake = performance.now();
     async function breathe(): Promise<void> {
@@ -667,8 +671,8 @@ export function createDriveMirror(options: Options) {
     await each(paths);
     if (stopped) return summary;
     if (fullList && summary.failed.length === 0) {
-      const page = await drive(() => client.listChanges(cursor));
-      if (!page) return summary;
+      const page = await drive(() => client.listChanges(cursor)).catch((error) => { options.listed?.(null); throw error; });
+      if (!page) { options.listed?.(null); return summary; }
       const again: string[] = [];
       const byId = tracked();
       for (const change of page.changes) {
@@ -676,6 +680,7 @@ export function createDriveMirror(options: Options) {
         if (path) again.push(path);
       }
       cursor = page.newStartPageToken;
+      options.listed?.(remote);
       await each(new Set(again));
       if (stopped) return summary;
     }

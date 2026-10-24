@@ -8,6 +8,7 @@ import { lastMessageAt, withMessageTransaction } from "./message-db.ts";
 import { soonAfterWake, wakeClock } from "./pc-wake.ts";
 import { publishThreadPictures } from "./picture-sync.ts";
 import type { Message, Store } from "./store.ts";
+import { syncHold } from "./sync-hold.ts";
 import { CONFLICT_NOTICE, CONFLICT_NOTICE_V2, isConflictNotice, shared, THREAD_SYNC_POLL_MS } from "./thread-sync.ts";
 import { createSyncEngine } from "./thread-sync-v2-engine.ts";
 import { initializeMigration, registerMigration, type MigrationProgress } from "./thread-sync-v2-migration.ts";
@@ -374,7 +375,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     if (!task.eligible) return;
     const transport = await client();
     if (!transport || host.running(threadId)) return;
-    await transport.pull(task);
+    const pulled = await transport.pull(task);
     if (!host.enabled() || host.folder() !== workerFolder || host.running(threadId)) return;
     const cursor = task.cursor;
     const own = ownHead(threadId);
@@ -382,6 +383,7 @@ export function createThreadSyncV2Store(host: SyncStoreHost, enabled = true) {
     resolveHeads(task, task.cursor !== cursor, own);
     notifyConflict(task);
     if (task.cursor !== cursor) host.store.applySyncImport(() => host.imported(target.botId));
+    syncHold.pulled(workerFolder!, task, pulled.heads);
   }
 
   function resolveHeads(task: StoredTask, changed: boolean, own: string | null | undefined): void {

@@ -17,6 +17,7 @@ import { acceptedSendMatch, parseSendId, sendFingerprint, type SendSequencer } f
 import { sendPostReceipt, type StartedTurn } from "./send-receipt.ts";
 import { cancelQueuedSends, cancelSteeredMessage, isSendCancelled, queuedSteeredMessage, queueMark, queueSteeredMessage, withQueuedSend } from "./steer-queue.ts";
 import type { BotRecord, Message, Store, TaskRecord } from "./store.ts";
+import { syncHold } from "./sync-hold.ts";
 import { isRecoveryFlushReason, shouldStampRecoveryDismiss, type RecoveryFlushReason, type TaskResumeScheduler } from "./task-recovery-flush.ts";
 import { stampTaskResumePacket } from "./task-state-fold.ts";
 import type { TaskResumePacket } from "./task-state.ts";
@@ -176,7 +177,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
               if (queued.text !== text || queued.replyToId !== replyTo?.id) {
                 throw Object.assign(new Error("sendId already belongs to another message"), { status: 409 });
               }
-              if (queueId !== queued.id) return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
+              if (queueId !== queued.id) return { ok: true as const, queued: true as const, queueId: queued.id, threadId, ...(queued.reason ? { reason: queued.reason } : {}) };
             } else if (queueId) {
               return { ok: true as const, cancelled: true as const, threadId };
             }
@@ -302,6 +303,15 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
             if (held.skipped) return { ok: true as const, cancelled: true as const, threadId };
             markChatLatency({ sendId, threadId }, "queue.decided", { queueId: held.id });
             return { ok: true as const, queued: true as const, queueId: held.id, threadId };
+          }
+          const syncUntil = !queueId && threadSyncGate.enabled ? syncHold.until(threadId) : undefined;
+          if (syncUntil !== undefined) {
+            const held = queueSteeredMessage(bot.id, threadId, text, {
+              replyToId: replyTo?.id, sendId, syncUntil,
+              prompt: promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User"),
+            });
+            markChatLatency({ sendId, threadId }, "queue.decided", { queueId: held.id });
+            return { ok: true as const, queued: true as const, reason: "sync" as const, queueId: held.id, threadId };
           }
           const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
           return sendPostReceipt(started, threadId);

@@ -250,6 +250,7 @@ const Bubble = memo(function Bubble({
   streaming = false,
   dock,
   sendsNext = false,
+  sendsAfterSync = false,
   queuedActions,
   onStartEdit,
   onCancelEdit,
@@ -269,6 +270,7 @@ const Bubble = memo(function Bubble({
   streaming?: boolean;
   dock?: ReplyDock;
   sendsNext?: boolean;
+  sendsAfterSync?: boolean;
   queuedActions?: MessageMenuTarget["queued"];
   onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
@@ -569,10 +571,10 @@ const Bubble = memo(function Bubble({
         />
       )}
       <TimestampLabel at={message.at} hidden={streaming} />
-      {sendsNext && (
+      {(sendsNext || sendsAfterSync) && (
         <div className="mt-1 flex items-center gap-1 pr-1 text-[11px] text-ink-secondary/70">
           <Clock size={11} aria-hidden="true" />
-          <span>{t("chat.queuedSendsNext")}</span>
+          <span>{sendsAfterSync ? t("chat.queuedSendsAfterSync") : t("chat.queuedSendsNext")}</span>
         </div>
       )}
       {!message.placeholder && versionCount > 1 && (
