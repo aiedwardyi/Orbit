@@ -191,7 +191,7 @@ describe("overlay motion styles", () => {
 
   it("enters pop, panel, fade and expand surfaces on one timing and curve", () => {
     const timings = ["panel-in", "pop-in", "fade-in", "expand-in"].map((name) => css.match(new RegExp(`--animate-${name}: ${name} ([^;]*);`))?.[1]);
-    expect(timings).toEqual(Array(4).fill("0.16s cubic-bezier(0.22, 1, 0.36, 1)"));
+    expect(timings).toEqual(Array(4).fill("0.16s cubic-bezier(0.22, 1, 0.36, 1) var(--motion-head-start)"));
   });
 
   it("drops the enter animations under reduced motion", () => {

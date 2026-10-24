@@ -167,10 +167,10 @@
    re-runs that check.
    ───────────────────────────────────────────────────────────────────────── */
 @theme {
-  --animate-panel-in: panel-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-pop-in: pop-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-fade-in: fade-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-expand-in: expand-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-panel-in: panel-in 0.16s cubic-bezier(0.22, 1, 0.36, 1) var(--motion-head-start);
+  --animate-pop-in: pop-in 0.16s cubic-bezier(0.22, 1, 0.36, 1) var(--motion-head-start);
+  --animate-fade-in: fade-in 0.16s cubic-bezier(0.22, 1, 0.36, 1) var(--motion-head-start);
+  --animate-expand-in: expand-in 0.16s cubic-bezier(0.22, 1, 0.36, 1) var(--motion-head-start);
   --animate-tip-in: tip-in 0.1s ease-out;
   --animate-caret: caret-blink 1s step-end infinite;
   --animate-msg-in: msg-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
@@ -215,6 +215,8 @@
   --color-scrollbar: #3d3d3d;
   /* second speed line of the mascot — contrasts against the app ground */
   --color-maus-line: #fcfcfc;
+  /* surface motion starts one frame in, so the first frame after input already moves */
+  --motion-head-start: -16ms;
 }
 
 /* ── Midnight ──────────────────────────────────────────────────────────────
@@ -4022,11 +4024,11 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
 }
 /* usePresence keeps a closed surface mounted this long; it must not catch taps meanwhile */
 [data-closing] {
-  animation: fade-out 0.13s ease-out forwards;
+  animation: fade-out 0.13s ease-out var(--motion-head-start) forwards;
   pointer-events: none;
 }
 [data-expand][data-closing] {
-  animation: expand-out 0.13s ease-out forwards;
+  animation: expand-out 0.13s ease-out var(--motion-head-start) forwards;
 }
 /* docked, a fading details column would hold the chat narrow while the sidebar re-widens */
 @media (min-width: 768px) {
