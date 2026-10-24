@@ -25,30 +25,30 @@
 
 ## Tour
 
-**1. A lead bot runs your workers**<br>
-Ask once. It writes a task card per job and starts each worker on any engine you have.
-
-<img src="./assets/readme/tour-1-workers.png" alt="Five worker rows, each with its engine's mark and model: three working, two done.">
-
-**2. Real terminals, one tab per worker**<br>
-Each worker runs its engine's own CLI in a labeled tab. Press `` Ctrl+` `` to drive it yourself.
-
-<img src="./assets/readme/tour-2-terminal.png" alt="Terminal tabs labeled LIMITER, DOCS and REVIEW with model and effort, over the LIMITER worker's session.">
-
-**3. Every coding subscription you pay for**<br>
+**1. Every coding subscription you pay for**<br>
 Give each bot its own engine and model. `Alt+M` switches mid-thread, and the thread carries over.
 
-<img src="./assets/readme/tour-3-team.png" alt="The bot list in two sections, each bot on a different engine and model.">
+<img src="./assets/readme/tour-models.png" alt="The model picker open on Atlas: Opus 5.5 at High effort, ringed in Anthropic orange, with Fable 5 and Sonnet 5.5 above and below.">
+
+**2. A lead bot runs your workers**<br>
+Ask once. It writes a task card per job and starts each worker on any engine you have.
+
+<img src="./assets/readme/tour-workers.png" alt="Five worker rows, each with its engine's mark and model: three working, two done.">
+
+**3. Real terminals, one tab per worker**<br>
+Each worker runs its engine's own CLI in a labeled tab. Press `` Ctrl+` `` to drive it yourself.
+
+<img src="./assets/readme/tour-terminal.png" alt="Terminal tabs labeled LIMITER, DOCS and REVIEW with model and effort, over the LIMITER worker's session.">
 
 **4. Never loses the plot**<br>
 Each bot keeps a `MEMORY.md` it reads every session, across models, PCs and your phone.
 
-<img src="./assets/readme/tour-4-memory.png" alt="Atlas's Memory box with its MEMORY.md notes on the Acme API.">
+<img src="./assets/readme/tour-memory.png" alt="Atlas's Memory box with its MEMORY.md notes on the Acme API.">
 
 **5. The same chats on your phone**<br>
 Over your Tailscale tailnet or a [relay you host](relay/README.md), with a push when a bot needs you.
 
-<img src="./assets/readme/tour-5-phone.png" alt="Atlas's chat and worker rows on a phone.">
+<img src="./assets/readme/tour-phone.png" alt="Atlas's chat and worker rows on a phone.">
 
 ## Quickstart
 
@@ -197,7 +197,7 @@ Wink is designed, built and maintained by [Edward Yi](https://github.com/aiedwar
 
 Its first codebase came from [OpenMausBot](https://github.com/milind-soni/OpenMausBot) by Milind Soni (Apache-2.0), used as a starting template. Since then, more than 1,100 commits have turned it into Wink. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-The cross-model picker uses [Ghostex](https://github.com/maddada/Ghostex) (MIT) as its design source.
+The cross-model picker uses [Ghostex](https://github.com/maddada/Ghostex) by Mohamad Yahia (MIT) as its design source.
 
 ## License
 
