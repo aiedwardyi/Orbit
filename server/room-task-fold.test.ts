@@ -143,9 +143,9 @@ describe("room task-state fold", () => {
       return messages.some((message) => message.text?.includes("hello from fake claude"));
     }, { timeout: 20_000 }).toBe(true);
 
-    const folded = packet(group.threadId);
-    expect(folded.botId).toBe(bot.id);
-    expect(folded.evidence.some((item) => item.kind === "tool" && item.note === "Bash")).toBe(true);
+    // the fold lands after the reply does, so wait for it
+    await expect.poll(() => packet(group.threadId).evidence.some((item) => item.kind === "tool" && item.note === "Bash"), { timeout: 10_000 }).toBe(true);
+    expect(packet(group.threadId).botId).toBe(bot.id);
 
     // consecutive turns on the same room thread each fold evidence
     const again = await api("POST", `/api/groups/${group.id}/messages`, { text: `@${bot.name} check once more` });
@@ -154,7 +154,7 @@ describe("room task-state fold", () => {
       const messages = (await api("GET", `/api/threads/${group.threadId}/messages`)).body.messages as { text?: string }[];
       return messages.filter((message) => message.text?.includes("hello from fake claude")).length;
     }, { timeout: 20_000 }).toBe(2);
-    expect(packet(group.threadId).evidence.filter((item) => item.kind === "tool").length).toBe(2);
+    await expect.poll(() => packet(group.threadId).evidence.filter((item) => item.kind === "tool").length, { timeout: 10_000 }).toBe(2);
   }, 60_000);
 
   it("does not fold a running room turn's evidence onto a later instruction", async () => {
