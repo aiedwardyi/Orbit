@@ -197,6 +197,13 @@ describe("missing project folder", () => {
     expect(retries()).toHaveLength(1);
   });
 
+  it("saves a stale room pin through the group setter", async () => {
+    setPicker(vi.fn(async () => replacement));
+    const host = await mount({ ...group, cwd: "C:\\other" });
+    await click(choose(host));
+    expect(patches()[0]).toMatchObject({ url: "/api/groups/g1", body: { cwd: replacement } });
+  });
+
   it("saves a member's own folder through the bot setter", async () => {
     setPicker(vi.fn(async () => replacement));
     const host = await mount({ ...group, cwd: undefined, pinnedCwd: null });

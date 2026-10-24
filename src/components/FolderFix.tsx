@@ -23,6 +23,9 @@ export function FolderFix({ folder, botId, group, onRetry }: {
   const inFlight = useRef(false);
   const retry = useRef(onRetry);
   retry.current = onRetry;
+  // A room turn runs in its task's pin, which can differ from the room's default folder.
+  const roomFolder = group && (group.pinnedCwd === undefined ? group.cwd : group.pinnedCwd);
+  const target = group && roomFolder === folder ? `/api/groups/${group.id}` : botId ? `/api/bots/${botId}` : null;
 
   useEffect(() => {
     if (!saved) return;
@@ -33,8 +36,8 @@ export function FolderFix({ folder, botId, group, onRetry }: {
   }, [saved]);
 
   const save = async (cwd: string) => {
-    const room = group?.cwd === folder ? group : undefined;
-    const result: { bot?: Bot; group?: Group } = await api(room ? `/api/groups/${room.id}` : `/api/bots/${botId}`, {
+    if (!target) return;
+    const result: { bot?: Bot; group?: Group } = await api(target, {
       method: "PATCH", body: JSON.stringify({ cwd }),
     });
     if (result.bot) dispatch({ type: "botPatched", bot: result.bot });
@@ -82,7 +85,7 @@ export function FolderFix({ folder, botId, group, onRetry }: {
               <AlertTriangle size={15} className="mt-0.5 shrink-0" />
               <span className="min-w-0 break-words">{t("chat.folderMissing", { folder })}</span>
             </div>
-            {onRetry && (group?.cwd === folder || botId) && (
+            {onRetry && target && (
               editing ? <WorkingFolderField value={draft} onChange={setDraft} onSave={() => void submit()} disabled={busy || !draft.trim()} /> : (
                 <button onClick={() => void choose()} disabled={busy || Boolean(saved)} className="mt-1.5 flex items-center gap-1.5 rounded-full border border-danger/30 px-2.5 py-1 text-[12.5px] hover:bg-danger/15 disabled:opacity-50">
                   <FolderOpen size={12} /> {t("chat.chooseFolder")}
