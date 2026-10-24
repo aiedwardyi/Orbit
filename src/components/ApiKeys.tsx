@@ -17,7 +17,7 @@ import { useI18n, type MessageKey } from "@/lib/i18n";
 import { usePresence } from "@/lib/use-presence";
 import { Section } from "./SettingsPrimitives";
 
-export type ConfigSection = "composio" | "gemini" | "box";
+export type ConfigSection = "composio" | "box";
 
 const SECTIONS: Record<
   ConfigSection,
@@ -27,16 +27,11 @@ const SECTIONS: Record<
     body: (v) => ({ composio: { apiKey: v } }),
     flag: (c) => c.composio.configured,
   },
-  gemini: {
-    body: (v) => ({ gemini: { apiKey: v } }),
-    flag: (c) => c.gemini?.configured ?? false,
-  },
   box: { body: (v) => ({ box: { token: v } }), flag: (c) => c.box.configured },
 };
 
-const ELECTRON_CREDENTIAL: Record<ConfigSection, "composioApiKey" | "geminiApiKey" | "boxToken"> = {
+const ELECTRON_CREDENTIAL: Record<ConfigSection, "composioApiKey" | "boxToken"> = {
   composio: "composioApiKey",
-  gemini: "geminiApiKey",
   box: "boxToken",
 };
 
@@ -59,15 +54,6 @@ const CREDENTIALS: Record<
     href: "https://dashboard.composio.dev",
     linkLabel: "connections.composio.link",
     optional: true,
-  },
-  gemini: {
-    label: "connections.gemini.label",
-    placeholder: "connections.gemini.placeholder",
-    description: "connections.gemini.description",
-    href: "https://aistudio.google.com/apikey",
-    linkLabel: "connections.gemini.link",
-    optional: true,
-    warning: "connections.gemini.warning",
   },
   box: {
     label: "connections.box.label",

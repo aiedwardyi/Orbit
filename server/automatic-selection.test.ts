@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveAutomaticSelection, type AutomaticCandidate } from "./automatic-selection.ts";
 
+const RETIRED_KINDS = ["grok", "geminiAgent", "kimiAgent", "droidAgent", "cursorAgent", "qwenAgent", "hermesAgent", "openai-compat", "piAgent", "minimax", "opencodeGo"];
+
 const candidate = (
   instanceId: string,
   overrides: Partial<AutomaticCandidate> = {},
@@ -149,6 +151,16 @@ describe("resolveAutomaticSelection", () => {
         required: ["browserMcp"],
       }),
     ).toMatchObject({ instanceId: "browser" });
+  });
+
+  it.each(RETIRED_KINDS)("never resolves to a retired %s engine a cached probe calls available", (driverKind) => {
+    const retired = candidate("old", { driverKind });
+    expect(resolveAutomaticSelection({
+      candidates: [retired, candidate("codex", { driverKind: "codex" })],
+      current: { mode: "automatic", instanceId: "old", model: "old-default" },
+      continuity: { instanceId: "old", model: "old-default" },
+    })).toMatchObject({ instanceId: "codex", model: "codex-default" });
+    expect(resolveAutomaticSelection({ candidates: [retired] })).toBeNull();
   });
 
   it("starts a fresh pick on Claude Opus 5.5 medium ahead of earlier engines", () => {

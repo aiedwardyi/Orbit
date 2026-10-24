@@ -35,12 +35,8 @@ describe("ProviderMark", () => {
     "antigravityAgent",
     "museAgent",
     "kimiAgent",
-    "droidAgent",
-    "cursorAgent",
     "qwenAgent",
-    "hermesAgent",
     "boxAgent",
-    "piAgent",
   ])("pins the %s mark to its size so row overflow cannot squish it", (driverKind) => {
     const markup = renderToStaticMarkup(createElement(ProviderMark, { driverKind, size: 14 }));
     expect(markup).toContain("<svg");

@@ -48,6 +48,8 @@ function countingDriver() {
 const versions = (rows: { instanceId: string; snapshot: { version?: string | null } }[]) =>
   Object.fromEntries(rows.map((row) => [row.instanceId, row.snapshot.version]));
 
+const RETIRED_KINDS = ["grok", "geminiAgent", "kimiAgent", "droidAgent", "cursorAgent", "qwenAgent", "hermesAgent", "openai-compat", "piAgent", "minimax", "opencodeGo"];
+
 describe("ProviderRegistry", () => {
   it("rejects logout success while the refreshed engine remains authenticated", async () => {
     const fake = makeFakeDriver({ kind: "museAgent" });
@@ -734,6 +736,36 @@ describe("ProviderRegistry", () => {
     expect(described.snapshot.reason).toContain("from-the-future");
     expect(described.displayName).toBe("Tomorrow");
     expect(described.models.options).toHaveLength(0);
+  });
+
+  it("registers only the kept engines", () => {
+    expect(BUILT_IN_DRIVERS.map((driver) => driver.driverKind).sort()).toEqual([
+      "antigravityAgent", "boxAgent", "claudeAgent", "codex", "grokAgent", "museAgent",
+    ]);
+  });
+
+  it.each(RETIRED_KINDS)("keeps a raw retired %s entry as an unavailable shadow", async (kind) => {
+    const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
+    try {
+      await registry.load({ old: { driver: kind, displayName: "Old engine" } });
+      expect(registry.get("old")).toBeNull();
+      const [described] = await registry.describe();
+      expect(described).toMatchObject({ driverKind: kind, displayName: "Old engine", snapshot: { state: "unavailable" } });
+      expect(described.models.options).toHaveLength(0);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+
+  it("labels a nameless retired shadow with its old engine name, a foreign one with its kind", async () => {
+    const registry = new ProviderRegistry([makeFakeDriver().driver]);
+    await registry.load({ gemini: { driver: "geminiAgent" }, mystery: { driver: "from-the-future" } });
+
+    const rows = await registry.describe();
+    expect(Object.fromEntries(rows.map((row) => [row.instanceId, row.displayName]))).toEqual({
+      gemini: "Gemini API",
+      mystery: "from-the-future",
+    });
   });
 
   it("downgrades a config-decode failure to a shadow with the error as reason", async () => {

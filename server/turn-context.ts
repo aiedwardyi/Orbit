@@ -90,7 +90,7 @@ export function engineIsFresh(input: {
 /**
  * Forever-chat history belongs to Orbit's prepared context once a durable
  * summary exists. Resume-cursor engines (Claude `--resume`, Codex
- * thread/resume, pi `switch_session`, Antigravity `--conversation`, ACP
+ * thread/resume, Antigravity `--conversation`, ACP
  * session/load) would otherwise keep growing a provider-side session that
  * ignores that projection.
  *

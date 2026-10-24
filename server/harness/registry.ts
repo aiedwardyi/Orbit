@@ -15,6 +15,7 @@ import { findCliCandidates, refreshPathCache, splitCliString } from "../env-path
 import { clearVersionCache } from "../procs.ts";
 import { EngineLogin } from "../engine-login.ts";
 import { withWslProbeSnapshot } from "../wsl-gate.ts";
+import { retiredEngineLabel } from "../../shared/model-selection.ts";
 import type {
   AnyProviderDriver,
   InstanceConfigMap,
@@ -134,7 +135,7 @@ export class ProviderRegistry {
               displayName: entry.displayName,
               cli: cliOfRaw(entry.config),
               shadow: true,
-              reason: `unknown driver "${entry.driver}" — kept as configured, unavailable here`,
+              reason: `unknown driver "${entry.driver}": kept as configured, unavailable here`,
             },
           },
         } satisfies { entry: RegistryEntry; rawCli?: string };
@@ -492,7 +493,7 @@ export class ProviderRegistry {
       return {
         instanceId: entry.instanceId,
         driverKind: entry.shadow.driverKind,
-        displayName: entry.shadow.displayName ?? entry.shadow.driverKind,
+        displayName: entry.shadow.displayName ?? retiredEngineLabel(entry.shadow.driverKind) ?? entry.shadow.driverKind,
         snapshot: probe.snapshot,
         models: { default: "", options: [] },
         capabilities: { computerMcp: false, agentsMcp: false, localComputerMcp: false },

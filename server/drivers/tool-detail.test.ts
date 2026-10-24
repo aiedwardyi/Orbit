@@ -8,19 +8,15 @@ import { ensureDirs, saveConfig } from "../config.ts";
 import type { ProviderInstance } from "../contracts.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
-import { GeminiAgentDriver } from "./acp/gemini.ts";
 import { GrokAgentDriver } from "./acp/grok.ts";
 import { MuseAgentDriver } from "./acp/muse.ts";
 import { CodexDriver } from "./codex.ts";
-import { PiDriver } from "./pi.ts";
 
 const TESTING = join(dirname(fileURLToPath(import.meta.url)), "..", "testing");
 const engines = [
   { name: "Codex", driver: CodexDriver, cli: "fake-codex-app-server.ts", fixtureEnv: "FAKE_CODEX_TOOL_FIXTURE" },
   { name: "Grok", driver: GrokAgentDriver, cli: "fake-acp-cli.ts", fixtureEnv: "FAKE_ACP_TOOL_FIXTURE" },
   { name: "Muse ACP", driver: MuseAgentDriver, cli: "fake-acp-cli.ts", fixtureEnv: "FAKE_ACP_TOOL_FIXTURE" },
-  { name: "Gemini", driver: GeminiAgentDriver, cli: "fake-acp-cli.ts", fixtureEnv: "FAKE_ACP_TOOL_FIXTURE" },
-  { name: "Pi", driver: PiDriver, cli: "fake-pi-cli.ts", fixtureEnv: "FAKE_PI_TOOL_FIXTURE" },
 ];
 
 interface ToolFixture {
@@ -80,13 +76,6 @@ describe.each(engines)("$name tool detail", ({ name, driver, cli, fixtureEnv }) 
         return [
           { method: "item/started", params: { item } },
           { method: "item/completed", params: { item } },
-        ];
-      }
-      if (name === "Pi") {
-        const toolName = tool.command === undefined ? "edit" : "bash";
-        return [
-          { type: "tool_execution_start", toolCallId: tool.id, toolName, args: input },
-          { type: "tool_execution_end", toolCallId: tool.id, toolName, result: { content: [{ type: "text", text: tool.output }], details: {} }, isError: tool.failed ?? false },
         ];
       }
       const content = tool.command === undefined
@@ -152,7 +141,7 @@ describe.each(engines)("$name tool detail", ({ name, driver, cli, fixtureEnv }) 
     expect(JSON.stringify(event)).not.toContain("PartialPrivateBody");
   });
 
-  it.skipIf(name === "Pi")("names a command and a file change with Claude Code verbs", async () => {
+  it("names a command and a file change with Claude Code verbs", async () => {
     writeFixture([
       { id: "command", command: "git status", output: "clean" },
       { id: "edit", path: "src/a.ts", oldText: "a", newText: "b", output: "edited" },
@@ -180,7 +169,7 @@ describe.each(engines)("$name tool detail", ({ name, driver, cli, fixtureEnv }) 
     expect(started[1]).not.toHaveProperty("verb");
   });
 
-  it.skipIf(name === "Codex" || name === "Pi")("names read, search and fetch, and leaves other kinds unnamed", async () => {
+  it.skipIf(name === "Codex")("names read, search and fetch, and leaves other kinds unnamed", async () => {
     writeFileSync(fixturePath, JSON.stringify([
       { sessionUpdate: "tool_call", toolCallId: "r", title: "src/a.ts", kind: "read" },
       { sessionUpdate: "tool_call", toolCallId: "s", title: "verb", kind: "search" },
@@ -209,9 +198,7 @@ describe.each(engines)("$name tool detail", ({ name, driver, cli, fixtureEnv }) 
 
   it("captures a file change", async () => {
     const event = await capture({ id: "edit", path: "src/app.ts", oldText: "old", newText: "new", output: "Updated src/app.ts" });
-    expect(event.detail).toEqual(name === "Pi"
-      ? { input: "src/app.ts", output: ["Updated src/app.ts"] }
-      : { input: "src/app.ts", diff: ["-old", "+new"] });
+    expect(event.detail).toEqual({ input: "src/app.ts", diff: ["-old", "+new"] });
   });
 
   it("keeps an error's first line", async () => {
@@ -245,11 +232,6 @@ describe.each(engines)("$name tool detail", ({ name, driver, cli, fixtureEnv }) 
     const content = [{ type: "text", text: "opaque-sensitive-value" }];
     if (name === "Codex") {
       writeFileSync(fixturePath, JSON.stringify([{ method: "item/completed", params: { item: { id: "null-input", type: "mcpToolCall", arguments: input, status: "completed", result: { content }, error: null } } }]));
-    } else if (name === "Pi") {
-      writeFileSync(fixturePath, JSON.stringify([
-        { type: "tool_execution_start", toolCallId: "null-input", toolName: "bash", args: input },
-        { type: "tool_execution_end", toolCallId: "null-input", toolName: "bash", result: { content }, isError: false },
-      ]));
     } else {
       writeFileSync(fixturePath, JSON.stringify([
         { sessionUpdate: "tool_call", toolCallId: "null-input", title: "run", kind: "execute", rawInput: input },
@@ -279,11 +261,6 @@ describe.each(engines)("$name tool detail", ({ name, driver, cli, fixtureEnv }) 
     const content = [{ type: "text", text: "one" }, { type: "image", data: "opaque-image" }, { type: "text", text: "two" }];
     if (name === "Codex") {
       writeFileSync(fixturePath, JSON.stringify([{ method: "item/completed", params: { item: { id: "text", type: "mcpToolCall", arguments: { query: "hello" }, status: "completed", result: { content }, error: null } } }]));
-    } else if (name === "Pi") {
-      writeFileSync(fixturePath, JSON.stringify([
-        { type: "tool_execution_start", toolCallId: "text", toolName: "custom", args: { query: "hello" } },
-        { type: "tool_execution_end", toolCallId: "text", toolName: "custom", result: { content }, isError: false },
-      ]));
     } else {
       writeFileSync(fixturePath, JSON.stringify([
         { sessionUpdate: "tool_call", toolCallId: "text", title: "custom", rawInput: { query: "hello" } },

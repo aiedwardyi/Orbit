@@ -30,7 +30,7 @@ import {
   type InstanceInfo,
   type Message,
 } from "@/state/store";
-import { EngineSetup, OpenConnectionsCta, setupErrorAction } from "./EngineSetup";
+import { EngineSetup, setupErrorAction } from "./EngineSetup";
 import { BotAvatar } from "./Avatar";
 import { TurnPresence, replySlot, useReplyDock, type ReplyDock } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
@@ -214,7 +214,7 @@ function ErrorRow({
   const { t } = useI18n();
   const now = useNow();
   if (folder) return <FolderFix folder={folder} botId={botId} onRetry={onRetry} />;
-  const action = setupErrorAction(message, setupInstance, signIn);
+  const action = setupErrorAction(setupInstance, signIn);
   const reset = usageLimit ? usageLimitReset(usageLimit.resetsAt, now) : null;
   const retryButton = onRetry && (
     <button
@@ -257,8 +257,6 @@ function ErrorRow({
             {/* agy never reports signed-in, so the card can't flip to Retry */}
             {signIn && retryButton}
           </>
-        ) : action === "key" ? (
-          <OpenConnectionsCta />
         ) : (
           retryButton
         )}

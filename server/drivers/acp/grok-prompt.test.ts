@@ -10,10 +10,11 @@ import { Store } from "../../store.ts";
 import { removeTempDir } from "../../testing/cleanup.ts";
 import { recordEvents } from "../../testing/events.ts";
 import { buildTurnContext, sessionPromptFor, shouldRecycleProviderSession } from "../../turn-context.ts";
-import { GeminiAgentDriver } from "./gemini.ts";
-import { GrokAgentDriver } from "./grok.ts";
+import { createAcpDriver } from "./core.ts";
+import { GrokAgentDriver, grokSupport } from "./grok.ts";
 
 const FAKE_CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "testing", "fake-acp-cli.ts");
+const NonReportingDriver = createAcpDriver({ ...grokSupport, driverKind: "nonReportingTest", promptReport: undefined });
 const MODEL = "grok-4.7";
 const modelState = (window: unknown) => ({
   currentModelId: "other-model",
@@ -66,10 +67,10 @@ describe("Grok prompt size", () => {
       expect(invalid.ok).toBe(true);
       expect(invalid.prompt).toBeUndefined();
     }
-    const { done: gemini } = await run({ inputTokens: 98_356 }, modelState(256_000), undefined, GeminiAgentDriver);
-    expect(gemini.ok).toBe(true);
-    expect(gemini.prompt).toBeUndefined();
-    expect(gemini.contextWindow).toBeUndefined();
+    const { done: other } = await run({ inputTokens: 98_356 }, modelState(256_000), undefined, NonReportingDriver);
+    expect(other.ok).toBe(true);
+    expect(other.prompt).toBeUndefined();
+    expect(other.contextWindow).toBeUndefined();
   });
 
   it("reports the matching ACP model window and omits invalid or unknown windows", async () => {

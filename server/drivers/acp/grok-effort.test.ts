@@ -56,7 +56,7 @@ describe("grok configureSession effort pin", () => {
       throw new Error(`unexpected ${method}`);
     };
     await grokSupport.configureSession!({
-      request, sessionId: "session-1", config, turn: turn({ effort: "xhigh" }), sessionModels: [],
+      request, sessionId: "session-1", config, turn: turn({ effort: "xhigh" }),
       sessionResult: sessionResultWith("reasoning_effort"),
     });
     expect(calls.map((call) => call.method)).toEqual(["session/set_model", "session/set_config_option"]);
@@ -74,7 +74,7 @@ describe("grok configureSession effort pin", () => {
       throw new Error(`unexpected ${method}`);
     };
     await grokSupport.configureSession!({
-      request, sessionId: "session-1", config, turn: turn({ effort: "xhigh" }), sessionModels: [],
+      request, sessionId: "session-1", config, turn: turn({ effort: "xhigh" }),
       sessionResult: {
         configOptions: [
           { id: "model", currentValue: "grok-4.6" },
@@ -92,7 +92,7 @@ describe("grok configureSession effort pin", () => {
         calls.push(method);
         return {};
       },
-      sessionId: "session-1", config, turn: turn(), sessionModels: [],
+      sessionId: "session-1", config, turn: turn(),
       sessionResult: { configOptions: [{ id: "model", currentValue: "grok-4.5" }] },
     });
     expect(calls).toEqual(["session/set_model"]);
@@ -105,7 +105,7 @@ describe("grok configureSession effort pin", () => {
         calls++;
         return {};
       },
-      sessionId: "session-1", config, turn: turn(), sessionModels: [],
+      sessionId: "session-1", config, turn: turn(),
       sessionResult: sessionResultWith("reasoning_effort"),
     });
     expect(calls).toBe(1);
@@ -114,7 +114,7 @@ describe("grok configureSession effort pin", () => {
   it("fails the turn when no effort option is advertised", async () => {
     await expect(grokSupport.configureSession!({
       request: async () => ({}),
-      sessionId: "session-1", config, turn: turn({ effort: "xhigh" }), sessionModels: [],
+      sessionId: "session-1", config, turn: turn({ effort: "xhigh" }),
       sessionResult: { configOptions: [] },
     })).rejects.toThrow(/no reasoning-effort setting/i);
   });
@@ -125,7 +125,7 @@ describe("grok configureSession effort pin", () => {
       return { configOptions: [{ id: "reasoning_effort", currentValue: "high" }] };
     };
     await expect(grokSupport.configureSession!({
-      request, sessionId: "session-1", config, turn: turn({ effort: "xhigh" }), sessionModels: [],
+      request, sessionId: "session-1", config, turn: turn({ effort: "xhigh" }),
       sessionResult: sessionResultWith("reasoning_effort"),
     })).rejects.toThrow(/did not switch reasoning effort/i);
   });
@@ -136,7 +136,7 @@ describe("grok configureSession effort pin", () => {
       throw new Error("method not found");
     };
     await expect(grokSupport.configureSession!({
-      request, sessionId: "session-1", config, turn: turn({ effort: "xhigh" }), sessionModels: [],
+      request, sessionId: "session-1", config, turn: turn({ effort: "xhigh" }),
       sessionResult: sessionResultWith("reasoning_effort"),
     })).rejects.toThrow(/rejected reasoning effort/i);
   });

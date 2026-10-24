@@ -1,5 +1,6 @@
 import type { InstanceInfo, ModelSelection } from "@/state/store";
 import { defaultModelEffort, isEffortOffered, offeredEffortLevels } from "../../shared/model-effort.ts";
+import { isRetiredEngineKind } from "../../shared/model-selection.ts";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
 export type PickerCell = { label: string; options: ModelOption[]; offList?: boolean };
@@ -21,7 +22,6 @@ const MODELS = new Map<string, string[]>(Object.entries({
 }));
 const GEMINI_VERSIONS = ["3.8"];
 const GEMINI_ARGON_ID = "gemini-4-argon";
-const RETIRED_ENGINE_KINDS = new Set(["geminiAgent"]);
 
 /** Every model the picker grid offers; Gemini ids drop their -high/-medium/-low suffix. */
 export const PICKER_MODEL_IDS: readonly string[] = [
@@ -43,7 +43,7 @@ export function pickerRows(instances: InstanceInfo[], current: ModelSelection, p
     return true;
   });
   // Retired providers stay saved through the active chip, never as choices.
-  const other = instances.find((instance) => instance.instanceId === current.instanceId && !RETIRED_ENGINE_KINDS.has(instance.driverKind));
+  const other = instances.find((instance) => instance.instanceId === current.instanceId && !isRetiredEngineKind(instance.driverKind));
   if (other && !seen.has(other.instanceId)) {
     seen.add(other.instanceId);
     rows.push({ instance: other, label: other.displayName });

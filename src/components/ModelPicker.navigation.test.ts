@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider, persistPreference } from "@/lib/i18n";
 import type { Bot, InstanceInfo, ModelSelection } from "@/state/store";
 
+const RETIRED_KINDS = ["grok", "geminiAgent", "kimiAgent", "droidAgent", "cursorAgent", "qwenAgent", "hermesAgent", "openai-compat", "piAgent", "minimax", "opencodeGo"];
 const instances: InstanceInfo[] = [];
 const mock = {
   instances,
@@ -491,6 +492,24 @@ describe("ModelPicker cross navigation", () => {
     expect(list.textContent).toContain("Current (not in list)");
     await key("Enter");
     expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "setModel", botId: "bot-1", selection });
+  });
+
+  it.each(RETIRED_KINDS)("opens a bot pinned to retired %s unchanged and switches it to a kept engine", async (driverKind) => {
+    const selection: ModelSelection = { instanceId: "old", model: "auto", mode: "automatic" };
+    mock.instances = [
+      engine("old", driverKind, ["auto"]),
+      engine("antigravity", "antigravityAgent", ["gemini-3.8-flash-high", "gemini-3.8-flash-low"]),
+    ];
+    await mount(selection);
+    const list = document.querySelector('[data-model-picker-content]')!;
+    expect(list.querySelector('[data-model-row="old"]')).toBeNull();
+    expect(list.textContent).toContain("Current (not in list)");
+    expect(mock.dispatch).not.toHaveBeenCalled();
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-model-cell="gemini-3.8-flash-high"]')!.click());
+    await key("Enter");
+    expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({
+      type: "setModel", botId: "bot-1", selection: { instanceId: "antigravity", model: "gemini-3.8-flash-high", mode: "pinned" },
+    });
   });
 
   it("selects an existing Antigravity tier id and sends no effort value", async () => {

@@ -127,11 +127,9 @@ describe("approvalKey", () => {
 
   it("offers no grant for a placeholder name, which stands in for a tool nobody identified", () => {
     // acp/core.ts falls back to "tool" for a toolCall with no kind, codex.ts to
-    // "mcp" when the elicitation text hides the tool name, pi.ts to "pi" for a
-    // confirm with no title. Each can be a file write.
+    // "mcp" when the elicitation text hides the tool name. Each can be a file write.
     expect(approvalKey("tool", "apply the change")).toBeNull();
     expect(approvalKey("mcp", 'allow tool call on server "fs"')).toBeNull();
-    expect(approvalKey("pi", "pi wants confirmation")).toBeNull();
   });
 
   it("offers no grant for a chained or cut-off command, which can run a second program", () => {

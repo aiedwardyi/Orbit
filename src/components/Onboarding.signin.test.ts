@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/lib/i18n";
 import { Onboarding } from "./Onboarding";
 
+const RETIRED_KINDS = ["grok", "geminiAgent", "kimiAgent", "droidAgent", "cursorAgent", "qwenAgent", "hermesAgent", "openai-compat", "piAgent", "minimax", "opencodeGo"];
 let roots: Root[] = [];
 
 afterEach(async () => {
@@ -82,6 +83,30 @@ describe("Onboarding engine check", () => {
     expect(host.textContent).not.toContain("Details");
     expect(host.textContent).not.toContain("Open Sign-in in Terminal");
   });
+  it("never counts a retired engine a cached probe calls ready", async () => {
+    const retired = RETIRED_KINDS.map((driverKind) => ({
+      instanceId: driverKind, driverKind, displayName: `Old ${driverKind}`,
+      snapshot: { state: "available", authenticated: true }, models: { default: "m", options: [] },
+      install: { docsUrl: "https://example.com" },
+    }));
+    const claude = {
+      instanceId: "claude", driverKind: "claudeAgent", displayName: "Claude",
+      snapshot: { state: "unavailable" }, models: { default: "", options: [] }, install: { docsUrl: "https://claude.com" },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ instances: [...retired, claude] }))));
+    const onDone = vi.fn();
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    roots.push(root);
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(Onboarding, { onDone }))));
+    const next = [...host.querySelectorAll("button")].find((button) => button.textContent === "Connect Claude or Grok");
+    expect(next).toBeDefined();
+    await act(async () => next!.click());
+    expect(onDone).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("Claude");
+    expect(host.textContent).not.toContain("Old ");
+  });
+
   it("asks an unpaired phone to sign in instead of blaming the engines", async () => {
     const host = await renderWith(401);
     expect(host.textContent).toContain("Sign in to this PC");

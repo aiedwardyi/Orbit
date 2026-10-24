@@ -70,10 +70,10 @@ const COMMAND_TOOLS = new Set(["bash", "shell", "execute", "run_command", "compu
 const FILE_TOOLS = new Set(["write", "edit", "multiedit", "notebookedit", "delete", "move"]);
 // A placeholder stands in for a tool nobody could name: acp/core.ts sends
 // "tool" for a toolCall with no kind, codex.ts "mcp" when the elicitation text
-// hides the tool name, pi.ts "pi" for a confirm with no title. Keying a grant
+// hides the tool name. Keying a grant
 // on one covers every tool that lands on the same placeholder, including a
 // file write, which is the grant FILE_TOOLS above refuses.
-const ANONYMOUS_TOOLS = new Set(["tool", "mcp", "pi"]);
+const ANONYMOUS_TOOLS = new Set(["tool", "mcp"]);
 // Chaining, substitution or redirection runs a second program, or writes a
 // second path, under the first program's grant.
 const CHAINED = /[;&|`<>\n\r]|\$\(/;

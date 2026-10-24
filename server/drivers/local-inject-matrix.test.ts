@@ -4,17 +4,10 @@
 // header) before a user hits them.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DroidAgentDriver, droidInjectId, ensureDroidInjectModel } from "./acp/droid.ts";
 import { ensureGrokInjectSlug } from "./acp/grok.ts";
-import { HermesAgentDriver, ensureHermesInjectProvider, hermesAcpModelId } from "./acp/hermes.ts";
-import { ensureKimiInjectAlias, KimiAgentDriver } from "./acp/kimi.ts";
-import { ensureQwenInjectModel, QwenAgentDriver } from "./acp/qwen.ts";
-import { ensurePiInjectModel, PiDriver } from "./pi.ts";
-import { recordEvents } from "../testing/events.ts";
 import {
   applyClaudeInject,
   applyOpenAIInject,
@@ -28,8 +21,6 @@ import {
   localHost,
   mergeLocalInject,
 } from "./local-inject.ts";
-
-const FAKE_ACP = join(dirname(fileURLToPath(import.meta.url)), "..", "testing", "fake-acp-cli.ts");
 
 const scratchDirs: string[] = [];
 afterEach(() => {
@@ -88,7 +79,6 @@ describe("inject id dialect", () => {
   it.each([...OFFICIAL_SLUGS])("does not treat official slug %s as an inject", (slug) => {
     expect(decodeInjectId(slug)).toBeNull();
     expect(injectedApiModel(slug)).toBeNull();
-    expect(hermesAcpModelId(slug)).toBeNull();
   });
 
   it("rejects empty, unknown-host, and junk ids", () => {
@@ -199,7 +189,7 @@ describe("Codex provider dialect", () => {
   });
 });
 
-describe("Grok / Kimi / Droid writers × live ids", () => {
+describe("Grok writer × live ids", () => {
   it.each(["gemma-4-31b-it-bf16", "mlx-community/GLM-5.2-mxfp4", "Qwen3.6-35B-A3B-bf16:qwen3-5-6-n-r-reasoning"] as const)(
     "Grok writes a reusable slug for %s",
     (model) => {
@@ -212,108 +202,6 @@ describe("Grok / Kimi / Droid writers × live ids", () => {
       expect(text).toContain(`base_url = "http://127.0.0.1:8080/v1"`);
     },
   );
-
-  it("Kimi keeps the API id in model= and sanitizes slashes only in the alias", () => {
-    const home = scratchHome("omb-kimi-mx-");
-    mkdirSync(join(home, ".kimi-code"), { recursive: true });
-    const alias = ensureKimiInjectAlias("omlx::qwen/qwen3-coder-next", { HOME: home });
-    expect(alias).toBe("omlx/qwen-qwen3-coder-next");
-    const text = readFileSync(join(home, ".kimi-code", "config.toml"), "utf8");
-    expect(text).toContain(`model = "qwen/qwen3-coder-next"`);
-    expect(text).toContain(`type = "openai_legacy"`);
-  });
-
-  it.each(UNIQUE_HOSTS)("Droid BYOK row for $id uses generic-chat-completion-api", (host) => {
-    const home = scratchHome("omb-droid-mx-");
-    mkdirSync(join(home, ".factory"), { recursive: true });
-    writeFileSync(join(home, ".factory", "settings.json"), "{}");
-    const id = ensureDroidInjectModel(encodeInjectId(host.id, "gemma-4-31b-it-bf16"), {
-      HOME: home,
-      UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret",
-    });
-    expect(id).toBe(droidInjectId(host.id, "gemma-4-31b-it-bf16"));
-    expect(id.startsWith("custom:openmausbot-")).toBe(true);
-    const settings = JSON.parse(readFileSync(join(home, ".factory", "settings.json"), "utf8")) as {
-      customModels: Array<{ provider: string; baseUrl: string; apiKey: string; model: string }>;
-    };
-    expect(settings.customModels[0]).toMatchObject({
-      provider: "generic-chat-completion-api",
-      baseUrl: host.baseUrl,
-      model: "gemma-4-31b-it-bf16",
-      apiKey: hostApiKey(host, { UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret" }),
-    });
-  });
-
-});
-
-describe("Qwen writer × hosts", () => {
-  it.each(UNIQUE_HOSTS)("stores $id credentials in settings.env, not in the model row", (host) => {
-    const home = scratchHome("omb-qwen-mx-");
-    mkdirSync(join(home, ".qwen"), { recursive: true });
-    const native = ensureQwenInjectModel(encodeInjectId(host.id, "gemma-4-31b-it-bf16"), {
-      HOME: home,
-      UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret",
-    });
-    expect(native).toBe("gemma-4-31b-it-bf16");
-    const settings = JSON.parse(readFileSync(join(home, ".qwen", "settings.json"), "utf8")) as {
-      env: Record<string, string>;
-      modelProviders: { openai: Array<{ id: string; baseUrl: string; envKey: string; apiKey?: string }> };
-    };
-    const row = settings.modelProviders.openai[0];
-    expect(row.id).toBe("gemma-4-31b-it-bf16");
-    expect(row.baseUrl).toBe(host.baseUrl);
-    expect(row.apiKey).toBeUndefined();
-    expect(settings.env[row.envKey]).toBe(hostApiKey(host, { UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret" }));
-  });
-
-  it("leaves official Qwen slugs untouched", () => {
-    expect(ensureQwenInjectModel("qwen3-coder-plus", { HOME: scratchHome("omb-qwen-cloud-") })).toBe("qwen3-coder-plus");
-  });
-});
-
-describe("Hermes writer — OpenRouter 401 class", () => {
-  it.each([...LIVE_MODEL_IDS])("ACP model id for %s is custom:host:model, not a bare slug", (model) => {
-    expect(hermesAcpModelId(encodeInjectId("omlx", model))).toBe(`custom:omlx:${model}`);
-  });
-
-  it.each(UNIQUE_HOSTS)("writes providers.$id without flipping model.provider away from auto", (host) => {
-    const home = scratchHome("omb-hermes-mx-");
-    mkdirSync(join(home, ".hermes"), { recursive: true });
-    writeFileSync(
-      join(home, ".hermes", "config.yaml"),
-      "model:\n  default: anthropic/claude-opus-4.6\n  provider: auto\n  base_url: https://openrouter.ai/api/v1\n",
-    );
-    const native = ensureHermesInjectProvider(encodeInjectId(host.id, "gemma-4-31b-it-bf16"), {
-      HOME: home,
-      UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret",
-    });
-    expect(native).toBe(`custom:${host.id}:gemma-4-31b-it-bf16`);
-    const text = readFileSync(join(home, ".hermes", "config.yaml"), "utf8");
-    expect(text).toContain("provider: auto");
-    expect(text).toContain("https://openrouter.ai/api/v1");
-    expect(text).toContain("anthropic/claude-opus-4.6");
-    expect(text).toContain(`  ${host.id}:`);
-    expect(text).toContain(`base_url: ${host.baseUrl}`);
-    expect(text).toContain(`api_key: ${hostApiKey(host, { UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret" })}`);
-  });
-
-  it("does not rewrite the user's OpenRouter default when the pick is a cloud slug", () => {
-    const home = scratchHome("omb-hermes-cloud-");
-    mkdirSync(join(home, ".hermes"), { recursive: true });
-    const original = "model:\n  provider: auto\n";
-    writeFileSync(join(home, ".hermes", "config.yaml"), original);
-    expect(ensureHermesInjectProvider("anthropic/claude-opus-4.6", { HOME: home })).toBe("anthropic/claude-opus-4.6");
-    expect(readFileSync(join(home, ".hermes", "config.yaml"), "utf8")).toBe(original);
-  });
-
-  it("upserts the same host once when two models share oMLX", () => {
-    const home = scratchHome("omb-hermes-two-");
-    mkdirSync(join(home, ".hermes"), { recursive: true });
-    ensureHermesInjectProvider("omlx::gemma-4-31b-it-bf16", { HOME: home });
-    ensureHermesInjectProvider("omlx::GLM-5.2-fp8", { HOME: home });
-    const text = readFileSync(join(home, ".hermes", "config.yaml"), "utf8");
-    expect(text.match(/^  omlx:$/gm)?.length).toBe(1);
-  });
 });
 
 describe("probe payload dialects", () => {
@@ -413,152 +301,6 @@ describe("loaded host probes", () => {
   });
 });
 
-describe("Qwen / Hermes ACP turns", () => {
-  it("Qwen argv is --acp -m <api-id>, never the encoded picker id", async () => {
-    const home = scratchHome("omb-qwen-turn-");
-    const dump = join(home, "env.json");
-    const instance = await QwenAgentDriver.create({
-      instanceId: "qwen",
-      displayName: "Qwen",
-      environment: { HOME: home, FAKE_ACP_DUMP: dump },
-      enabled: true,
-      config: { cli: FAKE_ACP, fullAuto: true },
-    });
-    const recorder = recordEvents(instance.adapter);
-    try {
-      await instance.adapter.sendTurn({ threadId: "t-qwen", text: "hi", model: "omlx::gemma-4-31b-it-bf16" });
-      await recorder.until((e) => e.type === "turn.completed");
-      const seen = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[] };
-      expect(seen.argv).toEqual(["--acp", "-m", "gemma-4-31b-it-bf16"]);
-    } finally {
-      await instance.dispose();
-    }
-  });
-
-  it("Hermes ACP does not inherit OPENAI_API_KEY and set_model uses custom:omlx:…", async () => {
-    const home = scratchHome("omb-hermes-turn-");
-    mkdirSync(join(home, ".hermes"), { recursive: true });
-    writeFileSync(
-      join(home, ".hermes", "config.yaml"),
-      "model:\n  provider: auto\n  base_url: https://openrouter.ai/api/v1\n",
-    );
-    const dump = join(home, "env.json");
-    const instance = await HermesAgentDriver.create({
-      instanceId: "hermes",
-      displayName: "Hermes",
-      environment: {
-        HOME: home,
-        FAKE_ACP_DUMP: dump,
-        OPENAI_API_KEY: "8989",
-        OPENROUTER_API_KEY: "sk-or-should-not-leak",
-      },
-      enabled: true,
-      config: { cli: FAKE_ACP, fullAuto: true },
-    });
-    const recorder = recordEvents(instance.adapter);
-    try {
-      await instance.adapter.sendTurn({ threadId: "t-hermes", text: "hi", model: "omlx::gemma-4-31b-it-bf16" });
-      await recorder.until((e) => e.type === "turn.completed");
-      const seen = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[]; env: Record<string, string> };
-      expect(seen.argv).toEqual(["acp"]);
-      expect(seen.env.OPENAI_API_KEY).toBeUndefined();
-      expect(seen.env.OPENROUTER_API_KEY).toBeUndefined();
-      const configCalls = JSON.parse(readFileSync(`${dump}.config.json`, "utf8")) as Array<{
-        method: string;
-        params: { modelId?: string };
-      }>;
-      expect(configCalls).toContainEqual({
-        method: "session/set_model",
-        params: { sessionId: "fake-acp-session", modelId: "custom:omlx:gemma-4-31b-it-bf16" },
-      });
-      const yaml = readFileSync(join(home, ".hermes", "config.yaml"), "utf8");
-      expect(yaml).toContain("provider: auto");
-      expect(yaml).toContain("  omlx:");
-    } finally {
-      await instance.dispose();
-    }
-  });
-});
-
-describe("room turns must pass the picker model", () => {
-  it("Qwen without a model never injects — the room used to do this", async () => {
-    const home = scratchHome("omb-qwen-noroom-");
-    const dump = join(home, "env.json");
-    const instance = await QwenAgentDriver.create({
-      instanceId: "qwen",
-      displayName: "Qwen",
-      environment: { HOME: home, FAKE_ACP_DUMP: dump },
-      enabled: true,
-      config: { cli: FAKE_ACP, fullAuto: true },
-    });
-    const recorder = recordEvents(instance.adapter);
-    try {
-      await instance.adapter.sendTurn({ threadId: "t-qwen-bare", text: "hi" });
-      await recorder.until((e) => e.type === "turn.completed");
-      const seen = JSON.parse(readFileSync(dump, "utf8")) as { argv: string[] };
-      expect(seen.argv).toEqual(["--acp"]);
-    } finally {
-      await instance.dispose();
-    }
-  });
-
-  it("Hermes without a model never session/set_model — that is the OpenRouter 401", async () => {
-    const home = scratchHome("omb-hermes-noroom-");
-    mkdirSync(join(home, ".hermes"), { recursive: true });
-    const dump = join(home, "env.json");
-    const instance = await HermesAgentDriver.create({
-      instanceId: "hermes",
-      displayName: "Hermes",
-      environment: { HOME: home, FAKE_ACP_DUMP: dump },
-      enabled: true,
-      config: { cli: FAKE_ACP, fullAuto: true },
-    });
-    const recorder = recordEvents(instance.adapter);
-    try {
-      await instance.adapter.sendTurn({ threadId: "t-hermes-bare", text: "hi" });
-      await recorder.until((e) => e.type === "turn.completed");
-      let configCalls: Array<{ method: string }> = [];
-      try {
-        configCalls = JSON.parse(readFileSync(`${dump}.config.json`, "utf8")) as Array<{ method: string }>;
-      } catch {
-        // no session/set_model → the dump file is never written
-      }
-      expect(configCalls.some((call) => call.method === "session/set_model")).toBe(false);
-    } finally {
-      await instance.dispose();
-    }
-  });
-});
-
-describe("Pi writer × hosts", () => {
-  it.each(UNIQUE_HOSTS)("stores $id in ~/.pi/agent/models.json as openai-completions", (host) => {
-    const home = scratchHome("omb-pi-mx-");
-    const split = ensurePiInjectModel(encodeInjectId(host.id, "gemma-4-31b-it-bf16"), {
-      HOME: home,
-      UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret",
-    });
-    expect(split).toEqual({ provider: host.id, modelId: "gemma-4-31b-it-bf16" });
-    const written = JSON.parse(readFileSync(join(home, ".pi", "agent", "models.json"), "utf8")) as {
-      providers: Record<
-        string,
-        { baseUrl: string; api: string; apiKey: string; models: Array<{ id: string }> }
-      >;
-    };
-    const row = written.providers[host.id];
-    expect(row.baseUrl).toBe(host.baseUrl);
-    expect(row.api).toBe("openai-completions");
-    expect(row.apiKey).toBe(hostApiKey(host, { UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret" }));
-    expect(row.models.map((m) => m.id)).toEqual(["gemma-4-31b-it-bf16"]);
-  });
-
-  it("leaves official pi slugs untouched", () => {
-    expect(ensurePiInjectModel("ollama-cloud/glm-5.2", { HOME: scratchHome("omb-pi-cloud-") })).toEqual({
-      provider: "ollama-cloud",
-      modelId: "glm-5.2",
-    });
-  });
-});
-
 // Every one of these files ends up holding a provider api key.
 describe("local-inject writers keep their config 0600", () => {
   const env = { UNSLOTH_STUDIO_AUTH_TOKEN: "unsloth-secret" };
@@ -569,47 +311,10 @@ describe("local-inject writers keep their config 0600", () => {
       ensureGrokInjectSlug(id, { ...env, HOME: home });
       return join(home, ".grok", "config.toml");
     }],
-    ["kimi", (home) => {
-      mkdirSync(join(home, ".kimi-code"), { recursive: true });
-      ensureKimiInjectAlias(id, { ...env, HOME: home });
-      return join(home, ".kimi-code", "config.toml");
-    }],
-    ["droid", (home) => {
-      mkdirSync(join(home, ".factory"), { recursive: true });
-      ensureDroidInjectModel(id, { ...env, HOME: home });
-      return join(home, ".factory", "settings.json");
-    }],
-    ["hermes", (home) => {
-      mkdirSync(join(home, ".hermes"), { recursive: true });
-      ensureHermesInjectProvider(id, { ...env, HOME: home });
-      return join(home, ".hermes", "config.yaml");
-    }],
-    ["qwen", (home) => {
-      mkdirSync(join(home, ".qwen"), { recursive: true });
-      ensureQwenInjectModel(id, { ...env, HOME: home });
-      return join(home, ".qwen", "settings.json");
-    }],
-    ["pi", (home) => {
-      ensurePiInjectModel(id, { ...env, HOME: home });
-      return join(home, ".pi", "agent", "models.json");
-    }],
   ];
 
   it.skipIf(process.platform === "win32").each(writers)("%s", (name, write) => {
     const written = write(scratchHome(`omb-mode-${name}-`));
     expect(statSync(written).mode & 0o777).toBe(0o600);
-  });
-});
-
-describe("Cloud vs Local catalog access", () => {
-  it("Qwen, Hermes, and pi advertise access=custom", () => {
-    expect(QwenAgentDriver.metadata.access).toBe("custom");
-    expect(HermesAgentDriver.metadata.access).toBe("custom");
-    expect(PiDriver.metadata.access).toBe("custom");
-  });
-
-  it("Kimi and Droid stay Cloud (subscription catalog + Custom)", () => {
-    expect(KimiAgentDriver.metadata.access ?? "subscription").toBe("subscription");
-    expect(DroidAgentDriver.metadata.access ?? "subscription").toBe("subscription");
   });
 });

@@ -131,12 +131,6 @@ const dumpEnv = Object.fromEntries(
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
-    "KIMI_MODEL_NAME",
-    "KIMI_MODEL_API_KEY",
-    "KIMI_MODEL_BASE_URL",
-    "KIMI_MODEL_PROVIDER_TYPE",
-    "KIMI_MODEL_DISPLAY_NAME",
-    "TEST_TURN_MODEL",
   ].flatMap((key) => (process.env[key] === undefined ? [] : [[key, process.env[key]]] as const)),
 );
 const dumpState: Record<string, unknown> = { argv, env: dumpEnv };
@@ -413,7 +407,7 @@ function handle(msg: any) {
       result(msg.id, { ...(opts ? { configOptions: opts } : {}), ...(mdls ? { models: mdls } : {}) });
       break;
     }
-    // per-session settings (droid sets model/autonomy here, not via argv).
+    // per-session settings.
     // Recorded to `$FAKE_ACP_DUMP.config.json`, with session/set_config_option
     // below, so a test can assert what the driver actually put on the wire.
     // NOTE: last writer wins — each turn spawns a fresh child, so a two-turn

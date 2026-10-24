@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { installCommandFor, isApiKeySetupMessage, needsApiKey, needsCli, needsSignIn, openInstallTerminalOrCopy, setupErrorAction } from "./EngineSetup";
+import { installCommandFor, needsCli, needsSignIn, openInstallTerminalOrCopy, setupErrorAction } from "./EngineSetup";
 import type { InstanceInfo } from "@/state/store";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -24,17 +24,17 @@ it("offers one-click sign-in for an installed CLI", () => {
 
 function instance(snapshot: InstanceInfo["snapshot"]): InstanceInfo {
   return {
-    instanceId: "kimi",
-    driverKind: "kimiAgent",
-    displayName: "Kimi",
-    models: { default: "kimi-code/k3", options: [] },
+    instanceId: "grok",
+    driverKind: "grokAgent",
+    displayName: "Grok",
+    models: { default: "grok-4.6", options: [] },
     snapshot,
   };
 }
 
 describe("needsCli / needsSignIn", () => {
   it("treats a missing binary as a CLI install, not a sign-in", () => {
-    const missing = instance({ state: "unavailable", reason: "`kimi` CLI not found" });
+    const missing = instance({ state: "unavailable", reason: "`grok` CLI not found" });
     expect(needsCli(missing)).toBe(true);
     expect(needsSignIn(missing)).toBe(false);
   });
@@ -53,26 +53,6 @@ describe("needsCli / needsSignIn", () => {
 });
 
 describe("API key setup", () => {
-  function gemini(snapshot: InstanceInfo["snapshot"]): InstanceInfo {
-    return {
-      instanceId: "gemini",
-      driverKind: "geminiAgent",
-      displayName: "Gemini API",
-      models: { default: "auto", options: [] },
-      snapshot,
-    };
-  }
-
-  it("treats an installed Gemini CLI without a key as an API-key paste, not Retry", () => {
-    const missingKey = gemini({ state: "available", authenticated: false, version: "0.1.0" });
-    expect(needsApiKey(missingKey)).toBe(true);
-    expect(setupErrorAction("Gemini API key missing", missingKey)).toBe("key");
-    expect(setupErrorAction("Gemini API key missing", undefined)).toBe("key");
-    expect(setupErrorAction("OpenCode API key missing", undefined)).toBe("retry");
-    expect(setupErrorAction("Invalid API key provided", undefined)).toBe("retry");
-    expect(isApiKeySetupMessage("Gemini API key missing")).toBe(true);
-  });
-
   it("sends Meta Muse sign-in through the CLI, never Connections", () => {
     const muse: InstanceInfo = {
       instanceId: "muse",
@@ -81,14 +61,13 @@ describe("API key setup", () => {
       models: { default: "muse-spark-1.3", options: [] },
       snapshot: { state: "available", authenticated: false },
     };
-    expect(needsApiKey(muse)).toBe(false);
-    expect(setupErrorAction("Muse CLI is not signed in", muse)).toBe("cli");
+    expect(setupErrorAction(muse)).toBe("cli");
   });
 
   it("still installs the CLI first when the binary is absent", () => {
-    const missingCli = gemini({ state: "unavailable", reason: "`gemini` CLI not found" });
+    const missingCli = instance({ state: "unavailable", reason: "`grok` CLI not found" });
     expect(needsCli(missingCli)).toBe(true);
-    expect(setupErrorAction("Gemini API key missing", missingCli)).toBe("cli");
+    expect(setupErrorAction(missingCli)).toBe("cli");
   });
 
   it("keeps Grok on the Terminal sign-in path", () => {
@@ -99,8 +78,7 @@ describe("API key setup", () => {
       models: { default: "grok-4.6", options: [] },
       snapshot: { state: "available", authenticated: false },
     };
-    expect(needsApiKey(grok)).toBe(false);
-    expect(setupErrorAction("Grok CLI is not signed in", grok)).toBe("cli");
+    expect(setupErrorAction(grok)).toBe("cli");
   });
 
   it("does not send CLI engines to Connections just because the error mentions an API key", () => {
@@ -112,26 +90,16 @@ describe("API key setup", () => {
       snapshot: { state: "available", authenticated },
     });
     for (const kind of ["grokAgent", "claudeAgent"] as const) {
-      expect(setupErrorAction("Invalid API key provided", cli(kind, false))).toBe("cli");
-      expect(setupErrorAction("Invalid API key provided", cli(kind, true))).toBe("retry");
+      expect(setupErrorAction(cli(kind, false))).toBe("cli");
+      expect(setupErrorAction(cli(kind, true))).toBe("retry");
     }
-  });
-
-  it("still pastes a key when Gemini is installed but the snapshot has not flagged unauthenticated", () => {
-    const installed = gemini({ state: "available", authenticated: true, version: "0.1.0" });
-    const unset = gemini({ state: "available", version: "0.1.0" });
-    expect(needsApiKey(installed)).toBe(false);
-    expect(needsApiKey(unset)).toBe(false);
-    expect(setupErrorAction("Gemini API key missing", installed)).toBe("key");
-    expect(setupErrorAction("Gemini API key missing", unset)).toBe("key");
   });
 
   it("offers Terminal when the error carries signIn and an instance is known", () => {
     const agy = instance({ state: "available", version: "1.2.4" });
-    expect(setupErrorAction("authentication failed or timed out", agy, true)).toBe("cli");
-    expect(setupErrorAction("authentication failed or timed out", agy)).toBe("retry");
-    expect(setupErrorAction("authentication failed or timed out", undefined, true)).toBe("retry");
-    expect(setupErrorAction("429 rate limit", agy)).toBe("retry");
+    expect(setupErrorAction(agy, true)).toBe("cli");
+    expect(setupErrorAction(agy)).toBe("retry");
+    expect(setupErrorAction(undefined, true)).toBe("retry");
   });
 });
 

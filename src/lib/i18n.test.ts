@@ -24,9 +24,6 @@ it.each(["signIn", "finishInBrowser", "openAgain", "openLink", "enterCode", "not
   expect(en[key]).toBeTruthy();
   expect(ko[key]).toMatch(/[가-힣]/);
 });
-it("names the Gemini API key once in Korean", () => {
-  expect(ko["engine.needsKeyTitle"].replace("{name}", "Gemini API")).toBe("Gemini API 키 입력");
-});
 
 const css = readFileSync(join(here, "../styles.css"), "utf8");
 const updateBanner = readFileSync(join(here, "../components/UpdateBanner.tsx"), "utf8");
@@ -212,10 +209,6 @@ describe("catalogs", () => {
     expect(ko["room.setupTitle"].startsWith("{name}")).toBe(true);
     expect(ko["chat.conversationAria"].includes("{name}")).toBe(true);
     expect(ko["chrome.botWorking"].startsWith("{name}")).toBe(true);
-  });
-
-  it("describes the Gemini API key plainly", () => {
-    expect(en["connections.gemini.description"]).not.toMatch(/CLI|native|binary|Antigravity/i);
   });
 });
 
@@ -782,8 +775,6 @@ describe("first-run core path leftovers", () => {
     expect(ko["model.automaticHelp"]).not.toMatch(/stay on this|when it works/i);
     expect(translate("en", "model.automaticHelp", { name: "Grok 4.6" })).toBe("Grok 4.6");
     expect(translate("ko", "model.automaticHelp", { name: "Grok 4.6" })).toBe("Grok 4.6");
-    expect(en["engine.openConnections"]).toBe("Enter API Key");
-    expect(ko["engine.openConnections"]).toBe("API 키 입력");
     expect(en["engines.models"]).toBe("Models");
     expect(ko["engines.models"]).toBe("모델");
     expect(en["usage.limits.notReported"]).toBe("{name} does not report a usage limit.");
@@ -806,8 +797,6 @@ describe("first-run core path leftovers", () => {
     expect(engineSetup).toContain('t("engine.signInTo"');
     expect(engineSetup).toContain('t("engine.installName"');
     expect(engineSetup).toContain('t("engine.copyCommand")');
-    expect(engineSetup).toContain('t("engine.openConnections")');
-    expect(engineSetup).toContain('t("engine.needsKey")');
     expect(engineSetup).not.toMatch(/Open install in Terminal/);
     expect(approvalCard).toContain('t("approval.wantsNamed"');
     expect(approvalCard).toContain('t("approval.allowed")');

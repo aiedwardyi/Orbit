@@ -1,15 +1,12 @@
 // Pure step logic for the New group wizard: engine suggestions, local bot
 // naming, and the create payloads. No React, no I/O — unit-tested below.
 import type { InstanceInfo } from "@/state/store";
+import { isRetiredEngineKind } from "../../shared/model-selection.ts";
 
 /** An engine row the host can actually run a turn on. */
 export function isEngineConnected(instance: InstanceInfo): boolean {
   return instance.snapshot.state === "available" && instance.snapshot.authenticated !== false;
 }
-
-/** Engine kinds retired from suggestions and dropdowns, mirroring the main
- * picker curation (single-sourced here; the picker omits them outright). */
-export const RETIRED_ENGINE_KINDS: readonly string[] = ["geminiAgent"];
 
 /** Engine dropdown options: connected instances minus retired kinds. The
  * current pick stays selectable via the unshift fallback. */
@@ -19,8 +16,8 @@ export function wizardEngineOptions(
 ): InstanceInfo[] {
   const connected = instances
     .filter(isEngineConnected)
-    .filter((i) => !RETIRED_ENGINE_KINDS.includes(i.driverKind));
-  if (current && !connected.some((i) => i.instanceId === current.instanceId)) {
+    .filter((i) => !isRetiredEngineKind(i.driverKind));
+  if (current && !isRetiredEngineKind(current.driverKind) && !connected.some((i) => i.instanceId === current.instanceId)) {
     return [current, ...connected];
   }
   return connected;
@@ -69,12 +66,12 @@ export function suggestEngine(
   preferKinds: readonly string[],
   excludeInstanceIds?: ReadonlySet<string>,
 ): EnginePick | null {
-  const open = instances.filter((i) => isEngineConnected(i) && !excludeInstanceIds?.has(i.instanceId));
+  const open = instances.filter((i) => isEngineConnected(i) && !isRetiredEngineKind(i.driverKind) && !excludeInstanceIds?.has(i.instanceId));
   for (const kind of preferKinds) {
     const hit = open.find((i) => i.driverKind === kind);
     if (hit) return { instance: hit, substituted: false };
   }
-  const fallback = open.find((i) => !RETIRED_ENGINE_KINDS.includes(i.driverKind));
+  const fallback = open[0];
   return fallback ? { instance: fallback, substituted: true } : null;
 }
 

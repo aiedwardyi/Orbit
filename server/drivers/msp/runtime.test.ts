@@ -1,7 +1,7 @@
 // MSP driver contract tests, run against the scripted fake MSP host in
 // server/testing/fake-msp-cli.ts: session/start carries the model, text
 // folds into canonical events, interrupts and crashes settle cleanly.
-import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,6 +108,7 @@ describe("MSP turns (fake host)", () => {
     delete process.env.FAKE_MSP_USAGE;
     delete process.env.FAKE_MSP_USAGE_CHANGED;
     delete process.env.FAKE_MSP_ITEMS;
+    delete process.env.FAKE_MSP_GATE_FILE;
     delete process.env.META_API_KEY;
     recorder?.stop();
     await instance?.dispose();
@@ -190,6 +191,20 @@ describe("MSP turns (fake host)", () => {
     ]);
     const done = recorder.events.findIndex((e) => e.type === "item.completed" && e.itemType === "tool");
     expect(done).toBeLessThan(recorder.events.findIndex((e) => e.type === "turn.completed"));
+  });
+
+  it("holds an echo-gated turn open until its gate file exists", async () => {
+    const gate = join(scratch, "turn.gate");
+    const rpcDump = join(scratch, "muse-gated-rpc.json");
+    process.env.FAKE_MSP_GATE_FILE = gate;
+    process.env.FAKE_MSP_RPC_DUMP = rpcDump;
+    await create("echo-gated");
+    await instance.adapter.sendTurn({ threadId: "t-gated", text: "steer me" });
+    await vi.waitFor(() => expect(JSON.parse(readFileSync(rpcDump, "utf8"))).toContain("turn/start"));
+    expect(recorder.events.some((e) => e.type === "turn.completed")).toBe(false);
+    writeFileSync(gate, "open");
+    expect(await recorder.until((e) => e.type === "turn.completed")).toMatchObject({ ok: true });
+    expect(recorder.events.filter((e) => e.type === "content.delta").map((e) => e.delta)).toEqual(["echo: steer me"]);
   });
 
   it("keeps reasoning and reminder children out of tool activity", async () => {

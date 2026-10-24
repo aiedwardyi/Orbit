@@ -1,5 +1,6 @@
 import type { EffortLevel, ModelSelection, RateLimitWindow } from "./contracts.ts";
 import { defaultModelEffort, isEffortOffered } from "../shared/model-effort.ts";
+import { isRetiredEngineKind } from "../shared/model-selection.ts";
 
 export type AutomaticCapability =
   | "agentsMcp"
@@ -34,6 +35,7 @@ export function resolveAutomaticSelection(input: {
     (candidate) =>
       candidate.available &&
       candidate.defaultModel &&
+      !isRetiredEngineKind(candidate.driverKind) &&
       required.every((capability) => candidate.capabilities[capability] === true),
   );
   const preferredIds = [input.continuity?.instanceId, input.current?.instanceId];

@@ -18,7 +18,7 @@ export const WORKSPACES_DIR = join(DATA_DIR, "workspaces");
 
 /** Only engines with a local file workspace receive file-backed memory. */
 export function supportsWorkspaceFiles(driverKind: string): boolean {
-  return !["grok", "openai-compat", "minimax", "boxAgent"].includes(driverKind);
+  return driverKind !== "boxAgent";
 }
 
 /** The load budget: however large MEMORY.md grows, only this much rides

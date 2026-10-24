@@ -2,6 +2,7 @@
 // (no catalog — inject a model). A missing `access` is Cloud so older
 // payloads stay in the top group. VibeCoder would join Local later.
 import type { InstanceInfo } from "@/state/store";
+import { isRetiredEngineKind } from "../../shared/model-selection.ts";
 import { showEngineRailZoo } from "./friends-chrome";
 
 export function isCustomOnly(instance: { access?: InstanceInfo["access"] } | undefined): boolean {
@@ -22,6 +23,8 @@ export function splitEngineRail<T>(instances: readonly T[]): {
   const subscription: T[] = [];
   const custom: T[] = [];
   for (const instance of instances) {
+    // SAFETY: the generic preserves the caller's row type; this check reads only driverKind.
+    if (isRetiredEngineKind((instance as { driverKind?: string }).driverKind)) continue;
     if (isCustomOnly(instance as { access?: InstanceInfo["access"] })) custom.push(instance);
     else subscription.push(instance);
   }
@@ -82,8 +85,9 @@ export function splitFriendsEngines<T>(instances: readonly T[]): {
   const rest: T[] = [];
   for (const instance of instances) {
     // SAFETY: the generic preserves the caller's row type; this split reads only driverKind.
-    if (isFriendsEngine(instance as { driverKind?: string })) friends.push(instance);
-    else rest.push(instance);
+    const row = instance as { driverKind?: string };
+    if (isFriendsEngine(row)) friends.push(instance);
+    else if (!isRetiredEngineKind(row.driverKind)) rest.push(instance);
   }
   return { friends: orderFriendsEngines(friends), rest };
 }
@@ -104,10 +108,10 @@ export function visibleFriendsRail<T extends { instanceId: string }>(
   }
   const visible = [...friends];
   if (options.activeId && !visible.some((row) => row.instanceId === options.activeId)) {
-    const active = instances.find((row) => row.instanceId === options.activeId);
+    const active = rest.find((row) => row.instanceId === options.activeId);
     if (active) visible.push(active);
   }
-  return { visible, hiddenCount: instances.length - visible.length };
+  return { visible, hiddenCount: friends.length + rest.length - visible.length };
 }
 
 /** Quiet "Use a local model" on the selected engine when it already has
@@ -125,9 +129,10 @@ export function showFriendsLocalZoo(input: {
 const STARTER_CONNECT_DRIVERS = ["claudeAgent", "grokAgent"] as const;
 
 export function isEmptyEngineLaunch(
-  instances: readonly { snapshot?: { state?: string } }[],
+  instances: readonly { driverKind?: string; snapshot?: { state?: string } }[],
 ): boolean {
-  return instances.length > 0 && !instances.some((instance) => instance.snapshot?.state === "available");
+  return instances.length > 0
+    && !instances.some((instance) => instance.snapshot?.state === "available" && !isRetiredEngineKind(instance.driverKind));
 }
 
 export function starterConnectEngines<T>(instances: readonly T[]): T[] {

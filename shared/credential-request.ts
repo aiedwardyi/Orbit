@@ -6,13 +6,13 @@
 export const CREDENTIAL_TARGETS = {
   xaiApiKey: {
     label: "xAI API Key",
-    description: "Used by the built-in Grok provider.",
+    description: "Lets bots call the xAI API with call_api.",
     placeholder: "xai-…",
     helpUrl: "https://console.x.ai/",
   },
   geminiApiKey: {
     label: "Gemini API Key",
-    description: "Runs the native Gemini CLI directly.",
+    description: "Lets bots call the Gemini API with call_api.",
     placeholder: "Paste your Gemini API key",
     helpUrl: "https://aistudio.google.com/apikey",
   },
