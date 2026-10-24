@@ -24,6 +24,9 @@ import type { TaskResumePacket } from "./task-state.ts";
 import type { createThreadSyncV2Gate } from "./thread-sync-v2-gate.ts";
 import { TASK_RESUME_PROMPT } from "./turn-context.ts";
 
+// A stopped thread stays held through the driver's cancel grace (ACP and MSP: 5 s), and an edit inside it is refused.
+const STOP_RELEASE_MS = 6_000;
+
 type BotChatRouteDeps = {
   cfg: AppConfig;
   threadSyncGate: ReturnType<typeof createThreadSyncV2Gate>;
@@ -108,6 +111,14 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
     secretMessage,
     resumeSecretCard,
   } = deps;
+  const threadReleased = async (bot: BotRecord) => {
+    const deadline = Date.now() + STOP_RELEASE_MS;
+    while (botHasActiveTurn(bot.id, bot.threadId)) {
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return true;
+  };
   return {
     patchCard: async (req: IncomingMessage, res: ServerResponse, m: RegExpMatchArray) => {
       const bot = store.bot(m[1]);
@@ -425,7 +436,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
         bumpTurnEpoch(bot.id);
         await routines!.cancelRun(routineRun.id);
         if (inFlight) releaseInterruptedBot(bot.id, runThread(routineRun) ?? bot.threadId);
-        if (requireSettled) return json(res, 200, { ok: true, stopped: inFlight, returned });
+        if (requireSettled) return json(res, 200, { ok: true, stopped: inFlight && await threadReleased(bot), returned });
         return json(res, 200, { ok: true, returned });
       }
       const instance = registry.get(bot.modelSelection.instanceId);
@@ -457,15 +468,13 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
         await instance?.adapter.interruptTurn(busyGroup.threadId).catch(() => {});
         closeOpenApprovals(busyGroup.threadId);
       }
-      let failed = false;
-      await instance?.adapter.interruptTurn(bot.threadId).catch(() => { failed = true; });
-      if (requireSettled && failed) return json(res, 200, { ok: true, stopped: false, returned });
+      await instance?.adapter.interruptTurn(bot.threadId).catch(() => {});
       closeOpenApprovals(bot.threadId);
       if (stoppedThreadId !== bot.threadId && stoppedThreadId !== busyGroup?.threadId) {
         await instance?.adapter.interruptTurn(stoppedThreadId).catch(() => {});
       }
       if (inFlight) releaseInterruptedBot(bot.id, stoppedThreadId);
-      if (requireSettled) return json(res, 200, { ok: true, stopped: inFlight, returned });
+      if (requireSettled) return json(res, 200, { ok: true, stopped: inFlight && await threadReleased(bot), returned });
       return json(res, 200, { ok: true, returned });
     },
     resumeTask: async (res: ServerResponse, m: RegExpMatchArray) => {

@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createBotChatRoutes } from "./bot-chat-routes.ts";
 import { createBotRoutes } from "./bot-routes.ts";
@@ -17,8 +17,15 @@ const cancelRun = vi.fn(async () => {});
 const interruptTurn = vi.fn(async (_threadId: string) => {});
 const startTurn = vi.fn(async (_botId: string, _text: string, _opts?: unknown) => ({}));
 const release = vi.fn(() => store.setActivity(bot.id, "idle"));
+const closeOpenApprovals = vi.fn();
+let heldUntil = Infinity;
+const onDriver = { botHasActiveTurn: (_botId: string, threadId = bot.threadId) => Boolean(bot.busy) || hasSession(threadId) };
 
-function routes() {
+function hasSession(threadId: string) {
+  return threadId === bot.threadId && Date.now() < heldUntil;
+}
+
+function routes(deps = {}) {
   return createBotChatRoutes({
     store,
     registry: { get: () => ({ adapter: { interruptTurn } }) },
@@ -28,16 +35,24 @@ function routes() {
     broadcast: vi.fn(), bumpTurnEpoch: () => 1, markThreadInterrupted: vi.fn(), flushInterruptedTask: vi.fn(),
     closeOpenApprovals: vi.fn(), releaseInterruptedBot: release,
     startTurn, resolveReplyTarget: vi.fn(),
+    ...deps,
   } as unknown as Parameters<typeof createBotChatRoutes>[0]);
 }
 
-async function request(route: "interrupt" | "edit", body: unknown, messageId = "") {
+async function request(route: "interrupt" | "edit", body: unknown, messageId = "", deps = {}) {
   const req = Readable.from([JSON.stringify(body)]) as IncomingMessage;
   let status = 0;
   let data: any;
   const res = { writeHead: (code: number) => { status = code; }, end: (raw: string) => { data = JSON.parse(String(raw)); } } as unknown as ServerResponse;
-  await routes()[route](req, res, ["", bot.id, messageId] as RegExpMatchArray);
+  await routes(deps)[route](req, res, ["", bot.id, messageId] as RegExpMatchArray);
   return { status, data };
+}
+
+function stopThenRerun(source: { id: string; text?: string }) {
+  return request("interrupt", { threadId: bot.threadId, requireSettled: true }, "", onDriver).then(async (stop) => ({
+    stop,
+    rerun: stop.data.stopped ? await request("edit", { text: source.text, expectedSelection: next }, source.id, onDriver) : null,
+  }));
 }
 
 beforeEach(() => {
@@ -51,6 +66,12 @@ beforeEach(() => {
   release.mockClear();
   routine = false;
   cancelRun.mockClear();
+  closeOpenApprovals.mockClear();
+  heldUntil = Infinity;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("no reply switch acknowledgement", () => {
@@ -86,16 +107,54 @@ describe("no reply switch acknowledgement", () => {
     expect(bot.modelSelection).toEqual(next);
   });
 
-  it("leaves a rejected stop busy with the new pick pending", async () => {
+  it("finishes a rejected stop like Stop and does not acknowledge the thread its driver still holds", async () => {
+    vi.useFakeTimers();
     interruptTurn.mockRejectedValueOnce(new Error("failed"));
-    const result = await request("interrupt", { threadId: bot.threadId, requireSettled: true });
-    expect(result.data).toMatchObject({ stopped: false });
-    expect(release).not.toHaveBeenCalled();
-    expect(bot.busy).toBe(true);
-    expect(bot.modelSelection).toEqual(old);
-    expect(bot.pendingModelSelection).toEqual(next);
-    interruptTurn.mockRejectedValueOnce(new Error("failed again"));
-    const normal = await request("interrupt", {});
+    const result = request("interrupt", { threadId: bot.threadId, requireSettled: true }, "", { ...onDriver, closeOpenApprovals });
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect((await result).data).toMatchObject({ stopped: false });
+    expect(closeOpenApprovals).toHaveBeenCalledExactlyOnceWith(bot.threadId);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(bot.busy).toBe(false);
+    expect(bot.modelSelection).toEqual(next);
+    expect(bot.pendingModelSelection).toBeUndefined();
+  });
+
+  it.each([300, 5_000])("acknowledges the stop once its driver lets go %i ms later, so the rerun lands once on the new pick", async (hold) => {
+    vi.useFakeTimers();
+    const source = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "hello" });
+    interruptTurn.mockImplementationOnce(async () => { heldUntil = Date.now() + hold; });
+    const flow = stopThenRerun(source);
+    await vi.advanceTimersByTimeAsync(hold);
+    const { stop, rerun } = await flow;
+    expect(stop.data.stopped).toBe(true);
+    expect(rerun?.status).toBe(202);
+    expect(interruptTurn).toHaveBeenCalledTimes(1);
+    expect(startTurn).toHaveBeenCalledTimes(1);
+    expect(store.messagesFor(bot.threadId).filter((message) => message.role === "user")).toHaveLength(2);
+    expect(bot.modelSelection).toEqual(next);
+  });
+
+  it("answers not stopped when the driver never lets go, with the bot idle and no rerun", async () => {
+    vi.useFakeTimers();
+    const source = store.appendMessage(bot.threadId, { role: "user", kind: "text", text: "hello" });
+    let done = false;
+    const flow = stopThenRerun(source).then((result) => { done = true; return result; });
+    await vi.advanceTimersByTimeAsync(5_950);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(50);
+    const { stop, rerun } = await flow;
+    expect(stop.data).toMatchObject({ stopped: false });
+    expect(rerun).toBeNull();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(bot.busy).toBe(false);
+    expect(startTurn).not.toHaveBeenCalled();
+  });
+
+  it("answers plain Stop at once while the driver still holds the thread", async () => {
+    vi.useFakeTimers();
+    interruptTurn.mockRejectedValueOnce(new Error("failed"));
+    const normal = await request("interrupt", {}, "", onDriver);
     expect(normal.data).toEqual({ ok: true, returned: [] });
     expect(release).toHaveBeenCalledTimes(1);
   });

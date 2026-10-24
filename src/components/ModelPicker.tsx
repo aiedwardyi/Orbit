@@ -8,7 +8,7 @@ import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, sele
 import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { pickerPrice } from "@/lib/model-index";
 import { usePresence } from "@/lib/use-presence";
-import { switchFromNoReply } from "@/lib/no-reply-switch";
+import { noReplySource, switchFromNoReply } from "@/lib/no-reply-switch";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
@@ -58,6 +58,7 @@ export function ModelPickerControl({
   const focusComposerAfterCloseRef = useRef(false);
   const openedWithShortcutRef = useRef(false);
   const switchingRef = useRef(false);
+  const switchSourceRef = useRef<string | undefined>(undefined);
   const stageRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef({ x: 0, y: 0, stepped: true });
   const [stageWidth, setStageWidth] = useState(0);
@@ -105,6 +106,7 @@ export function ModelPickerControl({
     focusComposerAfterCloseRef.current = false;
     openedWithShortcutRef.current = viaShortcut;
     switchingRef.current = switching;
+    switchSourceRef.current = switching ? noReplySource(bot)?.id : undefined;
     setOpen(true);
   };
   useImperativeHandle(switchControl, () => () => show(false, true));
@@ -119,8 +121,8 @@ export function ModelPickerControl({
   }, [bindingsId, open]);
   const save = (candidate: ModelSelection = draft, fromKeyboard = false) => {
     if (!canCommit(candidate)) return;
-    focusComposerAfterCloseRef.current = fromKeyboard && openedWithShortcutRef.current && !contained;
-    if (switchingRef.current) switchFromNoReply(bot, candidate, state.instances, dispatch, onSwitching, onRerunSettled);
+    focusComposerAfterCloseRef.current = fromKeyboard && (openedWithShortcutRef.current || switchingRef.current) && !contained;
+    if (switchingRef.current) switchFromNoReply(bot, candidate, switchSourceRef.current, state.instances, dispatch, onSwitching, onRerunSettled);
     else dispatch({ type: "setModel", botId: bot.id, selection: candidate });
     close();
     if (focusComposerAfterCloseRef.current) {

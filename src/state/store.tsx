@@ -1611,8 +1611,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             method: "POST",
             body: JSON.stringify({ text: action.text, ...(action.expectedSelection ? { expectedSelection: action.expectedSelection } : {}) }),
           }).then(() => action.onSettled?.()).catch((error) => {
-            if (action.onSettled) action.onSettled(error);
-            else showError(error);
+            showError(error);
+            action.onSettled?.(error);
           });
           break;
         }
@@ -1951,6 +1951,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   sends.map((send) => takeQueuedDraft(send.sendId) ?? { text: send.text, attachments: [] }),
                 );
               }
+              if (action.switchThreadId && body.stopped !== true) release();
               action.onStopped?.({ stopped: body.stopped === true, returned });
             })
             .catch((error) => {

@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { StoreProvider, useStore, type Bot, type ModelSelection } from "./store";
+import { ModelPickerControl } from "@/components/ModelPicker";
+import { StoreProvider, useStore, type Bot, type InstanceInfo, type ModelSelection } from "./store";
 
 class FakeEventSource {
   static last: FakeEventSource | null = null;
@@ -100,7 +101,19 @@ describe("setModel", () => {
     expect(onStopped).toHaveBeenCalledExactlyOnceWith({ stopped: true, returned: [] });
   });
 
-  it("forwards the rerun pick guard and handles a rejected fork without an error row", async () => {
+  it("releases the stop hold on an unconfirmed switch stop and keeps it on plain Stop", async () => {
+    await mount(botOf(true));
+    const fetchBefore = fetch;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => url.endsWith("/interrupt") ? Promise.resolve(Response.json({ ok: true, stopped: false, returned: [] })) : fetchBefore(url, init)));
+    await act(async () => store.dispatch({ type: "interrupt", botId: "b1", switchThreadId: "t-b1" }));
+    expect(store.state.stoppingBots.b1).toBeUndefined();
+    expect(store.state.bots[0].busy).toBe(true);
+    await act(async () => store.dispatch({ type: "interrupt", botId: "b1" }));
+    expect(store.state.stoppingBots.b1).toBeDefined();
+    expect(store.state.bots[0].busy).toBe(false);
+  });
+
+  it("forwards the rerun pick guard and shows a rejected fork's error row", async () => {
     await mount(botOf(false));
     const fetchBefore = fetch;
     const edit = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ error: "changed" }, { status: 409 }));
@@ -109,7 +122,31 @@ describe("setModel", () => {
     await act(async () => store.dispatch({ type: "editMessage", botId: "b1", messageId: "u1", text: "hello", expectedSelection: next, onSettled }));
     expect(JSON.parse(String(edit.mock.calls[0][1]?.body))).toEqual({ text: "hello", expectedSelection: next });
     expect(onSettled.mock.calls[0][0]).toBeInstanceOf(Error);
-    expect(store.state.error).toBeNull();
+    expect(store.state.error).toBe("changed");
+  });
+
+  it("shows one error row and clears the transition when the edit refuses a Switch rerun", async () => {
+    const bot: Bot = { ...botOf(true), messages: [{ id: "u1", role: "user", kind: "text", text: "hello", at: 1 }] };
+    await mount(bot);
+    const fetchBefore = fetch;
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => url.endsWith("/interrupt") ? Promise.resolve(Response.json({ ok: true, stopped: true, returned: [] }))
+      : url.endsWith("/edit") ? Promise.resolve(Response.json({ error: "changed" }, { status: 409 })) : fetchBefore(url, init)));
+    const instances = [["claude", "claudeAgent", running.model], ["codex", "codex", "gpt-6.1-sol"]].map(([instanceId, driverKind, model]) => ({
+      instanceId, driverKind, displayName: instanceId,
+      snapshot: { state: "available", authenticated: true }, models: { default: model, options: [{ id: model, label: model }] }, capabilities: {},
+    })) as InstanceInfo[];
+    const control = createRef<() => void>();
+    const onSwitching = vi.fn();
+    const host = document.body.appendChild(document.createElement("div"));
+    const picker = createRoot(host);
+    await act(async () => picker.render(createElement(ModelPickerControl, { bot, switchControl: control, onSwitching, store: { state: { instances, selectedId: "b1" }, dispatch: store.dispatch, refreshInstances: async () => {} } })));
+    await act(async () => control.current!());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-model-cell="gpt-6.1-sol"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>(".model-cross-footer button")!.click());
+    expect(onSwitching.mock.calls.map(([stage]) => stage)).toEqual(["saving", "rerunning", null]);
+    expect(store.state.error).toBe("changed");
+    await act(async () => picker.unmount());
+    host.remove();
   });
 
   it("holds a pick on a busy bot as pending and raises no error", async () => {

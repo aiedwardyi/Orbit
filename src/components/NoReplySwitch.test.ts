@@ -110,6 +110,17 @@ describe("switch from no reply", () => {
     expect(bot.busy).toBe(true);
   });
 
+  it("lands a keyboard Save in the composer", async () => {
+    const composer = document.body.appendChild(document.createElement("textarea"));
+    composer.setAttribute("data-orbit-composer", "");
+    await render();
+    await open();
+    for (const key of ["ArrowDown", "Enter"]) await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })));
+    await act(async () => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())));
+    expect(dispatch.mock.calls[0][0]).toMatchObject({ type: "setModel", selection: next });
+    expect(document.activeElement).toBe(composer);
+  });
+
   it("stops once, then forks the complete last message on the applied pick", async () => {
     await render();
     await open();
@@ -146,6 +157,28 @@ describe("switch from no reply", () => {
     await save();
     expect(dispatch.mock.calls.map(([action]) => action.type)).toEqual(["setModel"]);
     expect(bot.modelSelection).toMatchObject(next);
+  });
+
+  it("applies a plain pick when the prompt is paged out", async () => {
+    bot = { ...bot, messages: [], hasMore: true };
+    await render();
+    await open();
+    await save();
+    expect(dispatch.mock.calls.map(([action]) => [action.type, action.holdForSwitch])).toEqual([["setModel", undefined]]);
+    expect(bot.busy).toBe(true);
+    expect(transitions.mock.calls.map(([stage]) => stage)).toEqual([null]);
+  });
+
+  it("applies a plain pick when a queued send started while the picker was open", async () => {
+    bot = { ...bot, messages: [...bot.messages, { id: "u2", role: "user", kind: "text", text: "next", at: 2, queued: true }] };
+    await render();
+    await open();
+    bot = { ...bot, messages: bot.messages.map((message) => ({ ...message, queued: false })) };
+    await render();
+    await save();
+    expect(dispatch.mock.calls.map(([action]) => [action.type, action.holdForSwitch])).toEqual([["setModel", undefined]]);
+    expect(bot.busy).toBe(true);
+    expect(bot.pendingModelSelection).toMatchObject(next);
   });
 
   it.each(["failed", "unsettled"] as const)("does not rerun after a %s stop and leaves the pick pending", async (outcome) => {
@@ -188,6 +221,6 @@ describe("switch from no reply", () => {
   it("has the Korean short action", async () => {
     persistPreference("ko");
     await render();
-    expect(host.querySelector('[aria-label="Switch model"]')?.textContent).toBe("전환");
+    expect(host.querySelector('[aria-label="모델 전환"]')?.textContent).toBe("전환");
   });
 });

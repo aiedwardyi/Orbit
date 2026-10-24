@@ -6,13 +6,22 @@ import { useI18n } from "./i18n";
 
 type SwitchStage = "saving" | "rerunning" | null;
 
-export function switchFromNoReply(bot: Bot, selection: ModelSelection, instances: InstanceInfo[], dispatch: Dispatch<Action>, onSwitching?: (stage: SwitchStage) => void, onRerunSettled?: () => void) {
+export function noReplySource(bot: Bot) {
+  return [...visibleMessages(bot)].reverse().find((message) => message.role === "user" && message.kind === "text" && !message.queued);
+}
+
+export function switchFromNoReply(bot: Bot, selection: ModelSelection, opened: string | undefined, instances: InstanceInfo[], dispatch: Dispatch<Action>, onSwitching?: (stage: SwitchStage) => void, onRerunSettled?: () => void) {
   const shown = shownModelSelection(bot);
   const current = withPickerEffort(instances.find((instance) => instance.instanceId === shown.instanceId), shown);
   if (current.instanceId === selection.instanceId && current.model === selection.model && current.effort === selection.effort) return;
-  const source = [...visibleMessages(bot)].reverse().find((message) => message.role === "user" && message.kind === "text" && !message.queued);
+  const source = noReplySource(bot);
   const queued = bot.messages.some((message) => message.queued);
   const finish = () => onSwitching?.(null);
+  if (!source?.text || source.id !== opened) {
+    finish();
+    dispatch({ type: "setModel", botId: bot.id, selection });
+    return;
+  }
   if (bot.busy) onSwitching?.("saving");
   dispatch({
     type: "setModel", botId: bot.id, selection, holdForSwitch: true,
@@ -47,5 +56,5 @@ export function useNoReplySwitch(bot: Bot, lastUserId: string | undefined, turnA
 
 export function SwitchModelAction({ onClick }: { onClick: () => void }) {
   const { t } = useI18n();
-  return <button type="button" aria-label="Switch model" onClick={onClick} className="pointer-events-auto shrink-0 border-0 bg-transparent p-0 text-ink-secondary hover:text-ink hover:underline hover:underline-offset-[3px]">{t("activity.switch")}</button>;
+  return <button type="button" aria-label={t("activity.switchModel")} onClick={onClick} className="pointer-events-auto shrink-0 border-0 bg-transparent p-0 text-ink-secondary hover:text-ink hover:underline hover:underline-offset-[3px]">{t("activity.switch")}</button>;
 }
