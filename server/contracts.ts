@@ -350,6 +350,9 @@ export interface ProviderAdapter {
    * own words, which a Claude turn that has shown nothing may restart on;
    * `peerTurn` skips that restart. */
   steer?(threadId: ThreadId, text: string, consumed?: (taken: boolean, afterReply?: boolean) => void, opts?: { fromUser?: boolean; peerTurn?: boolean }): Promise<boolean>;
+  /** Move the RUNNING turn on this thread to this effort. True only when the
+   * turn's next model call carries it; false leaves the turn as it was. */
+  applyEffort?(threadId: ThreadId, effort: EffortLevel): Promise<boolean>;
   /** True while this driver still owns the thread — the same `active` entry
    * sendTurn throws "a turn is already running on this thread" on. It
    * outlives the harness's own busy flag: a cancelled turn keeps the entry

@@ -60,6 +60,7 @@ import {
 } from "./local-inject.ts";
 import { appendNative, finishNative } from "./native.ts";
 import { claudeRateLimitWindows } from "./rate-limits.ts";
+import { switchEffort, type EffortRequest } from "./claude-effort.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { redactSecretsInText } from "../redact.ts";
 import { accountLabel, cachedSignIn } from "./auth-status.ts";
@@ -802,6 +803,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
        * `result` keeps them, since the CLI then runs them as their own query.
        * `afterReply` marks ones a finished reply overtook. */
       steerAcks: Array<{ ack: (taken: boolean, afterReply?: boolean) => void; afterReply?: boolean }>;
+      /** control requests waiting on their control_response, by request_id */
+      replies: Map<string, (ok: boolean) => void>;
       stderr: string;
       /** settle the current turn; set once the spawn handlers exist */
       settleTurn?: (ok: boolean, stopReason: string | null) => void;
@@ -818,6 +821,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     // A summary runs inside the user's send, so this is how long a reply can wait to start.
     const SUMMARY_TIMEOUT_MS = Number(process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS) || 90_000;
     const MERGE_GUARD_MS = Number(process.env.OMB_CLAUDE_MERGE_GUARD_MS) || 15_000;
+    const EFFORT_REPLY_MS = Number(process.env.OMB_CLAUDE_EFFORT_REPLY_MS) || 3_000;
     // a lost task_notification must not pin a session forever
     const BACKGROUND_TASK_TTL_MS = 2 * 60 * 60_000;
     const liveBackground = (s: Session) =>
@@ -911,7 +915,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     const writeControl = (
       s: Session,
       threadId: string,
-      msg: { type: "control_request"; request_id: string; request: { subtype: "interrupt" } },
+      msg: { type: "control_request"; request_id: string; request: { subtype: "interrupt" } } | EffortRequest,
     ): Promise<boolean> => {
       if (!s.child.stdin.writable || s.child.stdin.destroyed) return Promise.resolve(false);
       return new Promise((resolve) => {
@@ -1270,6 +1274,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         wakeDeadline: null,
         stderr: "",
         steerAcks: restart?.steerAcks ?? [],
+        replies: new Map(),
       };
       sessions.set(threadId, session);
 
@@ -1599,6 +1604,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             if (windows.length > 0) emit({ ...base(threadId, currentTurnId()), type: "account.rate-limits.updated", windows });
             break;
           }
+          case "control_response":
+            session.replies.get(o.response?.request_id)?.(o.response?.subtype === "success");
+            break;
           case "result":
             if (session.turn?.merging) {
               const t = session.turn;
@@ -2046,6 +2054,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         },
         sendTurn,
         steer,
+        applyEffort: async (threadId, effort) => {
+          const s = sessions.get(threadId);
+          if (!s?.turn || s.turn.settled || s.closing || s.child.exitCode !== null) return false;
+          return switchEffort(s, effort, (request) => writeControl(s, threadId, request), EFFORT_REPLY_MS);
+        },
         interruptTurn: async (threadId) => {
           const turn = active.get(threadId);
           if (turn) return turn.stop();
