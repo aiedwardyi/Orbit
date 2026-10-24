@@ -49,6 +49,7 @@ import { buffersForTurn, turnPhase, turnStageLabel } from "@/lib/turn-stage";
 import { Bubble, bubbleBot, versionProps } from "./ChatBubble";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { AskUserRecord } from "./AskUserRecord";
+import { FolderFix } from "./FolderFix";
 import { ApprovalCard } from "./ApprovalCard";
 import { Composer } from "./Composer";
 import { ChatPlanMeters } from "./ChatPlanMeters";
@@ -199,15 +200,20 @@ function ErrorRow({
   setupInstance,
   usageLimit,
   signIn,
+  folder,
+  botId,
 }: {
   message: string;
   onRetry?: () => void;
   setupInstance?: InstanceInfo;
   usageLimit?: { resetsAt: number | null };
   signIn?: boolean;
+  folder?: string;
+  botId: string;
 }) {
   const { t } = useI18n();
   const now = useNow();
+  if (folder) return <FolderFix folder={folder} botId={botId} onRetry={onRetry} />;
   const action = setupErrorAction(message, setupInstance, signIn);
   const reset = usageLimit ? usageLimitReset(usageLimit.resetsAt, now) : null;
   const retryButton = onRetry && (
@@ -739,6 +745,8 @@ const MessagesList = memo(function MessagesList({
               if (m.tool?.name.startsWith("error:")) {
                 return (
                   <ErrorRow
+                    botId={bot.id}
+                    folder={m.tool.folder}
                     message={m.tool.name.slice(6).trim()}
                     onRetry={m.id === canonicalLastMessageId && canRetryLast && !m.tool.name.startsWith(SYNC_NOTICE) ? onRegenerate : undefined}
                     setupInstance={m.tool.setup || m.tool.signIn ? engine : undefined}

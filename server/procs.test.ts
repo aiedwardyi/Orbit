@@ -119,8 +119,9 @@ describe("describeSpawnFailure cwd", () => {
   it("names a missing project folder and offers no install", () => {
     const missing = join(tmpdir(), "omb-no-such-folder");
     expect(describeSpawnFailure(enoent, "claude", missing)).toEqual({
-      message: `Project folder not found: \`${missing}\`. Choose a folder that exists, then press Retry.`,
+      message: `Project folder not found: \`${missing}\`.`,
       setup: false,
+      folder: missing,
     });
   });
 

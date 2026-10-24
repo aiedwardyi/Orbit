@@ -8,6 +8,7 @@ import { validateBotCwd } from "./bot-cwd.ts";
 import { EVENTS_DIR, NATIVE_DIR } from "./config.ts";
 import type { ProviderRegistry } from "./harness/registry.ts";
 import { json, readBody } from "./http-helpers.ts";
+import { canChangeRoomCwd, repinRoomCwd } from "./room-cwd.ts";
 import { acceptedSendMatch, parseSendId, sendFingerprint, type SendSequencer } from "./send-idempotency.ts";
 import { cancelQueuedRoomParticipations } from "./steer-queue.ts";
 import type { GroupDefaultResponder, GroupRecord, Message, Store } from "./store.ts";
@@ -272,7 +273,7 @@ export function createGroupRoutes(deps: GroupRouteDeps) {
       }
       if (body.cwd !== undefined) {
         if (existing.dm) return json(res, 400, { error: "direct-message channels cannot have a working folder" });
-        if (existing.pinnedCwd !== undefined) {
+        if (!canChangeRoomCwd(existing.pinnedCwd)) {
           return json(res, 409, { error: "the room's working folder is fixed after its first turn" });
         }
         const checked = validateBotCwd(body.cwd);
@@ -299,6 +300,7 @@ export function createGroupRoutes(deps: GroupRouteDeps) {
           else patch.section = trimmed;
         }
       }
+      if (body.cwd !== undefined) repinRoomCwd(store, existing, patch.cwd as string | undefined);
       const group = store.patchGroup(m[1], patch);
       if (!group) return json(res, 404, { error: "no such room" });
       return json(res, 200, { group: publicGroupState(group) });

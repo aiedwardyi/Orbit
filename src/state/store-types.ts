@@ -85,6 +85,7 @@ export interface Message {
     detail?: ToolDetail;
     setup?: boolean;
     signIn?: boolean;
+    folder?: string;
     usageLimit?: { resetsAt: number | null };
   };
   /** user messages sent into a running turn - the model saw it mid-turn */
