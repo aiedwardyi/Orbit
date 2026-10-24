@@ -41,7 +41,7 @@ const fail = (status: number, message: string) => Object.assign(new Error(messag
 export const missingKeyMessage = (id: BrokeredCredentialId | CustomCredentialId) =>
   isCustomCredentialId(id)
     ? `No key saved for ${id.slice(7)}. Call request_credential with credential_id "custom" and service { name, host: "${id.slice(7)}" }, end the turn, then retry call_api.`
-    : `No ${CREDENTIAL_TARGETS[id].label} saved. Call request_credential with ${id}, end the turn, then retry call_api.`;
+    : `No ${CREDENTIAL_TARGETS[id].label} saved. If a signed-in engine can do the job as a worker pane or teammate bot, use that instead. Otherwise call request_credential with ${id}, end the turn, then retry call_api.`;
 
 export function redactKey(text: string, key: string): string {
   return (key ? text.split(key).join("[key]") : text).replace(/\b(?:sk|xai)-[\w*.-]{8,}/g, "[key]");
