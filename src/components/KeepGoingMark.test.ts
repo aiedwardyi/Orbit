@@ -100,7 +100,7 @@ describe("keep going mark", () => {
       });
       await act(async () => mark()!.click());
       await vi.waitFor(() => expect(host.querySelector("[data-settings-keep-going]")).not.toBeNull());
-      expect(scrolled).toContain(host.querySelector("[data-settings-keep-going]"));
+      await vi.waitFor(() => expect(scrolled).toContain(host.querySelector("[data-settings-keep-going]")));
       expect(host.querySelector('[data-settings-keep-going] [role="switch"]')?.getAttribute("aria-checked")).toBe("true");
     } finally {
       await unmount();
