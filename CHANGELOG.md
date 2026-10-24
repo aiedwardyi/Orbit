@@ -2,6 +2,14 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.205] - 2026-10-25
+
+### Changed
+- After your PC starts or wakes, chats sync before pictures.
+
+### Fixed
+- A message sent while your PC was still catching up joins the chat instead of being hidden, and the bot is told what it missed.
+
 ## [1.0.204] - 2026-10-24
 
 ### Added
@@ -224,6 +232,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.205]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.205
 [1.0.204]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.204
 [1.0.203]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.203
 [1.0.202]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.202
