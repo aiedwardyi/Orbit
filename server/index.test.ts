@@ -5805,3 +5805,88 @@ describe("approval chip on the claude CLI", () => {
     }
   }, 30_000);
 });
+
+// A missing folder fails the spawn inside sendTurn, so the turn settles before dispatch returns.
+describe("a start that fails before dispatch returns", () => {
+  const rows = async (threadId: string) => z.array(z.object({
+    id: z.string(),
+    role: z.string(),
+    kind: z.string(),
+    tool: z.object({ ok: z.boolean().optional() }).passthrough().optional(),
+  }).passthrough()).parse((await api("GET", `/api/threads/${threadId}/messages?limit=200`)).body.messages);
+  const replies = async (threadId: string) =>
+    (await rows(threadId)).filter((message) => message.role === "bot" && message.kind === "text").length;
+  const failures = async (threadId: string) =>
+    (await rows(threadId)).filter((message) => message.tool?.ok === false).length;
+  const busy = async (botId: string) =>
+    (await api("GET", "/api/bots?messages=0")).body.bots.find((bot: { id: string }) => bot.id === botId)?.busy;
+  // under the throwaway home: win32 cannot remove a folder while a CLI holds it as its cwd
+  const folder = (name: string): string => {
+    const path = join(home, name);
+    mkdirSync(path, { recursive: true });
+    return path;
+  };
+
+  it("leaves the bot idle after two in a row, so the rerun and the next send run", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    try {
+      const gone = folder("GoneDesk");
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        cwd: gone,
+        modelSelection: { instanceId: "claudeHappy", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+      rmSync(gone, { recursive: true });
+      for (const [index, text] of ["first try", "second try"].entries()) {
+        expect((await api("POST", `/api/bots/${bot.id}/messages`, { text })).status).toBe(202);
+        await expect.poll(() => failures(bot.threadId), { timeout: 10_000 }).toBe(index + 1);
+      }
+      await expect.poll(() => busy(bot.id), { timeout: 5_000 }).toBe(false);
+
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { cwd: folder("ChosenDesk") })).status).toBe(200);
+      const failed = (await rows(bot.threadId)).filter((message) => message.role === "user").at(-1);
+      expect((await api("POST", `/api/bots/${bot.id}/messages/${failed?.id}/edit`, { text: "second try" })).status).toBe(202);
+      await expect.poll(() => replies(bot.threadId), { timeout: 10_000 }).toBe(1);
+      await expect.poll(() => busy(bot.id), { timeout: 5_000 }).toBe(false);
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "after the fix" })).status).toBe(202);
+      await expect.poll(() => replies(bot.threadId), { timeout: 10_000 }).toBe(2);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  }, 60_000);
+
+  it("keeps the room dispatching after one, so the rerun and the next message run", async () => {
+    const bot = (await api("POST", "/api/bots")).body.bot;
+    const desk = folder("MemberDesk");
+    expect((await api("PATCH", `/api/bots/${bot.id}`, {
+      cwd: desk,
+      modelSelection: { instanceId: "claudeHappy", model: "claude-sonnet-5" },
+    })).status).toBe(200);
+    const room = (await api("POST", "/api/groups", {
+      name: "Moved desk room",
+      memberIds: [bot.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
+    })).body.group;
+    try {
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "one" })).status).toBe(202);
+      await expect.poll(() => replies(room.threadId), { timeout: 10_000 }).toBe(1);
+      await expect.poll(() => busy(bot.id), { timeout: 5_000 }).toBe(false);
+      // the first turn's CLI keeps the desk, so the member moves to a folder nothing holds
+      const gone = folder("MovedDesk");
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { cwd: gone })).status).toBe(200);
+      rmSync(gone, { recursive: true });
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "two" })).status).toBe(202);
+      await expect.poll(() => failures(room.threadId), { timeout: 10_000 }).toBe(1);
+
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { cwd: desk })).status).toBe(200);
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "two" })).status).toBe(202);
+      await expect.poll(() => replies(room.threadId), { timeout: 10_000 }).toBe(2);
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "three" })).status).toBe(202);
+      await expect.poll(() => replies(room.threadId), { timeout: 10_000 }).toBe(3);
+    } finally {
+      await api("POST", `/api/groups/${room.id}/interrupt`, { threadId: room.threadId });
+      await api("DELETE", `/api/groups/${room.id}`);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  }, 60_000);
+});

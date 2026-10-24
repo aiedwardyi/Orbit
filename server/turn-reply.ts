@@ -9,14 +9,21 @@ export type TurnReplyStep = { text: string } | "completed" | null;
 
 export function ownTurnReply(stale: (threadId: string, turnId: string | undefined) => boolean) {
   let own: string | undefined;
+  // a failed start completes before dispatch returns the id to claim
+  const ended = new Set<string>();
   return {
     claim(turnId: string | undefined) {
       own ??= turnId;
+      return Boolean(turnId && turnId === own && ended.has(turnId));
     },
     fold(e: RuntimeEvent): TurnReplyStep {
       // the fold settles its own turn before collectors run, so completion
       // is matched by id, never by the stale rule
-      if (e.type === "turn.completed") return !e.turnId || e.turnId === own ? "completed" : null;
+      if (e.type === "turn.completed") {
+        if (!e.turnId || e.turnId === own) return "completed";
+        ended.add(e.turnId);
+        return null;
+      }
       if (stale(e.threadId, e.turnId)) return null;
       if (e.type === "turn.started") own ??= e.turnId;
       if (e.type !== "item.completed" || e.itemType !== "assistant_text") return null;

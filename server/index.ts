@@ -5373,7 +5373,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       store.markPaneNotesDelivered(bot.id, threadId, newestPaneNoteId);
       store.markReactionsDelivered(bot.id, threadId, reactionsSeen);
       if (currentTurnEpoch(bot.id) !== epoch) return;
-      if (started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
+      if (started.turnId && settledTurnIdByThread.get(threadId) !== started.turnId) liveTurnIdByThread.set(threadId, started.turnId);
       // dispatched: the rewind is spent
       if (rewound) store.patchBot(bot.id, { rewound: false });
       // and this engine now owns the thread's most recent turn
@@ -6274,7 +6274,7 @@ async function runClaimedGroupMemberTurn(
       .then((started) => {
         bindInterruptedTurn(threadId, started.turnId, bot.id, epoch);
         if (started.turnId && currentTurnEpoch(bot.id) === epoch && !isCancelled?.()) liveTurnIdByThread.set(threadId, started.turnId);
-        reply.claim(started.turnId);
+        if (reply.claim(started.turnId)) finish("settled");
       })
       .catch((err) => {
         pendingInterruptThreads.bind(threadId, bot.id, epoch);
