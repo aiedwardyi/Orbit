@@ -71,6 +71,7 @@ describe("call_api", () => {
     await expect(callApi(request({ credentialId: "geminiApiKey", url: "https://generativelanguage.googleapis.com/v1beta/models" }), keys, [root], fetchMock))
       .rejects.toMatchObject({ status: 409, message: missingKeyMessage("geminiApiKey") });
     expect(missingKeyMessage("geminiApiKey")).toContain("request_credential with geminiApiKey, end the turn, then retry");
+    expect(missingKeyMessage("xaiApiKey")).toContain("If a signed-in engine can do the job");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

@@ -52,6 +52,14 @@ describe("ownTurnReply", () => {
     expect(r.completed()).toBe(true);
   });
 
+  it("reports a claimed turn that completed before the claim", () => {
+    const r = rig(["failed"]);
+    r.event("failed", { type: "turn.started" });
+    r.event("failed", { type: "turn.completed", ok: false });
+    expect(r.completed()).toBe(false);
+    expect(r.reply.claim("failed")).toBe(true);
+  });
+
   it("marks an engine summary in the collected reply", () => {
     const r = rig([]);
     r.event("mine", { type: "item.completed", itemType: "assistant_text", text: "Checking the logs.", summarized: true });
