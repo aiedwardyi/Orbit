@@ -4,7 +4,7 @@
 // stdout or the artifacts; every line goes through redact().
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { connect as tlsConnect } from "node:tls";
@@ -29,9 +29,8 @@ const SHOTS = join(OUT, "screens");
 const PHONE = devices["Pixel 7"];
 const PROD = MODE === "production";
 const FAKE_ENGINE_ENV = {
-  OPENAI_COMPAT_URL: `http://127.0.0.1:${FAKE_PORT}/v1`,
-  OPENAI_COMPAT_API_KEY: "e2e-fake-key",
-  OPENAI_COMPAT_MODEL: "fake-model",
+  OMB_EXTRA_PATH: join(WORK, "fake-bin"),
+  RELAY_E2E_FAKE_PORT: String(FAKE_PORT),
 };
 
 const secrets = new Set();
@@ -106,7 +105,7 @@ async function until(probe, ms, what) {
 
 function serverEnv(home, port, extra) {
   const env = { ...process.env };
-  for (const key of Object.keys(env)) if (/^(RELAY_E2E_CODE|ACME_MODE|OMB_|OGB_|ORBIT_|OPENAI_COMPAT_)/.test(key)) delete env[key];
+  for (const key of Object.keys(env)) if (/^(RELAY_E2E_CODE|ACME_MODE|OMB_|OGB_|ORBIT_)/.test(key)) delete env[key];
   // What Electron's startServerOn passes, minus the desktop-only credential plumbing.
   return {
     ...env,
@@ -228,33 +227,18 @@ function fileHash(path) {
 }
 
 function startFakeEngine() {
+  const bin = FAKE_ENGINE_ENV.OMB_EXTRA_PATH;
+  mkdirSync(bin, { recursive: true });
+  copyFileSync(new URL("./fake-claude.mjs", import.meta.url), join(bin, "fake-claude.mjs"));
+  // env-path resolves npm-shaped shims directly to Node, without a shell.
+  writeFileSync(join(bin, "claude.cmd"), '@node "%~dp0fake-claude.mjs" %*\r\n');
   const stats = { requests: 0 };
   const server = createServer((req, res) => {
-    let body = "";
-    req.on("data", (chunk) => (body += chunk));
+    req.resume();
     req.on("end", () => {
-      stats.requests += 1;
-      if (req.method === "GET" && req.url.endsWith("/models")) {
-        res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ object: "list", data: [{ id: "fake-model", object: "model" }] }));
-      }
-      if (req.method !== "POST" || !req.url.endsWith("/chat/completions")) {
-        res.writeHead(404, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ error: { message: "not found" } }));
-      }
-      let stream = false;
-      try {
-        stream = JSON.parse(body).stream === true;
-      } catch {}
-      const usage = { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 };
-      if (!stream) {
-        res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: FAKE_REPLY }, finish_reason: "stop" }], usage }));
-      }
-      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
-      for (const piece of FAKE_REPLY.split(/(?= )/)) res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: piece } }] })}\n\n`);
-      res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage })}\n\n`);
-      res.end("data: [DONE]\n\n");
+      if (req.method === "POST" && req.url === "/prompt") stats.requests += 1;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
     });
   });
   return new Promise((resolve) => server.listen(FAKE_PORT, "127.0.0.1", () => resolve({ server, stats })));
@@ -368,7 +352,7 @@ async function flow() {
   });
   if (STOP_AFTER_B) return note("c", "skipped: stop after b");
   if (!CODE) return note("c", "skipped: no RELAY_E2E_CODE secret");
-  const created = await api(pc1, "/api/bots", { method: "POST", body: JSON.stringify({ name: BOT_NAME, modelSelection: { instanceId: "openaiCompat", model: "fake-model", mode: "pinned" } }) });
+  const created = await api(pc1, "/api/bots", { method: "POST", body: JSON.stringify({ name: BOT_NAME, modelSelection: { instanceId: "claude", model: "claude-sonnet-5-5", mode: "pinned" } }) });
   mark("h: bot on the fake engine", { status: created.status, error: created.body?.error ?? null });
 
   // c. Settings > Phone access > paste the code > Set up.
