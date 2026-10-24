@@ -106,8 +106,10 @@ export const syncHold = {
       const threadId = threadFor(path);
       if (!threadId || drivePathRule(path, ids) !== "peer") continue;
       const file = [...copies].sort((a, b) => Date.parse(b.modifiedTime) - Date.parse(a.modifiedTime) || Date.parse(b.createdTime) - Date.parse(a.createdTime) || a.id.localeCompare(b.id))[0];
-      if (file?.md5Checksum) notePeer(threadId, `${key}/${path}`, "feed", file.md5Checksum);
-      if (file?.md5Checksum && applied.get(key)?.get(path) !== file.md5Checksum) heads.set(path, file.md5Checksum);
+      if (!file?.md5Checksum) continue;
+      notePeer(threadId, `${key}/${path}`, "feed", file.md5Checksum);
+      if (applied.get(key)?.get(path) === file.md5Checksum) heads.delete(path);
+      else heads.set(path, file.md5Checksum);
     }
     pending.set(key, heads);
   },

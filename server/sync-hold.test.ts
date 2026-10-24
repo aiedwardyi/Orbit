@@ -501,6 +501,19 @@ describe("sends while a chat catches up", () => {
     expect((await h.send("first listing", "sync-hold-first-listing-0001")).body.queued).not.toBe(true);
   });
 
+  it("drops a stale listed hash once the listing matches the applied head", async () => {
+    const h = await boot(true);
+    const { syncHold } = await import("./sync-hold.ts");
+    const ids = { profileDeviceId: "local", writerId: h.own, memoryDeviceId: "a".repeat(12) };
+    const listing = (md5Checksum: string) => new Map([[h.headPath, [{
+      id: "head", name: "head.json", md5Checksum, createdTime: "2026-10-25T00:00:00Z", modifiedTime: "2026-10-25T00:00:00Z", trashed: false,
+    }]]]);
+    syncHold.feed(h.folder, listing("a".repeat(32)), ids);
+    syncHold.pulled(h.folder, { botSyncId: "bot", threadId: "thread" }, [{ path: h.headPath, hash: "b".repeat(32), writer: "peer", lastSeq: 0, seen: {} }]);
+    syncHold.feed(h.folder, listing("b".repeat(32)), ids);
+    expect((await h.send()).body.queued).not.toBe(true);
+  });
+
   it("holds an unlisted recovery hash once and does not re-arm its later listing", async () => {
     const h = await googlePC();
     const first = await h.listed();
