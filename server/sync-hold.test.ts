@@ -119,8 +119,8 @@ async function boot(google = false) {
   return { dataDir, folder, store, bot, queue, sync, pull, run, contexts, startTurn, steer, drain, post, send, local, own, headPath, head, deliverHead, deliverSegment, disable: () => { enabled = false; } };
 }
 
-async function googlePC() {
-  const h = await boot(true);
+async function googlePC(early?: Awaited<ReturnType<typeof boot>>) {
+  const h = early ?? await boot(true);
   const { createDriveClient } = await import("./drive-client.ts");
   const { createDriveMirror, drivePathHash, encodeDrivePath } = await import("./drive-mirror.ts");
   const { createGoogleSync } = await import("./google-sync.ts");
@@ -225,6 +225,59 @@ describe("sends while a chat catches up", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(h.run).toHaveBeenCalledTimes(1);
     expect(h.run.mock.calls[0]![3]?.parentId).toBe(h.local);
+  });
+
+  it("keeps the later deadline when the earlier chat's bot is busy", async () => {
+    const h = await boot();
+    const { syncHold } = await import("./sync-hold.ts");
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    h.deliverHead();
+    expectHeld(await h.send());
+    h.store.patchBot(h.bot.id, { busy: true });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const later = h.store.createBot({}, { seedMessages: false });
+    h.store.adoptSyncedTask(later.id, { threadId: "later", title: "Later", createdAt: 1 }, [], null, true);
+    syncHold.pulled(h.folder, { botSyncId: "later-bot", threadId: "later" }, [{
+      path: "threads-v2/later-bot/later/peer/head.json", hash: "later-head", writer: "peer", lastSeq: 4, seen: {},
+    }]);
+    h.queue.queueSteeredMessage(later.id, "later", "later send", { syncUntil: syncHold.until("later") });
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(h.run).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(h.run).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.run).toHaveBeenCalledTimes(1);
+    expect(h.run.mock.calls[0]!.slice(0, 3)).toEqual([later.id, "later", "later send"]);
+    h.sync.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(h.run).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    h.store.patchBot(h.bot.id, { busy: false });
+    h.drain();
+    expect(h.run).toHaveBeenCalledTimes(2);
+    expect(h.run.mock.calls[1]![1]).toBe("thread");
+  });
+
+  it("re-arms when the timeout fires one millisecond before the wall clock deadline", async () => {
+    const h = await boot();
+    let now = Date.now();
+    const deadline = now + 10_000;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    h.deliverHead();
+    expectHeld(await h.send());
+    now = deadline - 1;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(h.run).not.toHaveBeenCalled();
+    h.sync.stop();
+    expect(vi.getTimerCount()).toBe(1);
+    now = deadline;
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.run).toHaveBeenCalledTimes(1);
+    expect(h.run.mock.calls[0]![3]?.parentId).toBe(h.local);
+    h.sync.stop();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it.each(["off", "signed-out", "failed-feed"])("does not hold after Google becomes %s", async (state) => {
@@ -364,6 +417,110 @@ describe("sends while a chat catches up", () => {
     const next = await h.send("later send", "sync-hold-later-0001");
     expect(next.body.queued).not.toBe(true);
     expect(h.startTurn).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["timeout", "Send now"])("does not re-arm a listed head on its first pull after %s", async (release) => {
+    const h = await googlePC();
+    const pending = await h.listed();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const held = await h.send();
+    expectHeld(held);
+    if (release === "timeout") {
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(h.run).toHaveBeenCalledTimes(1);
+    } else await h.send("new send", "sync-hold-send-0001", held.body.queueId);
+    h.store.patchBot(h.bot.id, { busy: false });
+    pending.release();
+    await pending.pass;
+    await h.sync.pull("thread");
+    expect((await h.send("same listed head", "sync-hold-listed-same-0001")).body.queued).not.toBe(true);
+  });
+
+  it("holds a new listed hash once after the previous hold is spent", async () => {
+    const h = await googlePC();
+    const first = await h.listed();
+    first.release();
+    await first.pass;
+    await h.sync.pull("thread");
+    const held = await h.send();
+    expectHeld(held);
+    await h.send("new send", "sync-hold-send-0001", held.body.queueId);
+    h.store.patchBot(h.bot.id, { busy: false });
+    const head: SyncHead = JSON.parse(h.head);
+    head.generation++;
+    await h.listed(JSON.stringify(head));
+    const next = await h.send("new listed head", "sync-hold-listed-new-0001");
+    expectHeld(next);
+    await h.send("new listed head", "sync-hold-listed-new-0001", next.body.queueId);
+    h.store.patchBot(h.bot.id, { busy: false });
+    expect((await h.send("same new head", "sync-hold-listed-once-0001")).body.queued).not.toBe(true);
+  });
+
+  it("does not re-arm an older pull after spending a newer listed hash", async () => {
+    const h = await googlePC();
+    const first = await h.listed();
+    first.release();
+    await first.pass;
+    await h.sync.pull("thread");
+    const head: SyncHead = JSON.parse(h.head);
+    head.generation++;
+    await h.listed(JSON.stringify(head));
+    const held = await h.send();
+    expectHeld(held);
+    await h.send("new send", "sync-hold-send-0001", held.body.queueId);
+    h.store.patchBot(h.bot.id, { busy: false });
+    await h.sync.pull("thread");
+    expect((await h.send("older local head", "sync-hold-older-pull-0001")).body.queued).not.toBe(true);
+  });
+
+  it("does not re-arm the first listing of a hash pulled before Google started", async () => {
+    const early = await boot(true);
+    early.deliverHead();
+    const held = await early.send();
+    expectHeld(held);
+    await early.send("new send", "sync-hold-send-0001", held.body.queueId);
+    early.store.patchBot(early.bot.id, { busy: false });
+    const h = await googlePC(early);
+    const { drivePathHash, encodeDrivePath } = await import("./drive-mirror.ts");
+    h.drive.add(encodeDrivePath(h.headPath), { ph: drivePathHash(h.headPath) }, Buffer.from(h.head), [h.drive.root().id]);
+    await h.google.kick();
+    expect((await h.send("first listing", "sync-hold-first-listing-0001")).body.queued).not.toBe(true);
+  });
+
+  it("holds an unlisted recovery hash once and does not re-arm its later listing", async () => {
+    const h = await googlePC();
+    const first = await h.listed();
+    first.release();
+    await first.pass;
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    await h.sync.pull("thread");
+    const held = await h.send();
+    expectHeld(held);
+    await h.send("new send", "sync-hold-send-0001", held.body.queueId);
+    h.store.patchBot(h.bot.id, { busy: false });
+    const head: SyncHead = JSON.parse(h.head);
+    head.generation++;
+    const fetch = h.drive.fetch;
+    let edited = false;
+    vi.spyOn(h.drive, "fetch").mockImplementation(async (input, init) => {
+      const response = await fetch(input, init);
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (!edited && url.pathname === "/drive/v3/changes") {
+        edited = true;
+        h.drive.edit(first.file.id, Buffer.from(JSON.stringify(head)));
+      }
+      return response;
+    });
+    rmSync(join(h.folder, h.headPath));
+    await h.google.kick();
+    await h.sync.pull("thread");
+    expect(edited).toBe(true);
+    const recovered = await h.send("recovered head", "sync-hold-recovered-0001");
+    expectHeld(recovered);
+    await h.send("recovered head", "sync-hold-recovered-0001", recovered.body.queueId);
+    h.store.patchBot(h.bot.id, { busy: false });
+    await h.google.kick();
+    expect((await h.send("listed recovery", "sync-hold-recovery-listed-0001")).body.queued).not.toBe(true);
   });
 
   it.each(["feed-md5", "head-hash", "last-seq"])("holds again only after a new %s for the chat", async (state) => {

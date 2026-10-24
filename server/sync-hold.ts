@@ -28,7 +28,7 @@ const pending = new Map<string, Map<string, string>>();
 const applied = new Map<string, Map<string, string>>();
 const google = new Map<string, boolean>();
 const delivered = new Map<string, { folder: string; behind: boolean }>();
-const peers = new Map<string, Map<string, string>>();
+const peers = new Map<string, Map<string, { feed?: string; pull?: string }>>();
 const released = new Set<string>();
 const expired = new Set<string>();
 let waiting: WaitingSend[] = [];
@@ -46,10 +46,12 @@ function behind(threadId: string): boolean | undefined {
   return local ? google.get(local.folder) === false ? false : local.behind : undefined;
 }
 
-function notePeer(threadId: string, path: string, state: string): void {
+function notePeer(threadId: string, path: string, source: "feed" | "pull", hash: string): void {
   expire();
-  const heads = peers.get(threadId) ?? new Map<string, string>();
-  if (heads.get(path) !== state) released.delete(threadId);
+  const heads = peers.get(threadId) ?? new Map<string, { feed?: string; pull?: string }>();
+  const state = heads.get(path) ?? {};
+  if (state.feed !== hash && state.pull !== hash) released.delete(threadId);
+  state[source] = hash;
   heads.set(path, state);
   peers.set(threadId, heads);
 }
@@ -66,8 +68,19 @@ function expire(): void {
   }
 }
 
+function schedule(): void {
+  clearTimeout(timer);
+  timer = undefined;
+  const next = Math.min(...waiting.flatMap((item) => item.syncUntil! > Date.now() ? [item.syncUntil!] : []));
+  if (Number.isFinite(next)) {
+    timer = setTimeout(wake, Math.max(0, next - Date.now()));
+    timer.unref?.();
+  }
+}
+
 function wake(): void {
   expire();
+  schedule();
   if (!waiting.length || waking) return;
   waking = true;
   queueMicrotask(() => {
@@ -82,14 +95,9 @@ export const syncHold = {
     enabled = isEnabled;
   },
   watch(entries: Array<{ threadId: string; items: Array<{ messageId: string; syncUntil?: number }> }>): void {
-    clearTimeout(timer);
     waiting = entries.flatMap((entry) => entry.items.filter((item) => item.syncUntil !== undefined)
       .map((item) => ({ messageId: item.messageId, threadId: entry.threadId, syncUntil: item.syncUntil })));
-    const next = Math.min(...waiting.flatMap((item) => item.syncUntil! > Date.now() ? [item.syncUntil!] : []));
-    if (Number.isFinite(next)) {
-      timer = setTimeout(wake, Math.max(0, next - Date.now()));
-      timer.unref?.();
-    }
+    schedule();
   },
   google(folder: string): void {
     const key = folderKey(folder);
@@ -106,7 +114,7 @@ export const syncHold = {
       const threadId = threadFor(path);
       if (!threadId || drivePathRule(path, ids) !== "peer") continue;
       const file = [...copies].sort((a, b) => Date.parse(b.modifiedTime) - Date.parse(a.modifiedTime) || Date.parse(b.createdTime) - Date.parse(a.createdTime) || a.id.localeCompare(b.id))[0];
-      if (file?.md5Checksum) notePeer(threadId, `feed:${key}/${path}`, file.md5Checksum);
+      if (file?.md5Checksum) notePeer(threadId, `${key}/${path}`, "feed", file.md5Checksum);
       if (file?.md5Checksum && applied.get(key)?.get(path) !== file.md5Checksum) heads.set(path, file.md5Checksum);
     }
     pending.set(key, heads);
@@ -118,7 +126,7 @@ export const syncHold = {
       .all(scope.threadId).map((row) => [String(row.writer), Number(row.seq)])));
     let ahead = false;
     for (const head of heads) {
-      notePeer(scope.threadId, `pull:${key}/${head.path}`, `${head.hash}:${head.lastSeq}`);
+      notePeer(scope.threadId, `${key}/${head.path}`, "pull", head.hash);
       const unmet = head.lastSeq > (seen.get(head.writer) ?? 0)
         || Object.entries(head.seen).some(([peer, seq]) => seq > (seen.get(peer) ?? 0));
       if (unmet) { ahead = true; continue; }
