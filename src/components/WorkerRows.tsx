@@ -7,8 +7,10 @@ import { useI18n } from "@/lib/i18n";
 import { chipEffortLabel, chipEffortShortLabel } from "@/lib/model-chip";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
 import { isPhone, PHONE_QUERY } from "@/lib/phone-swipe";
+import { usePresence } from "@/lib/use-presence";
 import type { Message } from "@/state/store";
 import { listedRuns, listedSessionId, workerAnchors, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
+import { Expand } from "./Expand";
 import { ProviderMark } from "./ProviderIcons";
 
 const CHIP_LIMIT = 3;
@@ -106,8 +108,8 @@ export function WorkerRow({ run, state, live, onOpenTerminalPane, open: expanded
         <WorkerLine run={run} state={state} />
         <ChevronRight size={12} aria-hidden className={cn("shrink-0 text-ink-secondary transition-transform", open && "rotate-90")} />
       </button>
-      {open && (
-        // pane text is untrusted; plain text only, never markdown
+      <Expand open={open}>
+        {/* pane text is untrusted; plain text only, never markdown */}
         <div data-orbit-worker className="flex flex-col gap-2 border-b border-hairline/40 py-2 pl-8.5 text-[12.5px] leading-relaxed text-ink-secondary">
           {run.folder && (jump ? (
             <button type="button" onClick={() => onOpenTerminalPane?.(jump)} className="self-start text-left underline-offset-2 hover:text-ink hover:underline">
@@ -123,7 +125,7 @@ export function WorkerRow({ run, state, live, onOpenTerminalPane, open: expanded
             </div>
           ))}
         </div>
-      )}
+      </Expand>
     </div>
   );
 }
@@ -167,7 +169,7 @@ function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose, inset, ni
   );
 }
 
-function WorkerList({ title, runs, livePanes, onClose, onOpenTerminalPane }: { title: string; runs: ShownRun[]; livePanes: Set<string> | null; onClose: () => void; onOpenTerminalPane?: (sessionId: string) => void }) {
+function WorkerList({ title, runs, livePanes, closing, enter, onClose, onOpenTerminalPane }: { title: string; runs: ShownRun[]; livePanes: Set<string> | null; closing: boolean; enter: boolean; onClose: () => void; onOpenTerminalPane?: (sessionId: string) => void }) {
   const { t } = useI18n();
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -177,6 +179,7 @@ function WorkerList({ title, runs, livePanes, onClose, onOpenTerminalPane }: { t
     onCloseRef.current = onClose;
   });
   useEffect(() => {
+    if (closing) return;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
@@ -213,21 +216,23 @@ function WorkerList({ title, runs, livePanes, onClose, onOpenTerminalPane }: { t
       window.removeEventListener("keydown", onKey, true);
       if (previouslyFocused && document.contains(previouslyFocused)) previouslyFocused.focus();
     };
-  }, []);
+  }, [closing]);
   return createPortal(
     <div
-      className="animate-fade-in fixed inset-0 z-50 flex items-end justify-center bg-black/55 backdrop-blur-[2px]"
+      data-closing={closing || undefined}
+      inert={closing}
+      className={cn(enter && "animate-fade-in", "fixed inset-0 z-50 flex items-end justify-center bg-black/55 backdrop-blur-[2px]")}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
       <div
         ref={panelRef}
-        role="dialog"
-        aria-modal
+        role={closing ? undefined : "dialog"}
+        aria-modal={!closing || undefined}
         aria-labelledby={titleId}
-        data-worker-list
-        className="animate-pop-in flex max-h-[80dvh] w-full flex-col rounded-t-[24px] border border-hairline/50 bg-panel px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl shadow-black/50"
+        data-worker-list={!closing || undefined}
+        className={cn(enter && "animate-pop-in", "flex max-h-[80dvh] w-full flex-col rounded-t-[24px] border border-hairline/50 bg-panel px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl shadow-black/50")}
       >
         <div className="mb-1 flex items-center justify-between gap-3">
           <h2 id={titleId} className="text-[15px] font-semibold text-ink">{title}</h2>
@@ -262,6 +267,8 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
   const titleId = useId();
   const listed = livePanes === null && waitForLive ? [] : listedRuns(runs, livePanes, paneLabels);
   const [phone, setPhone] = useState(isPhone);
+  // a breakpoint flip closes the list, which fades out in the form it had
+  const menu = usePresence(open && (phone ? "phone" : "desktop"));
   useEffect(() => {
     const media = window.matchMedia?.(PHONE_QUERY);
     const flip = () => {
@@ -331,10 +338,14 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
   }, [listed.length, open]);
   useEffect(() => {
     if (!open) return;
-    const onClose = () => setOpen(false);
+    // the app asks on a view switch, which never fades
+    const onClose = () => {
+      setOpen(false);
+      menu.cut();
+    };
     window.addEventListener("orbit:close-worker-menu", onClose);
     return () => window.removeEventListener("orbit:close-worker-menu", onClose);
-  }, [open]);
+  }, [open, menu.cut]);
   const first = listed[0];
   if (!first) return null;
   const counts = {
@@ -370,14 +381,16 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
           <span aria-hidden className="absolute left-1/2 top-1/2 size-11 -translate-x-1/2 -translate-y-1/2" />
         </span>
       </button>
-      {open && phone && <WorkerList title={t("workers.title", { name })} runs={listed} livePanes={livePanes} onClose={close} onOpenTerminalPane={onOpenTerminalPane} />}
-      {open && !phone && (
+      {menu.value === "phone" && <WorkerList title={t("workers.title", { name })} runs={listed} livePanes={livePanes} closing={menu.closing} enter={menu.enter} onClose={close} onOpenTerminalPane={onOpenTerminalPane} />}
+      {menu.value === "desktop" && (
         <div
-          data-worker-list
-          role="dialog"
+          data-worker-list={!menu.closing || undefined}
+          data-closing={menu.closing || undefined}
+          inert={menu.closing}
+          role={menu.closing ? undefined : "dialog"}
           aria-labelledby={titleId}
           style={{ right, width }}
-          className="absolute top-full z-40 mt-1 overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50"
+          className={cn(menu.enter && "animate-pop-in", "absolute top-full z-40 mt-1 origin-top-right overflow-hidden rounded-xl border border-hairline/50 bg-card py-1 shadow-2xl shadow-black/50")}
         >
           <h2 id={titleId} className="px-3 py-2 text-[15px] font-semibold text-ink">{t("workers.title", { name })}</h2>
           <div className="max-h-[320px] overflow-y-auto">

@@ -29,8 +29,8 @@ describe("qa chat copy", () => {
     expect(panel).toContain('t("bot.name")');
     expect(panel).toContain('t("bot.memory")');
     expect(find).toContain("initialQuery");
-    expect(read("components/ChatView.tsx")).toContain("initialQuery");
-    expect(read("components/GroupView.tsx")).toContain("initialQuery");
+    expect(read("components/ChatView.tsx")).toContain("seed={find.findSeed}");
+    expect(read("components/GroupView.tsx")).toContain("seed={find.findSeed}");
     expect(read("components/SearchResults.tsx")).toContain("highlightParts");
   });
 

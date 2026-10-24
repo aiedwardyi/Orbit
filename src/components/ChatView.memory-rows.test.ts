@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { applyLocale } from "@/lib/i18n";
 import { setFindCurrent } from "@/lib/chat-find";
+import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 import { StoreProvider, type Bot, type Message } from "@/state/store";
 
 import { ChatView } from "./ChatView";
@@ -97,6 +98,7 @@ describe("ChatView memory rows", () => {
       expect(fold(view.host).getAttribute("aria-expanded")).toBe("true");
       expect(notes(view.host)).toEqual(["Memory updated: likes short replies", "Memory updated: lives in Seoul", "Memory updated: prefers dark mode"]);
       await act(async () => fold(view.host).click());
+      await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
       expect(notes(view.host)).toEqual([]);
     } finally {
       await view.unmount();

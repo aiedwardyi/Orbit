@@ -24,6 +24,7 @@ vi.mock("@/state/store", async (importOriginal) => {
 
 import { ReactionBar } from "./Reactions";
 import type { Message } from "@/state/store";
+import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 
 type Box = { top: number; bottom: number; left: number; right: number };
 type Band = Box & { name: string };
@@ -421,6 +422,36 @@ describe("reaction picker focus", () => {
     await mousedown(elsewhere);
     expect(openPickers()).toHaveLength(0);
     expect(document.activeElement).toBe(elsewhere);
+  });
+});
+
+describe("reaction picker motion", () => {
+  afterEach(cleanup);
+
+  it("fades out where it stood, then unmounts, and a reopen mid-fade shows it at once", async () => {
+    const { triggers } = await mountPair(DESK.pane.bottom - 120);
+    const toggle = () => act(async () => { triggers[0].click(); });
+    await toggle();
+    const [picker] = openPickers();
+    if (!(picker instanceof HTMLElement)) throw new Error("picker did not open");
+    const { top, left } = picker.style;
+    expect(picker.classList.contains("animate-pop-in")).toBe(true);
+    await toggle();
+    expect(openPickers()).toHaveLength(0);
+    expect(picker.hasAttribute("data-closing")).toBe(true);
+    expect(picker.hasAttribute("inert")).toBe(true);
+    expect([picker.style.top, picker.style.left, picker.style.visibility]).toEqual([top, left, "visible"]);
+    await toggle();
+    expect(openPickers()[0]).toBe(picker);
+    expect(picker.classList.contains("animate-pop-in")).toBe(false);
+    await toggle();
+    await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
+    expect(picker.isConnected).toBe(false);
+  });
+
+  it.each([[300, "0px top"], [8, "0px bottom"]] as const)("grows from the trigger with the message %ipx off the pane floor", async (gap, origin) => {
+    const { picker } = await openPicker(gap);
+    expect(picker.style.transformOrigin).toBe(origin);
   });
 });
 

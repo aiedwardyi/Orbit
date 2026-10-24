@@ -170,6 +170,7 @@
   --animate-panel-in: panel-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
   --animate-pop-in: pop-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
   --animate-fade-in: fade-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-expand-in: expand-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
   --animate-tip-in: tip-in 0.1s ease-out;
   --animate-caret: caret-blink 1s step-end infinite;
   --animate-msg-in: msg-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
@@ -4010,10 +4011,22 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
 @keyframes fade-out {
   to { opacity: 0; }
 }
+/* the clip lives only in the keyframes, so a settled expand never cuts off focus rings */
+@keyframes expand-in {
+  from { grid-template-rows: 0fr; opacity: 0; clip-path: inset(0); }
+  to { grid-template-rows: 1fr; opacity: 1; clip-path: inset(0); }
+}
+@keyframes expand-out {
+  from { grid-template-rows: 1fr; opacity: 1; clip-path: inset(0); }
+  to { grid-template-rows: 0fr; opacity: 0; clip-path: inset(0); }
+}
 /* usePresence keeps a closed surface mounted this long; it must not catch taps meanwhile */
 [data-closing] {
   animation: fade-out 0.13s ease-out forwards;
   pointer-events: none;
+}
+[data-expand][data-closing] {
+  animation: expand-out 0.13s ease-out forwards;
 }
 /* docked, a fading details column would hold the chat narrow while the sidebar re-widens */
 @media (min-width: 768px) {
@@ -4199,7 +4212,7 @@ html[data-orbit-caption="win32"] .orbit-inset-aware {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-caret, .animate-msg-in, .animate-pop-in, .animate-panel-in, .animate-fade-in { animation: none; }
+  .animate-caret, .animate-msg-in, .animate-pop-in, .animate-panel-in, .animate-fade-in, .animate-expand-in { animation: none; }
   .thinking-sheen { display: none; }
   .orbit-ring { display: none; }
   .turn-mascot-in, .turn-mascot-out { animation: none; }

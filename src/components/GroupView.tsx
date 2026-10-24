@@ -37,7 +37,7 @@ import { Composer } from "./Composer";
 import { EngineSetup, setupErrorAction } from "./EngineSetup";
 import { TaskRecoveryCard } from "./TaskRecoveryCard";
 import { roomRecoveryBusy, roomRecoveryPacket } from "@/lib/task-recovery";
-import { ChatFindBar } from "./ChatFindBar";
+import { ChatFindPanel } from "./ChatFindBar";
 import { ReconnectingCue } from "./ReconnectingCue";
 import { GroupTaskPicker } from "./TaskPicker";
 import { showChannelCallControl, showChannelNewTaskControl } from "@/lib/friends-chrome";
@@ -51,7 +51,7 @@ import { AttachedImageGallery, ShownImage } from "./AttachmentPreview";
 import { FileAttachmentRows } from "./FileAttachmentRow";
 import { GroupCallButton, GroupCallOverlay } from "./GroupCallView";
 import { ReactionBar, ReactionChips } from "./Reactions";
-import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
+import { MessageMenus, contextClickKind, endSelectMode, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
 import { ApprovalCard } from "./ApprovalCard";
 import { ManageMembersPanel } from "./ManageMembersPanel";
 import { groupActivityRuns, isServerLine, itemMatchesFind, localizeServerLine, shownRunStep, type LinkedApproval } from "@/lib/activity-runs";
@@ -60,6 +60,7 @@ import { isShownMessage } from "@/lib/shown-message";
 import { roomRetry } from "@/lib/room-retry";
 import { nextBulletin } from "@/lib/room-bulletin";
 import { ActivityRun, ActivityStep, approvalHover } from "./ActivityRun";
+import { Expand } from "./Expand";
 import { FolderFix } from "./FolderFix";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
@@ -1637,15 +1638,7 @@ export function GroupView({ group }: { group: Group }) {
         </div>
       </div>
 
-      {findOpen && (
-        <ChatFindBar
-          key={find.findSeed?.nonce ?? "browse"}
-          threadId={group.threadId}
-          initialQuery={find.findSeed?.query ?? ""}
-          initialMessageId={find.findSeed?.messageId ?? null}
-          onClose={find.closeFind}
-        />
-      )}
+      <ChatFindPanel key={group.threadId} open={findOpen} seed={find.findSeed} threadId={group.threadId} onClose={find.closeFind} />
 
       {/* Bulletin: one pinned line; click to edit */}
       {!setupPending && <div className="w-full px-5">
@@ -1699,12 +1692,14 @@ export function GroupView({ group }: { group: Group }) {
       </div>}
 
       {/* Optional shared folder — the chip in the header toggles it */}
-      {!setupPending && folderOpen && !group.dm && (
-        <div className="w-full px-5">
-          <div className="mb-1">
-            <RoomWorkingFolder group={group} />
+      {!setupPending && !group.dm && (
+        <Expand open={folderOpen}>
+          <div className="w-full px-5">
+            <div className="mb-1">
+              <RoomWorkingFolder group={group} />
+            </div>
           </div>
-        </div>
+        </Expand>
       )}
 
       {/* Pinned message banner — resolves against the room's full transcript */}
@@ -1883,22 +1878,22 @@ export function GroupView({ group }: { group: Group }) {
         )}
       </div>
 
-      {menu?.kind === "message" ? (
-        <MessageMenu x={menu.x} y={menu.y} opener={menu.opener} target={menu.target} onReply={selectReply} onPin={togglePin} onClose={() => setMenu(null)} />
-      ) : menu ? (
-        <SelectionMenu x={menu.x} y={menu.y} opener={menu.opener} text={menu.text} onClose={() => setMenu(null)} />
-      ) : null}
+      <MessageMenus key={group.threadId} menu={menu} onReply={selectReply} onPin={togglePin} onClose={() => setMenu(null)} />
 
-      {(jump.messages || laterCount > 0 || (!follow && newestBelow)) && (
-        <button
-          onClick={jumpToLatest}
-          aria-label={t("chat.jumpToLatest")}
-          className="animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg hover:bg-raised-hover"
-          style={{ bottom: composerDock.height }}
-        >
-          <ArrowDown size={13} /> {t("chat.jumpToLatest")}
-        </button>
-      )}
+      <Presence key={transcriptKey} open={Boolean(jump.messages || laterCount > 0 || (!follow && newestBelow))} afterMount>
+        {(closing, enter) => (
+          <button
+            data-closing={closing || undefined}
+            inert={closing}
+            onClick={jumpToLatest}
+            aria-label={t("chat.jumpToLatest")}
+            className={cn(enter && "animate-pop-in", "absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg hover:bg-raised-hover")}
+            style={{ bottom: composerDock.height }}
+          >
+            <ArrowDown size={13} /> {t("chat.jumpToLatest")}
+          </button>
+        )}
+      </Presence>
 
       <div ref={composerDockRef} className={cn("relative z-[2] w-full shrink-0", CHAT_COLUMN_CLASS)}>
       {recoveryPacket && recoveryBot && (

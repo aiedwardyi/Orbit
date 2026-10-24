@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StoreProvider, type Group, type Message } from "@/state/store";
 
 import { setFindCurrent } from "@/lib/chat-find";
+import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 import { applyLocale } from "@/lib/i18n";
 import { Transcript } from "./GroupView";
 
@@ -90,6 +91,7 @@ describe("GroupView memory rows", () => {
     expect(fold().getAttribute("aria-expanded")).toBe("true");
     expect(notes()).toEqual(["Memory updated: likes short replies", "Memory updated: lives in Seoul", "Memory updated: prefers dark mode"]);
     await act(async () => fold().click());
+    await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
     expect(notes()).toEqual([]);
   });
 

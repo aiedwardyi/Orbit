@@ -7,6 +7,7 @@ import { StoreProvider, useStore, type Bot, type Group, type Message } from "@/s
 import type { TurnStreamState } from "@/lib/turn-stage";
 import { applyLocale } from "@/lib/i18n";
 import { applySkin } from "@/lib/skins";
+import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 
 import { ChatView, clearLivePaneCache } from "./ChatView";
 import { GroupView } from "./GroupView";
@@ -782,7 +783,42 @@ describe("open window and jump pill", () => {
       return text ? say(`m${i}`, parentId, text[0], text[1]) : tool(`m${i}`, parentId);
     });
   const resize = () => act(async () => resizeCallbacks.forEach((callback) => callback()));
-  const pill = (host: HTMLElement) => button(host, "Jump to latest");
+  const pill = (host: HTMLElement) =>
+    Array.from(host.querySelectorAll<HTMLButtonElement>("button:not([data-closing])")).find((b) => b.textContent?.includes("Jump to latest"));
+
+  it.each(["chat", "room"] as const)("fades Jump to latest out in a %s after the jump, letting taps through", async (view) => {
+    const thread = rows(0, 1000);
+    const threadId = view === "chat" ? "thread-a" : "thread-g";
+    pagedServer(threadId, thread, view === "chat" ? { bots: [bot(thread.slice(-200), true)], groups: [] } : { bots: [], groups: [room(thread.slice(-200), true)] });
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.textContent).toContain("row 999;"));
+    await act(async () => store.dispatch({ type: "focusMessage", threadId, messageId: "m30" }));
+    await vi.waitFor(() => expect(pill(host)).toBeDefined());
+    expect(pill(host)!.className).toContain("animate-pop-in");
+    await act(async () => pill(host)!.click());
+    const fading = () => host.querySelector('button[aria-label="Jump to latest messages"]');
+    expect(fading()?.hasAttribute("data-closing")).toBe(true);
+    expect(fading()?.hasAttribute("inert")).toBe(true);
+    await act(async () => { await new Promise((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)); });
+    expect(fading()).toBeNull();
+    expect(host.textContent).toContain("row 999;");
+  });
+
+  it("folds a room's shared folder panel open and keeps it through the fold shut", async () => {
+    const thread = rows(0, 20);
+    pagedServer("thread-g", thread, { bots: [], groups: [room(thread, false)] });
+    const host = await mount("room");
+    await vi.waitFor(() => expect(host.textContent).toContain("row 19;"));
+    const chip = button(host, "No shared folder")!;
+    await act(async () => chip.click());
+    const frame = host.querySelector(".animate-expand-in");
+    expect(frame?.textContent ?? "").toContain("Shared folder");
+    await act(async () => chip.click());
+    expect(frame?.hasAttribute("data-closing")).toBe(true);
+    expect(frame?.isConnected).toBe(true);
+    await act(async () => { await new Promise((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)); });
+    expect(frame?.isConnected).toBe(false);
+  });
 
   it.each(["chat", "room"] as const)("re-tails a %s when a skin hides every mounted tool row", async (view) => {
     applySkin("terminal");

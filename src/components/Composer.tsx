@@ -77,7 +77,7 @@ import { pinnedQuestion } from "@/lib/open-question";
 import { usePresence } from "@/lib/use-presence";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { MessageMenu, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
+import { MessageMenus, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
 
 /** The active @mention query at the caret: the text between an `@` that
  * starts a word and the caret. null = no mention being typed. */
@@ -1258,12 +1258,10 @@ export function Composer({
         </div>
         </div>
       </div>
-      {queuedMenu?.kind === "message" && (
-        <MessageMenu
-          x={queuedMenu.x} y={queuedMenu.y} opener={queuedMenu.opener} target={queuedMenu.target}
-          onReply={() => {}} onPin={() => {}} onClose={() => setQueuedMenu(null)}
-        />
-      )}
+      <MessageMenus
+        menu={queuedMenu?.kind === "message" ? queuedMenu : null}
+        onReply={() => {}} onPin={() => {}} onClose={() => setQueuedMenu(null)}
+      />
       {sendPreview.value && (
         <ConfirmDialog
           closing={sendPreview.closing}

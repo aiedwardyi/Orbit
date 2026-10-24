@@ -2,17 +2,17 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { act, createElement } from "react";
+import { act, createElement, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PRESENCE_EXIT_MS, Presence, usePresence } from "./use-presence";
+import { PRESENCE_EXIT_MS, Presence, usePresence, type Presence as PresenceState } from "./use-presence";
 
 const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../styles.css"), "utf8");
 
 let host: HTMLDivElement;
 let root: Root;
-const seen: Array<{ mounted: boolean; closing: boolean; value: string | null }> = [];
+const seen: Array<PresenceState<string | null>> = [];
 
 function Probe({ when }: { when: string | null }) {
   const presence = usePresence(when);
@@ -94,7 +94,7 @@ describe("usePresence", () => {
     expect(probe()?.hasAttribute("data-closing")).toBe(false);
     await render(null);
     expect(probe()).toBeNull();
-    expect(seen.at(-1)).toEqual({ mounted: false, closing: false, value: null });
+    expect(seen.at(-1)).toMatchObject({ mounted: false, closing: false, enter: false, value: null });
   });
 
   it("hands back the falsy value once an object surface has faded out", async () => {
@@ -110,6 +110,58 @@ describe("usePresence", () => {
     expect(host.querySelector("[data-holder]")).toBeNull();
     await act(async () => vi.advanceTimersByTime(PRESENCE_EXIT_MS * 3));
     expect(host.querySelector("[data-holder]")).toBeNull();
+  });
+
+  it("enters only on an open from fully shut, never at mount or on a reopen mid-close", async () => {
+    await render("settings");
+    expect(seen.at(-1)?.enter).toBe(false);
+    await render(null);
+    await act(async () => vi.advanceTimersByTime(PRESENCE_EXIT_MS));
+    await render("settings");
+    expect(seen.at(-1)?.enter).toBe(true);
+    await render(null);
+    expect(seen.at(-1)).toMatchObject({ closing: true, enter: false });
+    await render("settings");
+    expect(seen.at(-1)).toMatchObject({ closing: false, enter: false });
+  });
+
+  it("cuts a close short when the user did not ask for it", async () => {
+    await render("settings");
+    await render(null);
+    await act(async () => seen.at(-1)!.cut());
+    expect(probe()).toBeNull();
+  });
+
+  it("holds an open the chat switch left stale until the first commit settles", async () => {
+    const calls: boolean[] = [];
+    function Lagging() {
+      const [stale, setStale] = useState(true);
+      useEffect(() => setStale(false), []);
+      const child = (closing: boolean) => {
+        calls.push(closing);
+        return createElement("span", { "data-child": "" });
+      };
+      return createElement(Presence, { open: stale, afterMount: true, children: child });
+    }
+    await act(async () => root.render(createElement(Lagging)));
+    expect(calls).toEqual([]);
+    expect(host.querySelector("[data-child]")).toBeNull();
+  });
+
+  it("shows an open still standing after the first commit at its end state, and enters the user's next open", async () => {
+    const flags: Array<[boolean, boolean]> = [];
+    const child = (closing: boolean, enter: boolean) => {
+      flags.push([closing, enter]);
+      return createElement("span", { "data-child": "" });
+    };
+    const show = (open: boolean) => act(async () => root.render(createElement(Presence, { open, afterMount: true, children: child })));
+    await show(true);
+    expect(host.querySelector("[data-child]")).not.toBeNull();
+    expect(flags).toEqual([[false, false]]);
+    await show(false);
+    await act(async () => vi.advanceTimersByTime(PRESENCE_EXIT_MS));
+    await show(true);
+    expect(flags.at(-1)).toEqual([false, true]);
   });
 
   it("renders the Presence child with the closing flag", async () => {
@@ -131,12 +183,18 @@ describe("overlay motion styles", () => {
     expect(closing).toContain("pointer-events: none;");
   });
 
-  it("enters pop, panel and fade surfaces on one timing and curve", () => {
-    const timings = ["panel-in", "pop-in", "fade-in"].map((name) => css.match(new RegExp(`--animate-${name}: ${name} ([^;]*);`))?.[1]);
-    expect(timings).toEqual(Array(3).fill("0.16s cubic-bezier(0.22, 1, 0.36, 1)"));
+  it("folds a closing expand shut over the hook's exit time", () => {
+    const closing = css.match(/\[data-expand\]\[data-closing\] \{([^}]*)\}/)?.[1] ?? "";
+    expect(closing).toContain(`expand-out ${PRESENCE_EXIT_MS / 1000}s`);
+    expect(closing).toContain("forwards");
+  });
+
+  it("enters pop, panel, fade and expand surfaces on one timing and curve", () => {
+    const timings = ["panel-in", "pop-in", "fade-in", "expand-in"].map((name) => css.match(new RegExp(`--animate-${name}: ${name} ([^;]*);`))?.[1]);
+    expect(timings).toEqual(Array(4).fill("0.16s cubic-bezier(0.22, 1, 0.36, 1)"));
   });
 
   it("drops the enter animations under reduced motion", () => {
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\r?\n {2}\.animate-caret, \.animate-msg-in, \.animate-pop-in, \.animate-panel-in, \.animate-fade-in \{ animation: none; \}/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\r?\n {2}\.animate-caret, \.animate-msg-in, \.animate-pop-in, \.animate-panel-in, \.animate-fade-in, \.animate-expand-in \{ animation: none; \}/);
   });
 });

@@ -7,6 +7,7 @@ import { SmilePlus, X } from "lucide-react";
 import { EXTENDED_REACTIONS } from "../../shared/reactions";
 import { useStoreDispatch, type Bot, type Message } from "@/state/store";
 import { useI18n, type Translate } from "@/lib/i18n";
+import { usePresence } from "@/lib/use-presence";
 import { cn } from "@/lib/cn";
 
 /** The standoff between the bar and the picker. */
@@ -22,9 +23,10 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
   const { t } = useI18n();
   const dispatch = useStoreDispatch();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const picker = usePresence(pickerOpen);
   const anchorRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState<{ top: number; left: number } | null>(null);
+  const [box, setBox] = useState<{ top: number; left: number; origin: string } | null>(null);
   const mine = useMemo(
     () => new Set(
       (message.reactions ?? []).filter((reaction) => reaction.by === "user").map((reaction) => reaction.emoji),
@@ -95,7 +97,7 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
   // and taking the pane's height with it.
   useLayoutEffect(() => {
     if (!pickerOpen) {
-      setBox(null);
+      if (!picker.mounted) setBox(null);
       return;
     }
     const transcript = anchorRef.current?.closest("[data-orbit-transcript]");
@@ -125,9 +127,11 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
       const top = placement === "below" ? anchor.bottom + PICKER_GAP : anchor.top - PICKER_GAP - height;
       const fit = (value: number, size: number, extent: number) =>
         Math.max(PICKER_EDGE, Math.min(value, extent - size - PICKER_EDGE));
+      const left = fit(anchor.left, width, window.innerWidth);
       setBox({
         top: fit(top, height, window.innerHeight),
-        left: fit(anchor.left, width, window.innerWidth),
+        left,
+        origin: `${anchor.left - left}px ${placement === "below" ? "top" : "bottom"}`,
       });
     };
     clamp();
@@ -144,7 +148,7 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
       transcript?.removeEventListener("scroll", clamp);
       observer.disconnect();
     };
-  }, [pickerOpen]);
+  }, [pickerOpen, picker.mounted]);
 
   // Portalled under document.body, the picker is no longer the trigger's tab
   // neighbour, so opening it has to carry focus across and closing it has to
@@ -173,15 +177,17 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
       >
         {pickerOpen ? <X size={14} /> : <SmilePlus size={14} />}
       </button>
-      {pickerOpen &&
+      {picker.mounted &&
         createPortal(
           <div
             ref={pickerRef}
-            data-reaction-picker
+            data-reaction-picker={!picker.closing || undefined}
+            data-closing={picker.closing || undefined}
+            inert={picker.closing}
             // Hidden for the one commit it takes to measure the grid, so it
             // never paints in the corner on the way to its real place.
-            style={{ top: box?.top ?? 0, left: box?.left ?? 0, visibility: box ? "visible" : "hidden" }}
-            className="animate-pop-in fixed z-40 w-[218px] rounded-xl border border-hairline/50 bg-card p-2 shadow-2xl shadow-black/60"
+            style={{ top: box?.top ?? 0, left: box?.left ?? 0, transformOrigin: box?.origin, visibility: box ? "visible" : "hidden" }}
+            className={cn(picker.enter && "animate-pop-in", "fixed z-40 w-[218px] rounded-xl border border-hairline/50 bg-card p-2 shadow-2xl shadow-black/60")}
           >
             <div className="grid grid-cols-6 gap-0.5">
               {EXTENDED_REACTIONS.map((emoji) => {

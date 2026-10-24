@@ -24,7 +24,7 @@ function headerBlock(source: string, startMarker: string, endMarker: string): st
   return source.slice(start, end);
 }
 
-const chatHeader = headerBlock(chatView, "{/* Header */}", "{findOpen &&");
+const chatHeader = headerBlock(chatView, "{/* Header */}", "<ChatFindPanel");
 const computerHeader = headerBlock(computerPanel, "{/* Header */}", '{panelView === "browser" &&');
 
 describe("QA 17 one Bot-details header entry", () => {

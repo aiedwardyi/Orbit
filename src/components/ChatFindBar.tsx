@@ -1,24 +1,55 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 
-import { findHitIndex, findStops, setFindCurrent, stepFind, watchChatFindHighlight, type FindStop } from "@/lib/chat-find";
+import { findHitIndex, findStops, setFindCurrent, stepFind, watchChatFindHighlight, type FindStop, type useSearchFindSeed } from "@/lib/chat-find";
 import { landOnSearchHit, restoreChatChrome } from "@/lib/focus-message";
 import type { SearchHit } from "@/lib/search-hit";
 import { isTerminalSkin, useSkin } from "@/lib/skins";
+import { usePresence, useSettled } from "@/lib/use-presence";
 import { api, useStore } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
+import { ExpandFrame } from "./Expand";
 
 const PAGE = 100;
+
+/** The find bar under a chat header: a toggle folds it open, a search landing shows it at once. */
+export function ChatFindPanel({ open, seed, threadId, onClose }: { open: boolean; seed: ReturnType<typeof useSearchFindSeed>["findSeed"]; threadId: string; onClose: () => void }) {
+  // a chat switch resets find state in an effect, so an open seen at mount is the last chat's
+  const settled = useSettled();
+  const { mounted, closing, enter, value } = usePresence(settled && open ? { seed } : null);
+  // a reopen mid-close starts a fresh bar, as after a full close
+  const [session, setSession] = useState(0);
+  const [wasClosing, setWasClosing] = useState(closing);
+  if (closing !== wasClosing) {
+    setWasClosing(closing);
+    if (!closing) setSession(session + 1);
+  }
+  if (!mounted || !value) return null;
+  return (
+    <ExpandFrame closing={closing} enter={enter && !value.seed}>
+      <ChatFindBar
+        key={`${value.seed?.nonce ?? "browse"}:${session}`}
+        threadId={threadId}
+        initialQuery={value.seed?.query ?? ""}
+        initialMessageId={value.seed?.messageId ?? null}
+        closing={closing}
+        onClose={onClose}
+      />
+    </ExpandFrame>
+  );
+}
 
 export function ChatFindBar({
   threadId,
   initialQuery = "",
   initialMessageId = null,
+  closing = false,
   onClose,
 }: {
   threadId: string;
   initialQuery?: string;
   initialMessageId?: string | null;
+  closing?: boolean;
   onClose: () => void;
 }) {
   const { t } = useI18n();
@@ -40,19 +71,21 @@ export function ChatFindBar({
   const stops = useMemo(() => findStops(hits), [hits]);
 
   useEffect(() => {
+    if (closing) return;
     inputRef.current?.focus();
     inputRef.current?.select();
     return () => {
       setFindCurrent(null);
       restoreChatChrome();
     };
-  }, []);
+  }, [closing]);
 
   const searchPath = (text: string, before?: string) =>
     `/api/search?q=${encodeURIComponent(text)}&limit=${PAGE}&threadId=${encodeURIComponent(threadId)}${view}` +
     (before ? `&before=${encodeURIComponent(before)}` : "");
 
   useEffect(() => {
+    if (closing) return;
     const trimmed = query.trim();
     const request = ++requestRef.current;
     pagingRef.current = false;
@@ -91,7 +124,7 @@ export function ChatFindBar({
     };
     // searchPath reads threadId and view, both listed
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dispatch, query, threadId, view]);
+  }, [closing, dispatch, query, threadId, view]);
 
   const land = (next: number, list: FindStop<SearchHit>[] = stops) => {
     const stop = list[next];
@@ -145,10 +178,11 @@ export function ChatFindBar({
   }, [stops, query]);
 
   useEffect(() => {
+    if (closing) return;
     const root = inputRef.current?.closest("main")?.querySelector("[data-orbit-transcript]");
     if (!(root instanceof HTMLElement)) return;
     return watchChatFindHighlight(root, query);
-  }, [query]);
+  }, [closing, query]);
 
   const total = more ? `${stops.length}+` : stops.length;
   return (

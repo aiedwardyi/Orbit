@@ -7,6 +7,7 @@ import { StoreProvider, useStore, type Bot, type Group, type Message } from "@/s
 import { I18nProvider } from "@/lib/i18n";
 import { en, ko } from "@/lib/i18n-catalog";
 import { applySkin } from "@/lib/skins";
+import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 import { EXTENDED_REACTIONS } from "../../shared/reactions";
 
 import { ChatView } from "./ChatView";
@@ -140,7 +141,7 @@ const keyOn = (el: Element, init: KeyboardEventInit) =>
     el.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init }));
   });
 
-const messageMenu = () => document.querySelector("[data-message-menu]");
+const messageMenu = () => document.querySelector<HTMLElement>("[data-message-menu]");
 const selectionMenu = () => document.querySelector("[data-selection-menu]");
 const menuReactions = () => Array.from(document.querySelectorAll("[data-menu-reaction]"));
 const storeMessage = (threadId: string, id: string) =>
@@ -460,6 +461,67 @@ describe("message menu in 1:1 chats", () => {
     const next = { ...bot([botMsg("b2", "other")]), id: "other", threadId: "thread-other" };
     await renderChat!(next);
     expect(messageMenu()).toBeNull();
+    expect(document.querySelector("[data-menu-reply]")).toBeNull();
+  });
+
+  const exit = () => act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
+  const pressOutside = () => act(async () => { document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); });
+
+  it("fades the menu out on Escape with focus back on the row, then unmounts", async () => {
+    const host = await mountChat(bot([botMsg("b1", "hello")]));
+    const row = host.querySelector<HTMLElement>('[data-mid="b1"] [data-orbit-message]')!;
+    row.focus();
+    await keyOn(row, { key: "F10", shiftKey: true });
+    const menu = messageMenu()!;
+    await keyOn(row, { key: "Escape" });
+    expect(messageMenu()).toBeNull();
+    expect(menu.isConnected).toBe(true);
+    expect(menu.hasAttribute("data-closing")).toBe(true);
+    expect(menu.hasAttribute("inert")).toBe(true);
+    expect(menu.getAttribute("role")).toBeNull();
+    expect(document.activeElement).toBe(row);
+    await exit();
+    expect(menu.isConnected).toBe(false);
+  });
+
+  it("fades the selection menu out too", async () => {
+    stubPlatform("Win32");
+    const host = await mountChat(bot([botMsg("b1", "selectable words here")]));
+    stubSelection("words", true);
+    await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
+    const menu = selectionMenu()!;
+    await pressOutside();
+    expect(selectionMenu()).toBeNull();
+    expect(menu.hasAttribute("data-closing")).toBe(true);
+    await exit();
+    expect(menu.isConnected).toBe(false);
+  });
+
+  it("pops another message's menu in over a fading one, and brings the same one back at once", async () => {
+    const host = await mountChat(bot([botMsg("b1", "first"), botMsg("b2", "second")]));
+    const content = (id: string) => host.querySelector(`[data-mid="${id}"] [data-orbit-message-content]`)!;
+    await rightClick(content("b1"));
+    await pressOutside();
+    expect(document.querySelector("[data-closing] [data-menu-reply]")).not.toBeNull();
+    await rightClick(content("b2"), 120, 140);
+    expect(document.querySelectorAll("[data-menu-reply]")).toHaveLength(1);
+    expect(messageMenu()!.classList.contains("animate-pop-in")).toBe(true);
+    await pressOutside();
+    await rightClick(content("b2"), 160, 180);
+    expect(document.querySelectorAll("[data-menu-reply]")).toHaveLength(1);
+    expect(messageMenu()!.classList.contains("animate-pop-in")).toBe(false);
+    expect(messageMenu()!.style.top).toBe("180px");
+  });
+
+  it("grows the menu from the pointer, also where the window edge pulls it back", async () => {
+    const host = await mountChat(bot([botMsg("b1", "hello")]));
+    const content = host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!;
+    await rightClick(content, 100, 120);
+    expect(messageMenu()!.style.transformOrigin).toBe("0px 0px");
+    await pressOutside();
+    await exit();
+    await rightClick(content, window.innerWidth - 4, 120);
+    expect(messageMenu()!.style.transformOrigin).toBe("4px 0px");
   });
 
   it("returns focus to the row after Copy and to the composer after Reply", async () => {

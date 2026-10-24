@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "@/lib/i18n";
+import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 import { StoreProvider, useStore, type Bot, type Group } from "@/state/store";
 
 import { ChatView } from "./ChatView";
@@ -146,6 +147,18 @@ describe("queued message menu", () => {
     await ui.open("held");
     const labels = [...document.querySelectorAll("[data-message-menu] button")].map((el) => el.textContent);
     expect(labels).toEqual(!room && steering ? ["Send now", "Cancel"] : ["Cancel"]);
+  });
+
+  it("fades the queued menu out after Cancel", async () => {
+    const ui = await mount();
+    await ui.send("held");
+    await ui.open("held");
+    const menu = document.querySelector("[data-message-menu]")!;
+    await ui.click("[data-menu-cancel-queued]");
+    expect(document.querySelector("[data-message-menu]")).toBeNull();
+    expect(menu.hasAttribute("data-closing")).toBe(true);
+    await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
+    expect(menu.isConnected).toBe(false);
   });
 
   it.each([false, true])("translates the queued menu, room=%s", async (room) => {

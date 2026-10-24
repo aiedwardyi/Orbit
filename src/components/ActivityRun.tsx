@@ -10,6 +10,7 @@ import { classifyServerNotice, describeRun, describeSearch, localizeServerLine, 
 import { useI18n, type Translate } from "@/lib/i18n";
 import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { APPROVAL_WORD, TERM_STEP_WORD, termBlock, termHeaderArgs, termResultLine, termStepAria, termStepState, termUpdatedLine, termVerb } from "@/lib/terminal-skin";
+import { Expand } from "./Expand";
 
 function StepStatus({ ok }: { ok: boolean | undefined }) {
   if (ok === undefined) return <Loader2 data-idle-hide size={13} className="shrink-0 animate-spin" />;
@@ -123,28 +124,38 @@ export function ActivityRun({
   const failed = messages.some((message) => message.tool?.ok === false);
   const running = messages.some((message) => message.tool?.ok === undefined);
   const [open, setOpen] = useState(forceOpen);
+  // a search landing opens the run at its end state; only a click folds it open
+  const [clicked, setClicked] = useState(false);
   useEffect(() => {
-    if (forceOpen) setOpen(true);
+    if (!forceOpen) return;
+    setOpen(true);
+    setClicked(false);
   }, [forceOpen]);
+  const toggle = (next: boolean) => {
+    setClicked(true);
+    setOpen(next);
+  };
   if (terminal) {
     return (
       <div className="flex flex-col">
-        <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="term-search self-start text-left">
+        <button type="button" onClick={() => toggle(!open)} aria-expanded={open} className="term-search self-start text-left">
           {describeSearch(messages, t)}
           {running && <span> · {t("task.running")}</span>}
           {failed && <span> · {t("workers.failed")}</span>}
         </button>
-        {open && children}
+        <Expand open={open} instant={!clicked}>
+          <div className="flex flex-col">{children}</div>
+        </Expand>
       </div>
     );
   }
-  if (open) {
-    return (
-      <div className="flex flex-col gap-1">
-        <div className="flex justify-start">
+  return (
+    <div className="flex flex-col">
+      <div className="flex justify-start">
+        {open ? (
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={() => toggle(false)}
             aria-expanded
             className="flex items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control focus-visible:bg-control"
           >
@@ -152,24 +163,23 @@ export function ActivityRun({
             <span>{describeRun(messages, t)}<span data-idle-hide={running ? "" : undefined}> ·</span></span>
             <StepStatus ok={running ? undefined : !failed} />
           </button>
-        </div>
-        {children}
+        ) : (
+          <button
+            type="button"
+            onClick={() => toggle(true)}
+            aria-expanded={false}
+            title="Show every step"
+            className="flex items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control focus-visible:bg-control"
+          >
+            <span className="max-w-[480px] truncate">{describeRun(messages, t)}<span data-idle-hide={running ? "" : undefined}> ·</span></span>
+            <StepStatus ok={running ? undefined : !failed} />
+            <ChevronRight size={13} />
+          </button>
+        )}
       </div>
-    );
-  }
-  return (
-    <div className="flex justify-start">
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-expanded={false}
-        title="Show every step"
-        className="flex items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control focus-visible:bg-control"
-      >
-        <span className="max-w-[480px] truncate">{describeRun(messages, t)}<span data-idle-hide={running ? "" : undefined}> ·</span></span>
-        <StepStatus ok={running ? undefined : !failed} />
-        <ChevronRight size={13} />
-      </button>
+      <Expand open={open} instant={!clicked}>
+        <div className="flex flex-col gap-1 pt-1">{children}</div>
+      </Expand>
     </div>
   );
 }

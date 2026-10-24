@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { StoreProvider, useStore, type Bot, type Group, type InstanceInfo, type Message } from "@/state/store";
 
 import { setFindCurrent } from "@/lib/chat-find";
+import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 
 import { DRAWER_BUTTON_RIGHT } from "@/lib/drawer-button";
 import { PHONE_HEADER_MENU_RESERVE_PX } from "@/lib/phone-header";
@@ -198,7 +199,28 @@ describe("ChatView worker rows", () => {
       for (const machine of ["[pane", "61902933", "branch=", "sha=", "dirty="]) expect(shown).not.toContain(machine);
       expect(Array.from(host.querySelectorAll("button")).map((b) => b.textContent)).toContain("Note");
       await act(async () => { rows(host)[0]!.click(); });
+      await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
       expect(host.querySelector("[data-orbit-worker]")).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("folds a plain note open and keeps it through the fold shut", async () => {
+    stubDom();
+    const plain: Message = { id: "plain", at: 2, role: "bot", kind: "note", text: "Synced from Work PC" };
+    // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
+    const { host, unmount } = await mountChat({ ...botA, messages: [userMsg("ua", "go"), plain] } as Bot);
+    try {
+      const toggle = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Note")!;
+      await act(async () => toggle.click());
+      const frame = host.querySelector("[data-orbit-note]")?.closest("[data-expand]");
+      expect(frame?.classList.contains("animate-expand-in")).toBe(true);
+      await act(async () => toggle.click());
+      expect(frame?.hasAttribute("data-closing")).toBe(true);
+      expect(frame?.querySelector("[data-orbit-note]")?.textContent).toBe("Synced from Work PC");
+      await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
+      expect(host.querySelector("[data-orbit-note]")).toBeNull();
     } finally {
       await unmount();
     }
@@ -965,6 +987,70 @@ describe("ChatView transcript click focus", () => {
       await click(picker);
       expect(document.activeElement).not.toBe(composer);
       expect(document.querySelector("[data-reaction-picker]")).not.toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+});
+
+describe("ChatView find motion", () => {
+  let send: ReturnType<typeof useStore>["dispatch"] = () => {};
+  function Grab() {
+    send = useStore().dispatch;
+    return null;
+  }
+  const mount = async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => root.render(createElement(StoreProvider, null, createElement(Grab), createElement(ChatView, { bot: botB }))));
+    const unmount = async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    };
+    return { host, unmount };
+  };
+  const field = (host: HTMLElement) => host.querySelector<HTMLInputElement>('input[aria-label="Find in this conversation"]');
+  const settle = () => act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
+
+  it("folds Find in on Ctrl+F with its field taking keys, and folds it shut on Escape with focus out at once", async () => {
+    const { host, unmount } = await mount();
+    try {
+      await act(async () => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", ctrlKey: true })));
+      const find = field(host)!;
+      expect(document.activeElement).toBe(find);
+      const frame = find.closest("[data-expand]");
+      expect(frame?.classList.contains("animate-expand-in")).toBe(true);
+      await act(async () => void find.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      expect(frame?.hasAttribute("data-closing")).toBe(true);
+      expect(frame?.contains(find)).toBe(true);
+      expect(frame?.contains(document.activeElement)).toBe(false);
+      await settle();
+      expect(field(host)).toBeNull();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("shows Find from a search landing at its end state, and folds in on the user's next open", async () => {
+    const { host, unmount } = await mount();
+    try {
+      await act(async () => send({ type: "focusMessage", threadId: "thread-b", messageId: "ub", query: "question" }));
+      expect(field(host)?.value).toBe("question");
+      expect(field(host)?.closest(".animate-expand-in")).toBeNull();
+      await act(async () => void field(host)!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      await settle();
+      await act(async () => void host.querySelector<HTMLButtonElement>('button[aria-label="Find in conversation"]')!.click());
+      expect(field(host)?.value).toBe("");
+      expect(field(host)?.closest(".animate-expand-in")).not.toBeNull();
     } finally {
       await unmount();
     }

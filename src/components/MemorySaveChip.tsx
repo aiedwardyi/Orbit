@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, ChevronRight, Loader2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import type { Message } from "@/state/store";
+import { Expand } from "./Expand";
 
 const FLICKER_MS = 700;
 
@@ -42,15 +43,22 @@ export function MemorySaveRun({ messages, forceOpen = false, children }: { messa
   const { t } = useI18n();
   const saved = useSaved(messages[messages.length - 1].at);
   const [open, setOpen] = useState(forceOpen);
+  // a search landing opens the run at its end state; only a click folds it open
+  const [clicked, setClicked] = useState(false);
   useEffect(() => {
-    if (forceOpen) setOpen(true);
+    if (!forceOpen) return;
+    setOpen(true);
+    setClicked(false);
   }, [forceOpen]);
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col">
       <div className="flex justify-start">
         <button
           type="button"
-          onClick={() => setOpen(!open)}
+          onClick={() => {
+            setClicked(true);
+            setOpen(!open);
+          }}
           aria-expanded={open}
           className={`${ROW} rounded-lg hover:bg-control focus-visible:bg-control`}
         >
@@ -61,7 +69,9 @@ export function MemorySaveRun({ messages, forceOpen = false, children }: { messa
           <ChevronRight size={13} className={open ? "shrink-0 rotate-90" : "shrink-0"} />
         </button>
       </div>
-      {open && children}
+      <Expand open={open} instant={!clicked}>
+        <div className="flex flex-col gap-1 pt-1">{children}</div>
+      </Expand>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import type { Message } from "@/state/store";
 import { workerRuns, type WorkerShownState } from "@/lib/worker-runs";
 import { ProviderMark } from "./ProviderIcons";
 import { applyLocale } from "@/lib/i18n";
+import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 import { WORKER_STATUS, WorkerChip, WorkerRow, type ShownRun } from "./WorkerRows";
 
 const run = (label: string) => {
@@ -113,6 +114,64 @@ describe("WorkerRow", () => {
     await act(async () => root.unmount());
     host.remove();
   });
+
+  it("keeps the notes mounted through the collapse, and drops them at once with reduced motion", async () => {
+    applyLocale("en");
+    const realMatchMedia = window.matchMedia;
+    let reduce = false;
+    Object.defineProperty(window, "matchMedia", { value: () => ({ matches: reduce }), configurable: true, writable: true });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const toggle = () => host.querySelector("button")!;
+    try {
+      await act(async () => root.render(createElement(WorkerRow, { run: run("A | Opus 5.5 | high"), state: "working", live: null })));
+      await act(async () => toggle().click());
+      const notes = host.querySelector("[data-orbit-worker]")!;
+      expect(toggle().getAttribute("aria-expanded")).toBe("true");
+      expect(notes.closest("[data-expand]")?.classList.contains("animate-expand-in")).toBe(true);
+      await act(async () => toggle().click());
+      expect(toggle().getAttribute("aria-expanded")).toBe("false");
+      expect(notes.isConnected).toBe(true);
+      expect(notes.closest("[data-closing]")?.hasAttribute("data-expand")).toBe(true);
+      await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
+      expect(notes.isConnected).toBe(false);
+      reduce = true;
+      await act(async () => toggle().click());
+      await act(async () => toggle().click());
+      expect(host.querySelector("[data-orbit-worker]")).toBeNull();
+      expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      window.matchMedia = realMatchMedia;
+    }
+  });
+
+  it("mounts open notes at their end state, and a reopen mid-collapse shows them at once", async () => {
+    applyLocale("en");
+    const realMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", { value: () => ({ matches: false }), configurable: true, writable: true });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const show = (open: boolean) => act(async () => root.render(createElement(WorkerRow, { run: run("A | Opus 5.5 | high"), state: "working", live: null, open, onToggle: () => {} })));
+    try {
+      await show(true);
+      const notes = host.querySelector("[data-orbit-worker]")!;
+      expect(notes.closest("[data-expand]")!.className).not.toMatch(/animate-/);
+      await show(false);
+      expect(notes.closest("[data-closing]")).not.toBeNull();
+      await show(true);
+      expect(host.querySelector("[data-orbit-worker]")).toBe(notes);
+      expect(notes.closest("[data-closing]")).toBeNull();
+      expect(notes.closest("[data-expand]")!.className).not.toMatch(/animate-/);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      window.matchMedia = realMatchMedia;
+    }
+  });
 });
 
 describe("WorkerChip", () => {
@@ -167,6 +226,73 @@ describe("WorkerChip", () => {
     }
     await toggle();
     expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+  });
+
+  it("pops the desktop list in from the chip's corner", async () => {
+    stubMedia({ matches: false });
+    const { host, chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
+    try {
+      await act(async () => chip()!.click());
+      const list = host.querySelector("[data-worker-list]")!;
+      expect(list.className).toMatch(/(^|\s)animate-pop-in(\s|$)/);
+      expect(list.className).toMatch(/(^|\s)origin-top-right(\s|$)/);
+    } finally {
+      await unmount();
+    }
+  });
+
+  it.each([false, true])("keeps the list mounted and closing through its exit, and shuts it at once with reduced motion, with phone=%s", async (phone) => {
+    let reduce = false;
+    Object.defineProperty(window, "matchMedia", { value: (query: string) => ({ matches: query.includes("reduce") ? reduce : phone }), configurable: true, writable: true });
+    const { chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
+    // the phone sheet fades out with its backdrop
+    const surface = () => {
+      const list = document.body.querySelector("[data-worker-list]")!;
+      return phone ? list.parentElement! : list;
+    };
+    const escape = () => act(async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    try {
+      await act(async () => chip()!.click());
+      expect(chip()!.getAttribute("aria-expanded")).toBe("true");
+      const open = surface();
+      await escape();
+      expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+      expect(open.isConnected).toBe(true);
+      expect(open.hasAttribute("data-closing")).toBe(true);
+      expect(open.hasAttribute("inert")).toBe(true);
+      expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+      await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
+      expect(open.isConnected).toBe(false);
+      reduce = true;
+      await act(async () => chip()!.click());
+      const again = surface();
+      await escape();
+      expect(again.isConnected).toBe(false);
+      expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it.each([false, true])("shows the list at once when the hotkey reopens it mid-close, with phone=%s", async (phone) => {
+    Object.defineProperty(window, "matchMedia", { value: (query: string) => ({ matches: !query.includes("reduce") && phone }), configurable: true, writable: true });
+    const { chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
+    const toggle = () => act(async () => { window.dispatchEvent(new Event("orbit:toggle-worker-menu")); });
+    try {
+      await toggle();
+      const list = document.body.querySelector("[data-worker-list]")!;
+      expect(list.className).toMatch(/(^|\s)animate-pop-in(\s|$)/);
+      await toggle();
+      expect(list.closest("[data-closing]")).not.toBeNull();
+      await toggle();
+      expect(document.body.querySelector("[data-worker-list]")).toBe(list);
+      expect(chip()!.getAttribute("aria-expanded")).toBe("true");
+      expect(document.body.querySelector("[data-closing]")).toBeNull();
+      expect(list.className).not.toMatch(/animate-/);
+      expect(list.parentElement!.className).not.toMatch(/animate-/);
+    } finally {
+      await unmount();
+    }
   });
 
   it("keeps Tab inside the phone worker list", async () => {
@@ -355,9 +481,10 @@ describe("WorkerChip", () => {
     const { chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)], { livePanes: new Set(["work-1"]) });
     try {
       await act(async () => chip()!.click());
-      expect(document.body.querySelector("[data-worker-list]")).not.toBeNull();
+      const list = document.body.querySelector("[data-worker-list]")!;
       await act(async () => { window.dispatchEvent(new Event("orbit:close-worker-menu")); });
       expect(document.body.querySelector("[data-worker-list]")).toBeNull();
+      expect(list.isConnected).toBe(false);
       expect(chip()!.getAttribute("aria-expanded")).toBe("false");
     } finally {
       await unmount();

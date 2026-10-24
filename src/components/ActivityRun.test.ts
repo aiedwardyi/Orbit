@@ -1,9 +1,11 @@
 import "./ProfileFields.test-dom.ts";
-import { createElement } from "react";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applyLocale } from "@/lib/i18n";
+import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 import type { Message } from "@/state/store";
 
 import type { LinkedApproval } from "@/lib/activity-runs";
@@ -289,6 +291,73 @@ describe("ActivityRun in the Terminal skin", () => {
     const html = render("terminal", createElement(ActivityRun, { messages: [step("Grep", "x", true, 800), step("Read", "a.ts", true, 300)], children: null }));
     expect(html).toContain("Searched for 1 pattern, read 1 file");
     expect(html).not.toContain("2 steps");
+  });
+});
+
+describe("ActivityRun fold", () => {
+  it.each(["steel-gray", "terminal"])("keeps the steps mounted through the collapse in %s, and drops them at once with reduced motion", async (skin) => {
+    applyLocale("en");
+    document.documentElement.dataset.skin = skin;
+    const realMatchMedia = window.matchMedia;
+    let reduce = false;
+    Object.defineProperty(window, "matchMedia", { value: () => ({ matches: reduce }), configurable: true, writable: true });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const toggle = () => host.querySelector("button")!;
+    try {
+      await act(async () => root.render(createElement(ActivityRun, { messages: [step("Grep", "x", true, 800), step("Read", "a.ts", true, 300)], children: createElement("i", null, "steps") })));
+      await act(async () => toggle().click());
+      const steps = host.querySelector("i")!;
+      expect(toggle().getAttribute("aria-expanded")).toBe("true");
+      await act(async () => toggle().click());
+      expect(toggle().getAttribute("aria-expanded")).toBe("false");
+      expect(steps.closest("[data-closing]")).not.toBeNull();
+      await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
+      expect(steps.isConnected).toBe(false);
+      reduce = true;
+      await act(async () => toggle().click());
+      await act(async () => toggle().click());
+      expect(host.querySelector("i")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      window.matchMedia = realMatchMedia;
+    }
+  });
+
+  it.each(["steel-gray", "terminal"])("opens at its end state for a search landing in %s, and a click still folds it open", async (skin) => {
+    applyLocale("en");
+    document.documentElement.dataset.skin = skin;
+    const realMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", { value: () => ({ matches: false }), configurable: true, writable: true });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const messages = [step("Grep", "x", true, 800), step("Read", "a.ts", true, 300)];
+    const show = (forceOpen: boolean) => act(async () => root.render(createElement(ActivityRun, { messages, forceOpen, children: createElement("i", null, "steps") })));
+    const toggle = () => act(async () => host.querySelector("button")!.click());
+    const settle = () => act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
+    try {
+      await show(true);
+      const steps = host.querySelector("i")!;
+      expect(host.querySelector(".animate-expand-in")).toBeNull();
+      await toggle();
+      expect(steps.closest("[data-closing]")).not.toBeNull();
+      await settle();
+      await show(false);
+      await show(true);
+      expect(host.querySelector("i")).not.toBeNull();
+      expect(host.querySelector(".animate-expand-in")).toBeNull();
+      await toggle();
+      await settle();
+      await toggle();
+      expect(host.querySelector("i")!.closest(".animate-expand-in")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      window.matchMedia = realMatchMedia;
+    }
   });
 });
 

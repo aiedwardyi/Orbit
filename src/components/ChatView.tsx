@@ -56,7 +56,7 @@ import { Composer } from "./Composer";
 import { ChatPlanMeters } from "./ChatPlanMeters";
 import { TermStatusLine } from "./TermStatusLine";
 import { useNow } from "./PlanUsageBar";
-import { ChatFindBar } from "./ChatFindBar";
+import { ChatFindPanel } from "./ChatFindBar";
 import { TurnRail } from "./TurnRail";
 import { ReconnectingCue } from "./ReconnectingCue";
 import { ConnectorCard } from "./ConnectorCard";
@@ -69,7 +69,7 @@ import { ModelPicker } from "./ModelPicker";
 import { DeviceTag } from "./DeviceSwitcher";
 import { RenameTitle } from "./RenameTitle";
 import { TaskPicker } from "./TaskPicker";
-import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, isTouchPrimary, type MessageMenuRequest } from "./MessageMenu";
+import { MessageMenus, contextClickKind, endSelectMode, isTouchPrimary, type MessageMenuRequest } from "./MessageMenu";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
 import { usageLimitReset } from "@/lib/usage";
@@ -83,6 +83,8 @@ import { focusComposerOnActivation, shouldFocusComposerOnTranscriptClick } from 
 import { MemorySaveChip, MemorySaveRun } from "./MemorySaveChip";
 import { PeerMessageBody, commLabel } from "./PeerMessage";
 import { ActivityRun, ActivityStep, approvalHover } from "./ActivityRun";
+import { Expand } from "./Expand";
+import { Presence } from "@/lib/use-presence";
 import { pinPreview } from "@/lib/pin-preview";
 import { BOTTOM_FOLLOW_THRESHOLD, captureTranscriptScroll, newestBelowView, restoreTranscriptScroll, shouldResumeBottomFollow, spaceAfterNewestRow, transcriptUnderfilled, type TranscriptScroll } from "@/lib/bottom-follow";
 import { CHAT_COLUMN_CLASS } from "@/lib/chat-column";
@@ -155,7 +157,7 @@ function TaskTimeline({ messages, busy }: { messages: Message[]; busy: boolean }
         </span>
         <ChevronDown size={14} className={cn("transition-transform", open && "rotate-180")} />
       </button>
-      {open && (
+      <Expand open={open}>
         <ol className="ml-2 border-l border-hairline/40 pb-2 pl-3">
           {recent.map((event) => (
             <li key={event.id} className="relative flex items-center gap-2 py-1 text-[12px] text-ink-secondary">
@@ -178,7 +180,7 @@ function TaskTimeline({ messages, busy }: { messages: Message[]; busy: boolean }
             </li>
           ))}
         </ol>
-      )}
+      </Expand>
     </div>
   );
 }
@@ -356,7 +358,7 @@ const NoteMessage = memo(function NoteMessage({ message }: { message: Message })
   const note = parsePaneNote(message.text ?? "");
   const title = note.label ? t("chat.noteFrom", { label: note.label }) : t(note.pane8 ? "chat.noteFromWorker" : "chat.note");
   return (
-    <div className="flex w-full flex-col items-start gap-1">
+    <div className="flex w-full flex-col items-start">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -366,12 +368,12 @@ const NoteMessage = memo(function NoteMessage({ message }: { message: Message })
         <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
         {title}
       </button>
-      {open && (
-        // pane text is untrusted; plain text only, never markdown
-        <div data-orbit-note className="w-full max-w-2xl whitespace-pre-wrap break-words rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-[12.5px] leading-relaxed text-ink-secondary">
+      <Expand open={open} className="w-full">
+        {/* pane text is untrusted; plain text only, never markdown */}
+        <div data-orbit-note className="mt-1 w-full max-w-2xl whitespace-pre-wrap break-words rounded-lg border border-hairline/30 bg-inset/25 px-3 py-2 text-[12.5px] leading-relaxed text-ink-secondary">
           <NoteReport note={note} />
         </div>
-      )}
+      </Expand>
     </div>
   );
 });
@@ -1758,15 +1760,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         </div>
       </div>
 
-      {findOpen && (
-        <ChatFindBar
-          key={find.findSeed?.nonce ?? "browse"}
-          threadId={bot.threadId}
-          initialQuery={find.findSeed?.query ?? ""}
-          initialMessageId={find.findSeed?.messageId ?? null}
-          onClose={find.closeFind}
-        />
-      )}
+      <ChatFindPanel key={bot.threadId} open={findOpen} seed={find.findSeed} threadId={bot.threadId} onClose={find.closeFind} />
 
       {/* Error banner */}
       {state.error && (
@@ -2027,24 +2021,24 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         onWheel={followWheel}
       />
 
-      {menu?.kind === "message" ? (
-        <MessageMenu x={menu.x} y={menu.y} opener={menu.opener} target={menu.target} onReply={selectReply} onPin={togglePin} onClose={() => setMenu(null)} />
-      ) : menu ? (
-        <SelectionMenu x={menu.x} y={menu.y} opener={menu.opener} text={menu.text} onClose={() => setMenu(null)} />
-      ) : null}
+      <MessageMenus key={bot.threadId} menu={menu} onReply={selectReply} onPin={togglePin} onClose={() => setMenu(null)} />
 
       {/* Reading scrollback — one tap back to the end, streaming or not */}
-      {latestShown && (
-        <button
-          data-jump-latest
-          onClick={jumpToLatest}
-          aria-label={t("chat.jumpToLatest")}
-          className="animate-pop-in absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg hover:bg-raised-hover"
-          style={{ bottom: composerDock.height }}
-        >
-          <ArrowDown size={13} /> {t("chat.jumpToLatest")}
-        </button>
-      )}
+      <Presence key={transcriptKey} open={latestShown} afterMount>
+        {(closing, enter) => (
+          <button
+            data-jump-latest
+            data-closing={closing || undefined}
+            inert={closing}
+            onClick={jumpToLatest}
+            aria-label={t("chat.jumpToLatest")}
+            className={cn(enter && "animate-pop-in", "absolute left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-hairline/40 bg-raised px-3 py-1.5 text-[12.5px] text-ink shadow-lg hover:bg-raised-hover")}
+            style={{ bottom: composerDock.height }}
+          >
+            <ArrowDown size={13} /> {t("chat.jumpToLatest")}
+          </button>
+        )}
+      </Presence>
 
       {/* Keyed by task: each conversation keeps its own draft and a failed
           request can restore the old task without spilling into the newly
