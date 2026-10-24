@@ -25,15 +25,17 @@ const WINDOW_FLOOR = { width: 600, height: 480 };
 type Box = { x: number; y: number; w: number; h: number };
 
 /** The className literal carrying `needle`, so a test names a layout rule
- * rather than a line number. Only plain `className="..."` is read: a move
- * into cn() or a template literal has to say so by name here. */
+ * rather than a line number. Only plain `className="..."` and the literals of
+ * `className={cn(...)}` are read: a move into a template literal has to say so
+ * by name here. */
 function classAttr(source: Source, needle: string): string {
-  for (const [, value] of source.text.matchAll(/className="([^"]*)"/g)) {
+  for (const [, plain, merged] of source.text.matchAll(/className="([^"]*)"|className=\{cn\(([^)]*)\)\}/g)) {
+    const value = plain ?? [...merged.matchAll(/"([^"]*)"/g)].map(([, part]) => part).join(" ");
     if (value.includes(needle)) return value;
   }
   throw new Error(
-    `${source.file}: no plain className="..." contains "${needle}". ` +
-    "If that class moved into cn() or a template literal, teach classAttr to read it.",
+    `${source.file}: no plain className="..." or cn() literal contains "${needle}". ` +
+    "If that class moved into a template literal, teach classAttr to read it.",
   );
 }
 

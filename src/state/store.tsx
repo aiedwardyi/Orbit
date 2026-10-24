@@ -22,6 +22,7 @@ import { preferredStartupSelectionId } from "@/lib/sidebar-order";
 import { loadSidebarOrder } from "@/lib/sidebar-preferences";
 import { loadReplyStyle } from "@/lib/reply-style";
 import { createBotPatchQueue } from "./bot-patch-queue";
+import { setBotPatchStatus } from "./bot-patch-status";
 import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-chat-snapshot";
 import { readSnapshotCache, writeSnapshotCache } from "./snapshot-cache";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
@@ -1365,6 +1366,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rawDispatch({ type: "error", message: error.message });
           setTimeout(() => rawDispatch({ type: "error", message: null }), 6000);
         },
+        onStatus: setBotPatchStatus,
       }),
     [],
   );

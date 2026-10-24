@@ -37,8 +37,8 @@ describe("QA 17 one Bot-details header entry", () => {
 
   it("keeps avatar and name as the ChatView header entry that opens Bot details", () => {
     expect(chatHeader).toContain('title={t("chat.openProfile"');
-    expect(chatHeader).toContain('onActivate={() => dispatch({ type: "toggleSettings", open: true })}');
-    expect(chatHeader).toContain('onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}');
+    expect(chatHeader.match(/onClick=\{\(\) => dispatch\(\{ type: "toggleSettings", open: true \}\)\}/g)).toHaveLength(3);
+    expect(chatHeader).not.toContain("avatar:");
   });
 
   it("shows the bot name below md and opens Bot details with no pencil", () => {
@@ -62,7 +62,8 @@ describe("QA 17 one Bot-details header entry", () => {
     expect(hook).toContain('querySelector("[data-chat-terminal]")');
     expect(chatHeader).toContain("data-chat-terminal");
     expect(chatHeader).toContain('className="min-w-0 flex-1 overflow-hidden max-md:hidden"');
-    expect(chatHeader).toContain("showEditButton");
+    expect(chatHeader).not.toContain("showEditButton");
+    expect(chatHeader).not.toContain("<RenameTitle");
   });
 
   it("keeps the Chief of Staff name when the badge folds to the crown", () => {

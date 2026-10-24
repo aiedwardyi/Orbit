@@ -243,4 +243,26 @@ describe("bot patch queue", () => {
     await queue.flush("bot-1");
     expect(sent).toEqual([{ title: "still saves" }]);
   });
+
+  it("reports saving on each edit and idle for every field a cancel or dispose drops", async () => {
+    const status = vi.fn();
+    const queue = createBotPatchQueue({
+      send: async () => deferredBot().promise,
+      reconcile: async () => bot(),
+      onAuthoritative: vi.fn(),
+      onError: vi.fn(),
+      onStatus: status,
+    });
+
+    queue.enqueue("bot-1", { name: "In flight" }, bot());
+    await vi.advanceTimersByTimeAsync(400);
+    queue.enqueue("bot-1", { title: "Pending" }, bot());
+    expect(status).toHaveBeenLastCalledWith("bot-1", { title: "Pending" }, "saving");
+    queue.cancel("bot-1");
+    expect(status).toHaveBeenLastCalledWith("bot-1", { name: "In flight", title: "Pending" }, "idle");
+
+    queue.enqueue("bot-2", { description: "Unsent" }, bot({ id: "bot-2" }));
+    queue.dispose();
+    expect(status).toHaveBeenLastCalledWith("bot-2", { description: "Unsent" }, "idle");
+  });
 });

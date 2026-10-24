@@ -754,10 +754,10 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
           }
         />
       )}
-      <Presence open={Boolean(state.settingsOpen && bot)}>
-        {(closing) => bot && (
+      <Presence key={bot?.id} open={Boolean(state.settingsOpen && bot)}>
+        {(closing, enter) => bot && (
           <LazyView overlay>
-            <SettingsPanel key={bot.id} bot={bot} closing={closing} />
+            <SettingsPanel key={bot.id} bot={bot} closing={closing} enter={enter} />
           </LazyView>
         )}
       </Presence>

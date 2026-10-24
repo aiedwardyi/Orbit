@@ -23,7 +23,10 @@ const detailsPanel = () => document.querySelector("[data-settings-panel]");
 beforeEach(async () => {
   localStorage.setItem("omb-onboarding-done", "true");
   localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify({
-    bots: [{ id: "b1", threadId: "t1", name: "Scout", messages: [], modelSelection: { instanceId: "inst", model: "m" } }],
+    bots: [
+      { id: "b1", threadId: "t1", name: "Scout", messages: [], modelSelection: { instanceId: "inst", model: "m" } },
+      { id: "b2", threadId: "t2", name: "Sage", messages: [], modelSelection: { instanceId: "inst", model: "m" } },
+    ],
     groups: [],
     selectedId: "b1",
   }));
@@ -43,6 +46,16 @@ afterEach(async () => {
 });
 
 describe("Settings fade", () => {
+  it("shows details at the end state when an open panel switches bots", async () => {
+    await act(async () => button("Open Scout's profile")!.click());
+    expect((await until(detailsPanel))?.classList.contains("animate-panel-in")).toBe(true);
+    await act(async () => host.querySelector<HTMLElement>('[data-sidebar-row-id="b2"] [role="button"]')!.click());
+    expect(host.querySelector<HTMLInputElement>("[data-settings-panel] label input")?.value).toBe("Sage");
+    expect(detailsPanel()?.classList.contains("animate-panel-in")).toBe(false);
+    // happy-dom rejects a canceled animation, so the sidebar's width motion ends before unmount
+    await wait(340);
+  });
+
   it("keeps app Settings mounted and inert while it fades out, then unmounts", async () => {
     const opener = host.querySelector<HTMLButtonElement>('[data-sidebar-profile-row] button[aria-label="App settings"]')!;
     opener.focus();

@@ -115,10 +115,10 @@ async function renderPanel() {
   return { host, root };
 }
 
-describe("chat avatar opens the avatar picker", () => {
-  it("wires the header avatar, not the pencil, and keeps Customize in the catalog", () => {
-    expect(chatView).toContain('onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}');
-    expect(chatView).toContain('onActivate={() => dispatch({ type: "toggleSettings", open: true })}');
+describe("Bot Details avatar picker", () => {
+  it("keeps header entries on details and Customize in the catalog", () => {
+    expect(chatView).not.toContain("avatar: !isPhone()");
+    expect(chatView).toContain('onClick={() => dispatch({ type: "toggleSettings", open: true })}');
     expect(settingsPanel).toContain("settingsAvatarRequest");
     expect(settingsPanel).toContain("scrollIntoView");
     expect(settingsPanel).toContain('t("bot.avatarCustomize")');
@@ -129,7 +129,7 @@ describe("chat avatar opens the avatar picker", () => {
     expect(ko["bot.avatarDone"]).toBe("완료");
   });
 
-  it("starts closed from the pencil", async () => {
+  it("starts closed from details", async () => {
     localStorage.setItem("omb-locale", "ko");
     avatarRequest = 0;
     const { root } = await renderPanel();
