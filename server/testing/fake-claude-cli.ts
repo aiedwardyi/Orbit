@@ -51,6 +51,12 @@
 //                      queued steers (default 20)
 //   FAKE_CLAUDE_STDIN_LOG  path; each stdin line's type is appended, a
 //                      control request as its subtype
+//   FAKE_CLAUDE_EFFORT_LOG  path; the effort of each scripted main call is
+//                      appended: --effort, then what apply_flag_settings set
+//   FAKE_CLAUDE_EFFORT_REPLY  how apply_flag_settings is answered: success
+//                      (default; applied at once, like the real CLI) | error
+//                      | none (never answered) | crash (success, then a
+//                      503-shaped exit before the turn's result)
 //   FAKE_CLAUDE_USAGE  path; once it exists, usage-calls reads {first, last,
 //                      window} from it each turn: the two main calls' prompts
 //                      and the main model's window
@@ -224,9 +230,10 @@ if (lateRole === "speaker") {
 // exits only when stdin ends. `slow` leaves a gap between the tool result
 // and the reply so a test can steer into it.
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-type StdinLine = { type?: string; request_id?: string; request?: { subtype?: string } };
+type StdinLine = { type?: string; request_id?: string; request?: { subtype?: string; settings?: { effortLevel?: string } } };
 const sessionId = argAfter("--resume") ?? argAfter("--session-id") ?? "fake-session";
 const model = argAfter("--model") ?? "claude-fake";
+let effort = argAfter("--effort");
 let dumped = false;
 let turnRunning = false;
 let steered: string[] = [];
@@ -506,6 +513,19 @@ let onInterrupt: ((requestId: string) => void) | null = null;
 let thinkPinSpent = false;
 const ackInterrupt = (requestId: string) =>
   out({ type: "control_response", response: { subtype: "success", request_id: requestId, response: { still_queued: [] } } });
+const answerFlagSettings = (requestId: string, effortLevel: string | undefined) => {
+  const how = process.env.FAKE_CLAUDE_EFFORT_REPLY;
+  if (how === "none") return;
+  if (how === "error") return out({ type: "control_response", response: { subtype: "error", request_id: requestId, error: "unsupported" } });
+  effort = effortLevel ?? effort;
+  out({ type: "control_response", response: { subtype: "success", request_id: requestId } });
+  if (how === "crash") {
+    setTimeout(() => process.stderr.write("claude: API error (503): service temporarily unavailable\n", () => process.exit(5)), 100);
+  }
+};
+const logEffort = () => {
+  if (process.env.FAKE_CLAUDE_EFFORT_LOG) appendFileSync(process.env.FAKE_CLAUDE_EFFORT_LOG, `${effort ?? ""}\n`);
+};
 const playThinkSteer = (prompt: JsonValue) => {
   const how = process.env.FAKE_CLAUDE_INTERRUPT;
   const freshFirst = !argv.includes("--resume") && !thinkPinSpent;
@@ -789,6 +809,7 @@ const playTurn = (prompt: JsonValue) => {
     }
   }
   const quiet = mode === "bench-quiet" || Boolean(toolFixture);
+  logEffort();
   out({
     type: "assistant",
     message: {
@@ -894,6 +915,7 @@ const playTurn = (prompt: JsonValue) => {
     // for the steer instead of a fixed 800 ms
     const close = () => {
       out({ type: "system", subtype: "status", status: "requesting" });
+      logEffort();
       const tail = steered.length ? ` + steered: ${steered.join(" | ")}` : "";
       out({ type: "assistant", message: { content: [{ type: "text", text: `reply to: ${promptText(prompt)}${tail}` }] } });
       finish();
@@ -927,6 +949,7 @@ process.stdin.on("data", (c) => {
     if (control.type === "control_request") {
       const requestId = String(control.request_id ?? "");
       if (control.request?.subtype === "interrupt" && onInterrupt) onInterrupt(requestId);
+      else if (control.request?.subtype === "apply_flag_settings") answerFlagSettings(requestId, control.request.settings?.effortLevel);
       else ackInterrupt(requestId);
       continue;
     }

@@ -15,6 +15,7 @@ import type { ModelSelection } from "./contracts.ts";
 import type { ProviderRegistry } from "./harness/registry.ts";
 import { json, readBody } from "./http-helpers.ts";
 import type { KeepGoing } from "./keep-going.ts";
+import { applyEffortPick } from "./live-effort.ts";
 import type { createMemoryHealthCheck } from "./memory-health.ts";
 import { modelPickPatch } from "./pending-model.ts";
 import { validateProjectNotes, type createProjectNotesCheck } from "./project-notes.ts";
@@ -467,7 +468,8 @@ export function createBotRoutes(deps: BotRouteDeps) {
           ? store.setChiefOfStaff(bot.id)
           : [];
       if (chiefChanges === null) return json(res, 404, { error: "no such bot" });
-      return json(res, 200, { bot: wireBot(store.bot(bot.id)!) });
+      if (normalizedSelection) await applyEffortPick(store, registry, bot.id, normalizedSelection);
+      return json(res, 200, { bot: wireBot(store.bot(bot.id) ?? bot) });
     },
     skills: async (res: ServerResponse, m: RegExpMatchArray) => {
       if (!store.bot(m[1])) return json(res, 404, { error: "no such bot" });

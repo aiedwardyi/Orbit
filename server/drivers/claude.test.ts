@@ -409,6 +409,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.OMB_CLAUDE_REVIEW_TIMEOUT_MS;
     delete process.env.OMB_CLAUDE_SUMMARY_TIMEOUT_MS;
     delete process.env.OMB_CLAUDE_MERGE_GUARD_MS;
+    delete process.env.OMB_CLAUDE_EFFORT_REPLY_MS;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.CLAUDE_CODE_SILENT_TURN_REMINDER;
     delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
@@ -1246,6 +1247,89 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(reply.text).toContain("steered: and also this");
     expect(recorder.events.every((e) => e.turnId === turnId)).toBe(true);
     await expect(instance.adapter.steer!("t-steer", "late")).resolves.toBe(false);
+  });
+
+  it("moves the running turn to a new effort from its next model call", async () => {
+    const efforts = join(scratch, "efforts.log");
+    const dump = join(scratch, "effort-dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await create("slow", { FAKE_CLAUDE_SLOW_UNTIL_STEER: "1", FAKE_CLAUDE_EFFORT_LOG: efforts });
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-effort", text: "first", effort: "max" });
+    await recorder.until((e) => e.type === "item.completed" && e.itemType === "tool");
+    const applied = await instance.adapter.applyEffort?.("t-effort", "high");
+    await expect(instance.adapter.steer!("t-effort", "and also this")).resolves.toBe(true);
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(readFileSync(efforts, "utf8").split("\n").filter(Boolean)).toEqual(["max", "high"]);
+    expect(applied).toBe(true);
+    expect(recorder.events.every((e) => e.turnId === turnId)).toBe(true);
+
+    // the next turn on that effort keeps the process the switch moved
+    const spawned = readFileSync(dump, "utf8");
+    const cursor = recorder.events.flatMap((e) => (e.type === "session.started" ? [e.sessionId] : []))[0];
+    const second = await instance.adapter.sendTurn({ threadId: "t-effort", text: "second", effort: "high", resumeCursor: cursor });
+    await recorder.until((e) => e.type === "item.completed" && e.itemType === "tool" && e.turnId === second.turnId);
+    await instance.adapter.steer!("t-effort", "done");
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(readFileSync(dump, "utf8")).toBe(spawned);
+    expect(readFileSync(efforts, "utf8").split("\n").filter(Boolean)).toEqual(["max", "high", "high", "high"]);
+  });
+
+  it("takes a second effort switch on a turn spawned without one", async () => {
+    const efforts = join(scratch, "efforts.log");
+    await create("slow", { FAKE_CLAUDE_SLOW_UNTIL_STEER: "1", FAKE_CLAUDE_EFFORT_LOG: efforts });
+    await instance.adapter.sendTurn({ threadId: "t-effort-twice", text: "first" });
+    await recorder.until((e) => e.type === "item.completed" && e.itemType === "tool");
+    await expect(instance.adapter.applyEffort?.("t-effort-twice", "high")).resolves.toBe(true);
+    await expect(instance.adapter.applyEffort?.("t-effort-twice", "max")).resolves.toBe(true);
+    await expect(instance.adapter.steer!("t-effort-twice", "and also this")).resolves.toBe(true);
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(readFileSync(efforts, "utf8").split("\n").filter(Boolean)).toEqual(["max"]);
+  });
+
+  it.each(["error", "none"])("keeps the running effort when the CLI answers %s to the switch", async (reply) => {
+    process.env.OMB_CLAUDE_EFFORT_REPLY_MS = "200";
+    const efforts = join(scratch, "efforts.log");
+    const dump = join(scratch, "effort-dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await create("slow", { FAKE_CLAUDE_SLOW_UNTIL_STEER: "1", FAKE_CLAUDE_EFFORT_LOG: efforts, FAKE_CLAUDE_EFFORT_REPLY: reply });
+    await instance.adapter.sendTurn({ threadId: "t-effort-held", text: "first", effort: "max" });
+    await recorder.until((e) => e.type === "item.completed" && e.itemType === "tool");
+    const applied = await instance.adapter.applyEffort?.("t-effort-held", "high");
+    await expect(instance.adapter.steer!("t-effort-held", "and also this")).resolves.toBe(true);
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(readFileSync(efforts, "utf8").split("\n").filter(Boolean)).toEqual(["max", "max"]);
+    expect(applied).toBe(false);
+
+    // the held pick reaches the next turn the way it does today: a relaunch
+    const first = JSON.parse(readFileSync(dump, "utf8"));
+    const cursor = recorder.events.flatMap((e) => (e.type === "session.started" ? [e.sessionId] : []))[0];
+    const second = await instance.adapter.sendTurn({ threadId: "t-effort-held", text: "second", effort: "high", resumeCursor: cursor });
+    await recorder.until((e) => e.type === "item.completed" && e.itemType === "tool" && e.turnId === second.turnId);
+    await instance.adapter.steer!("t-effort-held", "done");
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    const resumed = JSON.parse(readFileSync(dump, "utf8"));
+    expect(resumed.pid).not.toBe(first.pid);
+    expect(resumed.argv).toEqual(expect.arrayContaining(["--resume", cursor, "--effort", "high"]));
+  });
+
+  it("relaunches a crashed turn on the effort it was moved to", async () => {
+    process.env.FAKE_CLAUDE_RETRY_SCALE = "0.001";
+    const efforts = join(scratch, "efforts.log");
+    const dump = join(scratch, "effort-dump.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await create("slow", { FAKE_CLAUDE_SLOW_UNTIL_STEER: "1", FAKE_CLAUDE_EFFORT_LOG: efforts, FAKE_CLAUDE_EFFORT_REPLY: "crash" });
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-effort-crash", text: "first", effort: "max" });
+    await recorder.until((e) => e.type === "item.completed" && e.itemType === "tool");
+    const first = JSON.parse(readFileSync(dump, "utf8"));
+    await expect(instance.adapter.applyEffort?.("t-effort-crash", "high")).resolves.toBe(true);
+    const tools = () => recorder.events.filter((e) => e.type === "item.completed" && e.itemType === "tool").length;
+    await recorder.until(() => tools() === 2);
+    await instance.adapter.steer!("t-effort-crash", "done");
+    await expect(recorder.until((e) => e.type === "turn.completed")).resolves.toMatchObject({ turnId, ok: true });
+    const relaunch = JSON.parse(readFileSync(dump, "utf8"));
+    expect(relaunch.pid).not.toBe(first.pid);
+    expect(relaunch.argv).toEqual(expect.arrayContaining(["--effort", "high"]));
+    expect(readFileSync(efforts, "utf8").split("\n").filter(Boolean)).toEqual(["max", "high", "high"]);
   });
 
   it("holds the turn open for a steer that missed the final request", async () => {
