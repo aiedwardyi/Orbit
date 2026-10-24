@@ -61,7 +61,14 @@ describe("turn index", () => {
       { id: "u", at: 3, role: "user", kind: "text", text: "hello" },
     ];
     expect(turnIndex(path)).toMatchObject({ ids: ["u"], first: "u" });
-    expect(turnIndex([])).toEqual({ ids: [], at: [], words: [], first: null });
+    expect(turnIndex([])).toEqual({ ids: [], at: [], words: [], media: [], first: null });
+  });
+
+  it("marks a turn's image, any other file, or neither, and an image wins", () => {
+    const image = '<attached-image path="C:/a/shot.png" />';
+    const file = '<attached-file path="C:/a/notes.txt" name="notes.txt" size="12" />';
+    const path = ["Fix it", `Look\n\n${image}`, file, `${file}\n\n${image}`].map((text, i): Message => ({ id: `u${i}`, at: i, ...user(text) }));
+    expect(turnIndex(path).media).toEqual([0, 2, 1, 2]);
   });
 });
 

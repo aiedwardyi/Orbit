@@ -41,6 +41,7 @@ const index = (p: string) => ({
   ids: Array.from({ length: 5 }, (_, t) => `${p}${t}`),
   at: [Math.floor((start + 600_000) / 1000), 600, 600, 600, 600],
   words: Array.from({ length: 5 }, (_, t) => `${p} turn ${t}`),
+  media: [0, 0, 0, 0, 0],
   first: `${p}-hello`,
 });
 
@@ -56,7 +57,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function mount({ width = 1000, height = 800, touch = false, hasMore = true } = {}) {
+async function mount({ width = 1000, height = 800, touch = false, hasMore = true, wire = index } = {}) {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   applyLocale("en");
   const calls: string[] = [];
@@ -71,7 +72,7 @@ async function mount({ width = 1000, height = 800, touch = false, hasMore = true
     calls.push(`${init?.method ?? "GET"} ${path}`);
     if (path === "/api/bots?messages=200") return Response.json({ bots: [bot("a", hasMore), bot("b", hasMore)], groups: [], computerControl: {} });
     const turns = path.match(/^\/api\/threads\/thread-(\w)\/turns$/);
-    if (turns) return Response.json(index(turns[1]!));
+    if (turns) return Response.json(wire(turns[1]!));
     if (init?.method === "POST" && path.endsWith("/messages")) return Response.json({ ok: true, queued: true, queueId: "q1", threadId: "thread-b" }, { status: 202 });
     return new Promise<Response>(() => {});
   }));
@@ -181,6 +182,23 @@ describe("timeline rail", () => {
     await act(async () => ui.strip().click());
     expect(store.state.focusMessage).toMatchObject({ messageId: "a-hello" });
     await vi.waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: expect.any(Number), behavior: "smooth" }));
+  });
+
+  it("leads an attachment's row with its glyph, names it for the slider, and names an untyped one by its kind", async () => {
+    const ui = await mount({ wire: (p) => ({ ...index(p), words: [`${p} turn 0`, "look", "notes.txt", "", `${p} turn 4`], media: [0, 2, 1, 2, 0] }) });
+    await ui.near();
+    await vi.waitFor(() => expect(ui.strip().getAttribute("aria-valuemax")).toBe("5"));
+    await ui.hover(16 + 384);
+    expect(ui.strip().getAttribute("aria-valuetext")).toMatch(/, File attached, notes\.txt$/);
+    const words = (t: number) => ui.host.querySelector<HTMLElement>(`.turn-card-row[data-turn="${t}"] .turn-card-words`)!;
+    expect(words(0).querySelector("svg")).toBeNull();
+    expect(words(1).firstElementChild!.classList.contains("lucide-image")).toBe(true);
+    expect(words(1).textContent).toBe("look");
+    expect(words(2).firstElementChild!.classList.contains("lucide-paperclip")).toBe(true);
+    expect(words(3).firstElementChild!.classList.contains("lucide-image")).toBe(true);
+    expect(words(3).textContent).toBe("Image");
+    await ui.hover(16 + 576);
+    expect(ui.strip().getAttribute("aria-valuetext")).toMatch(/, Image attached$/);
   });
 
   it("keeps phone swipes off the rail and the open card", async () => {

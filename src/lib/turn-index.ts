@@ -1,13 +1,15 @@
 // The timeline rail's turn index for each chat: fetched on the first approach
 // to the rail, kept for the session, and grown in place as turns arrive.
 import { api, type Message } from "@/state/store";
-import { isTurn, turnWords } from "../../shared/turn-index";
+import { isTurn, turnMedia, turnWords } from "../../shared/turn-index";
 
 export interface Turns {
   ids: string[];
   /** Epoch ms. */
   at: number[];
   words: string[];
+  /** Per turn: 2 an image, 1 any other file, 0 neither. */
+  media: number[];
   /** The first message the chat shows, where the rail's top end lands. */
   first: string | null;
   /** Bumped on every change, so a rail knows to lay out again. */
@@ -22,6 +24,7 @@ interface TurnsWire {
   ids: string[];
   at: number[];
   words: string[];
+  media: number[];
   first: string | null;
 }
 
@@ -36,6 +39,7 @@ export function decodeTurns(wire: TurnsWire): Turns {
     ids: wire.ids,
     at: wire.at.map((gap) => (seconds += gap) * 1000),
     words: wire.words,
+    media: wire.media,
     first: wire.first,
     version: 0,
     stale: false,
@@ -103,6 +107,7 @@ export function catchUpTurns(turns: Turns, messages: readonly Message[]): boolea
     turns.ids.push(message.id);
     turns.at.push(message.at);
     turns.words.push(turnWords(message.text ?? ""));
+    turns.media.push(turnMedia(message.text ?? ""));
     grew = true;
   }
   if (grew) turns.version++;
