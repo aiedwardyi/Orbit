@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -8,13 +9,15 @@ import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import * as atomic from "./atomic.ts";
 import { createDriveClient } from "./drive-client.ts";
 import { createDriveMirror, decodeDrivePath, drivePathHash, drivePathRule, encodeDrivePath, renameDriveFile, DriveMirrorError, type DriveHashes, type DriveOwner } from "./drive-mirror.ts";
 import { DriveIdentityError, readDriveOwnIds, type DriveOwnIds } from "./drive-own-ids.ts";
 import { GoogleAccount } from "./google-account.ts";
 import { GOOGLE_BINDING_FILE, GOOGLE_MIRROR_DIR, GOOGLE_TABLE_FILE, createGoogleSync, type GoogleSync } from "./google-sync.ts";
-import { applySyncOperations, createSyncOperation, emptyProfileSyncState, readSyncOperations, syncOperationFileName, writeSyncOperation } from "./profile-sync.ts";
+import { applySyncOperations, createSyncOperation, emptyProfileSyncState, loadProfileSyncSettings, readSyncOperations, saveProfileSyncSettings, syncOperationFileName, writeSyncOperation } from "./profile-sync.ts";
 import { FakeDrive } from "./testing/fake-drive.ts";
+import { createThreadRoutes } from "./thread-routes.ts";
 
 const OWNER: DriveOwner = { issuer: "https://accounts.google.com", sub: "account-a" };
 interface PC { folder: string; statePath: string; ids: DriveOwnIds; mirror: ReturnType<typeof createDriveMirror> }
@@ -327,6 +330,110 @@ describe("Drive mirror", () => {
       await vi.advanceTimersByTimeAsync(30_000);
       await google.kick();
       expect(downloaded()).toEqual([`${open}/seg-21-22.json.gz`, `${open}/head.json`, "pictures/wake.png"]);
+    });
+
+    it("switches chats without a synchronous save or a wait", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const route = createThreadRoutes({
+        store: { botByThread: () => ({}), groupByThread: () => null }, threadSyncGate: { enabled: false },
+        dataDir: dirname(pcs[1].statePath), pullSyncedThread: () => {},
+        pageSize: () => undefined, DEFAULT_PAGE: 100, messagePage: () => ({ messages: [] }),
+      } as unknown as Parameters<typeof createThreadRoutes>[0]);
+      const res = { writeHead: vi.fn(), end: vi.fn() } as unknown as ServerResponse;
+      const save = vi.spyOn(atomic, "writeFileAtomic");
+      try {
+        const listed = route.listMessages(res, ["", "z-open"] as RegExpMatchArray, new URL("http://localhost/messages"));
+        expect(res.end).toHaveBeenCalledOnce();
+        expect(route.openThread()).toBe("z-open");
+        expect(save).not.toHaveBeenCalled();
+        await listed;
+      } finally {
+        vi.clearAllTimers();
+        save.mockRestore();
+      }
+    });
+
+    it("puts the remembered open chat first on a cold boot before any renderer list", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const dataDir = dirname(pcs[1].statePath);
+      const profile = join(dataDir, "profile-sync.json");
+      saveProfileSyncSettings(dataDir, loadProfileSyncSettings(dataDir));
+      const settings = readFileSync(profile, "utf8");
+      const routes = () => createThreadRoutes({
+        store: { botByThread: () => ({}), groupByThread: () => null }, threadSyncGate: { enabled: false },
+        dataDir, pullSyncedThread: () => {},
+        pageSize: () => undefined, DEFAULT_PAGE: 100, messagePage: () => ({ messages: [] }),
+      } as unknown as Parameters<typeof createThreadRoutes>[0]);
+      const res = { writeHead: vi.fn(), end: vi.fn() } as unknown as ServerResponse;
+      const list = (route: ReturnType<typeof routes>, threadId: string) => route.listMessages(res, ["", threadId] as RegExpMatchArray, new URL("http://localhost/messages"));
+      const warm = routes();
+      await list(warm, "a-other");
+      await vi.advanceTimersByTimeAsync(750);
+      await list(warm, "z-open");
+      await vi.advanceTimersByTimeAsync(999);
+      expect(existsSync(join(dataDir, "open-thread.json"))).toBe(false);
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.waitFor(() => expect(routes().openThread()).toBe("z-open"));
+      expect(JSON.parse(readFileSync(join(dataDir, "open-thread.json"), "utf8"))).toEqual({ threadId: "z-open" });
+      const cold = routes();
+      const google = await boot({ now: 1_800_000_000_000 }, cold.openThread, () => {});
+      const { segments } = backlog("remembered");
+      google.resume();
+      await google.kick();
+      const paths = downloaded();
+      expect(paths.slice(0, segments.length)).toEqual(segments.toSorted());
+      expect(paths.indexOf(`${open}/head.json`)).toBeLessThan(paths.indexOf(`${other}/seg-1-2.json.gz`));
+      const picture = paths.findIndex((path) => path.startsWith("pictures/"));
+      expect(paths.filter((path) => path.startsWith("threads-v2")).every((path) => paths.indexOf(path) < picture)).toBe(true);
+      expect(cold.openThread()).toBe("z-open");
+      rmSync(join(dataDir, "open-thread.json"));
+      await list(cold, "z-open");
+      expect(existsSync(join(dataDir, "open-thread.json"))).toBe(false);
+      await list(cold, "a-other");
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(routes().openThread()).toBe("a-other"));
+      expect(readFileSync(profile, "utf8")).toBe(settings);
+      expect(paths).not.toContain("profile-sync.json");
+      expect(paths).not.toContain("open-thread.json");
+    });
+
+    it("boots with no remembered chat from a missing or corrupt open-chat file", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const dataDir = dirname(pcs[1].statePath);
+      const routes = () => createThreadRoutes({
+        store: { botByThread: () => ({}), groupByThread: () => null }, threadSyncGate: { enabled: false },
+        dataDir, pullSyncedThread: () => {},
+        pageSize: () => undefined, DEFAULT_PAGE: 100, messagePage: () => ({ messages: [] }),
+      } as unknown as Parameters<typeof createThreadRoutes>[0]);
+      expect(routes().openThread()).toBeNull();
+      for (const text of ["{", "null", "{\"threadId\":7}", ""]) {
+        writeFileSync(join(dataDir, "open-thread.json"), text);
+        expect(routes().openThread()).toBeNull();
+      }
+      const res = { writeHead: vi.fn(), end: vi.fn() } as unknown as ServerResponse;
+      await routes().listMessages(res, ["", "z-open"] as RegExpMatchArray, new URL("http://localhost/messages"));
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(routes().openThread()).toBe("z-open"));
+    });
+
+    it("ends chat-first after the chat tiers finish despite a non-chat failure", async () => {
+      const google = await boot({ now: 1_800_000_000_000 }, () => "z-open", () => {});
+      const { head } = backlog("non-chat-failure");
+      const stuck = seed("pictures/stuck.png", "unavailable");
+      drive.onDownload = (file) => { if (file.id === stuck.id) throw new Error("simulated transport failure"); };
+      google.resume();
+      await google.kick();
+      expect(downloaded().indexOf(`${other}/head.json`)).toBeLessThan(downloaded().indexOf("pictures/stuck.png"));
+      drive.downloads.length = 0;
+      seed("pictures/normal.png", "new picture");
+      seed(`${open}/seg-21-22.json.gz`, "new rows");
+      drive.edit(head.id, Buffer.from("new head"));
+      await google.kick();
+      const paths = downloaded();
+      expect(paths.indexOf("pictures/normal.png")).toBeLessThan(paths.indexOf(`${open}/seg-21-22.json.gz`));
+      expect(paths.indexOf(`${open}/seg-21-22.json.gz`)).toBeLessThan(paths.indexOf(`${open}/head.json`));
+      expect(paths).toContain("pictures/stuck.png");
     });
   });
 

@@ -1,5 +1,6 @@
 import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { mock } from "node:test";
 import { parentPort, workerData } from "node:worker_threads";
 import { z } from "zod";
 
@@ -163,6 +164,9 @@ parentPort!.on("message", async ({ id, method, args = {} }: { id: number; method
         break;
       case "live": live = Boolean(args.value); startAt = Infinity; break;
       case "open": openThread = threadId; break;
+      case "clock": mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: Date.now() }); break;
+      case "start": sync?.start(); await sync?.poll(); break;
+      case "tick": mock.timers.tick(args.at ?? 0); await sync?.poll(); break;
       case "race": live = false; runningCalls = 0; startAt = 3; break;
       case "flush": value = await sync?.flush(threadId); break;
       case "pull": await sync?.pull(threadId); break;

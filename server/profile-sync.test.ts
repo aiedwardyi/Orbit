@@ -248,6 +248,14 @@ describe("profile sync operations", () => {
     expect(loadProfileSyncSettings(root).sectionMap).toEqual({ "area 1": "section-1" });
   });
 
+  it("refuses fields that builds parsing profile-sync.json strictly would reset on", () => {
+    const root = mkdtempSync(join(tmpdir(), "orbit-profile-sync-strict-"));
+    roots.push(root);
+    const settings = saveProfileSyncSettings(root, loadProfileSyncSettings(root));
+    expect(() => saveProfileSyncSettings(root, { ...settings, openThread: "z-open" } as typeof settings)).toThrow();
+    expect(JSON.parse(readFileSync(join(root, "profile-sync.json"), "utf8"))).toEqual(settings);
+  });
+
   it("keeps a delete tombstone from being undone by delayed offline edits", () => {
     const state = applySyncOperations(emptyProfileSyncState(), [
       operation({ operationId: "create", changes: { name: "Old" } }),
