@@ -303,6 +303,23 @@ describe("ActivityRun pill", () => {
   });
 });
 
+describe.each([false, true])("ActivityRun separator (open %s)", (forceOpen) => {
+  it.each([undefined, true, false])("marks the separator only while running (ok %s)", (ok) => {
+    const message = step("Read", "a.ts", true, 300);
+    message.tool!.ok = ok;
+    const host = document.createElement("div");
+    host.innerHTML = render("wink", createElement(ActivityRun, {
+      messages: [step("Grep", "x", true, 800), message], forceOpen, children: null,
+    }));
+    const separator = host.querySelector("button > span > span");
+    expect(separator?.textContent).toBe(" ·");
+    expect(separator?.hasAttribute("data-idle-hide")).toBe(ok === undefined);
+    expect(separator?.parentElement?.textContent).toBe("2 steps ·");
+    expect(host.querySelectorAll("[data-idle-hide]")).toHaveLength(ok === undefined ? 2 : 0);
+    if (ok !== undefined) expect(host.querySelector(ok ? ".lucide-check" : ".lucide-x")).not.toBeNull();
+  });
+});
+
 describe("ActivityRun in Korean", () => {
   const korean = (skin: string, element: ReturnType<typeof createElement>) => {
     document.documentElement.dataset.skin = skin;

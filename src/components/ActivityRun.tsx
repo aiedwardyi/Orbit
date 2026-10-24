@@ -12,7 +12,7 @@ import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { APPROVAL_WORD, TERM_STEP_WORD, termBlock, termHeaderArgs, termResultLine, termStepAria, termStepState, termUpdatedLine, termVerb } from "@/lib/terminal-skin";
 
 function StepStatus({ ok }: { ok: boolean | undefined }) {
-  if (ok === undefined) return <Loader2 size={13} className="shrink-0 animate-spin" />;
+  if (ok === undefined) return <Loader2 data-idle-hide size={13} className="shrink-0 animate-spin" />;
   if (ok === false) return <X size={13} strokeWidth={1.5} className="shrink-0" />;
   return <Check size={13} className="shrink-0 text-success" />;
 }
@@ -149,7 +149,7 @@ export function ActivityRun({
             className="flex items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control focus-visible:bg-control"
           >
             <ChevronRight size={13} className="rotate-90" />
-            <span>{describeRun(messages, t)} ·</span>
+            <span>{describeRun(messages, t)}<span data-idle-hide={running ? "" : undefined}> ·</span></span>
             <StepStatus ok={running ? undefined : !failed} />
           </button>
         </div>
@@ -166,7 +166,7 @@ export function ActivityRun({
         title="Show every step"
         className="flex items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control focus-visible:bg-control"
       >
-        <span className="max-w-[480px] truncate">{describeRun(messages, t)} ·</span>
+        <span className="max-w-[480px] truncate">{describeRun(messages, t)}<span data-idle-hide={running ? "" : undefined}> ·</span></span>
         <StepStatus ok={running ? undefined : !failed} />
         <ChevronRight size={13} />
       </button>

@@ -284,7 +284,7 @@ const ActivityChip = memo(function ActivityChip({ message, notices }: { message:
         className="flex min-w-0 max-w-full items-center gap-2 border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary"
       >
         {tool.ok === undefined ? (
-          <Loader2 size={13} className="shrink-0 animate-spin" />
+          <Loader2 data-idle-hide size={13} className="shrink-0 animate-spin" />
         ) : failed ? (
           <X size={13} strokeWidth={1.5} className="shrink-0" />
         ) : (
@@ -1695,7 +1695,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
               <Crown size={11} aria-hidden="true" /> <span className="@max-xs/chathead:sr-only">{t("chrome.chiefOfStaff")}</span>
             </span>
           )}
-          {bot.busy && <Loader2 size={14} className="animate-spin text-ink-secondary max-md:hidden" />}
         </div>
         <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2 max-md:min-w-0 max-md:shrink max-md:flex-nowrap">
           {keepGoing && (
