@@ -7,7 +7,7 @@
 // hits on Windows. resolveCliSpawn covers both, so these run everywhere.
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { chmodSync, mkdtempSync, readFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,6 +51,37 @@ const GIT_IDENTITY_ENV = {
  * in cleanup: a leaked value would change git's behaviour for whatever runs
  * next in this process. */
 const GIT_ENV_NAMES = [...Object.keys(GIT_IDENTITY_ENV), "GIT_CONFIG_GLOBAL"];
+
+/** A dropped response stream the CLI reconnects by itself, as codex-cli sent it. */
+const STREAM_RECONNECTS = [2, 3, 4].map((n) => ({
+  method: "error",
+  params: {
+    error: {
+      message: `Reconnecting... ${n}/5`,
+      codexErrorInfo: { responseStreamDisconnected: { httpStatusCode: null } },
+      additionalDetails: "stream disconnected before completion: websocket closed by server before response.completed",
+      misalignment: null,
+    },
+    willRetry: true,
+    threadId: "01a172c3-bf08-74b2-9a86-b91c92dc49ec",
+    turnId: "01a172c9-7be2-7832-8c46-c890904f750e",
+  },
+}));
+
+const USAGE_LIMIT = {
+  method: "error",
+  params: {
+    error: {
+      message: "You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 8:31 PM.",
+      codexErrorInfo: "usageLimitExceeded",
+      additionalDetails: null,
+      misalignment: null,
+    },
+    willRetry: false,
+    threadId: "01a172c3-bf08-74b2-9a86-b91c92dc49ec",
+    turnId: "01a172d0-1d87-7542-84a4-f6e4eacb8b5a",
+  },
+};
 
 describe("CodexDriver.decodeConfig", () => {
   it("defaults to the codex binary with fullAuto off", () => {
@@ -900,6 +931,35 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(recorder.events.some((e) => e.type === "content.delta" && e.streamKind === "assistant_text")).toBe(true);
     expect(recorder.events.some((e) => e.type === "turn.retrying")).toBe(false);
   }, 20_000);
+
+  it("reports the CLI's own stream reconnects as turn.retrying and keeps its final error", async () => {
+    const fixture = join(scratch, "reconnects.json");
+    writeFileSync(fixture, JSON.stringify([...STREAM_RECONNECTS, USAGE_LIMIT]));
+    await create({ environment: { FAKE_CODEX_TOOL_FIXTURE: fixture } });
+    await instance.adapter.sendTurn({ threadId: "t-codex-reconnect", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(recorder.events.filter((e) => e.type === "runtime.error")).toMatchObject([{ message: USAGE_LIMIT.params.error.message }]);
+    expect(recorder.events.filter((e) => e.type === "turn.retrying")).toMatchObject([
+      { attempt: 2, delayMs: 0, reason: "responseStreamDisconnected" },
+      { attempt: 3, delayMs: 0, reason: "responseStreamDisconnected" },
+      { attempt: 4, delayMs: 0, reason: "responseStreamDisconnected" },
+    ]);
+  });
+
+  it("reads a reconnect and an error from the flat {message} payload too", async () => {
+    const fixture = join(scratch, "flat-errors.json");
+    writeFileSync(fixture, JSON.stringify([
+      { method: "error", params: { message: "Reconnecting... 1/5", willRetry: true } },
+      { method: "error", params: { message: "stream disconnected before completion" } },
+    ]));
+    await create({ environment: { FAKE_CODEX_TOOL_FIXTURE: fixture } });
+    await instance.adapter.sendTurn({ threadId: "t-codex-flat-error", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(recorder.events.filter((e) => e.type === "runtime.error")).toMatchObject([{ message: "stream disconnected before completion" }]);
+    expect(recorder.events.filter((e) => e.type === "turn.retrying")).toMatchObject([{ attempt: 1, delayMs: 0, reason: "stream_error" }]);
+  });
 
   it("relaunches once when the app-server exits on a busy state runtime", async () => {
     await create();

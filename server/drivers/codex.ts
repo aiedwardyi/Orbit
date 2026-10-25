@@ -91,6 +91,9 @@ function codexToolDetail(item: z.infer<typeof toolItemSchema>, isError: boolean)
   });
 }
 
+// unit variants arrive as their name, the rest as {name: details}
+const codexErrorKind = z.union([z.string(), z.record(z.string(), z.unknown()).transform((info) => Object.keys(info)[0])]);
+
 export interface CodexConfig {
   cli: string;
   fullAuto: boolean;
@@ -631,7 +634,18 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             // {error:{message}} — surface either (agentcal armor)
             {
               const message = p.message ?? p.error?.message;
-              if (message) emit({ ...base(threadId, turnId), type: "runtime.error", message: String(message).slice(0, 400) });
+              if (p.willRetry === true) {
+                // the CLI reconnects the dropped stream itself ("Reconnecting... 2/5")
+                emit({
+                  ...base(threadId, turnId),
+                  type: "turn.retrying",
+                  attempt: Number(/(\d+)\/\d+/.exec(String(message))?.[1]) || 1,
+                  delayMs: 0,
+                  reason: codexErrorKind.safeParse(p.error?.codexErrorInfo).data ?? "stream_error",
+                });
+              } else if (message) {
+                emit({ ...base(threadId, turnId), type: "runtime.error", message: String(message).slice(0, 400) });
+              }
             }
             break;
         }
