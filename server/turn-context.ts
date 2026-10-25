@@ -417,9 +417,9 @@ const REWOUND_PREAMBLE =
 const FRESH_PREAMBLE =
   "[You are joining this conversation mid-thread (the user switched this bot over to you). The conversation so far:]";
 const RECYCLED_PREAMBLE =
-  "[Wink compacted this conversation to keep the provider session bounded. The conversation so far:]";
+  "[Wink compacted this conversation to keep the provider session bounded. Session-start reads already ran in this chat; reread a file only when the task needs it. The conversation so far:]";
 const SESSION_FAT_PREAMBLE =
-  "[Wink started a fresh provider session to keep tool history bounded. The conversation so far:]";
+  "[Wink started a fresh provider session to keep tool history bounded. Session-start reads already ran in this chat; reread a file only when the task needs it. The conversation so far:]";
 const SYSTEM_CHANGED_PREAMBLE =
   "[Wink started a fresh provider session because your instructions changed. The conversation so far:]";
 
