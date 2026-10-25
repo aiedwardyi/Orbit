@@ -115,6 +115,15 @@ describe("turn presence", () => {
     expect(host.querySelector(".thinking-sheen > span")?.className).toContain("text-ellipsis");
   });
 
+  it.each([
+    ["wait", () => createElement(TurnPresence, { avatar: null, visible: true, label: "Thinking" })],
+    ["docked", () => createElement(DockedPresence, { avatar: null, label: "Responding", live: true })],
+  ])("hides the %s sheen in the background, where a paused glare reads as a hung turn", (_name, view) => {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(view());
+    expect(host.querySelector(".thinking-sheen")?.hasAttribute("data-idle-hide")).toBe(true);
+  });
+
   it("keeps the terminal timer from shrinking beside the label", () => {
     document.documentElement.dataset.skin = "terminal";
     try {

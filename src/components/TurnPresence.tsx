@@ -180,7 +180,7 @@ function WorkingLabel({ label, quiet = false, wrap = false }: { label: string; q
   return (
     <span className={cn("thinking-shimmer min-w-0 text-[13px]", wrap ? "leading-snug" : "leading-none whitespace-nowrap text-ellipsis")} aria-live={quiet ? "off" : "polite"}>
       {label}
-      <span className="thinking-sheen" aria-hidden="true">
+      <span className="thinking-sheen" data-idle-hide aria-hidden="true">
         <span className="overflow-x-clip text-ellipsis">{label}</span>
       </span>
     </span>
