@@ -9,6 +9,9 @@ import { missingStaticResponse } from "./static-fallback.ts";
 
 export const EARLY_LISTEN_SLOT = Symbol.for("orbit.earlyListen");
 
+/** Outlive Tailscale Serve's 90 s idle timeout so its proxy never reuses a socket we are closing. */
+export const SERVER_TIMEOUTS = { keepAliveTimeout: 95_000, headersTimeout: 100_000 };
+
 export const EARLY_MIME: Record<string, string> = {
   ".html": "text/html",
   ".js": "text/javascript",
@@ -137,7 +140,7 @@ export function startEarlyListen(options: { port?: number; staticDir?: string | 
     },
   };
 
-  early.server = createServer((req, res) => {
+  early.server = createServer(SERVER_TIMEOUTS, (req, res) => {
     if (handler) {
       void handler(req, res);
       return;

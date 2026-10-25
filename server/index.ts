@@ -4,7 +4,7 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { currentEarlyListen } from "./early-listen.ts";
+import { SERVER_TIMEOUTS, currentEarlyListen } from "./early-listen.ts";
 import { hostname as osHostname } from "node:os";
 import { extname, join } from "node:path";
 
@@ -8658,7 +8658,7 @@ if (early) {
   early.setHandler(handleRequest);
   markServerServing();
 } else {
-  const server = createServer(handleRequest);
+  const server = createServer(SERVER_TIMEOUTS, handleRequest);
   server.listen(PORT, "127.0.0.1", () => {
     console.log(`wink server on http://127.0.0.1:${PORT}`);
     markServerServing();
