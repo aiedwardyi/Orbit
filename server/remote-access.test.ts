@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { sendStaticFile } from "./compression.ts";
 import {
@@ -354,5 +354,55 @@ describe("Phone Link setup", () => {
     const retry = remoteHostRetry({ ORBIT_REMOTE_AUTO: "0" }, 8799, () => { throw new Error("unexpected host"); }, async () => { throw new Error("unexpected command"); }, quiet);
     await retry.refresh();
     expect(retry.status()).toEqual({ state: "disabled" });
+  });
+
+  it("picks up a Tailscale that starts after Wink without a request", async () => {
+    vi.useFakeTimers();
+    try {
+      let up = false;
+      const hosts: string[] = [];
+      const calls: string[] = [];
+      const lines: string[] = [];
+      const exec = async (file: string, args: string[]) => {
+        calls.push(args.join(" "));
+        if (!up) throw new Error("failed to connect to local tailscaled");
+        return fake()(file, args);
+      };
+      const retry = remoteHostRetry({}, 8799, (host) => hosts.push(host), exec, (line) => lines.push(line), "linux");
+      await retry.refresh();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(calls).toEqual(["status --json", "status --json"]);
+      expect(lines).toEqual(["Remote auto: Tailscale not found, remote off"]);
+      up = true;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(hosts).toEqual([HOST]);
+      expect(retry.status()).toEqual({ state: "ready" });
+      calls.length = 0;
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(calls).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["auto is off", { ORBIT_REMOTE_AUTO: "0" }],
+    ["443 serves something else", {}],
+  ])("stops re-detecting when %s", async (_label, env) => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const exec = async (_file: string, args: string[]) => {
+        calls++;
+        return args[0] === "status" ? running : JSON.stringify({ TCP: { "443": {} } });
+      };
+      const retry = remoteHostRetry(env, 8799, () => {}, exec, quiet, "linux");
+      await retry.refresh();
+      const first = calls;
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(calls).toBe(first);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
