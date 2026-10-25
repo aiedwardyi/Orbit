@@ -999,6 +999,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         args.push("--disallowedTools", config.disallowedTools.join(","));
       }
       const turnEnvironment: NodeJS.ProcessEnv = { ...process.env, ...input.environment };
+      turnEnvironment.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT ??= "300000";
       const turnModel = await resolveClaudeTurnModel(turn.model, turnEnvironment);
       if (restart?.turn.settled) return { turnId };
       const injected = applyClaudeInject({ ...turnEnvironment }, turnModel);
@@ -1013,7 +1014,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const allowed: string[] = [];
       // Orbit's own servers skip ToolSearch deferral; a fresh CLI session
       // would otherwise re-fetch their schemas every time.
-      const orbitOwned = { alwaysLoad: true };
+      const orbitOwned = { alwaysLoad: true, timeout: 1_800_000 };
       if (turn.integrations?.composio) {
         mcpServers.composio = { ...turn.integrations.composio };
         allowed.push("mcp__composio");
@@ -1032,6 +1033,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           command: local.command,
           args: local.args,
           env: local.env,
+          timeout: 1_800_000,
         };
         // The isolated Local VM preserves the established pre-allow behavior.
         // Host tools always route through OpenMausBot's permission broker.

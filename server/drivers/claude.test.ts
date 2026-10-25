@@ -384,6 +384,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     ensureDirs();
     chmodSync(FAKE_CLI, 0o755);
     scratch = mkdtempSync(join(tmpdir(), "omb-claude-test-"));
+    delete process.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT;
   });
 
   afterEach(async () => {
@@ -413,6 +414,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.CLAUDE_CODE_SILENT_TURN_REMINDER;
     delete process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY;
+    delete process.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT;
     delete process.env.XAI_API_KEY;
     delete process.env.COMPOSIO_API_KEY;
     delete process.env.BOX_TOKEN;
@@ -841,6 +843,42 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(JSON.parse(readFileSync(dump, "utf8")).env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe("1");
   });
 
+  it.each(["claude-sonnet-5-5", "unsloth::local-model"])("defaults MCP tool idle timeout for %s", async (model) => {
+    await create();
+    const dump = join(scratch, "mcp-idle.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-mcp-idle", text: "hi", model });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(JSON.parse(readFileSync(dump, "utf8")).env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT).toBe("300000");
+    expect(process.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT).toBeUndefined();
+  });
+
+  it.each(["0", "900000"])("keeps the user's MCP tool idle timeout %s", async (timeout) => {
+    process.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT = timeout;
+    await create();
+    const dump = join(scratch, "mcp-idle-user.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-mcp-idle-user", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(JSON.parse(readFileSync(dump, "utf8")).env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT).toBe(timeout);
+  });
+
+  it("keeps the instance's MCP tool idle timeout", async () => {
+    process.env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT = "900000";
+    await create(undefined, { CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: "600000" });
+    const dump = join(scratch, "mcp-idle-instance.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-mcp-idle-instance", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    expect(JSON.parse(readFileSync(dump, "utf8")).env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT).toBe("600000");
+  });
+
   it("loads an oversized system prompt without putting it on argv", async () => {
     await create(undefined, {}, { permissionMode: "bypassPermissions" });
     const dump = join(scratch, "large-system.json");
@@ -955,6 +993,37 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     } finally {
       globalThis.fetch = previousFetch;
     }
+  });
+
+  it("preserves Wink MCP tool limits and reuses their warm process", async () => {
+    await create();
+    const dump = join(scratch, "mcp-limits.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const proxy = { command: process.execPath, args: ["/fake/proxy.js"], env: {} };
+    const integrations = {
+      agents: proxy,
+      phone: proxy,
+      browser: proxy,
+      terminal: proxy,
+      dweb: { url: "http://127.0.0.1:49737" },
+      computer: { boxId: "box-1", token: "tok" },
+      composio: proxy,
+    };
+
+    await instance.adapter.sendTurn({ threadId: "t-mcp-limits", text: "one", integrations });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const before = readFileSync(dump, "utf8");
+    const seen = JSON.parse(before);
+    for (const name of ["agents", "phone", "browser", "terminal", "dweb", "ogb", "computer"]) {
+      expect(seen.mcpConfig.mcpServers[name].timeout).toBe(1800000);
+    }
+    expect(seen.mcpConfig.mcpServers.composio.timeout).toBeUndefined();
+    const cursor = (recorder.events.find((e) => e.type === "session.started") as { sessionId: string }).sessionId;
+    const second = await instance.adapter.sendTurn({ threadId: "t-mcp-limits", text: "two", integrations, resumeCursor: cursor });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+
+    expect(readFileSync(dump, "utf8")).toBe(before);
   });
 
   it("mounts the agents comms proxy as an MCP server and pre-allows its tools", async () => {
@@ -1147,6 +1216,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       command: "/opt/cua driver/cua-driver",
       args: ["mcp", "--embedded", "--socket", "/run/user/1000/driver.sock"],
       env: { CUA_DRIVER_EMBEDDED: "1" },
+      timeout: 1800000,
     });
     const allowed = seen.argv[seen.argv.indexOf("--allowedTools") + 1];
     expect(allowed).not.toContain("mcp__computer");
