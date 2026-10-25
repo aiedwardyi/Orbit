@@ -1,6 +1,6 @@
 # Wink feature map
 
-How to reach, drive and prove the paths Edward uses every day, in the web UI on desktop and phone. Agents use it to pick what to drive and what counts as proof. Humans use it as the regression checklist.
+How to reach, drive and prove the paths a daily user takes, in the web UI on desktop and phone. Agents use it to pick what to drive and what counts as proof. Humans use it as the regression checklist.
 
 ## Baseline preconditions
 
