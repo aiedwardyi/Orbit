@@ -217,6 +217,7 @@ async function launch() {
     ORBIT_DEVICE_NAME: "wink-verify",
     WINK_SPAWN_LOG: join(run, "spawns.jsonl"),
     WINK_STUB_LOG: join(run, "stubs.jsonl"),
+    ...(process.env.WINK_STUB_DELAY_MS && { WINK_STUB_DELAY_MS: process.env.WINK_STUB_DELAY_MS }),
     WINK_STOP_FILE: join(ROOT, "stop", "server"),
   }), join(run, "server.log"));
   saveState(state);

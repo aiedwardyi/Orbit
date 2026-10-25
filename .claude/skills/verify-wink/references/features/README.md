@@ -8,6 +8,7 @@ How to reach, drive and prove the paths Edward uses every day, in the web UI on 
 - `seed` once per launch: five bots on five engines (Atlas claude, Juno codex, Orion grok, Vega antigravity, Lyra muse) and 320 messages on Atlas.
 - Pages: `open desktop` (Chromium 1440x900) and `open phone` (390x844, touch, DPR 3). Add `open phone --engine webkit` when the change touches Safari behavior.
 - Engines are stubs. A reply proves the turn crossed the real server and driver into the CLI boundary and back, not that a model is good.
+- Stubs finish every turn; none models Stop yet.
 
 ## Proof rules
 

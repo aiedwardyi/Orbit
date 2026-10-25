@@ -32,6 +32,9 @@ $C expect desktop-to-phone text '[data-orbit-message="user"] >> nth=-1' "from de
 $C wait-settle --text "re: from desktop" --page phone
 $C expect reply-on-phone text '[data-orbit-message="bot"] >> nth=-1' "re: from desktop" --page phone
 $C expect once count '[data-orbit-message="user"]:has-text("from phone")' 1 --page desktop
+$C expect once count '[data-orbit-message="user"]:has-text("from phone")' 1 --page phone
+$C expect once count '[data-orbit-message="user"]:has-text("from desktop")' 1 --page desktop
+$C expect once count '[data-orbit-message="user"]:has-text("from desktop")' 1 --page phone
 $C shot live-sync-desktop --page desktop && $C shot live-sync-phone --page phone
 ```
 

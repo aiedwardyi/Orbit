@@ -13,7 +13,7 @@ node .claude/skills/verify-wink/control-wink.mjs --help
 
 ## Setup
 
-- Playwright is not a repo dependency. Install it once outside the repo and point `PLAYWRIGHT` at the package: `npm i -g playwright`, `npx playwright install chromium webkit`, then `PLAYWRIGHT="$(npm root -g)/playwright"`. Browsers come from `PLAYWRIGHT_BROWSERS_PATH`, else `%LOCALAPPDATA%\ms-playwright`.
+- Playwright is not a repo dependency. Install it once outside the repo, point `PLAYWRIGHT` at the package and install browsers with that package's own CLI, so their versions match: `npm i -g playwright`, `PLAYWRIGHT="$(npm root -g)/playwright"`, then `node "$PLAYWRIGHT/cli.js" install chromium webkit`. Browsers come from `PLAYWRIGHT_BROWSERS_PATH`, else `%LOCALAPPDATA%\ms-playwright`.
 - `WINK_VERIFY_ROOT` picks the scratch root (default `%TEMP%\wink-verify`). One root per agent; two launches cannot share one.
 - Windows only for now: `doctor` and `cleanup` read the process table through PowerShell CIM.
 
