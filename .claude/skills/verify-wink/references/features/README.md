@@ -52,4 +52,4 @@ How to reach, drive and prove the paths a daily user takes, in the web UI on des
 
 ## Entry contract
 
-Every feature file uses the same H2s: `Sub-features`, `How to get there`, `Driving it`, `Proof`, `Gotchas`, `Last proven`.
+Every feature file uses the same H2s: `Sub-features`, `How to get there`, `Driving it`, `Proof`, `Gotchas`, `Last proven`. `Last proven` dates are UTC, like the evidence folder names.
