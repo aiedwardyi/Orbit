@@ -56,7 +56,7 @@ const URL_ = "https://home.tail1234.ts.net/";
 function watched() {
   const webContents = new FakeWebContents();
   const logs = [];
-  const timers = { tick: null, cleared: 0 };
+  const timers = { tick: null, cleared: 0, hung: null };
   const deferred = [];
   const watch = watchDeviceLoad(webContents, {
     host: "home.tail1234.ts.net",
@@ -67,6 +67,10 @@ function watched() {
     clearInterval: () => {
       timers.tick = null;
       timers.cleared += 1;
+    },
+    setTimeout: (fn, ms) => (timers.hung = { fn, ms }),
+    clearTimeout: (handle) => {
+      if (handle === timers.hung) timers.hung = null;
     },
     defer: (fn) => deferred.push(fn),
   });
@@ -108,6 +112,63 @@ test("shows the unreachable page when the PC page crashes or hangs", () => {
     assert.deepEqual(webContents.loads, ["data:failure"]);
     assert.deepEqual(logs, [`device window home.tail1234.ts.net: ${line}`]);
   }
+});
+
+test("shows the unreachable page when nothing commits 8 s after open", () => {
+  const { webContents, logs, timers } = watched();
+  assert.equal(timers.hung?.ms, 8_000);
+  timers.hung.fn();
+  assert.deepEqual(webContents.loads, ["data:failure"]);
+  assert.deepEqual(logs, ["device window home.tail1234.ts.net: no page after 8 s"]);
+  webContents.emit("did-navigate", {}, "data:failure", -1);
+  timers.tick();
+  assert.deepEqual(webContents.loads, ["data:failure", URL_]);
+  webContents.emit("did-navigate", {}, URL_, 200);
+  assert.equal(timers.tick, null);
+});
+
+test("a page that commits in time or a closed window cancels the 8 s check", () => {
+  for (const settle of [(webContents) => webContents.emit("did-navigate", {}, URL_, 200), (webContents) => webContents.emit("destroyed")]) {
+    const { webContents, timers } = watched();
+    settle(webContents);
+    assert.equal(timers.hung, null);
+  }
+});
+
+test("the 8 s check leaves an earlier failure alone", () => {
+  const { webContents, logs, timers } = watched();
+  webContents.emit("did-fail-load", {}, -105, "ERR_NAME_NOT_RESOLVED", URL_, true);
+  timers.hung.fn();
+  assert.deepEqual(webContents.loads, ["data:failure"]);
+  assert.equal(logs.length, 1);
+});
+
+test("a PC's own 403 shows the unreachable page and keeps retrying, whenever its page commits", () => {
+  for (const commitFirst of [false, true]) {
+    const { webContents, logs, timers, watch } = watched();
+    if (commitFirst) webContents.emit("did-navigate", {}, URL_, 403);
+    watch.refused(URL_);
+    if (!commitFirst) webContents.emit("did-navigate", {}, URL_, 403);
+    webContents.emit("did-navigate", {}, "data:failure", -1);
+    assert.deepEqual(webContents.loads, ["data:failure"]);
+    assert.deepEqual(logs, ["device window home.tail1234.ts.net: refused 403"]);
+    timers.tick();
+    watch.refused(URL_);
+    webContents.emit("did-navigate", {}, URL_, 403);
+    webContents.emit("did-navigate", {}, "data:failure", -1);
+    assert.ok(timers.tick);
+    assert.equal(logs.length, 1);
+    timers.tick();
+    webContents.emit("did-navigate", {}, URL_, 200);
+    assert.equal(timers.tick, null);
+  }
+});
+
+test("ignores a 403 from another origin", () => {
+  const { webContents, logs, watch } = watched();
+  watch.refused("https://work.tail1234.ts.net/");
+  assert.deepEqual(webContents.loads, []);
+  assert.deepEqual(logs, []);
 });
 
 test("retries every 10 s for 2 min, then stops", () => {
@@ -272,6 +333,13 @@ test("main process sandboxes PC windows without the app preload", () => {
   assert.ok(open.includes("watchDeviceLoad(win.webContents"));
   assert.ok(open.includes("host: url.hostname"));
   assert.ok(open.includes("reloadIfStuck()"));
+});
+
+test("main process sends a main-frame 403 to its window's watcher", () => {
+  const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
+  const open = main.slice(main.indexOf("function openDeviceWindow"), main.indexOf("function ensureDesktopWorkspace"));
+  assert.ok(open.includes('statusCode === 403 && resourceType === "mainFrame"'));
+  assert.ok(open.includes("deviceLoads.get(target)?.refused(href)"));
 });
 
 const ORIGIN = "https://home.tail1234.ts.net";

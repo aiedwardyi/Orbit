@@ -142,10 +142,11 @@ async function saveDeviceLinkedFile(response, filePath) {
 
 const DEVICE_RETRY_MS = 10_000;
 const DEVICE_RETRY_LIMIT_MS = 120_000;
+const DEVICE_COMMIT_MS = 8_000;
 const ERR_ABORTED = -3;
 
-/** Swaps a failed, crashed or hung PC page for `failurePage` and retries `url` until a load commits. */
-function watchDeviceLoad(webContents, { host, url, failurePage, log, setInterval: every = setInterval, clearInterval: stop = clearInterval, defer = (fn) => setTimeout(fn, 0) }) {
+/** Swaps a failed, crashed, hung or refusing PC page for `failurePage` and retries `url` until a load commits. */
+function watchDeviceLoad(webContents, { host, url, failurePage, log, setInterval: every = setInterval, clearInterval: stop = clearInterval, setTimeout: after = setTimeout, clearTimeout: forget = clearTimeout, defer = (fn) => setTimeout(fn, 0) }) {
   let retry = null;
   let retries = 0;
   let failed = false;
@@ -172,6 +173,10 @@ function watchDeviceLoad(webContents, { host, url, failurePage, log, setInterval
       if (!webContents.isDestroyed()) void webContents.loadURL(url).catch(() => {});
     }, DEVICE_RETRY_MS);
   };
+  // a sleeping PC can stall the first load far longer than this without failing it
+  const hung = after(() => {
+    if (!failed) fail(`no page after ${DEVICE_COMMIT_MS / 1000} s`);
+  }, DEVICE_COMMIT_MS);
   webContents.on("did-fail-load", (_event, code, description, validatedUrl, isMainFrame) => {
     if (!isMainFrame || code === ERR_ABORTED || String(validatedUrl).startsWith("data:")) return;
     fail(`did-fail-load ${code} ${description}`);
@@ -180,23 +185,33 @@ function watchDeviceLoad(webContents, { host, url, failurePage, log, setInterval
     if (details?.reason !== "clean-exit") fail(`render-process-gone ${details?.reason ?? "unknown"}`, { crashed: true });
   });
   webContents.on("unresponsive", () => fail("unresponsive"));
-  webContents.on("did-navigate", (_event, target) => {
+  webContents.on("did-navigate", (_event, target, code) => {
+    forget(hung);
     // only the failure page keeps retrying; the device link form must not be reloaded away
     if (showingFailure && String(target).startsWith("data:")) {
       showingFailure = false;
       return;
     }
+    // not a load: main routes the 403 to refused(), and this commit can land on either side of it
+    if (code === 403 && !String(target).startsWith("data:")) return;
     showingFailure = false;
     cancel();
     retries = 0;
     failed = false;
   });
-  webContents.once("destroyed", cancel);
+  webContents.once("destroyed", () => {
+    forget(hung);
+    cancel();
+  });
   return {
     /** Reloads a window left on the failure page, a crash or nothing at all. */
     reloadIfStuck() {
       if (webContents.isDestroyed() || !(failed || !webContents.getURL() || webContents.isCrashed())) return;
       void webContents.loadURL(url).catch(() => {});
+    },
+    /** Treats a main-frame 403 from the PC's own origin as a failed load. */
+    refused(target) {
+      if (sameDesktopViewerOrigin(target, new URL(url).origin)) fail("refused 403");
     },
   };
 }
