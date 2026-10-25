@@ -196,6 +196,40 @@ describe("terminal proxy", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("returns a usage hold as a plain result and opens no pane", async () => {
+    const hold = "Held: Codex 5h 15% left (resets 13:40), weekly 87% left. Pick another engine, or send the same spawn again within 2 min to launch anyway.";
+    const fetchImpl = vi.fn(async (url: string | URL | Request, _init?: RequestInit) =>
+      new Response(JSON.stringify(String(url).includes("/spawn-usage") ? { hold } : { sessionId: "p1", generation: 1 }), { status: 200 }));
+    const config = { ...CONFIG, harness: "http://127.0.0.1:2", commsToken: "comms" };
+    const args = { label: "CAREER | gpt-6-astra | high", command: "codex --model gpt-6-astra 'Do it.'" };
+    expect(await callTool("terminal_spawn", fetchImpl, config, args)).toEqual({ content: [{ type: "text", text: hold }] });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:2/api/internal/spawn-usage");
+    expect(init?.headers).toMatchObject({ authorization: "Bearer comms" });
+    expect(JSON.parse(String(init?.body))).toEqual({ fromBotId: "bot-1", ...args });
+  });
+
+  it("adds the usage line to an opened pane, and opens without one when the harness has no answer", async () => {
+    const line = "Codex usage left: 5h 62% (resets 13:40), weekly 87%.";
+    const opened = 'Opened pane "worker": sessionId p1 (generation 1). Use terminal_read and terminal_send with this sessionId.';
+    const config = { ...CONFIG, harness: "http://127.0.0.1:2", commsToken: "comms" };
+    const answered = vi.fn(async (url: string | URL | Request, _init?: RequestInit) =>
+      new Response(JSON.stringify(String(url).includes("/spawn-usage") ? { line } : { sessionId: "p1", generation: 1 }), { status: 200 }));
+    expect((await callTool("terminal_spawn", answered, config, { label: "worker", command: "codex" })).content[0].text).toBe(`${opened}\n${line}`);
+    expect(answered.mock.calls.map(([url]) => String(url))).toEqual([
+      "http://127.0.0.1:2/api/internal/spawn-usage",
+      "http://127.0.0.1:1/v1/bots/bot-1/terminal/open",
+      "http://127.0.0.1:2/api/internal/launch-note",
+    ]);
+    const harnessDown = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("/api/internal/")) throw new Error("ECONNREFUSED");
+      return new Response(JSON.stringify({ sessionId: "p1", generation: 1 }), { status: 200 });
+    });
+    const result = await callTool("terminal_spawn", harnessDown, config, { label: "worker", command: "codex" });
+    expect(result).toEqual({ content: [{ type: "text", text: opened }] });
+  });
+
   it("maps terminal_close to a POST on the bot's close route", async () => {
     const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ closed: true }), { status: 200 }));
     const result = await callTool("terminal_close", fetchImpl, { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" }, { sessionId: "p1" });
