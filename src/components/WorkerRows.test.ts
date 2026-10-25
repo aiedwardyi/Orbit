@@ -554,6 +554,28 @@ describe("WorkerChip", () => {
     }
   });
 
+  it("keeps the phone sheet's scrollbar in its side padding, clear of the status", async () => {
+    const runs = [shown("WORK", "working", "work-1", 1)];
+    stubMedia({ matches: true });
+    const phone = await mount(runs, { onOpenTerminalPane: () => {}, livePanes: new Set(["work-1"]) });
+    try {
+      await act(async () => phone.chip()!.click());
+      const sheet = document.body.querySelector("[data-worker-list]")!;
+      expect(sheet.className.split(" ")).toContain("px-5");
+      expect(sheet.querySelector("ul")!.className.split(" ")).toEqual(expect.arrayContaining(["overflow-y-auto", "-mx-5", "px-5"]));
+    } finally {
+      await phone.unmount();
+    }
+    stubMedia({ matches: false });
+    const desktop = await mount(runs, { onOpenTerminalPane: () => {}, livePanes: new Set(["work-1"]) });
+    try {
+      await act(async () => desktop.chip()!.click());
+      expect(desktop.host.querySelector("[data-worker-list] ul")!.className).not.toContain("-mx-5");
+    } finally {
+      await desktop.unmount();
+    }
+  });
+
   it.each([340, 420, 620])("keeps the desktop menu inside a %spx chat column", async (columnWidth) => {
     vi.stubGlobal("matchMedia", () => ({ matches: false }));
     const { host, chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);
