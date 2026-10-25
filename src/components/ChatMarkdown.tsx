@@ -16,6 +16,7 @@ import { useI18n, type MessageKey } from "@/lib/i18n";
 import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { useReplyStyle } from "@/lib/reply-style";
 import { splitReplyBlocks } from "@/lib/turn-stage";
+import { windowsPathLinks } from "../../shared/windows-path-links";
 
 // tiny highlight cache so revisiting a thread doesn't re-tokenize settled
 // blocks; keys are content-hashed and capped. Streamed partials may land here
@@ -78,20 +79,10 @@ const localFilePath = (href?: string): string | null => {
 const urlTransform = (url: string, key: string): string =>
   key === "href" && (/^file:/i.test(url) || WINDOWS_PATH.test(decodeHref(url))) ? url : defaultUrlTransform(url);
 
-// CommonMark reads "\." in a link target as an escaped ".", so "C:\Users\me\.orbit"
-// opened "C:\Users\me.orbit"; a Windows path keeps the target exactly as written.
 function remarkWindowsPaths(this: { data(): object }) {
   // SAFETY: remark-parse reads its mdast extensions from this list on the processor data.
   const data = this.data() as { fromMarkdownExtensions?: Extension[] };
-  (data.fromMarkdownExtensions ??= []).push({
-    exit: {
-      resourceDestination(token) {
-        const target = this.sliceSerialize(token).replace(/^<(.*)>$/, "$1");
-        const node = this.stack.at(-1);
-        if (node?.type === "link" && WINDOWS_PATH.test(target)) node.url = target;
-      },
-    },
-  });
+  (data.fromMarkdownExtensions ??= []).push(windowsPathLinks);
 }
 
 // A bare relative target ("reps.py", "./notes.md", "..\x.txt") means a file in

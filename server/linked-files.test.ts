@@ -323,6 +323,60 @@ describe("linked files", () => {
     }
   });
 
+  it("serves a path under a dot folder exactly as linked", async () => {
+    const root = join(temp("linked-dot-"), ".orbit");
+    mkdirSync(root);
+    const clip = Buffer.from("dot-folder-bytes");
+    const plainPath = join(root, "clip.mp4");
+    const anglePath = join(root, "look.mp4");
+    writeFileSync(plainPath, clip);
+    writeFileSync(anglePath, clip);
+    const server = await listen((req, res) => serveLinkedFile(req, res, {
+      bearerOk: true,
+      remoteKey: undefined,
+      threadId: "t1",
+      messages: [{ id: "m1", text: `[clip](${plainPath}) [look](<${anglePath}>)` }],
+      deviceId: "this-pc",
+      writerDeviceId: () => null,
+      rootsFor: () => [root],
+    }));
+    try {
+      for (const filePath of [plainPath, anglePath]) {
+        const res = await fetch(`${server.url}/api/threads/t1/linked-file?path=${encodeURIComponent(filePath)}`);
+        expect(res.status).toBe(200);
+        expect(Buffer.from(await res.arrayBuffer()).equals(clip)).toBe(true);
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("still refuses a path the message names but does not link", async () => {
+    const root = join(temp("linked-named-"), ".orbit");
+    mkdirSync(root);
+    const other = Buffer.from("named-not-linked");
+    const clipPath = join(root, "clip.mp4");
+    const otherPath = join(root, "other.mp4");
+    writeFileSync(clipPath, Buffer.from("linked"));
+    writeFileSync(otherPath, other);
+    const server = await listen((req, res) => serveLinkedFile(req, res, {
+      bearerOk: true,
+      remoteKey: undefined,
+      threadId: "t1",
+      messages: [{ id: "m1", text: `[clip](${clipPath}), and ${otherPath} is next` }],
+      deviceId: "this-pc",
+      writerDeviceId: () => null,
+      rootsFor: () => [root],
+    }));
+    try {
+      const res = await fetch(`${server.url}/api/threads/t1/linked-file?path=${encodeURIComponent(otherPath)}`);
+      expect(res.status).toBe(404);
+      expect(Buffer.from(await res.arrayBuffer()).includes(other)).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("still names the PC that holds the file after the other PC reacts", async () => {
     const folder = temp("linked-react-");
     const filePath = join(folder, "clip.mp4");
