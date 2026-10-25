@@ -71,7 +71,7 @@ function EnginePlanRow({
   // A reported reset that has passed ends the limit; an unknown one holds until the next check.
   const limited = limit && (limit.resetsAt === null || Boolean(limitReset));
   // Settings rows never show turn input/output counts - those live only in
-  // the chat strip. Freshness stays in the provider tooltip.
+  // the chat strip.
   const windows = [...(instance.rateLimits?.windows ?? [])].sort(
     (a, b) => windowRank(a.id, a.windowMinutes) - windowRank(b.id, b.windowMinutes),
   );
@@ -91,10 +91,9 @@ function EnginePlanRow({
   return (
     <div>
       <div className="flex items-center gap-2 text-[13px] font-medium text-ink">
-        <EngineMark instance={instance} size={16} />
-        <span className="truncate" title={canRefresh(instance) && instance.rateLimits
-          ? t(instance.driverKind === "museAgent" ? "usage.limits.cachedAsOf" : "usage.limits.refreshAge", { age: age(instance.rateLimits.observedAt) })
-          : undefined}>{instance.displayName}</span>
+        <EngineMark instance={instance} size={16}>
+          <span className="truncate">{instance.displayName}</span>
+        </EngineMark>
       </div>
       {windows.length > 0 && (
         <div className="mt-2 flex flex-col items-start gap-1.5">

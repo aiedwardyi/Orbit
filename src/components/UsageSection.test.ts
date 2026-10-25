@@ -701,7 +701,7 @@ describe("UsageSection friends plan card", () => {
     expect(html).toContain("Reset since the last check");
   });
 
-  it("omits banked token counts from settings rows while keeping staleness visible", () => {
+  it("omits banked token counts from settings rows", () => {
     try {
       persistPreference("en");
       const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
@@ -710,9 +710,6 @@ describe("UsageSection friends plan card", () => {
       expect(html).not.toContain("↑");
       expect(html).not.toContain("↓");
       expect(html).not.toContain("10 in · 4 out");
-      // the refresh age remains available from the provider tooltip
-      expect(html).toMatch(/title="\d+[mh] old"/);
-      expect(html).not.toMatch(/>\d+[mh] old</);
       expect(html).toContain("Appears after your next Codex message.");
     } finally {
       persistPreference("en");
@@ -812,7 +809,7 @@ describe("UsageSection friends plan card", () => {
     }
   });
 
-  it("localizes refresh age units in English and Korean", () => {
+  it("states a reading's age only in the caption past an hour, in English and Korean", () => {
     const claude = mockState.instances[0];
     const report = claude.rateLimits;
     if (!report) throw new Error("claude fixture missing rateLimits");
@@ -821,23 +818,50 @@ describe("UsageSection friends plan card", () => {
       report.observedAt = new Date(Date.now() - 5.5 * 60_000).toISOString();
       persistPreference("en");
       const englishMinutes = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(englishMinutes).toContain('title="5m old"');
-      expect(englishMinutes).not.toContain(">5m old<");
+      expect(englishMinutes).not.toContain("5m old");
+      expect(englishMinutes).not.toContain("Cached, as of");
       persistPreference("ko");
       const koreanMinutes = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(koreanMinutes).toContain('title="5분 전"');
-      expect(koreanMinutes).not.toContain(">5분 전<");
+      expect(koreanMinutes).not.toContain("5분 전");
       report.observedAt = new Date(Date.now() - 2.5 * 3_600_000).toISOString();
       persistPreference("en");
       const englishHours = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(englishHours).toContain('title="2h old"');
-      expect(englishHours).not.toContain(">2h old<");
+      expect(englishHours).toContain(">Cached, as of 2h ago.<");
+      expect(englishHours).not.toContain("2h old");
       persistPreference("ko");
       const koreanHours = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
-      expect(koreanHours).toContain('title="2시간 전"');
-      expect(koreanHours).not.toContain(">2시간 전<");
+      expect(koreanHours).toContain(">캐시된 값, 2시간 전 기준입니다.<");
+      expect(koreanHours).not.toContain('title="2시간 전"');
     } finally {
       report.observedAt = original;
+      persistPreference("en");
+    }
+  });
+
+  it("opens each engine's account card from its name, with no age tip", async () => {
+    vi.useFakeTimers();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const hover = (type: string, target: Element) => act(async () => {
+      target.dispatchEvent(new PointerEvent(type, { pointerType: "mouse", bubbles: true, relatedTarget: type === "pointerout" ? host : null }));
+    });
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      for (const engine of ["Claude", "Codex", "Grok", "Meta Muse"]) {
+        const name = [...host.querySelectorAll("span")].find((span) => !span.firstElementChild && span.textContent === engine);
+        expect(name?.closest("[data-engine-hover]")).not.toBeNull();
+        expect(name?.hasAttribute("title")).toBe(false);
+        await hover("pointerover", name!);
+        await act(async () => { vi.advanceTimersByTime(500); });
+        expect(document.querySelector("[data-engine-card]:not([data-closing])")?.textContent).toBe(`${engine} · Signed in`);
+        await hover("pointerout", name!);
+      }
+    } finally {
+      vi.useRealTimers();
+      await act(async () => root.unmount());
+      host.remove();
       persistPreference("en");
     }
   });
