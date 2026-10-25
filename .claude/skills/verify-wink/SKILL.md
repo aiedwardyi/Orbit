@@ -73,6 +73,6 @@ Stops only what this kit started, matched by PID and command line, never by name
 ## Helpers
 
 - `control-wink.mjs`: the driver.
-- `stub-engine.cjs`: one stand-in for the five engine CLIs. `WINK_STUB_DELAY_MS` sets the reply delay (default 300).
+- `stub-engine.cjs`: one stand-in for the five engine CLIs. `WINK_STUB_DELAY_MS` sets the reply delay (default 300); a prompt whose last line has `[hold]` waits 15 s instead, long enough to press Stop.
 - `hidden.cjs`: the spawn preload.
 - [references/features/](references/features/README.md): how to reach, drive and prove each daily path.

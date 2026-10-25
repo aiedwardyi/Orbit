@@ -21,8 +21,10 @@ function reply(model, content) {
   const text = blocks.map((block) => (typeof block?.text === "string" ? block.text : "")).join("\n");
   const last = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).at(-1) ?? "";
   const images = blocks.filter((block) => /image/i.test(String(block?.type))).length;
-  note("prompt", { model, last, images });
-  return [`STUB ${engine.toUpperCase()} ${model}`, last && `re: ${last.slice(0, 60)}`, images && `${images} image`].filter(Boolean).join(" | ");
+  // The last line only: after a Stop, Wink's task record quotes the stopped message above the next prompt.
+  const delay = last.includes("[hold]") ? 15_000 : DELAY;
+  note("prompt", { model, last, images, delay });
+  return { delay, text: [`STUB ${engine.toUpperCase()} ${model}`, last && `re: ${last.slice(0, 60)}`, images && `${images} image`].filter(Boolean).join(" | ") };
 }
 
 function lines(onMessage) {
@@ -79,14 +81,14 @@ if (engine === "claude") {
         out({ type: "system", subtype: "init", session_id: session, model });
       }
       out({ type: "system", subtype: "status", status: "requesting" });
-      const text = reply(model, message.message?.content);
+      const { text, delay } = reply(model, message.message?.content);
       const half = Math.ceil(text.length / 2);
-      setTimeout(() => out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(0, half) } } }), DELAY / 2);
+      setTimeout(() => out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(0, half) } } }), delay / 2);
       setTimeout(() => {
         out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(half) } } });
         out({ type: "assistant", message: { id: randomUUID(), content: [{ type: "text", text }] } });
         out({ type: "result", is_error: false, stop_reason: "end_turn", total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 } });
-      }, DELAY);
+      }, delay);
     });
   }
 }
@@ -98,11 +100,11 @@ if (engine === "grok") {
     if (message.id === undefined || message.result !== undefined) return;
     const { method, params } = message;
     if (method === "session/prompt") {
-      const text = reply(model, params?.prompt);
+      const { text, delay } = reply(model, params?.prompt);
       setTimeout(() => {
         notify("session/update", { sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } });
         rpc(message.id, { stopReason: "end_turn" });
-      }, DELAY);
+      }, delay);
       return;
     }
     if (method === "session/set_config_option" && params?.configId === "model") model = params.value;
@@ -139,13 +141,13 @@ if (engine === "codex") {
     const turnId = randomUUID();
     rpc(id, { turn: { id: turnId } });
     notify("turn/started", { threadId: params?.threadId, turn: { id: turnId } });
-    const text = reply(model, params?.input);
+    const { text, delay } = reply(model, params?.input);
     setTimeout(() => {
       notify("item/agentMessage/delta", { itemId: "m1", delta: text });
       notify("item/completed", { item: { id: "m1", type: "agentMessage", text } });
       notify("thread/tokenUsage/updated", { tokenUsage: { total: { inputTokens: 1, cachedInputTokens: 0, outputTokens: 1 } } });
       notify("turn/completed", { turn: { id: turnId, status: "completed" } });
-    }, DELAY);
+    }, delay);
   });
 }
 
@@ -157,22 +159,33 @@ if (engine === "antigravity") {
     : Promise.resolve(flag("-p", "--print"));
   prompt.then((content) => {
     if (content === undefined) process.exit(0);
-    const text = reply(model, content);
+    const { text, delay } = reply(model, content);
     out({ event: "init", conversation_id: conversation, init: { cwd: process.cwd(), tools: [], permission_mode: "accept-edits" } });
     setTimeout(() => {
       const usage = { input_tokens: 1, output_tokens: 1, thinking_tokens: 0, cache_read_tokens: 0, total_tokens: 2 };
       out({ event: "step_update", conversation_id: conversation, step_update: { conversation_id: conversation, step_index: 0, state: "DONE", step_type: "agent_response", usage } });
       out({ event: "result", conversation_id: conversation, result: { conversation_id: conversation, status: "SUCCESS", response: text, duration_seconds: 1, num_turns: 1, usage } });
       process.exit(0);
-    }, DELAY);
+    }, delay);
   });
 }
 
 if (engine === "muse") {
   const sessionId = randomUUID();
   let model = "muse-spark-1.3";
+  let running = null;
   lines((message) => {
     const { id, method, params } = message;
+    // Wink's Stop sends turn/interrupt as a notification, with no id.
+    if (method === "turn/cancel" || method === "turn/interrupt") {
+      if (running) {
+        clearTimeout(running.timer);
+        notify("turn/completed", { sessionId: running.session, turnId: running.turnId, terminal: "cancelled", viewCursor: "v:9" });
+        running = null;
+      }
+      if (id !== undefined) rpc(id, { commandId: params?.commandId ?? null, status: "accepted" });
+      return;
+    }
     if (id === undefined || method === undefined) return;
     if (method === "initialize") return rpc(id, { experimentalApi: false, grantedCapabilities: [], serverInfo: { name: "wink-verify-stub", version: "0.0.0" }, sessionDurability: "durable" });
     if (method === "session/start") {
@@ -184,21 +197,19 @@ if (engine === "muse") {
     if (method === "session/setModel") model = params?.model?.modelId ?? model;
     if (method === "model/list") return rpc(id, { models: [{ modelId: "muse-spark-1.3", displayLabel: "muse-spark-1.3" }] });
     if (method === "usage/read") return rpc(id, {});
-    if (method === "turn/cancel" || method === "turn/interrupt") {
-      notify("turn/completed", { sessionId: params?.sessionId ?? sessionId, turnId: "stub-turn", terminal: "cancelled", viewCursor: "v:9" });
-      return rpc(id, { commandId: params?.commandId ?? null, status: "accepted" });
-    }
     if (method !== "turn/start") return rpc(id, { commandId: params?.commandId ?? null, status: "accepted" });
     const session = params?.sessionId ?? sessionId;
     const turnId = randomUUID();
     rpc(id, { commandId: params?.commandId ?? null, disposition: "started", startedNewTurn: true, status: "accepted", turnId });
-    const text = reply(model, params?.input);
+    const { text, delay } = reply(model, params?.input);
     notify("turn/started", { commandId: params?.commandId ?? null, sessionId: session, turnId, viewCursor: "v:2" });
     notify("item/started", { item: { id: "item-1", kind: "agentMessage" }, sessionId: session, viewCursor: "v:3" });
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      running = null;
       notify("item/delta", { itemId: "item-1", delta: text, sessionId: session, viewCursor: "v:4" });
       notify("item/completed", { item: { id: "item-1", kind: "agentMessage", text }, sessionId: session, viewCursor: "v:5" });
       notify("turn/completed", { sessionId: session, turnId, terminal: "completed", viewCursor: "v:6" });
-    }, DELAY);
+    }, delay);
+    running = { session, turnId, timer };
   });
 }

@@ -8,7 +8,7 @@ How to reach, drive and prove the paths a daily user takes, in the web UI on des
 - `seed` once per launch: five bots on five engines (Atlas claude, Juno codex, Orion grok, Vega antigravity, Lyra muse) and 320 messages on Atlas.
 - Pages: `open desktop` (Chromium 1440x900) and `open phone` (390x844, touch, DPR 3). Add `open phone --engine webkit` when the change touches Safari behavior.
 - Engines are stubs. A reply proves the turn crossed the real server and driver into the CLI boundary and back, not that a model is good.
-- At the default `WINK_STUB_DELAY_MS` no stub holds a turn open long enough to drive the Stop button. The Muse stub answers `turn/cancel` and `turn/interrupt` requests with a cancelled `turn/completed`, but Wink's Stop sends `turn/interrupt` as a notification, which the stub drops.
+- Stubs reply after `WINK_STUB_DELAY_MS`; a message whose last line has `[hold]` holds its turn 15 s, long enough to drive Stop. Only the Muse stub answers Stop: `turn/interrupt` or `turn/cancel`, as a request or a notification, ends the running turn with a cancelled `turn/completed` and no reply.
 
 ## Proof rules
 
@@ -42,6 +42,7 @@ How to reach, drive and prove the paths a daily user takes, in the web UI on des
 ## Features
 
 - [send-reply](send-reply.md): send a message and get a reply.
+- [stop](stop.md): Stop ends a running turn; no late reply, and the next message runs at once.
 - [bot-switch](bot-switch.md): switch bots from the desktop sidebar and the phone drawer.
 - [live-sync](live-sync.md): phone and desktop on one server see each other's turns live.
 - [older-messages](older-messages.md): scrolling back loads older messages and keeps your place.
