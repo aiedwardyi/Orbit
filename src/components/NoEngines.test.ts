@@ -74,6 +74,12 @@ const zoo: InstanceInfo[] = [
     displayName: "Antigravity",
     install: { docsUrl: "https://antigravity.example" },
   }),
+  unavailable({
+    instanceId: "muse",
+    driverKind: "museAgent",
+    displayName: "Meta Muse",
+    install: { docsUrl: "https://muse.example", command: { darwin: "curl -fsSL https://muse.example/install.sh | bash" } },
+  }),
 ];
 
 vi.mock("@/state/store", async (importOriginal) => {
@@ -109,22 +115,22 @@ describe("empty-engine first launch screen", () => {
       expect(html).toContain("Install Grok");
     } finally { Object.assign(claude, previous); }
   });
-  it("screams one Claude or Grok connect path instead of the engine zoo", () => {
+  it("offers every shipped engine's connect path instead of the retired zoo", () => {
     const html = markup();
-    expect(html).toContain("Connect Claude or Grok");
+    expect(html).toContain("Connect an Engine");
+    expect(html).not.toContain("Connect Claude or Grok");
     expect(html).toContain("Your bots need one of these to run. Pick the one you already use.");
-    expect(html).toContain("Install Grok");
-    expect(html).toContain("Install Claude");
+    const installs = ["Claude", "Codex", "Grok", "Antigravity", "Meta Muse"].map((name) => html.indexOf(`Install ${name}`));
+    expect(installs).not.toContain(-1);
+    expect(installs).toEqual([...installs].sort((a, b) => a - b));
     expect(html).toContain("curl -fsSL https://x.ai/cli/install.sh | bash");
     expect(html).toContain("npm install -g @anthropic-ai/claude-code");
+    expect(html).toContain("curl -fsSL https://muse.example/install.sh | bash");
     expect(html).toContain("Requires Node.js and npm.");
-    expect(html.indexOf("Install Claude")).toBeLessThan(html.indexOf("Install Grok"));
     expect(html).toContain("Check again");
     expect(html).not.toContain("Install an AI engine to get started");
-    expect(html).not.toContain("Install Codex");
     expect(html).not.toContain("Install Gemini");
     expect(html).not.toContain("Install Kimi");
-    expect(html).not.toContain("Install Antigravity");
     expect(html).not.toContain(">Cloud<");
     expect(html).not.toContain(">Local<");
   });

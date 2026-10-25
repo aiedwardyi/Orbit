@@ -113,6 +113,18 @@ describe("PhoneAccessSettings", () => {
     await act(async () => root.unmount());
   });
 
+  it.each([
+    ["en", "No setup code? Use Phone Link below."],
+    ["ko", "설정 코드가 없나요? 아래 휴대폰 링크를 사용하세요."],
+  ])("points a setup card to Phone Link for anyone without a code in %s", async (locale, copy) => {
+    localStorage.setItem("omb-locale", locale);
+    serve({ "GET /api/phone-relay/status": () => status({ available: true, configured: false, enabled: false, state: "off", host: null }) });
+    const { host, root } = await renderView();
+    expect(host.querySelector("[data-phone-access-setup]")).not.toBeNull();
+    expect(host.textContent).toContain(copy);
+    await act(async () => root.unmount());
+  });
+
   it("shows a refused setup code inline and nothing at all when the relay is forced off", async () => {
     serve({
       "GET /api/phone-relay/status": () => status({ available: true, configured: false, enabled: false, state: "off", host: null }),

@@ -99,16 +99,16 @@ describe("splitAttachedImages", () => {
 
   it("returns attached files for new and old tags and keeps them out of the text", () => {
     const stored =
-      'take a look\n\n<attached-file path="C:\\Users\\mredw\\Downloads\\image_123.png" />\n\n' +
-      '<attached-file path="C:\\Users\\mredw\\Downloads\\Wink\\a &amp; b.mp4" name="a &amp; b.mp4" size="1717986918" type="video/mp4" />';
+      'take a look\n\n<attached-file path="C:\\Users\\tester\\Downloads\\image_123.png" />\n\n' +
+      '<attached-file path="C:\\Users\\tester\\Downloads\\Wink\\a &amp; b.mp4" name="a &amp; b.mp4" size="1717986918" type="video/mp4" />';
     const { display, images, files } = splitAttachedImages(stored);
     expect(display).toBe("take a look");
     expect(display).not.toContain("<attached-file");
     expect(display).not.toContain("[attachment:");
     expect(images).toEqual([]);
     expect(files).toEqual([
-      { path: "C:\\Users\\mredw\\Downloads\\image_123.png", name: "image_123.png" },
-      { path: "C:\\Users\\mredw\\Downloads\\Wink\\a & b.mp4", name: "a & b.mp4", size: 1717986918 },
+      { path: "C:\\Users\\tester\\Downloads\\image_123.png", name: "image_123.png" },
+      { path: "C:\\Users\\tester\\Downloads\\Wink\\a & b.mp4", name: "a & b.mp4", size: 1717986918 },
     ]);
   });
 

@@ -1,6 +1,6 @@
 # Phone from anywhere: relay design
 
-Status: built. Relay service in `relay/` (#325), PC client and Phone access UI in #326; deploy commands in `relay/README.md`. Base: `review-base` at f825bdfa. Owner: Edward.
+Status: built. Relay service in `relay/` (#325), PC client and Phone access UI in #326; deploy commands in `relay/README.md`. Base: `review-base` at f825bdfa. Owner: relay maintainer.
 Code references are `file:line` at f825bdfa. "Unverified" marks claims not checked against a primary source or real hardware.
 
 ## 1. Summary of decisions
@@ -64,7 +64,7 @@ Data: PC sends `join {session, poolToken}` once (token compared with `timingSafe
 - **Label**: `base32lower(sha256(raw 32 byte pk))[0..16]`, regex `^[a-z2-7]{16}$` (80 bits). A PC can claim only the label its key hashes to, so "only its own hostname" is enforced by math, not a table. Reserved names (`relay`, `www`, `status`) can never match the regex.
 - **Ticket**: `wkt1.<b64url(json {label, pk, iat, exp})>.<b64url(Ed25519 sig by operator key)>`, 1 year life, refreshed on connect. The relay verifies with the operator public key from its config and refuses labels in its `revoked-labels` list. No PC database exists on the relay, which is what makes the 90 day account move painless.
 - **Enroll** (`POST https://relay.<base>/v1/enroll {invite, pk, sig}`): invite is an operator-signed `{exp: 7 days, nonce}` minted with `relay/scripts/mint-invite.ts`. Used nonces are kept in `/var/lib/wink-relay/used-invites` (lost on account move; harmless since invites expire in 7 days). Launch policy is open question 1.
-- **Operator key**: Ed25519, kept by Edward in a password manager, uploaded at provision time as a systemd credential (`LoadCredential=`). Lose it and every PC re-enrolls once; hostnames do not change because they derive from PC keys, so paired phones keep working.
+- **Operator key**: Ed25519, kept by the relay maintainer in a password manager, uploaded at provision time as a systemd credential (`LoadCredential=`). Lose it and every PC re-enrolls once; hostnames do not change because they derive from PC keys, so paired phones keep working.
 
 ## 5. SNI routing on the relay
 
@@ -192,7 +192,7 @@ Three cards, parallel. Interfaces fixed now: `shared/relay-protocol.ts` and `sha
 
 **Card C: trust, pairing, UI.** Owns `via.ts`, `server/phone-devices.ts`, every row of section 9 in `server/index.ts`, `server/config.ts`, `server/linked-files.ts`, the pairing routes, Settings, `pair.html`, `offline.html`, `sw.js`. Tests: an `index.test.ts` smoke per audit row with sockets injected through a test relay ingress, cookie attributes, TTL, 5 guess burn, single use, revoke ends a live SSE stream, Tailscale path unchanged with relay on and off. Screenshots per CONTRIBUTING.
 
-**Measure on real hardware after deploy** (Edward's 3 PCs, phones on SKT, KT, LG U+ LTE/5G and home Wi-Fi, 200 samples, median and p95):
+**Measure on real hardware after deploy** (3 PCs, phones on LTE/5G from three carriers and on home Wi-Fi, 200 samples, median and p95):
 
 1. TCP connect, TLS handshake, TTFB of `GET /api/health`, and SSE emit to phone receipt: relay vs Tailscale direct, same phone and PC. Target: relay median within 15 ms of Tailscale direct.
 2. Chat send to SSE echo p95 while a 1 GB download runs on the same phone: within 20% of idle.
@@ -201,8 +201,8 @@ Three cards, parallel. Interfaces fixed now: `shared/relay-protocol.ts` and `sha
 5. iOS: cookie carried into the Home Screen app or not, web push from the Home Screen app.
 6. Relay RSS, sockets and CPU with 3 PCs idle and busy.
 
-## 16. Open questions for Edward
+## 16. Open questions
 
 1. **Who may enroll a PC at launch?** Recommended: operator-signed invites now (you mint 3); at launch, automatic enroll with per-IP limits and a weekly global cap matched to CA capacity.
-2. **Launch domain?** Recommended: keep `wink.edwardyi.dev` for testing, buy a dedicated domain registered for 3+ years before launch, file the PSL entry (justified by cookie isolation between users), and the LE override form.
-3. **Hostname shape?** Recommended: random 16-char labels derived from the PC key (not personal in public CT logs, no squatting, stateless relay) rather than readable names like `edward-home`, which need a name registry on the relay.
+2. **Launch domain?** Recommended: keep an existing domain such as `wink.example.com` for testing, buy a dedicated domain registered for 3+ years before launch, file the PSL entry (justified by cookie isolation between users), and the LE override form.
+3. **Hostname shape?** Recommended: random 16-char labels derived from the PC key (not personal in public CT logs, no squatting, stateless relay) rather than readable names like `home-pc`, which need a name registry on the relay.

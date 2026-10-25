@@ -76,6 +76,19 @@ describe("team library", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("reads the library from its pinned snapshot, never main", async () => {
+    const pinned = "https://raw.githubusercontent.com/milind-soni/openmausbot-teams/c45cc3c4c88db8bfc125a691553d448141d735f9";
+    const fetcher = vi.fn<typeof fetch>(async (url) =>
+      response(String(url).endsWith("/catalog.json") ? catalog : manifest));
+
+    await fetchLibraryTeam("engineering", fetcher);
+    expect(TEAM_LIBRARY_RAW_ROOT).toBe(pinned);
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      `${pinned}/catalog.json`,
+      `${pinned}/teams/engineering/team.mausteam.json`,
+    ]);
+  });
+
   it("normalizes public GitHub repository, blob, and raw links", () => {
     expect(githubManifestUrls("https://github.com/acme/team")).toEqual([
       "https://raw.githubusercontent.com/acme/team/main/botmrr.md",

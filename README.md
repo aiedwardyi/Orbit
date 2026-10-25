@@ -116,7 +116,7 @@ Wink has no analytics, telemetry or crash upload. This is everything it listens 
 **Sends only when you act**
 
 - **Settings > Usage > Refresh** calls Anthropic's usage API with your Claude Code login. If that login expired, Wink renews it with Anthropic and rewrites `~/.claude/.credentials.json`.
-- Team Library, skill import and install links fetch from GitHub. Project scout queries `api.botdirectory.ai`. The Connected Apps panel loads app icons from Google's favicon service.
+- Team Library fetches a pinned snapshot of `milind-soni/openmausbot-teams` from GitHub. Skill import and install links also fetch from GitHub. Project scout queries `api.botdirectory.ai`. The Connected Apps panel loads app icons from Google's favicon service.
 - Local VM and VPS setup pull images from Docker Hub and packages from PyPI, and reach your VPS over ssh.
 - Images in a bot's reply load from wherever they point (there is no CSP), so a reply can make Wink fetch any URL.
 
@@ -146,6 +146,7 @@ Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
 - Windows 10 or 11, x64
 - At least one engine CLI with an active login
+- [Git for Windows](https://gitforwindows.org) on the PATH, for workers and checkpoints
 - Optional: [Tailscale](https://tailscale.com) on the PC and phone, for phone access (the free plan works)
 - To build: Node.js 24+ and pnpm 10.33
 

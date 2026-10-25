@@ -182,7 +182,7 @@ describe("empty-engine first launch", () => {
     expect(isEmptyEngineLaunch([{ driverKind: "futureAgent", snapshot: { state: "available" } }])).toBe(false);
   });
 
-  it("keeps only Claude and Grok, Claude first, from the default-fleet zoo", () => {
+  it("keeps the five shipped engines, in fleet order, from the default-fleet zoo", () => {
     const starter = starterConnectEngines([
       { instanceId: "gemini", driverKind: "geminiAgent", install: { docsUrl: "https://gemini" } },
       { instanceId: "claude", driverKind: "claudeAgent", install: { docsUrl: "https://claude" } },
@@ -190,17 +190,21 @@ describe("empty-engine first launch", () => {
       { instanceId: "codex", driverKind: "codex", install: { docsUrl: "https://codex" } },
       { instanceId: "grok", driverKind: "grokAgent", install: { docsUrl: "https://grok" } },
       { instanceId: "antigravity", driverKind: "antigravityAgent", install: { docsUrl: "https://antigravity" } },
+      { instanceId: "muse", driverKind: "museAgent", install: { docsUrl: "https://muse" } },
       { instanceId: "cursor", driverKind: "cursorAgent" },
     ]);
-    expect(starter.map((row) => row.instanceId)).toEqual(["claude", "grok"]);
+    expect(starter.map((row) => row.instanceId)).toEqual(["claude", "codex", "grok", "antigravity", "muse"]);
   });
 
   it("leads the first-launch connect screen with Claude whatever order the zoo arrives in", () => {
     const starter = starterConnectEngines([
+      { instanceId: "muse", driverKind: "museAgent", install: { docsUrl: "https://muse" } },
       { instanceId: "grok", driverKind: "grokAgent", install: { docsUrl: "https://grok" } },
+      { instanceId: "antigravity", driverKind: "antigravityAgent", install: { docsUrl: "https://antigravity" } },
+      { instanceId: "codex", driverKind: "codex", install: { docsUrl: "https://codex" } },
       { instanceId: "claude", driverKind: "claudeAgent", install: { docsUrl: "https://claude" } },
     ]);
-    expect(starter.map((row) => row.instanceId)).toEqual(["claude", "grok"]);
+    expect(starter.map((row) => row.instanceId)).toEqual(["claude", "codex", "grok", "antigravity", "muse"]);
   });
 
   it("drops a starter engine that has no connect flow", () => {
@@ -210,6 +214,6 @@ describe("empty-engine first launch", () => {
         { instanceId: "claude", driverKind: "claudeAgent", install: { docsUrl: "https://claude" } },
         { instanceId: "codex", driverKind: "codex", install: { docsUrl: "https://codex" } },
       ]).map((row) => row.instanceId),
-    ).toEqual(["claude"]);
+    ).toEqual(["claude", "codex"]);
   });
 });
