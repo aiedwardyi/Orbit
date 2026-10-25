@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, existsSync, fsyncSync, linkSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue, type StatementSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import { gunzipSync, gzipSync } from "node:zlib";
@@ -60,6 +60,13 @@ export function ensureSyncV2Identity(deviceId: string): void {
   withMessageTransaction((db) => {
     db.exec(IDENTITY_TABLE);
     db.prepare("INSERT OR IGNORE INTO sync_v2_identity VALUES (1, ?, ?)").run(idSchema.parse(deviceId), randomUUID());
+  });
+}
+
+function notePulledHead(result: SyncApplyResult, root: string, scope: SyncScope, head: SyncHead, bytes: Buffer): void {
+  (result.heads ??= []).push({
+    path: `${basename(root)}/${scope.botSyncId}/${scope.threadId}/${head.writerId}/head.json`,
+    hash: createHash("md5").update(bytes).digest("hex"), writer: head.writerId, lastSeq: head.lastSeq, seen: head.seen,
   });
 }
 
@@ -755,8 +762,9 @@ export function createSyncEngine(input: SyncOptions) {
             result.rejected++;
             continue;
           }
-          if (ingest(scope, writer, head, bytes, segment, result) && segment) {
-            sql("INSERT OR IGNORE INTO sync_v2_files VALUES (?, ?, ?)").run(scope.threadId, writer, name);
+          if (ingest(scope, writer, head, bytes, segment, result)) {
+            if (segment) sql("INSERT OR IGNORE INTO sync_v2_files VALUES (?, ?, ?)").run(scope.threadId, writer, name);
+            else notePulledHead(result, root, scope, head, bytes);
           }
         }
       }

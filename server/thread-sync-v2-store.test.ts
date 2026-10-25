@@ -184,6 +184,47 @@ afterEach(async () => {
 });
 
 describe("store delta sync", { timeout: 60_000 }, () => {
+  it("does not note a pulled head after the folder switches while adoption awaits", async () => {
+    const { DATA_DIR } = await import("./config.ts");
+    const { Store } = await import("./store.ts");
+    const { syncHold } = await import("./sync-hold.ts");
+    const { createThreadSyncV2Store } = await import("./thread-sync-v2-store.ts");
+    const original = temp();
+    const replacement = temp();
+    const a = pc(original, "a");
+    await a.call("append", { text: "remote" });
+    await a.call("flush");
+    const store = new Store(() => ({ instanceId: "test", model: "test" }));
+    const bot = store.createBot({}, { seedMessages: false });
+    store.adoptSyncedTask(bot.id, { threadId: "thread", title: "Chat", createdAt: 1 }, [], null, true);
+    let folder = original;
+    const sync = createThreadSyncV2Store({
+      store, dataDir: DATA_DIR, deviceId: "local", folder: () => folder, enabled: () => true,
+      target: () => ({ botId: bot.id, botSyncId: "bot" }), bots: () => [{ botId: bot.id, botSyncId: "bot" }],
+      running: () => false, project: (message) => message, imported: () => {}, maintenance: () => {},
+    })!;
+    const apply = store.applySyncChanges.bind(store);
+    let scheduled = false;
+    vi.spyOn(store, "applySyncChanges").mockImplementation((...args) => {
+      apply(...args);
+      if (!scheduled) {
+        scheduled = true;
+        setImmediate(() => { folder = replacement; });
+      }
+    });
+    const pulled = vi.spyOn(syncHold, "pulled");
+    try {
+      await sync.pull("thread");
+      expect(scheduled).toBe(true);
+      expect(folder).toBe(replacement);
+      expect(pulled).not.toHaveBeenCalled();
+    } finally {
+      await sync.close();
+      syncHold.reset();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("prefers main history after a stale PC sees a newer conflict branch first", async () => {
     const main = temp();
     const stale = temp();
@@ -343,6 +384,7 @@ describe("store delta sync", { timeout: 60_000 }, () => {
 
   it("polls the most recently opened thread first, once per poll", async () => {
     const a = pc(temp(), "a");
+    await a.call("clock");
     for (const threadId of ["a-other", "z-open"]) {
       await a.call("seed", { threadId });
       await a.call("append", { threadId, text: threadId });
@@ -351,8 +393,10 @@ describe("store delta sync", { timeout: 60_000 }, () => {
     await a.call("open", { threadId: "a-other" });
     await a.call("open", { threadId: "z-open" });
     await a.snapshot();
-    await a.call("poll");
-    expect((await a.snapshot()).pulls).toEqual(["z-open", "a-other"]);
+    for (let round = 0; round < 2; round++) {
+      await a.call("poll");
+      expect((await a.snapshot()).pulls).toEqual(["z-open", "a-other"]);
+    }
   });
 
   it("checks the active path once per new conflict and keeps one notice", async () => {
@@ -531,6 +575,64 @@ describe("store delta sync", { timeout: 60_000 }, () => {
       expect(snapshot.rows.filter(isConflictNotice)).toHaveLength(0);
     }
   });
+
+  for (const [setup, home, laptop, pick] of [["edit of the stale send", LOW, HIGH], ["edit of the stale send", HIGH, LOW],
+    ["outside wake window", LOW, HIGH], ["outside wake window", HIGH, LOW], ["edit of the stale send", LOW, HIGH, "pick main"]]) {
+    it(`keeps the split notice on the active path after a late same-tip head and 60 seconds of polls (${setup}, ${laptop}${pick ? `, ${pick}` : ""})`, async () => {
+      const all = isolated([home, laptop]);
+      const [a, c] = all;
+      for (const item of all) await item.peer.call("clock");
+      await a.peer.call("append", { text: "base" });
+      await a.peer.call("flush");
+      share([c], [a]);
+      await c.peer.call("pull");
+      await a.peer.call("batch", { count: 20 });
+      await a.peer.call("flush");
+      const main = (await a.peer.snapshot()).leaf;
+      const sent = await c.peer.call<Message>("append", { text: "typed while stale", at: setup === "outside wake window" ? Date.now() + 11 * 60_000 : undefined });
+      if (setup === "edit of the stale send") await c.peer.call("branch", { id: sent.id, text: "edited" });
+      await c.peer.call("flush");
+      share([c], [a]);
+      await c.peer.call("pull");
+      const noticed = await c.peer.snapshot();
+      const notice = noticed.rows.find(isConflictNotice)!;
+      expect(notice).toMatchObject({ parentId: main });
+      expect(path(noticed)).toContain(notice.id);
+      if (pick) expect(await c.peer.call("head", { id: main! })).toBe(notice.id);
+      const headPath = join(a.folder, "threads-v2", "bot", "thread", a.writer, "head.json");
+      const before = JSON.parse(readFileSync(headPath, "utf8"));
+      share([a], [c]);
+      await a.peer.call("pull");
+      await a.peer.call("flush");
+      const after = JSON.parse(readFileSync(headPath, "utf8"));
+      expect(after.lastSeq).toBeGreaterThan(before.lastSeq);
+      expect(after.versions.filter((version: { kind: string }) => version.kind === "head").at(-1).value).toBe(main);
+      share([c], [a]);
+      await c.peer.call("pull");
+      const raced = await c.peer.snapshot();
+      if (setup === "edit of the stale send") {
+        expect(raced.leaf).toBe(notice.id);
+        expect(path(raced)).toContain(notice.id);
+      }
+      expect(raced.rows.filter(isConflictNotice)).toHaveLength(1);
+      expect(raced.rows.some((row) => row.id === sent.id)).toBe(true);
+      for (const item of all) await item.peer.call("start");
+      for (let round = 0; round < 2; round++) {
+        for (const item of all) await item.peer.call("tick", { at: 30_000 });
+        share(all, all);
+      }
+      await c.peer.call("poll");
+      const settled = await c.peer.snapshot();
+      expect(settled.leaf).toBe(notice.id);
+      expect(path(settled)).toContain(notice.id);
+      expect(settled.rows.filter(isConflictNotice)).toHaveLength(1);
+      expect((await a.peer.snapshot()).rows.filter(isConflictNotice)).toHaveLength(0);
+      expect([...new Set(heads(c.peer.dataDir).map((head) => head.value))]).toEqual([main]);
+      await c.peer.call("restart");
+      await c.peer.call("poll");
+      expect(path(await c.peer.snapshot())).toContain(notice.id);
+    });
+  }
 
   it("notes the other PC's messages until a reply after a join and never after a normal pull", async () => {
     const { a, c } = await behind();
@@ -887,7 +989,7 @@ describe("store delta sync", { timeout: 60_000 }, () => {
     }
     for (const peer of [a, c]) {
       const snapshot = await peer.snapshot();
-      expect(snapshot.leaf).toBe(longer.id);
+      expect(tip(snapshot)).toBe(longer.id);
       expect(snapshot.rows.some((row) => row.id === shorter.id)).toBe(true);
     }
   });

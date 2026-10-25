@@ -2002,9 +2002,10 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                 editing={false}
                 isLastBotText={false}
                 sendsNext={sendsNext && index === 0}
+                sendsAfterSync={pending?.some((entry) => entry.queueId === m.id && entry.reason === "sync")}
                 queuedActions={{
                   // Send now steers the running turn; a preparing turn has nothing to steer into yet.
-                  sendNow: engine?.capabilities?.queueing === true && turnSignal !== "preparing" && pending?.some((entry) => entry.queueId === m.id && entry.sendId)
+                  sendNow: turnSignal !== "preparing" && pending?.some((entry) => entry.queueId === m.id && entry.sendId && (entry.reason === "sync" || engine?.capabilities?.queueing === true))
                     ? () => dispatch({ type: "sendQueuedNow", botId: bot.id, threadId: bot.threadId, queueId: m.id })
                     : undefined,
                   cancel: () => dispatch({ type: "cancelQueued", botId: bot.id, threadId: bot.threadId, queueId: m.id }),

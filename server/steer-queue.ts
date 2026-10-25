@@ -11,6 +11,7 @@ import { DATA_DIR } from "./config.ts";
 import { newId } from "./contracts.ts";
 import { parseJson } from "./schema.ts";
 import type { BotRecord, Message, Store } from "./store.ts";
+import { syncHold } from "./sync-hold.ts";
 
 /** The slice of Store this module needs — narrow so tests can fake it. */
 export interface SteerStore {
@@ -28,6 +29,7 @@ interface SteerItem {
   replyToId?: string;
   sendId?: string;
   after?: boolean;
+  syncUntil?: number;
 }
 
 interface RoomItem {
@@ -72,6 +74,7 @@ const savedQueueSchema = z.array(z.object({
     replyToId: z.string().optional(),
     sendId: z.string().optional(),
     after: z.boolean().optional(),
+    syncUntil: z.number().finite().nonnegative().optional(),
   })),
 }));
 
@@ -82,6 +85,7 @@ function saveQueuedSends(): void {
   });
   mkdirSync(DATA_DIR, { recursive: true });
   writeFileAtomic(QUEUE_FILE, JSON.stringify(pending), { mode: 0o600 });
+  syncHold.watch(pending);
 }
 
 function saveQueueAfterAppend(): void {
@@ -92,7 +96,8 @@ function saveQueueAfterAppend(): void {
   }
 }
 
-export function initializeSteerQueue(store: Pick<Store, "bot" | "taskByThread" | "messagesFor" | "onChange">): void {
+export function initializeSteerQueue(store: Pick<Store, "bot" | "taskByThread" | "messagesFor" | "onChange">, drain?: () => void, enabled?: () => boolean): void {
+  if (drain) syncHold.initialize(drain, enabled);
   let pending: z.infer<typeof savedQueueSchema>;
   try {
     pending = savedQueueSchema.parse(parseJson(readFileSync(QUEUE_FILE, "utf8")));
@@ -214,7 +219,7 @@ export function queueSteeredMessage(
   botId: string,
   threadId: string,
   text: string,
-  options: { prompt?: string; replyToId?: string; sendId?: string; after?: boolean } = {},
+  options: { prompt?: string; replyToId?: string; sendId?: string; after?: boolean; syncUntil?: number } = {},
 ): QueuedSteer {
   if (options.sendId && cancelledSendIds.has(options.sendId)) {
     return { id: options.sendId, skipped: true, cancelled: true };
@@ -231,6 +236,7 @@ export function queueSteeredMessage(
     replyToId: options.replyToId,
     sendId: options.sendId,
     after: options.after,
+    syncUntil: options.syncUntil,
   };
   queues.set(key, { ...entry, items: [...entry.items, item] });
   try {
@@ -314,6 +320,8 @@ export function drainSteeredMessages(
     }
     // busy, or startTurn has claimed this bot but has not flipped busy yet
     if (bot.busy || hasActiveTurn?.(entry.botId) || draining.has(entry.botId) || promotingBots.has(entry.botId)) continue;
+    const first = entry.items.find((item) => !isRoomItem(item) && !isSendCancelled(item.sendId));
+    if (first && !isRoomItem(first) && syncHold.waiting(entry.threadId, first.syncUntil)) continue;
     // committed to draining: the entry leaves the map before anything runs,
     // so a settle racing another settle can never fire the same queue twice
     queues.delete(key);
@@ -436,11 +444,11 @@ export function queuedSteeredMessage(
   botId: string,
   threadId: string,
   sendId: string,
-): { id: string; text: string; replyToId?: string } | null {
+): { id: string; text: string; replyToId?: string; reason?: "sync" } | null {
   const entry = queues.get(entryKey(botId, threadId));
   if (!entry || entry.botId !== botId) return null;
   const item = entry.items.find((candidate): candidate is SteerItem => !isRoomItem(candidate) && candidate.sendId === sendId);
-  return item ? { id: item.messageId, text: item.text, replyToId: item.replyToId } : null;
+  return item ? { id: item.messageId, text: item.text, replyToId: item.replyToId, ...(item.syncUntil !== undefined ? { reason: "sync" as const } : {}) } : null;
 }
 
 /** Keep the durable hold out of drains until the ordinary send path settles. */
@@ -457,10 +465,11 @@ export async function withQueuedSend<T extends { ok: true; queued?: boolean }>(
   promoting.set(item.messageId, botId);
   try {
     const result = await send();
+    if (!isRoomItem(item) && item.syncUntil !== undefined) syncHold.release(threadId);
     const entry = queues.get(key);
     if (entry) {
       const items = result.queued
-        ? entry.items.map((held) => held === item ? { ...item, after: false } : held)
+        ? entry.items.map((held) => held === item ? { ...item, after: false, syncUntil: undefined } : held)
         : entry.items.filter((held) => held !== item);
       if (items.length) queues.set(key, { ...entry, items });
       else queues.delete(key);
@@ -569,6 +578,7 @@ export function cancelQueuedRoomParticipations(groupId: string, threadId: string
 
 /** Test helper: drop in-memory queues and cancel/running bookkeeping. */
 export function _resetSteerQueue(): void {
+  syncHold.reset();
   queues.clear();
   promoting.clear();
   cancelledSendIds.clear();

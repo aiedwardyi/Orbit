@@ -15,6 +15,7 @@ import { readDriveOwnIds, type DriveOwnIds } from "./drive-own-ids.ts";
 import { GoogleAccountError, type GoogleAccountStatus } from "./google-account.ts";
 import { lateTick } from "./pc-wake.ts";
 import { PROFILE_SYNC_WORKSPACE_FILE, readSyncOperations } from "./profile-sync.ts";
+import { syncHold } from "./sync-hold.ts";
 
 export const GOOGLE_BINDING_FILE = "google-binding.json";
 export const GOOGLE_MIRROR_DIR = "google-drive";
@@ -169,6 +170,7 @@ export function createGoogleSync(options: Options) {
       return resolve(path);
     }
   };
+  syncHold.google(mirrorPath());
   function readMove(): z.infer<typeof moveSchema> | null {
     try {
       return moveSchema.parse(JSON.parse(readFileSync(movePath, "utf8")));
@@ -356,6 +358,7 @@ export function createGoogleSync(options: Options) {
     // A republish that ends mid-pass may have written files after the scan.
     const busy = options.republishing?.() ?? false;
     const uploads = now() >= uploadAt;
+    let listed = false;
     try {
       options.prepare();
       if (catching && !total) {
@@ -367,12 +370,18 @@ export function createGoogleSync(options: Options) {
       summary = await createDriveMirror({
         owner, mirrorPath: bound.mirrorPath, statePath, ownIds: ids, client, now, uploads, hashes, chatFirst,
         openThread: chatFirst ? options.openThread?.() : null,
+        listed: (files) => {
+          listed = true;
+          syncHold.feed(bound.mirrorPath, runnable() ? files : null, ids);
+        },
         downloaded: (path) => {
           if (bound.phase !== "ready") return;
           for (const threadId of peerHead(path, ids)) options.pull?.(threadId);
         },
       }).syncOnce();
+      if (!listed) syncHold.google(bound.mirrorPath);
     } catch (error) {
+      if (!listed) syncHold.google(bound.mirrorPath);
       const offline = error instanceof GoogleAccountError || (error instanceof DriveClientError && (error.status === 0 || error.status >= 500 || error.status === 429));
       problem = offline ? "offline" : "error";
       if (!offline) log(`[google-sync] pass stopped: ${error instanceof DriveMirrorError ? error.problem : error instanceof Error ? error.message : String(error)}`);
@@ -380,7 +389,7 @@ export function createGoogleSync(options: Options) {
     }
     problem = null;
     lastSyncAt = now();
-    if (summary.retryAfterMs === null && summary.failed.length === 0) chatFirst = false;
+    if (summary.retryAfterMs === null && !summary.failed.some((path) => path.startsWith("threads-v2"))) chatFirst = false;
     if (!summary.driveFull) {
       fullStrikes = 0;
       uploadAt = 0;
@@ -408,6 +417,7 @@ export function createGoogleSync(options: Options) {
     if (running) return running;
     const bound = runnable();
     if (!bound) {
+      syncHold.google(mirrorPath());
       schedule(0);
       return Promise.resolve();
     }
@@ -455,6 +465,7 @@ export function createGoogleSync(options: Options) {
   }
 
   const unsubscribe = account.onSession(() => {
+    syncHold.google(mirrorPath());
     catching = runnable() !== null;
     total = 0;
     problem = null;
@@ -479,6 +490,7 @@ export function createGoogleSync(options: Options) {
       void kick();
     },
     stop(): void {
+      syncHold.google(mirrorPath());
       stopped = true;
       soon = false;
       unsubscribe();

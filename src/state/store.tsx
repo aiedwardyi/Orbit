@@ -802,7 +802,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         pendingQueued: {
           ...state.pendingQueued,
-          [action.threadId]: [...prev, { queueId: action.queueId, text: action.text, at: action.at, sendId: action.sendId, replyToId: action.replyToId }],
+          [action.threadId]: [...prev, { queueId: action.queueId, text: action.text, at: action.at, sendId: action.sendId, replyToId: action.replyToId, reason: action.reason }],
         },
       };
     }
@@ -1477,7 +1477,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
           const pending = stateRef.current.pendingQueued[action.threadId]?.find((entry) => entry.queueId === action.queueId);
           const engine = stateRef.current.instances.find((instance) => instance.instanceId === bot?.modelSelection.instanceId);
-          if (!pending?.sendId || bot?.threadId !== action.threadId || engine?.capabilities?.queueing !== true) break;
+          if (!pending?.sendId || bot?.threadId !== action.threadId || (pending.reason !== "sync" && engine?.capabilities?.queueing !== true)) break;
           wrapped({
             type: "send", botId: action.botId, threadId: action.threadId, text: pending.text,
             sendId: pending.sendId, replyToId: pending.replyToId, queueId: pending.queueId,
@@ -1571,7 +1571,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 at: accepted?.at ?? Date.now(),
                 sendId,
                 replyToId: action.replyToId,
+                reason: body.reason === "sync" ? "sync" : undefined,
               });
+              if (body.reason === "sync") rawDispatch({ type: "sendRejected", botId: action.botId, threadId: body.threadId, sendId });
             }
             if (typeof settledThread === "string") {
               rawDispatch({ type: "sendSettled", threadId: settledThread, sendId, queued: body?.queued === true });
