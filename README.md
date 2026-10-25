@@ -146,6 +146,7 @@ Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
 - Windows 10 or 11, x64
 - At least one engine CLI with an active login
+- [Git for Windows](https://gitforwindows.org) on the PATH, for workers and checkpoints
 - Optional: [Tailscale](https://tailscale.com) on the PC and phone, for phone access (the free plan works)
 - To build: Node.js 24+ and pnpm 10.33
 
