@@ -5,7 +5,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 ## [1.0.207] - 2026-10-25
 
 ### Added
-- When a model hasn't replied for a few minutes, Switch on the hint reruns your last message on another model.
+- When a model hasn't replied for 2 minutes, Switch on its hint reruns your last message on the model you pick.
 
 ## [1.0.206] - 2026-10-25
 
