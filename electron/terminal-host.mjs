@@ -43,11 +43,14 @@ const agentJobsRunning = (screenText, shellsOnly = false) => screenText.split("\
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 export const BOT_PANE_LIMIT = 16;
+// Exited panes stay readable until this many terminals are open.
 const SESSION_LIMIT = 32;
 const MB = 1024 ** 2;
 const ENGINE_MEMORY_FLOOR = { claude: 600 * MB, codex: 150 * MB, muse: 150 * MB };
 const OTHER_MEMORY_FLOOR = 300 * MB;
 const SHELL_MEMORY_FLOOR = 100 * MB;
+// Kept free for the PC on top of a pane's floor; it starts to lag near 2 GB free.
+const PC_MEMORY_RESERVE = 2048 * MB;
 const LABEL_LIMIT = 40;
 const MIN_ID_PREFIX_LEN = 8;
 const CLOSED_PANE_HISTORY_LIMIT = 32;
@@ -376,7 +379,7 @@ function paneLabel(value) {
   return value.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, LABEL_LIMIT) || undefined;
 }
 
-export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, prestartIdleMs = PRESTART_IDLE_MS, notePane = postPaneNote, now = () => Date.now(), freeMemory = () => os.freemem(), setPriority = os.setPriority, paneRuns = null }) {
+export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, prestartIdleMs = PRESTART_IDLE_MS, notePane = postPaneNote, now = () => Date.now(), freeMemory = () => os.freemem(), setPriority = os.setPriority, paneRuns = null, botNames = async () => ({}) }) {
   const sessions = new Map();
   const active = new Map();
   const generations = new Map();
@@ -717,7 +720,19 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       }
     }
   };
-  const liveSessions = () => [...active.values()].filter((id) => sessions.get(id)?.exitCode === null).length;
+  const openTerminals = (names) => {
+    const panes = new Map();
+    let main = 0;
+    for (const id of active.values()) {
+      const session = sessions.get(id);
+      if (!session || session.exitCode !== null) continue;
+      if (session.botPane) panes.set(session.botId, (panes.get(session.botId) ?? 0) + 1);
+      else main += 1;
+    }
+    const open = [...panes].sort((a, b) => b[1] - a[1]).map(([botId, count]) => `${names[botId] || botId} ${count}`);
+    if (main) open.push(`main ${main}`);
+    return open.length ? ` Open: ${open.join(", ")}.` : "";
+  };
   const reportExit = (session, exitCode) => {
     if (session.retired) return;
     if (session.botPane && !session.respawned && exitCode >>> 0 === DLL_INIT_FAILED && now() - session.startedAt < RESPAWN_MS && !session.screen.text().trim()) {
@@ -1062,7 +1077,6 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       }
     }
     if (!existing && active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
-    if (!existing && active.size + reservedPanes >= SESSION_LIMIT) throw new Error("Too many terminal sessions");
     let cancelResolve;
     const cancelPromise = new Promise((resolve) => { cancelResolve = resolve; });
     const operation = { key, event, input, existing, restartInput: input.restart === true ? input : null, cancelled: false, cancelPromise, cancelResolve, promise: null, prestart, trusted, claimed: false };
@@ -1342,11 +1356,12 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const botReserved = paneReservations.get(botId) ?? 0;
       if (botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length + botReserved >= BOT_PANE_LIMIT) throw new Error(`Too many bot terminals (limit ${BOT_PANE_LIMIT})`);
       if (active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
-      const yours = () => botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length + botReserved;
-      if (liveSessions() + reservedPanes >= SESSION_LIMIT) throw new Error(`Too many terminal sessions (${SESSION_LIMIT} open across all bots and main terminals; ${yours()} are yours). Close one of yours with terminal_close, or ask the user to close others.`);
-      const floor = paneMemoryFloor(input.command);
+      const floor = paneMemoryFloor(input.command) + PC_MEMORY_RESERVE;
       const free = freeMemory();
-      if (free < floor) throw new Error(`Not enough free memory for another terminal (${(free / 1024 ** 3).toFixed(1)} GB free, ${(floor / 1024 ** 3).toFixed(1)} GB needed; ${liveSessions() + reservedPanes} terminals open, ${yours()} are yours). Close a finished pane with terminal_close.`);
+      if (free < floor) {
+        const names = await Promise.resolve().then(botNames).catch(() => ({}));
+        throw new Error(`Not enough free memory for another terminal (${(free / 1024 ** 3).toFixed(1)} GB free, ${(floor / 1024 ** 3).toFixed(1)} GB needed; ${PC_MEMORY_RESERVE / 1024 ** 3} GB stays free for the PC).${openTerminals(names)} Close a finished pane with terminal_close.`);
+      }
       paneReservations.set(botId, botReserved + 1);
       reservedPanes += 1;
       let session;

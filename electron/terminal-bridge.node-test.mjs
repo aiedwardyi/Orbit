@@ -291,7 +291,7 @@ test("deleted bot cleanup retires its spawned panes through the bridge", async (
   const owner = { id: 1, isDestroyed: () => false, send: (...args) => events.push(args) };
   const host = createTerminalHost({
     authorize: () => {}, owner: () => owner, resolveCwd: async () => os.tmpdir(),
-    platform: "linux", env: { SHELL: "/bin/sh" },
+    platform: "linux", env: { SHELL: "/bin/sh" }, freeMemory: () => 64 * 1024 ** 3,
     loadPty: () => ({ spawn: () => {
       const child = { killed: false, onData() {}, onExit() {}, write() {}, resize() {}, kill() { this.killed = true; } };
       children.push(child);
@@ -338,7 +338,7 @@ for (const stage of ["folder", "ready"]) {
         if (stage === "folder") { entered(); await gate; }
         return os.tmpdir();
       },
-      platform: "linux", env: { SHELL: "/bin/sh" },
+      platform: "linux", env: { SHELL: "/bin/sh" }, freeMemory: () => 64 * 1024 ** 3,
       loadPty: () => ({ spawn: () => {
         const child = { killed: false, writes: [], ready: stage === "ready" ? gate : Promise.resolve(), onData() {}, onExit() {}, write(text) { this.writes.push(text); }, resize() {}, kill() { this.killed = true; } };
         children.push(child);
