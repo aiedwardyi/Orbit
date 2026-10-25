@@ -2808,6 +2808,7 @@ const spawnUsage = createSpawnUsage({
     if (!config || !instance) return {};
     return refreshUsage(instance.driverKind, { instanceId, cli: z.object({ cli: z.string().optional() }).catch({}).parse(config.config).cli, environment: config.environment }, previous);
   },
+  environment: (instanceId) => instanceConfigs(cfg)[instanceId]?.environment,
 });
 
 function withRateLimits<T extends { instanceId: string }>(instances: T[]) {

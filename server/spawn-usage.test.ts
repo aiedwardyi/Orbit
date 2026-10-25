@@ -26,11 +26,11 @@ function reading(sessionUsed: number, weeklyUsed: number, at = NOW - 60_000, ses
 
 type Refresh = (instanceId: string, previous: RateLimitsReport | undefined) => Promise<{ report?: RateLimitsReport }>;
 
-function setup(initial?: RateLimitsReport, refresh = vi.fn<Refresh>(async () => ({}))) {
+function setup(initial?: RateLimitsReport, refresh = vi.fn<Refresh>(async () => ({})), environment: Record<string, string> = {}) {
   const clock = { now: NOW };
   const rateLimits: RateLimitsMap = new Map(initial ? [["codex", initial]] : []);
   const save = vi.fn();
-  return { clock, rateLimits, save, refresh, check: createSpawnUsage({ rateLimits, save, refresh, now: () => clock.now }) };
+  return { clock, rateLimits, save, refresh, check: createSpawnUsage({ rateLimits, save, refresh, environment: () => environment, now: () => clock.now }) };
 }
 
 afterEach(() => {
@@ -97,6 +97,16 @@ describe("createSpawnUsage", () => {
     const { check, refresh } = setup(reading(85, 13, NOW - 60 * 60_000));
     expect(await check(BOT, LABEL, `$env:CODEX_HOME='C:\\Users\\me\\.codex-work'; ${CODEX}`)).toEqual({});
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("skips an engine whose instance runs another account", async () => {
+    const environments: Record<string, string>[] = [{ CODEX_HOME: "C:\\Users\\me\\.codex-work" }, { Claude_Config_Dir: "C:\\Users\\me\\.claude-2" }];
+    for (const environment of environments) {
+      const { check, refresh } = setup(reading(85, 13, NOW - 60 * 60_000), undefined, environment);
+      expect(await check(BOT, LABEL, CODEX)).toEqual({});
+      expect(refresh).not.toHaveBeenCalled();
+    }
+    expect(await setup(reading(85, 13), undefined, { PATH: "C:\\bin" }).check(BOT, LABEL, CODEX)).toHaveProperty("hold");
   });
 
   it("says nothing for an unknown engine or no data", async () => {

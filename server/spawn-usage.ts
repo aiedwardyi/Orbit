@@ -50,6 +50,7 @@ type Deps = {
   rateLimits: RateLimitsMap;
   save: () => void;
   refresh: (instanceId: string, previous: RateLimitsReport | undefined) => Promise<{ report?: RateLimitsReport }>;
+  environment: (instanceId: string) => Record<string, string> | undefined;
   now?: () => number;
 };
 
@@ -66,7 +67,8 @@ export function createSpawnUsage(deps: Deps) {
   };
   return async (botId: string, label: string, command: string): Promise<SpawnUsage> => {
     const engine = spawnEngine(command);
-    if (!engine) return {};
+    // Panes start without the instance's environment, so an account set there is not the pane's.
+    if (!engine || Object.keys(deps.environment(engine.instanceId) ?? {}).some((name) => OTHER_HOME.has(name.toUpperCase()))) return {};
     const report = deps.rateLimits.get(engine.instanceId);
     if (!report || !(now() - Date.parse(report.observedAt) <= STALE_MS)) await settleWithin(refreshed(engine.instanceId), REFRESH_CAP_MS);
     const at = now();
