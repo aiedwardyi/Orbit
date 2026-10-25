@@ -3,7 +3,7 @@ import { isBotPackage, parseBotPackage, type ParsedBotPackage } from "./bot-pack
 import { parseTeamManifest, type ParsedTeamManifest } from "./team-manifest.ts";
 
 export const TEAM_LIBRARY_REPOSITORY = "https://github.com/milind-soni/openmausbot-teams";
-export const TEAM_LIBRARY_RAW_ROOT = "https://raw.githubusercontent.com/milind-soni/openmausbot-teams/main";
+export const TEAM_LIBRARY_RAW_ROOT = "https://raw.githubusercontent.com/milind-soni/openmausbot-teams/c45cc3c4c88db8bfc125a691553d448141d735f9";
 export const TEAM_LIBRARY_CATALOG_URL = `${TEAM_LIBRARY_RAW_ROOT}/catalog.json`;
 
 const MAX_CATALOG_BYTES = 256_000;
