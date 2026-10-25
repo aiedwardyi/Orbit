@@ -18,7 +18,7 @@ import {
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import { defaultModelEffort, isEffortOffered } from "../shared/model-effort.ts";
 import { canDeleteWhileWorking, runThread, workingThreadId } from "../shared/working-thread.ts";
-import "../shared/credential-request.ts";
+import { savedKeysPrompt } from "../shared/credential-request.ts";
 
 import { approvalKey, autoVerdict, AWAY_DESKTOP_DENY_NOTE, BACKGROUND_DENY_NOTE } from "./auto-approve.ts";
 import { requestReview, resolveAutoReviewMode, shouldReview } from "./auto-review.ts";
@@ -5176,7 +5176,7 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
         : integrations.agents && sectionPeers.length > 0
           ? peerAgentsSystemPrompt()
           : "";
-      const credentialPrompt = integrations.agents ? ` ${CREDENTIAL_PROMPT}` : "";
+      const credentialPrompt = integrations.agents ? ` ${CREDENTIAL_PROMPT}${savedKeysPrompt(cfg)}` : "";
       const routinePrompt = integrations.agents
         ? " If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. A proposal is not applied until the user confirms its in-app card, so never claim the action completed before that confirmation."
         : "";
@@ -6168,7 +6168,7 @@ async function runClaimedGroupMemberTurn(
     `Reply as yourself, ${detailedRepliesEnabled(cfg) ? "" : "briefly and "}conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
     reactionSystemGuidance(),
     coordinationPrompt,
-    integrations.agents && CREDENTIAL_PROMPT,
+    integrations.agents && `${CREDENTIAL_PROMPT}${savedKeysPrompt(cfg)}`,
     integrations.agents &&
       "If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. A proposal is not applied until the user confirms its in-app card, so never claim the action completed before that confirmation.",
     integrations.agents &&
