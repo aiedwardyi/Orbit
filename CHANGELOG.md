@@ -2,6 +2,11 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.207] - 2026-10-25
+
+### Added
+- When a model hasn't replied for 2 minutes, Switch on its hint reruns your last message on the model you pick.
+
 ## [1.0.206] - 2026-10-25
 
 ### Added
@@ -244,6 +249,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.207]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.207
 [1.0.206]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.206
 [1.0.205]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.205
 [1.0.204]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.204
