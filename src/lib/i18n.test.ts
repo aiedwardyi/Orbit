@@ -662,15 +662,22 @@ describe("team map, team library, and team toasts", () => {
 });
 
 describe("empty-engine first launch copy", () => {
-  it("keeps the Claude-or-Grok connect path as complete EN+KO phrases", () => {
-    expect(en["noEngines.title"]).toBe("Connect Claude or Grok");
-    expect(ko["noEngines.title"]).toBe("Claude 또는 Grok을 연결하세요");
-    expect(ko["noEngines.title"]).not.toMatch(/Connect Claude or Grok/i);
+  it("keeps the engine connect path as complete EN+KO phrases", () => {
+    expect(en["noEngines.title"]).toBe("Connect an Engine");
+    expect(ko["noEngines.title"]).toBe("엔진을 연결하세요");
+    expect(ko["noEngines.title"]).not.toMatch(/Connect an Engine/i);
     expect(en["noEngines.body"]).toBe("Your bots need one of these to run. Pick the one you already use.");
-    expect(ko["noEngines.body"]).toBe("봇을 쓰려면 둘 중 하나가 필요합니다. 이미 쓰는 쪽을 고르세요.");
+    expect(ko["noEngines.body"]).toBe("봇을 쓰려면 이 중 하나가 필요합니다. 이미 쓰는 것을 고르세요.");
     expect(ko["noEngines.body"]).not.toMatch(/Your bots need one of these/i);
     expect(en["noEngines.checkAgain"]).toBe("Check again");
     expect(ko["noEngines.checkAgain"]).toBe("다시 확인");
+  });
+
+  it("names every shipped engine in the onboarding principle", () => {
+    for (const name of ["Claude", "Codex", "Gemini", "Grok", "Muse"]) {
+      expect(en["onboarding.principle.engines.text"]).toContain(name);
+      expect(ko["onboarding.principle.engines.text"]).toContain(name);
+    }
   });
 
   it("wires that path into NoEngines and first-run onboarding", () => {

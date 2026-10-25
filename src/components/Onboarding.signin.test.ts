@@ -99,7 +99,7 @@ describe("Onboarding engine check", () => {
     const root = createRoot(host);
     roots.push(root);
     await act(async () => root.render(createElement(I18nProvider, null, createElement(Onboarding, { onDone }))));
-    const next = [...host.querySelectorAll("button")].find((button) => button.textContent === "Connect Claude or Grok");
+    const next = [...host.querySelectorAll("button")].find((button) => button.textContent === "Connect an Engine");
     expect(next).toBeDefined();
     await act(async () => next!.click());
     expect(onDone).not.toHaveBeenCalled();
