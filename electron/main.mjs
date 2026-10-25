@@ -65,6 +65,7 @@ import { WINDOWS_CAPTION_HEIGHT, applyWindowsTitleBarOverlay, windowChromeOption
 import { restoreWindowZoom, routeZoomShortcut, setImageZoomOwned } from "./window-zoom.mjs";
 import { contextMenuTemplate } from "./context-menu.mjs";
 import { fileMenuFor, imageFetchFor, openLocalFile, saveImageCopy } from "./open-file.mjs";
+import { readClipboardImage } from "./clipboard-image.mjs";
 import {
   ensureManagedComposioCredentials,
   managedComposioAccess,
@@ -1995,6 +1996,12 @@ ipcMain.handle("desktop:file-menu", async (event, rawPath, rawBase) => {
     onSaveError: (error) => dialog.showErrorBox(nativeText("native.saveCopyFailed"), error?.message ?? String(error)),
   });
   Menu.buildFromTemplate(template).popup({ window });
+});
+
+// A screenshot paste can reach the page as 0 bytes; the composer reads it again here.
+ipcMain.handle("desktop:clipboard-image", (event) => {
+  if (!trustedTerminalSender(event, mainWindow?.webContents, rendererOrigin())) throw new Error("Untrusted clipboard caller");
+  return readClipboardImage(clipboard);
 });
 
 ipcMain.on("desktop:os-locale", (event) => {

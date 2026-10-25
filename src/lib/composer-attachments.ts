@@ -226,6 +226,18 @@ export async function pasteImageAttachment(
   return { kind: "file", id: newId(), path: saved.path, name, size: saved.bytes };
 }
 
+/** Drops 0-byte images. Chromium on Windows pastes a screenshot as an empty
+ * image.png while another app holds the clipboard; the desktop app rereads it. */
+export async function rereadEmptyImages(
+  files: readonly File[],
+  readClipboardImage?: () => Promise<Uint8Array<ArrayBuffer> | null>,
+): Promise<File[]> {
+  const kept = files.filter((file) => file.size > 0);
+  if (kept.length === files.length || !readClipboardImage) return kept;
+  const png = await readClipboardImage().catch(() => null);
+  return png?.length ? [...kept, new File([png], "image.png", { type: "image/png" })] : kept;
+}
+
 /** Legacy wrapper for image-only intake. */
 export async function imageAttachmentFromFile(file: File): Promise<ImageAttachment | null> {
   const result = await pasteImageAttachment(file, true);

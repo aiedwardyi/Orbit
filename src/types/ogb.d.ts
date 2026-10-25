@@ -241,6 +241,8 @@ type SkillRecordingPayload = {
       /** Absolute path of a dropped File ("" when the drag carried no
        * file on disk). Absent in older builds of the shell. */
       getPathForFile?(file: File): string;
+      /** PNG bytes of the clipboard image, or null. Absent in older shells. */
+      readClipboardImage?(): Promise<Uint8Array<ArrayBuffer> | null>;
       /** Native clipboard channel; absent in current shells, so the terminal
        * prefers navigator.clipboard and treats this as a fallback. */
       clipboard?: {

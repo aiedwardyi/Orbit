@@ -35,6 +35,7 @@ import {
   isLongPaste,
   pasteAttachment,
   pasteImageAttachment,
+  rereadEmptyImages,
   uploadAttachment,
   visibleComposerNotice,
   type Attachment,
@@ -281,20 +282,27 @@ export function Composer({
     [onRestoreReply],
   );
   const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
+  // an intake that attaches clears only a notice that showed before it started
+  const noticeAt = useRef(0);
+  const showNotice = useCallback((notice: string | null) => {
+    noticeAt.current = performance.now();
+    setAttachmentNotice(notice);
+  }, []);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // an upload's reload hold ends right after this, so the chip must be in storage by then
   const addAttachments = useCallback(
-    (next: Attachment[], uploads: { id: string; file: File }[] = []) => {
+    (next: Attachment[], uploads: { id: string; file: File }[] = [], startedAt = 0) => {
+      if (startedAt > noticeAt.current) setAttachmentNotice(null);
       let room = MAX_UPLOADS_PER_MESSAGE - attachmentsRef.current.filter(fromUpload).length;
       const kept = next.filter((a) => a.kind !== "upload" || room-- > 0);
-      if (kept.length < next.length) setAttachmentNotice(t("composer.uploadTooMany"));
+      if (kept.length < next.length) showNotice(t("composer.uploadTooMany"));
       flushSync(() => editAttachments((prev) => [...prev, ...kept]));
       for (const upload of uploads) {
         if (kept.some((a) => a.id === upload.id)) queueUpload(upload.id, upload.file, undefined, saveUpload(draftId, upload.id));
       }
     },
-    [draftId, editAttachments, t],
+    [draftId, editAttachments, showNotice, t],
   );
   const removeAttachment = useCallback(
     (id: string) => {
@@ -343,8 +351,8 @@ export function Composer({
     })
     .join(" ");
   useEffect(() => {
-    if (uploadErrors) setAttachmentNotice(uploadErrors);
-  }, [uploadErrors]);
+    if (uploadErrors) showNotice(uploadErrors);
+  }, [uploadErrors, showNotice]);
   const repickInput = useRef<HTMLInputElement>(null);
   const repickTarget = useRef<string | null>(null);
   const repick = (file: File | undefined) => {
@@ -572,7 +580,7 @@ export function Composer({
   };
   // a chip on its own is a message: the send control has to appear for it
   const fileInput = useRef<HTMLInputElement>(null);
-  const pickFiles = async (picked: readonly File[]) => {
+  const pickFiles = async (picked: readonly File[], startedAt = performance.now()) => {
     if (!picked.length) return;
     const { attachments: added, uploads, notice } = await intakeFiles(picked, {
       t,
@@ -580,10 +588,16 @@ export function Composer({
       getPath: pathForFile,
       uploadImage: pasteImageAttachment,
     });
-    if (added.length) addAttachments(added, uploads);
+    if (added.length) addAttachments(added, uploads, startedAt);
     // Keep file-specific failures beside the attachments. A successful
     // overlapping intake must not erase an earlier failure before it is read.
-    if (notice) setAttachmentNotice(notice);
+    if (notice) showNotice(notice);
+  };
+  const pasteImages = async (pasted: readonly File[]) => {
+    const startedAt = performance.now();
+    const images = await rereadEmptyImages(pasted, window.ogb?.readClipboardImage);
+    if (images.length < pasted.length) showNotice(t("composer.pasteImageFailed"));
+    await pickFiles(images, startedAt);
   };
   const idlePlaceholder = group
     ? groupComposerHint(group, members ?? [], t)
@@ -666,6 +680,7 @@ export function Composer({
     // tick cannot resend the same line, and the next fill+Enter reads the
     // new DOM value instead of a stale QUEUE-0 draft.
     if (inputRef.current) inputRef.current.value = "";
+    setAttachmentNotice(null);
     if (action === "enqueue" && group) {
       const pending = { text: t, replyToId: replyTo?.id, draft: sentDraft };
       commitQueued([...queuedRef.current, pending]);
@@ -1023,7 +1038,7 @@ export function Composer({
           onDisplayInChatBox={displayPasteInChatBox}
           allowImages={engineSupportsImages}
           notice={attachmentNotice}
-          onNotice={setAttachmentNotice}
+          onNotice={showNotice}
         />
         </div>
         <div data-orbit-composer-host className="relative shrink-0">
@@ -1084,7 +1099,7 @@ export function Composer({
             if (imageFiles.length) {
               e.preventDefault();
               // same intake as a pick, so an oversized image takes the big-file route
-              void holdReload(pickFiles(imageFiles));
+              void holdReload(pasteImages(imageFiles));
               return;
             }
             // a wall of text becomes a chip instead of burying the input

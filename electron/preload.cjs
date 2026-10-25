@@ -153,6 +153,9 @@ contextBridge.exposeInMainWorld("ogb", {
       return "";
     }
   },
+  /** PNG bytes of the clipboard image, or null. A screenshot paste can reach
+   * the page as 0 bytes on Windows, so the composer reads it again here. */
+  readClipboardImage: () => ipcRenderer.invoke("desktop:clipboard-image"),
   /** {mic} TCC status strings: granted|denied|not-determined|unknown.
    * No screen field — macOS 15+ caches that status per-process, so any
    * value here would lie for the whole session after a grant. */
