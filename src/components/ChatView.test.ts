@@ -244,7 +244,7 @@ describe("ChatView worker rows", () => {
     }
   });
 
-  it("shows a resumed worker working again on the original row", async () => {
+  it("shows a resumed worker working again at the resume", async () => {
     stubDom();
     const pane = "bc9c674b-2844-43b0-982e-88305df70570";
     const resume: Message = {
@@ -262,7 +262,7 @@ describe("ChatView worker rows", () => {
     try {
       expect(rows(host)).toHaveLength(1);
       expect(rows(host)[0]!.textContent).toBe("AOpus 5.5 · High●Working");
-      expect(host.querySelector("[data-worker-run]")!.closest("[data-mid]")?.getAttribute("data-mid")).toBe(pane);
+      expect(host.querySelector("[data-worker-run]")!.closest("[data-mid]")?.getAttribute("data-mid")).toBe("r1");
       await act(async () => { rows(host)[0]!.click(); });
       expect(host.querySelector("[data-orbit-worker]")?.textContent).toContain("All green.");
     } finally {
@@ -638,7 +638,7 @@ describe("ChatView worker rows", () => {
       const { host, unmount } = await mountFed(current);
       try {
         await settle();
-        expect(states(host)).toEqual(["done", "ended"]);
+        expect(states(host)).toEqual(["ended", "done"]);
       } finally {
         await unmount();
       }
@@ -750,7 +750,7 @@ describe("ChatView worker rows", () => {
     const root = createRoot(host);
     try {
       await act(async () => root.render(createElement(StoreProvider, null, createElement(GroupView, { group }))));
-      expect(rows(host).map((b) => b.textContent)).toEqual(["CHECKOpus 5.5 · High✓Done", "REVIEWGPT-6.1 Sol · High●Working"]);
+      expect(rows(host).map((b) => b.textContent)).toEqual(["REVIEWGPT-6.1 Sol · High●Working", "CHECKOpus 5.5 · High✓Done"]);
       expect(host.textContent).not.toContain("Green.");
       const chip = host.querySelector("[data-worker-strip]");
       const find = host.querySelector('button[aria-label="Find in conversation"]')!;

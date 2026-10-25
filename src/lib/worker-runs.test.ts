@@ -23,6 +23,25 @@ const report = (status: string, nick: string, body = "") => `${status} ${nick} b
 const STALLED = "STALLED: no screen change for 2 min and no report. terminal_read its pane.";
 const LIMIT = "LIMIT: Codex hit its usage limit (resets 5:49 AM). Its work so far stays in C:\\repo. Send \"continue\" after the reset, or move the job to another engine.";
 
+describe("workerAnchors", () => {
+  it("uses the same newest message in short and long mounted windows", () => {
+    const messages = [launch("l1", 1, "A | Opus 5.5 | high"), note("n1", 2, STALLED, "A | Opus 5.5 | high")];
+    const workers = workerRuns(messages).map((run) => ({ run }));
+    for (const mounted of [messages, messages.slice(-1)]) {
+      const at = workerAnchors(workers, mounted);
+      expect([...at].filter(([, shown]) => shown).map(([id]) => id)).toEqual(["n1"]);
+      expect(at.get("l1")).toBeNull();
+    }
+  });
+
+  it("uses transcript order when a launch arrives after its note", () => {
+    const messages = [note("n1", 1, STALLED, "A | Opus 5.5 | high"), launch("l1", 2, "A | Opus 5.5 | high")];
+    const at = workerAnchors(workerRuns(messages).map((run) => ({ run })), messages);
+    expect(at.get("l1")).toBeTruthy();
+    expect(at.get("n1")).toBeNull();
+  });
+});
+
 describe("workerRuns", () => {
   it("folds a launch and its report into one run", () => {
     const [run, ...rest] = workerRuns([
@@ -160,7 +179,7 @@ describe("workerRuns", () => {
     expect(failed[0]!.state).toBe("working");
   });
 
-  it("starts a run from a resume whose launch is not loaded, without a second row or a moved anchor", () => {
+  it("starts a run from a resume whose launch is not loaded, anchored at the resume", () => {
     const resume = (id: string, at: number, session = PANE): Message => ({
       id, at, role: "bot", kind: "launch",
       text: `Resumed A | Opus 5.5 | high\nLabel: A | Opus 5.5 | high\nWorking folder: C:\\repo\nSession: ${session}`,
@@ -172,14 +191,14 @@ describe("workerRuns", () => {
     const followed = resume("r1", 3);
     const loaded = workerRuns([launch("l1", 1, "A | Opus 5.5 | high"), done, followed])[0]!;
     const withLaunch = workerAnchors([{ run: loaded }], [launch("l1", 1, "A | Opus 5.5 | high"), done, followed]);
-    expect(withLaunch.get("l1")?.run.id).toBe(loaded.id);
-    expect(withLaunch.get("r1")).toBeNull();
+    expect(withLaunch.get("l1")).toBeNull();
+    expect(withLaunch.get("r1")?.run.id).toBe(loaded.id);
 
     const paged = workerRuns([done, followed])[0]!;
     expect(workerRuns([done, followed])).toHaveLength(1);
     const withoutLaunch = workerAnchors([{ run: paged }], [done, followed]);
-    expect(withoutLaunch.get("n1")?.run.id).toBe(paged.id);
-    expect(withoutLaunch.get("r1")).toBeNull();
+    expect(withoutLaunch.get("n1")).toBeNull();
+    expect(withoutLaunch.get("r1")?.run.id).toBe(paged.id);
     expect(paged.messageIds).toEqual(["n1", "r1"]);
   });
 
@@ -197,8 +216,8 @@ describe("workerRuns", () => {
       ["GP-1B", "done", ["n2"]],
     ]);
     const anchors = workerAnchors(runs.map((run) => ({ run })), messages);
-    expect(anchors.get("l1")?.run.id).toBe(runs[0]!.id);
-    expect(anchors.get("r1")).toBeNull();
+    expect(anchors.get("l1")).toBeNull();
+    expect(anchors.get("r1")?.run.id).toBe(runs[0]!.id);
   });
 
   it("omits a resume-only run after its pane reports under another nickname", () => {

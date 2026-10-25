@@ -169,6 +169,25 @@ const button = (host: HTMLElement, label: string) =>
   Array.from(host.querySelectorAll("button")).find((b) => b.textContent?.includes(label));
 
 describe("paged transcripts", () => {
+  it.each(["chat", "room"] as const)("moves a %s worker to its newest note and keeps it there when paging", async (view) => {
+    const messages = [workerLaunch("launch", 0), ...rows(0, 180), workerDone("report", 182)];
+    const thread = messages.map((message, i) => ({ ...message, parentId: messages[i - 1]?.id ?? null }));
+    const threadId = view === "chat" ? "thread-a" : "thread-g";
+    pagedServer(threadId, thread, { bots: view === "chat" ? [bot(thread, false)] : [], groups: view === "room" ? [room(thread, false)] : [] });
+    const host = await mount(view);
+    await vi.waitFor(() => expect(host.querySelector("[data-worker-run]")).not.toBeNull());
+    const worker = () => host.querySelector("[data-worker-run]")!;
+    await act(async () => worker().querySelector("button")!.click());
+    await arrive(threadId, { ...workerDone("new-report", 183), parentId: "report" });
+    expect(host.querySelectorAll("[data-worker-run]")).toHaveLength(1);
+    expect(worker().closest("[data-mid]")?.getAttribute("data-mid")).toBe("new-report");
+    expect(worker().querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
+    expect(worker().textContent).toContain("UNIQUE_REPORT_new-report");
+    await act(async () => button(host, "Show earlier messages")!.click());
+    expect(worker().closest("[data-mid]")?.getAttribute("data-mid")).toBe("new-report");
+    expect(worker().querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
+  });
+
   it.each(["chat", "room"] as const)("keeps a %s worker's anchor and open report when showing earlier messages", async (view) => {
     const thread = [workerLaunch("launch", 0), ...rows(0, 180), workerDone("report", 182)];
     const threadId = view === "chat" ? "thread-a" : "thread-g";
