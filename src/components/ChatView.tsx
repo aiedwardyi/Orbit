@@ -106,7 +106,7 @@ import { isRinging } from "@/lib/routine-ring";
 import { activeRunForBot, routineThreadReturn, routineWorkingElsewhere } from "../../shared/working-thread";
 import { parsePaneNote, type PaneNote } from "../../shared/pane-note";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
-import { shownState, workerRuns } from "@/lib/worker-runs";
+import { shownState, waitingOnScreen, workerRuns, type WorkerRun } from "@/lib/worker-runs";
 import { ContextCompactionDivider, TaskRecoveryCard } from "./TaskRecoveryCard";
 
 /** Older pages fetched looking for the prompt behind a bot-only branch. */
@@ -389,14 +389,24 @@ const lastLabels = new Map<string, Map<string, string>>();
 const rememberLabels = (botId: string, panes: { sessionId: string; label?: string | null }[]) =>
   lastLabels.set(botId, new Map(panes.flatMap((p) => (p.label ? [[p.sessionId, p.label] as const] : []))));
 
+/** Each pane's last screen change as the host's stall watcher saw it. */
+const lastChanged = new Map<string, Map<string, number>>();
+
+const rememberChanges = (botId: string, panes: { sessionId: string; changedAt?: number }[]) =>
+  lastChanged.set(botId, new Map(panes.flatMap((p) => (p.changedAt ? [[p.sessionId, p.changedAt] as const] : []))));
+
+// No event says a pane moved on, so a run waiting on an alert is read again on this beat.
+const SCREEN_READ_MS = 15_000;
+
 /** Drops every cached live set. Tests only. */
 export function clearLivePaneCache() {
   lastLive.clear();
   lastLabels.clear();
+  lastChanged.clear();
 }
 
 /** Bot-spawned pane ids still open, null until the bridge or the host first answers. A device read also refreshes this bot's badge. Exported for tests. */
-export function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionKey: string, dispatch?: Dispatch<Action>): Set<string> | null {
+export function useLivePanes(botId: string, enabled: boolean, paneKey: string, sessionKey: string, dispatch?: Dispatch<Action>, runs: readonly WorkerRun[] = []): Set<string> | null {
   const [live, setLive] = useState<{ botId: string; ids: Set<string> } | null>(null);
   const phoneRead = useRef<{ busy: boolean; next: (() => void) | null }>({ busy: false, next: null });
   // A badge write from this hook's own read must not trigger another read.
@@ -404,6 +414,8 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
   const keyed = useRef(paneKey);
   if (paneKey !== keyed.current && paneKey !== wrote.current) keyed.current = paneKey;
   const readKey = keyed.current;
+  const livePanes = live?.botId === botId ? live.ids : lastLive.get(botId) ?? null;
+  const watch = waitingOnScreen(runs, livePanes, lastChanged.get(botId));
   useEffect(() => {
     const bridge = window.ogb?.terminal;
     if (!bridge || !enabled) return;
@@ -414,13 +426,16 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
       lastLive.set(botId, new Set(ids));
       setLive({ botId, ids: new Set(ids) });
     };
-    void Promise.resolve().then(() => bridge.readBot?.(botId)).then((snapshot) => {
+    const read = () => void Promise.resolve().then(() => bridge.readBot?.(botId)).then((snapshot) => {
       if (!alive || !snapshot?.panes) return;
       rememberLabels(botId, snapshot.panes);
+      rememberChanges(botId, snapshot.panes);
       const ids = new Set(snapshot.panes.filter((p) => !p.main && !p.exited && !closed.has(p.sessionId)).map((p) => p.sessionId));
       for (const id of opened) if (!closed.has(id)) ids.add(id);
       save(ids);
     }).catch(() => {});
+    read();
+    const poll = watch ? setInterval(read, SCREEN_READ_MS) : undefined;
     const offOpened = bridge.onOpened?.((event) => {
       if (event.botId !== botId) return;
       opened.add(event.id);
@@ -444,8 +459,8 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
       next.delete(event.id);
       save(next);
     });
-    return () => { alive = false; offOpened?.(); offClosed?.(); offExit?.(); };
-  }, [botId, enabled]);
+    return () => { alive = false; clearInterval(poll); offOpened?.(); offClosed?.(); offExit?.(); };
+  }, [botId, enabled, watch]);
   useEffect(() => {
     if (window.ogb || !enabled) return;
     let alive = true;
@@ -474,6 +489,7 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
             if (!alive || call !== latest) return;
             if (!Array.isArray(body?.panes)) { retry(); return; }
             rememberLabels(botId, body.panes);
+            rememberChanges(botId, body.panes);
             const open = body.panes.filter((p: { main?: boolean; exited?: boolean }) => !p.main && !p.exited);
             const labels = open.slice(0, 16).map((p: { label?: string | null }) => p.label ?? "");
             wrote.current = paneLabelsKey(labels);
@@ -496,6 +512,7 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
       run();
     };
     read();
+    const poll = watch ? setInterval(read, SCREEN_READ_MS) : undefined;
     const onVisible = () => {
       if (document.visibilityState === "visible") read();
     };
@@ -503,11 +520,12 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
     return () => {
       alive = false;
       clearTimeout(timer);
+      clearInterval(poll);
       pending.next = null;
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [botId, enabled, readKey, sessionKey, dispatch]);
-  return live?.botId === botId ? live.ids : lastLive.get(botId) ?? null;
+  }, [botId, enabled, readKey, sessionKey, dispatch, watch]);
+  return livePanes;
 }
 
 // Keep the live reply in its transcript slot when the canonical message arrives.
@@ -1203,9 +1221,9 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const shown = jump.messages ?? messages;
   const runs = useMemo(() => workerRuns(messages), [messages]);
   const sessionKey = runs.map((run) => run.sessionId).filter(Boolean).sort().join("\n");
-  const livePanes = useLivePanes(bot.id, runs.length > 0 || (state.terminalPanes[bot.id]?.length ?? 0) > 0, paneLabelsKey(state.terminalPanes[bot.id]), sessionKey, dispatch);
-  const workers = useMemo(() => runs.map((run) => ({ run, state: shownState(run, livePanes) })), [runs, livePanes]);
-  const rowWorkers = useMemo(() => jump.messages ? workerRuns(messages, jump.messages).map((run) => ({ run, state: shownState(run, livePanes) })) : workers, [messages, jump.messages, livePanes, workers]);
+  const livePanes = useLivePanes(bot.id, runs.length > 0 || (state.terminalPanes[bot.id]?.length ?? 0) > 0, paneLabelsKey(state.terminalPanes[bot.id]), sessionKey, dispatch, runs);
+  const workers = useMemo(() => runs.map((run) => ({ run, state: shownState(run, livePanes, lastChanged.get(bot.id)) })), [runs, livePanes, bot.id]);
+  const rowWorkers = useMemo(() => jump.messages ? workerRuns(messages, jump.messages).map((run) => ({ run, state: shownState(run, livePanes, lastChanged.get(bot.id)) })) : workers, [messages, jump.messages, livePanes, workers, bot.id]);
   const terminal = isTerminalSkin(useSkin());
   const showToolCalls = showToolCallsEnabled(state.config);
   const showActivities = showToolCalls || terminal;

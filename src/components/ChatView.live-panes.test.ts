@@ -3,6 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { workerRuns, type WorkerRun } from "@/lib/worker-runs";
 import { useLivePanes } from "./ChatView";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -35,17 +36,17 @@ const answer = async (resolvers: Map<string, (snapshot: Snapshot) => void>, botI
   });
 };
 
-function Probe({ botId, seen }: { botId: string; seen: (string[] | null)[] }) {
-  const panes = useLivePanes(botId, true, `${botId}-panes`, `${botId}-sessions`);
+function Probe({ botId, seen, runs }: { botId: string; seen: (string[] | null)[]; runs?: WorkerRun[] }) {
+  const panes = useLivePanes(botId, true, `${botId}-panes`, `${botId}-sessions`, undefined, runs);
   seen.push(panes === null ? null : [...panes].sort());
   return null;
 }
 
-const mountProbe = async (botId: string, seen: (string[] | null)[]) => {
+const mountProbe = async (botId: string, seen: (string[] | null)[], runs?: WorkerRun[]) => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(createElement(Probe, { botId, seen })));
+  await act(async () => root.render(createElement(Probe, { botId, seen, runs })));
   return {
     show: async (next: string) => { await act(async () => root.render(createElement(Probe, { botId: next, seen }))); },
     unmount: async () => { await act(async () => root.unmount()); host.remove(); },
@@ -53,6 +54,7 @@ const mountProbe = async (botId: string, seen: (string[] | null)[]) => {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -94,6 +96,35 @@ describe("useLivePanes", () => {
       expect(seen.at(-1)).toEqual(["open-a-1", "open-a-9"]);
       await answer(resolvers, "open-a", ["open-a-1"]);
       await vi.waitFor(() => expect(seen.at(-1)).toEqual(["open-a-1", "open-a-9"]));
+    } finally {
+      await probe.unmount();
+    }
+  });
+
+  it("reads again on a beat while a run waits on a stall note, until its pane moves on", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const reads: Array<(snapshot: Snapshot & { panes: { changedAt: number }[] }) => void> = [];
+    vi.stubGlobal("ogb", { platform: "win32", terminal: {
+      readBot: vi.fn(() => new Promise((resolve) => { reads.push(resolve); })),
+      onOpened: vi.fn(() => () => {}),
+      onClosed: vi.fn(() => () => {}),
+      onExit: vi.fn(() => () => {}),
+    } });
+    const pane = "beefbeef-0000-4000-8000-000000000001";
+    const runs = workerRuns([{ id: "n1", at: 200_000, role: "bot", kind: "note", text: "[pane beefbeef] from Wink (beat): STALLED: no screen change for 2 min and no report." }]);
+    const reply = async (n: number, changedAt: number) => {
+      await vi.waitFor(() => expect(reads.length).toBeGreaterThan(n));
+      await act(async () => { reads[n]!({ panes: [{ sessionId: pane, main: false, exited: false, changedAt }] }); await sleep(10); });
+    };
+    const probe = await mountProbe("beat", [], runs);
+    try {
+      await reply(0, 1_000);
+      await reply(1, 1_000);
+      await act(async () => { vi.advanceTimersByTime(15_000); });
+      await reply(2, 300_000);
+      const settled = reads.length;
+      await act(async () => { vi.advanceTimersByTime(60_000); await sleep(10); });
+      expect(reads).toHaveLength(settled);
     } finally {
       await probe.unmount();
     }

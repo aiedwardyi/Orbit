@@ -322,6 +322,41 @@ describe("shownState", () => {
     const [done] = workerRuns([note("n1", 1, report("DONE", "A"))]);
     expect(shownState(done!, new Set())).toBe("done");
   });
+
+  const label = "A | Opus 5.5 | high";
+  const listed = (messages: Message[], changedAt: number) => {
+    const live = new Set([PANE]);
+    const changed = new Map([[PANE, changedAt]]);
+    return listedRuns(workerRuns(messages).map((run) => ({ run, state: shownState(run, live, changed) })), live).map((shown) => shown.state);
+  };
+
+  it("lists a run working once its pane's screen moves on after a stall, limit or prompt note", () => {
+    for (const text of [STALLED, LIMIT, "WAITING: this worker is stuck on an on-screen prompt (permission check)."]) {
+      const messages = [launch("l1", 1_000, label), note("n1", 200_000, text, label)];
+      expect(listed(messages, 1_000)).toEqual(["waiting"]);
+      expect(listed(messages, 300_000)).toEqual(["working"]);
+    }
+  });
+
+  it("keeps the screen change that raised a prompt note from reading as the pane moving on", () => {
+    const messages = [launch("l1", 1_000, label), note("n1", 200_000, "WAITING: this worker is stuck on an on-screen prompt (permission check).", label)];
+    expect(listed(messages, 210_000)).toEqual(["waiting"]);
+  });
+
+  it("keeps a BLOCKED report waiting whatever its pane's screen does", () => {
+    expect(listed([launch("l1", 1_000, label), note("n1", 200_000, report("BLOCKED", "A", "Which skin?"), label)], 300_000)).toEqual(["waiting"]);
+  });
+
+  it("leaves done and failed runs as they are when their pane's screen moves", () => {
+    expect(listed([launch("l1", 1_000, label), note("n1", 200_000, report("DONE", "A"), label)], 300_000)).toEqual(["done"]);
+    expect(listed([launch("l1", 1_000, label), note("n1", 200_000, report("FAIL", "A"), label)], 300_000)).toEqual(["failed"]);
+  });
+
+  it("goes back to waiting when a resumed pane stalls again", () => {
+    const resumed = [launch("l1", 1_000, label), note("n1", 200_000, STALLED, label)];
+    expect(listed(resumed, 450_000)).toEqual(["working"]);
+    expect(listed([...resumed, note("n2", 600_000, STALLED, label)], 450_000)).toEqual(["waiting"]);
+  });
 });
 
 describe("byUrgency", () => {

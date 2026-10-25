@@ -2563,6 +2563,27 @@ test("a limit pane that resumes after continue and stalls again sends a new note
   assert.equal(f.notes.length, 2);
 });
 
+test("readBot gives each pane its last screen change as the stall watcher saw it", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex --model gpt-6-astra 'go'" });
+  f.children[0].data(`${CODEX_LIMIT}\r\n  gpt-6-astra high · 12:01 PM\r\n`);
+  await f.settle();
+  const limited = f.host.readBot("bot-1");
+  assert.equal(limited.panes[0].changedAt, limited.capturedAt);
+  await f.advance(121_000);
+  assert.equal(f.notes.length, 1);
+  f.children[0].data(`\x1b[2J\x1b[H${CODEX_LIMIT}\r\n  gpt-6-astra high · 12:03 PM\r\n`);
+  await f.advance(10_000);
+  assert.equal(f.host.readBot("bot-1").panes[0].changedAt, limited.capturedAt);
+  f.children[0].data("\x1b[2J\x1b[H• Editing src/app.ts\r\n");
+  await f.advance(10_000);
+  const moved = f.host.readBot("bot-1");
+  assert.equal(moved.panes[0].changedAt, moved.capturedAt);
+  assert.equal(moved.capturedAt - limited.capturedAt, 141_000);
+  assert.equal(f.notes.length, 1);
+});
+
 test("a worker whose screen keeps changing sends no stall note", async () => {
   const f = stallFixture();
   await f.host.openForBot("bot-1", { label: "W", command: "$env:ORBIT_PANE=$null; & 'C:\\Tools\\claude.cmd' --model claude-sonnet-5-5 'go'" });
