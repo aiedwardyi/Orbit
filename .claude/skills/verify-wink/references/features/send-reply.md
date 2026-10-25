@@ -47,4 +47,4 @@ Phone is the same after `open phone`, `click 'role=button[name="Open bot list"]'
 
 ## Last proven
 
-6ffd674e (review-base), 2026-10-25: desktop (Orion, grok) and phone (Vega, antigravity) PASS `sent`, `reply` and `kept`. Evidence `evidence/2026-10-25T13-54-48-6ffd674`.
+d4e97cfe (review-base), 2026-10-25: desktop (Juno, codex) and phone (Vega, antigravity) PASS `sent`, `reply` and `kept`. Evidence `evidence/2026-10-25T21-12-40-d4e97cf`.
