@@ -35,6 +35,10 @@ $C expect once count '[data-orbit-message="user"]:has-text("from phone")' 1 --pa
 $C expect once count '[data-orbit-message="user"]:has-text("from phone")' 1 --page phone
 $C expect once count '[data-orbit-message="user"]:has-text("from desktop")' 1 --page desktop
 $C expect once count '[data-orbit-message="user"]:has-text("from desktop")' 1 --page phone
+$C expect once count '[data-orbit-message="bot"]:has-text("re: from phone")' 1 --page desktop
+$C expect once count '[data-orbit-message="bot"]:has-text("re: from phone")' 1 --page phone
+$C expect once count '[data-orbit-message="bot"]:has-text("re: from desktop")' 1 --page desktop
+$C expect once count '[data-orbit-message="bot"]:has-text("re: from desktop")' 1 --page phone
 $C shot live-sync-desktop --page desktop && $C shot live-sync-phone --page phone
 ```
 
@@ -56,4 +60,4 @@ $C shot live-sync-desktop --page desktop && $C shot live-sync-phone --page phone
 
 ## Last proven
 
-6ffd674e (review-base), 2026-10-25: both directions PASS between a desktop and a phone page on Lyra. Evidence `evidence/2026-10-25T13-54-48-6ffd674`.
+0ab2d63d (review-base), 2026-10-25: both directions PASS between a desktop and a phone page on Lyra, each message and each reply once on both pages. Evidence `evidence/2026-10-25T19-26-57-0ab2d63`.
