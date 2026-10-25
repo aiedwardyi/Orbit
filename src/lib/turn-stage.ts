@@ -7,6 +7,7 @@ import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
 
 import type { Message } from "@/state/store";
+import { isRetryRow } from "./activity-runs";
 import { t } from "./i18n";
 
 /** Last turn-lifecycle runtime event seen on a thread. Cleared each turn. */
@@ -172,9 +173,9 @@ function receivedStream(value?: string): boolean {
 }
 
 /**
- * Ordered so that evidence of progress outranks evidence of setup: a retry
- * announcement is never withdrawn, so without this a post-retry turn would
- * read "Reconnecting" while it was already answering.
+ * Ordered so that evidence of progress outranks evidence of setup. A retry
+ * signal is never withdrawn, so it reads "Reconnecting" only while its row is
+ * the newest message: anything after it means the turn moved again.
  */
 export function turnPhase(input: {
   signal?: TurnSignal;
@@ -186,8 +187,8 @@ export function turnPhase(input: {
   if (receivedStream(input.streaming)) return "responding";
   if (tool && tool.ok === undefined) return "tool";
   if (receivedStream(input.reasoning)) return "reasoning";
-  if (input.signal === "retrying") return "retrying";
-  if (input.signal === "started") return "waiting";
+  if (input.signal === "retrying" && isRetryRow(input.lastMessage)) return "retrying";
+  if (input.signal === "started" || input.signal === "retrying") return "waiting";
   return "preparing";
 }
 

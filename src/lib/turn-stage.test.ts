@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
+import { busyRetryLabel } from "./activity-runs";
 import { liveActivityLabel } from "./live-activity";
 import {
   applyStreamDelta,
@@ -32,14 +33,17 @@ const chatView = ["ChatView.tsx", "ChatBubble.tsx"]
 const groupView = readFileSync(join(here, "../components/GroupView.tsx"), "utf8");
 const composerView = readFileSync(join(here, "../components/Composer.tsx"), "utf8");
 
-const phaseAfter = (events: Parameters<typeof nextTurnSignals>[2][]) => {
+const phaseAfter = (events: Parameters<typeof nextTurnSignals>[2][], lastMessage = user) => {
   const signals = events.reduce<TurnSignals>((acc, event) => nextTurnSignals(acc, "t1", event), {});
-  return turnPhase({ signal: signals["t1"], lastMessage: user });
+  return turnPhase({ signal: signals["t1"], lastMessage });
 };
 
 const user: Message = { id: "u1", at: 1, role: "user", kind: "text", text: "hi" };
 const runningTool: Message = { id: "a1", at: 2, role: "bot", kind: "activity", tool: { name: "Bash: pnpm test" } };
 const doneTool: Message = { ...runningTool, tool: { name: "Bash: pnpm test", ok: true } };
+const retryRow: Message = { id: "r1", at: 3, role: "bot", kind: "activity", tool: { name: "retrying \u2014 attempt 3/6 in 0s \u2014 responseStreamDisconnected", ok: true } };
+const busyRow: Message = { ...retryRow, tool: { name: "Gemini is busy. Retrying in 30 sec.", ok: true } };
+const reply: Message = { id: "b1", at: 4, role: "bot", kind: "text", text: "Back." };
 
 const label = (phase: ReturnType<typeof turnPhase>, message?: Message, showToolCalls = false) =>
   turnStageLabel(phase, liveActivityLabel(message, showToolCalls));
@@ -54,7 +58,15 @@ describe("turnPhase", () => {
   });
 
   it("is retrying while a relaunch is announced", () => {
-    expect(turnPhase({ signal: "retrying", lastMessage: user })).toBe("retrying");
+    expect(turnPhase({ signal: "retrying", lastMessage: retryRow })).toBe("retrying");
+    expect(turnPhase({ signal: "retrying", lastMessage: busyRow })).toBe("retrying");
+  });
+
+  it("reads like a turn that never retried once anything lands after the retry row", () => {
+    expect(turnPhase({ signal: "retrying", lastMessage: reply })).toBe("waiting");
+    expect(turnPhase({ signal: "retrying", lastMessage: doneTool })).toBe("waiting");
+    expect(turnPhase({ signal: "retrying", lastMessage: runningTool })).toBe("tool");
+    expect(label(turnPhase({ signal: "retrying", lastMessage: reply }), reply)).toBe("Waiting for the model");
   });
 
   it("is tool while a tool call is unsettled, and not after it settles", () => {
@@ -87,7 +99,7 @@ describe("turnStageLabel", () => {
     const timeline = [
       turnPhase({ lastMessage: user }),
       turnPhase({ signal: "started", lastMessage: user }),
-      turnPhase({ signal: "retrying", lastMessage: user }),
+      turnPhase({ signal: "retrying", lastMessage: retryRow }),
       turnPhase({ signal: "started", lastMessage: user, reasoning: "hmm" }),
       turnPhase({ signal: "started", lastMessage: user, streaming: "The" }),
     ];
@@ -100,12 +112,16 @@ describe("turnStageLabel", () => {
     expect(label("tool", runningTool, true)).toBe("Running a command");
     expect(label("tool", runningTool, false)).toBe("Thinking");
   });
+
+  it("keeps the busy-provider label while its row is the newest message", () => {
+    expect(turnStageLabel(turnPhase({ signal: "retrying", lastMessage: busyRow }), "", busyRetryLabel(busyRow))).toBe("Gemini is busy. Retrying in 30 sec.");
+  });
 });
 
 describe("nextTurnSignals", () => {
   it("holds the signal through a settled preamble mid-turn", () => {
     expect(phaseAfter(["started", "settled-message"])).toBe("waiting");
-    expect(phaseAfter(["retrying", "settled-message"])).toBe("retrying");
+    expect(phaseAfter(["retrying", "settled-message"], reply)).toBe("waiting");
   });
 
   it("drops the signal at the turn boundary and on a rewind", () => {
@@ -115,7 +131,7 @@ describe("nextTurnSignals", () => {
 
   it("carries the next turn's signal after the previous one ended", () => {
     expect(phaseAfter(["started", "completed", "started"])).toBe("waiting");
-    expect(phaseAfter(["started", "retrying"])).toBe("retrying");
+    expect(phaseAfter(["started", "retrying"], retryRow)).toBe("retrying");
   });
 
   it("drops a signal left by a turn that died without turn.completed", () => {

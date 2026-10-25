@@ -118,6 +118,24 @@ describe("readThreadEvents", () => {
     expect(page.entries.map((entry) => (entry.data as { eventId: string }).eventId)).toEqual(["valid-retry"]);
   });
 
+  it("keeps a retry with a whole positive maxAttempts or none, and drops a malformed one", () => {
+    const eventsDir = tmp();
+    const nativeDir = tmp();
+    const retry = (eventId: string, maxAttempts?: number | string) =>
+      runtime({ eventId, createdAt: "2026-10-26T03:00:00.000Z", type: "turn.retrying", attempt: 2, delayMs: 0, reason: "responseStreamDisconnected", maxAttempts });
+    writeFileSync(
+      join(eventsDir, "t1.ndjson"),
+      line(retry("zero", 0)) +
+        line(retry("fractional", 5.5)) +
+        line(retry("text", "6")) +
+        line(retry("no-total")) +
+        line(retry("codex-reconnect", 6)),
+    );
+
+    const page = readThreadEvents({ eventsDir, nativeDir, threadId: "t1" });
+    expect(page.entries).toMatchObject([{ data: { eventId: "no-total" } }, { data: { eventId: "codex-reconnect", maxAttempts: 6 } }]);
+  });
+
   it("keeps a well-formed account rate-limit report and drops malformed ones", () => {
     const eventsDir = tmp();
     const nativeDir = tmp();

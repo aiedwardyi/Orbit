@@ -636,12 +636,14 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
               const message = p.message ?? p.error?.message;
               if (p.willRetry === true) {
                 // the CLI reconnects the dropped stream itself ("Reconnecting... 2/5")
+                const tries = /(\d+)\/(\d+)/.exec(String(message));
                 emit({
                   ...base(threadId, turnId),
                   type: "turn.retrying",
-                  attempt: Number(/(\d+)\/\d+/.exec(String(message))?.[1]) || 1,
+                  attempt: Number(tries?.[1]) || 1,
                   delayMs: 0,
                   reason: codexErrorKind.safeParse(p.error?.codexErrorInfo).data ?? "stream_error",
+                  maxAttempts: tries ? Number(tries[2]) + 1 : undefined,
                 });
               } else if (message) {
                 emit({ ...base(threadId, turnId), type: "runtime.error", message: String(message).slice(0, 400) });

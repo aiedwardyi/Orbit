@@ -941,9 +941,9 @@ describe("CodexDriver turns (fake app-server)", () => {
 
     expect(recorder.events.filter((e) => e.type === "runtime.error")).toMatchObject([{ message: USAGE_LIMIT.params.error.message }]);
     expect(recorder.events.filter((e) => e.type === "turn.retrying")).toMatchObject([
-      { attempt: 2, delayMs: 0, reason: "responseStreamDisconnected" },
-      { attempt: 3, delayMs: 0, reason: "responseStreamDisconnected" },
-      { attempt: 4, delayMs: 0, reason: "responseStreamDisconnected" },
+      { attempt: 2, delayMs: 0, reason: "responseStreamDisconnected", maxAttempts: 6 },
+      { attempt: 3, delayMs: 0, reason: "responseStreamDisconnected", maxAttempts: 6 },
+      { attempt: 4, delayMs: 0, reason: "responseStreamDisconnected", maxAttempts: 6 },
     ]);
   });
 
@@ -958,7 +958,7 @@ describe("CodexDriver turns (fake app-server)", () => {
     await recorder.until((e) => e.type === "turn.completed");
 
     expect(recorder.events.filter((e) => e.type === "runtime.error")).toMatchObject([{ message: "stream disconnected before completion" }]);
-    expect(recorder.events.filter((e) => e.type === "turn.retrying")).toMatchObject([{ attempt: 1, delayMs: 0, reason: "stream_error" }]);
+    expect(recorder.events.filter((e) => e.type === "turn.retrying")).toMatchObject([{ attempt: 1, delayMs: 0, reason: "stream_error", maxAttempts: 6 }]);
   });
 
   it("relaunches once when the app-server exits on a busy state runtime", async () => {

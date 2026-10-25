@@ -129,7 +129,7 @@ import {
   type RequestOutcome,
   type RuntimeEvent,
 } from "./contracts.ts";
-import { BUSY_RESUME_DELAYS_MS, RETRY_MAX_ATTEMPTS } from "./drivers/retry.ts";
+import { BUSY_RESUME_DELAYS_MS, retryLine } from "./drivers/retry.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { clearAskBudget } from "./comms-budget.ts";
@@ -3612,9 +3612,7 @@ bus.subscribe((event: RuntimeEvent) => {
         role: "bot",
         kind: "activity",
         tool: {
-          name: busyResumeThreads.has(event.threadId)
-            ? `Gemini is busy. Retrying in ${event.delayMs < 60_000 ? `${Math.round(event.delayMs / 1000)} sec` : `${Math.round(event.delayMs / 60_000)} min`}.`
-            : `retrying — attempt ${event.attempt + 1}/${RETRY_MAX_ATTEMPTS} in ${Math.round(event.delayMs / 1000)}s — ${event.reason}`,
+          name: retryLine(event, busyResumeThreads.has(event.threadId)),
           ok: true,
         },
       });
