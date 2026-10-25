@@ -36,10 +36,12 @@ const WORKER_CLI_RE = /(?:^|[;&|\r\n])\s*&?\s*["']?(?:[^\s"';&|]*[\\/])?(claude|
 const AGENT_BUSY_RE = /(?:esc to interrupt|^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$)|^[ \t]*[\u2800-\u28ff][\s─]+\S[^\n]*(?:…|\.{3})(?:\s+\(|\s*$))/mu;
 // Claude Code's status line counts live jobs in a "·" segment; its "done ... still running" line is history and never clears.
 const AGENT_JOBS_RE = /^(?!.*still running)(?=.*·)(?:.*·)?\s*(?:\d+ [^,·]+, )*\d+ (?:shells?|monitors?|local agents?)(?:, \d+ [^,·]+)*\s*(?:·|$)/u;
+// Background agents stay out of that count: Claude Code lists them under its input box, and only its newest turn line, right above the box, waits on them.
+const AGENTS_RUNNING_RE = /^✻ Waiting for \d+ background agents?\b.*\n+─+$|^─+$[\s\S]*^\s*● main$/mu;
 // Wrapping, borders, spinner glyphs and clocks change on a redraw without the worker moving; a busy agent's ticking timer still counts.
 const STALL_CHURN_RE = /[\u2500-\u257f\u2800-\u28ff✻✢✳✶✽·*●]|\b\d+[hms]\b|\d{1,2}:\d{2}(?::\d{2})?|\b\d+(?:\.\d+)?%(?=\s+context left\b)/gu;
 const stallSignature = (screenText) => AGENT_BUSY_RE.test(screenText) ? screenText : screenText.replace(STALL_CHURN_RE, "").replace(/\s+/g, "");
-const agentJobsRunning = (screenText, shellsOnly = false) => screenText.split("\n").filter((line) => line.trim()).slice(-JOBS_FOOTER_LINES).some((line) => AGENT_JOBS_RE.test(line) && (!shellsOnly || /\b[1-9]\d* shells?\b/u.test(line)));
+const agentJobsRunning = (screenText, shellsOnly = false) => AGENTS_RUNNING_RE.test(screenText) || screenText.split("\n").filter((line) => line.trim()).slice(-JOBS_FOOTER_LINES).some((line) => AGENT_JOBS_RE.test(line) && (!shellsOnly || /\b[1-9]\d* shells?\b/u.test(line)));
 const INPUT_ECHO_LIMIT = 4_096;
 const BOT_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/;
 export const BOT_PANE_LIMIT = 16;
@@ -153,7 +155,8 @@ const CLAUDE_LIMIT_RE = /^\s*(?:⎿\s+)?You['’]ve hit your [^·\n]*limit\s*·\
 const CODEX_LIMIT_RE = /^\s*■\s+You['’]ve hit your usage limit\..{0,400}?try again at (.+?)\.(?: |$)/i;
 
 const LIMIT_START = { claude: /^\s*(?:⎿\s+)?You['’]ve hit your /i, codex: /^\s*■\s+You['’]ve hit your usage limit\./i };
-const LIMIT_IDLE_RE = /^(?:What do you want to do\?|[❯›]?\s*\d+\. .+|Approaching rate limits|Switch to .+|Fast and affordable .+|gpt-.+|\d+(?:\.\d+)?% context left.*|⏵.*|[❯›?]|[─━]+)$/u;
+const LIMIT_IDLE_RE = /^(?:What do you want to do\?|[❯›]?\s*\d+\. .+|Approaching rate limits|Switch to .+|Fast and affordable .+|gpt-.+|\d+(?:\.\d+)?% context left.*|⏵.*|[❯›?]|[─━]+|● Usage limit reached · .+|\/usage-credits .+|✻ \S+ for \d.+)$/u;
+const CLAUDE_RESUME_RE = /^● Usage limit reached · continuing automatically at (.+?)(?: · |$)/u;
 
 function usageLimit(screenText, engine, cols = 80) {
   const lines = screenText.split("\n").map((line) => line.trimEnd());
@@ -163,7 +166,7 @@ function usageLimit(screenText, engine, cols = 80) {
   for (const line of lines.slice(nonempty.at(-STALL_TAIL_LINES) ?? 0)) {
     if (wrapped && line && !/^\s*[●•■❯›⎿]/u.test(line)) tail[tail.length - 1] += line;
     else tail.push(line);
-    wrapped = line.length === cols;
+    wrapped = line.length === cols && !/^[─━]+$/u.test(line);
   }
   const start = tail.findLastIndex((line) => LIMIT_START[engine]?.test(line));
   if (start < 0) return null;
@@ -178,16 +181,20 @@ function usageLimit(screenText, engine, cols = 80) {
     end += 1;
     reset = reader.exec(text)?.[1];
   }
-  if (tail.slice(end + 1).some((line) => line.trim() && !LIMIT_IDLE_RE.test(line.trim()))) return null;
+  // Claude's footer under its input box holds notices and the user's own status line.
+  const box = engine === "claude" ? tail.findIndex((line, i) => i > end && /^[─━]+$/u.test(line)) : -1;
+  const after = tail.slice(end + 1, box < 0 ? undefined : box);
+  if (after.some((line) => line.trim() && !LIMIT_IDLE_RE.test(line.trim()))) return null;
   reset = reset?.trim();
-  return reset ? { engine: engine === "claude" ? "Claude" : "Codex", reset } : null;
+  const resumes = after.map((line) => CLAUDE_RESUME_RE.exec(line.trim())?.[1]).find(Boolean);
+  return reset ? { engine: engine === "claude" ? "Claude" : "Codex", reset, resumes } : null;
 }
 
 // A turn that dies on a usage limit or a menu runs no engine hook, so the screen is the only signal.
 function stallNoteText(screenText, stallMs, cwd, engine, cols) {
   const lines = screenText.split("\n").map((line) => line.trimEnd()).filter(Boolean).slice(-STALL_TAIL_LINES);
   const limit = usageLimit(screenText, engine, cols);
-  if (limit) return `LIMIT: ${limit.engine} hit its usage limit (resets ${limit.reset}). Its work so far stays in ${cwd}. Send "continue" after the reset, or move the job to another engine.`;
+  if (limit) return `LIMIT: ${limit.engine} hit its usage limit (resets ${limit.reset}). Its work so far stays in ${cwd}. ${limit.resumes ? `It resumes by itself at ${limit.resumes}.` : 'Send "continue" after the reset, or move the job to another engine.'}`;
   const tail = lines.join("\n");
   return `STALLED: no screen change for ${Math.max(1, Math.round(stallMs / 60_000))} min and no report. It may be stuck on a usage limit, a menu or an error. terminal_read its pane, then act or tell the user. Last lines:\n${tail}`;
 }

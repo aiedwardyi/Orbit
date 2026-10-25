@@ -1696,6 +1696,11 @@ for (const busy of ["✻ Working… (1s · esc to interrupt)", "• Working (1s 
 }
 
 const claudeIdle = (jobs) => `\x1b[2J\x1b[H✻ Brewed for 21s · done 6:26 PM${jobs ? ` · ${jobs} still running` : ""}\r\n${"─".repeat(40)}\r\n> \r\n${"─".repeat(40)}\r\n⏵⏵ bypass permissions on${jobs ? ` · ${jobs}` : ""} · ← for agents\r\n`;
+const AGENT_ROWS = [
+  "( ) general-purpose  Polling m2-S-lock.txt for lock handoff   1h 18m 55s · ↓ 253.2k tokens",
+  "( ) general-purpose  Waiting on HEAVY.lock for m_shift.py      1h 22m 4s · ↓ 253.6k tokens",
+];
+const claudeAgentWait = (rows = AGENT_ROWS.slice(0, 1)) => `\x1b[2J\x1b[H● Waiting on the measure agent now. It will notify when it's done; then I'll write the\r\n  numbers, clean up and send the report.\r\n\r\n✻ Waiting for 1 background agent to finish\r\n\r\n${"─".repeat(94)}\r\n> \r\n${"─".repeat(94)}\r\n  ◆ Opus 5.5 │ site-motion-3/feat/motion-3\r\n  ▰▰▰▱▱ 60% │ ↑121.5k ↓41 │ 5h: ▰▰▰▱▱ 63% (3h56m) │ 7d: ▰▰▰▱▱ 69% (4h36m) │ 11h41m\r\n  ctx 121k/300k\r\n  ⏵⏵ bypass permissions on · 3 shells\r\n${" ".repeat(54)}new task? /clear to save 121.5k tokens\r\n${" ".repeat(82)}/rc failed\r\n\r\n${rows.length ? "  ● main\r\n" : ""}${rows.map((row) => `  ${row}\r\n`).join("")}`;
 
 for (const jobs of ["1 shell", "2 shells, 1 monitor", "3 monitors", "1 local agent", "2 local agents"]) {
   test(`turn-end note is held while background jobs run, then delivered once: ${jobs}`, async (t) => {
@@ -1754,6 +1759,20 @@ test("a turn-end note held on background jobs goes out once after 30 minutes", a
   assert.deepEqual(f.notes.map((note) => note.text), ["dev server up"]);
   await f.advance(600_000);
   assert.equal(f.notes.length, 1);
+});
+
+test("a turn-end note is held while Claude waits on its background agent", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "AGENT", command: "claude go" });
+  f.children[0].data(claudeAgentWait());
+  await f.settle();
+  f.host.attendBot("bot-1", pane.sessionId, "auto", "waiting on the measure agent");
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 0);
+  f.children[0].data(claudeIdle());
+  await f.advance(30_000);
+  assert.deepEqual(f.notes.map((note) => note.text), ["waiting on the measure agent"]);
 });
 
 test("background job words in output above the footer do not hold a turn-end note", async (t) => {
@@ -2331,9 +2350,47 @@ for (const jobs of ["1 shell", "2 shells, 1 monitor"]) {
   });
 }
 
+test("a Claude agent row that keeps changing holds the stall note until the screen freezes", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  for (let step = 0; step < 12; step += 1) {
+    f.children[0].data(claudeAgentWait([AGENT_ROWS[step % 2]]));
+    await f.settle();
+    await f.advance(5 * 60_000);
+    assert.equal(f.notes.length, 0);
+  }
+  await f.advance(25 * 60_000 - 1);
+  assert.equal(f.notes.length, 0);
+  await f.advance(1);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^STALLED: no screen change for 30 min/);
+});
+
+for (const [name, screen, minutes] of [
+  ["a long agent list", claudeAgentWait(Array(6).fill(AGENT_ROWS[0])).replace("Waiting for 1 background agent to finish", "Brewed for 21s · done 10:41 PM"), 30],
+  ["its background agent wait", claudeAgentWait([]).replace(" · 3 shells", ""), 30],
+  ["an old background agent wait above a finished turn", claudeIdle().replace("✻ Brewed", "✻ Waiting for 1 background agent to finish\r\n\r\n● The measure agent finished; report sent.\r\n\r\n✻ Brewed"), 2],
+]) {
+  test(`a Claude pane idle on ${name} stalls after ${minutes} min`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+    f.children[0].data(screen);
+    await f.settle();
+    await f.advance(minutes * 60_000 - 1);
+    assert.equal(f.notes.length, 0);
+    await f.advance(1);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, new RegExp(`^STALLED: no screen change for ${minutes} min`));
+    await f.advance(30 * 60_000);
+    assert.equal(f.notes.length, 1);
+  });
+}
+
 const CLAUDE_LIMIT = "  ⎿  You've hit your session limit · resets 3am (Asia/Seoul)\r\n\r\n  What do you want to do?\r\n  ❯ 1. Stop and wait for limit to reset\r\n    2. Upgrade your plan\r\n";
 const CODEX_LIMIT = "■ You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/\r\ncodex/settings/usage to purchase more credits or try again at 10:14 PM.\r\n\r\n\r\n  Approaching rate limits\r\n  Switch to gpt-6-luna for lower credit usage?\r\n\r\n\r\n› 1. Switch to gpt-6-luna                   Fast and affordable model for easier tasks.\r\n  2. Keep current model\r\n";
-const limitNote = (engine, reset) => new RegExp(`^LIMIT: ${engine} hit its usage limit \\(resets ${reset}\\)\\. Its work so far stays in .+\\. Send "continue" after the reset, or move the job to another engine\\.$`);
+const limitNote = (engine, reset, next = 'Send "continue" after the reset, or move the job to another engine') => new RegExp(`^LIMIT: ${engine} hit its usage limit \\(resets ${reset}\\)\\. Its work so far stays in .+\\. ${next}\\.$`);
 
 test("ordinary Markdown ellipses do not discard a completion note", async (t) => {
   const f = stallFixture();
@@ -2561,6 +2618,42 @@ test("a limit pane that resumes after continue and stalls again sends a new note
   assert.match(f.notes[1].text, /^STALLED: .*API Error: 529 overloaded$/s);
   await f.advance(600_000);
   assert.equal(f.notes.length, 2);
+});
+
+const claudeAutoLimit = (usage = "2% (1h12m) │ 7d: ▰▰▰▰▱ 78% (6h52m) │ 2h26m") => `\x1b[2J\x1b[H● Bash(bash /c/Users/mredw/AppData/Local/Temp/wink-USAGE-HOVER/wait-lock.sh 0)\r\n  ⎿  Error: Exit code 1\r\n     NOT YET 20:07:31: lock PASTE-VERIFY 20:07\r\n  ⎿  You've hit your session limit · resets 9:20pm (Asia/Seoul)\r\n● Usage limit reached · continuing automatically at 9:20pm · esc to cancel\r\n✻ Brewed for 48m 48s · done 8:07 PM\r\n${"─".repeat(120)}\r\n> \r\n${"─".repeat(120)}\r\n  ⚠ Usage limit reached · limit resets 9:20pm\r\n    Continuing automatically at 9:20pm · esc to cancel · /usage-credits to continue now\r\n  ◆ Opus 5.5 │ usage-hover/fix/usage-hover${" ".repeat(66)}/rc failed\r\n  ▰▰▰▱▱ 53% │ ↑139.6k ↓163 │ 5h: ▱▱▱▱▱ ${usage}\r\n  ctx 140k/300k\r\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\r\n`;
+const CLAUDE_MANUAL_LIMIT = `\x1b[2J\x1b[Hlimit · resets 9:20pm (Asia/Seoul) (error type rate_limit, HTTP 429, request id req_011CgNrEtMBCtkZDv9jx7Xf1, model sent\r\nto the API: claude-opus-5-5)\r\n● Agent "Part C1: polish inventory" failed: Agent terminated early due to an API error: You've hit your session limit ·\r\nresets 9:20pm (Asia/Seoul) (error type rate_limit, HTTP 429, request id req_011CgNrKaAg3LJhMWM4oo2DL, model sent to the\r\nAPI: claude-sonnet-5-5)\r\n  ⎿  You've hit your session limit · resets 9:20pm (Asia/Seoul)\r\n     /usage-credits to finish what you’re working on.\r\n✻ Cogitated for 23m 39s · done 8:14 PM · 1 shell still running\r\n${"─".repeat(120)}\r\n> \r\n${"─".repeat(120)}\r\n  ◆ Fable 5.1 │ oss-audit/HEAD${" ".repeat(85)}/rc\r\n  ▰▰▱▱▱ 39% │ ↑181.6k ↓3.4k │ 5h: ▱▱▱▱▱ 0% (1h4m) │ 7d: ▰▰▰▰▱ 77% (6h44m) │ 23m42s\r\n  ctx 182k/300k\r\n  ⏵⏵ bypass permissions on · 1 shell\r\n`;
+
+for (const [name, screen, next] of [
+  ["a Claude limit pause that continues by itself", claudeAutoLimit(), "It resumes by itself at 9:20pm"],
+  ["the same pause later in its wait", claudeAutoLimit("0% (20m) │ 7d: ▰▰▰▰▱ 77% (6h) │ 3h18m"), "It resumes by itself at 9:20pm"],
+  ["a Claude limit pause that waits for the user", CLAUDE_MANUAL_LIMIT, undefined],
+]) {
+  test(`${name} sends one LIMIT note`, async (t) => {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+    f.children[0].data(screen);
+    await f.settle();
+    await f.advance(120_000);
+    assert.equal(f.notes.length, 1);
+    assert.match(f.notes[0].text, limitNote("Claude", "9:20pm \\(Asia/Seoul\\)", next));
+    await f.advance(30 * 60_000);
+    assert.equal(f.notes.length, 1);
+  });
+}
+
+test("a Claude limit pause sends nothing more when its status line changes", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(claudeAutoLimit());
+  await f.settle();
+  await f.advance(120_000);
+  assert.equal(f.notes.length, 1);
+  f.children[0].data(claudeAutoLimit("0% (20m) │ 7d: ▰▰▰▰▱ 77% (6h) │ 3h18m"));
+  await f.settle();
+  await f.advance(30 * 60_000);
+  assert.equal(f.notes.length, 1);
 });
 
 test("readBot gives each pane its last screen change as the stall watcher saw it", async (t) => {
