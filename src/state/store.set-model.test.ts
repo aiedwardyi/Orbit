@@ -149,6 +149,38 @@ describe("setModel", () => {
     host.remove();
   });
 
+  it("lets a follow-up still posting at Switch be the one run, with no rerun or error row", async () => {
+    const bot: Bot = { ...botOf(true), messages: [{ id: "u1", role: "user", kind: "text", text: "hello", at: 1 }] };
+    await mount(bot);
+    const fetchBefore = fetch;
+    let receipt!: (response: Response) => void;
+    let stopped!: (response: Response) => void;
+    const routes = vi.fn((url: string, init?: RequestInit) => url.endsWith("/messages") ? new Promise<Response>((resolve) => { receipt = resolve; })
+      : url.endsWith("/interrupt") ? new Promise<Response>((resolve) => { stopped = resolve; })
+      : url.endsWith("/edit") ? Promise.resolve(Response.json({ error: "the bot is working - stop it before editing" }, { status: 409 })) : fetchBefore(url, init));
+    vi.stubGlobal("fetch", routes);
+    await act(async () => store.dispatch({ type: "send", botId: "b1", text: "and this", sendId: "s2" }));
+    const instances: InstanceInfo[] = [["claude", "claudeAgent", running.model], ["codex", "codex", "gpt-6.1-sol"]].map(([instanceId, driverKind, model]) => ({
+      instanceId, driverKind, displayName: instanceId,
+      snapshot: { state: "available", authenticated: true }, models: { default: model, options: [{ id: model, label: model }] }, capabilities: {},
+    }));
+    const control = createRef<() => void>();
+    const onSwitching = vi.fn();
+    const host = document.body.appendChild(document.createElement("div"));
+    const picker = createRoot(host);
+    await act(async () => picker.render(createElement(ModelPickerControl, { bot, accepted: store.state.acceptedSends["t-b1"], switchControl: control, onSwitching, store: { state: { instances, selectedId: "b1" }, dispatch: store.dispatch, refreshInstances: async () => {} } })));
+    await act(async () => control.current!());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-model-cell="gpt-6.1-sol"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>(".model-cross-footer button")!.click());
+    await act(async () => receipt(Response.json({ ok: true, threadId: "t-b1", message: { id: "u2", parentId: "u1", role: "user", kind: "text", text: "and this", at: 2, sendId: "s2" } }, { status: 202 })));
+    await act(async () => stopped(Response.json({ ok: true, stopped: true, returned: [] })));
+    expect(routes.mock.calls.map(([url]) => url).filter((url) => /\/(messages|edit)$/.test(url))).toEqual(["/api/bots/b1/messages"]);
+    expect(onSwitching.mock.calls.map(([stage]) => stage)).toEqual(["saving", null]);
+    expect(store.state.error).toBeNull();
+    await act(async () => picker.unmount());
+    host.remove();
+  });
+
   it("holds a pick on a busy bot as pending and raises no error", async () => {
     const patch = await mount(botOf(true));
     await act(async () => store.dispatch({ type: "setModel", botId: "b1", selection: next }));

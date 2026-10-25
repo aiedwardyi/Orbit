@@ -84,7 +84,7 @@ vi.mock("@/state/store", async (importOriginal) => {
   return {
     ...actual,
     useStore: () => ({
-      state: { instances: mockInstances, selectedId: "bot-1" },
+      state: { instances: mockInstances, selectedId: "bot-1", acceptedSends: {} },
       dispatch: () => undefined,
       refreshInstances: async () => undefined,
     }),

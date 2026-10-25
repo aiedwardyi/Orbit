@@ -3,6 +3,7 @@ import { useCallback, useRef, useState, type Dispatch } from "react";
 import { shownModelSelection, visibleMessages, type Action, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
 import { withPickerEffort } from "./cross-model-picker";
 import { useI18n } from "./i18n";
+import type { AcceptedSend } from "./send-accept";
 
 type SwitchStage = "saving" | "rerunning" | null;
 
@@ -10,12 +11,13 @@ export function noReplySource(bot: Bot) {
   return [...visibleMessages(bot)].reverse().find((message) => message.role === "user" && message.kind === "text" && !message.queued);
 }
 
-export function switchFromNoReply(bot: Bot, selection: ModelSelection, opened: string | undefined, instances: InstanceInfo[], dispatch: Dispatch<Action>, onSwitching?: (stage: SwitchStage) => void, onRerunSettled?: () => void) {
+export function switchFromNoReply(bot: Bot, selection: ModelSelection, opened: string | undefined, instances: InstanceInfo[], accepted: readonly AcceptedSend[] | undefined, dispatch: Dispatch<Action>, onSwitching?: (stage: SwitchStage) => void, onRerunSettled?: () => void) {
   const shown = shownModelSelection(bot);
   const current = withPickerEffort(instances.find((instance) => instance.instanceId === shown.instanceId), shown);
   if (current.instanceId === selection.instanceId && current.model === selection.model && current.effort === selection.effort) return;
   const source = noReplySource(bot);
-  const queued = bot.messages.some((message) => message.queued);
+  // a follow-up still posting is held through the stop and runs on the new pick
+  const queued = bot.messages.some((message) => message.queued) || Boolean(accepted?.some((send) => send.kind === "sends-next"));
   const finish = () => onSwitching?.(null);
   if (!source?.text || source.id !== opened) {
     finish();

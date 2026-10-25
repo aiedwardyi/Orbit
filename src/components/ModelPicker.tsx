@@ -9,6 +9,7 @@ import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { pickerPrice } from "@/lib/model-index";
 import { usePresence } from "@/lib/use-presence";
 import { noReplySource, switchFromNoReply } from "@/lib/no-reply-switch";
+import type { AcceptedSend } from "@/lib/send-accept";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
@@ -36,12 +37,12 @@ type PickerStore = {
 
 export function ModelPicker(props: ModelPickerProps) {
   const store = useStore();
-  return <ModelPickerControl {...props} store={store} />;
+  return <ModelPickerControl {...props} store={store} accepted={store.state.acceptedSends[props.bot.threadId]} />;
 }
 
 export function ModelPickerControl({
-  bot, className, contained = false, label, defaultOpen = false, store, switchControl, onSwitching, onRerunSettled,
-}: ModelPickerProps & { store: PickerStore }) {
+  bot, className, contained = false, label, defaultOpen = false, store, accepted, switchControl, onSwitching, onRerunSettled,
+}: ModelPickerProps & { store: PickerStore; accepted?: readonly AcceptedSend[] }) {
   const { t } = useI18n();
   const { state, dispatch, refreshInstances } = store;
   const shortcutEnabled = !contained && state.selectedId === bot.id;
@@ -122,7 +123,7 @@ export function ModelPickerControl({
   const save = (candidate: ModelSelection = draft, fromKeyboard = false) => {
     if (!canCommit(candidate)) return;
     focusComposerAfterCloseRef.current = fromKeyboard && (openedWithShortcutRef.current || switchingRef.current) && !contained;
-    if (switchingRef.current) switchFromNoReply(bot, candidate, switchSourceRef.current, state.instances, dispatch, onSwitching, onRerunSettled);
+    if (switchingRef.current) switchFromNoReply(bot, candidate, switchSourceRef.current, state.instances, accepted, dispatch, onSwitching, onRerunSettled);
     else dispatch({ type: "setModel", botId: bot.id, selection: candidate });
     close();
     if (focusComposerAfterCloseRef.current) {
