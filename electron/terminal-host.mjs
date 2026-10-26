@@ -53,10 +53,6 @@ const MB = 1024 ** 2;
 const ENGINE_MEMORY_FLOOR = { claude: 600 * MB, codex: 150 * MB, muse: 150 * MB };
 const OTHER_MEMORY_FLOOR = 300 * MB;
 const SHELL_MEMORY_FLOOR = 100 * MB;
-// Kept free for the PC on top of a pane's floor; it starts to lag near 2 GB free.
-const PC_MEMORY_RESERVE = 2048 * MB;
-// A new worker takes this long to grow to its floor, so free memory does not show it yet.
-const PANE_WARMUP_MS = 30_000;
 const LABEL_LIMIT = 40;
 const MIN_ID_PREFIX_LEN = 8;
 const CLOSED_PANE_HISTORY_LIMIT = 32;
@@ -400,7 +396,6 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const deletedBots = new Set();
   const closedBotPanes = new Map();
   let reservedPanes = 0;
-  let promisedMemory = 0;
   let disposed = false;
   let disposal = null;
   // conpty.node edits one unlocked process-wide pty list on every shell exit, so panes stop one at a time.
@@ -1370,19 +1365,14 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const botReserved = paneReservations.get(botId) ?? 0;
       if (botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length + botReserved >= BOT_PANE_LIMIT) throw new Error(`Too many bot terminals (limit ${BOT_PANE_LIMIT})`);
       if (active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
-      const paneFloor = paneMemoryFloor(input.command);
-      const floor = paneFloor + PC_MEMORY_RESERVE;
-      let free = freeMemory() - promisedMemory;
-      for (const session of sessions.values()) {
-        if (session.botPane && session.exitCode === null && active.get(session.key) === session.id && now() - session.spawnedAt < PANE_WARMUP_MS) free -= session.memoryFloor;
-      }
+      const floor = paneMemoryFloor(input.command);
+      const free = freeMemory();
       if (free < floor) {
         const names = await Promise.resolve().then(botNames).catch(() => ({}));
-        throw new Error(`Not enough free memory for another terminal (${(Math.max(0, free) / 1024 ** 3).toFixed(1)} GB free, ${(floor / 1024 ** 3).toFixed(1)} GB needed; ${PC_MEMORY_RESERVE / 1024 ** 3} GB stays free for the PC).${openTerminals(names)} Close a finished pane with terminal_close.`);
+        throw new Error(`Not enough free memory for another terminal (${(free / 1024 ** 3).toFixed(1)} GB free, ${(floor / 1024 ** 3).toFixed(1)} GB needed).${openTerminals(names)} Close a finished pane with terminal_close.`);
       }
       paneReservations.set(botId, botReserved + 1);
       reservedPanes += 1;
-      promisedMemory += paneFloor;
       let session;
       try {
         const folder = await resolveFolder({ botId, cwd: input.cwd });
@@ -1407,11 +1397,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         session.botPane = true;
         session.label = label;
         session.spawnedAt = now();
-        session.memoryFloor = paneFloor;
         active.set(key, session.id);
       } finally {
         reservedPanes -= 1;
-        promisedMemory -= paneFloor;
         const left = paneReservations.get(botId) - 1;
         if (left) paneReservations.set(botId, left);
         else paneReservations.delete(botId);

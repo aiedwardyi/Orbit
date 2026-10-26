@@ -135,7 +135,7 @@ export const TOOLS = [
   {
     name: "terminal_spawn",
     description:
-      "Open a labeled pane (a terminal-view tab) in cwd and type command plus Enter if given. Returns sessionId and generation. Max 16 live panes per bot; a new pane needs up to 0.6 GB free plus 2 GB kept free for the PC. The shell is PowerShell on Windows. " +
+      "Open a labeled pane (a terminal-view tab) in cwd and type command plus Enter if given. Returns sessionId and generation. Max 16 live panes per bot; a new pane needs up to 0.6 GB free. The shell is PowerShell on Windows. " +
       "To run a worker: cwd is a git worktree, never the live checkout, except one editing worker in place for a plain folder or a checkout with uncommitted changes, after a safety copy (a read-only review of a plain folder runs in a scratch copy of it, never in place); label is \"NICKNAME | MODEL | EFFORT\". Wrap the prompt in single quotes, fill every <...> slot, never use \\\" escapes. " +
       `Claude: claude --model <model-id> --effort <effort> --dangerously-skip-permissions ${REPORT_TEXT.claude}'Read <card path> and do it.' Never send /effort in a pane: it changes the user's own default. Wink answers the folder-trust menu itself. ` +
       `Codex: codex --model <model-id> -c model_reasoning_effort=<effort> -c "projects={'<cwd>'={trust_level='trusted'}}" --dangerously-bypass-approvals-and-sandbox ${REPORT_TEXT.env}${REPORT_TEXT.notify}'<prompt>'. Use the pane's absolute native cwd in the trust table; this trusts only that launch, without editing config. ` +
