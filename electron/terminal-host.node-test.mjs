@@ -24,6 +24,7 @@ function fixture(options = {}) {
       return child;
     } }),
     freeMemory: () => 8 * 1024 ** 3,
+    totalMemory: () => 64 * 1024 ** 3,
     setPriority: () => {},
     ...options,
   });
@@ -1190,6 +1191,24 @@ test("a claude pane is refused at 2.5 GB free and opens at 2.7 GB", async () => 
   await assert.rejects(f.host.openForBot("bot-1", claude), /Not enough free memory for another terminal \(2\.5 GB free, 2\.6 GB needed; 2 GB stays free for the PC\)/);
   free = 2.7 * 1024 ** 3;
   assert.ok((await f.host.openForBot("bot-1", claude)).sessionId);
+});
+
+test("the PC reserve is 10% of RAM, capped at 2 GB", async () => {
+  const claude = { label: "worker", command: "claude --model opus 'hi'" };
+  for (const [total, refused, opens, message] of [
+    [8, 1.3, 1.5, /\(1\.3 GB free, 1\.4 GB needed; 0\.8 GB stays free for the PC\)/],
+    [16, 2.1, 2.3, /\(2\.1 GB free, 2\.2 GB needed; 1\.6 GB stays free for the PC\)/],
+    [32, 2.5, 2.7, /\(2\.5 GB free, 2\.6 GB needed; 2 GB stays free for the PC\)/],
+    [64, 2.5, 2.7, /\(2\.5 GB free, 2\.6 GB needed; 2 GB stays free for the PC\)/],
+  ]) {
+    let owner;
+    let free = refused * 1024 ** 3;
+    const f = fixture({ owner: () => owner, freeMemory: () => free, totalMemory: () => total * 1024 ** 3 });
+    owner = f.owner;
+    await assert.rejects(f.host.openForBot("bot-1", claude), message);
+    free = opens * 1024 ** 3;
+    assert.ok((await f.host.openForBot("bot-1", claude)).sessionId);
+  }
 });
 
 test("a plain shell opens at 2.2 GB free", async () => {

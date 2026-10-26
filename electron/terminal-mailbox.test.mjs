@@ -126,6 +126,7 @@ describe("pane notes from Wink", () => {
       platform: "linux",
       env: { SHELL: "/bin/sh" },
       freeMemory: () => 64 * 1024 ** 3,
+      totalMemory: () => 64 * 1024 ** 3,
       loadPty: () => ({
         spawn: () => {
           let emit = () => {};
