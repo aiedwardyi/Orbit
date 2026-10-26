@@ -193,6 +193,17 @@ describe("buildTurnContext", () => {
     expect(out.turnText).not.toContain("Wink compacted this conversation");
   });
 
+  it("says startup reads already ran after a bounded recycle, not after new instructions, a switch or a rewind", () => {
+    const ran = "Session-start reads already ran in this chat";
+    const base = { text: "hi", transcript, rewound: false, fresh: false, replaysNatively: false };
+    for (const recycleReason of ["compaction", "session-fat"] as const) {
+      expect(buildTurnContext({ ...base, recycled: true, recycleReason }).turnText).toContain(ran);
+    }
+    for (const flags of [{ recycled: true, recycleReason: "system" as const }, { fresh: true }, { rewound: true }]) {
+      expect(buildTurnContext({ ...base, ...flags }).turnText).not.toContain(ran);
+    }
+  });
+
   it("injects the durable task record at recovery boundaries", () => {
     const taskRecord = {
       goal: "Publish the weekly brief",
