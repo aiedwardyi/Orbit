@@ -53,6 +53,7 @@ const ALWAYS_APPROVAL = /^auto-approved (.+?) \(always allowed\): ([\s\S]*)$/;
 const AUTO_APPROVAL = /^auto-approved ([^:]+): ([\s\S]*)$/;
 const REVIEW_APPROVAL = /^review approved ([^:]+): ([\s\S]*)$/;
 const BUSY_RETRY = /^Gemini is busy\. Retrying in (\d+) (sec|min)\.$/;
+const RETRY_LINE = /^retrying \u2014 attempt \d+\/\d+ in \d+s \u2014 /;
 
 function toolFromAllowKey(key: string): string {
   const rest = key.startsWith("local-computer:") ? key.slice("local-computer:".length) : key;
@@ -71,7 +72,7 @@ export function classifyServerNotice(name: string): ServerNotice | null {
   if (review) return { kind: "approval", label: "review", tool: review[1], summary: review[2] };
   if (
     /^@.+ is waiting on your approval$/.test(name) ||
-    /^retrying \u2014 attempt \d+\/\d+ in \d+s \u2014 /.test(name) ||
+    RETRY_LINE.test(name) ||
     BUSY_RETRY.test(name) ||
     /^Same call repeated \d+× \u2014 /.test(name) ||
     name.endsWith(" is still stopping \u2014 this message was not dispatched")
@@ -83,7 +84,7 @@ interface ServerLine {
   re: RegExp;
   pick: (m: RegExpExecArray) => [MessageKey, Record<string, string | number>];
   /** fixed English the server must keep writing, in `file`; the drift guard scans for it */
-  file: "comms-visibility.ts" | "delegations.ts" | "index.ts" | "drivers/antigravity.ts";
+  file: "comms-visibility.ts" | "delegations.ts" | "index.ts" | "drivers/antigravity.ts" | "drivers/retry.ts";
   needles: string[];
 }
 
@@ -155,7 +156,7 @@ export const SERVER_LINES: ServerLine[] = [
   {
     re: BUSY_RETRY,
     pick: (m) => [m[2] === "sec" ? "chat.busyRetrySeconds" : "chat.busyRetryMinutes", { count: m[1] }],
-    file: "index.ts",
+    file: "drivers/retry.ts",
     needles: ["Gemini is busy. Retrying in ", " sec`", " min`"],
   },
   {
@@ -191,6 +192,12 @@ export function localizeServerLine(name: string, t: Translate): string {
 export function busyRetryLabel(message?: Message): string | undefined {
   const name = message?.kind === "activity" ? message.tool?.name : undefined;
   return name && BUSY_RETRY.test(name) ? localizeServerLine(name, translate) : undefined;
+}
+
+/** The row a turn.retrying pushes: the retry line or the busy-provider wait. */
+export function isRetryRow(message?: Message): boolean {
+  const name = message?.kind === "activity" ? message.tool?.name : undefined;
+  return name !== undefined && (RETRY_LINE.test(name) || BUSY_RETRY.test(name));
 }
 
 export function isServerLine(name: string): boolean {

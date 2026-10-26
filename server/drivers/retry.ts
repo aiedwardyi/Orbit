@@ -3,9 +3,19 @@
 // keep owning process lifetime while sharing one policy: a provider hiccup
 // (429/5xx/overloaded/reset) gets up to MAX_ATTEMPTS tries, an auth or
 // request-shape problem never does.
-import type { ProviderErrorCode } from "../contracts.ts";
+import type { ProviderErrorCode, RuntimeEvent } from "../contracts.ts";
 
 export const RETRY_MAX_ATTEMPTS = 3;
+
+/** The chat row for a turn.retrying; `busy` is a busy-provider resume wait. */
+export function retryLine(
+  event: Pick<Extract<RuntimeEvent, { type: "turn.retrying" }>, "attempt" | "delayMs" | "reason" | "maxAttempts">,
+  busy: boolean,
+): string {
+  return busy
+    ? `Gemini is busy. Retrying in ${event.delayMs < 60_000 ? `${Math.round(event.delayMs / 1000)} sec` : `${Math.round(event.delayMs / 60_000)} min`}.`
+    : `retrying \u2014 attempt ${event.attempt + 1}/${event.maxAttempts ?? RETRY_MAX_ATTEMPTS} in ${Math.round(event.delayMs / 1000)}s \u2014 ${event.reason}`;
+}
 
 /** Backoff schedule before attempt N (N is 1-based over retries): 1s / 3s / 8s. */
 export const BACKOFF_BASE_MS = [1_000, 3_000, 8_000] as const;

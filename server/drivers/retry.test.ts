@@ -7,6 +7,7 @@ import {
   classifyError,
   computeBackoff,
   isResumeCursorRejected,
+  retryLine,
 } from "./retry.ts";
 
 describe("busyResumeReason", () => {
@@ -139,5 +140,22 @@ describe("computeBackoff", () => {
       expect(low).toBeGreaterThanOrEqual(base * 0.75);
       expect(high).toBeLessThanOrEqual(base * 1.25 + 1);
     }
+  });
+});
+
+describe("retryLine", () => {
+  it("counts a relaunch against RETRY_MAX_ATTEMPTS", () => {
+    expect(retryLine({ attempt: 1, delayMs: 3_200, reason: "rate_limited" }, false)).toBe("retrying \u2014 attempt 2/3 in 3s \u2014 rate_limited");
+  });
+
+  it("counts an engine's own reconnect against its total tries", () => {
+    expect(retryLine({ attempt: 2, delayMs: 0, reason: "responseStreamDisconnected", maxAttempts: 6 }, false)).toBe(
+      "retrying \u2014 attempt 3/6 in 0s \u2014 responseStreamDisconnected",
+    );
+  });
+
+  it("keeps the busy-provider wait line", () => {
+    expect(retryLine({ attempt: 1, delayMs: 30_000, reason: "rate_limited" }, true)).toBe("Gemini is busy. Retrying in 30 sec.");
+    expect(retryLine({ attempt: 3, delayMs: 120_000, reason: "rate_limited" }, true)).toBe("Gemini is busy. Retrying in 2 min.");
   });
 });

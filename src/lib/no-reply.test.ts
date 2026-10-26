@@ -20,6 +20,7 @@ const user: Message = { id: "u1", at: 1, role: "user", kind: "text", text: "hi" 
 const runningTool: Message = { id: "a1", at: 2, role: "bot", kind: "activity", tool: { name: "Bash: pnpm test" } };
 const doneTool: Message = { ...runningTool, tool: { name: "Bash: pnpm test", ok: true } };
 const preamble: Message = { id: "b1", at: 3, role: "bot", kind: "text", text: "Looking." };
+const retryRow: Message = { id: "r1", at: 4, role: "bot", kind: "activity", tool: { name: "retrying \u2014 attempt 3/6 in 0s \u2014 responseStreamDisconnected", ok: true } };
 
 type Stage = { signal?: TurnSignal; lastMessage?: Message; streaming?: string; reasoning?: string; gen?: number; driverKind?: string };
 const waiting: Stage = { signal: "started", lastMessage: user, driverKind: "antigravityAgent" };
@@ -79,7 +80,7 @@ describe("no reply hint", () => {
     ["a delta", { ...waiting, streaming: "" }, { ...waiting, lastMessage: preamble }],
     ["a reasoning delta", { ...waiting, reasoning: "" }, { ...waiting, lastMessage: preamble }],
     ["a tool start", { ...waiting, lastMessage: runningTool }, { ...waiting, lastMessage: doneTool }],
-    ["a retry", { ...waiting, signal: "retrying" }, waiting],
+    ["a retry", { ...waiting, signal: "retrying", lastMessage: retryRow }, waiting],
     ["a stop", { ...waiting, signal: undefined }, waiting],
     ["a new tail", { ...waiting, lastMessage: preamble }, { ...waiting, lastMessage: preamble }],
     ["a resend before the tail moves", { ...waiting, gen: 1 }, { ...waiting, gen: 1 }],
@@ -88,6 +89,17 @@ describe("no reply hint", () => {
     await advance(NO_REPLY_MS - 10_000);
     await render(interrupt);
     await render(resume);
+    await advance(NO_REPLY_MS - 1000);
+    expect(label()).toBe("Waiting for the model");
+    await advance(1000);
+    expect(label()).toBe("Gemini hasn't replied in 2\u00a0min");
+  });
+
+  it("holds the hint through a pending retry and starts it once the turn moves again", async () => {
+    await render({ ...waiting, signal: "retrying", lastMessage: retryRow });
+    await advance(NO_REPLY_MS);
+    expect(label()).toBe("Reconnecting");
+    await render({ ...waiting, signal: "retrying", lastMessage: preamble });
     await advance(NO_REPLY_MS - 1000);
     expect(label()).toBe("Waiting for the model");
     await advance(1000);

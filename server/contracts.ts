@@ -97,6 +97,8 @@ export type RuntimeEvent = RuntimeEventBase &
         delayMs: number;
         /** Why this failure was judged retry-worthy (classifyError's reason). */
         reason: string;
+        /** Total tries, first launch included; unset means RETRY_MAX_ATTEMPTS. */
+        maxAttempts?: number;
       }
     | {
         type: "turn.completed";
