@@ -20,6 +20,8 @@ const COMMS_TOKEN = process.env.OMB_COMMS_TOKEN ?? "";
 // agy mounts this proxy machine-wide, so a process without a bot's terminal grant gets no tools.
 const TOOLS_ENABLED = Boolean(HOST && TOKEN && BOT_ID);
 const REQUEST_TIMEOUT_MS = 10_000;
+// Over the harness's 3 s cap on a usage refresh.
+const USAGE_TIMEOUT_MS = 5_000;
 const READ_WAIT_DEFAULT_MS = 15_000;
 const READ_WAIT_MAX_MS = 60_000;
 const READ_WAIT_HTTP_MARGIN_MS = 5_000;
@@ -379,6 +381,27 @@ async function postLaunchNote(fetchImpl: typeof fetch, config: TerminalConfig, s
   }).catch(() => undefined);
 }
 
+// Best effort too: no answer means no usage line and no hold.
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Tool arguments are untyped JSON-RPC input validated here.
+async function spawnUsage(fetchImpl: typeof fetch, config: TerminalConfig, args: Record<string, unknown>): Promise<{ hold?: string; line?: string }> {
+  const harness = config.harness ?? HARNESS;
+  const token = config.commsToken ?? COMMS_TOKEN;
+  const { label, command } = args;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Tool arguments are untyped model input.
+  if (!harness || !token || typeof label !== "string" || !label.trim() || typeof command !== "string") return {};
+  const response = await fetchImpl(`${harness}/api/internal/spawn-usage`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ fromBotId: config.botId ?? BOT_ID, label, command }),
+    signal: AbortSignal.timeout(USAGE_TIMEOUT_MS),
+  }).catch(() => undefined);
+  const payload: unknown = response?.ok ? await response.json().catch(() => undefined) : undefined;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof, anti-slop/require-safety-comment-for-type-assertion -- JSON response is narrowed to the documented hold/line envelope before reading it.
+  const body = payload && typeof payload === "object" ? payload as { hold?: unknown; line?: unknown } : undefined;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Each field is checked as a string before the model sees it.
+  return { hold: typeof body?.hold === "string" ? body.hold : undefined, line: typeof body?.line === "string" ? body.line : undefined };
+}
+
 const TOOL_NAMES = new Set<string>(TOOLS.map((tool) => tool.name));
 
 export async function callTool(
@@ -391,9 +414,12 @@ export async function callTool(
   if (!TOOL_NAMES.has(name)) return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
   try {
     if (name === "terminal_spawn") {
+      const usage = await spawnUsage(fetchImpl, config, args);
+      if (usage.hold) return { content: [{ type: "text", text: usage.hold }] };
       const pane = await spawnTerminalPane(args, fetchImpl, config);
       void postLaunchNote(fetchImpl, config, pane.sessionId);
-      return { content: [{ type: "text", text: `Opened pane "${String(args.label).trim()}": sessionId ${pane.sessionId} (generation ${pane.generation}). Use terminal_read and terminal_send with this sessionId.` }] };
+      const opened = `Opened pane "${String(args.label).trim()}": sessionId ${pane.sessionId} (generation ${pane.generation}). Use terminal_read and terminal_send with this sessionId.`;
+      return { content: [{ type: "text", text: usage.line ? `${opened}\n${usage.line}` : opened }] };
     }
     if (name === "terminal_close") {
       const result = await closeTerminalPane(args, fetchImpl, config);

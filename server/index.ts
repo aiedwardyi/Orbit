@@ -92,6 +92,7 @@ import {
 } from "./config.ts";
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
 import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
+import { createSpawnUsage } from "./spawn-usage.ts";
 import { ComputerControl } from "./computer-control.ts";
 import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, planCompaction, planSummaryGrace, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes, type SummaryGrace } from "./context-compaction.ts";
 import { decodeInjectId } from "./drivers/local-inject.ts";
@@ -2798,6 +2799,17 @@ const turnUsage = new Map<string, { input: number; output: number; cachedInput?:
 const rateLimitsByInstance = loadRateLimits(DATA_DIR);
 const refreshUsage = createUsageRefresh();
 const checkMuseUsage = createMuseCheck();
+const spawnUsage = createSpawnUsage({
+  rateLimits: rateLimitsByInstance,
+  save: () => scheduleSaveRateLimits(rateLimitsByInstance, DATA_DIR),
+  refresh: async (instanceId, previous) => {
+    const config = instanceConfigs(cfg)[instanceId];
+    const instance = registry.get(instanceId);
+    if (!config || !instance) return {};
+    return refreshUsage(instance.driverKind, { instanceId, cli: z.object({ cli: z.string().optional() }).catch({}).parse(config.config).cli, environment: config.environment }, previous);
+  },
+  environment: (instanceId) => instanceConfigs(cfg)[instanceId]?.environment,
+});
 
 function withRateLimits<T extends { instanceId: string }>(instances: T[]) {
   return instances.map((instance) => {
@@ -7103,6 +7115,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         if ("skipped" in note) return json(res, 200, { skipped: true });
         return json(res, 201, { messageId: note.messageId });
+      }
+      // terminal_spawn, before the pane opens: the engine's usage left, or a hold on a nearly empty window.
+      if (method === "POST" && path === "/api/internal/spawn-usage") {
+        const body = await readBody(req);
+        const from = store.bot(String(body.fromBotId ?? ""));
+        if (!from) return json(res, 403, { error: "unknown sender" });
+        return json(res, 200, await spawnUsage(from.id, String(body.label ?? ""), String(body.command ?? "")));
       }
       // The show_image tool: a copy of a local image lands as a settled
       // screen message that references the attachment, never inline pixels.
