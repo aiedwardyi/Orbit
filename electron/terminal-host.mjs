@@ -39,7 +39,7 @@ const AGENT_BUSY_RE = /(?:esc to interrupt|^[·✢✳✶✻✽*][\s─]+\S[^\n]*
 // Claude Code's status line counts live jobs in a "·" segment; its "done ... still running" line is history and never clears.
 const AGENT_JOBS_RE = /^(?!.*still running)(?=.*·)(?:.*·)?\s*(?:\d+ [^,·]+, )*\d+ (?:shells?|monitors?|local agents?)(?:, \d+ [^,·]+)*\s*(?:·|$)/u;
 // Background agents stay out of that count: Claude Code lists them under its input box, and only its newest turn line, right above the box, waits on them.
-const AGENTS_RUNNING_RE = /^✻ Waiting for \d+ background agents?\b.*\n+─+$|^─+$(?![\s\S]*^─+$)[\s\S]*^\s*● main$/mu;
+const AGENTS_RUNNING_RE = /^✻ Waiting for \d+ background agents?\b.*\n+─+$(?=(?:\n(?!─+$).*)*\n─+$(?![\s\S]*^─+$))|^─+$(?![\s\S]*^─+$)[\s\S]*^\s*● main$/mu;
 // Wrapping, borders, spinner glyphs and clocks change on a redraw without the worker moving; a busy agent's ticking timer still counts.
 const STALL_CHURN_RE = /[\u2500-\u257f\u2800-\u28ff✻✢✳✶✽·*●]|\b\d+[hms]\b|\d{1,2}:\d{2}(?::\d{2})?|\b\d+(?:\.\d+)?%(?=\s+context left\b)/gu;
 const stallSignature = (screenText) => AGENT_BUSY_RE.test(screenText) ? screenText : screenText.replace(STALL_CHURN_RE, "").replace(/\s+/g, "");

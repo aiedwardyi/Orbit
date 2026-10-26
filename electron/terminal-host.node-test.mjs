@@ -2372,6 +2372,7 @@ for (const [name, screen, minutes] of [
   ["its background agent wait", claudeAgentWait([]).replace(" · 3 shells", ""), 30],
   ["an old background agent wait above a finished turn", claudeIdle().replace("✻ Brewed", "✻ Waiting for 1 background agent to finish\r\n\r\n● The measure agent finished; report sent.\r\n\r\n✻ Brewed"), 2],
   ["an old agent list above its input box", claudeAgentWait().replace("Waiting for 1 background agent to finish", "Brewed for 21s · done 10:41 PM") + claudeIdle().replace("\x1b[2J\x1b[H", ""), 2],
+  ["an old background agent wait above its input box", claudeAgentWait() + claudeIdle().replace("\x1b[2J\x1b[H", ""), 2],
 ]) {
   test(`a Claude pane idle on ${name} stalls after ${minutes} min`, async (t) => {
     const f = stallFixture();
