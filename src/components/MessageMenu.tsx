@@ -10,6 +10,7 @@ import { EXTENDED_REACTIONS } from "../../shared/reactions";
 import { useStore, type Message } from "@/state/store";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { useBackLayer } from "@/lib/use-back-layer";
 
 declare global {
   interface WindowEventMap {
@@ -354,6 +355,7 @@ export function MessageMenu({
   const { dispatch } = useStore();
   const { threadId, message, copyText, user, pinned, canPin } = target;
   const [expanded, setExpanded] = useState(false);
+  useBackLayer(expanded, () => setExpanded(false));
   const [touch] = useState(isTouchPrimary);
   // kept against the row, since the transcript can scroll before Select text
   const [held] = useState(() => {
@@ -572,6 +574,7 @@ export function SelectionMenu({
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  useBackLayer(true, onClose);
   const ref = useRef<HTMLDivElement>(null);
   const box = useMenuPlacement(ref, x, y);
   useMenuDismiss(ref, opener, onClose);

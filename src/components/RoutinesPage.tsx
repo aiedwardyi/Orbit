@@ -27,6 +27,7 @@ import { MAUS_COLORS, type MausState } from "@/lib/mascot";
 import type { Routine, RoutineInput, RoutineRun, RoutineRunOn, RoutineRunStatus } from "@/lib/routines";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
 import { usePresence } from "@/lib/use-presence";
+import { useBackLayer } from "@/lib/use-back-layer";
 import { api, openNotificationTarget, useStore, type Bot } from "@/state/store";
 import {
   activeRunForRoutine,
@@ -355,6 +356,7 @@ export function RoutineEditor({
 }) {
   const { state, dispatch } = useStore();
   const [name, setName] = useState(routine?.name ?? "");
+  useBackLayer(!closing, onClose);
   const [prompt, setPrompt] = useState(routine?.prompt ?? "");
   const [botId, setBotId] = useState(lockedBotId ?? routine?.botId ?? bots[0]?.id ?? "");
   const [runOn, setRunOn] = useState<RoutineRunOn>(routine?.runOn ?? defaultRunOn ?? "maus");
@@ -533,6 +535,7 @@ function RoutineDetails({
   const routine = item.routine;
   const run = item.run;
   const [working, setWorking] = useState(false);
+  useBackLayer(!closing, onClose);
   const [error, setError] = useState("");
   const inFlight = useRef<string | null>(null);
   const title = routine?.name ?? run?.routineName ?? "Routine";
@@ -657,6 +660,7 @@ function RoutineDetails({
 }
 
 function PausedRoutines({ routines, bots, closing, onClose, onEdit }: { routines: Routine[]; bots: Bot[]; closing: boolean; onClose: () => void; onEdit: (routine: Routine) => void }) {
+  useBackLayer(!closing, onClose);
   const { dispatch } = useStore();
   return (
     <div data-closing={closing || undefined} inert={closing} className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>

@@ -8,6 +8,7 @@ import { EXTENDED_REACTIONS } from "../../shared/reactions";
 import { useStoreDispatch, type Bot, type Message } from "@/state/store";
 import { useI18n, type Translate } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
+import { useBackLayer } from "@/lib/use-back-layer";
 
 /** The standoff between the bar and the picker. */
 const PICKER_GAP = 6;
@@ -38,6 +39,7 @@ export function ReactionBar({ threadId, message }: { threadId: string; message: 
     setPickerOpen(false);
     anchorRef.current?.querySelector("button")?.focus();
   };
+  useBackLayer(pickerOpen, closeAndRefocus);
 
   // same dismiss contract as the sidebar menus: outside click, Escape, blur
   useEffect(() => {

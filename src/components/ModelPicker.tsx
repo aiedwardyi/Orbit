@@ -8,6 +8,7 @@ import { movePicker, pickerColumn, pickerEfforts, pickerModels, pickerRows, sele
 import { focusComposerOnActivation } from "@/lib/focus-composer";
 import { pickerPrice } from "@/lib/model-index";
 import { usePresence } from "@/lib/use-presence";
+import { useBackLayer } from "@/lib/use-back-layer";
 import { noReplySource, switchFromNoReply } from "@/lib/no-reply-switch";
 import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
@@ -52,6 +53,7 @@ export function ModelPickerControl({
   const [draftSelection, setDraft] = useState(selection);
   const draft = withPickerEffort(state.instances.find((instance) => instance.instanceId === draftSelection.instanceId), draftSelection);
   const [customOpen, setCustomOpen] = useState(false);
+  useBackLayer(open && customOpen, () => setCustomOpen(false));
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);

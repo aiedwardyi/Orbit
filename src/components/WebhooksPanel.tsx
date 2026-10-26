@@ -29,6 +29,7 @@ import {
 } from "@/lib/webhook-credentials";
 import { webhookActivationDefaults, type WebhookAttempt, type WebhookCredential, type WebhookTrigger, type WebhookTriggerInput } from "@/lib/webhooks";
 import { usePresence } from "@/lib/use-presence";
+import { useBackLayer } from "@/lib/use-back-layer";
 import { api, useStore, type Bot } from "@/state/store";
 
 function relativeTime(at?: number) {
@@ -81,6 +82,7 @@ function terminalCommand(credential: WebhookCredential) {
 }
 
 function WebhookEditor({ webhook, bots, closing, onClose, onCredential }: { webhook?: WebhookTrigger; bots: Bot[]; closing: boolean; onClose: () => void; onCredential: (credential: WebhookCredential, webhookId: string) => void }) {
+  useBackLayer(!closing, onClose);
   const { state, dispatch } = useStore();
   const [botId, setBotId] = useState(webhook && bots.some((bot) => bot.id === webhook.botId) ? webhook.botId : (bots[0]?.id ?? ""));
   const [name, setName] = useState(webhook?.name ?? "");
@@ -146,6 +148,8 @@ export function WebhooksPanel({ bots }: { bots: Bot[] }) {
   );
   const [selectedId, setSelectedId] = useState<string | null>(state.webhooks[0]?.id ?? null);
   const [tab, setTab] = useState<"setup" | "activity">("setup");
+  const [menuOpen, setMenuOpen] = useState(false);
+  useBackLayer(menuOpen, () => setMenuOpen(false));
   const [working, setWorking] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -303,7 +307,7 @@ export function WebhooksPanel({ bots }: { bots: Bot[] }) {
                 </div>
                 <div className="flex items-center gap-2">
                   {!selected.verificationPending && <button disabled={Boolean(working)} onClick={() => void invoke(selected, "toggle")} className={cn("flex items-center gap-1.5 rounded-lg px-3 py-2 text-[11.5px] font-medium", selected.enabled ? "bg-raised text-ink-secondary hover:text-ink" : "bg-accent text-accent-ink hover:brightness-110")}>{selected.enabled ? <Pause size={13} /> : <Play size={13} />}{selected.enabled ? "Pause" : "Enable"}</button>}
-                  <details className="relative"><summary className="list-none rounded-lg p-2 text-ink-secondary hover:bg-raised hover:text-ink"><MoreHorizontal size={17} /></summary><div className="absolute right-0 top-full z-20 mt-1 w-[180px] rounded-xl border border-hairline/50 bg-card p-1.5 shadow-2xl"><button onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setEditor(selected); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-ink hover:bg-raised">Edit settings</button><button onClick={() => void invoke(selected, "delete")} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-danger hover:bg-danger/10"><Trash2 size={13} />Delete</button></div></details>
+                  <details className="relative" open={menuOpen} onToggle={(event) => setMenuOpen(event.currentTarget.open)}><summary className="list-none rounded-lg p-2 text-ink-secondary hover:bg-raised hover:text-ink"><MoreHorizontal size={17} /></summary><div className="absolute right-0 top-full z-20 mt-1 w-[180px] rounded-xl border border-hairline/50 bg-card p-1.5 shadow-2xl"><button onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setEditor(selected); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-ink hover:bg-raised">Edit settings</button><button onClick={() => void invoke(selected, "delete")} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-danger hover:bg-danger/10"><Trash2 size={13} />Delete</button></div></details>
                 </div>
               </div>
 

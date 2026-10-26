@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { AlertTriangle } from "lucide-react";
 
 import { usePresence } from "@/lib/use-presence";
+import { useBackLayer } from "@/lib/use-back-layer";
 
 export const LOCAL_COMPUTER_AUTO_WARNING =
   "Auto mode will let this bot click, type, and run tools on this computer without asking first. Destructive and sensitive actions still stop. Continue only if you are watching.";
@@ -17,6 +18,7 @@ export function LocalComputerAutoWarning({
 }) {
   const confirmRef = useRef<HTMLButtonElement>(null);
   const presence = usePresence(open);
+  useBackLayer(open, onCancel);
 
   useEffect(() => {
     if (!open) return;

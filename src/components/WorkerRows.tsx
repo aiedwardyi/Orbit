@@ -7,6 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import { chipEffortLabel, chipEffortShortLabel } from "@/lib/model-chip";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
 import { isPhone, PHONE_QUERY } from "@/lib/phone-swipe";
+import { useBackLayer } from "@/lib/use-back-layer";
 import type { Message } from "@/state/store";
 import { listedRuns, listedSessionId, workerAnchors, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
 import { ProviderMark } from "./ProviderIcons";
@@ -271,6 +272,7 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
   useEffect(() => {
     if (listed.length === 0) setOpen(false);
   }, [listed.length]);
+  useBackLayer(open && phone, () => setOpen(false));
   useLayoutEffect(() => {
     if (!open || phone || !rootRef.current) return;
     const root = rootRef.current;

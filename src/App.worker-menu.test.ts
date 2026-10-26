@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, Fragment, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
 import { SNAPSHOT_CACHE_KEY } from "@/state/snapshot-cache";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 let host: HTMLDivElement;
 let root: Root;
@@ -27,6 +28,15 @@ const bot = (id: string, name: string, label: string) => ({
   messages: [launch(id, label, `${id.padEnd(8, "0")}-0000-4000-8000-000000000000`)],
 });
 
+function ConfirmOverApp() {
+  const [open, setOpen] = useState(false);
+  return createElement(Fragment, null,
+    createElement(App),
+    createElement("button", { "data-open-confirm": "", onClick: () => setOpen(true) }, "Confirm"),
+    open && createElement(ConfirmDialog, { title: "Confirm", confirmLabel: "Confirm", onCancel: () => setOpen(false), onConfirm: () => setOpen(false) }),
+  );
+}
+
 beforeEach(() => {
   localStorage.setItem("omb-onboarding-done", "true");
   localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify({
@@ -44,6 +54,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
 });
@@ -91,5 +102,161 @@ describe("the workers menu follows the view", () => {
     expect(menu()).toBeNull();
     await act(async () => strip()!.click());
     expect(menu()?.querySelector("h2")?.textContent).toBe("Pilot's workers");
+  });
+});
+
+describe("phone Back with the workers list", () => {
+  let entries: unknown[];
+  let index: number;
+  let pending: number[];
+
+  beforeEach(() => {
+    entries = [null];
+    index = 0;
+    pending = [];
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: query.includes("max-width") || query.includes("prefers-reduced-motion"),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    }) as unknown as MediaQueryList);
+    vi.spyOn(window, "history", "get").mockReturnValue({
+      get state() { return entries[index]; },
+      pushState: (state: unknown) => {
+        entries.splice(index + 1);
+        entries.push(state);
+        index++;
+      },
+      go: (delta: number) => pending.push(index + delta),
+    } as unknown as History);
+  });
+
+  const settle = async () => {
+    for (let tries = 0; pending.length && tries < 10; tries++) {
+      index = pending.shift()!;
+      expect(index).toBeGreaterThanOrEqual(0);
+      await act(async () => window.dispatchEvent(new PopStateEvent("popstate", { state: entries[index] })));
+    }
+    expect(pending).toHaveLength(0);
+  };
+  const back = async () => {
+    window.history.go(-1);
+    await settle();
+  };
+  const selectPilot = async (view: ReactNode = createElement(App)) => {
+    await act(async () => root.render(view));
+    await until(strip);
+    await key({ key: "2", code: "Digit2", ctrlKey: true });
+    expect(document.querySelector("textarea[data-orbit-composer]")?.getAttribute("placeholder")).toBe("Message Pilot");
+  };
+
+  it("closes the list before returning to the previous bot", async () => {
+    await selectPilot();
+    await act(async () => strip()!.click());
+    expect(menu()?.querySelector("h2")?.textContent).toBe("Pilot's workers");
+    await back();
+    expect(menu()).toBeNull();
+    expect(document.querySelector("textarea[data-orbit-composer]")?.getAttribute("placeholder")).toBe("Message Pilot");
+    await back();
+    expect(document.querySelector("textarea[data-orbit-composer]")?.getAttribute("placeholder")).toBe("Message Scout");
+    expect(index).toBe(0);
+  });
+
+  it.each(["X", "backdrop"])("drops the list entry after %s, including five repeated opens", async (dismiss) => {
+    await selectPilot();
+    for (let count = 0; count < 5; count++) {
+      await act(async () => strip()!.click());
+      expect(menu()).not.toBeNull();
+      expect(index).toBe(2);
+      await act(async () => {
+        if (dismiss === "X") menu()!.querySelector<HTMLButtonElement>("button")!.click();
+        else menu()!.parentElement!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      });
+      await settle();
+      expect(menu()).toBeNull();
+      expect(index).toBe(1);
+    }
+    await back();
+    expect(document.querySelector("textarea[data-orbit-composer]")?.getAttribute("placeholder")).toBe("Message Scout");
+    expect(index).toBe(0);
+  });
+
+  it("closes a confirm above the list one visible layer at a time", async () => {
+    await selectPilot(createElement(ConfirmOverApp));
+    await act(async () => strip()!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>("[data-open-confirm]")!.click());
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2);
+    await back();
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(menu()).not.toBeNull();
+    expect(index).toBe(2);
+    await back();
+    expect(menu()).toBeNull();
+    expect(index).toBe(1);
+    await back();
+    expect(index).toBe(0);
+  });
+
+  it("replaces the tapped worker list with its terminal without an extra Back", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      const id = url.match(/^\/api\/bots\/(b[12])\/terminal$/)?.[1];
+      return id ? Promise.resolve(new Response(JSON.stringify({ panes: [{
+        sessionId: `${id.padEnd(8, "0")}-0000-4000-8000-000000000000`,
+        label: `${id === "b1" ? "ONE" : "TWO"} | Opus 5.5 | high`,
+      }] }), { headers: { "Content-Type": "application/json" } })) : new Promise<Response>(() => {});
+    }));
+    await selectPilot();
+    await act(async () => strip()!.click());
+    const entry = () => menu()?.querySelector<HTMLButtonElement>("li button") ?? null;
+    await until(entry);
+    expect(entry()).not.toBeNull();
+    await act(async () => entry()!.click());
+    await settle();
+    expect(menu()).toBeNull();
+    expect(document.querySelector(".orbit-terminal-overlay")?.getAttribute("data-open")).toBe("true");
+    expect(index).toBe(2);
+    await back();
+    expect(document.querySelector(".orbit-terminal-overlay")?.getAttribute("data-open")).toBe("false");
+    expect(document.querySelector("textarea[data-orbit-composer]")?.getAttribute("placeholder")).toBe("Message Pilot");
+    await back();
+    expect(document.querySelector("textarea[data-orbit-composer]")?.getAttribute("placeholder")).toBe("Message Scout");
+    expect(index).toBe(0);
+  });
+
+  it("closes a group's list before leaving the group", async () => {
+    const snapshot = JSON.parse(localStorage.getItem(SNAPSHOT_CACHE_KEY)!);
+    snapshot.groups = [{
+      id: "g1", threadId: "t-g1", name: "Team", memberIds: ["b1", "b2"],
+      defaultResponder: { kind: "everyone" }, bulletin: "", unread: false, createdAt: 1,
+      messages: [launch("b1", "GROUP | Opus 5.5 | high", "group-session")],
+    }];
+    localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(snapshot));
+    await act(async () => root.render(createElement(App)));
+    await until(strip);
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-sidebar-row-kind="group"] button')!.click());
+    await until(strip);
+    await act(async () => strip()!.click());
+    expect(menu()?.querySelector("h2")?.textContent).toBe("Team's workers");
+    await back();
+    expect(menu()).toBeNull();
+    await act(async () => strip()!.click());
+    expect(menu()?.querySelector("h2")?.textContent).toBe("Team's workers");
+    await back();
+    await back();
+    expect(document.querySelector("textarea[data-orbit-composer]")?.getAttribute("placeholder")).toBe("Message Scout");
+    expect(index).toBe(0);
+  });
+
+  it("keeps browser Back navigation off in the desktop app", async () => {
+    window.ogb = {} as NonNullable<typeof window.ogb>;
+    try {
+      await selectPilot();
+      await act(async () => strip()!.click());
+      expect(menu()).not.toBeNull();
+      expect(index).toBe(0);
+      await act(async () => window.dispatchEvent(new PopStateEvent("popstate", { state: null })));
+      expect(menu()).not.toBeNull();
+      expect(document.querySelector("textarea[data-orbit-composer]")?.getAttribute("placeholder")).toBe("Message Pilot");
+    } finally {
+      window.ogb = undefined;
+    }
   });
 });

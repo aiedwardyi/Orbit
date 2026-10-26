@@ -8,6 +8,7 @@ import { Download, ImageOff, Maximize2, X } from "lucide-react";
 import { attachmentBasename, attachmentImageUrl } from "@/lib/composer-attachments";
 import { cn } from "@/lib/cn";
 import { usePresence } from "@/lib/use-presence";
+import { useBackLayer } from "@/lib/use-back-layer";
 import {
   FIT_VIEW,
   KEY_STEP,
@@ -96,6 +97,7 @@ export function AttachmentPreviewDialog({
   const stageRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const closeRef = useRef(onClose);
+  useBackLayer(!closing, onClose);
   const retry = usePictureRetry(image.src);
   const [seenSrc, setSeenSrc] = useState(image.src);
   const [natural, setNatural] = useState({ w: 0, h: 0 });

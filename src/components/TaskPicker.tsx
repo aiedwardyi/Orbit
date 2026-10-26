@@ -12,6 +12,7 @@ import { COMPACT_BUBBLE } from "@/lib/compact-chip";
 import { formatTokens } from "@/lib/format-tokens";
 import { nextRename } from "@/lib/rename";
 import { localeTag, useI18n } from "@/lib/i18n";
+import { useBackLayer } from "@/lib/use-back-layer";
 import { canDeleteWhileWorking, liveRunForBot, workingThreadId } from "../../shared/working-thread";
 
 /** Click-to-switch used to close this menu immediately, which unmounted the
@@ -109,6 +110,7 @@ function ConversationTaskPicker({
     setQuery("");
     setOpen(false);
   };
+  useBackLayer(open, closeMenu);
 
   const queueDismiss = () => {
     clearDismiss();
