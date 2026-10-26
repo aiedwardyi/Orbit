@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api, useOptionalStoreDispatch, useStore, type InstanceInfo } from "@/state/store";
 import { EngineMark } from "./EngineMark";
-import { EngineSignIn } from "./EngineSetup";
+import { EngineSignIn, installCommandFor, openInstallTerminalOrCopy } from "./EngineSetup";
 import { isFriendsCliEngine, orderFriendsEngines } from "@/lib/engine-rail";
 import { useI18n } from "@/lib/i18n";
 
@@ -16,6 +16,7 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
   const [current, setCurrent] = useState(instance);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
+  const [installStatus, setInstallStatus] = useState<"opened" | "copied" | null>(null);
   useEffect(() => { setCurrent(instance); }, [instance]);
   const signOut = async () => {
     if (busy) return;
@@ -31,6 +32,16 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
     finally { setBusy(false); }
   };
   const canSignOut = Boolean(current.install?.logout) && current.driverKind !== "antigravityAgent";
+  const installCommand = current.snapshot.state !== "available" ? installCommandFor(current.install) : null;
+  const install = async () => {
+    if (!installCommand) return;
+    setInstallStatus(null);
+    try {
+      setInstallStatus(await openInstallTerminalOrCopy(installCommand, () => window.ogb!.openInstallTerminal!(installCommand), (text) =>
+        navigator.clipboard.writeText(text),
+      ));
+    } catch {}
+  };
   return (
     <div data-engine-row={current.instanceId} className="min-w-0 py-2">
       <div className="flex min-h-[44px] items-start gap-2 text-[13px]">
@@ -39,9 +50,15 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
         <div className="min-w-0 max-w-[65%] py-1.5 has-[>div>button:first-child]:py-0">
           {current.snapshot.state !== "available" ? (
             <div className="flex flex-wrap items-center justify-end gap-x-3 break-keep text-[12px] text-ink-secondary">
-              <span>{t("engines.notInstalled")}</span>
-              {current.install?.docsUrl && <a href={current.install.docsUrl} target="_blank" rel="noreferrer"
+              <span aria-live="polite">{installStatus === "opened" ? t("engine.terminalOpened")
+                : installStatus === "copied" ? t("engine.commandCopied") : t("engines.notInstalled")}</span>
+              {installCommand ? <button type="button" onClick={() => void install()}
+                className="text-ink hover:underline">{t("engines.install")}</button>
+                : current.install?.docsUrl && <a href={current.install.docsUrl} target="_blank" rel="noreferrer"
                 className="text-ink hover:underline">{t("engines.install")}</a>}
+              {current.install?.needsNode && installCommand?.includes("npm") && (
+                <p className="w-full text-right text-[11px] leading-[14px] text-ink-secondary/70">{t("engine.needsNode")}</p>
+              )}
             </div>
           ) : isEngineConnected(current) ? (
             <div aria-live="polite" className="flex flex-col items-end gap-1.5 break-keep text-[12px] text-ink-secondary">
