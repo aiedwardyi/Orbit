@@ -53,10 +53,6 @@ const MB = 1024 ** 2;
 const ENGINE_MEMORY_FLOOR = { claude: 600 * MB, codex: 150 * MB, muse: 150 * MB };
 const OTHER_MEMORY_FLOOR = 300 * MB;
 const SHELL_MEMORY_FLOOR = 100 * MB;
-// Kept free for the PC on top of a pane's floor, as 10% of RAM (earlyoom's low-memory line) up to this.
-const PC_MEMORY_RESERVE = 2048 * MB;
-// A new worker takes this long to grow to its floor, so free memory does not show it yet.
-const PANE_WARMUP_MS = 30_000;
 const LABEL_LIMIT = 40;
 const MIN_ID_PREFIX_LEN = 8;
 const CLOSED_PANE_HISTORY_LIMIT = 32;
@@ -391,7 +387,7 @@ function paneLabel(value) {
   return value.replace(/[\x00-\x1f\x7f]/g, "").trim().slice(0, LABEL_LIMIT) || undefined;
 }
 
-export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, prestartIdleMs = PRESTART_IDLE_MS, notePane = postPaneNote, now = () => Date.now(), freeMemory = () => os.freemem(), totalMemory = () => os.totalmem(), setPriority = os.setPriority, paneRuns = null, botNames = async () => ({}) }) {
+export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = () => null, mailbox = async () => null, loadPty = () => ({ spawn: (shell, args, options) => spawnTerminalPty(require.resolve("node-pty"), shell, args, options) }), env = process.env, platform = process.platform, readyTimeoutMs = terminalReadyTimeoutMs(platform), activityCoalesceMs = TERMINAL_ACTIVITY_COALESCE_MS, attentionCooldownMs = TERMINAL_ACTIVITY_ACK_COOLDOWN_MS, stallMs = TERMINAL_STALL_MS, stallCheckMs = STALL_CHECK_MS, prestartIdleMs = PRESTART_IDLE_MS, notePane = postPaneNote, now = () => Date.now(), freeMemory = () => os.freemem(), setPriority = os.setPriority, paneRuns = null, botNames = async () => ({}) }) {
   const sessions = new Map();
   const active = new Map();
   const generations = new Map();
@@ -400,7 +396,6 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
   const deletedBots = new Set();
   const closedBotPanes = new Map();
   let reservedPanes = 0;
-  let promisedMemory = 0;
   let disposed = false;
   let disposal = null;
   // conpty.node edits one unlocked process-wide pty list on every shell exit, so panes stop one at a time.
@@ -1370,20 +1365,14 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const botReserved = paneReservations.get(botId) ?? 0;
       if (botSessions(botId).filter((session) => session.botPane && session.exitCode === null).length + botReserved >= BOT_PANE_LIMIT) throw new Error(`Too many bot terminals (limit ${BOT_PANE_LIMIT})`);
       if (active.size + reservedPanes >= SESSION_LIMIT) reclaimExited();
-      const paneFloor = paneMemoryFloor(input.command);
-      const reserve = Math.min(PC_MEMORY_RESERVE, totalMemory() / 10);
-      const floor = paneFloor + reserve;
-      let free = freeMemory() - promisedMemory;
-      for (const session of sessions.values()) {
-        if (session.botPane && session.exitCode === null && active.get(session.key) === session.id && now() - session.spawnedAt < PANE_WARMUP_MS) free -= session.memoryFloor;
-      }
+      const floor = paneMemoryFloor(input.command);
+      const free = freeMemory();
       if (free < floor) {
         const names = await Promise.resolve().then(botNames).catch(() => ({}));
-        throw new Error(`Not enough free memory for another terminal (${(Math.max(0, free) / 1024 ** 3).toFixed(1)} GB free, ${(floor / 1024 ** 3).toFixed(1)} GB needed; ${Number((reserve / 1024 ** 3).toFixed(1))} GB stays free for the PC).${openTerminals(names)} Close a finished pane with terminal_close.`);
+        throw new Error(`Not enough free memory for another terminal (${(free / 1024 ** 3).toFixed(1)} GB free, ${(floor / 1024 ** 3).toFixed(1)} GB needed).${openTerminals(names)} Close a finished pane with terminal_close.`);
       }
       paneReservations.set(botId, botReserved + 1);
       reservedPanes += 1;
-      promisedMemory += paneFloor;
       let session;
       try {
         const folder = await resolveFolder({ botId, cwd: input.cwd });
@@ -1408,11 +1397,9 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         session.botPane = true;
         session.label = label;
         session.spawnedAt = now();
-        session.memoryFloor = paneFloor;
         active.set(key, session.id);
       } finally {
         reservedPanes -= 1;
-        promisedMemory -= paneFloor;
         const left = paneReservations.get(botId) - 1;
         if (left) paneReservations.set(botId, left);
         else paneReservations.delete(botId);
