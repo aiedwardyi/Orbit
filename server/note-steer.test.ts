@@ -308,7 +308,7 @@ describe("steering into the Claude driver (fake CLI)", () => {
       if (event.type === "turn.completed" && event.turnId === live) live = undefined;
     });
     await adapter.sendTurn({ threadId: bot.threadId, text: "work", model: "claude-fake" });
-    await events.until((event) => event.type === (mode === "hang" ? "session.started" : "content.delta"));
+    await events.until((event) => mode === "hang" ? event.type === "session.started" : event.type === "content.delta" && event.delta === "working");
     let written: Promise<boolean> | undefined;
     const wake = vi.fn();
     const steerer = new NoteSteerer({
