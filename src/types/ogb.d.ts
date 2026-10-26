@@ -158,7 +158,7 @@ type SkillRecordingPayload = {
     modes?: number[];
     resetModes?: number[];
     cursor?: { x: number; y: number; visible: boolean };
-    panes?: { sessionId: string; generation: number; label: string | null; cwd: string; main: boolean; exited: boolean }[];
+    panes?: { sessionId: string; generation: number; label: string | null; cwd: string; main: boolean; exited: boolean; changedAt?: number }[];
   }
 
   interface Window {
