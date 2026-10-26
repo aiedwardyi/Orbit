@@ -129,7 +129,7 @@ describe("saved keys prompt", () => {
   });
 
   it("joins the credential prompt in 1:1 and room turns, read from cfg each turn", () => {
-    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const sites: Array<[string | undefined, string]> = [
       [index.match(/const credentialPrompt = (.*);\n/)?.[1], " Ask first."],
       [index.match(/\n\s+(integrations\.agents && .*CREDENTIAL_PROMPT.*),\n/)?.[1], "Ask first."],
