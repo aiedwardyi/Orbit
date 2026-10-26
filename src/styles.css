@@ -1619,6 +1619,11 @@
     color: var(--color-ink-secondary);
   }
 
+  /* Claude Code's blank line between tool rows and the reply */
+  :is([data-run], [data-mid]:has(> .term-step)) + [data-mid] > [data-orbit-message="bot"] {
+    margin-top: 0.625rem;
+  }
+
   /* ● Verb(summary) over ⎿ Done (1.2s) */
   .term-step {
     position: relative;
