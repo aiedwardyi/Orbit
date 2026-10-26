@@ -15,8 +15,8 @@ const ENGINES = new Map<string, Engine>([
 ]);
 // The Gemini template on Windows leads with `$env:NAME='value'; `.
 const ENV_STATEMENT = /^\s*\$env:(\w+)\s*=\s*(?:'[^']*'|"[^"]*"|[^\s;]+)\s*;/i;
-// Either one points the CLI at another account than the default instance reads.
-const OTHER_HOME = new Set(["CODEX_HOME", "CLAUDE_CONFIG_DIR"]);
+// Each one points the CLI at another account than the default instance reads.
+const OTHER_HOME = new Set(["CODEX_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"]);
 const STALE_MS = 5 * 60_000;
 const REFRESH_CAP_MS = 3_000;
 const REPEAT_MS = 2 * 60_000;

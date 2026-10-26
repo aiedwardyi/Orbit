@@ -52,6 +52,7 @@ describe("spawnEngine", () => {
   it("skips a command that runs another account or another program", () => {
     expect(spawnEngine(`$env:CODEX_HOME='C:\\Users\\me\\.codex-work'; ${CODEX}`)).toBeNull();
     expect(spawnEngine("$Env:claude_config_dir = \"C:\\Users\\me\\.claude-2\"; claude --model claude-opus-5-5 'Do it.'")).toBeNull();
+    expect(spawnEngine("$env:CLAUDE_CODE_OAUTH_TOKEN='sk-ant-oat01-work'; claude 'Do it.'")).toBeNull();
     expect(spawnEngine(`${WIN.agy}$env:CODEX_HOME='D:\\codex'; codex 'Do it.'`)).toBeNull();
     for (const command of ["pnpm dev", "codex-review --fix", "& codex 'Do it.'", "", "  "]) expect(spawnEngine(command)).toBeNull();
   });
@@ -100,7 +101,7 @@ describe("createSpawnUsage", () => {
   });
 
   it("skips an engine whose instance runs another account", async () => {
-    const environments: Record<string, string>[] = [{ CODEX_HOME: "C:\\Users\\me\\.codex-work" }, { Claude_Config_Dir: "C:\\Users\\me\\.claude-2" }];
+    const environments: Record<string, string>[] = [{ CODEX_HOME: "C:\\Users\\me\\.codex-work" }, { Claude_Config_Dir: "C:\\Users\\me\\.claude-2" }, { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-work" }];
     for (const environment of environments) {
       const { check, refresh } = setup(reading(85, 13, NOW - 60 * 60_000), undefined, environment);
       expect(await check(BOT, LABEL, CODEX)).toEqual({});
