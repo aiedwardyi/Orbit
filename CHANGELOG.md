@@ -2,6 +2,23 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.209] - 2026-10-26
+
+### Added
+- Worker launches show the engine's 5-hour and weekly usage left, and a launch on a nearly empty window is held once.
+- Bots see the names of your saved API keys, never the keys, so they use them instead of asking for a new one.
+
+### Changed
+- The fixed 32-terminal limit is gone: bot terminals open while the PC keeps 2 GB free, and a refusal names the bots holding terminals.
+- After Wink refreshes a bot's session, the bot skips rereading big files unless the task needs them.
+
+### Fixed
+- A worker row goes back to Working once its terminal moves again, and waits on a background agent or a usage-limit pause no longer send stall notes.
+- A worker's row sits at its newest message on every device, and loading older messages never moves it.
+- On phones, the scrollbar no longer covers worker status words.
+- A silent tool no longer holds a bot's chat for 30 minutes; bots give up after 5.
+- A dropped Codex connection shows a quiet "Reconnecting" line instead of a red error per retry.
+
 ## [1.0.208] - 2026-10-26
 
 ### Added
@@ -260,6 +277,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.209]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.209
 [1.0.208]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.208
 [1.0.207]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.207
 [1.0.206]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.206
