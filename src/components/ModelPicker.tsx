@@ -30,7 +30,7 @@ type ModelPickerProps = {
 };
 
 type PickerStore = {
-  state: Pick<ReturnType<typeof useStore>["state"], "instances" | "selectedId">;
+  state: Pick<ReturnType<typeof useStore>["state"], "instances" | "selectedId"> & Partial<Pick<ReturnType<typeof useStore>["state"], "pendingQueued">>;
   dispatch: ReturnType<typeof useStore>["dispatch"];
   refreshInstances: () => Promise<void>;
 };
@@ -60,6 +60,8 @@ export function ModelPickerControl({
   const openedWithShortcutRef = useRef(false);
   const switchingRef = useRef(false);
   const switchSourceRef = useRef<string | undefined>(undefined);
+  const followUpRef = useRef(false);
+  followUpRef.current = Boolean(state.pendingQueued?.[bot.threadId]?.length) || bot.messages.some((message) => message.queued) || Boolean(accepted?.some((send) => send.kind === "sends-next"));
   const stageRef = useRef<HTMLDivElement>(null);
   const touchStartRef = useRef({ x: 0, y: 0, stepped: true });
   const [stageWidth, setStageWidth] = useState(0);
@@ -123,7 +125,7 @@ export function ModelPickerControl({
   const save = (candidate: ModelSelection = draft, fromKeyboard = false) => {
     if (!canCommit(candidate)) return;
     focusComposerAfterCloseRef.current = fromKeyboard && (openedWithShortcutRef.current || switchingRef.current) && !contained;
-    if (switchingRef.current) switchFromNoReply(bot, candidate, switchSourceRef.current, state.instances, accepted, dispatch, onSwitching, onRerunSettled);
+    if (switchingRef.current) switchFromNoReply(bot, candidate, switchSourceRef.current, state.instances, () => followUpRef.current, dispatch, onSwitching, onRerunSettled);
     else dispatch({ type: "setModel", botId: bot.id, selection: candidate });
     close();
     if (focusComposerAfterCloseRef.current) {
