@@ -143,7 +143,6 @@ export function DeviceSwitcher({
                   <button
                     type="button"
                     data-device-id={device.deviceId}
-                    disabled={device.offline && !device.current}
                     onClick={() => {
                       if (device.current) return close();
                       if (!deviceWindow) return navigate(`https://${device.host}/`);

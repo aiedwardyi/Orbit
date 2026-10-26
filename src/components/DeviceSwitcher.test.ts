@@ -99,7 +99,7 @@ describe("DeviceSwitcher", () => {
     expect(navigate).toHaveBeenCalledWith("https://work.tail1234.ts.net/");
   });
 
-  it.each([["desktop", false], ["phone", true]])("won't open an offline PC from the %s list", async (_label, phone) => {
+  it.each([["desktop", false], ["phone", true]])("opens an offline PC from the %s list", async (_label, phone) => {
     setPhone(phone);
     const open = phone ? vi.fn() : setDesktop();
     const { host, navigate } = await renderView(
@@ -110,13 +110,23 @@ describe("DeviceSwitcher", () => {
     );
     await act(async () => click(host.querySelector("button[aria-expanded]")!));
     const offline = document.querySelector<HTMLButtonElement>("[data-device-id=laptop]")!;
-    expect(offline.disabled).toBe(true);
+    expect(offline.disabled).toBe(false);
     expect(offline.className).toContain("opacity-50");
     expect(offline.textContent).toContain("Offline");
+    const current = document.querySelector<HTMLButtonElement>("[data-device-id=home]")!;
+    expect(current.disabled).toBe(false);
+    expect(current.className).not.toContain("opacity-50");
+    expect(current.textContent).toContain("This PC");
+    expect(current.textContent).not.toContain("Offline");
     await act(async () => click(offline));
-    expect(open).not.toHaveBeenCalled();
-    expect(navigate).not.toHaveBeenCalled();
-    expect(document.querySelector<HTMLButtonElement>("[data-device-id=home]")!.disabled).toBe(false);
+    if (phone) {
+      expect(navigate).toHaveBeenCalledWith("https://laptop.tail1234.ts.net/");
+      expect(open).not.toHaveBeenCalled();
+    } else {
+      expect(open).toHaveBeenCalledWith("laptop.tail1234.ts.net", "laptop");
+      expect(navigate).not.toHaveBeenCalled();
+      expect(host.querySelector("ul:not([inert])")).toBeNull();
+    }
   });
 
   it("hands the phone jump to Back navigation", async () => {
