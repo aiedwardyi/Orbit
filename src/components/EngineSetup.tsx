@@ -63,6 +63,17 @@ export async function openInstallTerminalOrCopy(
   return opened ? "opened" : "copied";
 }
 
+export async function openEngineInstallOrCopy(instanceId: string, command: string): Promise<"running" | "opened" | "copied"> {
+  if (window.ogb?.openEngineInstall) {
+    try {
+      return await window.ogb.openEngineInstall(instanceId);
+    } catch {}
+  }
+  return openInstallTerminalOrCopy(command, () => window.ogb!.openInstallTerminal!(command), (text) =>
+    navigator.clipboard.writeText(text),
+  );
+}
+
 /** What a failed turn should offer: install/sign-in or Retry. */
 export function setupErrorAction(
   instance: InstanceInfo | undefined,
@@ -73,10 +84,11 @@ export function setupErrorAction(
   return "retry";
 }
 
-export function CommandRow({ command, actionLabel, signInInstanceId, quiet = false }: { command: string; actionLabel: string; signInInstanceId?: string; quiet?: boolean }) {
+export function CommandRow({ command, actionLabel, signInInstanceId, installInstanceId, docsUrl, quiet = false }: { command: string; actionLabel: string; signInInstanceId?: string; installInstanceId?: string; docsUrl?: string; quiet?: boolean }) {
   const { t } = useI18n();
   const [status, setStatus] = useState<"copied" | "opened" | "running" | null>(null);
-  const canOpen = Boolean(signInInstanceId ? window.ogb?.openEngineSignIn : window.ogb?.openInstallTerminal);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const canOpen = Boolean(signInInstanceId ? window.ogb?.openEngineSignIn : (installInstanceId && window.ogb?.openEngineInstall) || window.ogb?.openInstallTerminal);
   const automaticSignIn = Boolean(signInInstanceId && !/\bYOUR_[A-Z0-9_]+\b/.test(command));
 
   const settle = (next: "copied" | "opened" | "running") => {
@@ -87,8 +99,10 @@ export function CommandRow({ command, actionLabel, signInInstanceId, quiet = fal
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(command);
+      setCopyFailed(false);
       settle("copied");
     } catch {
+      if (installInstanceId && !canOpen) setCopyFailed(true);
       // The command remains selectable when clipboard access is blocked.
     }
   };
@@ -103,12 +117,17 @@ export function CommandRow({ command, actionLabel, signInInstanceId, quiet = fal
         }
         return;
       }
+      if (installInstanceId) {
+        settle(await openEngineInstallOrCopy(installInstanceId, command));
+        return;
+      }
       settle(
         await openInstallTerminalOrCopy(command, () => window.ogb!.openInstallTerminal!(command), (text) =>
           navigator.clipboard.writeText(text),
         ),
       );
     } catch {
+      if (installInstanceId) setCopyFailed(true);
       // Clipboard blocked too: the command stays selectable, and no false
       // "copied" is shown.
     }
@@ -134,7 +153,13 @@ export function CommandRow({ command, actionLabel, signInInstanceId, quiet = fal
         )}
       </div>
 
-      {canOpen ? (
+      {copyFailed && installInstanceId && docsUrl ? (
+        <a href={docsUrl} target="_blank" rel="noreferrer"
+          className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold",
+            quiet ? "bg-control text-ink hover:bg-raised-hover" : "whitespace-nowrap bg-accent text-accent-ink hover:brightness-110")}>
+          <ExternalLink size={14} />{t("engines.install")}
+        </a>
+      ) : canOpen ? (
         <>
           <button
             type="button"
@@ -148,7 +173,7 @@ export function CommandRow({ command, actionLabel, signInInstanceId, quiet = fal
           <p aria-live="polite" className="mt-1.5 text-center text-[11px] text-ink-secondary/70">
             {status === "copied" ? t("engine.commandCopied")
               : status === "opened" ? t("engine.pasteAndEnter")
-                : automaticSignIn ? t("engine.followSignIn") : t("engine.copiedWhenOpens")}
+                : status === "running" || automaticSignIn ? t("engine.followSignIn") : t("engine.copiedWhenOpens")}
           </p>
         </>
       ) : (
@@ -328,7 +353,7 @@ export function EngineSetup({
       {oneClick ? (
         <div className="mt-3 flex justify-end"><EngineSignIn instance={instance} /></div>
       ) : command ? (
-        <CommandRow command={command} signInInstanceId={signInOnly ? instance.instanceId : undefined} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
+        <CommandRow command={command} signInInstanceId={signInOnly ? instance.instanceId : undefined} installInstanceId={signInOnly ? undefined : instance.instanceId} docsUrl={install.docsUrl} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
       ) : (
         <p className="mt-3 rounded-lg bg-inset px-2.5 py-2 text-[12px] leading-relaxed text-ink-secondary">
           {t("engine.noInstaller")}

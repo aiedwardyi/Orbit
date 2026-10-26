@@ -260,7 +260,7 @@ describe("ClaudeDriver.decodeConfig", () => {
         win32: "irm https://claude.ai/install.ps1 | iex",
       },
       docsUrl: "https://claude.com/claude-code",
-      signInCommand: "claude",
+      signInCommand: "claude auth login",
     });
   });
 

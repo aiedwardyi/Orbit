@@ -228,6 +228,15 @@ export class ProviderRegistry {
     return command ? { driverKind: driver!.driverKind, command } : null;
   }
 
+  install(instanceId: InstanceId) {
+    const entry = this.byId.get(instanceId);
+    const kind = entry?.live?.driverKind ?? entry?.shadow?.driverKind;
+    const driver = kind ? this.driversByKind.get(kind) : undefined;
+    const install = driver?.install;
+    const command = install?.command?.[process.platform as "win32" | "darwin" | "linux"];
+    return command ? { driverKind: driver!.driverKind, command, needsNode: Boolean(install?.needsNode), signInCommand: install?.signInCommand } : null;
+  }
+
   private loginConfig(instanceId: InstanceId) {
     const live = this.get(instanceId);
     const driver = live && this.driversByKind.get(live.driverKind);

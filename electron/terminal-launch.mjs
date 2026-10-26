@@ -90,11 +90,44 @@ export async function openSignInTerminal({ command, driverKind }, platform = pro
   const agy = driverKind === "antigravityAgent";
   if (platform === "win32") {
     const script = `${agy ? "$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; " : ""}${command}`;
-    return launch("cmd.exe", ["/c", "start", "", "powershell.exe", "-NoProfile", "-NoExit", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { windowsHide: true }, run);
+    return launch("cmd.exe", ["/c", "start", "", "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { windowsHide: true }, run);
   }
   if (platform === "darwin") {
     const script = `${agy ? "AGY_CLI_DISABLE_AUTO_UPDATE=true " : ""}${command}`;
     return launch("osascript", ["-e", `tell application "Terminal" to do script ${JSON.stringify(script)}`, "-e", 'tell application "Terminal" to activate'], undefined, run);
+  }
+  return false;
+}
+
+export function buildInstallScript({ command, needsNode, signInCommand, driverKind }, platform) {
+  const signIn = signInCommand && !/\bYOUR_[A-Z0-9_]+\b/.test(signInCommand) ? signInCommand : null;
+  const agy = driverKind === "antigravityAgent";
+  if (platform === "win32") {
+    const refreshPath = "$env:Path=[Environment]::GetEnvironmentVariable('Path', 'Machine')+';'+[Environment]::GetEnvironmentVariable('Path', 'User')";
+    return [
+      "$ErrorActionPreference='Stop'",
+      ...(needsNode && /^\s*npm(?:\s|$)/.test(command) ? [
+        "if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {",
+        "winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements",
+        "if (-not $? -or $LASTEXITCODE -ne 0) { return }",
+        refreshPath,
+        "}",
+      ] : []),
+      `powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${Buffer.from(`$ErrorActionPreference='Stop'\n${command}`, "utf16le").toString("base64")}`,
+      "if ($LASTEXITCODE -ne 0) { return }",
+      refreshPath,
+      ...(signIn ? [`${agy ? "$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; " : ""}${signIn}`] : []),
+    ].join("\n");
+  }
+  return signIn ? `{\n${command}\n} && ${agy ? "AGY_CLI_DISABLE_AUTO_UPDATE=true " : ""}${signIn}` : command;
+}
+
+export async function openInstallTerminal(install, platform = process.platform, run = execFile) {
+  if (platform === "win32") {
+    return launch("cmd.exe", ["/c", "start", "", "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-EncodedCommand", Buffer.from(buildInstallScript(install, platform), "utf16le").toString("base64")], { windowsHide: true }, run);
+  }
+  if (platform === "darwin") {
+    return launch("osascript", ["-e", `tell application "Terminal" to do script ${JSON.stringify(buildInstallScript(install, platform))}`, "-e", 'tell application "Terminal" to activate'], undefined, run);
   }
   return false;
 }

@@ -18,6 +18,7 @@ import {
 } from "./skill-recorder.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { openEngineSignIn } from "./engine-signin.mjs";
+import { registerEngineInstall } from "./engine-install.mjs";
 import { createGoogleAccountController, createGoogleSessionPush, googleClient, googleServerEnv, watchDevServer } from "./google-signin.mjs";
 import { createTerminalHost, trustedTerminalSender } from "./terminal-host.mjs";
 import { installOrbitMsg, postPaneNote, readMailboxSecret } from "./terminal-mailbox.mjs";
@@ -1921,6 +1922,15 @@ ipcMain.handle("engine:open-terminal", async (_event, command) => {
   if (typeof command !== "string" || !command.trim()) return false;
   clipboard.writeText(command);
   return openBlankTerminal();
+});
+
+registerEngineInstall(ipcMain, {
+  trusted: (event) => trustedTerminalSender(event, mainWindow?.webContents, rendererOrigin()),
+  copy: (command) => clipboard.writeText(command),
+  server: () => {
+    if (app.isPackaged && !serverToken) throw new Error("Server is not ready");
+    return { port: app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT), token: serverToken };
+  },
 });
 
 ipcMain.handle("engine:sign-in", async (event, instanceId) => {

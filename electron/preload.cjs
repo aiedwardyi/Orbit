@@ -169,6 +169,7 @@ contextBridge.exposeInMainWorld("ogb", {
    * false if no terminal could be launched; the clipboard still has it. */
   openInstallTerminal: (command) => ipcRenderer.invoke("engine:open-terminal", command),
   openEngineSignIn: (instanceId) => ipcRenderer.invoke("engine:sign-in", instanceId),
+  openEngineInstall: (instanceId) => ipcRenderer.invoke("engine:install", instanceId),
   /** Open a web link in the default browser. Unlike renderer window.open,
    * this remains reliable after an asynchronous API request. */
   openExternal: (url) => ipcRenderer.invoke("desktop:open-external", url),

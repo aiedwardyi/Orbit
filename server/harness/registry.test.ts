@@ -51,6 +51,32 @@ const versions = (rows: { instanceId: string; snapshot: { version?: string | nul
 const RETIRED_KINDS = ["grok", "geminiAgent", "kimiAgent", "droidAgent", "cursorAgent", "qwenAgent", "hermesAgent", "openai-compat", "piAgent", "minimax", "opencodeGo"];
 
 describe("ProviderRegistry", () => {
+  it("resolves Claude sign-in directly to auth login", () => {
+    expect(BUILT_IN_DRIVERS.find((driver) => driver.driverKind === "claudeAgent")?.install?.signInCommand).toBe("claude auth login");
+  });
+
+  it("resolves platform installs from the driver, ignoring configured commands", async () => {
+    const fake = makeFakeDriver();
+    const command = "official install";
+    const registry = new ProviderRegistry([{ ...fake.driver, install: {
+      command: { [process.platform]: command }, needsNode: true, signInCommand: "official login",
+    } }]);
+    try {
+      await registry.load({ a: { driver: "fake", config: { cli: "untrusted", command: "untrusted" } } });
+      expect(registry.install("a")).toEqual({ driverKind: "fake", command, needsNode: true, signInCommand: "official login" });
+      expect(registry.install("missing")).toBeNull();
+    } finally { await registry.disposeAll(); }
+  });
+
+  it("has no install when the platform has no driver command", async () => {
+    const fake = makeFakeDriver();
+    const registry = new ProviderRegistry([{ ...fake.driver, install: { command: {} } }]);
+    try {
+      await registry.load({ a: { driver: "fake" } });
+      expect(registry.install("a")).toBeNull();
+    } finally { await registry.disposeAll(); }
+  });
+
   it("rejects logout success while the refreshed engine remains authenticated", async () => {
     const fake = makeFakeDriver({ kind: "museAgent" });
     const registry = new ProviderRegistry([{ ...fake.driver, defaultConfig: () => ({ cli: "fake" }), install: { logout: ["logout"] } }]);

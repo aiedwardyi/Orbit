@@ -25,7 +25,7 @@ describe("blank terminal launcher", () => {
     expect(await openSignInTerminal({ driverKind: "antigravityAgent", command: "agy" }, "win32", fake.run)).toBe(true);
     const call = fake.calls[0];
     expect(call.executable).toBe("cmd.exe");
-    expect(call.args.slice(0, 3)).toEqual(["/c", "start", ""]);
+    expect(call.args.slice(0, 8)).toEqual(["/c", "start", "", "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit"]);
     expect(call.args).toContain("-NoExit");
     expect(call.args).toContain("-EncodedCommand");
     expect(Buffer.from(call.args.at(-1), "base64").toString("utf16le")).toBe("$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; agy");

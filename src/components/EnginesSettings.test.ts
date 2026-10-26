@@ -50,6 +50,91 @@ import { EngineSetup } from "./EngineSetup";
 
 applyLocale("en");
 
+it.each([["settings", false], ["onboarding", false], ["settings", true], ["onboarding", true]] as const)("shows the %s docs link when clipboard fails (bridge rejects: %s)", async (surface, rejects) => {
+  const previous = window.ogb;
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("clipboard blocked"));
+  Object.assign(window, { ogb: { platform: "win32", ...(rejects && { openEngineInstall: async () => { throw new Error("no handler"); } }) } });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    const props = { instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "install-cli" }, docsUrl: "https://example.com/install" } }) };
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(surface === "settings" ? EngineRow : EngineSetup, props))));
+    await act(async () => [...host.querySelectorAll("button")].find((button) => /Install|Copy command/i.test(button.textContent!))!.click());
+    const link = [...host.querySelectorAll("a")].find((node) => node.textContent === "Install");
+    expect(link?.href).toBe("https://example.com/install");
+    expect(link?.target).toBe("_blank");
+    expect(host.textContent).not.toContain("Command copied");
+  } finally {
+    await act(async () => root.unmount());
+    copy.mockRestore();
+    window.ogb = previous;
+  }
+});
+
+it.each(["settings", "onboarding"])("starts %s install with only the instance id", async (surface) => {
+  const previous = window.ogb;
+  const openEngineInstall = vi.fn(async () => "running" as const);
+  const openInstallTerminal = vi.fn(async () => true);
+  Object.assign(window, { ogb: { platform: "win32", openEngineInstall, openInstallTerminal } });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    const props = { instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "untrusted renderer command" } } }) };
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(surface === "settings" ? EngineRow : EngineSetup, props))));
+    await act(async () => [...host.querySelectorAll("button")].find((button) => /Install/.test(button.textContent!))!.click());
+    expect(openEngineInstall).toHaveBeenCalledExactlyOnceWith("claude");
+    expect(openInstallTerminal).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("Terminal opened");
+    expect(host.textContent).toContain("Follow the sign-in steps in Terminal or your browser, then return here.");
+    expect(host.textContent).not.toContain("Paste the command");
+  } finally {
+    await act(async () => root.unmount());
+    window.ogb = previous;
+  }
+});
+
+it("keeps onboarding install available when only the copy action fails", async () => {
+  const previous = window.ogb;
+  const openEngineInstall = vi.fn(async () => "running" as const);
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("clipboard blocked"));
+  Object.assign(window, { ogb: { platform: "win32", openEngineInstall } });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(EngineSetup, {
+      instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "install-cli" }, docsUrl: "https://example.com/install" } }),
+    }))));
+    await act(async () => [...host.querySelectorAll("button")].find((button) => button.getAttribute("aria-label")?.toLowerCase() === "copy command")!.click());
+    await act(async () => [...host.querySelectorAll("button")].find((button) => /Install/.test(button.textContent!))!.click());
+    expect(openEngineInstall).toHaveBeenCalledExactlyOnceWith("claude");
+    expect(host.textContent).toContain("Terminal opened");
+  } finally {
+    await act(async () => root.unmount());
+    copy.mockRestore();
+    window.ogb = previous;
+  }
+});
+
+it.each(["settings", "onboarding"])("falls back to the old bridge when %s install rejects", async (surface) => {
+  const previous = window.ogb;
+  const openEngineInstall = vi.fn(async () => { throw new Error("no handler"); });
+  const openInstallTerminal = vi.fn(async () => true);
+  Object.assign(window, { ogb: { platform: "win32", openEngineInstall, openInstallTerminal } });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    const props = { instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "install-cli" } } }) };
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(surface === "settings" ? EngineRow : EngineSetup, props))));
+    await act(async () => [...host.querySelectorAll("button")].find((button) => /Install/.test(button.textContent!))!.click());
+    expect(openEngineInstall).toHaveBeenCalledExactlyOnceWith("claude");
+    expect(openInstallTerminal).toHaveBeenCalledExactlyOnceWith("install-cli");
+    expect(host.textContent).toContain("Paste the command in Terminal and press Enter.");
+  } finally {
+    await act(async () => root.unmount());
+    window.ogb = previous;
+  }
+});
+
 it("shares signed-out instances with the model picker and onboarding", async () => {
   const signedOut = instance({ snapshot: { state: "available", authenticated: false }, install: { logout: ["logout"] } });
   const previous = globalThis.fetch;
@@ -103,7 +188,7 @@ describe("EnginesSettings friends Connections list", () => {
   }
 
   it("shows a connected engine as Connected with a quiet Sign Out and nothing else", async () => {
-    const restore = stage("claude", { cli: OTHER, install: { logout: ["auth", "logout"], signInCommand: "claude", docsUrl: "https://example.com/claude" } });
+    const restore = stage("claude", { cli: OTHER, install: { logout: ["auth", "logout"], signInCommand: "claude auth login", docsUrl: "https://example.com/claude" } });
     const { root, row } = await renderList();
     try {
       expect(row("claude").textContent).toBe("ClaudeConnectedSign Out");
@@ -281,7 +366,7 @@ it("opens sign-in with only the instance id and shows running instructions", asy
   const root = createRoot(host);
   try {
     await act(async () => root.render(createElement(I18nProvider, null, createElement(EngineSetup, {
-      instance: instance({ snapshot: { state: "available", authenticated: false }, install: { signInCommand: "claude" } }),
+      instance: instance({ snapshot: { state: "available", authenticated: false }, install: { signInCommand: "claude auth login" } }),
     }))));
     const button = [...host.querySelectorAll("button")].find((button) => button.textContent?.includes("Open Sign-in"))!;
     await act(async () => button.click());
