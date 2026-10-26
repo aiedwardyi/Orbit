@@ -56,6 +56,9 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
                 className="text-ink hover:underline">{t("engines.install")}</button>
                 : current.install?.docsUrl && <a href={current.install.docsUrl} target="_blank" rel="noreferrer"
                 className="text-ink hover:underline">{t("engines.install")}</a>}
+              {installStatus === "opened" && (
+                <p className="w-full text-right text-[11px] leading-[14px] text-ink-secondary/70">{t("engine.pasteAndEnter")}</p>
+              )}
               {current.install?.needsNode && installCommand?.includes("npm") && (
                 <p className="w-full text-right text-[11px] leading-[14px] text-ink-secondary/70">{t("engine.needsNode")}</p>
               )}

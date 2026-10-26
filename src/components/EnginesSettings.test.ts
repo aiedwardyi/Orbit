@@ -147,7 +147,7 @@ describe("EnginesSettings friends Connections list", () => {
       expect(row("grok").querySelector("a, input, select, code")).toBeNull();
       await act(async () => row("grok").querySelector("button")!.click());
       expect(openInstallTerminal).toHaveBeenCalledExactlyOnceWith("install-grok");
-      expect(row("grok").textContent).toContain("Terminal opened");
+      expect(row("grok").textContent).toContain("Terminal openedInstallPaste the command in Terminal and press Enter.");
       expect(row("grok").querySelector("button")?.textContent).toBe("Install");
     } finally {
       await act(async () => root.unmount());
@@ -202,7 +202,7 @@ describe("EnginesSettings friends Connections list", () => {
       expect(copy).toHaveBeenCalledTimes(mode === "copied" ? 0 : 1);
       if (mode !== "copied") expect(copy).toHaveBeenCalledWith("install-cli");
       expect(host.textContent?.includes("Command copied")).toBe(mode !== "blocked");
-      expect(host.textContent).not.toContain("Terminal opened");
+      expect(host.textContent).not.toMatch(/Terminal opened|Paste the command/);
     } finally {
       await act(async () => root.unmount());
       copy.mockRestore();
