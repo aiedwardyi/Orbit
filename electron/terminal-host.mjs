@@ -26,6 +26,8 @@ const STALL_CHECK_MS = 10_000;
 // Stop hooks and Codex notify land seconds after the screen settles.
 const STALL_NOTE_SLACK_MS = 30_000;
 const STALL_TAIL_LINES = 15;
+// Claude draws one row per background agent under the limit line.
+const LIMIT_TAIL_LINES = 30;
 // A failed STALLED post (server restarting) tries again this often, this many times.
 const STALL_RETRY_MS = 60_000;
 const STALL_TRIES = 5;
@@ -37,7 +39,7 @@ const AGENT_BUSY_RE = /(?:esc to interrupt|^[·✢✳✶✻✽*][\s─]+\S[^\n]*
 // Claude Code's status line counts live jobs in a "·" segment; its "done ... still running" line is history and never clears.
 const AGENT_JOBS_RE = /^(?!.*still running)(?=.*·)(?:.*·)?\s*(?:\d+ [^,·]+, )*\d+ (?:shells?|monitors?|local agents?)(?:, \d+ [^,·]+)*\s*(?:·|$)/u;
 // Background agents stay out of that count: Claude Code lists them under its input box, and only its newest turn line, right above the box, waits on them.
-const AGENTS_RUNNING_RE = /^✻ Waiting for \d+ background agents?\b.*\n+─+$|^─+$[\s\S]*^\s*● main$/mu;
+const AGENTS_RUNNING_RE = /^✻ Waiting for \d+ background agents?\b.*\n+─+$|^─+$(?![\s\S]*^─+$)[\s\S]*^\s*● main$/mu;
 // Wrapping, borders, spinner glyphs and clocks change on a redraw without the worker moving; a busy agent's ticking timer still counts.
 const STALL_CHURN_RE = /[\u2500-\u257f\u2800-\u28ff✻✢✳✶✽·*●]|\b\d+[hms]\b|\d{1,2}:\d{2}(?::\d{2})?|\b\d+(?:\.\d+)?%(?=\s+context left\b)/gu;
 const stallSignature = (screenText) => AGENT_BUSY_RE.test(screenText) ? screenText : screenText.replace(STALL_CHURN_RE, "").replace(/\s+/g, "");
@@ -163,7 +165,7 @@ function usageLimit(screenText, engine, cols = 80) {
   const nonempty = lines.flatMap((line, i) => line ? [i] : []);
   const tail = [];
   let wrapped = false;
-  for (const line of lines.slice(nonempty.at(-STALL_TAIL_LINES) ?? 0)) {
+  for (const line of lines.slice(nonempty.at(-LIMIT_TAIL_LINES) ?? 0)) {
     if (wrapped && line && !/^\s*[●•■❯›⎿]/u.test(line)) tail[tail.length - 1] += line;
     else tail.push(line);
     wrapped = line.length === cols && !/^[─━]+$/u.test(line);
@@ -455,7 +457,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
     return result;
   };
   const botSessions = (botId) => [...sessions.values()].filter((candidate) => candidate.botId === botId && !candidate.retired && active.get(candidate.key) === candidate.id);
-  const paneSummary = (session) => ({ sessionId: session.id, generation: session.generation, label: session.label ?? null, cwd: session.cwd, main: !session.botPane, exited: session.exitCode !== null, changedAt: session.stallChangedAt });
+  const paneSummary = (session) => ({ sessionId: session.id, generation: session.generation, label: session.label ?? null, cwd: session.cwd, main: !session.botPane, exited: session.exitCode !== null, changedAt: session.stallScreenAt });
   const owned = (event, id) => {
     authorize(event);
     const session = sessions.get(id);
@@ -608,6 +610,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         if (signature !== session.stallText) {
           session.stallText = signature;
           session.stallChangedAt = at;
+          session.stallScreenAt = at;
           session.stallFired = false;
           session.stallTries = 0;
         }
@@ -896,7 +899,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       launchProject: launchProject(input, folder, cwd), retired: false, exitReported: false, errorReported: false,
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
-      workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallText: null,
+      workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallScreenAt: 0, stallText: null,
       stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
       reported: false, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
       claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false, claudeTrustTimer: null,

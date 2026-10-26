@@ -2371,6 +2371,7 @@ for (const [name, screen, minutes] of [
   ["a long agent list", claudeAgentWait(Array(6).fill(AGENT_ROWS[0])).replace("Waiting for 1 background agent to finish", "Brewed for 21s · done 10:41 PM"), 30],
   ["its background agent wait", claudeAgentWait([]).replace(" · 3 shells", ""), 30],
   ["an old background agent wait above a finished turn", claudeIdle().replace("✻ Brewed", "✻ Waiting for 1 background agent to finish\r\n\r\n● The measure agent finished; report sent.\r\n\r\n✻ Brewed"), 2],
+  ["an old agent list above its input box", claudeAgentWait().replace("Waiting for 1 background agent to finish", "Brewed for 21s · done 10:41 PM") + claudeIdle().replace("\x1b[2J\x1b[H", ""), 2],
 ]) {
   test(`a Claude pane idle on ${name} stalls after ${minutes} min`, async (t) => {
     const f = stallFixture();
@@ -2627,6 +2628,7 @@ for (const [name, screen, next] of [
   ["a Claude limit pause that continues by itself", claudeAutoLimit(), "It resumes by itself at 9:20pm"],
   ["the same pause later in its wait", claudeAutoLimit("0% (20m) │ 7d: ▰▰▰▰▱ 77% (6h) │ 3h18m"), "It resumes by itself at 9:20pm"],
   ["a Claude limit pause that waits for the user", CLAUDE_MANUAL_LIMIT, undefined],
+  ["a Claude limit pause over three background agents", `${claudeAutoLimit()}\r\n  ● main\r\n${[...AGENT_ROWS, AGENT_ROWS[0]].map((row) => `  ${row}\r\n`).join("")}`, "It resumes by itself at 9:20pm"],
 ]) {
   test(`${name} sends one LIMIT note`, async (t) => {
     const f = stallFixture();
@@ -2675,6 +2677,34 @@ test("readBot gives each pane its last screen change as the stall watcher saw it
   assert.equal(moved.panes[0].changedAt, moved.capturedAt);
   assert.equal(moved.capturedAt - limited.capturedAt, 141_000);
   assert.equal(f.notes.length, 1);
+});
+
+test("a bot input into a limit pause keeps its last screen change and still restarts the stall clock", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  const send = (text) => f.host.sendBot("bot-1", { sessionId: pane.sessionId, generation: pane.generation, text });
+  f.children[0].data(claudeAutoLimit());
+  await f.settle();
+  const limited = f.host.readBot("bot-1");
+  assert.equal(limited.panes[0].changedAt, limited.capturedAt);
+  await f.advance(120_000);
+  assert.equal(f.notes.length, 1);
+  send("continue\r");
+  await f.advance(10_000);
+  assert.equal(f.host.readBot("bot-1").panes[0].changedAt, limited.capturedAt);
+  f.children[0].data("\x1b[2J\x1b[H● Editing src/app.ts\r\n");
+  await f.advance(10_000);
+  const moved = f.host.readBot("bot-1");
+  assert.equal(moved.panes[0].changedAt, moved.capturedAt);
+  await f.advance(60_000);
+  send("go on\r");
+  await f.advance(120_000 - 1);
+  assert.equal(f.host.readBot("bot-1").panes[0].changedAt, moved.capturedAt);
+  assert.equal(f.notes.length, 1);
+  await f.advance(1);
+  assert.equal(f.notes.length, 2);
+  assert.match(f.notes[1].text, /^STALLED: /);
 });
 
 test("a worker whose screen keeps changing sends no stall note", async () => {
