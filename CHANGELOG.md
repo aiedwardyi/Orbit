@@ -2,6 +2,11 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.210] - 2026-10-26
+
+### Fixed
+- Workers start again on PCs with little free memory, like 8 GB laptops: the 2 GB reserve from 1.0.209 is gone, so a terminal opens whenever free memory covers its engine, as in 1.0.208.
+
 ## [1.0.209] - 2026-10-26
 
 ### Added
@@ -277,6 +282,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.210]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.210
 [1.0.209]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.209
 [1.0.208]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.208
 [1.0.207]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.207
