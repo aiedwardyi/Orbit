@@ -1154,7 +1154,7 @@ test("a refused pane names each bot holding terminals, then the main ones", asyn
   assert.equal(lookups, 0);
   free = 0.5 * 1024 ** 3;
   const claude = { label: "w2", command: "claude --model opus 'hi'" };
-  await assert.rejects(f.host.openForBot("bot-2", claude), /\(0\.5 GB free, 2\.6 GB needed; 2 GB stays free for the PC\)\. Open: Pokkey 2, Wink 1, bot-3 1, main 1\. Close a finished pane with terminal_close\./);
+  await assert.rejects(f.host.openForBot("bot-2", claude), /\(0\.1 GB free, 2\.6 GB needed; 2 GB stays free for the PC\)\. Open: Pokkey 2, Wink 1, bot-3 1, main 1\. Close a finished pane with terminal_close\./);
   names = null;
   await assert.rejects(f.host.openForBot("bot-2", claude), /Open: bot-1 2, bot-2 1, bot-3 1, main 1\./);
   assert.equal(lookups, 2);
@@ -1219,6 +1219,43 @@ test("the gate reads a quoted engine path with spaces", async () => {
   owner = f.owner;
   await assert.rejects(f.host.openForBot("bot-1", { label: "c", command: "& \"C:\\Program Files\\Claude\\claude.exe\" --model opus 'hi'" }), /2\.6 GB needed/);
   await assert.rejects(f.host.openForBot("bot-1", { label: "s", command: "'C:\\My Tools\\claude.cmd' --model opus 'hi'" }), /2\.6 GB needed/);
+});
+
+test("a burst of claude panes at 6 GB free opens 6 and refuses the 7th", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 6 * 1024 ** 3 });
+  owner = f.owner;
+  const results = await Promise.allSettled(Array.from({ length: 7 }, (_, i) => f.host.openForBot(`bot-${i % 3}`, { label: `w${i}`, command: "claude --model opus 'hi'" })));
+  assert.deepEqual(results.map((result) => result.status), [...Array(6).fill("fulfilled"), "rejected"]);
+  assert.match(results[6].reason.message, /Not enough free memory for another terminal \(2\.5 GB free, 2\.6 GB needed; 2 GB stays free for the PC\)\. Close a finished pane/);
+});
+
+test("a claude pane past its warm-up stops counting against free memory", async () => {
+  let owner;
+  let t = 1_000_000;
+  const f = fixture({ owner: () => owner, freeMemory: () => 6 * 1024 ** 3, now: () => t });
+  owner = f.owner;
+  const claude = { label: "w", command: "claude --model opus 'hi'" };
+  for (let i = 0; i < 6; i += 1) await f.host.openForBot("bot-1", claude);
+  await assert.rejects(f.host.openForBot("bot-1", claude), /Not enough free memory/);
+  t += 29_999;
+  await assert.rejects(f.host.openForBot("bot-1", claude), /Not enough free memory/);
+  t += 1;
+  assert.ok((await f.host.openForBot("bot-1", claude)).sessionId);
+});
+
+test("a failed pane open releases the memory it promised", async () => {
+  let owner;
+  const f = fixture({ owner: () => owner, freeMemory: () => 6 * 1024 ** 3 });
+  owner = f.owner;
+  const claude = { label: "w", command: "claude --model opus 'hi'" };
+  const failed = f.host.openForBot("bot-1", { ...claude, cwd: path.join(os.tmpdir(), "wink-missing-folder") });
+  const results = await Promise.allSettled([failed, ...Array.from({ length: 6 }, () => f.host.openForBot("bot-1", claude))]);
+  assert.deepEqual(results.map((result) => result.status), ["rejected", ...Array(5).fill("fulfilled"), "rejected"]);
+  assert.match(results[0].reason.message, /Terminal folder is unavailable/);
+  assert.match(results[6].reason.message, /Not enough free memory/);
+  assert.ok((await f.host.openForBot("bot-1", claude)).sessionId);
+  await assert.rejects(f.host.openForBot("bot-1", claude), /Not enough free memory/);
 });
 
 test("openForBot submits a command with exactly one Enter", async () => {
