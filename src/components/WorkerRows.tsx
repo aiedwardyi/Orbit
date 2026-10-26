@@ -132,7 +132,8 @@ const ENTRY_CLASS = "flex w-full items-center gap-2.5 border-b border-hairline/4
 function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose, inset, nickFirst = false }: { runs: ShownRun[]; livePanes: Set<string> | null; onOpenTerminalPane?: (sessionId: string) => void; onClose: () => void; inset?: boolean; nickFirst?: boolean }) {
   const entry = cn(ENTRY_CLASS, inset && "px-3");
   return (
-    <ul className="min-h-0 overflow-y-auto">
+    // The sheet's list spans its padding, so a phone's overlay scrollbar paints there instead of over the status.
+    <ul className={cn("min-h-0 overflow-y-auto", !inset && "-mx-5 px-5")}>
       {runs.map((shown) => {
         const sessionId = listedSessionId(shown.run, livePanes);
         if (!onOpenTerminalPane || !sessionId) {
