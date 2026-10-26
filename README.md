@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/aiedwardyi/orbit-releases/releases/latest/download/Wink-setup.exe"><b>Download for Windows</b></a> (10 / 11, x64)
+  <a href="https://github.com/aiedwardyi/orbit-releases/releases/latest/download/Wink-setup.exe"><b>Download for Windows</b></a> (10 / 11, x64) · <a href="https://github.com/aiedwardyi/orbit-releases/releases">All releases</a>
   <br>
   Built by <a href="https://github.com/aiedwardyi">Edward Yi</a>
 </p>
