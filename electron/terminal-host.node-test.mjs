@@ -2708,6 +2708,23 @@ test("a bot input into a limit pause keeps its last screen change and still rest
   assert.match(f.notes[1].text, /^STALLED: /);
 });
 
+test("a turn resumed under an old limit box moves its screen and later stalls as STALLED", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "claude go" });
+  f.children[0].data(claudeAutoLimit());
+  await f.settle();
+  await f.advance(120_000);
+  assert.equal(f.notes.length, 1);
+  f.children[0].data(`● Editing src/app.ts\r\n${"─".repeat(120)}\r\n> \r\n${"─".repeat(120)}\r\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\r\n`);
+  await f.advance(10_000);
+  const moved = f.host.readBot("bot-1");
+  assert.equal(moved.panes[0].changedAt, moved.capturedAt);
+  await f.advance(120_000);
+  assert.equal(f.notes.length, 2);
+  assert.match(f.notes[1].text, /^STALLED: /);
+});
+
 test("a worker whose screen keeps changing sends no stall note", async () => {
   const f = stallFixture();
   await f.host.openForBot("bot-1", { label: "W", command: "$env:ORBIT_PANE=$null; & 'C:\\Tools\\claude.cmd' --model claude-sonnet-5-5 'go'" });

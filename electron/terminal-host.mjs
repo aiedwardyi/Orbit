@@ -183,8 +183,9 @@ function usageLimit(screenText, engine, cols = 80) {
     end += 1;
     reset = reader.exec(text)?.[1];
   }
-  // Claude's footer under its input box holds notices and the user's own status line.
-  const box = engine === "claude" ? tail.findIndex((line, i) => i > end && /^[─━]+$/u.test(line)) : -1;
+  // Claude's footer under its current input box holds notices and the user's own status line; an older box above it is history.
+  const borders = tail.flatMap((line, i) => /^[─━]+$/u.test(line) && !/^[─━]+$/u.test(tail[i - 1] ?? "") ? [i] : []);
+  const box = engine === "claude" && borders.at(-2) > end ? borders.at(-2) : -1;
   const after = tail.slice(end + 1, box < 0 ? undefined : box);
   if (after.some((line) => line.trim() && !LIMIT_IDLE_RE.test(line.trim()))) return null;
   reset = reset?.trim();
