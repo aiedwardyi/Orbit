@@ -342,6 +342,16 @@ const terminalHost = createTerminalHost({
     if (!response.ok) throw new Error("Could not resolve terminal folder");
     return response.json();
   },
+  async botNames() {
+    const port = app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT);
+    const response = await fetch(`http://127.0.0.1:${port}/api/bots?messages=0`, {
+      headers: serverToken ? { Authorization: `Bearer ${serverToken}` } : {},
+      redirect: "error",
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!response.ok) throw new Error("Could not read bot names");
+    return Object.fromEntries((await response.json()).bots.map((bot) => [bot.id, bot.name]));
+  },
 });
 const terminalBridge = createTerminalBridge({ host: terminalHost, updater: app.isPackaged ? updaterBridge : undefined });
 let terminalBridgeAccess = null;

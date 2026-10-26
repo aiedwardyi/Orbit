@@ -23,6 +23,7 @@ function launch(file) {
     owner: () => owner,
     platform: "linux",
     env: { SHELL: "/bin/sh" },
+    freeMemory: () => 64 * 1024 ** 3,
     stallCheckMs: 60_000,
     loadPty: () => ({ spawn: () => {
       const child = { onData(cb) { this.data = cb; }, onExit(cb) { this.exit = cb; }, write() {}, resize() {}, kill() {} };

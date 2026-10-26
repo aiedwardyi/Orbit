@@ -125,6 +125,7 @@ describe("pane notes from Wink", () => {
       mailbox: async () => ({ url: `http://127.0.0.1:${address.port}`, token: "secret", binDir: null }),
       platform: "linux",
       env: { SHELL: "/bin/sh" },
+      freeMemory: () => 64 * 1024 ** 3,
       loadPty: () => ({
         spawn: () => {
           let emit = () => {};
