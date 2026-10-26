@@ -127,13 +127,12 @@ export function shownState(run: WorkerRun, livePanes: Set<string> | null): Worke
   return live ? run.state : "ended";
 }
 
-/** Each run renders once at its retained mounted anchor; null folds its other messages. */
-export function workerAnchors<T extends { run: WorkerRun }>(workers: readonly T[], mounted: readonly WorkerMessage[], anchors?: ReadonlyMap<string, string>): Map<string, T | null> {
-  const ids = new Set(mounted.map((m) => m.id));
+/** Each run renders at its newest mounted message; null folds its other messages. */
+export function workerAnchors<T extends { run: WorkerRun }>(workers: readonly T[], mounted: readonly WorkerMessage[]): Map<string, T | null> {
+  const ids = mounted.map((m) => m.id).reverse();
   const at = new Map<string, T | null>();
   for (const shown of workers) {
-    const held = anchors?.get(shown.run.id);
-    const anchor = held && ids.has(held) && shown.run.messageIds.includes(held) ? held : shown.run.messageIds.find((id) => ids.has(id));
+    const anchor = ids.find((id) => shown.run.messageIds.includes(id));
     for (const id of shown.run.messageIds) at.set(id, id === anchor ? shown : null);
   }
   return at;
@@ -181,7 +180,6 @@ export function workerRuns(messages: readonly WorkerMessage[], older: readonly W
       const run = add(key, { nick: name, model, effort, provider: workerProvider(model), at: message.at, pane8, sessionId, folder: field("Working folder"), botId }, index);
       run.sessionId ??= sessionId;
       run.folder ??= field("Working folder");
-      // A follow-up is not a leading launch, so the row stays where it is.
       if (resumed) {
         run.messageIds.push(message.id);
         const submitted = field("Submitted");
@@ -190,7 +188,6 @@ export function workerRuns(messages: readonly WorkerMessage[], older: readonly W
         events.get(run)!.push({ at: Number.isSafeInteger(parsed) ? parsed : message.at, index, state: "working", resume: true });
         return;
       }
-      // a launch after its notes in the transcript still leads, so the row sits at the launch
       const launched = launches.get(run) ?? 0;
       run.messageIds.splice(launched, 0, message.id);
       launches.set(run, launched + 1);

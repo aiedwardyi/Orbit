@@ -8,12 +8,41 @@ import type { Message } from "@/state/store";
 import { workerRuns, type WorkerShownState } from "@/lib/worker-runs";
 import { ProviderMark } from "./ProviderIcons";
 import { applyLocale } from "@/lib/i18n";
-import { WORKER_STATUS, WorkerChip, WorkerRow, type ShownRun } from "./WorkerRows";
+import { WORKER_STATUS, WorkerChip, WorkerRow, useWorkerRows, type ShownRun } from "./WorkerRows";
 
 const run = (label: string) => {
   const launch: Message = { id: "l1", at: 1, role: "bot", kind: "launch", text: `Launched ${label}\nLabel: ${label}\nWorking folder: C:\\repo\nSession: aaaaaaaa-1` };
   return workerRuns([launch])[0]!;
 };
+
+describe("useWorkerRows", () => {
+  it("moves to a new note and keeps expansion when older messages mount", async () => {
+    const launch: Message = { id: "l1", at: 1, role: "bot", kind: "launch", text: "Launched A | script\nSession: aaaaaaaa-1" };
+    const note: Message = { id: "n1", at: 2, role: "bot", kind: "note", text: "[pane aaaaaaaa] [A | script] from Wink (a): BLOCKED A\nWaiting" };
+    let current: ReturnType<typeof useWorkerRows>;
+    function Rows({ messages, mounted = messages }: { messages: Message[]; mounted?: Message[] }) {
+      current = useWorkerRows(workerRuns(messages).map((run) => ({ run, state: run.state })), mounted);
+      return null;
+    }
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(Rows, { messages: [launch] })));
+      const id = current!.workerAt.get("l1")!.run.id;
+      await act(async () => current!.toggle(id));
+      await act(async () => root.render(createElement(Rows, { messages: [launch, note] })));
+      expect(current!.workerAt.get("l1")).toBeNull();
+      expect(current!.workerAt.get("n1")?.run.id).toBe(id);
+      expect(current!.open.has(id)).toBe(true);
+      await act(async () => root.render(createElement(Rows, { messages: [launch, note], mounted: [note] })));
+      await act(async () => root.render(createElement(Rows, { messages: [launch, note] })));
+      expect(current!.workerAt.get("n1")?.run.id).toBe(id);
+      expect(current!.open.has(id)).toBe(true);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});
 
 describe("WorkerRow", () => {
   it.each([

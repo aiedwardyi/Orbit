@@ -24,11 +24,7 @@ export const WORKER_STATUS = {
 export type ShownRun = { run: WorkerRun; state: WorkerShownState };
 
 export function useWorkerRows(workers: ShownRun[], messages: Message[]) {
-  const anchors = useRef(new Map<string, string>());
-  const workerAt = useMemo(() => workerAnchors(workers, messages, anchors.current), [messages, workers]);
-  useLayoutEffect(() => {
-    for (const [id, shown] of workerAt) if (shown) anchors.current.set(shown.run.id, id);
-  }, [workerAt]);
+  const workerAt = useMemo(() => workerAnchors(workers, messages), [messages, workers]);
   const [open, setOpen] = useState(new Set<string>());
   const toggle = useCallback((id: string) => setOpen((current) => {
     const next = new Set(current);
