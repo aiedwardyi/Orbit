@@ -385,19 +385,57 @@ describe("Phone Link setup", () => {
     }
   });
 
-  it.each([
-    ["auto is off", { ORBIT_REMOTE_AUTO: "0" }],
-    ["443 serves something else", {}],
-  ])("stops re-detecting when %s", async (_label, env) => {
+  it.each(["error", "not-running"])("keeps polling after an error from %s and publishes the recovered host", async (initial) => {
     vi.useFakeTimers();
     try {
+      let state = initial;
+      const hosts: string[] = [];
+      const exec = vi.fn(async (file: string, args: string[]) => {
+        if (state === "not-running") return JSON.stringify({ BackendState: "Stopped" });
+        return fake(state === "error" ? new Error("tailscaled restarting") : undefined)(file, args);
+      });
+      const retry = remoteHostRetry({}, 8799, (host) => hosts.push(host), exec, quiet, "linux");
+      await retry.refresh();
+      expect(retry.status()).toEqual({ state: initial });
+      expect(vi.getTimerCount()).toBe(1);
+      state = "error";
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(retry.status()).toEqual({ state: "error" });
+      expect(hosts).toEqual([]);
+      expect(vi.getTimerCount()).toBe(1);
+      state = "ready";
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(hosts).toEqual([HOST]);
+      expect(retry.status()).toEqual({ state: "ready" });
+      expect(vi.getTimerCount()).toBe(0);
+      exec.mockClear();
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(exec).not.toHaveBeenCalled();
+      expect(hosts).toEqual([HOST]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["disabled", "serve-disabled"])("stops re-detecting when %s", async (state) => {
+    vi.useFakeTimers();
+    try {
+      const env: NodeJS.ProcessEnv = {};
+      let up = false;
       let calls = 0;
-      const exec = async (_file: string, args: string[]) => {
+      const exec = async (file: string, args: string[]) => {
         calls++;
-        return args[0] === "status" ? running : JSON.stringify({ TCP: { "443": {} } });
+        if (!up) return JSON.stringify({ BackendState: "Stopped" });
+        return fake(new Error("Serve is not enabled on your tailnet"))(file, args);
       };
       const retry = remoteHostRetry(env, 8799, () => {}, exec, quiet, "linux");
       await retry.refresh();
+      expect(vi.getTimerCount()).toBe(1);
+      up = true;
+      if (state === "disabled") env.ORBIT_REMOTE_AUTO = "0";
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(retry.status()).toEqual({ state });
+      expect(vi.getTimerCount()).toBe(0);
       const first = calls;
       await vi.advanceTimersByTimeAsync(5 * 60_000);
       expect(calls).toBe(first);

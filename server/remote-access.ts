@@ -299,7 +299,7 @@ export function remoteHostRetry(
       pending = autoRemoteHost(env, port, exec, logChange, platform, (value) => { setup = value; })
         .then((host) => {
           // Tailscale often starts after Wink at login, and only Phone Link would ask again.
-          if (setup.state === "missing" || setup.state === "not-running") poll ??= setInterval(() => void retry.refresh(), REMOTE_POLL_MS).unref();
+          if (setup.state === "missing" || setup.state === "not-running" || setup.state === "error") poll ??= setInterval(() => void retry.refresh(), REMOTE_POLL_MS).unref();
           else {
             clearInterval(poll);
             poll = undefined;
