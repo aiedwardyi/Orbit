@@ -165,7 +165,8 @@ type SkillRecordingPayload = {
     ogb?: {
       platform: NodeJS.Platform;
       terminal?: {
-        readBot?(botId: string): Promise<TerminalBotSnapshot>;
+        readBot?(botId: string, options: { panesOnly: true }): Promise<Pick<TerminalBotSnapshot, "botId" | "state" | "capturedAt" | "panes">>;
+        readBot?(botId: string, options?: { panesOnly?: false }): Promise<TerminalBotSnapshot>;
         paneLabels?(): Promise<Record<string, string[]>>;
         sendBot?(botId: string, input: { sessionId: string; generation: number; text: string }): Promise<TerminalBotSnapshot>;
         appearance(): Promise<{ profileName: string; fontFamily?: string; fontSize?: number; theme: Record<string, string> } | null>;

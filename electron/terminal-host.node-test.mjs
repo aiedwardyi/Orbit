@@ -879,6 +879,36 @@ test("readBot lists every pane and sendBot targets a pane by session id", async 
   assert.deepEqual(f.children[0].writes, []);
 });
 
+test("panes-only reads return pane metadata without screen text", async (t) => {
+  let owner;
+  const f = fixture({ owner: () => owner, now: () => 42 });
+  owner = f.owner;
+  t.after(() => f.host.dispose());
+  await f.host.open(f.event, f.input);
+  await f.host.openForBot("bot-1", { label: "worker" });
+  f.children[0].data("main output\r\n");
+  f.children[1].data("worker output\r\n");
+  const full = f.host.readBot("bot-1");
+  assert.match(full.screenText, /main output/);
+  assert.ok(full.screenRuns.length > 0);
+  assert.equal(typeof full.recentText, "string");
+  assert.deepEqual(f.host.readBot("bot-1", { panesOnly: true }), {
+    botId: "bot-1",
+    capturedAt: 42,
+    panes: full.panes.map(({ screenText: _screenText, ...pane }) => pane),
+    closedPanes: [],
+  });
+});
+
+test("panes-only reads keep the no-terminal state without screen fields", () => {
+  const f = fixture({ now: () => 42 });
+  assert.deepEqual(f.host.readBot("bot-1", { panesOnly: true }), {
+    botId: "bot-1", state: "no-terminal", capturedAt: 42, panes: [], closedPanes: [],
+  });
+  assert.equal(f.host.readBot("bot-1").screenText, "");
+  assert.equal(f.host.readBot("bot-1").recentText, "");
+});
+
 test("paneLabels lists each bot's open worker panes, not main terminals or exited panes", async () => {
   let owner;
   const f = fixture({ owner: () => owner });

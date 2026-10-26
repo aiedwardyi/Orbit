@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld("ogb", {
     write: (id, data) => ipcRenderer.invoke("terminal:write", id, data),
     acknowledge: (id) => ipcRenderer.invoke("terminal:acknowledge", id),
     resize: (id, cols, rows) => ipcRenderer.invoke("terminal:resize", id, cols, rows),
-    readBot: (botId) => ipcRenderer.invoke("terminal:read-bot", botId),
+    readBot: (botId, options) => ipcRenderer.invoke("terminal:read-bot", botId, options),
     paneLabels: () => ipcRenderer.invoke("terminal:pane-labels"),
     sendBot: (botId, input) => ipcRenderer.invoke("terminal:send-bot", botId, input),
     openBot: (botId, input) => ipcRenderer.invoke("terminal:open-bot", botId, input),

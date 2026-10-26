@@ -1222,6 +1222,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         const live = botSessions(botId);
         // A user close or app quit never lands here, so notes from those panes still wake the bot.
         const closedPanes = [...(closedBotPanes.get(botId) ?? [])];
+        if (options.panesOnly) return { botId, ...(live.length ? {} : { state: "no-terminal" }), capturedAt: now(), panes: live.map(paneSummary), closedPanes };
         let session;
         if (options.sessionId) {
           const match = resolveBotSession(live, options.sessionId);
@@ -1258,7 +1259,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const first = buildSnapshot();
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Wait text is untyped proxy input.
       const waitFor = typeof options.waitFor === "string" && options.waitFor ? options.waitFor : null;
-      if (!waitFor) return first;
+      if (!waitFor || options.panesOnly) return first;
       if (first.screenText.includes(waitFor)) return Promise.resolve({ ...first, waited: "hit" });
       const timeoutMs = Math.min(Math.max(Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : READ_WAIT_DEFAULT_MS, WAIT_POLL_MS), READ_WAIT_MAX_MS);
       const deadline = now() + timeoutMs;

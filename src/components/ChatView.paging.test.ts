@@ -212,7 +212,7 @@ describe("paged transcripts", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       if (url === "/api/bots?messages=200") return Response.json({ bots: view === "chat" ? [bot(current, true)] : [], groups: view === "room" ? [room(current, true)] : [], computerControl: {} });
       if (url.includes("around=old-hit")) return Response.json({ messages: history, hasMore: false });
-      if (url.endsWith("/terminal")) return Response.json({ panes: ["aaaaaaaa-1", "bbbbbbbb-1"].map((sessionId) => ({ sessionId, main: false })) });
+      if (url.endsWith("/terminal?panes=1")) return Response.json({ panes: ["aaaaaaaa-1", "bbbbbbbb-1"].map((sessionId) => ({ sessionId, main: false })) });
       return new Promise<Response>(() => {});
     }));
     const host = await mount(view);

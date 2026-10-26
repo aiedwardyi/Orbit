@@ -7793,7 +7793,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (m && method === "GET") {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
-      const snapshot = await terminalSnapshotResponse(terminalBridgeAccess, bot.id, url.searchParams.get("sessionId"));
+      const snapshot = await terminalSnapshotResponse(terminalBridgeAccess, bot.id, url.searchParams.get("sessionId"), undefined, { panesOnly: url.searchParams.get("panes") === "1" });
       return json(res, snapshot.status, snapshot.body);
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/terminal\/start$/);
