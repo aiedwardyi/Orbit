@@ -193,7 +193,9 @@ try {
     batteryFlag = [int]$status.BatteryFlag; batteryPercent = [int]$status.BatteryLifePercent
     batteryPresent = if ($status.BatteryFlag -eq 255) { $null } else { ($status.BatteryFlag -band 128) -eq 0 }
   }
-  [IO.File]::WriteAllText($Ready, ($facts | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+  # Rename into place: Node polls for this file and could read it half-written.
+  [IO.File]::WriteAllText("$Ready.tmp", ($facts | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::Move("$Ready.tmp", $Ready)
   $deadline = [DateTime]::UtcNow.AddMinutes(2)
   while (-not (Test-Path -LiteralPath $Stop)) {
     if ([DateTime]::UtcNow -gt $deadline) { throw 'Control stop signal timed out' }
