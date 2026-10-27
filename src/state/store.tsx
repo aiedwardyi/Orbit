@@ -47,6 +47,7 @@ import {
 import {
   applyStreamDelta,
   currentTurnId,
+  heardEngine,
   hydrationTurnThread,
   isCurrentTurnCompletion,
   isCurrentTurnEvent,
@@ -2417,6 +2418,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         case "runtime": {
           const event = frame.event;
+          if (event.type !== "content.delta" && isCurrentTurnEvent(liveTurns.current, event.threadId, event.turnId)) {
+            setStream((prev) => heardEngine(prev, event.threadId));
+          }
           if (event.type === "content.delta") {
             if (!isCurrentTurnEvent(liveTurns.current, event.threadId, event.turnId)) break;
             // Batch token deltas per animation frame (t3code-style): a fast

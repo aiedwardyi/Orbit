@@ -615,6 +615,15 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect((settled[0] as any).text).toBe("hello from fake claude");
   });
 
+  it("opens a reasoning stream when a redacted thinking block starts", async () => {
+    await create("redacted-think");
+    await instance.adapter.sendTurn({ threadId: "t-redacted", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const reasoning = recorder.events.filter((e: any) => e.type === "content.delta" && e.streamKind === "reasoning_text");
+    expect(reasoning.map((d: any) => d.delta)).toEqual([""]);
+  });
+
   it("settles flagged narration as a summarized reply, never an unlabeled stream", async () => {
     await create("narration");
     await instance.adapter.sendTurn({ threadId: "t-narration", text: "hi" });
