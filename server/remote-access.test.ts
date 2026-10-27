@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { sendStaticFile } from "./compression.ts";
 import {
@@ -354,5 +354,93 @@ describe("Phone Link setup", () => {
     const retry = remoteHostRetry({ ORBIT_REMOTE_AUTO: "0" }, 8799, () => { throw new Error("unexpected host"); }, async () => { throw new Error("unexpected command"); }, quiet);
     await retry.refresh();
     expect(retry.status()).toEqual({ state: "disabled" });
+  });
+
+  it("picks up a Tailscale that starts after Wink without a request", async () => {
+    vi.useFakeTimers();
+    try {
+      let up = false;
+      const hosts: string[] = [];
+      const calls: string[] = [];
+      const lines: string[] = [];
+      const exec = async (file: string, args: string[]) => {
+        calls.push(args.join(" "));
+        if (!up) throw new Error("failed to connect to local tailscaled");
+        return fake()(file, args);
+      };
+      const retry = remoteHostRetry({}, 8799, (host) => hosts.push(host), exec, (line) => lines.push(line), "linux");
+      await retry.refresh();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(calls).toEqual(["status --json", "status --json"]);
+      expect(lines).toEqual(["Remote auto: Tailscale not found, remote off"]);
+      up = true;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(hosts).toEqual([HOST]);
+      expect(retry.status()).toEqual({ state: "ready" });
+      calls.length = 0;
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(calls).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["error", "not-running"])("keeps polling after an error from %s and publishes the recovered host", async (initial) => {
+    vi.useFakeTimers();
+    try {
+      let state = initial;
+      const hosts: string[] = [];
+      const exec = vi.fn(async (file: string, args: string[]) => {
+        if (state === "not-running") return JSON.stringify({ BackendState: "Stopped" });
+        return fake(state === "error" ? new Error("tailscaled restarting") : undefined)(file, args);
+      });
+      const retry = remoteHostRetry({}, 8799, (host) => hosts.push(host), exec, quiet, "linux");
+      await retry.refresh();
+      expect(retry.status()).toEqual({ state: initial });
+      expect(vi.getTimerCount()).toBe(1);
+      state = "error";
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(retry.status()).toEqual({ state: "error" });
+      expect(hosts).toEqual([]);
+      expect(vi.getTimerCount()).toBe(1);
+      state = "ready";
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(hosts).toEqual([HOST]);
+      expect(retry.status()).toEqual({ state: "ready" });
+      expect(vi.getTimerCount()).toBe(0);
+      exec.mockClear();
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(exec).not.toHaveBeenCalled();
+      expect(hosts).toEqual([HOST]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["disabled", "serve-disabled"])("stops re-detecting when %s", async (state) => {
+    vi.useFakeTimers();
+    try {
+      const env: NodeJS.ProcessEnv = {};
+      let up = false;
+      let calls = 0;
+      const exec = async (file: string, args: string[]) => {
+        calls++;
+        if (!up) return JSON.stringify({ BackendState: "Stopped" });
+        return fake(new Error("Serve is not enabled on your tailnet"))(file, args);
+      };
+      const retry = remoteHostRetry(env, 8799, () => {}, exec, quiet, "linux");
+      await retry.refresh();
+      expect(vi.getTimerCount()).toBe(1);
+      up = true;
+      if (state === "disabled") env.ORBIT_REMOTE_AUTO = "0";
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(retry.status()).toEqual({ state });
+      expect(vi.getTimerCount()).toBe(0);
+      const first = calls;
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(calls).toBe(first);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

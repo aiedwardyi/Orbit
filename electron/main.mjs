@@ -1313,10 +1313,11 @@ async function openDeviceWindow(rawHost, rawName) {
     const devices = win.webContents.session;
     devices.setPermissionCheckHandler((_webContents, permission) => permission === "clipboard-sanitized-write");
     devices.setPermissionRequestHandler((_webContents, permission, callback) => callback(permission === "clipboard-sanitized-write"));
-    // One listener per session: route each 401 to the device window that made it.
-    devices.webRequest.onCompleted({ urls: ["https://*/*"] }, ({ statusCode, webContentsId }) => {
-      if (statusCode !== 401) return;
+    // One listener per session: route each 401 and main-frame 403 to the device window that made it.
+    devices.webRequest.onCompleted({ urls: ["https://*/*"] }, ({ statusCode, webContentsId, resourceType, url: href }) => {
+      if (statusCode !== 401 && !(statusCode === 403 && resourceType === "mainFrame")) return;
       const target = [...deviceWindows.values()].find((open) => !open.isDestroyed() && open.webContents.id === webContentsId);
+      if (statusCode === 403) return deviceLoads.get(target)?.refused(href);
       // Not a data: check: a retry from the unreachable page answers 401 before it commits.
       if (target && target.webContents.getURL() !== deviceLinkPages.get(target)) void target.loadURL(deviceLinkPages.get(target));
     });

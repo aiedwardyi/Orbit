@@ -270,6 +270,8 @@ export async function autoRemoteHost(
   }
 }
 
+const REMOTE_POLL_MS = 30_000;
+
 export function remoteHostRetry(
   env: NodeJS.ProcessEnv,
   port: number,
@@ -282,18 +284,31 @@ export function remoteHostRetry(
   let setup: RemoteSetup = { state: "checking" };
   let pending: Promise<void> | undefined;
   let nextRetryAt = 0;
-  return {
+  let poll: ReturnType<typeof setInterval> | undefined;
+  let logged = "";
+  const logChange = (line: string) => {
+    if (line !== logged) log(line);
+    logged = line;
+  };
+  const retry = {
     status: () => setup,
     refresh(): Promise<void> {
       if (pending) return pending;
       if (setup.state === "ready" || setup.state === "disabled" || now() < nextRetryAt) return Promise.resolve();
       nextRetryAt = now() + 5_000;
-      pending = autoRemoteHost(env, port, exec, log, platform, (value) => { setup = value; })
+      pending = autoRemoteHost(env, port, exec, logChange, platform, (value) => { setup = value; })
         .then((host) => {
+          // Tailscale often starts after Wink at login, and only Phone Link would ask again.
+          if (setup.state === "missing" || setup.state === "not-running" || setup.state === "error") poll ??= setInterval(() => void retry.refresh(), REMOTE_POLL_MS).unref();
+          else {
+            clearInterval(poll);
+            poll = undefined;
+          }
           if (host) onHost(host);
         })
         .finally(() => { pending = undefined; });
       return pending;
     },
   };
+  return retry;
 }
