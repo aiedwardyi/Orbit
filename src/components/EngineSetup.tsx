@@ -63,6 +63,10 @@ export async function openInstallTerminalOrCopy(
   return opened ? "opened" : "copied";
 }
 
+export function installSignsIn(install: EngineInstall | undefined): boolean {
+  return Boolean(install?.signInCommand && !/\bYOUR_[A-Z0-9_]+\b/.test(install.signInCommand));
+}
+
 export async function openEngineInstallOrCopy(instanceId: string, command: string, installOnly = false): Promise<"running" | "opened" | "copied"> {
   if (window.ogb?.openEngineInstall) {
     try {
@@ -87,7 +91,7 @@ export function setupErrorAction(
   return "retry";
 }
 
-export function CommandRow({ command, actionLabel, signInInstanceId, installInstanceId, installOnly, docsUrl, quiet = false }: { command: string; actionLabel: string; signInInstanceId?: string; installInstanceId?: string; installOnly?: boolean; docsUrl?: string; quiet?: boolean }) {
+export function CommandRow({ command, actionLabel, signInInstanceId, installInstanceId, installOnly, signsIn, docsUrl, quiet = false }: { command: string; actionLabel: string; signInInstanceId?: string; installInstanceId?: string; installOnly?: boolean; signsIn?: boolean; docsUrl?: string; quiet?: boolean }) {
   const { t } = useI18n();
   const [status, setStatus] = useState<"copied" | "opened" | "running" | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
@@ -176,7 +180,8 @@ export function CommandRow({ command, actionLabel, signInInstanceId, installInst
           <p aria-live="polite" className="mt-1.5 text-center text-[11px] text-ink-secondary/70">
             {status === "copied" ? t("engine.commandCopied")
               : status === "opened" ? t("engine.pasteAndEnter")
-                : status === "running" || automaticSignIn ? t("engine.followSignIn") : t("engine.copiedWhenOpens")}
+                : status === "running" && !signInInstanceId && !signsIn ? t("engine.installRunning")
+                  : status === "running" || automaticSignIn ? t("engine.followSignIn") : t("engine.copiedWhenOpens")}
           </p>
         </>
       ) : (
@@ -356,7 +361,7 @@ export function EngineSetup({
       {oneClick ? (
         <div className="mt-3 flex justify-end"><EngineSignIn instance={instance} /></div>
       ) : command ? (
-        <CommandRow command={command} signInInstanceId={signInOnly ? instance.instanceId : undefined} installInstanceId={signInOnly ? undefined : instance.instanceId} installOnly={intent === "inject"} docsUrl={install.docsUrl} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
+        <CommandRow command={command} signInInstanceId={signInOnly ? instance.instanceId : undefined} installInstanceId={signInOnly ? undefined : instance.instanceId} installOnly={intent === "inject"} signsIn={intent !== "inject" && installSignsIn(install)} docsUrl={install.docsUrl} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
       ) : (
         <p className="mt-3 rounded-lg bg-inset px-2.5 py-2 text-[12px] leading-relaxed text-ink-secondary">
           {t("engine.noInstaller")}

@@ -79,7 +79,7 @@ it.each(["settings", "onboarding"])("starts %s install with only the instance id
   const host = document.createElement("div");
   const root = createRoot(host);
   try {
-    const props = { instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "untrusted renderer command" } } }) };
+    const props = { instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "untrusted renderer command" }, signInCommand: "official login" } }) };
     await act(async () => root.render(createElement(I18nProvider, null, createElement(surface === "settings" ? EngineRow : EngineSetup, props))));
     await act(async () => [...host.querySelectorAll("button")].find((button) => /Install/.test(button.textContent!))!.click());
     expect(openEngineInstall).toHaveBeenCalledExactlyOnceWith("claude");
@@ -87,6 +87,29 @@ it.each(["settings", "onboarding"])("starts %s install with only the instance id
     expect(host.textContent).toContain("Terminal opened");
     expect(host.textContent).toContain("Follow the sign-in steps in Terminal or your browser, then return here.");
     expect(host.textContent).not.toContain("Paste the command");
+  } finally {
+    await act(async () => root.unmount());
+    window.ogb = previous;
+  }
+});
+
+it.each([
+  ["settings", undefined, undefined],
+  ["onboarding", undefined, undefined],
+  ["settings", "official login YOUR_API_KEY", undefined],
+  ["onboarding", "official login", "inject"],
+] as const)("shows a neutral running line when %s install has no sign-in (%s, %s)", async (surface, signInCommand, intent) => {
+  const previous = window.ogb;
+  const openEngineInstall = vi.fn(async () => "running" as const);
+  Object.assign(window, { ogb: { platform: "win32", openEngineInstall } });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    const props = { intent, instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "npm install -g official" }, signInCommand } }) };
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(surface === "settings" ? EngineRow : EngineSetup, props))));
+    await act(async () => [...host.querySelectorAll("button")].find((button) => /Install/.test(button.textContent!))!.click());
+    expect(host.textContent).toContain("Installing in Terminal.");
+    expect(host.textContent).not.toContain("Follow the sign-in steps");
   } finally {
     await act(async () => root.unmount());
     window.ogb = previous;

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api, useOptionalStoreDispatch, useStore, type InstanceInfo } from "@/state/store";
 import { EngineMark } from "./EngineMark";
-import { EngineSignIn, installCommandFor, openEngineInstallOrCopy } from "./EngineSetup";
+import { EngineSignIn, installCommandFor, installSignsIn, openEngineInstallOrCopy } from "./EngineSetup";
 import { isFriendsCliEngine, orderFriendsEngines } from "@/lib/engine-rail";
 import { useI18n } from "@/lib/i18n";
 
@@ -56,7 +56,7 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
                 : current.install?.docsUrl && <a href={current.install.docsUrl} target="_blank" rel="noreferrer"
                 className="text-ink hover:underline">{t("engines.install")}</a>}
               {(installStatus === "opened" || installStatus === "running") && (
-                <p className="w-full text-right text-[11px] leading-[14px] text-ink-secondary/70">{t(installStatus === "running" ? "engine.followSignIn" : "engine.pasteAndEnter")}</p>
+                <p className="w-full text-right text-[11px] leading-[14px] text-ink-secondary/70">{t(installStatus !== "running" ? "engine.pasteAndEnter" : installSignsIn(current.install) ? "engine.followSignIn" : "engine.installRunning")}</p>
               )}
               {current.install?.needsNode && installCommand?.includes("npm") && (
                 <p className="w-full text-right text-[11px] leading-[14px] text-ink-secondary/70">{t("engine.needsNode")}</p>

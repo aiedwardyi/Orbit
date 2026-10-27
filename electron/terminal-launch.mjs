@@ -107,6 +107,7 @@ export function buildInstallScript({ command, needsNode, signInCommand, driverKi
     return [
       "$ErrorActionPreference='Stop'",
       ...(needsNode && /^\s*npm(?:\s|$)/.test(command) ? [
+        refreshPath,
         "if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {",
         "winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements",
         "if (-not $? -or $LASTEXITCODE -ne 0) { return }",

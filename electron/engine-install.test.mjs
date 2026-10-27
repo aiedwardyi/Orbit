@@ -102,6 +102,11 @@ describe("install terminal script", () => {
     expect(script.indexOf("winget install")).toBeLessThan(script.indexOf(encodedCommand));
   });
 
+  it("refreshes registry PATH before the npm check", () => {
+    const script = terminal.buildInstallScript(descriptor, "win32");
+    expect(script.indexOf("[Environment]::GetEnvironmentVariable('Path', 'Machine')")).toBeLessThan(script.indexOf("Get-Command npm"));
+  });
+
   it("never bootstraps Node for an irm installer", () => {
     const script = terminal.buildInstallScript({ ...descriptor, command: "irm https://npm.example.com/install.ps1 | iex" }, "win32");
     expect(script).not.toContain("winget");
