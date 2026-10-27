@@ -45,7 +45,7 @@ export type TurnStreamState = {
   gen?: Record<string, number>;
   /** Identity the current buffers were written under, per thread. */
   turn?: Record<string, string>;
-  /** Engine events seen per thread; each one restarts the no-reply wait. */
+  /** Engine events seen per thread; each one restarts the no-reply wait. Only grows: the turn id keeps each wait key unique. */
   heard?: Record<string, number>;
 };
 

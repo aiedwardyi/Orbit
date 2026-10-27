@@ -18,12 +18,13 @@ class FakeEventSource {
   }
 }
 
-type Frame = LiveFrame & { instances?: InstanceInfo[] };
+type Frame = LiveFrame & { instances?: InstanceInfo[]; threadId?: string; message?: Message };
 type Event = { type: string; streamKind?: string; delta?: string; itemType?: string; tokens?: number; input?: number; output?: number };
 
 const MINUTE = 60_000;
 const user: Message = { id: "u1", at: 1, role: "user", kind: "text", text: "Think hard" };
 const runningTool: Message = { id: "a1", at: 2, role: "bot", kind: "activity", tool: { name: "Bash: pnpm test" } };
+const preamble: Message = { id: "b1", at: 3, role: "bot", kind: "text", text: "Checking." };
 const bot = (messages: Message[]): Bot => ({
   id: "b1", threadId: "t1", name: "Teacher", title: "", description: "", notifications: false,
   color: "blue", unread: false, busy: true, activity: "working", modelSelection: { instanceId: "inst", model: "m" }, messages,
@@ -69,13 +70,15 @@ async function mount(driverKind: string, messages: Message[] = [user]) {
     await act(async () => root.unmount());
     host.remove();
   };
-  await act(async () => root.render(createElement(I18nProvider, null, createElement(StoreProvider, null, createElement(ChatView, { bot: current })))));
+  const render = (next: Bot) => act(async () => root.render(createElement(I18nProvider, null, createElement(StoreProvider, null, createElement(ChatView, { bot: next })))));
+  await render(current);
   await frame({ kind: "hello", resumed: false, cursor: "s:0" });
   await frame({ kind: "instances", instances: [{
     instanceId: "inst", driverKind, displayName: "Engine", snapshot: { state: "available" },
     models: { default: "m", options: [{ id: "m", label: "Model" }] },
   }] });
   await runtime({ type: "turn.started" });
+  return render;
 }
 
 describe("ChatView no reply hint", () => {
@@ -94,6 +97,19 @@ describe("ChatView no reply hint", () => {
     await advance(3 * MINUTE);
     expect(host.textContent).toContain("Thinking");
     expect(hint()).toBeUndefined();
+  });
+
+  it("waits a full 2 min after a redacted thinking block ends", async () => {
+    const render = await mount("claudeAgent");
+    await runtime({ type: "content.delta", streamKind: "reasoning_text", delta: "" });
+    await advance(3 * MINUTE);
+    await frame({ kind: "message", threadId: "t1", message: preamble });
+    await render(bot([user, preamble]));
+    expect(host.textContent).toContain("Waiting for the model");
+    await advance(2 * MINUTE - 1000);
+    expect(hint()).toBeUndefined();
+    await advance(1000);
+    expect(host.textContent).toContain("Claude hasn't replied in 2 min");
   });
 
   it("never names a turn running one tool for 3 min", async () => {
