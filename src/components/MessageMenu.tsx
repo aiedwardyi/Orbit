@@ -116,10 +116,12 @@ export function startSelectMode(row: HTMLElement, held: { x: number; y: number }
     document.removeEventListener("touchstart", onDown, true);
     document.removeEventListener("mousedown", onDown, true);
     selecting = null;
+    if (!window.ogb) window.dispatchEvent(new CustomEvent("orbit:back-layer", { detail: { key: "select-text" } }));
   };
   document.addEventListener("touchstart", onDown, true);
   document.addEventListener("mousedown", onDown, true);
   selecting = end;
+  if (!window.ogb) window.dispatchEvent(new CustomEvent("orbit:back-layer", { detail: { key: "select-text", close: end } }));
 }
 
 interface Press {

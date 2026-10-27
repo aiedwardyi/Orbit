@@ -15,7 +15,9 @@ import {
   QUICK_REACTIONS,
   contextClickKind,
   copyShortcutHint,
+  endSelectMode,
   selectionContainsPoint,
+  startSelectMode,
   type SelectionLike,
 } from "./MessageMenu";
 
@@ -222,6 +224,28 @@ describe("message menu helpers", () => {
     expect(selectionContainsPoint(sel, node, 2)).toBe(true);
     expect(selectionContainsPoint(sel, document.createTextNode("other"), 0)).toBe(false);
     expect(selectionContainsPoint(null, node, 0)).toBe(false);
+  });
+
+  it("keeps select mode off the desktop Back stack", () => {
+    const onLayer = vi.fn();
+    const row = document.body.appendChild(document.createElement("div"));
+    row.textContent = "hello there";
+    window.ogb = {} as NonNullable<typeof window.ogb>;
+    window.addEventListener("orbit:back-layer", onLayer);
+    try {
+      startSelectMode(row, { x: 0, y: 0 });
+      expect(row.hasAttribute("data-select-mode")).toBe(true);
+      expect(window.getSelection()?.toString()).toBe("hello there");
+      endSelectMode();
+      expect(row.hasAttribute("data-select-mode")).toBe(false);
+      expect(window.getSelection()?.toString()).toBe("");
+      expect(onLayer).not.toHaveBeenCalled();
+    } finally {
+      endSelectMode();
+      window.removeEventListener("orbit:back-layer", onLayer);
+      window.ogb = undefined;
+      row.remove();
+    }
   });
 });
 

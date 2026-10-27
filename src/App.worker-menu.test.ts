@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { SNAPSHOT_CACHE_KEY } from "@/state/snapshot-cache";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { startSelectMode } from "@/components/MessageMenu";
 
 let host: HTMLDivElement;
 let root: Root;
@@ -157,6 +158,63 @@ describe("phone Back with the workers list", () => {
     expect(document.querySelector("textarea[data-orbit-composer]")?.getAttribute("placeholder")).toBe("Message Pilot");
     await back();
     expect(document.querySelector("textarea[data-orbit-composer]")?.getAttribute("placeholder")).toBe("Message Scout");
+    expect(index).toBe(0);
+  });
+
+  it.each(["chat", "group"])("ends text selection before leaving the %s on Back", async (view) => {
+    const message = { id: "reply", at: 2, role: "bot", kind: "text", text: "hello there" };
+    const snapshot = JSON.parse(localStorage.getItem(SNAPSHOT_CACHE_KEY)!);
+    snapshot.bots[1].messages.push(message);
+    snapshot.groups = [{
+      id: "g1", threadId: "t-g1", name: "Team", memberIds: ["b1", "b2"],
+      defaultResponder: { kind: "everyone" }, bulletin: "", unread: false, createdAt: 1,
+      messages: [message],
+    }];
+    localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify(snapshot));
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: query === "(pointer: coarse)" || query.includes("max-width") || query.includes("prefers-reduced-motion"),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    }) as unknown as MediaQueryList);
+    if (view === "chat") await selectPilot();
+    else {
+      await act(async () => root.render(createElement(App)));
+      await until(strip);
+      await act(async () => document.querySelector<HTMLButtonElement>('[data-sidebar-row-kind="group"] button')!.click());
+    }
+    const composer = () => document.querySelector("textarea[data-orbit-composer]")?.getAttribute("placeholder");
+    const placeholder = composer();
+    const row = document.querySelector<HTMLElement>('[data-mid="reply"] [data-orbit-message]')!;
+    const content = row.querySelector("[data-orbit-message-content]")!;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const start = new Event("touchstart", { bubbles: true, cancelable: true });
+      Object.defineProperty(start, "touches", { value: [{ clientX: 100, clientY: 120 }] });
+      await act(async () => content.dispatchEvent(start));
+      await act(async () => vi.advanceTimersByTime(500));
+      await act(async () => content.dispatchEvent(new Event("touchend", { bubbles: true, cancelable: true })));
+      await act(async () => document.querySelector<HTMLButtonElement>("[data-menu-select]")!.click());
+    } finally {
+      vi.useRealTimers();
+    }
+    await settle();
+    expect(row.hasAttribute("data-select-mode")).toBe(true);
+    expect(window.getSelection()?.toString()).toBe("hello there");
+    await back();
+    expect(composer()).toBe(placeholder);
+    expect(row.hasAttribute("data-select-mode")).toBe(false);
+    expect(window.getSelection()?.toString()).toBe("");
+    expect(index).toBe(1);
+    for (let count = 0; count < 3; count++) {
+      await act(async () => startSelectMode(row, { x: 0, y: 0 }));
+      expect(index).toBe(2);
+      await act(async () => document.body.dispatchEvent(new Event("touchstart", { bubbles: true })));
+      await settle();
+      expect(row.hasAttribute("data-select-mode")).toBe(false);
+      expect(window.getSelection()?.toString()).toBe("");
+      expect(index).toBe(1);
+    }
+    await back();
+    expect(composer()).toBe("Message Scout");
     expect(index).toBe(0);
   });
 
