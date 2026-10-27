@@ -111,6 +111,10 @@ function ConversationTaskPicker({
     setOpen(false);
   };
   useBackLayer(open, closeMenu);
+  // the early return below hides the menu without closing it
+  useEffect(() => {
+    if (tasks.length <= 1) setOpen(false);
+  }, [tasks.length]);
 
   const queueDismiss = () => {
     clearDismiss();

@@ -156,8 +156,10 @@ export function WebhooksPanel({ bots }: { bots: Bot[] }) {
   const runById = useMemo(() => new Map(state.routineRuns.map((run) => [run.id, run])), [state.routineRuns]);
 
   useEffect(() => {
-    if (!state.webhooks.length) setSelectedId(null);
-    else if (!selectedId || !state.webhooks.some((webhook) => webhook.id === selectedId)) setSelectedId(state.webhooks[0]!.id);
+    if (!state.webhooks.length) {
+      setSelectedId(null);
+      setMenuOpen(false);
+    } else if (!selectedId || !state.webhooks.some((webhook) => webhook.id === selectedId)) setSelectedId(state.webhooks[0]!.id);
   }, [selectedId, state.webhooks]);
 
   const selected = state.webhooks.find((webhook) => webhook.id === selectedId) ?? null;

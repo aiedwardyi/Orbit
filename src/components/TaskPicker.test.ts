@@ -1,13 +1,18 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { describe, expect, it, vi } from "vitest";
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { StoreProvider, type Bot } from "@/state/store";
 import { canDeleteWhileWorking } from "../../shared/working-thread";
 import {
   TASK_PICKER_DISMISS_MS,
   TASK_RENAME_HINT,
+  TaskPicker,
   filterTasks,
   taskPickerPointerIntent,
 } from "./TaskPicker";
@@ -78,5 +83,37 @@ describe("filterTasks", () => {
 
   it("returns nothing when nothing matches", () => {
     expect(filterTasks(tasks, "zzzz")).toEqual([]);
+  });
+});
+
+describe("TaskPicker Back layer", () => {
+  it("drops its layer when deletes leave one task", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    vi.stubGlobal("EventSource", class { onmessage = null; close = vi.fn(); });
+    const events: WindowEventMap["orbit:back-layer"][] = [];
+    const record = (event: WindowEventMap["orbit:back-layer"]) => events.push(event);
+    window.addEventListener("orbit:back-layer", record);
+    const bot = (tasks: string[]): Bot => ({
+      id: "b1", threadId: "t1", name: "Scout", title: "", description: "", notifications: false, color: "blue", unread: false,
+      modelSelection: { instanceId: "inst", model: "m" }, messages: [], tasks: tasks.map((threadId) => ({ threadId, title: threadId, createdAt: 1 })),
+    });
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    const render = (tasks: string[]) => act(async () => root.render(createElement(StoreProvider, null, createElement(TaskPicker, { bot: bot(tasks) }))));
+    try {
+      await render(["t1", "t2"]);
+      await act(async () => host.querySelector("button")!.click());
+      expect(events.map((event) => Boolean(event.detail.close))).toEqual([true]);
+      await render(["t1"]);
+      expect(events.map((event) => Boolean(event.detail.close))).toEqual([true, false]);
+      await render(["t1", "t2"]);
+      expect(events).toHaveLength(2);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      window.removeEventListener("orbit:back-layer", record);
+      vi.unstubAllGlobals();
+    }
   });
 });
