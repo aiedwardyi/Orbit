@@ -63,6 +63,24 @@ export async function openInstallTerminalOrCopy(
   return opened ? "opened" : "copied";
 }
 
+export function installSignsIn(install: EngineInstall | undefined): boolean {
+  return Boolean(install?.signInCommand && !/\bYOUR_[A-Z0-9_]+\b/.test(install.signInCommand));
+}
+
+export async function openEngineInstallOrCopy(instanceId: string, command: string, installOnly = false): Promise<"running" | "opened" | "copied"> {
+  if (window.ogb?.openEngineInstall) {
+    try {
+      return await (installOnly ? window.ogb.openEngineInstall(instanceId, true) : window.ogb.openEngineInstall(instanceId));
+    } catch (error) {
+      // Older desktop builds expose the preload call without its main handler.
+      if (!String(error).includes("No handler registered")) console.error("[engine-install] install failed:", error);
+    }
+  }
+  return openInstallTerminalOrCopy(command, () => window.ogb!.openInstallTerminal!(command), (text) =>
+    navigator.clipboard.writeText(text),
+  );
+}
+
 /** What a failed turn should offer: install/sign-in or Retry. */
 export function setupErrorAction(
   instance: InstanceInfo | undefined,
@@ -73,10 +91,13 @@ export function setupErrorAction(
   return "retry";
 }
 
-export function CommandRow({ command, actionLabel, signInInstanceId, quiet = false }: { command: string; actionLabel: string; signInInstanceId?: string; quiet?: boolean }) {
+export function CommandRow({ command, actionLabel, signInInstanceId, installInstanceId, installOnly, signsIn, docsUrl, quiet = false }: { command: string; actionLabel: string; signInInstanceId?: string; installInstanceId?: string; installOnly?: boolean; signsIn?: boolean; docsUrl?: string; quiet?: boolean }) {
   const { t } = useI18n();
   const [status, setStatus] = useState<"copied" | "opened" | "running" | null>(null);
-  const canOpen = Boolean(signInInstanceId ? window.ogb?.openEngineSignIn : window.ogb?.openInstallTerminal);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const oneClickInstall = Boolean(installInstanceId && window.ogb?.openEngineInstall);
+  const canOpen = Boolean(signInInstanceId ? window.ogb?.openEngineSignIn : (installInstanceId && window.ogb?.openEngineInstall) || window.ogb?.openInstallTerminal);
   const automaticSignIn = Boolean(signInInstanceId && !/\bYOUR_[A-Z0-9_]+\b/.test(command));
 
   const settle = (next: "copied" | "opened" | "running") => {
@@ -87,13 +108,17 @@ export function CommandRow({ command, actionLabel, signInInstanceId, quiet = fal
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(command);
+      setCopyFailed(false);
       settle("copied");
     } catch {
+      if (installInstanceId && !canOpen) setCopyFailed(true);
       // The command remains selectable when clipboard access is blocked.
     }
   };
 
   const openTerminal = async () => {
+    if (busy) return;
+    setBusy(true);
     try {
       if (signInInstanceId) {
         try {
@@ -103,14 +128,21 @@ export function CommandRow({ command, actionLabel, signInInstanceId, quiet = fal
         }
         return;
       }
+      if (installInstanceId) {
+        settle(await openEngineInstallOrCopy(installInstanceId, command, installOnly));
+        return;
+      }
       settle(
         await openInstallTerminalOrCopy(command, () => window.ogb!.openInstallTerminal!(command), (text) =>
           navigator.clipboard.writeText(text),
         ),
       );
     } catch {
+      if (installInstanceId) setCopyFailed(true);
       // Clipboard blocked too: the command stays selectable, and no false
       // "copied" is shown.
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -134,13 +166,20 @@ export function CommandRow({ command, actionLabel, signInInstanceId, quiet = fal
         )}
       </div>
 
-      {canOpen ? (
+      {copyFailed && installInstanceId && docsUrl ? (
+        <a href={docsUrl} target="_blank" rel="noreferrer"
+          className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold",
+            quiet ? "bg-control text-ink hover:bg-raised-hover" : "whitespace-nowrap bg-accent text-accent-ink hover:brightness-110")}>
+          <ExternalLink size={14} />{t("engines.install")}
+        </a>
+      ) : canOpen ? (
         <>
           <button
             type="button"
             onClick={() => void openTerminal()}
+            disabled={busy}
             className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold",
-              quiet ? "bg-control text-ink hover:bg-raised-hover" : "whitespace-nowrap bg-accent text-accent-ink hover:brightness-110")}
+              quiet ? "bg-control text-ink hover:bg-raised-hover" : "whitespace-nowrap bg-accent text-accent-ink hover:brightness-110", "disabled:opacity-50")}
           >
             {status === "opened" || status === "running" ? <Check size={14} /> : <TerminalSquare size={14} />}
             {status === "opened" || status === "running" ? t("engine.terminalOpened") : actionLabel}
@@ -148,7 +187,8 @@ export function CommandRow({ command, actionLabel, signInInstanceId, quiet = fal
           <p aria-live="polite" className="mt-1.5 text-center text-[11px] text-ink-secondary/70">
             {status === "copied" ? t("engine.commandCopied")
               : status === "opened" ? t("engine.pasteAndEnter")
-                : automaticSignIn ? t("engine.followSignIn") : t("engine.copiedWhenOpens")}
+                : status === "running" && !signInInstanceId && !signsIn ? t("engine.installRunning")
+                  : status === "running" || automaticSignIn ? t("engine.followSignIn") : !oneClickInstall ? t("engine.copiedWhenOpens") : null}
           </p>
         </>
       ) : (
@@ -328,15 +368,14 @@ export function EngineSetup({
       {oneClick ? (
         <div className="mt-3 flex justify-end"><EngineSignIn instance={instance} /></div>
       ) : command ? (
-        <CommandRow command={command} signInInstanceId={signInOnly ? instance.instanceId : undefined} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
+        <CommandRow command={command} signInInstanceId={signInOnly ? instance.instanceId : undefined} installInstanceId={signInOnly ? undefined : instance.instanceId} installOnly={intent === "inject"} signsIn={intent !== "inject" && installSignsIn(install)} docsUrl={install.docsUrl} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
       ) : (
         <p className="mt-3 rounded-lg bg-inset px-2.5 py-2 text-[12px] leading-relaxed text-ink-secondary">
           {t("engine.noInstaller")}
         </p>
       )}
 
-      {/* needsNode is engine-wide; only show it when this machine's command is npm. */}
-      {!signInOnly && install.needsNode && (installCommand?.includes("npm") ?? true) && (
+      {!signInOnly && install.needsNode && (installCommand?.includes("npm") ?? true) && !(window.ogb?.openEngineInstall && window.ogb.platform === "win32") && (
         <p className="mt-2 text-[11px] leading-relaxed text-ink-secondary/70">
           {t("engine.needsNode")}
         </p>

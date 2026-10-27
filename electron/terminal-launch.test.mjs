@@ -1,7 +1,21 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 
-import { openBlankTerminal, openSignInTerminal } from "./terminal-launch.mjs";
+import { buildInstallScript, openBlankTerminal, openSignInTerminal } from "./terminal-launch.mjs";
+
+describe("install PATH refresh", () => {
+  it("merges registry paths with the inherited session PATH before checking npm", () => {
+    const script = buildInstallScript({ command: "npm install -g official", needsNode: true }, "win32");
+    const refreshes = script.split("\n").filter((line) => line.startsWith("$env:Path="));
+    expect(refreshes).toHaveLength(3);
+    for (const refresh of refreshes) {
+      expect(refresh).toContain("[Environment]::GetEnvironmentVariable('Path', 'Machine')");
+      expect(refresh).toContain("[Environment]::GetEnvironmentVariable('Path', 'User')");
+      expect(refresh.slice("$env:Path=".length)).toMatch(/\$env:Path\b/);
+    }
+    expect(script.indexOf(refreshes[0])).toBeLessThan(script.indexOf("Get-Command npm"));
+  });
+});
 
 function launcher(outcomes) {
   const calls = [];
@@ -25,7 +39,7 @@ describe("blank terminal launcher", () => {
     expect(await openSignInTerminal({ driverKind: "antigravityAgent", command: "agy" }, "win32", fake.run)).toBe(true);
     const call = fake.calls[0];
     expect(call.executable).toBe("cmd.exe");
-    expect(call.args.slice(0, 3)).toEqual(["/c", "start", ""]);
+    expect(call.args.slice(0, 8)).toEqual(["/c", "start", "", "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit"]);
     expect(call.args).toContain("-NoExit");
     expect(call.args).toContain("-EncodedCommand");
     expect(Buffer.from(call.args.at(-1), "base64").toString("utf16le")).toBe("$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; agy");

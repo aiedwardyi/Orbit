@@ -269,6 +269,26 @@ winOnly("resolveCli (Windows)", () => {
     expect(stdout.trim()).toBe("js target -p,hi");
   });
 
+  it("runs a .js shim through the Node installed after launch, off PATH", () => {
+    const previous = { PATH: process.env.PATH, ProgramFiles: process.env.ProgramFiles };
+    const programFiles = mkdtempSync(join(tmpdir(), "omb-programfiles-"));
+    try {
+      shimWith("ombfake.cmd", JS_SHIM, "ombfake.js", "");
+      mkdirSync(join(programFiles, "nodejs"));
+      writeFileSync(join(programFiles, "nodejs", "node.exe"), "MZ-not-really");
+      process.env.PATH = join(process.env.SystemRoot ?? "C:\\Windows", "System32");
+      process.env.ProgramFiles = programFiles;
+      onPath();
+      expect(resolveCli("ombfake", []).command).toBe(join(programFiles, "nodejs", "node.exe"));
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      rmSync(programFiles, { recursive: true, force: true });
+    }
+  });
+
   it("prefers the PATHEXT hit over the extensionless sibling npm installs beside it", () => {
     shimWith("ombfake.cmd", EXE_SHIM, "ombfake.exe", "MZ-not-really");
     writeFileSync(join(dir, "ombfake"), "#!/bin/sh\n# the POSIX shim — unrunnable here\n");

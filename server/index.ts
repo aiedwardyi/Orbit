@@ -8139,6 +8139,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }));
     }
 
+    const engineInstall = /^\/api\/instances\/([\w.-]+)\/install$/.exec(path);
+    if (method === "GET" && engineInstall) {
+      const install = registry.install(engineInstall[1]);
+      return install ? json(res, 200, install) : json(res, 404, { error: "Unknown engine install" });
+    }
     const engineSignIn = /^\/api\/instances\/([\w.-]+)\/sign-in$/.exec(path);
     if (method === "POST" && engineSignIn) {
       if (!String(req.headers["content-type"] ?? "").toLowerCase().startsWith("application/json")) {

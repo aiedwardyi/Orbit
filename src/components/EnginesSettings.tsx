@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { api, useOptionalStoreDispatch, useStore, type InstanceInfo } from "@/state/store";
 import { EngineMark } from "./EngineMark";
-import { EngineSignIn, installCommandFor, openInstallTerminalOrCopy } from "./EngineSetup";
+import { EngineSignIn, installCommandFor, installSignsIn, openEngineInstallOrCopy } from "./EngineSetup";
 import { isFriendsCliEngine, orderFriendsEngines } from "@/lib/engine-rail";
 import { useI18n } from "@/lib/i18n";
 
@@ -16,7 +16,7 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
   const [current, setCurrent] = useState(instance);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
-  const [installStatus, setInstallStatus] = useState<"opened" | "copied" | null>(null);
+  const [installStatus, setInstallStatus] = useState<"running" | "opened" | "copied" | "failed" | null>(null);
   useEffect(() => { setCurrent(instance); }, [instance]);
   const signOut = async () => {
     if (busy) return;
@@ -34,13 +34,13 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
   const canSignOut = Boolean(current.install?.logout) && current.driverKind !== "antigravityAgent";
   const installCommand = current.snapshot.state !== "available" ? installCommandFor(current.install) : null;
   const install = async () => {
-    if (!installCommand) return;
+    if (!installCommand || busy) return;
+    setBusy(true);
     setInstallStatus(null);
     try {
-      setInstallStatus(await openInstallTerminalOrCopy(installCommand, () => window.ogb!.openInstallTerminal!(installCommand), (text) =>
-        navigator.clipboard.writeText(text),
-      ));
-    } catch {}
+      setInstallStatus(await openEngineInstallOrCopy(current.instanceId, installCommand));
+    } catch { setInstallStatus("failed"); }
+    finally { setBusy(false); }
   };
   return (
     <div data-engine-row={current.instanceId} className="min-w-0 py-2">
@@ -50,16 +50,17 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
         <div className="min-w-0 max-w-[65%] py-1.5 has-[>div>button:first-child]:py-0">
           {current.snapshot.state !== "available" ? (
             <div className="flex flex-wrap items-center justify-end gap-x-3 break-keep text-[12px] text-ink-secondary">
-              <span aria-live="polite">{installStatus === "opened" ? t("engine.terminalOpened")
-                : installStatus === "copied" ? t("engine.commandCopied") : t("engines.notInstalled")}</span>
-              {installCommand ? <button type="button" onClick={() => void install()}
-                className="text-ink hover:underline">{t("engines.install")}</button>
+              <span aria-live="polite">{installStatus === "opened" || installStatus === "running" ? t("engine.terminalOpened")
+                : installStatus === "copied" ? t("engine.commandCopied")
+                  : installStatus === "failed" && !current.install?.docsUrl ? t("engines.installFailed") : t("engines.notInstalled")}</span>
+              {installCommand && !(installStatus === "failed" && current.install?.docsUrl) ? <button type="button" onClick={() => void install()} disabled={busy}
+                className="text-ink hover:underline disabled:opacity-50">{t("engines.install")}</button>
                 : current.install?.docsUrl && <a href={current.install.docsUrl} target="_blank" rel="noreferrer"
                 className="text-ink hover:underline">{t("engines.install")}</a>}
-              {installStatus === "opened" && (
-                <p className="w-full text-right text-[11px] leading-[14px] text-ink-secondary/70">{t("engine.pasteAndEnter")}</p>
+              {(installStatus === "opened" || installStatus === "running") && (
+                <p className="w-full text-right text-[11px] leading-[14px] text-ink-secondary/70">{t(installStatus !== "running" ? "engine.pasteAndEnter" : installSignsIn(current.install) ? "engine.followSignIn" : "engine.installRunning")}</p>
               )}
-              {current.install?.needsNode && installCommand?.includes("npm") && (
+              {current.install?.needsNode && installCommand?.includes("npm") && !(window.ogb?.openEngineInstall && window.ogb.platform === "win32") && (
                 <p className="w-full text-right text-[11px] leading-[14px] text-ink-secondary/70">{t("engine.needsNode")}</p>
               )}
             </div>
