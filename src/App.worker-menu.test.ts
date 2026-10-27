@@ -197,7 +197,7 @@ describe("phone Back with the workers list", () => {
 
   it("replaces the tapped worker list with its terminal without an extra Back", async () => {
     vi.stubGlobal("fetch", vi.fn((url: string) => {
-      const id = url.match(/^\/api\/bots\/(b[12])\/terminal$/)?.[1];
+      const id = url.match(/^\/api\/bots\/(b[12])\/terminal(?:\?panes=1)?$/)?.[1];
       return id ? Promise.resolve(new Response(JSON.stringify({ panes: [{
         sessionId: `${id.padEnd(8, "0")}-0000-4000-8000-000000000000`,
         label: `${id === "b1" ? "ONE" : "TWO"} | Opus 5.5 | high`,
