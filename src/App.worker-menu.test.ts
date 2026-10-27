@@ -195,6 +195,42 @@ describe("phone Back with the workers list", () => {
     expect(index).toBe(0);
   });
 
+  it("closes the drawer before a mention picker opened under it", async () => {
+    await selectPilot();
+    const box = document.querySelector<HTMLTextAreaElement>("textarea[data-orbit-composer]")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box, "@");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const picker = () => document.querySelector('[role="listbox"]');
+    expect(picker()).not.toBeNull();
+    const drawer = document.querySelector<HTMLButtonElement>("[data-phone-menu]")!;
+    await act(async () => drawer.click());
+    await settle();
+    expect(drawer.getAttribute("aria-expanded")).toBe("true");
+    await back();
+    expect(drawer.getAttribute("aria-expanded")).toBe("false");
+    expect(picker()).not.toBeNull();
+    await back();
+    expect(picker()).toBeNull();
+    expect(index).toBe(1);
+  });
+
+  it("closes a model picker opened over a dialog before the dialog", async () => {
+    await selectPilot(createElement(ConfirmOverApp));
+    await act(async () => document.querySelector<HTMLButtonElement>("[data-open-confirm]")!.click());
+    await key({ key: "m", code: "KeyM", altKey: true });
+    await settle();
+    const picker = () => document.querySelector("[data-model-picker-content]");
+    expect(picker()).not.toBeNull();
+    await back();
+    expect(picker()).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    await back();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(index).toBe(1);
+  });
+
   it("replaces the tapped worker list with its terminal without an extra Back", async () => {
     vi.stubGlobal("fetch", vi.fn((url: string) => {
       const id = url.match(/^\/api\/bots\/(b[12])\/terminal(?:\?panes=1)?$/)?.[1];

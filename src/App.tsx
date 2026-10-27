@@ -531,6 +531,8 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
 
   const backNavigation = useRef<BackNavigation | null>(null);
   const selectionTrail = useRef<string[]>([]);
+  // insertion order is open order, so Back closes the newest overlay first
+  const openedLayers = useRef(new Set<string>());
   useLayoutEffect(() => {
     if (window.ogb) return;
     const navigation = new BackNavigation(window.history);
@@ -573,13 +575,14 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     const exists = (id: string) =>
       latestState.current.bots.some((candidate) => candidate.id === id) || latestState.current.groups.some((candidate) => candidate.id === id);
     followSelection(trail, root, state.selectedId, exists);
-    const layers: BackLayer[] = trail.slice(1).map((id, index) => ({
+    const chats: BackLayer[] = trail.slice(1).map((id, index) => ({
       key: `chat:${id}`,
       close: () => {
         const target = trailTarget(trail, index, exists);
         if (target) dispatch({ type: "select", id: target });
       },
     }));
+    const layers: BackLayer[] = [];
     const add = (open: boolean, key: string, close: () => void) => { if (open) layers.push({ key, close }); };
     add(state.activeView !== "chat", `view:${state.activeView}`, () => dispatch({ type: "select", id: state.selectedId }));
     add(Boolean(browserWorkspaceBotId), `browser:${browserWorkspaceBotId}`, () => setBrowserWorkspaceBotId(null));
@@ -597,7 +600,11 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     add(modelPickerOpen, "model-picker", () => window.dispatchEvent(new Event("orbit:close-model-picker")));
     add(messageMenuOpen, "message-menu", () => window.dispatchEvent(new Event("orbit:close-message-menu")));
     layers.push(...backLayers);
-    backNavigation.current.sync(layers);
+    const opened = openedLayers.current;
+    const live = new Map(layers.map((layer) => [layer.key, layer]));
+    for (const key of opened) if (!live.has(key)) opened.delete(key);
+    for (const key of live.keys()) opened.add(key);
+    backNavigation.current.sync([...chats, ...[...opened].map((key) => live.get(key)!)]);
   });
 
   useEffect(() => {
