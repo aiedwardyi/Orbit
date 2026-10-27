@@ -466,7 +466,7 @@ describe("ChatView worker rows", () => {
 
   describe("without the desktop bridge", () => {
     const [a, b, c] = ["aaaaaaaa-1", "bbbbbbbb-1", "cccccccc-1"];
-    const terminalPath = `/api/bots/${botA.id}/terminal`;
+    const terminalPath = `/api/bots/${botA.id}/terminal?panes=1`;
     const roster = (...ids: string[]) => ({ panes: [{ sessionId: "main-1", main: true }, ...ids.map((sessionId) => ({ sessionId, main: false }))] });
     // SAFETY: botA is a full Bot fixture; only messages is replaced, with valid Messages.
     const threeRuns = () => ({ ...botA, messages: [userMsg("ua", "go"), launch(a, "A"), launch(b, "B"), launch(c, "C")] } as Bot);
@@ -716,7 +716,7 @@ describe("ChatView worker rows", () => {
         await act(async () => feed({ [botA.id]: ["x"] }));
         await act(async () => { rows(host)[0]!.click(); });
         expect(calls.length).toBeGreaterThan(1);
-        expect(calls.every((call) => /^GET \/api\/bots\/[^/]+\/terminal$/.test(call))).toBe(true);
+        expect(calls.every((call) => /^GET \/api\/bots\/[^/]+\/terminal\?panes=1$/.test(call))).toBe(true);
       } finally {
         await unmount();
       }

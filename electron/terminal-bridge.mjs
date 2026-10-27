@@ -159,6 +159,7 @@ export function createTerminalBridge({ host, updater, token = randomBytes(24).to
           const timeoutParam = parsed.searchParams.get("timeoutMs");
           const options = {};
           if (sessionId) options.sessionId = sessionId;
+          if (parsed.searchParams.get("panes") === "1") options.panesOnly = true;
           if (parsed.searchParams.get("observe") === "1") options.observe = true;
           if (waitFor) options.waitFor = waitFor;
           if (waitFor && timeoutParam) options.timeoutMs = Number(timeoutParam);

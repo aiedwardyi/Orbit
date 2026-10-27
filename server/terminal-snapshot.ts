@@ -78,9 +78,13 @@ export async function terminalSnapshotResponse(
   botId: string,
   sessionId?: string | null,
   fetchImpl: typeof fetch = fetch,
+  options: { panesOnly?: boolean } = {},
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   if (!access) return { status: 503, body: { error: "terminal bridge unavailable" } };
-  const qs = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : "";
+  const params = new URLSearchParams();
+  if (sessionId) params.set("sessionId", sessionId);
+  if (options.panesOnly) params.set("panes", "1");
+  const qs = params.size ? `?${params}` : "";
   let res: Response;
   try {
     res = await fetchImpl(`${access.url}/v1/bots/${encodeURIComponent(botId)}/terminal${qs}`, {

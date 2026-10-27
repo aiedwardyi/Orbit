@@ -101,22 +101,28 @@ describe("useLivePanes", () => {
     }
   });
 
-  it("reads again on a beat while a run waits on a stall note, until its pane moves on", async () => {
+  it.each(["desktop", "phone"])("reads panes only on the %s beat until a waiting pane moves on", async (path) => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     const reads: Array<(snapshot: Snapshot & { panes: { changedAt: number }[] }) => void> = [];
+    const readBot = vi.fn(() => new Promise((resolve) => { reads.push(resolve); }));
     vi.stubGlobal("ogb", { platform: "win32", terminal: {
-      readBot: vi.fn(() => new Promise((resolve) => { reads.push(resolve); })),
+      readBot,
       onOpened: vi.fn(() => () => {}),
       onClosed: vi.fn(() => () => {}),
       onExit: vi.fn(() => () => {}),
     } });
+    if (path === "phone") {
+      vi.stubGlobal("ogb", undefined);
+      vi.stubGlobal("fetch", vi.fn(async () => Response.json(await readBot())));
+    }
     const pane = "beefbeef-0000-4000-8000-000000000001";
     const runs = workerRuns([{ id: "n1", at: 200_000, role: "bot", kind: "note", text: "[pane beefbeef] from Wink (beat): STALLED: no screen change for 2 min and no report." }]);
     const reply = async (n: number, changedAt: number) => {
       await vi.waitFor(() => expect(reads.length).toBeGreaterThan(n));
       await act(async () => { reads[n]!({ panes: [{ sessionId: pane, main: false, exited: false, changedAt }] }); await sleep(10); });
     };
-    const probe = await mountProbe("beat", [], runs);
+    const botId = `beat-${path}`;
+    const probe = await mountProbe(botId, [], runs);
     try {
       await reply(0, 1_000);
       await reply(1, 1_000);
@@ -125,6 +131,8 @@ describe("useLivePanes", () => {
       const settled = reads.length;
       await act(async () => { vi.advanceTimersByTime(60_000); await sleep(10); });
       expect(reads).toHaveLength(settled);
+      if (path === "desktop") expect(readBot).toHaveBeenNthCalledWith(3, botId, { panesOnly: true });
+      else expect(fetch).toHaveBeenNthCalledWith(3, `/api/bots/${botId}/terminal?panes=1`, expect.anything());
     } finally {
       await probe.unmount();
     }

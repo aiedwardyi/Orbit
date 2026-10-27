@@ -426,7 +426,7 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
       lastLive.set(botId, new Set(ids));
       setLive({ botId, ids: new Set(ids) });
     };
-    const read = () => void Promise.resolve().then(() => bridge.readBot?.(botId)).then((snapshot) => {
+    const read = () => void Promise.resolve().then(() => bridge.readBot?.(botId, { panesOnly: true })).then((snapshot) => {
       if (!alive || !snapshot?.panes) return;
       rememberLabels(botId, snapshot.panes);
       rememberChanges(botId, snapshot.panes);
@@ -484,7 +484,7 @@ export function useLivePanes(botId: string, enabled: boolean, paneKey: string, s
           timer = setTimeout(read, delay);
           delay = Math.min(delay * 2, 15_000);
         };
-        api(`/api/bots/${encodeURIComponent(botId)}/terminal`).then(
+        api(`/api/bots/${encodeURIComponent(botId)}/terminal?panes=1`).then(
           (body) => {
             if (!alive || call !== latest) return;
             if (!Array.isArray(body?.panes)) { retry(); return; }

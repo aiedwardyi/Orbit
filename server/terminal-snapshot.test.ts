@@ -113,6 +113,19 @@ describe("terminal snapshot relay", () => {
     await expect(terminalSnapshotResponse(ACCESS, "bot-1", undefined, fetchImpl)).resolves.toMatchObject({ status: 200, body: { state: "no-terminal" } });
   });
 
+  it.each([undefined, "worker"])("forwards panes-only reads with sessionId %s", async (sessionId) => {
+    const panes = [{ sessionId: "worker", label: "build", main: false, exited: false, changedAt: 42 }];
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (url) => {
+      calls.push(String(url));
+      return Response.json({ botId: "bot-1", panes });
+    };
+    await expect(terminalSnapshotResponse(ACCESS, "bot-1", sessionId, fetchImpl, { panesOnly: true })).resolves.toEqual({
+      status: 200, body: { panes },
+    });
+    expect(calls).toEqual([`http://127.0.0.1:52150/v1/bots/bot-1/terminal?${sessionId ? "sessionId=worker&" : ""}panes=1`]);
+  });
+
   it("passes sessionId through as a query param and relays panes and label", async () => {
     const calls: Array<{ url: string }> = [];
     const fetchImpl = (async (url: string | URL | Request) => {
@@ -178,7 +191,7 @@ describe("terminal snapshot relay", () => {
     const route = server.slice(server.indexOf("/terminal$/);"), server.indexOf("/terminal$/);") + 400);
     expect(route).toContain('method === "GET"');
     expect(route).toContain('json(res, 404, { error: "no such bot" })');
-    expect(route).toContain("terminalSnapshotResponse(terminalBridgeAccess, bot.id, url.searchParams.get(\"sessionId\"))");
+    expect(route).toContain('terminalSnapshotResponse(terminalBridgeAccess, bot.id, url.searchParams.get("sessionId"), undefined, { panesOnly: url.searchParams.get("panes") === "1" })');
     expect(remoteAccess).not.toMatch(/BEARER_ONLY_PATHS = new Set\([^)]*\/terminal"/);
   });
 });

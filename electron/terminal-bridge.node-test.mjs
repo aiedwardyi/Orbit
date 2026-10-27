@@ -72,6 +72,28 @@ test("forwards turn-end text and explicit read observation to the host", async (
   assert.deepEqual(calls, [["bot-1", "worker", "auto", "done"], ["bot-1", { sessionId: "worker", observe: true }]]);
 });
 
+test("forwards panes-only reads and keeps full reads unchanged", async (t) => {
+  const calls = [];
+  const panes = [{ sessionId: "worker", label: "build", main: false, exited: false, changedAt: 42 }];
+  const bridge = createTerminalBridge({ host: {
+    readBot: (botId, options) => {
+      calls.push([botId, options]);
+      return options.panesOnly ? { botId, panes } : { botId, panes, screenText: "ready", screenRuns: [], recentText: "done" };
+    },
+    sendBot() {},
+  } });
+  t.after(() => bridge.close());
+  const connection = await bridge.start();
+  const headers = { authorization: `Bearer ${terminalReadGrant(connection.token, "bot-1")}` };
+  const response = await fetch(`${connection.url}/v1/bots/bot-1/terminal?panes=1`, { headers });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { botId: "bot-1", panes });
+  const full = await fetch(`${connection.url}/v1/bots/bot-1/terminal`, { headers });
+  assert.equal((await full.json()).screenText, "ready");
+  await fetch(`${connection.url}/v1/bots/bot-1/terminal?sessionId=worker&panes=1`, { headers });
+  assert.deepEqual(calls, [["bot-1", { panesOnly: true }], ["bot-1", {}], ["bot-1", { sessionId: "worker", panesOnly: true }]]);
+});
+
 test("the snapshot terminal_send returns counts as a read", async (t) => {
   const calls = [];
   const bridge = createTerminalBridge({ host: { readBot: (...args) => { calls.push(args); return {}; }, sendBot() {} } });
