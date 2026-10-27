@@ -39,7 +39,7 @@ export function ComposerAttachments({
   onRepickUpload,
 }: {
   items: Attachment[];
-  onAdd: (attachments: Attachment[], uploads: { id: string; file: File }[]) => void;
+  onAdd: (attachments: Attachment[], uploads: { id: string; file: File }[], startedAt?: number) => void;
   onRemove: (id: string) => void;
   onDisplayInChatBox: (attachment: PasteAttachment) => void;
   allowImages?: boolean;
@@ -82,6 +82,7 @@ export function ComposerAttachments({
       depth.current = 0;
       setDragging(false);
       const files = Array.from(e.dataTransfer?.files ?? []);
+      const startedAt = performance.now();
       // Same intake the attach button uses: a dropped file and a picked one
       // must not appear in a different order.
       const { attachments, uploads, notice: message } = await intakeFiles(files, {
@@ -91,9 +92,9 @@ export function ComposerAttachments({
         uploadImage: pasteImageAttachment,
       });
       if (!active) return;
-      if (attachments.length) onAdd(attachments, uploads);
-      // Only a failure changes the notice. This keeps a concurrent successful
-      // intake from clearing an error before the user can read it.
+      if (attachments.length) onAdd(attachments, uploads, startedAt);
+      // onAdd clears only a notice from before this drop started, so an error
+      // a concurrent intake just raised stays until the user reads it.
       if (message) onNotice(message);
     };
     const onDrop = (e: DragEvent) => void holdReload(drop(e));
