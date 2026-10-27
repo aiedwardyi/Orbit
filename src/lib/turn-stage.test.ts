@@ -44,6 +44,8 @@ const doneTool: Message = { ...runningTool, tool: { name: "Bash: pnpm test", ok:
 const retryRow: Message = { id: "r1", at: 3, role: "bot", kind: "activity", tool: { name: "retrying \u2014 attempt 3/6 in 0s \u2014 responseStreamDisconnected", ok: true } };
 const busyRow: Message = { ...retryRow, tool: { name: "Gemini is busy. Retrying in 30 sec.", ok: true } };
 const reply: Message = { id: "b1", at: 4, role: "bot", kind: "text", text: "Back." };
+const paneNote: Message = { id: "n1", at: 4, role: "bot", kind: "note", text: "[pane abcdef12] Done." };
+const userLine: Message = { ...user, id: "u2", at: 5, steered: true };
 
 const label = (phase: ReturnType<typeof turnPhase>, message?: Message, showToolCalls = false) =>
   turnStageLabel(phase, liveActivityLabel(message, showToolCalls));
@@ -60,6 +62,24 @@ describe("turnPhase", () => {
   it("is retrying while a relaunch is announced", () => {
     expect(turnPhase({ signal: "retrying", lastMessage: retryRow })).toBe("retrying");
     expect(turnPhase({ signal: "retrying", lastMessage: busyRow })).toBe("retrying");
+  });
+
+  it.each<[string, Message]>([
+    ["a pane note", paneNote],
+    ["a user line", userLine],
+  ])("stays retrying after %s", (_name, lastMessage) => {
+    const phase = turnPhase({ signal: "retrying", lastMessage, messages: [user, retryRow, lastMessage] });
+    expect(phase).toBe("retrying");
+    expect(label(phase, lastMessage)).toBe("Reconnecting");
+  });
+
+  it.each<[Message, ReturnType<typeof turnPhase>]>([
+    [reply, "waiting"],
+    [doneTool, "waiting"],
+    [runningTool, "tool"],
+    [{ ...retryRow, id: "r2", at: 5 }, "retrying"],
+  ])("uses the newest turn row $id after a retry", (lastMessage, phase) => {
+    expect(turnPhase({ signal: "retrying", lastMessage, messages: [user, retryRow, paneNote, lastMessage] })).toBe(phase);
   });
 
   it("reads like a turn that never retried once anything lands after the retry row", () => {
@@ -408,6 +428,7 @@ describe("wiring", () => {
   it("stages the 1:1 label and leaves rooms alone", () => {
     expect(chatView).toContain("turnStageLabel");
     expect(chatView).toContain("turnPhase");
+    expect(chatView).toMatch(/turnPhase\(\{[^}]*messages: canonicalMessages/);
     expect(groupView).not.toContain("turnStageLabel");
   });
 

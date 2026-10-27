@@ -172,14 +172,11 @@ function receivedStream(value?: string): boolean {
   return value !== undefined;
 }
 
-/**
- * Ordered so that evidence of progress outranks evidence of setup. A retry
- * signal is never withdrawn, so it reads "Reconnecting" only while its row is
- * the newest message: anything after it means the turn moved again.
- */
+/** Retry signals persist; only output from the turn ends Reconnecting. */
 export function turnPhase(input: {
   signal?: TurnSignal;
   lastMessage?: Message;
+  messages?: readonly Message[];
   streaming?: string;
   reasoning?: string;
 }): TurnPhase {
@@ -187,7 +184,10 @@ export function turnPhase(input: {
   if (receivedStream(input.streaming)) return "responding";
   if (tool && tool.ok === undefined) return "tool";
   if (receivedStream(input.reasoning)) return "reasoning";
-  if (input.signal === "retrying" && isRetryRow(input.lastMessage)) return "retrying";
+  const lastTurnMessage = input.messages
+    ? input.messages.findLast((m) => m.role === "bot" && m.kind !== "note")
+    : input.lastMessage;
+  if (input.signal === "retrying" && isRetryRow(lastTurnMessage)) return "retrying";
   if (input.signal === "started" || input.signal === "retrying") return "waiting";
   return "preparing";
 }

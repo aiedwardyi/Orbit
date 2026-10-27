@@ -21,12 +21,14 @@ const runningTool: Message = { id: "a1", at: 2, role: "bot", kind: "activity", t
 const doneTool: Message = { ...runningTool, tool: { name: "Bash: pnpm test", ok: true } };
 const preamble: Message = { id: "b1", at: 3, role: "bot", kind: "text", text: "Looking." };
 const retryRow: Message = { id: "r1", at: 4, role: "bot", kind: "activity", tool: { name: "retrying \u2014 attempt 3/6 in 0s \u2014 responseStreamDisconnected", ok: true } };
+const paneNote: Message = { id: "n1", at: 5, role: "bot", kind: "note", text: "[pane abcdef12] Done." };
+const userLine: Message = { ...user, id: "u2", at: 5, steered: true };
 
-type Stage = { signal?: TurnSignal; lastMessage?: Message; streaming?: string; reasoning?: string; gen?: number; driverKind?: string };
+type Stage = { signal?: TurnSignal; lastMessage?: Message; messages?: Message[]; streaming?: string; reasoning?: string; gen?: number; driverKind?: string };
 const waiting: Stage = { signal: "started", lastMessage: user, driverKind: "antigravityAgent" };
 
-function Probe({ signal, lastMessage, streaming, reasoning, gen = 0, driverKind }: Stage) {
-  const phase = turnPhase({ signal, lastMessage, streaming, reasoning });
+function Probe({ signal, lastMessage, messages, streaming, reasoning, gen = 0, driverKind }: Stage) {
+  const phase = turnPhase({ signal, lastMessage, messages, streaming, reasoning });
   const noReply = useNoReply(phase === "waiting" ? `t1:${currentTurnId({ gen: { t1: gen } }, "t1", lastMessage?.id)}` : null, driverKind);
   return createElement("span", { "data-quiet": String(noReply?.quiet ?? false) }, turnStageLabel(phase, "Running a command", undefined, noReply?.label));
 }
@@ -104,6 +106,19 @@ describe("no reply hint", () => {
     expect(label()).toBe("Waiting for the model");
     await advance(1000);
     expect(label()).toBe("Gemini hasn't replied in 2\u00a0min");
+  });
+
+  it.each<[string, Message]>([
+    ["a pane note", paneNote],
+    ["a user line", userLine],
+  ])("keeps the hint off after %s lands mid-retry", async (_name, lastMessage) => {
+    const retry: Stage = { signal: "retrying", lastMessage: retryRow, messages: [user, retryRow], driverKind: "codex" };
+    await render(retry);
+    await advance(NO_REPLY_MS / 2);
+    await render({ ...retry, lastMessage, messages: [user, retryRow, lastMessage] });
+    await advance(NO_REPLY_MS * 2);
+    expect(label()).toBe("Reconnecting");
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("counts a post-tool wait from the tool's end", async () => {
