@@ -258,6 +258,12 @@ describe("list price parsers", () => {
     expect(prices["gpt-9"]).toBeUndefined();
   });
 
+  it("reads Terra 6.1 from the general table when OpenAI also lists a Cyber table", () => {
+    const html = fixture("openai-pricing.html").replace("gpt-5.6-terra", "gpt-6.1-terra").replace("[0,2],[0,0.2],[0,2.5],[0,12]", "[0,1],[0,0.05],[0,1.25],[0,5]");
+    const cyber = fixture("openai-pricing.html").replace("&quot;tier&quot;:[0,&quot;standard&quot;],", "&quot;tier&quot;:[0,&quot;standard&quot;],&quot;modelGroup&quot;:[0,&quot;cyber&quot;],");
+    expect(listPrices.parseOpenAI(html + cyber, ["gpt-6.1-terra"])["gpt-6.1-terra"]).toEqual({ input: 1, cachedInput: 0.05, output: 5 });
+  });
+
   it("fails when OpenAI's tier or a row's shape changes", () => {
     const html = fixture("openai-pricing.html");
     expect(() => listPrices.parseOpenAI(html.replace("standard", "default"), ["gpt-6-astra"])).toThrow(Unverifiable);

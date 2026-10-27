@@ -61,7 +61,11 @@ describe("model index data", () => {
   });
 
   it("charts only models from the picker", () => {
-    const outside = MODEL_INDEX_ENTRIES.filter((e) => !PICKER_MODEL_IDS.includes(e.model)).map((e) => e.model);
+    const retired = ["gpt-5.6-terra"];
+    for (const entry of MODEL_INDEX_ENTRIES) {
+      expect([...PICKER_MODEL_IDS, ...retired], entry.model).toContain(entry.model);
+    }
+    const outside = MODEL_INDEXES.flatMap((index) => indexView(index, []).points).filter((e) => !PICKER_MODEL_IDS.includes(e.model)).map((e) => e.model);
     expect([...new Set(outside)]).toEqual([]);
   });
 
@@ -73,7 +77,7 @@ describe("model index data", () => {
   });
 
   it("prices every picker model its vendor still lists, once, per 1M tokens, blended 7:2:1", () => {
-    const cost = MODEL_INDEX_ENTRIES.filter((e) => e.index === "cost");
+    const cost = indexView("cost", []).points;
     expect(cost.map((e) => e.model).sort()).toEqual([...PICKER_MODEL_IDS].sort());
     for (const e of cost) {
       expect(e.effort, e.model).toBe("all");

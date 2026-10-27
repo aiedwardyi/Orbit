@@ -20,7 +20,7 @@ export const STATIC_CODEX_MODELS: ModelCatalog = {
     // compact picker suggested list includes it. Default stays Sol.
     { id: "gpt-6-astra", label: "GPT-6 Astra" },
     { id: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
-    { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    { id: "gpt-6.1-terra", label: "GPT-6.1 Terra" },
     { id: "gpt-6-luna", label: "GPT-6 Luna" },
     { id: "gpt-5.5", label: "GPT-5.5" },
     { id: "gpt-5.4", label: "GPT-5.4" },
@@ -48,12 +48,14 @@ export function decodeCodexSelection(id: string | null | undefined): {
   if (!id) return { model: null, modelProvider: null };
   const sep = id.indexOf(SEP);
   if (sep > 0) {
-    return { model: id.slice(sep + SEP.length), modelProvider: id.slice(0, sep) };
+    const modelProvider = id.slice(0, sep);
+    const model = id.slice(sep + SEP.length);
+    return { model: modelProvider === OFFICIAL_CODEX_PROVIDER && model === "gpt-5.6-terra" ? "gpt-6.1-terra" : model, modelProvider };
   }
   // Every official app-server picker row has a bare id. Custom providers are
   // always provider-qualified above, so a newly released cloud model must not
   // silently fall through to the user's configured local provider.
-  return { model: id, modelProvider: MODEL_ID.test(id) ? OFFICIAL_CODEX_PROVIDER : null };
+  return { model: id === "gpt-5.6-terra" ? "gpt-6.1-terra" : id, modelProvider: MODEL_ID.test(id) ? OFFICIAL_CODEX_PROVIDER : null };
 }
 
 // A new app-server started while a force-killed one still holds CODEX_HOME
@@ -403,6 +405,16 @@ export function withCodexSol61(catalog: ModelCatalog): ModelCatalog {
   };
 }
 
+const CODEX_TERRA = { id: "gpt-6.1-terra", label: "GPT-6.1 Terra" } as const;
+
+export function withCodexTerra61(catalog: ModelCatalog): ModelCatalog {
+  const hasTerra = catalog.options.some((option) => option.id === CODEX_TERRA.id);
+  return {
+    default: catalog.default === "gpt-5.6-terra" ? CODEX_TERRA.id : catalog.default,
+    options: catalog.options.flatMap((option) => option.id === "gpt-5.6-terra" ? hasTerra ? [] : [{ ...CODEX_TERRA }] : [option]),
+  };
+}
+
 /** Local slugs Codex already knows, plus the official cloud rows. */
 export async function readCodexModelCatalog(
   env: Record<string, string | undefined> = process.env,
@@ -410,18 +422,20 @@ export async function readCodexModelCatalog(
   cli?: string,
 ): Promise<ModelCatalog> {
   const advertised = cli ? await readCodexAppServerModelCatalog(cli, env) : null;
-  const official = advertised ? withCodexSol61(withSuggestedCodexAstra(advertised)) : STATIC_CODEX_MODELS;
+  const official = advertised ? withCodexTerra61(withCodexSol61(withSuggestedCodexAstra(advertised))) : STATIC_CODEX_MODELS;
   const home = codexHome(env);
   const mainText = readText(join(home, "config.toml"));
   if (!mainText) return mergeLocalInject(official, env, fetchImpl);
 
   const main = parseCodexToml(mainText);
+  if (main.model === "gpt-5.6-terra" && (!main.modelProvider || main.modelProvider === OFFICIAL_CODEX_PROVIDER)) main.model = CODEX_TERRA.id;
   const known = new Map(main.providers.map((provider) => [provider.id, provider]));
   const named = collectCatalogNames(home);
   const extras: Array<{ provider: string; model: string }> = [];
 
   const remember = (provider: string | undefined, model: string | undefined) => {
     if (!provider || !model) return;
+    if (provider === OFFICIAL_CODEX_PROVIDER && model === "gpt-5.6-terra") model = CODEX_TERRA.id;
     if (!PROVIDER_ID.test(provider) || !MODEL_ID.test(model)) return;
     // A local provider may expose the same slug as an official OpenAI model.
     // Keep that provider-qualified row; otherwise selecting the configured

@@ -204,6 +204,18 @@
       "source_url": "https://dev.meta.ai/docs/pricing-rate-limits",
       "retrieved_at": "2026-10-15T01:54:51.785Z",
       "kind": "vendor"
+    },
+    {
+      "model": "gpt-6.1-terra",
+      "effort": "all",
+      "price": {
+        "input": 1,
+        "cachedInput": 0.05,
+        "output": 5
+      },
+      "source_url": "https://developers.openai.com/api/docs/pricing",
+      "retrieved_at": "2026-10-27T03:52:40.620Z",
+      "kind": "vendor"
     }
   ]
 }
