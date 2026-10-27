@@ -2,6 +2,20 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.212] - 2026-10-27
+
+### Added
+- Install in Settings > Connections and onboarding runs the engine's install in a terminal with one tap, and installs Node first when the engine needs it.
+
+### Changed
+- GPT-6.1 Terra replaces GPT-5.6 Terra in the Codex picker, and saved picks move over.
+- Bots know their plain text shows in chat, so fewer notes to self reach the chat.
+
+### Fixed
+- The no-reply hint waits for real engine silence: while Claude thinks, the chat shows Thinking instead of the hint.
+- On phones, Back closes Select text, and holding a word shows the phone's own drag handles.
+- Back closes pop-ups in the order they opened.
+
 ## [1.0.211] - 2026-10-27
 
 ### Changed
@@ -300,6 +314,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.212]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.212
 [1.0.211]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.211
 [1.0.210]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.210
 [1.0.209]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.209
