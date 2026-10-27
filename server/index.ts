@@ -945,6 +945,7 @@ if (store.botsFile === "unreadable") console.warn("bot sync: bots.json is there 
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-sonnet-5", "claude-sonnet-5-5");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-haiku-4-5", "claude-haiku-5-5");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "codex").map((i) => i.instanceId), "gpt-6-sol", "gpt-6.1-sol");
+store.renameModel(registry.instances().filter((i) => i.driverKind === "codex").map((i) => i.instanceId), "gpt-5.6-terra", "gpt-6.1-terra");
 const sendSequencer = new SendSequencer();
 
 type ChatLatencyStage =

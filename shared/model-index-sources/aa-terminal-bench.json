@@ -595,6 +595,14 @@
       "source_url": "https://artificialanalysis.ai/models/grok-4-7",
       "retrieved_at": "2026-10-10T21:09:29.470241+09:00",
       "kind": "independent"
+    },
+    {
+      "model": "gpt-6.1-terra",
+      "effort": "max",
+      "value": 55.6,
+      "source_url": "https://artificialanalysis.ai/articles/gpt-6-1-terra-pushes-the-cost-efficiency-frontier",
+      "retrieved_at": "2026-10-27T03:52:40.620Z",
+      "kind": "independent"
     }
   ]
 }

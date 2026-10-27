@@ -16,6 +16,7 @@ import {
   retireAppServer,
   STATIC_CODEX_MODELS,
   withCodexSol61,
+  withCodexTerra61,
   withSuggestedCodexAstra,
 } from "./codex-catalog.ts";
 
@@ -40,6 +41,18 @@ function scratchHome(files: Record<string, string>): string {
 }
 
 describe("decodeCodexSelection", () => {
+  it("resolves a saved GPT-5.6 Terra selection to GPT-6.1 Terra", () => {
+    expect(decodeCodexSelection("gpt-5.6-terra")).toEqual({
+      model: "gpt-6.1-terra",
+      modelProvider: OFFICIAL_CODEX_PROVIDER,
+    });
+  });
+
+  it("migrates provider-qualified OpenAI Terra without changing custom providers", () => {
+    expect(decodeCodexSelection("openai::gpt-5.6-terra")).toEqual({ model: "gpt-6.1-terra", modelProvider: "openai" });
+    expect(decodeCodexSelection("omlx::gpt-5.6-terra")).toEqual({ model: "gpt-5.6-terra", modelProvider: "omlx" });
+  });
+
   it("forces official rows onto the ChatGPT provider", () => {
     expect(decodeCodexSelection("gpt-6-sol")).toEqual({
       model: "gpt-6-sol",
@@ -63,6 +76,11 @@ describe("decodeCodexSelection", () => {
 });
 
 describe("STATIC_CODEX_MODELS", () => {
+  it("offers GPT-6.1 Terra instead of GPT-5.6 Terra", () => {
+    expect(STATIC_CODEX_MODELS.options).toContainEqual({ id: "gpt-6.1-terra", label: "GPT-6.1 Terra" });
+    expect(STATIC_CODEX_MODELS.options.some((option) => option.id === "gpt-5.6-terra")).toBe(false);
+  });
+
   it("includes GPT-6 Astra in the suggested official rows", () => {
     expect(STATIC_CODEX_MODELS.options[0]).toEqual({ id: "gpt-6-astra", label: "GPT-6 Astra" });
     expect(STATIC_CODEX_MODELS.default).toBe("gpt-6.1-sol");
@@ -107,7 +125,28 @@ describe("withCodexSol61", () => {
   });
 });
 
+describe("withCodexTerra61", () => {
+  it("swaps an old Terra catalog row and default", () => {
+    expect(withCodexTerra61({ default: "gpt-5.6-terra", options: [{ id: "gpt-5.6-terra", label: "GPT-5.6 Terra" }] })).toEqual({
+      default: "gpt-6.1-terra", options: [{ id: "gpt-6.1-terra", label: "GPT-6.1 Terra" }],
+    });
+  });
+
+  it("keeps the live new Terra row when both versions are advertised", () => {
+    expect(withCodexTerra61({ default: "gpt-5.6-terra", options: [
+      { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" }, { id: "gpt-6.1-terra", label: "Terra Fast" },
+    ] })).toEqual({ default: "gpt-6.1-terra", options: [{ id: "gpt-6.1-terra", label: "Terra Fast" }] });
+  });
+});
+
 describe("readCodexModelCatalog", () => {
+  it("loads an old official Terra config using the new picker id", async () => {
+    const home = scratchHome({ "config.toml": 'model_provider = "openai"\nmodel = "gpt-5.6-terra"\n' });
+    const catalog = await readCodexModelCatalog({ HOME: home });
+    expect(catalog.default).toBe("gpt-6.1-terra");
+    expect(catalog.options.some((option) => option.id.includes("gpt-5.6-terra"))).toBe(false);
+  });
+
   it("returns the static cloud fallback when there is no config or CLI probe", async () => {
     expect(await readCodexModelCatalog({ HOME: join(tmpdir(), "omb-codex-missing-home") })).toEqual(
       STATIC_CODEX_MODELS,

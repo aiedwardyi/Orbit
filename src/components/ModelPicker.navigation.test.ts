@@ -196,7 +196,7 @@ describe("ModelPicker cross navigation", () => {
     ["claudeAgent", "claude-fable-5-1", "high"],
     ["codex", "gpt-6-astra", "low"],
     ["codex", "gpt-6.1-sol", "low"],
-    ["codex", "gpt-5.6-terra", "medium"],
+    ["codex", "gpt-6.1-terra", "medium"],
     ["codex", "gpt-6-luna", "medium"],
     ["grokAgent", "grok-4.7", "high"],
   ])("opens and saves %s %s with its real default %s", async (driverKind, model, effort) => {
@@ -528,8 +528,8 @@ describe("ModelPicker cross navigation", () => {
   });
 
   it("round-trips a bare Codex id without encoding or replacing it", async () => {
-    mock.instances = [engine("codex", "codex", ["gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-terra", "gpt-6-luna"])];
-    const selection: ModelSelection = { instanceId: "codex", model: "gpt-5.6-terra", mode: "pinned" };
+    mock.instances = [engine("codex", "codex", ["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"])];
+    const selection: ModelSelection = { instanceId: "codex", model: "gpt-6.1-terra", mode: "pinned" };
     await mount(selection);
     await key("Enter");
     expect(mock.dispatch).toHaveBeenCalledExactlyOnceWith({ type: "setModel", botId: "bot-1", selection });
@@ -537,10 +537,10 @@ describe("ModelPicker cross navigation", () => {
 
   it("crosses from the final model into the next engine and clears unsupported effort", async () => {
     mock.instances = [
-      engine("codex", "codex", ["gpt-6-astra", "gpt-6.1-sol", "gpt-5.6-terra", "gpt-6-luna"]),
+      engine("codex", "codex", ["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"]),
       engine("grok", "grokAgent", ["grok-4.7", "grok-4.6"], ["low", "medium", "high"]),
     ];
-    await mount({ instanceId: "codex", model: "gpt-5.6-terra", mode: "pinned", effort: "xhigh" });
+    await mount({ instanceId: "codex", model: "gpt-6.1-terra", mode: "pinned", effort: "xhigh" });
     await key("ArrowDown");
     await key("ArrowDown");
     await key("Enter");

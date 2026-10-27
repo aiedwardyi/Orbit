@@ -133,7 +133,7 @@ export function parseMeta(html, names) {
 
 export function parseOpenAI(html, names) {
   const props = html.replace(/&quot;/g, '"').replace(/&amp;/g, "&");
-  const islands = [...props.matchAll(/"tier":\[0,"standard"\],[^\n]*?"rows":\[1,(\[\[[\s\S]*?\]\]\])\}"/g)];
+  const islands = [...props.matchAll(/"tier":\[0,"standard"\],(?!"modelGroup":)[^\n]*?"rows":\[1,(\[\[[\s\S]*?\]\]\])\}"/g)];
   if (islands.length !== 1) throw new Unverifiable(`OpenAI standard price table: ${islands.length} found`);
   const cells = [...islands[0][1].matchAll(/\[1,\[\[0,"([^"]+)"\],\[0,([\d.]+)\],\[0,([\d.]+)\],\[0,(?:[\d.]+|"-")\],\[0,([\d.]+)\]\]\]/g)];
   const priced = new Map(cells.map((m) => [m[1], { input: Number(m[2]), cachedInput: Number(m[3]), output: Number(m[4]) }]));

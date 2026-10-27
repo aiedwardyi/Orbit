@@ -956,20 +956,23 @@ describe("Store", () => {
     expect(reloaded.bot(droid.id)?.modelSelection.model).toBe("claude-sonnet-5");
   });
 
-  it("renameModel moves Haiku 4.5 pins to Haiku 5.5 on Claude instances only", () => {
+  it.each([
+    ["claude", "claude-haiku-4-5", "claude-haiku-5-5"],
+    ["codex", "gpt-5.6-terra", "gpt-6.1-terra"],
+  ])("renameModel moves %s pins and task continuity to the replacement model", (instanceId, from, to) => {
     const store = new Store(selection);
-    const claude = store.createBot({ modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" } });
-    const droid = store.createBot({ modelSelection: { instanceId: "droid", model: "claude-haiku-4-5" } });
-    store.markTaskDispatched(claude.id, claude.threadId, "claude", "claude-haiku-4-5");
-    store.markTaskDispatched(droid.id, droid.threadId, "droid", "claude-haiku-4-5");
+    const bot = store.createBot({ modelSelection: { instanceId, model: from } });
+    const droid = store.createBot({ modelSelection: { instanceId: "droid", model: from } });
+    store.markTaskDispatched(bot.id, bot.threadId, instanceId, from);
+    store.markTaskDispatched(droid.id, droid.threadId, "droid", from);
 
-    store.renameModel(["claude"], "claude-haiku-4-5", "claude-haiku-5-5");
+    store.renameModel([instanceId], from, to);
 
     const reloaded = new Store(selection);
-    expect(reloaded.bot(claude.id)?.modelSelection.model).toBe("claude-haiku-5-5");
-    expect(reloaded.taskByThread(claude.id, claude.threadId)?.lastModel).toBe("claude-haiku-5-5");
-    expect(reloaded.bot(droid.id)?.modelSelection.model).toBe("claude-haiku-4-5");
-    expect(reloaded.taskByThread(droid.id, droid.threadId)?.lastModel).toBe("claude-haiku-4-5");
+    expect(reloaded.bot(bot.id)?.modelSelection.model).toBe(to);
+    expect(reloaded.taskByThread(bot.id, bot.threadId)?.lastModel).toBe(to);
+    expect(reloaded.bot(droid.id)?.modelSelection.model).toBe(from);
+    expect(reloaded.taskByThread(droid.id, droid.threadId)?.lastModel).toBe(from);
   });
 
   it("renameModel skips a bot record with no modelSelection", () => {

@@ -314,7 +314,7 @@ describe("score hover card", () => {
     for (const tip of [low, max]) expect(tip).toContain("Price per 1M, in / out$4 / $20Same at every effort");
   });
 
-  it("names the coding benchmark, and the harness when the row has one", () => {
+  it("names the coding benchmark and hides retired models", () => {
     pick("Benchmark", "Coding");
     const terminal = hoverTip("Claude Opus 5.5 high");
     expect(terminal).toMatch(/%Terminal-Bench/);
@@ -324,9 +324,20 @@ describe("score hover card", () => {
     expect(chosen("Chart")).toBe("Ranked");
     expect(rowTip("Claude Opus 5.5medium")).toContain("57.1%FrontierCode");
     pick("Benchmark", "Design");
-    const terra = rowTip("GPT-5.6 Terraxhigh");
-    expect(terra).toContain("1,522Design");
-    expect(terra).toContain("HarnessCodex");
+    expect(host.textContent).not.toContain("GPT-5.6 Terra");
+  });
+
+  it("names the harness when the benchmark row has one", () => {
+    const row = MODEL_INDEX_ENTRIES.find((entry) => entry.index === "design" && entry.model === "gpt-6-astra")!;
+    const harness = row.harness;
+    row.harness = "Codex";
+    try {
+      pick("Benchmark", "Design");
+      pick("Chart", "Ranked");
+      expect(rowTip("GPT-6 Astramax")).toContain("HarnessCodex");
+    } finally {
+      row.harness = harness;
+    }
   });
 });
 
