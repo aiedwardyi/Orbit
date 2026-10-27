@@ -1471,6 +1471,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             if (ev.type === "content_block_start" && String(ev.content_block?.type ?? "").endsWith("tool_use") && session.turn) {
               session.turn.toolStarted = true;
             }
+            // thinking can stream redacted (every delta empty), so the block start is the only sign of it
+            if (ev.type === "content_block_start" && ev.content_block?.type === "thinking") {
+              emit({ ...base(threadId, currentTurnId()), type: "content.delta", streamKind: "reasoning_text", delta: "" });
+            }
             if (ev.type !== "content_block_delta") break;
             const d = ev.delta ?? {};
             if (d.type === "text_delta" && typeof d.text === "string" && d.text) {

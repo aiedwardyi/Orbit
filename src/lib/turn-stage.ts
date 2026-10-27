@@ -45,6 +45,8 @@ export type TurnStreamState = {
   gen?: Record<string, number>;
   /** Identity the current buffers were written under, per thread. */
   turn?: Record<string, string>;
+  /** Engine events seen per thread; each one restarts the no-reply wait. Only grows: the turn id keeps each wait key unique. */
+  heard?: Record<string, number>;
 };
 
 /** Identity of the wait on screen: generation plus the transcript tail. */
@@ -54,6 +56,10 @@ export function currentTurnId(
   lastMessageId?: string,
 ): string {
   return `${state.gen?.[threadId] ?? 0}:${lastMessageId ?? ""}`;
+}
+
+export function heardEngine(prev: TurnStreamState, threadId: string): TurnStreamState {
+  return { ...prev, heard: { ...prev.heard, [threadId]: (prev.heard?.[threadId] ?? 0) + 1 } };
 }
 
 /** Discard buffers that do not belong to this thread's current wait. */

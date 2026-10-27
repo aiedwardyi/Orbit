@@ -1404,7 +1404,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
   const reveal = stream.reveal?.[bot.threadId];
   const toolInFlight = lastMessage?.kind === "activity" && lastMessage.tool?.ok === undefined;
   const phase = turnPhase({ signal: stream.signal[bot.threadId], lastMessage, messages: canonicalMessages, streaming, reasoning });
-  const noReply = useNoReply(phase === "waiting" ? `${bot.threadId}:${currentTurnId(stream, bot.threadId, lastMessage?.id)}` : null, engine?.driverKind);
+  const noReply = useNoReply(phase === "waiting" ? `${bot.threadId}:${currentTurnId(stream, bot.threadId, lastMessage?.id)}:${stream.heard?.[bot.threadId] ?? 0}` : null, engine?.driverKind);
   const modelSwitch = useNoReplySwitch(bot, lastUserMessage?.id, turnSignal !== undefined);
   const activityLabel = turnStageLabel(
     phase,

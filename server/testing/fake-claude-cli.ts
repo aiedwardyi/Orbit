@@ -762,6 +762,13 @@ const playTurn = (prompt: JsonValue) => {
     out({ type: "assistant", parent_tool_use_id: "task-1", message: { content: [{ type: "text", text: "SUBAGENT FINAL" }] } });
   }
 
+  if (mode === "redacted-think") {
+    out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } } });
+    out({ type: "system", subtype: "thinking_tokens", estimated_tokens: 50 });
+    out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "" } } });
+    out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig" } } });
+  }
+
   if (mode === "narration") {
     // 2.1.288 frames: prose between tool calls can come back as a thinking
     // block the CLI flags in narration_block_indexes; real reasoning is not flagged
