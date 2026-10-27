@@ -25,6 +25,52 @@ function setup(trusted = true, opened = true) {
 }
 
 describe("engine install IPC", () => {
+  it("guards an instance during resolution, launch, and the 10-second repeat window", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const d = setup();
+    let resolveFetch;
+    let resolveOpen;
+    d.fetch.mockImplementationOnce(() => new Promise((resolve) => { resolveFetch = resolve; }));
+    d.open.mockImplementationOnce(() => new Promise((resolve) => { resolveOpen = resolve; }));
+    try {
+      const first = d.call("codex");
+      const repeat = d.call("codex", true);
+      expect(d.fetch).toHaveBeenCalledTimes(1);
+      expect(await repeat).toBe("running");
+      resolveFetch({ ok: true, json: async () => descriptor });
+      await vi.waitFor(() => expect(d.open).toHaveBeenCalledTimes(1));
+      vi.setSystemTime(Date.now() + 20000);
+      expect(await d.call("codex")).toBe("running");
+      expect(d.open).toHaveBeenCalledTimes(1);
+      resolveOpen(true);
+      expect(await first).toBe("running");
+      vi.setSystemTime(Date.now() + 9999);
+      expect(await d.call("codex")).toBe("running");
+      expect(d.open).toHaveBeenCalledTimes(1);
+      expect(await d.call("claude")).toBe("running");
+      expect(d.open).toHaveBeenCalledTimes(2);
+      vi.setSystemTime(Date.now() + 1);
+      expect(await d.call("codex")).toBe("running");
+      expect(d.open).toHaveBeenCalledTimes(3);
+      expect(d.copy).not.toHaveBeenCalled();
+      expect(d.blank).not.toHaveBeenCalled();
+    } finally {
+      resolveFetch?.({ ok: true, json: async () => descriptor });
+      resolveOpen?.(true);
+      vi.useRealTimers();
+    }
+  });
+
+  it("allows retry after a failed resolution or clipboard fallback", async () => {
+    const d = setup();
+    d.fetch.mockRejectedValueOnce(new Error("offline"));
+    await expect(d.call("codex")).rejects.toThrow("offline");
+    d.open.mockResolvedValueOnce(false);
+    expect(await d.call("codex")).toBe("opened");
+    expect(await d.call("codex")).toBe("running");
+    expect(d.open).toHaveBeenCalledTimes(2);
+  });
+
   it("resolves only the id and ignores renderer command arguments", async () => {
     const d = setup();
     expect(await d.call("codex", "renderer payload")).toBe("running");

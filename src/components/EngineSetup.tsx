@@ -95,6 +95,8 @@ export function CommandRow({ command, actionLabel, signInInstanceId, installInst
   const { t } = useI18n();
   const [status, setStatus] = useState<"copied" | "opened" | "running" | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const oneClickInstall = Boolean(installInstanceId && window.ogb?.openEngineInstall);
   const canOpen = Boolean(signInInstanceId ? window.ogb?.openEngineSignIn : (installInstanceId && window.ogb?.openEngineInstall) || window.ogb?.openInstallTerminal);
   const automaticSignIn = Boolean(signInInstanceId && !/\bYOUR_[A-Z0-9_]+\b/.test(command));
 
@@ -115,6 +117,8 @@ export function CommandRow({ command, actionLabel, signInInstanceId, installInst
   };
 
   const openTerminal = async () => {
+    if (busy) return;
+    setBusy(true);
     try {
       if (signInInstanceId) {
         try {
@@ -137,6 +141,8 @@ export function CommandRow({ command, actionLabel, signInInstanceId, installInst
       if (installInstanceId) setCopyFailed(true);
       // Clipboard blocked too: the command stays selectable, and no false
       // "copied" is shown.
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -171,8 +177,9 @@ export function CommandRow({ command, actionLabel, signInInstanceId, installInst
           <button
             type="button"
             onClick={() => void openTerminal()}
+            disabled={busy}
             className={cn("mt-2 flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold",
-              quiet ? "bg-control text-ink hover:bg-raised-hover" : "whitespace-nowrap bg-accent text-accent-ink hover:brightness-110")}
+              quiet ? "bg-control text-ink hover:bg-raised-hover" : "whitespace-nowrap bg-accent text-accent-ink hover:brightness-110", "disabled:opacity-50")}
           >
             {status === "opened" || status === "running" ? <Check size={14} /> : <TerminalSquare size={14} />}
             {status === "opened" || status === "running" ? t("engine.terminalOpened") : actionLabel}
@@ -181,7 +188,7 @@ export function CommandRow({ command, actionLabel, signInInstanceId, installInst
             {status === "copied" ? t("engine.commandCopied")
               : status === "opened" ? t("engine.pasteAndEnter")
                 : status === "running" && !signInInstanceId && !signsIn ? t("engine.installRunning")
-                  : status === "running" || automaticSignIn ? t("engine.followSignIn") : t("engine.copiedWhenOpens")}
+                  : status === "running" || automaticSignIn ? t("engine.followSignIn") : !oneClickInstall ? t("engine.copiedWhenOpens") : null}
           </p>
         </>
       ) : (
@@ -368,8 +375,7 @@ export function EngineSetup({
         </p>
       )}
 
-      {/* needsNode is engine-wide; only show it when this machine's command is npm. */}
-      {!signInOnly && install.needsNode && (installCommand?.includes("npm") ?? true) && (
+      {!signInOnly && install.needsNode && (installCommand?.includes("npm") ?? true) && !(window.ogb?.openEngineInstall && window.ogb.platform === "win32") && (
         <p className="mt-2 text-[11px] leading-relaxed text-ink-secondary/70">
           {t("engine.needsNode")}
         </p>

@@ -34,11 +34,13 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
   const canSignOut = Boolean(current.install?.logout) && current.driverKind !== "antigravityAgent";
   const installCommand = current.snapshot.state !== "available" ? installCommandFor(current.install) : null;
   const install = async () => {
-    if (!installCommand) return;
+    if (!installCommand || busy) return;
+    setBusy(true);
     setInstallStatus(null);
     try {
       setInstallStatus(await openEngineInstallOrCopy(current.instanceId, installCommand));
     } catch { setInstallStatus("failed"); }
+    finally { setBusy(false); }
   };
   return (
     <div data-engine-row={current.instanceId} className="min-w-0 py-2">
@@ -51,14 +53,14 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
               <span aria-live="polite">{installStatus === "opened" || installStatus === "running" ? t("engine.terminalOpened")
                 : installStatus === "copied" ? t("engine.commandCopied")
                   : installStatus === "failed" && !current.install?.docsUrl ? t("engines.installFailed") : t("engines.notInstalled")}</span>
-              {installCommand && !(installStatus === "failed" && current.install?.docsUrl) ? <button type="button" onClick={() => void install()}
-                className="text-ink hover:underline">{t("engines.install")}</button>
+              {installCommand && !(installStatus === "failed" && current.install?.docsUrl) ? <button type="button" onClick={() => void install()} disabled={busy}
+                className="text-ink hover:underline disabled:opacity-50">{t("engines.install")}</button>
                 : current.install?.docsUrl && <a href={current.install.docsUrl} target="_blank" rel="noreferrer"
                 className="text-ink hover:underline">{t("engines.install")}</a>}
               {(installStatus === "opened" || installStatus === "running") && (
                 <p className="w-full text-right text-[11px] leading-[14px] text-ink-secondary/70">{t(installStatus !== "running" ? "engine.pasteAndEnter" : installSignsIn(current.install) ? "engine.followSignIn" : "engine.installRunning")}</p>
               )}
-              {current.install?.needsNode && installCommand?.includes("npm") && (
+              {current.install?.needsNode && installCommand?.includes("npm") && !(window.ogb?.openEngineInstall && window.ogb.platform === "win32") && (
                 <p className="w-full text-right text-[11px] leading-[14px] text-ink-secondary/70">{t("engine.needsNode")}</p>
               )}
             </div>

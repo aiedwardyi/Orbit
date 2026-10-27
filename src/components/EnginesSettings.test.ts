@@ -50,6 +50,84 @@ import { EngineSetup } from "./EngineSetup";
 
 applyLocale("en");
 
+it.each(["settings", "onboarding"])("guards the %s install until the bridge settles, including after copy feedback resets", async (surface) => {
+  const previous = window.ogb;
+  let finish!: (status: "running") => void;
+  const openEngineInstall = vi.fn(() => new Promise<"running">((resolve) => { finish = resolve; }));
+  Object.assign(window, { ogb: { platform: "win32", openEngineInstall } });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  vi.useFakeTimers();
+  try {
+    const props = { instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "install-cli" } } }) };
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(surface === "settings" ? EngineRow : EngineSetup, props))));
+    const button = [...host.querySelectorAll("button")].find((node) => /Install/.test(node.textContent!))!;
+    await act(async () => button.click());
+    expect(openEngineInstall).toHaveBeenCalledTimes(1);
+    if (surface === "onboarding") {
+      await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Copy Command"]')!.click());
+    }
+    await act(async () => vi.advanceTimersByTime(2300));
+    await act(async () => button.click());
+    expect(openEngineInstall).toHaveBeenCalledTimes(1);
+    expect(button.disabled).toBe(true);
+    await act(async () => finish("running"));
+    expect(button.disabled).toBe(false);
+  } finally {
+    await act(async () => { finish?.("running"); });
+    await act(async () => root.unmount());
+    vi.useRealTimers();
+    window.ogb = previous;
+  }
+});
+
+it.each(["settings", "onboarding"])("keeps %s install retryable after a rejected bridge and blocked clipboard", async (surface) => {
+  const previous = window.ogb;
+  const openEngineInstall = vi.fn(async () => { throw new Error("No handler registered"); });
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("blocked"));
+  Object.assign(window, { ogb: { platform: "win32", openEngineInstall } });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    const props = { instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "install-cli" } } }) };
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(surface === "settings" ? EngineRow : EngineSetup, props))));
+    const button = [...host.querySelectorAll("button")].find((node) => /Install/.test(node.textContent!))!;
+    await act(async () => button.click());
+    expect(button.disabled).toBe(false);
+    await act(async () => button.click());
+    expect(openEngineInstall).toHaveBeenCalledTimes(2);
+  } finally {
+    await act(async () => root.unmount());
+    copy.mockRestore();
+    window.ogb = previous;
+  }
+});
+
+it.each([
+  ["settings", "win32", true, false],
+  ["onboarding", "win32", true, false],
+  ["settings", "darwin", true, true],
+  ["onboarding", "darwin", true, true],
+  ["settings", "win32", false, true],
+  ["onboarding", "win32", false, true],
+  ["settings", "browser", false, true],
+  ["onboarding", "browser", false, true],
+] as const)("shows accurate %s prerequisites on %s (one-click %s)", (surface, platform, oneClick, needsNode) => {
+  const previous = window.ogb;
+  Object.assign(window, { ogb: platform === "browser" ? undefined : { platform, ...(oneClick && { openEngineInstall: vi.fn() }), openInstallTerminal: vi.fn() } });
+  try {
+    const props = { instance: instance({ snapshot: { state: "unavailable" }, install: { needsNode: true, command: { win32: "npm install -g official", darwin: "npm install -g official", linux: "npm install -g official" } } }) };
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(surface === "settings" ? EngineRow : EngineSetup, props)));
+    expect(html.includes("Requires Node.js and npm.")).toBe(needsNode);
+    if (surface === "onboarding") {
+      expect(html.includes("The command is copied when Terminal opens.")).toBe(!oneClick && platform !== "browser");
+      if (platform === "browser") expect(html).toContain("Copy Command");
+    }
+  } finally {
+    window.ogb = previous;
+  }
+});
+
 it.each([["settings", false], ["onboarding", false], ["settings", true], ["onboarding", true]] as const)("shows the %s docs link when clipboard fails (bridge rejects: %s)", async (surface, rejects) => {
   const previous = window.ogb;
   const copy = vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("clipboard blocked"));
