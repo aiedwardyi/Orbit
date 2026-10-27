@@ -2,6 +2,24 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.211] - 2026-10-27
+
+### Changed
+- Terminal skins leave a blank row before a reply that follows tool rows, so replies are easier to spot.
+
+### Fixed
+- Phone Back closes the worker list, and other open pop-ups, before it leaves the chat.
+- Opening an offline PC from the device list shows the unreachable page instead of hanging, and PCs no longer stay Offline when Tailscale starts after Wink.
+- Phones no longer get a 502 error on a connection that sat idle for 90 seconds.
+- Install in Settings > Connections opens the install terminal with the engine's command, as onboarding does, instead of the engine's website.
+- Pasting right after a screenshot attaches the image instead of an empty file, and a paste that still fails says so.
+- File links to Windows paths with a backslash before a dot or other punctuation, like `\.orbit`, open on desktop and phone.
+- Switching models from the no-reply hint no longer reruns the last message while a follow-up is still posting.
+- While Codex reconnects, a worker note or a new message no longer drops the chat out of Reconnecting.
+- While a worker waits on a limit or stall, phones stop downloading its whole terminal screen every 15 seconds.
+- The Thinking shimmer hides while Wink is unfocused or hidden, instead of freezing mid-word.
+- On the usage page, an engine's name opens the same account card as its icon.
+
 ## [1.0.210] - 2026-10-26
 
 ### Fixed
@@ -282,6 +300,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.211]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.211
 [1.0.210]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.210
 [1.0.209]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.209
 [1.0.208]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.208
