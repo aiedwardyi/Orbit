@@ -106,8 +106,14 @@ export function startSelectMode(row: HTMLElement, held: { x: number; y: number }
   const sel = window.getSelection();
   if (word) sel?.setBaseAndExtent(word.node, word.start, word.node, word.end);
   else sel?.selectAllChildren(content);
+  let firstTouch = true;
   const onDown = (e: Event) => {
     if (!(e.target instanceof Node && row.contains(e.target))) end();
+    else if (e.type === "touchstart" && firstTouch) {
+      // script selections have no handles, so the first hold starts fresh
+      sel?.removeAllRanges();
+      firstTouch = false;
+    }
   };
   const end = () => {
     row.removeAttribute("data-select-mode");
