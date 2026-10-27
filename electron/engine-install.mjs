@@ -15,7 +15,9 @@ export function registerEngineInstall(ipcMain, { trusted, server, copy, fetch = 
     if (!install?.command) throw new Error("Unknown engine install");
     try {
       if (await open(install)) return "running";
-    } catch {}
+    } catch (error) {
+      console.error("[engine-install] terminal launch failed:", error);
+    }
     copy(install.command);
     return await blank() ? "opened" : "copied";
   });

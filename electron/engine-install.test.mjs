@@ -7,6 +7,7 @@ import * as terminal from "./terminal-launch.mjs";
 const install = await import("./engine-install.mjs").catch(() => ({}));
 const descriptor = { driverKind: "codex", command: "npm install -g official", needsNode: true, signInCommand: "official login" };
 const encodedCommand = Buffer.from(`$ErrorActionPreference='Stop'\n${descriptor.command}`, "utf16le").toString("base64");
+const encodedSignIn = (script) => Buffer.from(script, "utf16le").toString("base64");
 
 function setup(trusted = true, opened = true) {
   let handler;
@@ -55,11 +56,18 @@ describe("engine install IPC", () => {
     expect(d.blank).toHaveBeenCalledOnce();
   });
 
-  it("falls back when launching throws", async () => {
+  it("logs and falls back when launching throws", async () => {
     const d = setup();
-    d.open.mockRejectedValue(new Error("launcher failed"));
-    expect(await d.call("codex")).toBe("opened");
-    expect(d.copy).toHaveBeenCalledExactlyOnceWith(descriptor.command);
+    const failure = new Error("launcher failed");
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    d.open.mockRejectedValue(failure);
+    try {
+      expect(await d.call("codex")).toBe("opened");
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("[engine-install]"), failure);
+      expect(d.copy).toHaveBeenCalledExactlyOnceWith(descriptor.command);
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("does not launch a missing server descriptor", async () => {
@@ -96,7 +104,7 @@ describe("install terminal script", () => {
     const script = terminal.buildInstallScript(descriptor, "win32");
     const refresh = script.lastIndexOf("[Environment]::GetEnvironmentVariable('Path', 'Machine')");
     expect(refresh).toBeGreaterThan(script.indexOf(encodedCommand));
-    expect(refresh).toBeLessThan(script.indexOf(descriptor.signInCommand));
+    expect(refresh).toBeLessThan(script.indexOf(encodedSignIn(descriptor.signInCommand)));
     expect(script).toContain("[Environment]::GetEnvironmentVariable('Path', 'User')");
   });
 
@@ -104,11 +112,21 @@ describe("install terminal script", () => {
     const script = terminal.buildInstallScript({ ...descriptor, signInCommand: "official login YOUR_API_KEY" }, platform);
     expect(script).toContain(platform === "win32" ? encodedCommand : descriptor.command);
     expect(script).not.toContain("YOUR_API_KEY");
+    if (platform === "win32") expect(script.split("-EncodedCommand")).toHaveLength(2);
   });
 
   it.each(["win32", "darwin"])("prefixes agy sign-in on %s", (platform) => {
     const script = terminal.buildInstallScript({ ...descriptor, driverKind: "antigravityAgent", signInCommand: "agy" }, platform);
-    expect(script).toContain(platform === "win32" ? "$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'" : "AGY_CLI_DISABLE_AUTO_UPDATE=true agy");
+    expect(script).toContain(platform === "win32" ? encodedSignIn("$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; agy") : "AGY_CLI_DISABLE_AUTO_UPDATE=true agy");
+  });
+
+  it("keeps a multi-statement sign-in as one encoded command", () => {
+    const signInCommand = "official login\nwhoami; Remove-Item x";
+    const plain = terminal.buildInstallScript({ ...descriptor, signInCommand: "official login" }, "win32").split("\n");
+    const lines = terminal.buildInstallScript({ ...descriptor, signInCommand }, "win32").split("\n");
+    expect(lines).toHaveLength(plain.length);
+    expect(lines.at(-1)).toBe(`powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encodedSignIn(signInCommand)}`);
+    expect(lines.join("\n")).not.toMatch(/whoami|Remove-Item/);
   });
 
   it.each(["win32", "darwin", "linux"])("launches one script or falls back on %s", async (platform) => {

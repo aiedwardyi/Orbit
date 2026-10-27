@@ -49,7 +49,8 @@ export function EngineRow({ instance, onConnected, onUpdated }: { instance: Inst
           {current.snapshot.state !== "available" ? (
             <div className="flex flex-wrap items-center justify-end gap-x-3 break-keep text-[12px] text-ink-secondary">
               <span aria-live="polite">{installStatus === "opened" || installStatus === "running" ? t("engine.terminalOpened")
-                : installStatus === "copied" ? t("engine.commandCopied") : t("engines.notInstalled")}</span>
+                : installStatus === "copied" ? t("engine.commandCopied")
+                  : installStatus === "failed" && !current.install?.docsUrl ? t("engines.installFailed") : t("engines.notInstalled")}</span>
               {installCommand && !(installStatus === "failed" && current.install?.docsUrl) ? <button type="button" onClick={() => void install()}
                 className="text-ink hover:underline">{t("engines.install")}</button>
                 : current.install?.docsUrl && <a href={current.install.docsUrl} target="_blank" rel="noreferrer"

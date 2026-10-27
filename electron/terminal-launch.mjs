@@ -116,7 +116,7 @@ export function buildInstallScript({ command, needsNode, signInCommand, driverKi
       `powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${Buffer.from(`$ErrorActionPreference='Stop'\n${command}`, "utf16le").toString("base64")}`,
       "if ($LASTEXITCODE -ne 0) { return }",
       refreshPath,
-      ...(signIn ? [`${agy ? "$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; " : ""}${signIn}`] : []),
+      ...(signIn ? [`powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${Buffer.from(`${agy ? "$env:AGY_CLI_DISABLE_AUTO_UPDATE='true'; " : ""}${signIn}`, "utf16le").toString("base64")}`] : []),
     ].join("\n");
   }
   return signIn ? `{\n${command}\n} && ${agy ? "AGY_CLI_DISABLE_AUTO_UPDATE=true " : ""}${signIn}` : command;

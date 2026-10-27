@@ -67,7 +67,10 @@ export async function openEngineInstallOrCopy(instanceId: string, command: strin
   if (window.ogb?.openEngineInstall) {
     try {
       return await window.ogb.openEngineInstall(instanceId);
-    } catch {}
+    } catch (error) {
+      // Older desktop builds expose the preload call without its main handler.
+      if (!String(error).includes("No handler registered")) console.error("[engine-install] install failed:", error);
+    }
   }
   return openInstallTerminalOrCopy(command, () => window.ogb!.openInstallTerminal!(command), (text) =>
     navigator.clipboard.writeText(text),

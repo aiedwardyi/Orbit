@@ -115,10 +115,12 @@ it("keeps onboarding install available when only the copy action fails", async (
   }
 });
 
-it.each(["settings", "onboarding"])("falls back to the old bridge when %s install rejects", async (surface) => {
+it.each([["settings", false], ["onboarding", false], ["settings", true], ["onboarding", true]] as const)("falls back to the old bridge when %s install rejects (real failure: %s)", async (surface, real) => {
   const previous = window.ogb;
-  const openEngineInstall = vi.fn(async () => { throw new Error("no handler"); });
+  const failure = new Error(real ? "Could not resolve engine install" : "Error invoking remote method 'engine:install': Error: No handler registered for 'engine:install'");
+  const openEngineInstall = vi.fn(async () => { throw failure; });
   const openInstallTerminal = vi.fn(async () => true);
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
   Object.assign(window, { ogb: { platform: "win32", openEngineInstall, openInstallTerminal } });
   const host = document.createElement("div");
   const root = createRoot(host);
@@ -129,8 +131,36 @@ it.each(["settings", "onboarding"])("falls back to the old bridge when %s instal
     expect(openEngineInstall).toHaveBeenCalledExactlyOnceWith("claude");
     expect(openInstallTerminal).toHaveBeenCalledExactlyOnceWith("install-cli");
     expect(host.textContent).toContain("Paste the command in Terminal and press Enter.");
+    if (real) expect(log).toHaveBeenCalledWith(expect.any(String), failure);
+    else expect(log).not.toHaveBeenCalled();
   } finally {
     await act(async () => root.unmount());
+    log.mockRestore();
+    window.ogb = previous;
+  }
+});
+
+it.each(["en", "ko"] as const)("says a settings install failed when no docs link is offered (%s)", async (locale) => {
+  const previous = window.ogb;
+  const copy = vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("clipboard blocked"));
+  Object.assign(window, { ogb: { platform: "win32" } });
+  applyLocale(locale);
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(EngineRow, {
+      instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "install-cli" } } }),
+    })));
+    const install = () => [...host.querySelectorAll("button")].find((button) => button.textContent === (locale === "en" ? "Install" : "설치"));
+    await act(async () => install()!.click());
+    expect(host.querySelector("[aria-live]")?.textContent).toBe(locale === "en"
+      ? "Install failed. Try again, or install it from a terminal."
+      : "설치하지 못했어요. 다시 시도하거나 터미널에서 설치하세요.");
+    expect(install()).toBeTruthy();
+  } finally {
+    await act(async () => root.unmount());
+    applyLocale("en");
+    copy.mockRestore();
     window.ogb = previous;
   }
 });
