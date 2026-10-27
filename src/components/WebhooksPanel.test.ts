@@ -58,7 +58,8 @@ async function render() {
     host.querySelector("details.relative")!.setAttribute("open", "");
     await act(async () => button("Edit settings").click());
   };
-  return { host, button, editSettings };
+  const rerender = () => act(async () => root.render(createElement(WebhooksPanel, { bots })));
+  return { host, button, editSettings, rerender };
 }
 
 describe("webhook editor", () => {
@@ -77,5 +78,30 @@ describe("webhook editor", () => {
     await ui.editSettings();
     expect(ui.button("Ada").className).toContain("border-accent/70");
     expect(ui.button("Save changes").disabled).toBe(false);
+  });
+});
+
+describe("webhook menu Back layer", () => {
+  it("drops the layer when the last webhook goes and stays closed when one returns", async () => {
+    const events: WindowEventMap["orbit:back-layer"][] = [];
+    const record = (event: WindowEventMap["orbit:back-layer"]) => events.push(event);
+    window.addEventListener("orbit:back-layer", record);
+    try {
+      webhooks = [webhook("b1")];
+      const ui = await render();
+      const details = ui.host.querySelector("details.relative")!;
+      details.setAttribute("open", "");
+      await act(async () => details.dispatchEvent(new Event("toggle")));
+      expect(events.map((event) => Boolean(event.detail.close))).toEqual([true]);
+      webhooks = [];
+      await ui.rerender();
+      expect(events.map((event) => Boolean(event.detail.close))).toEqual([true, false]);
+      webhooks = [webhook("b1")];
+      await ui.rerender();
+      expect(ui.host.querySelector("details.relative")!.hasAttribute("open")).toBe(false);
+      expect(events).toHaveLength(2);
+    } finally {
+      window.removeEventListener("orbit:back-layer", record);
+    }
   });
 });
