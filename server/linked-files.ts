@@ -8,6 +8,7 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
 
+import { windowsPathLinks } from "../shared/windows-path-links.ts";
 import { apiRequestAuthorized } from "./remote-access.ts";
 
 const MEDIA = {
@@ -129,7 +130,7 @@ function linkUrls(text: string): string[] {
   try {
     tree = fromMarkdown(text, {
       extensions: [gfm()],
-      mdastExtensions: [gfmFromMarkdown()],
+      mdastExtensions: [gfmFromMarkdown(), windowsPathLinks],
     });
   } catch {
     return [];

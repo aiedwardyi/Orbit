@@ -395,6 +395,69 @@ describe("relative file links", () => {
     }
   });
 
+  describe("Windows paths as written", () => {
+    const open = async (text: string, streaming = false) => {
+      const openFile = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(window, "ogb", { configurable: true, value: { openFile } });
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = createRoot(host);
+      try {
+        await act(async () => root.render(createElement(ChatMarkdown, { text, streaming })));
+        for (const link of host.querySelectorAll<HTMLButtonElement>("[data-file-link]")) await act(async () => link.click());
+        return { opened: openFile.mock.calls.map(([file]) => file), text: host.textContent };
+      } finally {
+        await act(async () => root.unmount());
+        host.remove();
+        Reflect.deleteProperty(window, "ogb");
+      }
+    };
+
+    it("opens every backslash and punctuation pair, plain and in angle brackets", async () => {
+      const files = [..."._-()[]#~!$&'+,;=@^`{}"].map((mark) => `C:\\Users\\me\\.orbit\\${mark}x\\clip.mp4`).concat("C:\\.hidden\\x.txt");
+      const text = files.map((file) => `[a](${file}) [b](<${file}>)`).join("\n\n");
+      expect((await open(text)).opened).toEqual(files.flatMap((file) => [file, file]));
+    });
+
+    it("keeps the target apart from its title", async () => {
+      const file = "C:\\Users\\me\\.orbit\\clip.mp4";
+      expect((await open(`[a](${file} "title") [b](<${file}> 'title')`)).opened).toEqual([file, file]);
+    });
+
+    it("keeps the target while a reply streams", async () => {
+      const file = "C:\\Users\\me\\.orbit\\workspaces\\b\\clip.mp4";
+      expect((await open(`Done.\n\n[clip.mp4](${file})`, true)).opened).toEqual([file]);
+    });
+
+    it("never rewrites a link in code", async () => {
+      const link = "[a](C:\\x\\.y.txt)";
+      const shown = await open(`\`${link}\`\n\n\`\`\`\n${link}\n\`\`\``);
+      expect(shown.opened).toEqual([]);
+      expect(shown.text?.split(link)).toHaveLength(3);
+    });
+
+    it("asks the phone route for the path as written", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array([0]), { status: 206 })));
+      const file = "C:\\Users\\me\\.orbit\\workspaces\\b\\clip.mp4";
+      const host = document.createElement("div");
+      document.body.append(host);
+      const root = createRoot(host);
+      try {
+        await act(async () => root.render(createElement(ChatMarkdown, { text: `[clip.mp4](${file})`, threadId: "t1" })));
+        await act(async () => {
+          await vi.waitFor(() => {
+            expect(host.querySelector("video")).not.toBeNull();
+          });
+        });
+        expect(host.querySelector("video")?.getAttribute("src")).toBe(`/api/threads/t1/linked-file?path=${encodeURIComponent(file)}`);
+      } finally {
+        await act(async () => root.unmount());
+        host.remove();
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+
   it("renders a link whose target is stripped as plain text", async () => {
     const host = document.createElement("div");
     document.body.append(host);

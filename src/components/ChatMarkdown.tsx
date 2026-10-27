@@ -8,6 +8,7 @@
 import { createContext, memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import Markdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { Extension } from "mdast-util-from-markdown";
 import { Check, Copy } from "lucide-react";
 import { z } from "zod";
 
@@ -15,6 +16,7 @@ import { useI18n, type MessageKey } from "@/lib/i18n";
 import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { useReplyStyle } from "@/lib/reply-style";
 import { splitReplyBlocks } from "@/lib/turn-stage";
+import { windowsPathLinks } from "../../shared/windows-path-links";
 
 // tiny highlight cache so revisiting a thread doesn't re-tokenize settled
 // blocks; keys are content-hashed and capped. Streamed partials may land here
@@ -76,6 +78,12 @@ const localFilePath = (href?: string): string | null => {
 // for links only; LocalFileLink never puts them in the DOM.
 const urlTransform = (url: string, key: string): string =>
   key === "href" && (/^file:/i.test(url) || WINDOWS_PATH.test(decodeHref(url))) ? url : defaultUrlTransform(url);
+
+function remarkWindowsPaths(this: { data(): object }) {
+  // SAFETY: remark-parse reads its mdast extensions from this list on the processor data.
+  const data = this.data() as { fromMarkdownExtensions?: Extension[] };
+  (data.fromMarkdownExtensions ??= []).push(windowsPathLinks);
+}
 
 // A bare relative target ("reps.py", "./notes.md", "..\x.txt") means a file in
 // the writing bot's folder. As an anchor it would resolve against Orbit's own
@@ -230,7 +238,7 @@ export function streamBlocks(text: string): string[] {
 const MarkdownBlock = memo(function MarkdownBlock({ text, components }: { text: string; components: Components }) {
   return (
     <MarkdownTextContext.Provider value={text}>
-      <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
+      <Markdown remarkPlugins={[remarkGfm, remarkWindowsPaths]} components={components} urlTransform={urlTransform}>
         {text}
       </Markdown>
     </MarkdownTextContext.Provider>
