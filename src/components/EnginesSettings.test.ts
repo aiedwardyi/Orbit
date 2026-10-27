@@ -130,7 +130,10 @@ describe("EnginesSettings friends Connections list", () => {
     }
   });
 
-  it.each([undefined, "/missing/grok"])("shows a missing engine as Not Installed with its install link for cli %s", async (cli) => {
+  it.each([undefined, "/missing/grok"])("opens the install terminal for a missing engine with cli %s", async (cli) => {
+    const previous = window.ogb;
+    const openInstallTerminal = vi.fn(async () => true);
+    Object.assign(window, { ogb: { platform: "win32", openInstallTerminal } });
     const restore = stage("grok", {
       snapshot: { state: "unavailable" },
       cli,
@@ -141,11 +144,15 @@ describe("EnginesSettings friends Connections list", () => {
       expect(row("grok")).toBeUndefined();
       await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === "More Engines")!.click());
       expect(row("grok").textContent).toBe("GrokNot InstalledInstall");
-      expect(row("grok").querySelector("a")?.getAttribute("href")).toBe("https://x.ai/cli");
-      expect(row("grok").querySelector("button, input, select, code")).toBeNull();
+      expect(row("grok").querySelector("a, input, select, code")).toBeNull();
+      await act(async () => row("grok").querySelector("button")!.click());
+      expect(openInstallTerminal).toHaveBeenCalledExactlyOnceWith("install-grok");
+      expect(row("grok").textContent).toContain("Terminal openedInstallPaste the command in Terminal and press Enter.");
+      expect(row("grok").querySelector("button")?.textContent).toBe("Install");
     } finally {
       await act(async () => root.unmount());
       restore();
+      window.ogb = previous;
     }
   });
 
@@ -159,6 +166,92 @@ describe("EnginesSettings friends Connections list", () => {
     } finally {
       await act(async () => root.unmount());
       restore();
+    }
+  });
+
+  it("keeps the guide when this platform has no install command", () => {
+    const previous = window.ogb;
+    Object.assign(window, { ogb: { platform: "win32" } });
+    try {
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(EngineRow, {
+        instance: instance({ snapshot: { state: "unavailable" }, install: { command: { linux: "install-cli" }, docsUrl: "https://example.com/install" } }),
+      })));
+      expect(html).toContain('href="https://example.com/install"');
+      expect(html).not.toContain("<button");
+    } finally {
+      window.ogb = previous;
+    }
+  });
+
+  it.each(["missing", "rejected", "copied", "blocked"])("handles a %s install bridge without false feedback", async (mode) => {
+    const previous = window.ogb;
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async () => {
+      if (mode === "blocked") throw new Error("clipboard blocked");
+    });
+    Object.assign(window, { ogb: { platform: "win32", ...(mode !== "missing" && { openInstallTerminal: async () => {
+      if (mode === "copied") return false;
+      throw new Error("no handler");
+    } }) } });
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(EngineRow, {
+        instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "install-cli" } } }),
+      }))));
+      await act(async () => host.querySelector("button")!.click());
+      expect(copy).toHaveBeenCalledTimes(mode === "copied" ? 0 : 1);
+      if (mode !== "copied") expect(copy).toHaveBeenCalledWith("install-cli");
+      expect(host.textContent?.includes("Command copied")).toBe(mode !== "blocked");
+      expect(host.textContent).not.toMatch(/Terminal opened|Paste the command/);
+    } finally {
+      await act(async () => root.unmount());
+      copy.mockRestore();
+      window.ogb = previous;
+    }
+  });
+
+  it.each(["npm install -g @openai/codex", "irm https://example.com/install.ps1 | iex"])("shows the Node requirement only for npm: %s", (command) => {
+    const previous = window.ogb;
+    Object.assign(window, { ogb: { platform: "win32" } });
+    try {
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(EngineRow, {
+        instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: command }, needsNode: true } }),
+      })));
+      expect(html.includes("Requires Node.js and npm.")).toBe(command.startsWith("npm"));
+    } finally {
+      window.ogb = previous;
+    }
+  });
+
+  it("moves an installed CLI to Sign In after returning to Connections", async () => {
+    const previous = window.ogb;
+    const openInstallTerminal = vi.fn(async () => true);
+    Object.assign(window, { ogb: { platform: "win32", openInstallTerminal } });
+    const restore = stage("codex", {
+      snapshot: { state: "unavailable" },
+      install: { command: { win32: "npm install -g @openai/codex" }, login: { args: ["login"] }, signInCommand: "codex login" },
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { host, root, row } = await renderList();
+    try {
+      await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === "More Engines")!.click());
+      await act(async () => row("codex").querySelector("button")!.click());
+      expect(openInstallTerminal).toHaveBeenCalledExactlyOnceWith("npm install -g @openai/codex");
+      vi.setSystemTime(Date.now() + 6000);
+      await act(async () => window.dispatchEvent(new Event("blur")));
+      refreshInstances.mockImplementationOnce(async () => {
+        mockInstances.find((row) => row.instanceId === "codex")!.snapshot = { state: "available", authenticated: false };
+        root.render(createElement(I18nProvider, null, createElement(EnginesSettings)));
+      });
+      vi.setSystemTime(Date.now() + 6000);
+      await act(async () => window.dispatchEvent(new Event("focus")));
+      expect(row("codex").textContent).toBe("CodexSign In");
+      expect(row("codex").querySelector("a")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+      window.ogb = previous;
+      vi.useRealTimers();
     }
   });
 
