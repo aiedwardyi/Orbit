@@ -15,7 +15,9 @@ import {
   QUICK_REACTIONS,
   contextClickKind,
   copyShortcutHint,
+  endSelectMode,
   selectionContainsPoint,
+  startSelectMode,
   type SelectionLike,
 } from "./MessageMenu";
 
@@ -222,6 +224,28 @@ describe("message menu helpers", () => {
     expect(selectionContainsPoint(sel, node, 2)).toBe(true);
     expect(selectionContainsPoint(sel, document.createTextNode("other"), 0)).toBe(false);
     expect(selectionContainsPoint(null, node, 0)).toBe(false);
+  });
+
+  it("keeps select mode off the desktop Back stack", () => {
+    const onLayer = vi.fn();
+    const row = document.body.appendChild(document.createElement("div"));
+    row.textContent = "hello there";
+    window.ogb = {} as NonNullable<typeof window.ogb>;
+    window.addEventListener("orbit:back-layer", onLayer);
+    try {
+      startSelectMode(row, { x: 0, y: 0 });
+      expect(row.hasAttribute("data-select-mode")).toBe(true);
+      expect(window.getSelection()?.toString()).toBe("hello there");
+      endSelectMode();
+      expect(row.hasAttribute("data-select-mode")).toBe(false);
+      expect(window.getSelection()?.toString()).toBe("");
+      expect(onLayer).not.toHaveBeenCalled();
+    } finally {
+      endSelectMode();
+      window.removeEventListener("orbit:back-layer", onLayer);
+      window.ogb = undefined;
+      row.remove();
+    }
   });
 });
 
@@ -796,6 +820,39 @@ describe("message menu on touch", () => {
     expect(row(host, "b1").hasAttribute("data-select-mode")).toBe(false);
     await hold(content(host, "b1"));
     expect(messageMenu()).not.toBeNull();
+  });
+
+  it("clears only the script selection on the first inside touch", async () => {
+    const host = await mountChat(bot([botMsg("b1", "first reply")]));
+    stubTouchScreen();
+    await selectAt(host, "b1", (el) => [textNode(el, "first"), 2]);
+    const el = content(host, "b1");
+    const sel = window.getSelection()!;
+    expect(sel.toString()).toBe("first");
+
+    expect((await touch("touchstart", el, [[100, 120]])).defaultPrevented).toBe(false);
+    expect(sel.rangeCount).toBe(0);
+    expect(row(host, "b1").hasAttribute("data-select-mode")).toBe(true);
+    const node = textNode(el, "first");
+    sel.setBaseAndExtent(node, 0, node, 5);
+    await hold(el);
+    expect(sel.toString()).toBe("first");
+    sel.setBaseAndExtent(node, 0, node, node.length);
+    await hold(el);
+    expect(sel.toString()).toBe("first reply");
+    expect(messageMenu()).toBeNull();
+  });
+
+  it("keeps the selected word on mousedown before handing it to touch", async () => {
+    const host = await mountChat(bot([botMsg("b1", "first reply")]));
+    stubTouchScreen();
+    await selectAt(host, "b1", (el) => [textNode(el, "first"), 2]);
+    const el = content(host, "b1");
+    await act(async () => { el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); });
+    expect(window.getSelection()?.toString()).toBe("first");
+    expect(row(host, "b1").hasAttribute("data-select-mode")).toBe(true);
+    await touch("touchstart", el, [[100, 120]]);
+    expect(window.getSelection()?.rangeCount).toBe(0);
   });
 
   it("selects the held Korean word", async () => {

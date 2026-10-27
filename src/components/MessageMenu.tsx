@@ -106,8 +106,14 @@ export function startSelectMode(row: HTMLElement, held: { x: number; y: number }
   const sel = window.getSelection();
   if (word) sel?.setBaseAndExtent(word.node, word.start, word.node, word.end);
   else sel?.selectAllChildren(content);
+  let firstTouch = true;
   const onDown = (e: Event) => {
     if (!(e.target instanceof Node && row.contains(e.target))) end();
+    else if (e.type === "touchstart" && firstTouch) {
+      // script selections have no handles, so the first hold starts fresh
+      sel?.removeAllRanges();
+      firstTouch = false;
+    }
   };
   const end = () => {
     row.removeAttribute("data-select-mode");
@@ -116,10 +122,12 @@ export function startSelectMode(row: HTMLElement, held: { x: number; y: number }
     document.removeEventListener("touchstart", onDown, true);
     document.removeEventListener("mousedown", onDown, true);
     selecting = null;
+    if (!window.ogb) window.dispatchEvent(new CustomEvent("orbit:back-layer", { detail: { key: "select-text" } }));
   };
   document.addEventListener("touchstart", onDown, true);
   document.addEventListener("mousedown", onDown, true);
   selecting = end;
+  if (!window.ogb) window.dispatchEvent(new CustomEvent("orbit:back-layer", { detail: { key: "select-text", close: end } }));
 }
 
 interface Press {
