@@ -128,4 +128,35 @@ describe("EngineMark", () => {
     await pointer("pointerdown", "touch", host);
     expect(card()).toBeNull();
   });
+
+  it("opens from a name inside it, as one target with the mark", async () => {
+    await render(createElement(EngineMark, { instance: instance() }, createElement("span", { "data-name": "" }, "Claude")));
+    const name = host.querySelector("[data-name]");
+    expect(name?.closest("[data-engine-hover]")).toBe(trigger());
+    await pointer("pointerover", "mouse", name!);
+    await wait(500);
+    expect(card()?.textContent).toBe("Claude · me@example.com");
+    const mark = trigger().querySelector("svg")!;
+    await pointer("pointerout", "mouse", name!, { relatedTarget: mark });
+    await pointer("pointerover", "mouse", mark, { relatedTarget: name });
+    expect(card()?.textContent).toBe("Claude · me@example.com");
+    await pointer("pointerout", "mouse", mark, { relatedTarget: host });
+    expect(card()).toBeNull();
+    await pointer("pointerdown", "touch", name!);
+    await wait(600);
+    expect(card()?.textContent).toBe("Claude · me@example.com");
+  });
+
+  it("keeps a name inside it read as text, with the account line on the mark", async () => {
+    await render(createElement(EngineMark, { instance: instance() }, createElement("span", { "data-name": "" }, "Claude")));
+    const name = host.querySelector("[data-name]");
+    expect(name?.closest("[data-engine-hover]")).toBe(trigger());
+    expect(name?.closest("[role='img']")).toBeNull();
+    expect(trigger().querySelector("[role='img']")?.getAttribute("aria-label")).toBe("Claude · me@example.com");
+    expect(trigger().getAttribute("tabindex")).toBe("0");
+    const matches = vi.spyOn(trigger(), "matches").mockImplementation((selector: string) => selector === ":focus-visible");
+    await act(async () => trigger().focus());
+    expect(card()?.textContent).toBe("Claude · me@example.com");
+    matches.mockRestore();
+  });
 });

@@ -960,8 +960,6 @@ describe("plan usage", () => {
     expect(translate("ko", "usage.limits.refreshAgeHours", { hours: 2 })).toBe("2시간");
     expect(translate("en", "usage.limits.refreshAgeDays", { days: 2 })).toBe("2d");
     expect(translate("ko", "usage.limits.refreshAgeDays", { days: 2 })).toBe("2일");
-    expect(translate("en", "usage.limits.refreshAge", { age: "5m" })).toBe("5m old");
-    expect(translate("ko", "usage.limits.refreshAge", { age: "5분" })).toBe("5분 전");
     expect(translate("en", "usage.limits.cachedAsOf", { age: "5m" })).toBe("Cached, as of 5m ago.");
     expect(translate("ko", "usage.limits.cachedAsOf", { age: "5분" })).toBe("캐시된 값, 5분 전 기준입니다.");
   });

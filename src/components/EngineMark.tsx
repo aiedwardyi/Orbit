@@ -22,16 +22,16 @@ export function engineHoverText(instance: InstanceInfo, t: Translate): string {
   return t("engines.accountLine", { engine: instance.displayName, status });
 }
 
-export function EngineMark({ instance, size, className }: { instance: InstanceInfo; size?: number; className?: string }) {
+export function EngineMark({ instance, size, className, children }: { instance: InstanceInfo; size?: number; className?: string; children?: ReactNode }) {
   const { t } = useI18n();
   return (
-    <EngineHover text={engineHoverText(instance, t)}>
+    <EngineHover text={engineHoverText(instance, t)} label={children}>
       <ProviderMark driverKind={instance.driverKind} size={size} className={className} />
     </EngineHover>
   );
 }
 
-function EngineHover({ text, children }: { text: string; children: ReactNode }) {
+function EngineHover({ text, label, children }: { text: string; label?: ReactNode; children: ReactNode }) {
   const id = useId();
   const triggerRef = useRef<HTMLSpanElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -119,15 +119,18 @@ function EngineHover({ text, children }: { text: string; children: ReactNode }) 
   }, [presence.mounted]);
 
   const standalone = owner === null;
+  // A label inside must still read as text, so the account line moves onto the mark alone.
+  const markRole = standalone ? "img" : undefined;
+  const markLabel = standalone ? text : undefined;
   return (
     <>
       <span
         ref={triggerRef}
         data-engine-hover=""
         tabIndex={standalone ? 0 : undefined}
-        role={standalone ? "img" : undefined}
-        aria-label={standalone ? text : undefined}
-        className={cn("inline-flex shrink-0 rounded-sm", standalone && "select-none [-webkit-touch-callout:none] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text")}
+        role={label ? undefined : markRole}
+        aria-label={label ? undefined : markLabel}
+        className={cn("inline-flex shrink-0 rounded-sm", label && "min-w-0 shrink items-center gap-2", standalone && "select-none [-webkit-touch-callout:none] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-text")}
         onPointerEnter={(e) => {
           if (e.pointerType !== "mouse") return;
           cancel();
@@ -164,7 +167,12 @@ function EngineHover({ text, children }: { text: string; children: ReactNode }) 
         }}
         onBlur={() => standalone && close()}
       >
-        {children}
+        {label ? (
+          <>
+            <span role={markRole} aria-label={markLabel} className="inline-flex shrink-0">{children}</span>
+            {label}
+          </>
+        ) : children}
       </span>
       {presence.mounted && createPortal(
         <div
