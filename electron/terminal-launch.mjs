@@ -103,7 +103,7 @@ export function buildInstallScript({ command, needsNode, signInCommand, driverKi
   const signIn = signInCommand && !/\bYOUR_[A-Z0-9_]+\b/.test(signInCommand) ? signInCommand : null;
   const agy = driverKind === "antigravityAgent";
   if (platform === "win32") {
-    const refreshPath = "$env:Path=[Environment]::GetEnvironmentVariable('Path', 'Machine')+';'+[Environment]::GetEnvironmentVariable('Path', 'User')";
+    const refreshPath = "$env:Path=$env:Path+';'+[Environment]::GetEnvironmentVariable('Path', 'Machine')+';'+[Environment]::GetEnvironmentVariable('Path', 'User')";
     return [
       "$ErrorActionPreference='Stop'",
       ...(needsNode && /^\s*npm(?:\s|$)/.test(command) ? [

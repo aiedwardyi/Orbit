@@ -17,11 +17,12 @@ function setup(trusted = true, opened = true) {
   const copy = vi.fn();
   const open = vi.fn(async () => opened);
   const blank = vi.fn(async () => true);
+  const server = vi.fn(() => ({ port: 8799, token: "test-token" }));
   install.registerEngineInstall({ handle: (channel, fn) => { expect(channel).toBe("engine:install"); handler = fn; } }, {
     trusted: (caller) => trustedTerminalSender(caller, contents, "http://localhost:5199"),
-    server: () => ({ port: 8799, token: "test-token" }), fetch, copy, open, blank,
+    server, fetch, copy, open, blank,
   });
-  return { call: (id, ...rest) => handler(event, id, ...rest), fetch, copy, open, blank };
+  return { call: (id, ...rest) => handler(event, id, ...rest), server, fetch, copy, open, blank };
 }
 
 describe("engine install IPC", () => {
@@ -34,16 +35,21 @@ describe("engine install IPC", () => {
     d.open.mockImplementationOnce(() => new Promise((resolve) => { resolveOpen = resolve; }));
     try {
       const first = d.call("codex");
-      const repeat = d.call("codex", true);
-      expect(d.fetch).toHaveBeenCalledTimes(1);
-      expect(await repeat).toBe("running");
+      const settled = vi.fn();
+      const repeat = d.call("codex", true).then(settled);
+      await vi.waitFor(() => expect(d.fetch).toHaveBeenCalledTimes(1));
+      expect(settled).not.toHaveBeenCalled();
       resolveFetch({ ok: true, json: async () => descriptor });
       await vi.waitFor(() => expect(d.open).toHaveBeenCalledTimes(1));
       vi.setSystemTime(Date.now() + 20000);
-      expect(await d.call("codex")).toBe("running");
+      const duringLaunch = d.call("codex");
+      expect(settled).not.toHaveBeenCalled();
       expect(d.open).toHaveBeenCalledTimes(1);
       resolveOpen(true);
       expect(await first).toBe("running");
+      await repeat;
+      expect(settled).toHaveBeenCalledExactlyOnceWith("running");
+      expect(await duringLaunch).toBe("running");
       vi.setSystemTime(Date.now() + 9999);
       expect(await d.call("codex")).toBe("running");
       expect(d.open).toHaveBeenCalledTimes(1);
@@ -59,6 +65,35 @@ describe("engine install IPC", () => {
       resolveOpen?.(true);
       vi.useRealTimers();
     }
+  });
+
+  it.each(["opened", "copied", "rejection"])("shares pending %s with overlapping callers", async (result) => {
+    const d = setup(true, false);
+    const failure = new Error("offline");
+    let resolveFetch;
+    let rejectFetch;
+    d.fetch.mockImplementationOnce(() => new Promise((resolve, reject) => { resolveFetch = resolve; rejectFetch = reject; }));
+    d.blank.mockResolvedValue(result === "opened");
+    const results = Promise.allSettled([d.call("codex"), d.call("codex", true)]);
+    await vi.waitFor(() => expect(d.fetch).toHaveBeenCalledTimes(1));
+    if (result === "rejection") rejectFetch(failure);
+    else resolveFetch({ ok: true, json: async () => descriptor });
+    const expected = result === "rejection" ? { status: "rejected", reason: failure } : { status: "fulfilled", value: result };
+    expect(await results).toEqual([expected, expected]);
+    expect(d.fetch).toHaveBeenCalledOnce();
+    expect(d.open).toHaveBeenCalledTimes(result === "rejection" ? 0 : 1);
+  });
+
+  it("shares a synchronous server failure and allows the next tap to retry", async () => {
+    const d = setup();
+    const failure = new Error("server unavailable");
+    d.server.mockImplementationOnce(() => { throw failure; });
+    const results = await Promise.allSettled([d.call("codex"), d.call("codex")]);
+    expect(results).toEqual([{ status: "rejected", reason: failure }, { status: "rejected", reason: failure }]);
+    expect(d.fetch).not.toHaveBeenCalled();
+    expect(await d.call("codex")).toBe("running");
+    expect(d.server).toHaveBeenCalledTimes(2);
+    expect(d.open).toHaveBeenCalledOnce();
   });
 
   it("allows retry after a failed resolution or clipboard fallback", async () => {
