@@ -61,6 +61,10 @@ describe("model index data", () => {
   });
 
   it("charts only models from the picker", () => {
+    const retired = ["gpt-5.6-terra"];
+    for (const entry of MODEL_INDEX_ENTRIES) {
+      expect([...PICKER_MODEL_IDS, ...retired], entry.model).toContain(entry.model);
+    }
     const outside = MODEL_INDEXES.flatMap((index) => indexView(index, []).points).filter((e) => !PICKER_MODEL_IDS.includes(e.model)).map((e) => e.model);
     expect([...new Set(outside)]).toEqual([]);
   });

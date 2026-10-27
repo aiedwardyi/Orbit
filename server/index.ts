@@ -944,8 +944,8 @@ initializeSteerQueue(store, drainQueuedSends, () => threadSyncGate.enabled && pr
 if (store.botsFile === "unreadable") console.warn("bot sync: bots.json is there but did not load; not syncing bots until it does");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-sonnet-5", "claude-sonnet-5-5");
 store.renameModel(registry.instances().filter((i) => i.driverKind === "claudeAgent").map((i) => i.instanceId), "claude-haiku-4-5", "claude-haiku-5-5");
-store.renameModel(registry.instances().filter((i) => i.driverKind === "codex").map((i) => i.instanceId), "gpt-6-sol", "gpt-6.1-sol");
-store.renameModel(registry.instances().filter((i) => i.driverKind === "codex").map((i) => i.instanceId), "gpt-5.6-terra", "gpt-6.1-terra");
+store.renameModel(registry.instances().filter((i) => i.driverKind === "codex").map((i) => i.instanceId), "gpt-6-sol", "gpt-6.1-sol", { resetSession: true });
+store.renameModel(registry.instances().filter((i) => i.driverKind === "codex").map((i) => i.instanceId), "gpt-5.6-terra", "gpt-6.1-terra", { resetSession: true });
 const sendSequencer = new SendSequencer();
 
 type ChatLatencyStage =

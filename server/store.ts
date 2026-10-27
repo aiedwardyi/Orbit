@@ -1684,7 +1684,7 @@ export class Store {
   }
 
   /** Repoint saved bot selections and task continuity from a retired model id. */
-  renameModel(instanceIds: string[], from: string, to: string) {
+  renameModel(instanceIds: string[], from: string, to: string, options: { resetSession?: boolean } = {}) {
     let changed = false;
     for (const b of this.bots) {
       if (!b.modelSelection || !instanceIds.includes(b.modelSelection.instanceId) || b.modelSelection.model !== from) continue;
@@ -1695,6 +1695,15 @@ export class Store {
       if (task.lastInstanceId === undefined || !instanceIds.includes(task.lastInstanceId) || task.lastModel !== from) continue;
       task.lastModel = to;
       changed = true;
+      if (options.resetSession) {
+        const cursor = task.resumeCursors[task.lastInstanceId];
+        delete task.resumeCursors[task.lastInstanceId];
+        if (task.resumeSeed?.instanceId === task.lastInstanceId && (cursor === undefined || task.resumeSeed.cursor === cursor)) delete task.resumeSeed;
+        delete task.nativePrompt;
+        const bot = this.bots.find((candidate) => candidate.tasks?.includes(task));
+        if (bot?.threadId === task.threadId) delete bot.resumeCursors[task.lastInstanceId];
+        delete task.providerSessionBoundId;
+      }
     }
     if (changed) this.saveBots();
   }

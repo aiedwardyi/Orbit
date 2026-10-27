@@ -17,7 +17,7 @@ import { _resetSteerQueue, drainSteeredMessages, queueSteeredMessage } from "./s
 import { agentRoster, Store, titleFromMessage, type BotRecord } from "./store.ts";
 import * as taskState from "./task-state.ts";
 import { readTaskResumePacket, type TaskResumePacket } from "./task-state.ts";
-import { buildResumeFallback } from "./turn-context.ts";
+import { buildResumeFallback, engineIsFresh } from "./turn-context.ts";
 import { workspaceDir } from "./workspace.ts";
 import { readContextCompaction } from "../shared/context-compaction.ts";
 import { reactionMarkKeys } from "../shared/reactions.ts";
@@ -973,6 +973,41 @@ describe("Store", () => {
     expect(reloaded.taskByThread(bot.id, bot.threadId)?.lastModel).toBe(to);
     expect(reloaded.bot(droid.id)?.modelSelection.model).toBe(from);
     expect(reloaded.taskByThread(droid.id, droid.threadId)?.lastModel).toBe(from);
+  });
+
+  it("renameModel resets migrated Codex sessions and keeps Claude sessions", () => {
+    const store = new Store(selection);
+    const codex = store.createBot({ modelSelection: { instanceId: "codex", model: "gpt-5.6-terra" } });
+    const claude = store.createBot({ modelSelection: { instanceId: "claude", model: "claude-haiku-4-5" } });
+    store.appendMessage(codex.threadId, { role: "user", kind: "text", text: "Continue" });
+    store.appendMessage(claude.threadId, { role: "user", kind: "text", text: "Continue" });
+    store.markTaskDispatched(codex.id, codex.threadId, "codex", "gpt-5.6-terra");
+    store.markTaskDispatched(claude.id, claude.threadId, "claude", "claude-haiku-4-5");
+    store.setResumeCursor(codex.id, "codex", "codex-session", codex.threadId);
+    store.setResumeCursor(claude.id, "claude", "claude-session", claude.threadId);
+    store.markResumeSeeded(codex.id, codex.threadId, { instanceId: "codex", cursor: "codex-session", compactionId: null });
+    store.markProviderSessionBound(codex.id, codex.threadId, "user-1");
+    store.recordNativePrompt(codex.id, codex.threadId, "codex", { first: 10, last: 20 });
+
+    store.renameModel(["codex"], "gpt-5.6-terra", "gpt-6.1-terra", { resetSession: true });
+    store.renameModel(["codex"], "gpt-5.6-terra", "gpt-6.1-terra", { resetSession: true });
+
+    const reloaded = new Store(selection);
+    const codexTask = reloaded.taskByThread(codex.id, codex.threadId)!;
+    const claudeTask = reloaded.taskByThread(claude.id, claude.threadId)!;
+    expect(reloaded.bot(codex.id)?.modelSelection.model).toBe("gpt-6.1-terra");
+    expect(codexTask.lastModel).toBe("gpt-6.1-terra");
+    expect(codexTask.resumeCursors.codex).toBeUndefined();
+    expect(codexTask.resumeSeed).toBeUndefined();
+    expect(codexTask.nativePrompt).toBeUndefined();
+    expect(codexTask.providerSessionBoundId).toBeUndefined();
+    expect(engineIsFresh({
+      instanceId: "codex", model: "gpt-6.1-terra", lastInstanceId: codexTask.lastInstanceId, lastModel: codexTask.lastModel,
+      sessionModelSwitch: "unsupported", resumeCursors: codexTask.resumeCursors,
+      transcript: [{ role: "user", text: "Continue" }],
+    })).toBe(true);
+    expect(claudeTask.resumeCursors.claude).toBe("claude-session");
+    expect(reloaded.bot(claude.id)?.modelSelection.model).toBe("claude-haiku-4-5");
   });
 
   it("renameModel skips a bot record with no modelSelection", () => {
