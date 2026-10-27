@@ -262,7 +262,7 @@ type SkillRecordingPayload = {
        * when no terminal could be launched; the clipboard still has it. */
       openInstallTerminal?(command: string): Promise<boolean>;
       openEngineSignIn?(instanceId: string): Promise<"running" | "opened" | "copied">;
-      openEngineInstall?(instanceId: string): Promise<"running" | "opened" | "copied">;
+      openEngineInstall?(instanceId: string, installOnly?: true): Promise<"running" | "opened" | "copied">;
       /** Opens an http(s) link in the user's default browser. */
       openExternal?(url: string): Promise<boolean>;
       /** Recolor the native window chrome for a skin; absent on older builds. */

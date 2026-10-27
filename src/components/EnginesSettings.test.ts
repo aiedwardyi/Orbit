@@ -93,6 +93,23 @@ it.each(["settings", "onboarding"])("starts %s install with only the instance id
   }
 });
 
+it("starts inject setup install without the sign-in step", async () => {
+  const previous = window.ogb;
+  const openEngineInstall = vi.fn(async () => "running" as const);
+  Object.assign(window, { ogb: { platform: "win32", openEngineInstall } });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    const props = { intent: "inject" as const, instance: instance({ snapshot: { state: "unavailable" }, install: { command: { win32: "npm install -g official" } } }) };
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(EngineSetup, props))));
+    await act(async () => [...host.querySelectorAll("button")].find((button) => /Install/.test(button.textContent!))!.click());
+    expect(openEngineInstall).toHaveBeenCalledExactlyOnceWith("claude", true);
+  } finally {
+    await act(async () => root.unmount());
+    window.ogb = previous;
+  }
+});
+
 it("keeps onboarding install available when only the copy action fails", async () => {
   const previous = window.ogb;
   const openEngineInstall = vi.fn(async () => "running" as const);

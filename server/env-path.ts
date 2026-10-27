@@ -67,6 +67,7 @@ export function windowsKnownDirs(): string[] {
     // works fine in the user's own terminal.
     join(process.env.SystemRoot ?? "C:\\Windows", "System32"),
     join(appData, "npm"), // npm -g shims: claude, codex
+    join(process.env.ProgramFiles ?? "C:\\Program Files", "nodejs"), // Node installer: runs those shims
     join(localAppData, "Programs", "muse"), // Meta Muse native launcher
     join(home, ".grok", "bin"), // x.ai installer
     join(localAppData, "agy", "bin"), // Antigravity installer
@@ -94,7 +95,7 @@ function pathCacheFile(): string {
 function pathCacheKey(): string {
   return createHash("sha256").update(JSON.stringify([
     process.platform, homedir(), process.env.PATH, process.env.PATHEXT,
-    process.env.OMB_EXTRA_PATH, process.env.APPDATA, process.env.LOCALAPPDATA, process.env.SystemRoot,
+    process.env.OMB_EXTRA_PATH, process.env.APPDATA, process.env.LOCALAPPDATA, process.env.SystemRoot, process.env.ProgramFiles,
   ])).digest("hex");
 }
 

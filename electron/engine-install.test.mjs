@@ -34,6 +34,14 @@ describe("engine install IPC", () => {
     expect(d.copy).not.toHaveBeenCalled();
   });
 
+  it.each([[true, false], [undefined, true]])("install-only %s keeps sign-in %s", async (installOnly, signIn) => {
+    const d = setup();
+    expect(await d.call("codex", installOnly)).toBe("running");
+    const script = terminal.buildInstallScript(d.open.mock.calls[0][0], "win32");
+    expect(script.includes(encodedSignIn(descriptor.signInCommand))).toBe(signIn);
+    expect(script).toContain(encodedCommand);
+  });
+
   it("refuses an untrusted sender before resolving commands", async () => {
     const d = setup(false);
     await expect(d.call("codex")).rejects.toThrow("Untrusted");
@@ -78,8 +86,8 @@ describe("engine install IPC", () => {
     expect(d.blank).not.toHaveBeenCalled();
   });
 
-  it("wires the id-only preload and main handler", () => {
-    expect(readFileSync(new URL("./preload.cjs", import.meta.url), "utf8")).toContain('openEngineInstall: (instanceId) => ipcRenderer.invoke("engine:install", instanceId)');
+  it("wires the command-free preload and main handler", () => {
+    expect(readFileSync(new URL("./preload.cjs", import.meta.url), "utf8")).toContain('openEngineInstall: (instanceId, installOnly) => ipcRenderer.invoke("engine:install", instanceId, installOnly)');
     const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
     expect(main).toContain("registerEngineInstall(ipcMain,");
     expect(main).toContain("trusted: (event) => trustedTerminalSender(event, mainWindow?.webContents, rendererOrigin())");

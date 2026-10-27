@@ -63,10 +63,10 @@ export async function openInstallTerminalOrCopy(
   return opened ? "opened" : "copied";
 }
 
-export async function openEngineInstallOrCopy(instanceId: string, command: string): Promise<"running" | "opened" | "copied"> {
+export async function openEngineInstallOrCopy(instanceId: string, command: string, installOnly = false): Promise<"running" | "opened" | "copied"> {
   if (window.ogb?.openEngineInstall) {
     try {
-      return await window.ogb.openEngineInstall(instanceId);
+      return await (installOnly ? window.ogb.openEngineInstall(instanceId, true) : window.ogb.openEngineInstall(instanceId));
     } catch (error) {
       // Older desktop builds expose the preload call without its main handler.
       if (!String(error).includes("No handler registered")) console.error("[engine-install] install failed:", error);
@@ -87,7 +87,7 @@ export function setupErrorAction(
   return "retry";
 }
 
-export function CommandRow({ command, actionLabel, signInInstanceId, installInstanceId, docsUrl, quiet = false }: { command: string; actionLabel: string; signInInstanceId?: string; installInstanceId?: string; docsUrl?: string; quiet?: boolean }) {
+export function CommandRow({ command, actionLabel, signInInstanceId, installInstanceId, installOnly, docsUrl, quiet = false }: { command: string; actionLabel: string; signInInstanceId?: string; installInstanceId?: string; installOnly?: boolean; docsUrl?: string; quiet?: boolean }) {
   const { t } = useI18n();
   const [status, setStatus] = useState<"copied" | "opened" | "running" | null>(null);
   const [copyFailed, setCopyFailed] = useState(false);
@@ -121,7 +121,7 @@ export function CommandRow({ command, actionLabel, signInInstanceId, installInst
         return;
       }
       if (installInstanceId) {
-        settle(await openEngineInstallOrCopy(installInstanceId, command));
+        settle(await openEngineInstallOrCopy(installInstanceId, command, installOnly));
         return;
       }
       settle(
@@ -356,7 +356,7 @@ export function EngineSetup({
       {oneClick ? (
         <div className="mt-3 flex justify-end"><EngineSignIn instance={instance} /></div>
       ) : command ? (
-        <CommandRow command={command} signInInstanceId={signInOnly ? instance.instanceId : undefined} installInstanceId={signInOnly ? undefined : instance.instanceId} docsUrl={install.docsUrl} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
+        <CommandRow command={command} signInInstanceId={signInOnly ? instance.instanceId : undefined} installInstanceId={signInOnly ? undefined : instance.instanceId} installOnly={intent === "inject"} docsUrl={install.docsUrl} actionLabel={signInOnly ? t("engine.openSignIn") : t("engine.openInstall")} />
       ) : (
         <p className="mt-3 rounded-lg bg-inset px-2.5 py-2 text-[12px] leading-relaxed text-ink-secondary">
           {t("engine.noInstaller")}
