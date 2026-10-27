@@ -10,12 +10,11 @@ export function noReplySource(bot: Bot) {
   return [...visibleMessages(bot)].reverse().find((message) => message.role === "user" && message.kind === "text" && !message.queued);
 }
 
-export function switchFromNoReply(bot: Bot, selection: ModelSelection, opened: string | undefined, instances: InstanceInfo[], dispatch: Dispatch<Action>, onSwitching?: (stage: SwitchStage) => void, onRerunSettled?: () => void) {
+export function switchFromNoReply(bot: Bot, selection: ModelSelection, opened: string | undefined, instances: InstanceInfo[], hasFollowUp: () => boolean, dispatch: Dispatch<Action>, onSwitching?: (stage: SwitchStage) => void, onRerunSettled?: () => void) {
   const shown = shownModelSelection(bot);
   const current = withPickerEffort(instances.find((instance) => instance.instanceId === shown.instanceId), shown);
   if (current.instanceId === selection.instanceId && current.model === selection.model && current.effort === selection.effort) return;
   const source = noReplySource(bot);
-  const queued = bot.messages.some((message) => message.queued);
   const finish = () => onSwitching?.(null);
   if (!source?.text || source.id !== opened) {
     finish();
@@ -32,7 +31,8 @@ export function switchFromNoReply(bot: Bot, selection: ModelSelection, opened: s
         type: "interrupt", botId: bot.id, switchThreadId: bot.threadId,
         onFailure: finish,
         onStopped: ({ stopped, returned }) => {
-          if (!stopped || queued || returned.length || !source?.text) return finish();
+          // A follow-up may have steered the turn this stop just ended.
+          if (!stopped || returned.length || hasFollowUp() || !source?.text) return finish();
           onSwitching?.("rerunning");
           dispatch({ type: "editMessage", botId: bot.id, messageId: source.id, text: source.text, expectedSelection: selection, onSettled: (error) => { if (error) finish(); else onRerunSettled?.(); } });
         },
