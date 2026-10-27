@@ -76,6 +76,7 @@ import { useRainbowBox } from "@/lib/rainbow-box";
 import { useI18n } from "@/lib/i18n";
 import { pinnedQuestion } from "@/lib/open-question";
 import { usePresence } from "@/lib/use-presence";
+import { useBackLayer } from "@/lib/use-back-layer";
 import { ReplyQuote } from "./ReplyQuote";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { MessageMenu, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest } from "./MessageMenu";
@@ -512,6 +513,7 @@ export function Composer({
     return pool.filter((b) => !q || b.name.toLowerCase().includes(q)).slice(0, 6);
   }, [mention, dismissedAt, state.bots, bot?.id, group, members]);
   const pickerOpen = candidates.length > 0;
+  useBackLayer(pickerOpen, () => setDismissedAt(mention?.start ?? null));
 
   useEffect(() => setHighlight(0), [mention?.start, mention?.query]);
 

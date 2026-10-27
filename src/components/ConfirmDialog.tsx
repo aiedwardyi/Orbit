@@ -4,6 +4,7 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/lib/i18n";
+import { useBackLayer } from "@/lib/use-back-layer";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -36,6 +37,7 @@ export function ConfirmDialog({
   const bodyId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  useBackLayer(!closing, onCancel);
   // The call-site passes a fresh inline callback every render; the keyboard
   // effect below must not re-subscribe (or refocus) for that, so it always
   // calls through to the latest one instead of depending on it.

@@ -7,6 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import { isPhone } from "@/lib/phone-swipe";
 import { cn } from "@/lib/cn";
 import { usePresence } from "@/lib/use-presence";
+import { useBackLayer } from "@/lib/use-back-layer";
 import { api } from "@/state/store";
 
 export interface DeviceItem {
@@ -91,12 +92,13 @@ export function DeviceSwitcher({
 
   const here = devices.find((device) => device.current);
   const tip = iconOnly && here ? `${t("chrome.devices")}: ${here.name}` : undefined;
-  if (devices.length < 2 || !visible || (labeled && !here)) return null;
-
   const close = () => {
     setOpen(false);
     setRenaming(false);
   };
+  useBackLayer(open && visible && devices.length >= 2 && (!labeled || Boolean(here)), close);
+  if (devices.length < 2 || !visible || (labeled && !here)) return null;
+
   const rename = (value: string) => {
     const name = value.trim();
     if (!name || name.length > 64) return;

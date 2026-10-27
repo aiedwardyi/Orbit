@@ -120,6 +120,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [messageMenuOpen, setMessageMenuOpen] = useState(false);
+  const [backLayers, setBackLayers] = useState<BackLayer[]>([]);
   const [sidebarOverlay, setSidebarOverlay] = useState<string | null>(null);
   const modelPickerIds = useRef(new Set<string>());
   const [terminalViews, setTerminalViews] = useState<Record<string, boolean>>({});
@@ -542,15 +543,24 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       setModelPickerOpen(modelPickerIds.current.size > 0);
     };
     const onMessageMenu = (event: CustomEvent<boolean>) => setMessageMenuOpen(event.detail);
+    const onLayer = (event: WindowEventMap["orbit:back-layer"]) => {
+      const { key, close } = event.detail;
+      setBackLayers((current) => {
+        const kept = current.filter((layer) => layer.key !== key);
+        return close ? [...kept, { key, close }] : kept;
+      });
+    };
     const onLeave = (event: CustomEvent<string>) => navigation.leave(() => window.location.replace(event.detail));
     window.addEventListener("popstate", onPop);
     window.addEventListener("orbit:model-picker", onPicker);
     window.addEventListener("orbit:message-menu", onMessageMenu);
+    window.addEventListener("orbit:back-layer", onLayer);
     window.addEventListener("orbit:leave", onLeave);
     return () => {
       window.removeEventListener("popstate", onPop);
       window.removeEventListener("orbit:model-picker", onPicker);
       window.removeEventListener("orbit:message-menu", onMessageMenu);
+      window.removeEventListener("orbit:back-layer", onLayer);
       window.removeEventListener("orbit:leave", onLeave);
       backNavigation.current = null;
     };
@@ -586,6 +596,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     add(paletteOpen, "palette", () => window.dispatchEvent(new Event("orbit:close-palette")));
     add(modelPickerOpen, "model-picker", () => window.dispatchEvent(new Event("orbit:close-model-picker")));
     add(messageMenuOpen, "message-menu", () => window.dispatchEvent(new Event("orbit:close-message-menu")));
+    layers.push(...backLayers);
     backNavigation.current.sync(layers);
   });
 

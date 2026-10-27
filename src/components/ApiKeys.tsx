@@ -15,6 +15,7 @@ import { api, useStore, type ConfigStatus } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { usePresence } from "@/lib/use-presence";
+import { useBackLayer } from "@/lib/use-back-layer";
 import { Section } from "./SettingsPrimitives";
 
 export type ConfigSection = "composio" | "box";
@@ -71,6 +72,7 @@ function CredentialHelp({ section }: { section: ConfigSection }) {
   const credential = CREDENTIALS[section];
   const [open, setOpen] = useState(false);
   const presence = usePresence(open);
+  useBackLayer(open, () => setOpen(false));
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverId = useId();

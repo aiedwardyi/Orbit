@@ -8,6 +8,7 @@ import { localeTag, useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n-catalog";
 import { cn } from "@/lib/cn";
 import { isPhone } from "@/lib/phone-swipe";
+import { useBackLayer } from "@/lib/use-back-layer";
 import {
   CHART_PROVIDERS,
   chartProvider,
@@ -798,9 +799,11 @@ export function ModelIndexSection() {
   const [hover, setHover] = useState<Hover | null>(null);
   const [place, setPlace] = useState<{ key: string; left: number; top: number } | null>(null);
   const [full, setFull] = useState(false);
+  useBackLayer(full, () => setFull(false));
   const [wrapRef, width, height] = useSize();
   const tipRef = useRef<HTMLDivElement>(null);
   const phone = isPhone();
+  useBackLayer(Boolean(hover) && phone, () => setHover(null));
 
   const today = modelIndexToday();
   const { points, missing } = useMemo(() => indexView(index, catalog, undefined, today), [index, catalog, today]);

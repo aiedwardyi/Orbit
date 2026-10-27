@@ -31,6 +31,7 @@ import { isRoutineApproval, pendingApprovals, spokenApprovalPrompt } from "./Pen
 import { cn } from "@/lib/cn";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { usePresence } from "@/lib/use-presence";
+import { useBackLayer } from "@/lib/use-back-layer";
 
 /** Spoken answers to a permission card. Anything else is read as a reply
  * to the bot, not as consent — an approval must never be granted by a
@@ -81,6 +82,7 @@ export function CallTargetButton({
   const unavailable = !active && (!capabilitiesReady || !supported || !voiceReady);
   const voiceSetupRequired = capabilitiesReady && supported && !voiceReady;
   const [helpOpen, setHelpOpen] = useState(false);
+  useBackLayer(unavailable && helpOpen, () => setHelpOpen(false));
   const help = usePresence(unavailable && helpOpen);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);

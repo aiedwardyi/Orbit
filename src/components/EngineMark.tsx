@@ -8,6 +8,7 @@ import { useI18n, type Translate } from "@/lib/i18n";
 import { placeTooltip } from "@/lib/tooltip-position";
 import { TOOLTIP_SHOW_MS } from "@/lib/tooltips";
 import { usePresence } from "@/lib/use-presence";
+import { useBackLayer } from "@/lib/use-back-layer";
 import type { InstanceInfo } from "@/state/store";
 import { HOLD_MS, HOLD_SLOP, MENU_CLASS } from "./MessageMenu";
 import { ProviderMark } from "./ProviderIcons";
@@ -52,6 +53,7 @@ function EngineHover({ text, label, children }: { text: string; label?: ReactNod
     cancel();
     setOpen(false);
   };
+  useBackLayer(open, close);
 
   useLayoutEffect(() => {
     setOwner(triggerRef.current?.parentElement?.closest<HTMLElement>(OWNS_TAP) ?? null);
