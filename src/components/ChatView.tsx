@@ -313,7 +313,7 @@ function CommChip({ message, comm }: { message: Message; comm: NonNullable<Messa
         title={t("chat.openConversation", { name: comm.withName })}
         className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink focus-visible:bg-control focus-visible:text-ink"
       >
-        <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} calm />
+        <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} />
         <span className="min-w-0 max-w-[480px] truncate">{commLabel(message, t)}</span>
         <ChevronRight size={13} className="shrink-0" />
       </button>
@@ -1458,7 +1458,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         forward={false}
         lookAround={1}
         trackPointer={false}
-        calm
       />
     ),
   } : null, [dockSlot, dockLive, activityLabel, lastUserMessage?.at, bot, toolInFlight, noReply, modelSwitch.active, modelSwitch.open]);
@@ -2001,7 +2000,6 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                 forward={false}
                 lookAround={1}
                 trackPointer={false}
-                calm
               />
             }
             visible={waiting && !jump.messages && !dockLive}

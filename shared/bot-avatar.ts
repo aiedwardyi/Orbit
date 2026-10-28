@@ -69,6 +69,7 @@ export const BOT_AVATAR_IDS = [
   "icon-33",
   "icon-34",
   "icon-35",
+  "icon-36",
 ] as const;
 export const botAvatarIdSchema = z.enum(BOT_AVATAR_IDS);
 export type BotAvatarId = z.infer<typeof botAvatarIdSchema>;
@@ -111,6 +112,7 @@ export const BOT_AVATAR_ASSETS = {
   "icon-33": "icon-33-wink-mint.png",
   "icon-34": "icon-34-wink-peach.png",
   "icon-35": "icon-35-wink-lavender.png",
+  "icon-36": "icon-36-wink-calm.svg",
 } satisfies Record<BotAvatarId, string>;
 
 export const BOT_AVATAR_LABELS = {
@@ -149,9 +151,10 @@ export const BOT_AVATAR_LABELS = {
   "icon-33": "Wink mint",
   "icon-34": "Wink peach",
   "icon-35": "Wink lavender",
+  "icon-36": "Wink calm",
 } satisfies Record<BotAvatarId, string>;
 
-export const WINK_ICON_IDS = ["icon-31", "icon-32", "icon-33", "icon-34", "icon-35"] as const satisfies readonly BotAvatarId[];
+export const WINK_ICON_IDS = ["icon-31", "icon-32", "icon-33", "icon-34", "icon-35", "icon-36"] as const satisfies readonly BotAvatarId[];
 
 /** Older ids stay valid and still render; the picker just stops offering them. */
 export const BOT_AVATAR_PICKER_ORDER = WINK_ICON_IDS;

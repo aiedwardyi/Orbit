@@ -188,7 +188,7 @@ export function RoomToolChip({
           title={t("chat.openConversation", { name: comm.withName })}
           className="flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-transparent px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink focus-visible:bg-control focus-visible:text-ink"
         >
-          <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} calm />
+          <BotAvatar bot={peer ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />
           <span className="min-w-0 max-w-[480px] truncate">{commLabel(message, t)}</span>
           <ChevronRight size={13} className="shrink-0" />
         </button>
@@ -269,7 +269,6 @@ function ClusterLabel({ bot, name, color }: { bot?: Bot; name: string; color: Bo
         motion="none"
         motionKey={0}
         animated={false}
-        calm
       />
       <span className="text-[11px] font-medium text-ink-secondary">{name}</span>
     </div>
@@ -1074,7 +1073,6 @@ function RoomSetup({ group, members }: { group: Group; members: Bot[] }) {
                             state={normalizeState(member.mascotExpression) ?? "happy"}
                             size={24}
                             animated={false}
-                            calm
                           />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-[13px] font-medium text-ink">{member.name}</span>
@@ -1386,7 +1384,6 @@ export function GroupView({ group }: { group: Group }) {
         forward={false}
         lookAround={1}
         trackPointer={false}
-        calm
       />
     ),
   } : null, [dockSlot, dockLive, activityLabel, lastUserAt, presenceSpeaker, group.name, toolInFlight]);
@@ -1575,7 +1572,7 @@ export function GroupView({ group }: { group: Group }) {
         group.busyBotId === b.id && "z-10 ring-2 ring-accent/50 ring-offset-1 ring-offset-app",
       )}
     >
-      <BotAvatar bot={b} state={normalizeState(b.mascotExpression) ?? "happy"} size={24} animated={false} calm />
+      <BotAvatar bot={b} state={normalizeState(b.mascotExpression) ?? "happy"} size={24} animated={false} />
       {group.busyBotId === b.id && (
         <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full border border-app bg-accent" />
       )}
@@ -1822,7 +1819,6 @@ export function GroupView({ group }: { group: Group }) {
                     motion="none"
                     motionKey={0}
                     animated={false}
-                    calm
                   />
                 ))}
               </div>
@@ -1875,7 +1871,6 @@ export function GroupView({ group }: { group: Group }) {
                   forward={false}
                   lookAround={1}
                   trackPointer={false}
-                  calm
                 />
               }
               visible={waiting && !dockLive}

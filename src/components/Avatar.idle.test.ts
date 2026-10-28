@@ -3,7 +3,9 @@ import { act, createElement, createRef, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { Bot } from "@/state/store";
 import { BotAvatar, MausAvatar, type MausAvatarHandle } from "./Avatar";
+import { BotPickerList } from "./BotPickerList";
 
 async function renderInto(node: ReactNode) {
   const host = document.createElement("div");
@@ -107,29 +109,27 @@ describe("mascot idle motion mount", () => {
     expect(host.querySelector(".mascot-avatar")).toBeNull();
   });
 
-  it("draws Wink icons calm only where asked, and leaves old icons and photos alone", async () => {
-    const photo = "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp";
-    const { host } = await renderInto(
-      createElement(
-        "div",
-        null,
-        createElement(BotAvatar, { bot: { name: "Atlas", color: "white", mascotStyle: "icon-34" }, size: 32, calm: true }),
-        createElement(BotAvatar, { bot: { name: "Atlas", color: "white", mascotStyle: "icon-34" }, size: 32 }),
-        createElement(BotAvatar, { bot: { name: "Old", color: "red", mascotStyle: "icon-11" }, size: 32, calm: true }),
-        createElement(BotAvatar, {
-          bot: { name: "Photo", color: "red", mascotStyle: "icon-31", avatarCrop: "circle", avatarUrl: photo },
-          size: 32,
-          calm: true,
-        }),
-      ),
-    );
-
-    const [calm, color, old, picture] = [...host.firstElementChild!.children];
-    expect(calm!.tagName).toBe("svg");
-    expect(calm!.getAttribute("aria-label")).toBe("Atlas avatar");
-    expect(color!.getAttribute("src")).toBe("/avatars/icon-34-wink-peach.png");
-    expect(old!.getAttribute("src")).toBe("/avatars/icon-11-peach-warm.png");
-    expect(picture!.getAttribute("src")).toBe(photo);
+  it.each([
+    ["icon-31", "icon-31-wink.png"],
+    ["icon-32", "icon-32-wink-light.png"],
+    ["icon-33", "icon-33-wink-mint.png"],
+    ["icon-34", "icon-34-wink-peach.png"],
+    ["icon-35", "icon-35-wink-lavender.png"],
+    ["icon-36", "icon-36-wink-calm.svg"],
+  ])("renders %s as its chosen artwork in a picker list row", async (mascotStyle, asset) => {
+    const { host, root } = await renderInto(createElement(BotPickerList, {
+      bots: [{ id: "atlas", name: "Atlas", color: "white", mascotStyle } as Bot],
+      picked: new Set<string>(),
+      onToggle: () => {},
+      emptyHint: "No bots",
+    }));
+    try {
+      const image = host.querySelector('[role="checkbox"] img');
+      expect(image?.getAttribute("src")).toBe(`/avatars/${asset}`);
+      expect(image?.getAttribute("alt")).toBe("Atlas avatar");
+    } finally {
+      await act(async () => root.unmount());
+    }
   });
 
   it("clears a forced blink class if animationend never fires", async () => {

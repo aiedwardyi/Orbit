@@ -233,7 +233,7 @@ export function BotProfileAvatarCard({
             <div className="max-h-[280px] overflow-y-auto rounded-lg border border-hairline/40 bg-inset p-2">
               <div className="grid grid-cols-4 gap-2">
                 {BOT_AVATAR_PICKER_ORDER.map((choice) => {
-                  const label = isBotAvatarId(choice) ? BOT_AVATAR_LABELS[choice] : MASCOT_STYLE_LABELS[choice];
+                  const label = choice === "icon-36" ? t("bot.avatarCalm") : isBotAvatarId(choice) ? BOT_AVATAR_LABELS[choice] : MASCOT_STYLE_LABELS[choice];
                   return (
                     <button
                       key={choice}
