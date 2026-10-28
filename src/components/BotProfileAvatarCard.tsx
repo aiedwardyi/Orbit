@@ -5,7 +5,7 @@ import { api, useStore, type Bot, type ConfigStatus } from "@/state/store";
 import { credentialErrorMessage, saveCredential } from "@/lib/credentials";
 import { imageAttachmentFromFile } from "@/lib/composer-attachments";
 import { cn } from "@/lib/cn";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type MessageKey } from "@/lib/i18n";
 import {
   DEFAULT_MAUS_COLOR,
   MAUS_COLORS,
@@ -18,7 +18,6 @@ import {
   BOT_AVATAR_CROPS,
   BOT_AVATAR_LABELS,
   BOT_AVATAR_PICKER_ORDER,
-  MASCOT_STYLE_LABELS,
   botAvatarUrlFromStoredPath,
   isBotAvatarId,
   resolveBotAvatarChoice,
@@ -37,6 +36,23 @@ const CROP_KEY = {
   rounded: "bot.cropRounded",
   square: "bot.cropSquare",
 } as const satisfies Record<BotAvatarCrop, "bot.cropMascot" | "bot.cropCircle" | "bot.cropRounded" | "bot.cropSquare">;
+
+const AVATAR_LABEL_KEYS: Partial<Record<BotAvatarChoice, MessageKey>> = {
+  "icon-36": "bot.avatarCalm",
+  "icon-37": "bot.avatarCode",
+  "icon-38": "bot.avatarResearch",
+  "icon-39": "bot.avatarDesign",
+  "icon-40": "bot.avatarOps",
+  "icon-41": "bot.avatarWriting",
+  "icon-42": "bot.avatarData",
+  "icon-43": "bot.avatarReview",
+  "icon-44": "bot.avatarChat",
+  "icon-45": "bot.avatarClaude",
+  "icon-46": "bot.avatarCodex",
+  "icon-47": "bot.avatarGemini",
+  "icon-48": "bot.avatarGrok",
+  "icon-49": "bot.avatarMuse",
+};
 
 export function BotProfileAvatarCard({
   bot,
@@ -233,7 +249,8 @@ export function BotProfileAvatarCard({
             <div className="max-h-[280px] overflow-y-auto rounded-lg border border-hairline/40 bg-inset p-2">
               <div className="grid grid-cols-4 gap-2">
                 {BOT_AVATAR_PICKER_ORDER.map((choice) => {
-                  const label = choice === "icon-36" ? t("bot.avatarCalm") : isBotAvatarId(choice) ? BOT_AVATAR_LABELS[choice] : MASCOT_STYLE_LABELS[choice];
+                  const labelKey = AVATAR_LABEL_KEYS[choice];
+                  const label = labelKey ? t(labelKey) : BOT_AVATAR_LABELS[choice];
                   return (
                     <button
                       key={choice}
