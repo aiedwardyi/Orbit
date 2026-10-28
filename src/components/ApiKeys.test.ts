@@ -28,7 +28,7 @@ const render = () => renderToStaticMarkup(createElement(I18nProvider, null, crea
 describe("SavedKeys", () => {
   it("confirms deletion in-page, cancels without a request, and leaves text input usable", async () => {
     mockState.config = { imageGen: { configured: true } };
-    mockApi.mockImplementation(async () => ({ uses: {}, imageGen: { configured: false } }));
+    mockApi.mockImplementation(async () => ({ uses: {}, saved: true, config: { imageGen: { configured: false } } }));
     const previousConfirm = window.confirm;
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const nativeConfirm = vi.fn(() => false);
@@ -66,7 +66,7 @@ describe("SavedKeys", () => {
       await act(async () => dialogButton("Remove the Saved Key").click());
       expect(dialog()).toBeNull();
       expect(mockApi).toHaveBeenCalledTimes(1);
-      expect(mockApi).toHaveBeenCalledWith("/api/config", { method: "PUT", body: JSON.stringify({ imageGen: { key: "" } }) });
+      expect(mockApi).toHaveBeenCalledWith("/api/credentials", { method: "POST", body: JSON.stringify({ target: "openaiImageApiKey", value: "" }) });
       expect(document.activeElement).toBe(trash);
 
       await act(async () => [...host.querySelectorAll("button")].find((button) => button.textContent === "Close Settings")!.click());
