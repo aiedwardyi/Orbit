@@ -6,7 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Loader2, RefreshCw, Search, TriangleAlert, X } from "lucide-react";
 import { api, useStore } from "@/state/store";
 import { cn } from "@/lib/cn";
-import { useI18n } from "@/lib/i18n";
+import { t as translate, useI18n, type Translate } from "@/lib/i18n";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { readCachedInventory, writeCachedInventory } from "@/lib/connected-apps-cache";
 
 interface ToolkitCard {
@@ -79,9 +80,10 @@ export function preloadConnectedApps(force = false): Promise<ConnectorInventory>
 export function disconnectAccountConfirmation(
   service: string,
   account: { id: string; alias?: string },
+  t: Translate = translate,
 ) {
   const identity = account.alias ? `“${account.alias}” (${account.id})` : `“${account.id}”`;
-  return `Disconnect ${identity} from ${service}? Only this ${service} account will be revoked. Your other ${service} accounts will stay connected.`;
+  return t("plugins.disconnectConfirm", { identity, service });
 }
 
 export function requiresAccountAlias(message: string) {
@@ -213,6 +215,7 @@ export function PluginsPanel({ closing = false }: { closing?: boolean }) {
   const [aliasSlug, setAliasSlug] = useState<string | null>(null);
   const [aliasDraft, setAliasDraft] = useState("");
   const [busySlug, setBusySlug] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<{ slug: string; label: string; account: { id: string; alias?: string } } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [inventoryPhase, setInventoryPhase] = useState<ConnectorInventoryPhase>(
     cachedConnectorStatus === null ? "loading" : "ready",
@@ -351,6 +354,7 @@ export function PluginsPanel({ closing = false }: { closing?: boolean }) {
 
     (dialog?.querySelector<HTMLElement>("input") ?? focusable()[0] ?? dialog)?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof Node && !dialog?.contains(event.target)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         dispatch({ type: "togglePlugins", open: false });
@@ -673,14 +677,11 @@ export function PluginsPanel({ closing = false }: { closing?: boolean }) {
                             <button
                               type="button"
                               disabled={busy}
-                              onClick={() => {
-                                if (!window.confirm(disconnectAccountConfirmation(card.label, account))) return;
-                                disconnectAccount(card.slug, account.id);
-                              }}
+                              onClick={() => setDisconnecting({ slug: card.slug, label: card.label, account })}
                               className="rounded-md px-2 py-1 text-[11px] text-ink-secondary transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-40"
-                              aria-label={`Disconnect ${account.alias || account.id} from ${card.label}`}
+                              aria-label={t("plugins.disconnectAccount", { identity: account.alias || account.id, service: card.label })}
                             >
-                              Disconnect
+                              {t("plugins.disconnect")}
                             </button>
                           </div>
                         );
@@ -747,6 +748,18 @@ export function PluginsPanel({ closing = false }: { closing?: boolean }) {
           )}
         </div>
       </div>
+      {disconnecting && (
+        <ConfirmDialog
+          title={t("plugins.disconnect")}
+          body={disconnectAccountConfirmation(disconnecting.label, disconnecting.account, t)}
+          confirmLabel={t("plugins.disconnect")}
+          onCancel={() => setDisconnecting(null)}
+          onConfirm={() => {
+            setDisconnecting(null);
+            disconnectAccount(disconnecting.slug, disconnecting.account.id);
+          }}
+        />
+      )}
     </div>
   );
 }

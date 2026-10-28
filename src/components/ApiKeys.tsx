@@ -17,6 +17,7 @@ import { useI18n, type MessageKey } from "@/lib/i18n";
 import { usePresence } from "@/lib/use-presence";
 import { useBackLayer } from "@/lib/use-back-layer";
 import { Section } from "./SettingsPrimitives";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 export type ConfigSection = "composio" | "box";
 
@@ -320,6 +321,7 @@ export function SavedKeys() {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
   const [uses, setUses] = useState<Record<string, { botId: string; at: string }>>({});
+  const [removing, setRemoving] = useState<{ id: CredentialId; label: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const config = state.config;
   const saved: { id: CredentialId; label: string }[] = [
@@ -339,8 +341,7 @@ export function SavedKeys() {
     };
   }, []);
 
-  const remove = (id: CredentialId, label: string) => {
-    if (!window.confirm(t("keys.removeConfirm", { label }))) return;
+  const remove = (id: CredentialId) => {
     setError(null);
     const patch = id.startsWith("custom:")
       ? { customKeys: { [id.slice(7)]: null } }
@@ -371,7 +372,7 @@ export function SavedKeys() {
             </div>
             <button
               type="button"
-              onClick={() => remove(id, label)}
+              onClick={() => setRemoving({ id, label })}
               aria-label={t("connections.removeKey")}
               title={t("connections.removeKey")}
               className="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-danger"
@@ -381,6 +382,18 @@ export function SavedKeys() {
           </div>
         );
       })}
+      {removing && (
+        <ConfirmDialog
+          title={t("connections.removeKey")}
+          body={t("keys.removeConfirm", { label: removing.label })}
+          confirmLabel={t("connections.removeKey")}
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            setRemoving(null);
+            remove(removing.id);
+          }}
+        />
+      )}
       {error && <div className="mt-1 text-[12px] text-danger">{error}</div>}
     </Section>
   );

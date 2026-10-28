@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ArrowRight, BookOpen, Crown, Loader2, Network, Radio, RefreshCw, Save, X } from "lucide-react";
 
 import { BotAvatar } from "./Avatar";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { api, formatTime, shownModelSelection, useStore, type Bot } from "@/state/store";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { normalizeState } from "@/lib/mascot";
@@ -124,6 +125,7 @@ function SectionContextDialog({
   const onCloseRef = useRef(onClose);
   const savingRef = useRef(false);
   const dirtyRef = useRef(false);
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const [text, setText] = useState("");
   const [savedText, setSavedText] = useState("");
   const [maxBytes, setMaxBytes] = useState(24_000);
@@ -139,9 +141,12 @@ function SectionContextDialog({
 
   const requestClose = useCallback(() => {
     if (savingRef.current) return;
-    if (dirtyRef.current && !window.confirm(t("teamMap.discardContext"))) return;
+    if (dirtyRef.current) {
+      setConfirmingDiscard(true);
+      return;
+    }
     onCloseRef.current();
-  }, [t]);
+  }, []);
 
   useEffect(() => {
     if (closing) return;
@@ -226,6 +231,7 @@ function SectionContextDialog({
   };
 
   return createPortal(
+    <>
     <div
       data-closing={closing || undefined}
       inert={closing}
@@ -305,7 +311,20 @@ function SectionContextDialog({
           </button>
         </footer>
       </div>
-    </div>,
+    </div>
+      {confirmingDiscard && (
+        <ConfirmDialog
+          title={t("confirm.discardChanges")}
+          body={t("teamMap.discardContext")}
+          confirmLabel={t("confirm.discard")}
+          onCancel={() => setConfirmingDiscard(false)}
+          onConfirm={() => {
+            setConfirmingDiscard(false);
+            onCloseRef.current();
+          }}
+        />
+      )}
+    </>,
     document.body,
   );
 }

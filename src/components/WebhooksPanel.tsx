@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { useI18n } from "@/lib/i18n";
+import { ConfirmDialog } from "./ConfirmDialog";
 import {
   Check,
   ChevronDown,
@@ -140,6 +142,8 @@ interface ActivityItem { id: string; at: number; outcome: WebhookAttempt["outcom
 /** A destination-first webhook view: choose a bot endpoint on the left, then
  * either copy its setup command or inspect its deliveries on the right. */
 export function WebhooksPanel({ bots }: { bots: Bot[] }) {
+  const { t } = useI18n();
+  const [confirming, setConfirming] = useState<{ action: "delete" | "replace"; webhook: WebhookTrigger } | null>(null);
   const { state, dispatch } = useStore();
   const [editor, setEditor] = useState<WebhookTrigger | "new" | null>(null);
   const editorPresence = usePresence(editor);
@@ -192,7 +196,6 @@ export function WebhooksPanel({ bots }: { bots: Bot[] }) {
     setError("");
     try {
       if (action === "delete") {
-        if (!window.confirm(`Delete “${webhook.name}”? Existing task history will stay available.`)) return;
         await api(`/api/webhooks/${webhook.id}`, { method: "DELETE" });
         dispatch({ type: "webhookDeleted", webhookId: webhook.id });
         removeWebhookCredential(webhookCredentialStore(), webhook.id);
@@ -215,7 +218,6 @@ export function WebhooksPanel({ bots }: { bots: Bot[] }) {
   };
 
   const createAndCopyCommand = async (webhook: WebhookTrigger, replace = false) => {
-    if (replace && !window.confirm("Replace this private URL? Every previously copied command will stop working.")) return;
     setWorking(`${webhook.id}:command`);
     setError("");
     try {
@@ -309,7 +311,7 @@ export function WebhooksPanel({ bots }: { bots: Bot[] }) {
                 </div>
                 <div className="flex items-center gap-2">
                   {!selected.verificationPending && <button disabled={Boolean(working)} onClick={() => void invoke(selected, "toggle")} className={cn("flex items-center gap-1.5 rounded-lg px-3 py-2 text-[11.5px] font-medium", selected.enabled ? "bg-raised text-ink-secondary hover:text-ink" : "bg-accent text-accent-ink hover:brightness-110")}>{selected.enabled ? <Pause size={13} /> : <Play size={13} />}{selected.enabled ? "Pause" : "Enable"}</button>}
-                  <details className="relative" open={menuOpen} onToggle={(event) => setMenuOpen(event.currentTarget.open)}><summary className="list-none rounded-lg p-2 text-ink-secondary hover:bg-raised hover:text-ink"><MoreHorizontal size={17} /></summary><div className="absolute right-0 top-full z-20 mt-1 w-[180px] rounded-xl border border-hairline/50 bg-card p-1.5 shadow-2xl"><button onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setEditor(selected); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-ink hover:bg-raised">Edit settings</button><button onClick={() => void invoke(selected, "delete")} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-danger hover:bg-danger/10"><Trash2 size={13} />Delete</button></div></details>
+                  <details className="relative" open={menuOpen} onToggle={(event) => setMenuOpen(event.currentTarget.open)}><summary className="list-none rounded-lg p-2 text-ink-secondary hover:bg-raised hover:text-ink"><MoreHorizontal size={17} /></summary><div className="absolute right-0 top-full z-20 mt-1 w-[180px] rounded-xl border border-hairline/50 bg-card p-1.5 shadow-2xl"><button onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setEditor(selected); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-ink hover:bg-raised">Edit settings</button><button onClick={() => setConfirming({ action: "delete", webhook: selected })} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-danger hover:bg-danger/10"><Trash2 size={13} />{t("chrome.delete")}</button></div></details>
                 </div>
               </div>
 
@@ -325,7 +327,7 @@ export function WebhooksPanel({ bots }: { bots: Bot[] }) {
                     <p className="mt-1 text-[11.5px] leading-relaxed text-ink-secondary">Copy this command into Terminal and press Return. It starts a real task in {selectedBot?.name ?? "this bot"}&apos;s chat; edit the task text for whatever you want done.</p>
                     {credential ? (
                       <div className="mt-4 overflow-hidden rounded-xl border border-hairline/45 bg-inset">
-                        <div className="flex items-center justify-between border-b border-hairline/45 px-3.5 py-2"><span className="text-[9.5px] font-medium uppercase tracking-wider text-ink-secondary">Terminal</span><div className="flex items-center gap-1"><button onClick={() => void createAndCopyCommand(selected)} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10.5px] font-medium text-ink-secondary hover:bg-raised hover:text-ink">{copiedId === selected.id ? <Check size={12} className="text-success" /> : <Copy size={12} />}{copiedId === selected.id ? "Copied" : "Copy command"}</button><button onClick={() => void createAndCopyCommand(selected, true)} className="rounded-lg p-1.5 text-ink-secondary hover:bg-raised hover:text-ink" title="Rotate private URL"><RotateCw size={12} /></button></div></div>
+                        <div className="flex items-center justify-between border-b border-hairline/45 px-3.5 py-2"><span className="text-[9.5px] font-medium uppercase tracking-wider text-ink-secondary">Terminal</span><div className="flex items-center gap-1"><button onClick={() => void createAndCopyCommand(selected)} className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10.5px] font-medium text-ink-secondary hover:bg-raised hover:text-ink">{copiedId === selected.id ? <Check size={12} className="text-success" /> : <Copy size={12} />}{copiedId === selected.id ? "Copied" : "Copy command"}</button><button onClick={() => setConfirming({ action: "replace", webhook: selected })} className="rounded-lg p-1.5 text-ink-secondary hover:bg-raised hover:text-ink" title={t("webhook.rotateUrl")}><RotateCw size={12} /></button></div></div>
                         <pre className="overflow-x-auto p-4 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all text-ink-secondary">{command}</pre>
                       </div>
                     ) : (
@@ -365,6 +367,19 @@ export function WebhooksPanel({ bots }: { bots: Bot[] }) {
         )}
       </div>
       {editorPresence.value && <WebhookEditor key={editorPresence.value === "new" ? "new" : editorPresence.value.id} webhook={editorPresence.value === "new" ? undefined : editorPresence.value} bots={bots} closing={editorPresence.closing} onClose={() => setEditor(null)} onCredential={(newCredential, webhookId) => { saveWebhookCredential(webhookCredentialStore(), webhookId, newCredential); setCredentials((current) => ({ ...current, [webhookId]: newCredential })); setSelectedId(webhookId); setTab("setup"); }} />}
+      {confirming && (
+        <ConfirmDialog
+          title={t(confirming.action === "delete" ? "webhook.delete" : "webhook.replaceUrl")}
+          body={t(confirming.action === "delete" ? "webhook.deleteConfirm" : "webhook.replaceUrlConfirm", { name: confirming.webhook.name })}
+          confirmLabel={t(confirming.action === "delete" ? "chrome.delete" : "confirm.replace")}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => {
+            setConfirming(null);
+            if (confirming.action === "delete") void invoke(confirming.webhook, "delete");
+            else void createAndCopyCommand(confirming.webhook, true);
+          }}
+        />
+      )}
     </div>
   );
 }
