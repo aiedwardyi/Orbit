@@ -777,6 +777,11 @@ async function readClaudeFileUsage(deps: ClaudeFileDeps): Promise<Response> {
   return response;
 }
 
+export function canRefreshUsage(driver: string, environment: NodeJS.ProcessEnv = {}, platform = process.platform): boolean {
+  return ["claudeAgent", "codex", "grokAgent", "antigravityAgent", "museAgent"].includes(driver)
+    && (driver !== "claudeAgent" || platform !== "darwin" || Boolean(({ ...process.env, ...environment }).CLAUDE_CODE_OAUTH_TOKEN));
+}
+
 export function createUsageRefresh(deps: {
   request?: typeof fetch;
   read?: (path: string) => Promise<string>;
@@ -833,7 +838,7 @@ export function createUsageRefresh(deps: {
           windows = report.windows;
           observedAt = report.observedAt;
         } else {
-          if ((deps.platform ?? process.platform) === "darwin" && !env.CLAUDE_CODE_OAUTH_TOKEN) return { report: previous, error: "Claude refresh skipped to avoid Keychain prompts on macOS", retryAt };
+          if (!canRefreshUsage(driver, env, deps.platform)) return { report: previous, error: "Claude refresh skipped to avoid Keychain prompts on macOS", retryAt };
           // An env token has no refresh grant behind it, so it keeps the
           // old fail-closed read; the file store goes through the
           // refresh-aware helper (expired access token, cross-instance

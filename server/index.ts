@@ -92,7 +92,7 @@ import {
   NATIVE_DIR,
 } from "./config.ts";
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
-import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
+import { canRefreshUsage, createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
 import { createSpawnUsage } from "./spawn-usage.ts";
 import { ComputerControl } from "./computer-control.ts";
 import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, planCompaction, planSummaryGrace, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes, type SummaryGrace } from "./context-compaction.ts";
@@ -1171,6 +1171,12 @@ const keepGoing = new KeepGoing({
 
 const limitWaits = new LimitWaits({
   deviceId: () => profileSyncSettings.deviceId,
+  canRead: (selection) => {
+    const instance = registry.get(selection.instanceId);
+    const config = instanceConfigs(cfg)[selection.instanceId];
+    return Boolean(instance && config && canRefreshUsage(instance.driverKind, config.environment));
+  },
+  released: (row) => paneWake.noteArrived(row.botId, row.threadId),
   current: (botId, instanceId) => {
     const bot = store.bot(botId);
     if (!bot || !store.taskByThread(bot.id, bot.threadId) || bot.paneWakePaused) return null;
@@ -1814,11 +1820,13 @@ const groupWithThread = (group: GroupRecord) => ({
 // endpoints whose callers need the transcript (task create/switch, imports)
 // still send their richer payload on top.
 store.onChange((change) => {
-  if (change.type === "message" && change.message.role === "user" && !change.message.from && !change.message.origin) {
-    const bot = store.botByThread(change.threadId);
-    if (bot) limitWaits.cancel(bot.id);
-  }
-  if (change.type === "bot" || change.type === "thread" || change.type === "thread.deleted" || change.type === "bot.deleted") limitWaits.reconcile();
+  try {
+    if (change.type === "message" && change.message.role === "user" && !change.message.from && !change.message.origin) {
+      const bot = store.botByThread(change.threadId);
+      if (bot) limitWaits.cancel(bot.id, undefined, change.message.steered === true);
+    }
+    if (change.type === "bot" || change.type === "thread" || change.type === "thread.deleted" || change.type === "bot.deleted") limitWaits.reconcile();
+  } catch (error) { console.error("limit-waits: reconciliation failed", error); }
   switch (change.type) {
     case "message":
       broadcast({ kind: "message", threadId: change.threadId, message: clientMessage(change.message), ...(change.imported ? { imported: true } : {}) });
@@ -6987,7 +6995,7 @@ const botRoutes = createBotRoutes({
   resumePaneWakes,
 });
 const botChatRoutes = createBotChatRoutes({
-  cancelUsageWait: (botId, waitId) => limitWaits.cancel(botId, waitId),
+  cancelUsageWait: (botId, waitId, preserveTurn) => limitWaits.cancel(botId, waitId, preserveTurn),
   cfg,
   threadSyncGate,
   registry,

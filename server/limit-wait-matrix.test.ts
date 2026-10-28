@@ -120,7 +120,7 @@ describe("durable usage waits", () => {
     h.usage.mockResolvedValueOnce({ ...(kind === "errored" ? { error: "retained after failure" } : {}), report, retryAt: h.state.now + 30_000 });
     await h.waits.tick();
     expect(h.dispatch).not.toHaveBeenCalled();
-    expect(h.waits.store.all()[0]).toMatchObject({ state: "waiting", resetsAt: null });
+    expect(h.waits.store.all()[0]).toMatchObject({ state: "waiting", resetsAt: kind === "spent-unknown" ? null : START + 60 * MINUTE });
   });
 
   it("blocks missing model windows and considers every applicable reported window", async () => {
@@ -196,7 +196,7 @@ describe("durable usage waits", () => {
     expect(h.waits.held("bot")).toBe(false);
     expect(h.usage).not.toHaveBeenCalled();
     expect(h.dispatch).not.toHaveBeenCalled();
-    expect(h.changed).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ state: "manual" }));
+    expect(h.changed).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ state: "finished" }));
   });
 
   it("does not promise a reset beyond the request expiry", async () => {
@@ -263,7 +263,7 @@ describe("durable usage waits", () => {
     if (stage === "claim") { fail = true; h.due(); await h.waits.tick(); }
     expect(h.changed).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ state: "manual" }));
     expect(h.dispatch).not.toHaveBeenCalled();
-    expect(h.waits.held("bot")).toBe(true);
+    expect(h.waits.held("bot")).toBe(false);
     await h.waits.tick();
     expect(h.dispatch).not.toHaveBeenCalled();
   });

@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createMuseCheck, createUsageRefresh, isCsrfRejection, museCheckModel, readAntigravityQuota, readAntigravityUsageCommand, readGrokBillingRpc, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
+import { canRefreshUsage, createMuseCheck, createUsageRefresh, isCsrfRejection, museCheckModel, readAntigravityQuota, readAntigravityUsageCommand, readGrokBillingRpc, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
 import { antigravityRateLimitWindows } from "./drivers/rate-limits.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 import type { JsonValue } from "./schema.ts";
@@ -32,6 +32,15 @@ const fixtures = {
 };
 const credentials = JSON.stringify({ claudeAiOauth: { accessToken: "access-secret" }, "auth.x.ai::test": { key: "access-secret", user_id: "user" }, tokens: { access_token: "access-secret", refresh_token: "refresh-secret" } });
 const unreadableCodexBuckets: Record<string, JsonValue>[] = [{}, { primary: { usedPercent: "unknown" } }];
+
+it("shares the usage-read availability policy with wait admission", () => {
+  for (const platform of ["win32", "linux", "darwin"] as const) {
+    expect(canRefreshUsage("claudeAgent", { CLAUDE_CODE_OAUTH_TOKEN: "" }, platform)).toBe(platform !== "darwin");
+    expect(canRefreshUsage("claudeAgent", { CLAUDE_CODE_OAUTH_TOKEN: "fake-token" }, platform)).toBe(true);
+    expect(canRefreshUsage("codex", {}, platform)).toBe(true);
+    expect(canRefreshUsage("unsupported", {}, platform)).toBe(false);
+  }
+});
 
 describe("usage refresh route result", () => {
   it("preserves model-specific Claude windows beside the session and weekly limits", async () => {

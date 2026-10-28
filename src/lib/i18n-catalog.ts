@@ -2406,7 +2406,7 @@ export const ko = {
   "chat.usageLimit": "사용 한도에 도달했습니다",
   "chat.usageWaitAt": "{time}에 재개됩니다",
   "chat.usageWaitUnknown": "사용 한도 초기화를 기다리는 중",
-  "chat.usageWaitWeekly": "주간 한도에 도달했습니다 · {time}에 재개됩니다",
+  "chat.usageWaitWeekly": "주간 한도에 아직 도달해 있습니다 · {time}에 재개됩니다",
   "chat.usageWaitManual": "사용 한도에 도달했습니다 · 초기화 후 Continue를 보내세요",
   "chat.chooseFolder": "폴더 선택",
   "chat.folderMissing": "프로젝트 폴더를 찾을 수 없습니다: `{folder}`.",

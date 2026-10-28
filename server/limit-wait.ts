@@ -15,9 +15,11 @@ type Tracked = { botId: string; threadId: string; selection: ModelSelection; con
 type Deps = {
   file?: string; store?: LimitWaitStore; now?(): number; deviceId(): string;
   current(botId: string, instanceId?: string): Current | null;
+  canRead?(selection: ModelSelection): boolean;
   usage(row: LimitWait): Promise<{ report?: RateLimitsReport; error?: string; retryAt: number }>;
   dispatch(row: LimitWait, prompt: string): Promise<void>;
   changed?(row: LimitWait, view: UsageWaitView): void;
+  released?(row: LimitWait): void;
 };
 
 export class LimitWaits {
@@ -70,23 +72,27 @@ export class LimitWaits {
     const row: LimitWait = { botId: turn.botId, threadId, selection: turn.selection, controlKey: turn.controlKey,
       ownerDeviceId: turn.ownerDeviceId, origin: turn.origin, ...turn.failure, turnId: turnId ?? "", id: previous?.id ?? randomUUID(),
       createdAt: previous?.createdAt ?? now, expiresAt: previous?.expiresAt ?? now + 8 * 24 * 60 * MINUTE,
-      attempts: previous?.attempts ?? 0, probe: previous?.probe ?? 0, weekly: false,
+      attempts: previous?.attempts ?? 0, probe: previous?.probe ?? 0, weekly: reset !== null && reset - now > 5 * 60 * MINUTE,
       state: (previous?.attempts ?? 0) >= 3 ? "manual" : "waiting",
       nextCheckAt: reset === null ? now + PROBES[0]! * MINUTE : reset + MARGIN,
     };
     this.save(row);
   }
 
-  held(botId: string): boolean { return this.store.all().some((row) => row.botId === botId) || [...this.faulted.values()].includes(botId); }
+  held(botId: string): boolean { return this.store.all().some((row) => row.botId === botId && !this.faulted.has(row.id) && (row.state === "waiting" || row.state === "dispatching")); }
 
   view(row: LimitWait): UsageWaitView {
     return { id: row.id, ownerDeviceId: row.ownerDeviceId, state: this.faulted.has(row.id) ? "manual" : row.state, weekly: row.weekly, resumesAt: row.resetsAt === null ? null : row.nextCheckAt };
   }
 
-  cancel(botId: string, waitId?: string): void {
+  cancel(botId: string, waitId?: string, preserveTurn = false): void {
     if (waitId && !this.store.all().some((row) => row.id === waitId && row.botId === botId && row.ownerDeviceId === this.deps.deviceId())) return;
     for (const [id, bot] of this.faulted) if (bot === botId && (!waitId || id === waitId)) this.faulted.delete(id);
-    for (const [thread, turn] of this.turns) if (turn.botId === botId) this.turns.delete(thread);
+    for (const [thread, turn] of this.turns) if (turn.botId === botId) {
+      const current = preserveTurn ? this.deps.current(botId, turn.selection.instanceId) : null;
+      if (current?.threadId === thread) { turn.controlKey = current.controlKey; turn.waitId = undefined; }
+      else this.turns.delete(thread);
+    }
     for (const row of this.store.all()) if (row.botId === botId && (!waitId || row.id === waitId) && row.ownerDeviceId === this.deps.deviceId()) {
       if (!this.save({ ...row, state: "manual" }, true)) throw new Error("Usage wait cancellation could not be saved");
     }
@@ -96,13 +102,17 @@ export class LimitWaits {
     for (const row of this.store.all()) {
       if (row.ownerDeviceId !== this.deps.deviceId()) continue;
       if (!this.valid(row)) this.cancel(row.botId, row.id);
+      else if (row.state === "waiting" && this.deps.canRead?.(row.selection) === false) this.save({ ...row, state: "manual" });
       else this.deps.changed?.(row, this.view(row));
     }
   }
 
   canDispatch(id: string, selection: ModelSelection): boolean {
     const row = this.store.get(id);
-    return Boolean(row && row.state === "dispatching" && !this.faulted.has(id) && this.valid(row) && sameModelSelection(row.selection, selection));
+    if (!row || row.state !== "dispatching" || this.faulted.has(id)) return false;
+    if (this.valid(row) && sameModelSelection(row.selection, selection)) return true;
+    this.cancel(row.botId, id);
+    return false;
   }
 
   dispatchFailed(id: string): void {
@@ -122,10 +132,12 @@ export class LimitWaits {
   }
 
   private save(row: LimitWait, remove = false): boolean {
-    if (row.state === "waiting" && row.nextCheckAt >= row.expiresAt) row = { ...row, state: "manual" };
+    const held = this.held(row.botId);
+    if (row.state === "waiting" && (row.nextCheckAt >= row.expiresAt || this.deps.canRead?.(row.selection) === false)) row = { ...row, state: "manual" };
     try { this.store.set(row, remove); this.faulted.delete(row.id); }
     catch (error) { this.faulted.set(row.id, row.botId); console.error("limit-waits: save failed", error); }
-    this.deps.changed?.(row, { ...this.view(row), ...(remove ? { state: "manual" as const, cancelable: false } : {}) });
+    this.deps.changed?.(row, { ...this.view(row), ...(remove ? { state: "finished" as const, cancelable: false } : {}) });
+    if (held && !this.held(row.botId)) this.deps.released?.(row);
     return !this.faulted.has(row.id);
   }
 
@@ -133,6 +145,7 @@ export class LimitWaits {
     for (const row of this.store.all()) {
       if (row.ownerDeviceId !== this.deps.deviceId() || this.faulted.has(row.id)) continue;
       if (!this.valid(row)) { this.cancel(row.botId, row.id); continue; }
+      if (row.state === "waiting" && this.deps.canRead?.(row.selection) === false) { this.save({ ...row, state: "manual" }); continue; }
       if (row.state !== "waiting" || this.now() < row.nextCheckAt || this.deps.current(row.botId)?.busy) continue;
       const started = Math.max(this.now(), (this.lastDispatch.get(row.selection.instanceId) ?? 0) + 1);
       const result = await this.deps.usage(row).catch(() => ({ retryAt: this.now() + MARGIN }));
@@ -154,6 +167,8 @@ export class LimitWaits {
       } else if (fresh && spent.length && spent.every((window) => window.resetsAt !== null && window.resetsAt + MARGIN > this.now())) {
         const resetsAt = Math.max(...spent.map((window) => window.resetsAt!));
         this.save({ ...evidence, resetsAt, nextCheckAt: resetsAt + MARGIN, weekly: spent.some((window) => window.id.startsWith("seven_day") || (window.windowMinutes ?? 0) >= 10080) });
+      } else if (!fresh && row.resetsAt !== null) {
+        this.save({ ...row, nextCheckAt: Math.max(this.now() + MARGIN, result.retryAt) });
       } else {
         const probe = row.resetsAt === null ? row.probe + 1 : row.probe;
         const delay = probe === 0 ? PROBES[0]! : (PROBES[probe] ?? PROBES.at(-1)!) - PROBES[probe - 1]!;

@@ -486,7 +486,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
   it("does not mark a user cancel after a Claude assistant error", async () => {
     await create("usage-limit-hold");
     await instance.adapter.sendTurn({ threadId: "t-limit-stop", text: "hi" });
-    await recorder.until((e) => e.type === "content.delta");
+    await recorder.until((e) => e.type === "item.updated" && e.itemType === "reasoning");
     await instance.adapter.interruptTurn("t-limit-stop");
     await recorder.until((e) => e.type === "turn.completed");
     expect(recorder.events.filter((e) => e.type === "runtime.error" && e.usageLimit)).toHaveLength(0);
