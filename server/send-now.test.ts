@@ -45,7 +45,7 @@ function harness(steer = vi.fn(async () => true)) {
     steerTakeover: () => ({ consumed: noop, accepted: noop }), cfg: {},
     composeUserTurnPrompt: (text: string) => text, promptWithReply: (text: string) => text,
     userTurnReactionKeys: () => [], hasPeerWatch: () => false, clearUnattended: noop,
-    resumePaneWakes: noop, paneNoteTurnThreads: new Set(), busyResumeThreads, drainQueuedSends: drain,
+    resumePaneWakes: noop, cancelUsageWait: noop, paneNoteTurnThreads: new Set(), busyResumeThreads, drainQueuedSends: drain,
   };
   const hold = (text: string) => {
     const sendId = `send-now-${text.padEnd(16, "0")}`;

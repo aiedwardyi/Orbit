@@ -174,7 +174,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     hasQueuedSendBefore,
     store,
     startTurn,
-    resumePaneWakes: noop,
+    resumePaneWakes: noop, cancelUsageWait: noop,
     TASK_RESUME_PROMPT: "resume",
     isBusyRejection: (error: { code?: string }) => error?.code === "BOT_BUSY",
     broadcast: (frame: Record<string, unknown>) => frames.push(frame),
@@ -203,7 +203,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     taskPacketForWrite: () => ({ flushReason: "stop" }),
     isRecoveryFlushReason: () => true,
     isCompletedTaskRecord: () => false,
-    resumePaneWakes: noop,
+    resumePaneWakes: noop, cancelUsageWait: noop,
     TASK_RESUME_PROMPT: "resume",
   };
   const invoke = route('/^\\/api\\/bots\\/([\\w-]+)\\/tasks\\/([\\w-]+)\\/resume$/', { ...resumeDeps, botChatRoutes: { resumeTask: botChatRoute("resumeTask", resumeDeps) } });
@@ -219,7 +219,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     registry: { get: () => undefined },
     bumpTurnEpoch: () => ++epoch,
     markThreadInterrupted: interrupts.mark,
-    flushInterruptedTask: noop, closeOpenApprovals: noop,
+    flushInterruptedTask: noop, closeOpenApprovals: noop, cancelUsageWait: noop,
     releaseInterruptedBot: () => { bot.busy = false; },
     json: (_res: unknown, status: number, body: unknown) => ({ status, body }),
   };
@@ -247,7 +247,7 @@ function rig(options: { preparing?: boolean; live?: boolean; error?: Error; reje
     registry: { get: () => undefined }, store: { ...store, deleteBot: noop },
     stopScreenPoller: noop, activeVpsThreads: new Map(), routines: { disableForBot: noop }, webhooks: { disableForBot: noop },
     lastReply: new Map(), cancelPeerApprovalsFor: noop, discardDelegations: noop, commsBus: {}, discardDelegationsFrom: noop,
-    computerControl: { forget: noop }, paneWake: { forgetBot: noop }, taskResumes,
+    computerControl: { forget: noop }, paneWake: { forgetBot: noop }, taskResumes, limitWaits: { cancel: noop },
     perBotLocalVmTarget: () => ({ key: "vm" }), localVmIdles: new Map(),
     EVENTS_DIR: "events", NATIVE_DIR: "native", join: (...parts: string[]) => parts.join("/"), unlinkSync: noop,
   });
