@@ -3690,19 +3690,17 @@ bus.subscribe((event: RuntimeEvent) => {
       if (event.message === INCOMPLETE_LOG_MESSAGE) void reportServerFailure(terminalBridgeAccess);
       unreadTurns.start(event.threadId, event.turnId, store.messagesFor(event.threadId));
       const previousId = event.usageLimit ? limitWaits.messageId(event.threadId) : undefined;
-      const errorMessage = {
-        role: "bot",
-        kind: "activity",
-        tool: {
-          name: `error: ${event.message.slice(0, event.signIn ? 600 : 160)}`,
-          ok: false,
-          setup: event.setup,
-          usageLimit: event.usageLimit,
-          signIn: event.signIn,
-          folder: event.folder,
-        },
-      } satisfies Omit<Message, "id" | "at">;
-      const row = previousId ? store.patchMessage(event.threadId, previousId, errorMessage) : pushMessage(errorMessage);
+      const tool = {
+        name: `error: ${event.message.slice(0, event.signIn ? 600 : 160)}`,
+        ok: false,
+        setup: event.setup,
+        usageLimit: event.usageLimit,
+        signIn: event.signIn,
+        folder: event.folder,
+      };
+      const row = previousId
+        ? store.patchMessage(event.threadId, previousId, { role: "bot", kind: "activity", tool })
+        : pushMessage({ role: "bot", kind: "activity", tool });
       if (event.usageLimit && row) limitWaits.failed(event.threadId, event.turnId, event.usageLimit.resetsAt, row.id,
         [...new Set(["five_hour", "seven_day", ...(rateLimitsByInstance.get(event.providerInstanceId ?? "")?.windows.map((window) => window.id) ?? [])])]);
       // a setup error means the engine could not even start: the bot is
