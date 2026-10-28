@@ -261,6 +261,9 @@ contextBridge.exposeInMainWorld("ogb", {
   /** Writes the redacted diagnostics report to a user-chosen file; resolves
    * the path, or null when the save dialog was cancelled. */
   exportDiagnostics: () => ipcRenderer.invoke("desktop:export-diagnostics"),
+  errorReportConsent: () => ipcRenderer.invoke("error-reports:get"),
+  setErrorReportConsent: (enabled) => ipcRenderer.invoke("error-reports:set", enabled),
+  captureErrorReport: (site) => ipcRenderer.send("error-reports:capture", site),
   /** Open a local file or folder from a chat link in its default app, or reveal it
    * when its type could run. The chat bubble shows the rejection text
    * verbatim, so strip the "Error invoking remote method" wrapper

@@ -48,7 +48,7 @@ function persistCopies(event: RuntimeEvent): RuntimeEvent[] {
   return [...flushed, redactSecrets(event) as RuntimeEvent];
 }
 
-const INCOMPLETE_LOG_MESSAGE =
+export const INCOMPLETE_LOG_MESSAGE =
   "Canonical event history is incomplete: Wink could not write one or more events to disk. Live updates will continue.";
 
 export class EventBus {

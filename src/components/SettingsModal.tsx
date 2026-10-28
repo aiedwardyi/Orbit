@@ -49,6 +49,7 @@ import { saveReplyStyle, useReplyStyle, type ReplyStyle } from "@/lib/reply-styl
 import { cn } from "@/lib/cn";
 import { SyncPanel } from "./SyncPanel";
 import { StartFreshRow } from "./StartFreshRow";
+import { ErrorReportsRow } from "./ErrorReportsRow";
 
 const SECTIONS: Array<{
   id: AppSettingsSection;
@@ -735,6 +736,7 @@ export function SettingsModal({
                 {!window.ogb && <Card><PhoneNotificationSettings /></Card>}
                 <VibrationRow />
                 <UpdatesRow />
+                <ErrorReportsRow />
                 <button
                   type="button"
                   aria-expanded={preferencesOpen}

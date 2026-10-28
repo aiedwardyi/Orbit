@@ -59,6 +59,7 @@ function rig(target: "bot" | "group") {
   const roomFallback = find(roomTurn, (node) => ts.isIfStatement(node)
     && node.expression.getText(parsed) === "store.group(group.id)?.busyBotId === bot.id")!;
   const deps: Record<string, unknown> = {
+    reportServerFailure: () => {}, terminalBridgeAccess: null, INCOMPLETE_LOG_MESSAGE: "internal log failure",
     ...turnReply, store, bot: { id: "bot-1" }, group: { id: "group-1" },
     routineReportGroup: undefined, turnSummary: turnReply.turnSummaries(),
     threadId: "thread-1", stopScreenPoller: () => {}, activeVpsThreads: new Map(), groupSpeakers: new Map(),

@@ -26,7 +26,7 @@ import { createPaneRuns, notifyRestartedPanes } from "./pane-runs.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
-import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterState, registerUpdaterIpc, retargetUpdater, startUpdater, switchUpdateChannel, updaterBridge } from "./updater.mjs";
+import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterFailure, onUpdaterState, registerUpdaterIpc, retargetUpdater, startUpdater, switchUpdateChannel, updaterBridge } from "./updater.mjs";
 import { channelFromCommandLine } from "./update-channel.mjs";
 import { completeQuitAfterCleanup } from "./app-quit.mjs";
 import { createCloseGuard } from "./close-guard.mjs";
@@ -50,6 +50,9 @@ import {
   withToastCapability,
 } from "./desktop-notify.mjs";
 import { pollServerIdentity } from "./server-boot-probe.mjs";
+import { createErrorReports, errorReportDsn } from "./error-reports.mjs";
+import { installErrorReportCapture, registerErrorReportIpc } from "./error-report-capture.mjs";
+import { ERROR_SITES } from "../shared/error-report.mjs";
 import {
   BOOT_CONNECTING,
   BOOT_FAILED,
@@ -158,6 +161,10 @@ function deliverNotificationTarget(win, target = pendingNotificationTarget) {
   if (target === pendingNotificationTarget) pendingNotificationTarget = null;
 }
 let mainWindow = null;
+const errorReports = createErrorReports({ userData: app.getPath("userData"), dsn: errorReportDsn(() => require("./error-report-config.json")), build: require("../package.json").version, platform: process.platform, arch: process.arch });
+registerErrorReportIpc(ipcMain, errorReports, () => mainWindow?.webContents, () => app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin);
+installErrorReportCapture(app, errorReports, () => mainWindow?.webContents);
+onUpdaterFailure(errorReports.capture);
 // Startup owns the first window; activation before it only queues targets for that window's load.
 let startupWindowCreated = false;
 let unreadCount = 0;
@@ -355,7 +362,7 @@ const terminalHost = createTerminalHost({
     return Object.fromEntries((await response.json()).bots.map((bot) => [bot.id, bot.name]));
   },
 });
-const terminalBridge = createTerminalBridge({ host: terminalHost, updater: app.isPackaged ? updaterBridge : undefined });
+const terminalBridge = createTerminalBridge({ host: terminalHost, updater: app.isPackaged ? updaterBridge : undefined, errorReports });
 let terminalBridgeAccess = null;
 ipcMain.handle("terminal:open", (event, input) => terminalHost.open(event, input));
 ipcMain.handle("terminal:prestart", (event, input) => terminalHost.prestart(event, input));
@@ -950,8 +957,10 @@ async function startServerOn(port) {
   proc.stderr?.on("data", (d) => slog(`[err] ${String(d).trimEnd()}`));
   proc.once("spawn", () => slog(`spawned pid=${proc.pid}`));
   let exited = false;
+  let killed = false;
   proc.once("exit", (code) => {
     exited = true;
+    if (!killed) errorReports.capture({ process: "server", code: "SERVER_GONE", site: ERROR_SITES.serverGone, exitCode: code });
     if (serverProc === proc) {
       serverToken = null;
       appAuthorization.bind(`http://127.0.0.1:${port}`, null);
@@ -986,6 +995,7 @@ async function startServerOn(port) {
   if (identity.outcome === "exited") {
     slog(`child on port ${port} exited before answering /api/health`);
   } else {
+    if (identity.outcome === "timeout") errorReports.capture({ process: "main", code: "STARTUP_TIMEOUT", site: ERROR_SITES.startupTimeout });
     slog(
       identity.outcome === "foreign-owner"
         ? `port ${port} answered health checks from another process`
@@ -993,6 +1003,7 @@ async function startServerOn(port) {
     );
   }
   try {
+    killed = true;
     proc.kill();
   } catch {}
   return { proc: null, reason: identity.outcome };
@@ -1690,6 +1701,7 @@ function createWindow() {
   });
   win.on("query-session-end", () => closeGuard.leaveBriefly());
   win.on("session-end", () => closeGuard.leave());
+  win.on("session-end", () => errorReports.stop());
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     const open = safeExternalUrl(url);
@@ -2375,6 +2387,7 @@ app.whenReady().then(async () => {
   registerCuaIpc();
   androidDevice.registerIpc(ipcMain);
   registerUpdaterIpc();
+  errorReports.start();
   // Display capture remains user-initiated. The renderer first sends a
   // short-lived one-shot intent, then calls getDisplayMedia in the same click.
   // The handler binds that request to the same frame/origin, rejects audio,
@@ -2543,6 +2556,7 @@ app.on("before-quit", () => closeGuard.leave());
 
 app.on("before-quit", (e) => {
   if (cuaCleanedUp) return;
+  errorReports.stop();
   e.preventDefault();
   // Release the sleep blocker synchronously; child shutdown is awaited below.
   keepAwake.stop();
