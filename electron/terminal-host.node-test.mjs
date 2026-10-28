@@ -2261,6 +2261,7 @@ test("Codex capacity waits a minute, continues once without a note and leaves ot
     ["codex go", codexCapacityScreen("■ You've hit your usage limit. Try again later.")],
     ["codex go", codexCapacityScreen(`${CODEX_CAPACITY}\r\nNewer output`)],
     ["codex go", codexCapacityScreen(CODEX_CAPACITY, "unsent text")],
+    ["codex go", `${codexCapacityScreen(CODEX_CAPACITY, "delete all files")}\x1b[3;3H`],
     ["codex go", codexCapacityScreen(`${CODEX_CAPACITY}\r\n• Working (esc to interrupt)`)],
     ["codex go", `${CODEX_CAPACITY}\r\n› 1. Switch model\r\n  2. Keep current model\r\n  enter select · esc back`],
   ]) {
@@ -2273,6 +2274,16 @@ test("Codex capacity waits a minute, continues once without a note and leaves ot
     assert.deepEqual(other.children[0].writes, [`${command}\r`]);
     assert.equal(other.notes.length, 0);
   }
+});
+
+test("Codex capacity still continues when the error wraps onto two rows", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  f.children[0].data("\x1b[2J\x1b[H■ Selected model is at capacity. Please\r\n  try a different model.\r\n\r\n› \r\n\x1b[4;3H");
+  await f.settle();
+  await f.advance(60_000);
+  assert.deepEqual(f.children[0].writes, ["codex go\r", "continue\r"]);
 });
 
 test("a second Codex capacity hit within ten minutes posts STALLED, then the cooldown expires", async (t) => {

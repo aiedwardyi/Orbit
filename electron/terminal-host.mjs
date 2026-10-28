@@ -226,16 +226,17 @@ const SAVE_ENTER_MS = 5_000;
 const CLAUDE_TRUST_SETTLE_MS = 500;
 const tokenCount = (value, unit) => Math.round(Number(value) * (unit === "M" ? 1_000_000 : unit === "K" ? 1_000 : 1));
 
-function codexCapacity({ screenText, cursor, cols }) {
+function codexCapacity({ screenText, cursor }) {
   const lines = screenText.split("\n");
   const prompt = lines[cursor.row] ?? "";
-  if (!/^\s*›(?:\s|$)/u.test(prompt) || cursor.col !== prompt.indexOf("›") + 2
+  if (!/^\s*›\s*$/u.test(prompt) || cursor.col !== prompt.indexOf("›") + 2
     || AGENT_BUSY_RE.test(screenText) || lines.some((line) => PANE_MENU_RE.test(line))
     || /enter select · esc back/u.test(screenText)) return false;
   const before = lines.slice(0, cursor.row);
-  let last = before.findLastIndex((line) => line.trim());
-  let output = before[last] ?? "";
-  while (last > 0 && before[last - 1].length === cols) output = before[--last] + output;
+  const last = before.findLastIndex((line) => line.trim());
+  let first = last;
+  while (first > 0 && before[first - 1].trim()) first -= 1;
+  const output = before.slice(first, last + 1).join(" ").replace(/\s+/gu, " ");
   return /^\s*(?:■\s+)?Selected model is at capacity\. Please try a different model\.\s*$/u.test(output);
 }
 

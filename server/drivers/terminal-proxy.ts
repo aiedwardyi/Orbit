@@ -32,7 +32,7 @@ const SETTLE_FIRST_MS = 300;
 const SETTLE_POLLS = 12;
 const BRACKETED_PASTE_MODE = 2004;
 const PASTED_TEXT = "[Pastedtext";
-const PANE_MENU_RE = /^\s*enter select · esc back\s*$/mu;
+const PANE_MENU_FOOTER_RE = /^\s*enter select · esc back\s*$/mu;
 // Claude Code's spinner while a turn runs, e.g. "✽ Undulating… (3s · ↓ 75 tokens)"; a done turn reads "✻ Sautéed for 5s".
 const CLAUDE_BUSY_RE = /^[·✢✳✶✻✽*][\s─]+\S[^\n]*…(?:\s+\(|\s*$)/mu;
 // Its input box opens with a rule over a "❯" prompt, or ">" in 2.1.29x on Windows; ">>" is a shell continuation.
@@ -327,7 +327,7 @@ export async function sendTerminalText(args: Record<string, unknown>, fetchImpl:
 async function typeIntoPane(key: unknown, keyText: string | undefined, typed: string | undefined, read: () => Promise<Snapshot>, write: (data: string) => Promise<Snapshot>, onWritten: (submittedAgo: number) => void): Promise<Snapshot> {
   const screen = typed || key === "esc" ? await read() : null;
   if (key === "esc" && claudeState(screen?.screenText) === "busy") throw new Error("esc would interrupt the running Claude turn; refused while the pane shows Claude: busy");
-  if (typed && PANE_MENU_RE.test(screen?.screenText ?? "")) throw new Error("Text would select a menu option; refused. Use key (up, down, enter, esc)");
+  if (typed && PANE_MENU_FOOTER_RE.test(screen?.screenText ?? "")) throw new Error("Text would select a menu option; refused. Use key (up, down, enter, esc)");
   const body = typed?.replace(/\r+$/, "");
   let last = keyText ?? typed ?? "";
   if (typed && body && body !== typed) {
