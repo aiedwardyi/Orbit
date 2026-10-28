@@ -625,7 +625,7 @@ const playTurn = (prompt: JsonValue) => {
     } else if (mode !== "usage-limit-result") {
       out({ type: "assistant", error: "rate_limit", message: { content: [{ type: "text", text: message }] } });
     }
-    if (mode === "usage-limit-hold") return;
+    if (mode === "usage-limit-hold") { out({ type: "system", subtype: "thinking_tokens", estimated_tokens: 0 }); return; }
     if (mode === "usage-limit-close") return process.stdout.write("", () => process.exit(1));
     out({ type: "result", is_error: mode !== "usage-warning", errors: [message], total_cost_usd: 0 });
     turnRunning = false;

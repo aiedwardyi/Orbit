@@ -1,7 +1,7 @@
 // OpenMausBot server — the harness host. Clients hold no transports
 // (upstream rule): the React app dispatches typed commands over HTTP and
 // folds one SSE event stream; every provider process runs here.
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { SERVER_TIMEOUTS, currentEarlyListen } from "./early-listen.ts";
@@ -92,7 +92,7 @@ import {
   NATIVE_DIR,
 } from "./config.ts";
 import { loadRateLimits, scheduleSaveRateLimits } from "./rate-limits-store.ts";
-import { createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
+import { canRefreshUsage, createMuseCheck, createUsageRefresh, museCheckModel, usageRefreshResponse } from "./usage-refresh.ts";
 import { createSpawnUsage } from "./spawn-usage.ts";
 import { ComputerControl } from "./computer-control.ts";
 import { contextWindowFor, knownCatalogContextWindow, paneNotesForTurn, paneNotesSinceLastUserTurn, planCompaction, planSummaryGrace, prepareModelContext, routineCardsSinceLastUserTurn, supersededCompactionIds, withoutTurnNotes, type SummaryGrace } from "./context-compaction.ts";
@@ -238,6 +238,7 @@ import { deferMailboxAuto, mailboxNoteText, mailboxPostSchema, mailboxRecipient,
 import { NoteSteerer, steerUntilTaken } from "./note-steer.ts";
 import { hasLocalUndeliveredPaneNote, PANE_WAKE_PROMPT, PaneWakeScheduler } from "./pane-wake.ts";
 import { KEEP_GOING_USAGE_FRESH_MS, KeepGoing } from "./keep-going.ts";
+import { LimitWaits } from "./limit-wait.ts";
 import {
   ensureWorkspace,
   workspaceDir,
@@ -1131,7 +1132,7 @@ const keepGoing = new KeepGoing({
   botThreadId: (botId) => store.bot(botId)?.threadId ?? null,
   busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
   queuedSends: (botId) => hasQueuedSends(botId),
-  wakesPaused: (botId) => store.bot(botId)?.paneWakePaused === true,
+  wakesPaused: (botId) => store.bot(botId)?.paneWakePaused === true || limitWaits.held(botId),
   packet: (threadId) => taskPacketForWrite(threadId),
   usage: async (botId) => {
     const instanceId = store.bot(botId)?.modelSelection.instanceId ?? "";
@@ -1165,6 +1166,46 @@ const keepGoing = new KeepGoing({
   changed: (botId) => {
     const bot = store.bot(botId);
     if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
+  },
+});
+
+const limitWaits = new LimitWaits({
+  deviceId: () => profileSyncSettings.deviceId,
+  canRead: (selection) => {
+    const instance = registry.get(selection.instanceId);
+    const config = instanceConfigs(cfg)[selection.instanceId];
+    return Boolean(instance && config && canRefreshUsage(instance.driverKind, config.environment));
+  },
+  released: (row) => paneWake.noteArrived(row.botId, row.threadId),
+  current: (botId, instanceId) => {
+    const bot = store.bot(botId);
+    if (!bot || !store.taskByThread(bot.id, bot.threadId) || bot.paneWakePaused) return null;
+    const controlKey = createHash("sha256").update(JSON.stringify([
+      bot.modelSelection, bot.pendingModelSelection, instanceConfigs(cfg)[instanceId ?? bot.modelSelection.instanceId],
+      lastUserInstruction(store.activePath(bot.threadId))?.messageId,
+    ])).digest("hex");
+    return { threadId: bot.threadId, controlKey, busy: botHasActiveTurn(botId) || hasQueuedSends(botId) };
+  },
+  usage: async (row) => {
+    const instance = registry.get(row.selection.instanceId);
+    const config = instanceConfigs(cfg)[row.selection.instanceId];
+    if (!instance || !config) return { error: "Usage unavailable", retryAt: Date.now() + 30_000 };
+    const result = await refreshUsage(instance.driverKind, {
+      instanceId: row.selection.instanceId,
+      cli: z.object({ cli: z.string().optional() }).catch({}).parse(config.config).cli,
+      environment: config.environment,
+    });
+    if (result.report && !result.error) {
+      rateLimitsByInstance.set(row.selection.instanceId, result.report);
+      scheduleSaveRateLimits(rateLimitsByInstance, DATA_DIR);
+    }
+    return result;
+  },
+  dispatch: (row, prompt) => startTurn(row.botId, prompt, { ...row.origin, threadId: row.threadId, cardContinuation: true, limitWaitId: row.id, onDispatchError: () => limitWaits.dispatchFailed(row.id) }).then(() => undefined),
+  changed: (row, usageWait) => {
+    if (!store.taskByThread(row.botId, row.threadId)) return;
+    const message = store.messagesFor(row.threadId).find((message) => message.id === row.messageId);
+    if (message?.tool && JSON.stringify(message.tool.usageWait) !== JSON.stringify(usageWait)) store.patchMessage(row.threadId, row.messageId, { tool: { ...message.tool, usageWait } });
   },
 });
 
@@ -1633,6 +1674,7 @@ async function localVmDeleteRefusal(botId: string): Promise<string | null> {
 }
 
 async function deleteBotFully(bot: BotRecord): Promise<void> {
+  limitWaits.cancel(bot.id);
   // a running turn dies with its bot, including one on a room's thread
   const instance = registry.get(bot.modelSelection.instanceId);
   const busyGroup = store.groups.find((g) => g.busyBotId === bot.id);
@@ -1778,6 +1820,13 @@ const groupWithThread = (group: GroupRecord) => ({
 // endpoints whose callers need the transcript (task create/switch, imports)
 // still send their richer payload on top.
 store.onChange((change) => {
+  try {
+    if (change.type === "message" && change.message.role === "user" && !change.message.from && !change.message.origin) {
+      const bot = store.botByThread(change.threadId);
+      if (bot) limitWaits.cancel(bot.id, undefined, change.message.steered === true);
+    }
+    if (change.type === "bot" || change.type === "thread" || change.type === "thread.deleted" || change.type === "bot.deleted") limitWaits.reconcile();
+  } catch (error) { console.error("limit-waits: reconciliation failed", error); }
   switch (change.type) {
     case "message":
       broadcast({ kind: "message", threadId: change.threadId, message: clientMessage(change.message), ...(change.imported ? { imported: true } : {}) });
@@ -2251,6 +2300,10 @@ function pageSize(raw: string | null): number | null | undefined {
 
 /** HTTP copy of a transcript row - bot-authored secrets are redacted; the stored row is unchanged. */
 function clientMessage(message: Message): Message {
+  if (message.tool?.usageWait) {
+    const wait = message.tool.usageWait;
+    message = { ...message, tool: { ...message.tool, usageWait: { ...wait, cancelable: wait.ownerDeviceId === profileSyncSettings.deviceId && Boolean(limitWaits.store.get(wait.id)) } } };
+  }
   return flagShownImage(redactBotAuthored(message));
 }
 
@@ -3193,6 +3246,7 @@ bus.subscribe((event: RuntimeEvent) => {
 
   switch (event.type) {
     case "turn.started":
+      limitWaits.bind(event.threadId, event.turnId);
       unreadTurns.start(event.threadId, event.turnId, store.messagesFor(event.threadId));
       break;
     case "session.started":
@@ -3632,27 +3686,30 @@ bus.subscribe((event: RuntimeEvent) => {
         },
       });
       break;
-    case "runtime.error":
+    case "runtime.error": {
       if (event.message === INCOMPLETE_LOG_MESSAGE) void reportServerFailure(terminalBridgeAccess);
       unreadTurns.start(event.threadId, event.turnId, store.messagesFor(event.threadId));
-      pushMessage({
-        role: "bot",
-        kind: "activity",
-        tool: {
-          name: `error: ${event.message.slice(0, event.signIn ? 600 : 160)}`,
-          ok: false,
-          setup: event.setup,
-          usageLimit: event.usageLimit,
-          signIn: event.signIn,
-          folder: event.folder,
-        },
-      });
+      const previousId = event.usageLimit ? limitWaits.messageId(event.threadId) : undefined;
+      const tool = {
+        name: `error: ${event.message.slice(0, event.signIn ? 600 : 160)}`,
+        ok: false,
+        setup: event.setup,
+        usageLimit: event.usageLimit,
+        signIn: event.signIn,
+        folder: event.folder,
+      };
+      const row = previousId
+        ? store.patchMessage(event.threadId, previousId, { role: "bot", kind: "activity", tool })
+        : pushMessage({ role: "bot", kind: "activity", tool });
+      if (event.usageLimit && row) limitWaits.failed(event.threadId, event.turnId, event.usageLimit.resetsAt, row.id,
+        [...new Set(["five_hour", "seven_day", ...(rateLimitsByInstance.get(event.providerInstanceId ?? "")?.windows.map((window) => window.id) ?? [])])]);
       // a setup error means the engine could not even start: the bot is
       // dead until something changes, not merely idle. The next successful
       // dispatch moves it to working; turn.completed (which follows a setup
       // failure) is told to leave "dead" alone.
       if (event.setup && bot) store.setActivity(bot.id, "dead");
       break;
+    }
     case "thread.token-usage.updated":
       // running totals for the turn in flight; folded into the task's
       // tally at turn.completed (below) so retries never double-count
@@ -3747,6 +3804,7 @@ bus.subscribe((event: RuntimeEvent) => {
               interrupted,
             }));
           }
+          limitWaits.settled(event.threadId, event.turnId, event.ok);
           // settled → idle; a setup failure already marked it dead, keep that
           if (store.bot(bot.id)?.activity !== "dead") store.setActivity(bot.id, "idle");
           clearSendRunning(bot.id);
@@ -3995,7 +4053,7 @@ function paneNotesPending(threadId: string): boolean {
 const paneWake = new PaneWakeScheduler({
   enabled: (botId) => store.bot(botId)?.shareTerminalWithChat !== false,
   paused: (botId) => store.bot(botId)?.paneWakePaused === true,
-  busy: (botId, threadId) => botHasActiveTurn(botId, threadId),
+  busy: (botId, threadId) => botHasActiveTurn(botId, threadId) || limitWaits.held(botId),
   hasNotes: paneNotesPending,
   closedByBot: async (botId, paneIds) => {
     const closed = await botClosedPanes(terminalBridgeAccess, botId);
@@ -4197,6 +4255,7 @@ async function finalScreenFrame(botId: string): Promise<Frame | null> {
 
 // ── turn dispatch (upstream ProviderCommandReactor, miniature) ──────────
 type StartTurnOptions = {
+  limitWaitId?: string;
   commsDepth?: number;
   userMessage?: Message;
   /** Clean copy for user transcript when the model prompt carries an internal harness envelope. */
@@ -4245,7 +4304,7 @@ const SHOW_IMAGE_GUIDANCE =
   "When you produce or find an image the user should see (a mockup, chart, or screenshot file), call show_image with its absolute path so it appears in this chat. For a video, audio or other file, link its absolute path in markdown, like [clip.mp4](C:\\path\\clip.mp4) or, when the path contains spaces, in angle brackets like [clip.mp4](<C:\\My Files\\clip.mp4>), so the user can open it with one click. Never end with only a file path. To create a new image, call generate_image.";
 
 const ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS =
-  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. If that line answered it, your final message does not return to it: no recap, no 'On your question' part, no expanded take, unless your later work changed the answer or a Wink note says the user never saw that line, in which case the answer goes out again, exactly once. This covers messages the user types, not pane notes or other automated messages. Everything you write outside tool calls appears in the user's chat, so never write notes to yourself there (like 'Need X.' or a bare file name); just make the next tool call. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you. Clean up after yourself: once a task's result is verified, remove the temporary files, folders and worktrees you created for it, by exact path only; never delete by wildcard or age, or anything you did not create, and ask when unsure. Say what you verified yourself and what you assume or were told. At a usage limit, say it plainly with the reset time if you know it, and that the user can send Continue after it resets. Never promise to resume on your own.";
+  " Never end a turn without a user-visible reply. If the user writes to you while you're working, reply to that message right away in one short visible line (for a question, the short answer; for a correction or instruction, a one-line acknowledgment), then keep working unless they asked you to stop or pause; never answer it only in your thinking. If that line answered it, your final message does not return to it: no recap, no 'On your question' part, no expanded take, unless your later work changed the answer or a Wink note says the user never saw that line, in which case the answer goes out again, exactly once. This covers messages the user types, not pane notes or other automated messages. Everything you write outside tool calls appears in the user's chat, so never write notes to yourself there (like 'Need X.' or a bare file name); just make the next tool call. Some engines replace longer text written between tool calls with a short summary that the user never sees, so keep each mid-turn message to one short line, and put details, links, lists and anything the user must read exactly in your final message. Say each thing once: do not restate what you already told the user, in this turn or earlier ones, unless it changed, and do not repeat a status the user already has; if a turn brings nothing new, reply in one short line. When you need the user's decision or input to continue, ask with the ask_user tool instead of only writing the question in a reply, so it gets noticed; it does not pause you. Clean up after yourself: once a task's result is verified, remove the temporary files, folders and worktrees you created for it, by exact path only; never delete by wildcard or age, or anything you did not create, and ask when unsure. Say what you verified yourself and what you assume or were told. At a usage limit, say it plainly with the reset time if you know it. Never promise to resume on your own; the chat shows whether Wink will continue it.";
 const REPLY_STYLE_INSTRUCTIONS =
   " Default voice (your role description and the user's requests always win, including any length or teaching style they set): lead with the answer, default to 2-5 short lines, give the few points that matter most rather than every option unless the user asks for all of them, use plain words, prefer a few bullets over paragraphs, and be warm. If a question needs working out, work it out before answering. Skip preamble, recaps and generic closing offers; a question you need answered, or asking before you act, is not padding. Code, plans, drafts, commands and anything the user will paste or follow step by step are deliverables: give them in full. Otherwise go longer only when the user asks or the task truly needs it, and even then lead with the verdict.";
 const ALWAYS_REPLY_INSTRUCTIONS = ALWAYS_REPLY_FUNCTIONAL_INSTRUCTIONS + REPLY_STYLE_INSTRUCTIONS;
@@ -4379,6 +4438,8 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
   const claimMark = queueMark();
   const bot = store.bot(botId);
   if (!bot) throw Object.assign(new Error("no such bot"), { status: 404 });
+  if (!opts?.limitWaitId && turnStartedByUser(opts)) limitWaits.cancel(botId);
+  if (!opts?.limitWaitId && (opts?.keepGoingWake || opts?.paneNoteWake) && limitWaits.held(botId)) throw busyRejection("waiting for usage reset");
   if (checkpointRestoreLeases.has(botId)) {
     throw Object.assign(new Error("this bot's project files are being restored — wait for the restore to finish"), {
       status: 409,
@@ -5361,6 +5422,10 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
           systemSeed = systemSeeds.set(threadId, { instanceId, cursor: resumeCursor, system });
         }
         logSummaryWait();
+        if (opts?.limitWaitId && !limitWaits.canDispatch(opts.limitWaitId, selection)) throw new Error("Usage wait cancelled before dispatch");
+        if (!opts?.automationSource && !routineTurnThreads.has(threadId) && (instance.driverKind === "claudeAgent" || instance.driverKind === "codex")) {
+          limitWaits.track(bot.id, threadId, selection, opts?.limitWaitId, { unattended: opts?.unattended, keepGoingWake: opts?.keepGoingWake, paneNoteWake: opts?.paneNoteWake });
+        }
         pendingInterruptThreads.started(threadId, bot.id, epoch);
         return live.adapter.sendTurn({
         threadId,
@@ -5412,6 +5477,13 @@ async function startClaimedTurn(botId: string, text: string, opts?: StartTurnOpt
       turnSeeds.release(threadId, seed);
       if (systemSeed) systemSeeds.release(threadId, systemSeed);
       if (currentTurnEpoch(bot.id) !== epoch) return;
+      if (opts?.limitWaitId && !limitWaits.canDispatch(opts.limitWaitId, selection)) {
+        store.setActivity(bot.id, "idle");
+        clearSendRunning(bot.id);
+        drainQueuedSends();
+        paneWake.settled();
+        return;
+      }
       const message = e instanceof Error ? e.message : String(e);
       store.appendMessage(threadId, {
         role: "bot",
@@ -5582,7 +5654,7 @@ routines = new RoutineManager({
     closeOpenApprovals(threadId);
   },
   onRunChanged: syncRoutineRunToSource,
-  onInterval: () => keepGoing.tick(),
+  onInterval: () => { keepGoing.tick(); void limitWaits.tick().catch((error) => console.error("limit-waits: check failed", error)); },
   onRunFailed: (run) => {
     const bot = store.bot(run.botId);
     if (!bot) return;
@@ -6900,6 +6972,7 @@ const internalRoutes = createInternalRoutes({
   maybeResumeConnectors,
 });
 const botRoutes = createBotRoutes({
+  cancelUsageWait: (botId) => limitWaits.cancel(botId),
   cfg,
   registry,
   MAX_WORKSPACE_BOTS,
@@ -6920,6 +6993,7 @@ const botRoutes = createBotRoutes({
   resumePaneWakes,
 });
 const botChatRoutes = createBotChatRoutes({
+  cancelUsageWait: (botId, waitId, preserveTurn) => limitWaits.cancel(botId, waitId, preserveTurn),
   cfg,
   threadSyncGate,
   registry,
@@ -7865,6 +7939,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return await botChatRoutes.send(req, res, m);
     }
 
+    m = path.match(/^\/api\/bots\/([\w-]+)\/usage-wait\/([\w-]+)\/cancel$/);
+    if (m && method === "POST") return botChatRoutes.cancelUsageWait(res, m);
+
     m = path.match(/^\/api\/bots\/([\w-]+)\/queue\/([\w-]+)$/);
     if (m && method === "DELETE") {
       return await botChatRoutes.deleteQueued(res, m);
@@ -8670,6 +8747,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 };
 
 syncAllThreads();
+limitWaits.reconcile();
+setImmediate(() => void limitWaits.tick().catch((error) => console.error("limit-waits: startup failed", error)));
 setImmediate(drainQueuedSends);
 googleSync.resume();
 uploads.sweep();
