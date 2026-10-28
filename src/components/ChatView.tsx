@@ -803,7 +803,7 @@ const MessagesList = memo(function MessagesList({
                   onStartEdit={onStartEdit}
                   onCancelEdit={onCancelEdit}
                   onSubmitEdit={onSubmitEdit}
-                  onRegenerate={onRegenerate}
+                  onRegenerate={m.id === lastBotTextId ? onRegenerate : undefined}
                   replyTarget={m.replyToId ? bot.messages.find((candidate) => candidate.id === m.replyToId) : undefined}
                   onReply={onReply}
                   onFocusComposer={onFocusComposer}
