@@ -54,6 +54,11 @@ async function saveInput() {
   await act(async () => (input.nextElementSibling as HTMLButtonElement).click());
 }
 
+async function removeSavedKey() {
+  await act(async () => (host.querySelector('button[aria-label]') as HTMLButtonElement).click());
+  await act(async () => document.querySelector('[role="dialog"]')!.querySelectorAll("button")[1].click());
+}
+
 const bot = { id: "bot", name: "Bot", color: "blue" } as Bot;
 const rows: [string, () => ReactElement][] = [
   ["composioApiKey", () => createElement(ApiKeyRow, { section: "composio" })],
@@ -73,11 +78,8 @@ it("localizes credential failures for every Settings save and removal in English
   ] as const;
   const actions: [() => ReactElement, () => Promise<void>][] = [
     ...rows.map(([, element]) => [element, saveInput] as [() => ReactElement, () => Promise<void>]),
-    [() => createElement(SavedKeys), async () => {
-      await act(async () => (host.querySelector('button[aria-label]') as HTMLButtonElement).click());
-    }],
+    [() => createElement(SavedKeys), removeSavedKey],
   ];
-  Object.assign(window, { confirm: () => true });
   for (const locale of ["en", "ko"] as const) {
     for (const [code, key] of failures) {
       vi.stubGlobal("fetch", vi.fn(async (path: string) => new Response(JSON.stringify(
@@ -119,9 +121,8 @@ it("clears a remote Settings key through the encrypted route", async () => {
 it("removes a remote saved custom key through the encrypted route", async () => {
   const fetchMock = vi.fn(async (path: string) => new Response(JSON.stringify(path === "/api/key-uses" ? { uses: {} } : { saved: true, config: state.config })));
   vi.stubGlobal("fetch", fetchMock);
-  Object.assign(window, { confirm: () => true });
   await mount(createElement(SavedKeys));
-  await act(async () => (host.querySelector('button[aria-label="Remove the Saved Key"]') as HTMLButtonElement).click());
+  await removeSavedKey();
   const [path, init] = fetchMock.mock.calls.at(-1) as unknown as [string, RequestInit];
   expect(path).toBe("/api/credentials");
   expect(JSON.parse(init.body as string)).toEqual({ target: "custom:api.acme.dev", value: "" });
