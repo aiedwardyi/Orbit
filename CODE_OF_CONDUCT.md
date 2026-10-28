@@ -11,6 +11,6 @@ The short version:
   with finite time.
 
 Unacceptable behavior can be reported privately to the maintainer, [@aiedwardyi](https://github.com/aiedwardyi),
-through [GitHub private reporting](https://github.com/aiedwardyi/Orbit/security/advisories/new) with "Conduct report"
+through [GitHub private reporting](https://github.com/aiedwardyi/Wink/security/advisories/new) with "Conduct report"
 in the title. Reports are handled confidentially. Maintainers may edit, remove, or reject contributions and comments that violate this
 code, and may ban repeat offenders.

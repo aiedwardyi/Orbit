@@ -183,7 +183,7 @@ jobs:
           try {
             if (process.env.CI_RUN_ATTEMPT !== "1" || process.env.GITHUB_RUN_ATTEMPT !== "1") throw new Error("Rerun skipped");
             const api = async (path) => {
-              const response = await fetch(`https://api.github.com/repos/aiedwardyi/Orbit/${path}`, {
+              const response = await fetch(`https://api.github.com/repos/aiedwardyi/Wink/${path}`, {
                 headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${process.env.GH_TOKEN}` },
                 signal: AbortSignal.timeout(30_000),
               });
@@ -214,21 +214,21 @@ jobs:
         run: |
           cd assets
           tag="v$VERSION"
-          gh release create "$tag" --repo aiedwardyi/Orbit --target "$SHA" \
+          gh release create "$tag" --repo aiedwardyi/Wink --target "$SHA" \
             --draft --prerelease --latest=false --title "Wink $VERSION" \
-            --notes "Dev build from aiedwardyi/Orbit@$SHA."
-          gh release upload "$tag" *.exe *.exe.blockmap dev.yml --repo aiedwardyi/Orbit
-          gh release edit "$tag" --repo aiedwardyi/Orbit --draft=false --prerelease --latest=false
-          gh release view "$tag" --repo aiedwardyi/Orbit --json isPrerelease,isDraft \
+            --notes "Dev build from aiedwardyi/Wink@$SHA."
+          gh release upload "$tag" *.exe *.exe.blockmap dev.yml --repo aiedwardyi/Wink
+          gh release edit "$tag" --repo aiedwardyi/Wink --draft=false --prerelease --latest=false
+          gh release view "$tag" --repo aiedwardyi/Wink --json isPrerelease,isDraft \
             --jq '.isPrerelease and (.isDraft | not)' | grep -qx true
       - name: Keep the newest three dev prereleases
         if: steps.guard.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api --paginate --slurp 'repos/aiedwardyi/Orbit/releases?per_page=100' \
+          gh api --paginate --slurp 'repos/aiedwardyi/Wink/releases?per_page=100' \
             | jq -r 'add | map(select(.prerelease and (.draft | not) and (.tag_name | test("^v\\d+\\.\\d+\\.\\d+-dev\\.\\d+$")))) | sort_by(.published_at) | reverse | .[3:][].tag_name' \
             > "$RUNNER_TEMP/old-dev-tags"
           while IFS= read -r tag; do
-            gh release delete "$tag" --repo aiedwardyi/Orbit --cleanup-tag --yes
+            gh release delete "$tag" --repo aiedwardyi/Wink --cleanup-tag --yes
           done < "$RUNNER_TEMP/old-dev-tags"

@@ -15,8 +15,8 @@ describe("packaging identity", () => {
 
     assert.equal(pkg.author.name, "Edward Yi");
     assert.notEqual(pkg.author.name, "Milind Soni");
-    assert.equal(pkg.homepage, "https://github.com/aiedwardyi/Orbit");
-    assert.equal(pkg.repository.url, "https://github.com/aiedwardyi/Orbit.git");
+    assert.equal(pkg.homepage, "https://github.com/aiedwardyi/Wink");
+    assert.equal(pkg.repository.url, "https://github.com/aiedwardyi/Wink.git");
     assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
     assert.notEqual(pkg.version, "1.0.0");
 

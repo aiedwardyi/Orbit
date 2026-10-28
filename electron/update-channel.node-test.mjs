@@ -18,10 +18,10 @@ import {
 } from "./update-channel.mjs";
 
 const STABLE_FEED = { provider: "github", owner: "aiedwardyi", repo: "orbit-releases" };
-const DEV_FEED = { provider: "github", owner: "aiedwardyi", repo: "Orbit" };
+const DEV_FEED = { provider: "github", owner: "aiedwardyi", repo: "Wink" };
 const toStable = (allowDowngrade) => ({ feed: STABLE_FEED, channel: "latest", allowPrerelease: false, allowDowngrade });
 const toDev = { feed: DEV_FEED, channel: "dev", allowPrerelease: true, allowDowngrade: false };
-const onDev = { repo: "Orbit", channel: "dev", allowPrerelease: true, allowDowngrade: false };
+const onDev = { repo: "Wink", channel: "dev", allowPrerelease: true, allowDowngrade: false };
 const onStable = { repo: "orbit-releases", channel: "latest", allowPrerelease: false, allowDowngrade: false };
 
 function deferred() {
@@ -169,7 +169,7 @@ test("the stable feed is the one electron-builder publishes releases to", () => 
 test("applyFeed points the updater at the dev feed with downgrades still off", () => {
   const updater = new FakeUpdater();
   applyFeed(updater, pickFeed({ platform: "win32", channel: "dev", running: "1.0.193-dev.45" }));
-  assert.deepEqual(updater.feeds, [{ provider: "github", owner: "aiedwardyi", repo: "Orbit" }]);
+  assert.deepEqual(updater.feeds, [{ provider: "github", owner: "aiedwardyi", repo: "Wink" }]);
   assert.equal(updater.channel, "dev");
   assert.equal(updater.allowPrerelease, true);
   assert.equal(updater.allowDowngrade, false);
@@ -232,7 +232,7 @@ test("a PC that never leaves stable makes exactly today's updater calls", async 
 test("a dev PC probes both feeds and checks the dev feed when a dev build is newest", async () => {
   const updater = new FakeUpdater();
   const probed = [];
-  const versions = { "orbit-releases": "1.0.192", Orbit: "1.0.193-dev.46" };
+  const versions = { "orbit-releases": "1.0.192", Wink: "1.0.193-dev.46" };
   await channelUpdater(updater, {
     probe: async (choice) => {
       probed.push(choice);
@@ -245,7 +245,7 @@ test("a dev PC probes both feeds and checks the dev feed when a dev build is new
 
 test("a dev PC takes a stable release newer than every dev build", async () => {
   const updater = new FakeUpdater();
-  await channelUpdater(updater, { versions: { "orbit-releases": "1.0.193", Orbit: "1.0.193-dev.46" } }).checkForUpdates();
+  await channelUpdater(updater, { versions: { "orbit-releases": "1.0.193", Wink: "1.0.193-dev.46" } }).checkForUpdates();
   assert.deepEqual(updater.checks, [onStable]);
 });
 
@@ -256,7 +256,7 @@ test("a failed probe counts as unknown and the check still runs", async () => {
   for (const [stable, want] of [[offline, onDev], [async () => "1.0.193", onStable]]) {
     const updater = new FakeUpdater();
     await channelUpdater(updater, {
-      probe: (choice) => (choice.feed.repo === "Orbit" ? Promise.reject(new Error("rate limited")) : stable()),
+      probe: (choice) => (choice.feed.repo === "Wink" ? Promise.reject(new Error("rate limited")) : stable()),
     }).checkForUpdates();
     assert.deepEqual(updater.checks, [want]);
   }
@@ -268,7 +268,7 @@ test("leaving dev on a stable build points the updater back at the stable feed",
   const adapter = channelUpdater(updater, {
     running: "1.0.193",
     channel: () => channel,
-    versions: { "orbit-releases": "1.0.193", Orbit: "1.0.194-dev.1" },
+    versions: { "orbit-releases": "1.0.193", Wink: "1.0.194-dev.1" },
   });
   await adapter.checkForUpdates();
   channel = "stable";
@@ -304,7 +304,7 @@ test("on the stable channel a failed check never falls back to the dev build off
     downloads.push("download");
     return Promise.resolve([]);
   };
-  const adapter = channelUpdater(updater, { channel: () => channel, versions: { "orbit-releases": "1.0.192", Orbit: "1.0.193-dev.47" } });
+  const adapter = channelUpdater(updater, { channel: () => channel, versions: { "orbit-releases": "1.0.192", Wink: "1.0.193-dev.47" } });
   updater.answers.push(Promise.resolve({ isUpdateAvailable: true, updateInfo: { version: "1.0.193-dev.47" } }));
   const coordinator = createUpdaterCoordinator(adapter, () => {});
   await coordinator.check(true);

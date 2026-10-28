@@ -32,7 +32,7 @@ Requirements for building from source:
 - pnpm 10.33.0 (Corepack can install the version declared by the project)
 
 ```sh
-git clone https://github.com/aiedwardyi/Orbit.git
+git clone https://github.com/aiedwardyi/Wink.git Orbit
 cd Orbit
 corepack enable
 pnpm install --frozen-lockfile

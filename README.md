@@ -4,7 +4,7 @@
 </h1>
 
 <p align="center">
-  <a href="https://github.com/aiedwardyi/Orbit/actions/workflows/ci.yml"><img src="https://github.com/aiedwardyi/Orbit/actions/workflows/ci.yml/badge.svg?branch=review-base" alt="CI"></a>
+  <a href="https://github.com/aiedwardyi/Wink/actions/workflows/ci.yml"><img src="https://github.com/aiedwardyi/Wink/actions/workflows/ci.yml/badge.svg?branch=review-base" alt="CI"></a>
   <a href="https://github.com/aiedwardyi/orbit-releases/releases/latest"><img src="https://img.shields.io/github/v/release/aiedwardyi/orbit-releases?label=release" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0 License"></a>
 </p>
@@ -165,7 +165,7 @@ Report vulnerabilities through [SECURITY.md](SECURITY.md).
 ## Build from source
 
 ```powershell
-git clone https://github.com/aiedwardyi/Orbit.git
+git clone https://github.com/aiedwardyi/Wink.git Orbit
 cd Orbit
 pnpm install --frozen-lockfile
 pnpm dev:desktop    # the desktop app
