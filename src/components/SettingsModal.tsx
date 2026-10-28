@@ -587,6 +587,7 @@ export function SettingsModal({
     dialog?.focus();
 
     const onKey = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && !dialog?.contains(event.target) && event.target.closest('[aria-modal="true"]')) return;
       if (event.key === "Escape") {
         event.preventDefault();
         dispatch({ type: "toggleAppSettings", open: false });

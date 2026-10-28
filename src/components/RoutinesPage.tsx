@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { BotAvatar } from "@/components/Avatar";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { WebhooksPanel } from "@/components/WebhooksPanel";
 import { cn } from "@/lib/cn";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
@@ -533,6 +534,7 @@ function RoutineDetails({
   const { t } = useI18n();
   const { dispatch, state } = useStore();
   const routine = item.routine;
+  const [confirmingDelete, setConfirmingDelete] = useState<Routine | null>(null);
   const run = item.run;
   const [working, setWorking] = useState(false);
   useBackLayer(!closing, onClose);
@@ -652,14 +654,29 @@ function RoutineDetails({
           <div className="flex-1" />
           {routine && canToggleRoutine(routine) && <button disabled={working} onClick={async () => { setWorking(true); setError(""); try { const response = await api(`/api/routines/${routine.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !routine.enabled }) }); dispatch({ type: "routinePatched", routine: response.routine }); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setWorking(false); } }} className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40">{routine.enabled ? <Pause size={14} /> : <Play size={14} />}{routine.enabled ? "Pause" : "Resume"}</button>}
           {routine && <button onClick={() => onEdit(routine)} className="rounded-xl px-3 py-2 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink">Edit</button>}
-          {routine && <button onClick={() => { if (!window.confirm(`Delete “${routine.name}”? Its past run receipts will stay in the calendar.`)) return; dispatch({ type: "deleteRoutine", routineId: routine.id }); onClose(); }} className="rounded-xl p-2 text-ink-secondary hover:bg-danger/10 hover:text-danger" title="Delete routine"><Trash2 size={16} /></button>}
+          {routine && <button onClick={() => setConfirmingDelete(routine)} className="rounded-xl p-2 text-ink-secondary hover:bg-danger/10 hover:text-danger" title={t("routine.delete")}><Trash2 size={16} /></button>}
         </div>
       </div>
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={t("routine.delete")}
+          body={t("routine.deleteConfirmHistory", { name: confirmingDelete.name })}
+          confirmLabel={t("chrome.delete")}
+          onCancel={() => setConfirmingDelete(null)}
+          onConfirm={() => {
+            setConfirmingDelete(null);
+            dispatch({ type: "deleteRoutine", routineId: confirmingDelete.id });
+            onClose();
+          }}
+        />
+      )}
     </div>
   );
 }
 
 function PausedRoutines({ routines, bots, closing, onClose, onEdit }: { routines: Routine[]; bots: Bot[]; closing: boolean; onClose: () => void; onEdit: (routine: Routine) => void }) {
+  const { t } = useI18n();
+  const [deleting, setDeleting] = useState<Routine | null>(null);
   useBackLayer(!closing, onClose);
   const { dispatch } = useStore();
   return (
@@ -678,12 +695,24 @@ function PausedRoutines({ routines, bots, closing, onClose, onEdit }: { routines
                 <div className="min-w-0 flex-1"><div className="truncate text-[14px] font-semibold text-ink">{routine.name}</div><div className="mt-0.5 truncate text-[11.5px] text-ink-secondary">{bot?.name ?? "Deleted bot"} · {scheduleLabel(routine)}</div></div>
                 {bot && <button onClick={() => dispatch({ type: "updateRoutine", routineId: routine.id, patch: { enabled: true } })} className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-accent-ink hover:brightness-110"><Play size={12} />Resume</button>}
                 <button onClick={() => onEdit(routine)} className="rounded-lg px-2 py-1.5 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink">Edit</button>
-                <button onClick={() => { if (!window.confirm(`Delete “${routine.name}”?`)) return; dispatch({ type: "deleteRoutine", routineId: routine.id }); }} className="rounded-lg p-2 text-ink-secondary hover:bg-danger/10 hover:text-danger" title="Delete routine"><Trash2 size={15} /></button>
+                <button onClick={() => setDeleting(routine)} className="rounded-lg p-2 text-ink-secondary hover:bg-danger/10 hover:text-danger" title={t("routine.delete")}><Trash2 size={15} /></button>
               </div>
             );
           })}
         </div>
       </div>
+      {deleting && (
+        <ConfirmDialog
+          title={t("routine.delete")}
+          body={t("routine.deleteConfirm", { name: deleting.name })}
+          confirmLabel={t("chrome.delete")}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => {
+            setDeleting(null);
+            dispatch({ type: "deleteRoutine", routineId: deleting.id });
+          }}
+        />
+      )}
     </div>
   );
 }
