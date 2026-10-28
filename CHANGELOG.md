@@ -2,6 +2,13 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.213] - 2026-10-28
+
+### Changed
+- Bot lists show Wink icons in a calm style; the open chat's header keeps the icon in full color. Uploaded photos and older icons look the same.
+- The avatar picker offers only the Wink icons, plus your own image.
+- Default-font themes use Geist for English text; Korean text keeps its current fonts.
+
 ## [1.0.212] - 2026-10-27
 
 ### Added
@@ -314,6 +321,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.213]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.213
 [1.0.212]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.212
 [1.0.211]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.211
 [1.0.210]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.210
