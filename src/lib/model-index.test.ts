@@ -215,9 +215,9 @@ describe("sourced data", () => {
     expect(scored.map((e) => [e.index, e.benchmark, e.effort, e.score, e.cost])).toEqual([
       ["coding", "aa-frontiercode", "high", 43.4532, undefined],
       ["general", "aa-gdpval", "high", 1623.99, 1.8192251097173668],
-      ["intelligence", "aa-intelligence-index", "high", 52.5605655745982, 1.990322379299008],
+      ["intelligence", "aa-intelligence-index", "high", 52.6, 1.990322379299008],
       ["agentic", "aa-terminal-bench", "high", 57.0707070707071, 6.780140181187823],
-      ["design", "lmarena-webdev", "high", 1678.1422029716816, undefined],
+      ["design", "lmarena-webdev", "high", 1674.1842418710726, undefined],
       ["security", "vals-cyberbench", "all", 77.857, 5.113798],
       ["legal", "vals-legalbench", "all", 88.299, 0.016117],
     ]);
