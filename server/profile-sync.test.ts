@@ -326,6 +326,12 @@ describe("profile sync operations", () => {
     const cleared = operation({ operationId: "avatar-clear", changes: { name: "Tutor", avatarAsset: null } });
     expect(cleared.changes).toMatchObject({ avatarAsset: null });
   });
+
+  it.each(["icon-31", "peach", null])("keeps supported avatar %s in the normal bot op", (mascotStyle) => {
+    const item = { entity: "bot" as const, entityId: "bot-1", changes: { name: "Tutor", mascotStyle } };
+    expect(ownOpSyncChanges(item)).toEqual([item]);
+    expect(syncOperationFileName(operation({ changes: item.changes }))).toMatch(/\.json$/);
+  });
 });
 
 describe("sync avatar assets", () => {
@@ -770,6 +776,41 @@ describe("automatic bot sync", () => {
     expect(read.invalidFiles).toEqual([]);
     const state = applySyncOperations(emptyProfileSyncState(), read.operations);
     expect(state.bots["g-a-tutor"]).toMatchObject({ name: "Coach", projectNotes: notes });
+    expect(state.conflicts).toEqual([]);
+    expect(publish(a)).toEqual([]);
+  });
+
+  it.each([false, true])("isolates extended avatars from older readers (new bot: %s)", (fresh) => {
+    const folder = mkdtempSync(join(tmpdir(), "orbit-profile-sync-style-"));
+    roots.push(folder);
+    const a = device("a");
+    const tutor = { name: "Tutor", changes: { name: "Tutor", color: "white", mascotStyle: "icon-31" } };
+    a.bots.set("tutor", tutor);
+    if (!fresh) for (const op of publish(a)) writeSyncOperation(folder, op);
+    const signature = syncOperationsSignature(folder);
+    Object.assign(tutor.changes, { name: "Coach", color: "blue", mascotStyle: "icon-36" });
+    for (const op of publish(a)) writeSyncOperation(folder, op);
+    expect(syncOperationsSignature(folder)).not.toBe(signature);
+    const names = readdirSync(join(folder, "changes"));
+    const invalidFiles: string[] = [];
+    const base = names.filter((name) => /\.(?:json|notes|paths|pin)$/.test(name)).flatMap((name) => {
+      try {
+        const op = parseSyncOperationText(readFileSync(join(folder, "changes", name), "utf8"));
+        if (op.changes?.mascotStyle === "icon-36") throw new Error("Unknown avatar id");
+        return [op];
+      } catch {
+        invalidFiles.push(name);
+        return [];
+      }
+    });
+    expect(invalidFiles).toEqual([]);
+    expect(applySyncOperations(emptyProfileSyncState(), base).bots["g-a-tutor"]).toMatchObject({ name: "Coach", color: "blue" });
+    expect(names.filter((name) => name.endsWith(".style"))).toHaveLength(1);
+    const read = readSyncOperations(folder);
+    expect(read.invalidFiles).toEqual([]);
+    expect(read.operations.filter((op) => op.changes?.mascotStyle === "icon-36").map((op) => op.changes)).toEqual([{ mascotStyle: "icon-36" }]);
+    const state = applySyncOperations(emptyProfileSyncState(), read.operations);
+    expect(state.bots["g-a-tutor"]).toMatchObject(tutor.changes);
     expect(state.conflicts).toEqual([]);
     expect(publish(a)).toEqual([]);
   });

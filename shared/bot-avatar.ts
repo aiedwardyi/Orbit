@@ -159,6 +159,9 @@ export const WINK_ICON_IDS = ["icon-31", "icon-32", "icon-33", "icon-34", "icon-
 /** Older ids stay valid and still render; the picker just stops offering them. */
 export const BOT_AVATAR_PICKER_ORDER = WINK_ICON_IDS;
 
+// Older sync and share readers reject these ids.
+export const EXTENDED_BOT_AVATAR_IDS: ReadonlySet<string> = new Set(["icon-36"] satisfies BotAvatarId[]);
+
 const BOT_AVATAR_ID_SET = new Set<string>(BOT_AVATAR_IDS);
 
 export function isBotAvatarId(value: BotAvatarChoice): value is BotAvatarId {
@@ -192,6 +195,10 @@ export function mascotStyleFromColor(color: string | null | undefined): MascotSt
     default:
       return "peach";
   }
+}
+
+export function portableBotAvatarChoice(style: BotAvatarChoice, color: string): BotAvatarChoice {
+  return EXTENDED_BOT_AVATAR_IDS.has(style) ? mascotStyleFromColor(color) : style;
 }
 
 /** Stored style wins; missing or junk ids color-map so old profiles stay valid. */
