@@ -1,21 +1,23 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { ERROR_CODES, ERROR_SITES } from "../shared/error-report.mjs";
+import { ERROR_SITES } from "../shared/error-report.mjs";
 import { trustedTerminalSender } from "./terminal-host.mjs";
 
 export function registerErrorReportIpc(ipc, reports, owner, origin) {
   const authorize = (event) => {
     if (!trustedTerminalSender(event, owner(), origin())) throw new Error("Untrusted error report caller");
   };
-  ipc.handle("error-reports:get", (event) => { authorize(event); return reports.consent(); });
+  ipc.handle("error-reports:get", (event) => { authorize(event); return reports.available() ? reports.consent() : null; });
   ipc.handle("error-reports:set", (event, value) => { authorize(event); return reports.setConsent(value); });
   ipc.on("error-reports:capture", (event, site) => {
-    authorize(event);
+    if (!trustedTerminalSender(event, owner(), origin())) return;
     if (site === ERROR_SITES.rendererError || site === ERROR_SITES.rendererRejection) reports.capture({ process: "renderer", code: "UNKNOWN_ERROR", site });
   });
 }
 
-export function installErrorReportCapture(app, reports) {
-  app.on("render-process-gone", (_event, _contents, details) => reports.capture({ process: "renderer", code: "RENDERER_GONE", site: ERROR_SITES.rendererGone, exitCode: details?.exitCode }));
+export function installErrorReportCapture(app, reports, owner) {
+  app.on("render-process-gone", (_event, contents, details) => {
+    if (contents === owner() && details.reason !== "clean-exit") reports.capture({ process: "renderer", code: "RENDERER_GONE", site: ERROR_SITES.rendererGone, exitCode: details.exitCode });
+  });
 }
 
 export async function handleServerErrorReport(req, res, token, reports) {
@@ -35,7 +37,7 @@ export async function handleServerErrorReport(req, res, token, reports) {
         chunks.push(chunk);
       }
       const input = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      if (Object.keys(input).length === 2 && ERROR_CODES.includes(input.code) && ["SERVER_RUNTIME_FAILURE", "UNKNOWN_ERROR"].includes(input.code) && input.site === ERROR_SITES.serverRuntime) {
+      if (Object.keys(input).length === 2 && input.code === "SERVER_RUNTIME_FAILURE" && input.site === ERROR_SITES.serverRuntime) {
         reports.capture({ process: "server", code: input.code, site: input.site });
         status = 204;
       }

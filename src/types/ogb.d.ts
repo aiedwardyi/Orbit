@@ -357,7 +357,7 @@ type SkillRecordingPayload = {
       /** Writes the redacted diagnostics report to a user-chosen file;
        * resolves the path, or null when cancelled. */
       exportDiagnostics?(): Promise<string | null>;
-      errorReportConsent?(): Promise<boolean>;
+      errorReportConsent?(): Promise<boolean | null>;
       setErrorReportConsent?(enabled: boolean): Promise<boolean>;
       captureErrorReport?(site: number): void;
       /** Opens a local file in its default app, or reveals it when its

@@ -19,6 +19,7 @@ function quitFixture(pendingUpdateInstall = true) {
   assert.ok(cleanup.startsWith("const CUA_STOP_TIMEOUT_MS ="));
   runInNewContext(cleanup, {
     app, process: { once() {} }, closeGuard: { leave() {} }, keepAwake: { stop() {} }, nativeActions: {}, stopRecorder() {},
+    errorReports: { stop() {} },
     BrowserWindow: { getAllWindows: () => [0, 1, 2].map((id) => ({ isDestroyed: () => id === 2, hide: () => calls.push(`hide-${id}`) })) },
     terminalHost: { dispose() { calls.push("dispose"); return disposed; } }, browserSurface: null, serverProc: null,
     stopUtilityChild: async () => {}, stopCua: async () => {}, browserHost: null, terminalBridge: { close: async () => {} }, stopDesktopCompanion: async () => {},

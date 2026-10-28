@@ -50,7 +50,7 @@ import {
   withToastCapability,
 } from "./desktop-notify.mjs";
 import { pollServerIdentity } from "./server-boot-probe.mjs";
-import { createErrorReports } from "./error-reports.mjs";
+import { createErrorReports, errorReportDsn } from "./error-reports.mjs";
 import { installErrorReportCapture, registerErrorReportIpc } from "./error-report-capture.mjs";
 import { ERROR_SITES } from "../shared/error-report.mjs";
 import {
@@ -161,9 +161,9 @@ function deliverNotificationTarget(win, target = pendingNotificationTarget) {
   if (target === pendingNotificationTarget) pendingNotificationTarget = null;
 }
 let mainWindow = null;
-const errorReports = createErrorReports({ userData: app.getPath("userData"), dsn: require("./error-report-config.json").dsn, build: require("../package.json").version, platform: process.platform, arch: process.arch });
+const errorReports = createErrorReports({ userData: app.getPath("userData"), dsn: errorReportDsn(() => require("./error-report-config.json")), build: require("../package.json").version, platform: process.platform, arch: process.arch });
 registerErrorReportIpc(ipcMain, errorReports, () => mainWindow?.webContents, () => app.isPackaged ? `http://127.0.0.1:${SERVER_PORT}` : new URL(DEV_URL).origin);
-installErrorReportCapture(app, errorReports);
+installErrorReportCapture(app, errorReports, () => mainWindow?.webContents);
 onUpdaterFailure(errorReports.capture);
 // Startup owns the first window; activation before it only queues targets for that window's load.
 let startupWindowCreated = false;
@@ -957,9 +957,10 @@ async function startServerOn(port) {
   proc.stderr?.on("data", (d) => slog(`[err] ${String(d).trimEnd()}`));
   proc.once("spawn", () => slog(`spawned pid=${proc.pid}`));
   let exited = false;
+  let killed = false;
   proc.once("exit", (code) => {
     exited = true;
-    errorReports.capture({ process: "server", code: "SERVER_GONE", site: ERROR_SITES.serverGone, exitCode: code });
+    if (!killed) errorReports.capture({ process: "server", code: "SERVER_GONE", site: ERROR_SITES.serverGone, exitCode: code });
     if (serverProc === proc) {
       serverToken = null;
       appAuthorization.bind(`http://127.0.0.1:${port}`, null);
@@ -1002,6 +1003,7 @@ async function startServerOn(port) {
     );
   }
   try {
+    killed = true;
     proc.kill();
   } catch {}
   return { proc: null, reason: identity.outcome };
@@ -1699,6 +1701,7 @@ function createWindow() {
   });
   win.on("query-session-end", () => closeGuard.leaveBriefly());
   win.on("session-end", () => closeGuard.leave());
+  win.on("session-end", () => errorReports.stop());
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     const open = safeExternalUrl(url);

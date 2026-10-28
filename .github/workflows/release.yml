@@ -90,6 +90,10 @@ jobs:
           WINK_TEAM_RELAY: ${{ vars.WINK_TEAM_RELAY }}
           WINK_TEAM_OWNER: ${{ secrets.WINK_TEAM_OWNER }}
         run: node scripts/write-google-client.mjs
+      - name: Bake the error report destination
+        env:
+          ERROR_REPORT_DSN: ${{ vars.ERROR_REPORT_DSN }}
+        run: node scripts/write-error-report-config.mjs
       - run: pnpm package:win
       - name: Verify the packaged tree and start the packaged server
         shell: bash

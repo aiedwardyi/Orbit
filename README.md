@@ -93,8 +93,6 @@ Engine logins stay in each CLI's own store. Wink drives the CLI with the session
 
 Wink has no analytics. This is everything it listens on, sends and stores.
 
-Opt-in error reports contain only app version, OS/architecture, fixed process/error/site codes, bounded counts/exit codes/uptime bucket, UTC hour and a random report ID; off by default.
-
 **Listens** (this PC only)
 
 - `127.0.0.1:8799` for the app (falls back to 18799, then 28799), behind a per-launch token and a Host/Origin check. The token lives in memory, and in a Claude turn's temp config until that turn ends.
@@ -110,6 +108,7 @@ Opt-in error reports contain only app version, OS/architecture, fixed process/er
 
 **Sends once you set something up**
 
+- Opt-in error reports go to the GlitchTip host in the build's `ERROR_REPORT_DSN` (no host is configured in this repo), at most 5 uploads per PC per UTC day, off by default. They contain only app version, OS/architecture, fixed process/error/site codes, bounded counts/exit codes/uptime bucket, UTC hour and a random report ID. The host sees the PC's IP address.
 - Phone relay, after you paste a setup code: a connection to your relay at every launch. TLS runs end to end between phone and PC, so the relay passes bytes it can't read. Wink also gets this PC's certificate from Let's Encrypt and checks crt.sh daily for certificates issued for its relay name.
 - Phone notifications, once you allow them on the phone, go out encrypted through the phone browser's push service.
 - Sync writes only to the folder you choose.
@@ -126,6 +125,7 @@ Opt-in error reports contain only app version, OS/architecture, fixed process/er
 
 - `~/.orbit` (or `OMB_DATA_DIR`): bots, chats (`messages.db`), each bot's `MEMORY.md`, task records, attachments, redacted engine event logs, phone pairing keys, a decision log, and checkpoints (a shadow git snapshot before each turn in a project folder). `orbit-msg` lives in `~/.orbit/bin`.
 - `%APPDATA%\orbit-desktop`: Wink's own API keys in `credentials.bin`, encrypted with the Windows credential store through Electron `safeStorage`, the updater's install ID, and logs. It also holds Electron's browser data: local storage (UI settings and unsent drafts), plus the cookies and logins of the bots' built-in browser and of the windows that open your other PCs.
+- In the same userData folder: `error-report-consent.json` (consent), `error-report-queue.json` (pending reports), `error-report-budget.json` (daily upload count and backoff), and `error-report-active` (previous-run marker). These files are not synced by Wink.
 - Outside those, only while needed: `~/.gemini/config/mcp_config.json` during Antigravity turns (restored after) and a temp `mcp.json` per Claude turn (deleted after). Picking a local model for Grok adds it to `~/.grok/config.toml`, with that server's API key if it has one, and the entry stays.
 
 **Approvals**

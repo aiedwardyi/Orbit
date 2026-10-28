@@ -28,7 +28,7 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall, on
   const routedErrors = new WeakSet();
 
   const routeError = (manual, error) => {
-    onFailure();
+    if (manual) onFailure();
     if (error instanceof Error) routedErrors.add(error);
     if (downloadOperation) downloadOperation.failed = true;
     if (checkOperation) checkOperation.failed = true;

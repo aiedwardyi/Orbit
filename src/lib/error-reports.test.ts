@@ -2,6 +2,15 @@
 import { expect, it, vi } from "vitest";
 import { installRendererErrorReports } from "./error-reports";
 
+it("skips renderer notices without an Error object", () => {
+  const captureErrorReport = vi.fn();
+  const target = new EventTarget() as Window;
+  Object.assign(target, { ogb: { captureErrorReport } });
+  installRendererErrorReports(target);
+  target.dispatchEvent(new ErrorEvent("error", { message: "ResizeObserver loop completed with undelivered notifications." }));
+  expect(captureErrorReport).not.toHaveBeenCalled();
+});
+
 it("forwards only compiled numeric sites for error and rejection events", () => {
   const captureErrorReport = vi.fn();
   const target = new EventTarget() as Window;

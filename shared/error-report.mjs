@@ -6,7 +6,7 @@ const PROCESSES = ["main", "renderer", "server"];
 const FIELDS = ["schema", "build", "platform", "arch", "process", "code", "site", "exitCode", "count", "uptimeBucket", "utcHour", "reportId"];
 const integer = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
 
-export function errorCode(value) {
+function errorCode(value) {
   return ERROR_CODES.includes(value) ? value : "UNKNOWN_ERROR";
 }
 

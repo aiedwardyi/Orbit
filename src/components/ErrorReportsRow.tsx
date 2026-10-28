@@ -4,7 +4,7 @@ import { Card } from "./SettingsPrimitives";
 
 export function ErrorReportsRow() {
   const { t } = useI18n();
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabled] = useState<boolean | null>(false);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
@@ -14,7 +14,7 @@ export function ErrorReportsRow() {
     }).catch(() => {});
     return () => { gone = true; };
   }, []);
-  if (!window.ogb?.setErrorReportConsent) return null;
+  if (!window.ogb?.setErrorReportConsent || enabled === null) return null;
   const toggle = async () => {
     if (saving || !ready) return;
     setSaving(true);

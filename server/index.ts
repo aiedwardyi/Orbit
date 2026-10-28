@@ -161,7 +161,7 @@ import "./send-deliver.ts";
 import {
   SendSequencer,
 } from "./send-idempotency.ts";
-import { EventBus } from "./harness/bus.ts";
+import { EventBus, INCOMPLETE_LOG_MESSAGE } from "./harness/bus.ts";
 import { ProviderReload } from "./harness/provider-reload.ts";
 import { ProviderRegistry } from "./harness/registry.ts";
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, type ApprovalBus } from "./peer-approval.ts";
@@ -3632,7 +3632,7 @@ bus.subscribe((event: RuntimeEvent) => {
       });
       break;
     case "runtime.error":
-      void reportServerFailure(terminalBridgeAccess);
+      if (event.message === INCOMPLETE_LOG_MESSAGE) void reportServerFailure(terminalBridgeAccess);
       unreadTurns.start(event.threadId, event.turnId, store.messagesFor(event.threadId));
       pushMessage({
         role: "bot",

@@ -7,6 +7,19 @@ import { ErrorReportsRow } from "./ErrorReportsRow";
 
 afterEach(() => { delete window.ogb; localStorage.setItem("omb-locale", "en"); });
 
+it("hides the row when reporting is unavailable", async () => {
+  Object.defineProperty(window, "ogb", { value: { errorReportConsent: async () => null, setErrorReportConsent: vi.fn() }, configurable: true });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(ErrorReportsRow))));
+    expect(host.textContent).toBe("");
+    expect(host.querySelector("button")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 it("starts unchecked, reads local consent and changes it only on an explicit click", async () => {
   let resolve: (value: boolean) => void = () => {};
   const errorReportConsent = vi.fn(() => new Promise<boolean>((done) => { resolve = done; }));

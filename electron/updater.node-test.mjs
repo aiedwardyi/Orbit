@@ -222,7 +222,8 @@ test("updater failures report fixed code and site without the error", async (t) 
   const h = launch(t);
   const reports = [];
   h.api.onUpdaterFailure((report) => reports.push(JSON.parse(JSON.stringify(report))));
-  h.updater.emit("error", new Error("비밀 C:\\사용자\\민수\\비밀.txt secret-token"));
+  h.updater.checkForUpdates = () => { h.updater.emit("error", new Error("비밀 C:\\사용자\\민수\\비밀.txt secret-token")); };
+  await h.api.updaterBridge.check(true);
   assert.deepEqual(reports, [{ process: "main", code: "UPDATE_FAILED", site: ERROR_SITES.updaterFailure }]);
 });
 

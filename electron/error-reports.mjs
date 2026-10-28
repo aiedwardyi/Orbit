@@ -26,6 +26,14 @@ function read(file) {
   return null;
 }
 
+export function errorReportDsn(readBaked) {
+  try {
+    const value = readBaked();
+    if (typeof value?.dsn === "string") return value.dsn;
+  } catch {}
+  return "";
+}
+
 export function createErrorReports({ userData, dsn, build, platform, arch, now = Date.now, uptime = process.uptime }) {
   const pref = path.join(userData, "error-report-consent.json");
   const queue = path.join(userData, "error-report-queue.json");
@@ -41,6 +49,7 @@ export function createErrorReports({ userData, dsn, build, platform, arch, now =
   let pending;
   let started = false;
   let stopped = false;
+  let dirty = false;
   const consent = () => {
     const value = read(pref);
     return value?.schema === 1 && value.enabled === true;
@@ -48,6 +57,7 @@ export function createErrorReports({ userData, dsn, build, platform, arch, now =
   const purge = () => {
     active?.abort();
     records = [];
+    dirty = false;
     fs.rmSync(queue, { force: true });
     fs.rmSync(marker, { force: true });
   };
@@ -65,13 +75,13 @@ export function createErrorReports({ userData, dsn, build, platform, arch, now =
       && Number.isFinite(item.next) && item.next >= 0 && item.next <= time + TTL)
       .map(({ report, created, attempts, next }) => ({ report, created, attempts, next }));
     const day = Math.floor(time / DAY);
-    state = { day, uploads: state.day === day && Number.isInteger(state.uploads) ? Math.max(0, Math.min(5, state.uploads)) : 0, nextUpload: Number.isFinite(state.nextUpload) ? Math.max(0, Math.min(time + TTL, state.nextUpload)) : 0, records };
-    while (records.length > 100 || Buffer.byteLength(JSON.stringify(state)) > MAX_BYTES) records.shift();
+    state = { day, uploads: state.day === day && Number.isInteger(state.uploads) ? Math.max(0, Math.min(5, state.uploads)) : 0, nextUpload: Number.isFinite(state.nextUpload) ? Math.max(0, Math.min(time + TTL, state.nextUpload)) : 0 };
+    records = records.slice(-100);
   };
   const save = () => {
-    trim();
-    atomic(budget, { day: state.day, uploads: state.uploads, nextUpload: state.nextUpload });
-    atomic(queue, state);
+    atomic(budget, state);
+    atomic(queue, { records });
+    dirty = false;
   };
   const capture = (input) => {
     try {
@@ -81,25 +91,29 @@ export function createErrorReports({ userData, dsn, build, platform, arch, now =
       if (!report) return;
       const existing = records.find((item) => !item.attempts && item.report.code === report.code && item.report.site === report.site && item.report.build === report.build && item.report.platform === report.platform);
       if (existing) existing.report.count = Math.min(10000, existing.report.count + 1);
-      else records.push({ report, created: now(), attempts: 0, next: now() });
-      save();
+      else records = [...records, { report, created: now(), attempts: 0, next: now() }].slice(-100);
+      dirty = true;
     } catch {}
   };
   const flushOne = async () => {
     try {
       if (!enabled()) return;
+      const size = records.length;
       trim();
+      if (records.length !== size) dirty = true;
       const item = records.find((record) => record.next <= now());
-      if (!item || state.uploads >= 5 || state.nextUpload > now()) return save();
+      if (!item || state.uploads >= 5 || state.nextUpload > now()) {
+        if (dirty) save();
+        return;
+      }
       item.attempts += 1;
       state.uploads += 1;
       const backoff = Math.min(6 * 3600000, 30000 * 2 ** (item.attempts - 1) * (1 + Math.random() * 0.25));
       item.next = now() + backoff;
       state.nextUpload = item.next;
+      // Persist the attempt before opening a socket; outcomes wait for the next flush or quit.
       save();
       active = new AbortController();
-      // Recheck after persisting the attempt, immediately before opening a socket.
-      if (!enabled()) return;
       const result = await postErrorReport(endpoint, item.report, active.signal);
       if (!enabled()) return;
       if (result.status >= 200 && result.status < 300 || result.status >= 300 && result.status < 500 && ![408, 429].includes(result.status)) {
@@ -112,7 +126,7 @@ export function createErrorReports({ userData, dsn, build, platform, arch, now =
         if (retained) retained.next = item.next;
         state.nextUpload = item.next;
       }
-      save();
+      dirty = true;
     } catch {} finally {
       active = null;
     }
@@ -121,12 +135,14 @@ export function createErrorReports({ userData, dsn, build, platform, arch, now =
   const mark = () => { if (started && enabled()) atomic(marker, 1); };
   try { enabled(); } catch {}
   return {
-    consent, capture, flush,
+    consent, capture, flush, available: () => Boolean(endpoint),
     setConsent(value) {
       if (typeof value !== "boolean") throw new Error("Invalid error report consent");
       atomic(pref, { schema: 1, enabled: value });
-      if (!value) purge();
-      else mark();
+      try {
+        if (!value) purge();
+        else mark();
+      } catch {}
       return consent();
     },
     start() {
@@ -141,11 +157,12 @@ export function createErrorReports({ userData, dsn, build, platform, arch, now =
       timer = setInterval(() => void flush(), 30000);
       timer.unref();
     },
-    stop(clean = true) {
+    stop() {
+      try { if (dirty && enabled()) { trim(); save(); } } catch {}
       stopped = true;
       clearInterval(timer);
       active?.abort();
-      try { if (clean) fs.rmSync(marker, { force: true }); } catch {}
+      try { fs.rmSync(marker, { force: true }); } catch {}
     },
   };
 }

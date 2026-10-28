@@ -3,14 +3,15 @@ import { describe, expect, it } from "vitest";
 
 import type { RuntimeEvent } from "./contracts.ts";
 import type { Message } from "./store.ts";
+import { INCOMPLETE_LOG_MESSAGE } from "./harness/bus.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 const branch = source.split('case "runtime.error":')[1].split('case "thread.token-usage.updated":')[0];
 
 function errorRow(event: Extract<RuntimeEvent, { type: "runtime.error" }>) {
   const rows: Message[] = [];
-  const run = new Function("event", "unreadTurns", "store", "pushMessage", "bot", "reportServerFailure", "terminalBridgeAccess", branch.replace(/break;\s*$/, ""));
-  run(event, { start() {} }, { messagesFor: () => [] }, (row: Message) => rows.push(row), null, () => {}, null);
+  const run = new Function("event", "unreadTurns", "store", "pushMessage", "bot", "reportServerFailure", "terminalBridgeAccess", "INCOMPLETE_LOG_MESSAGE", branch.replace(/break;\s*$/, ""));
+  run(event, { start() {} }, { messagesFor: () => [] }, (row: Message) => rows.push(row), null, () => {}, null, INCOMPLETE_LOG_MESSAGE);
   return rows[0];
 }
 
