@@ -3,7 +3,7 @@
   "version": "1.1",
   "index": "security",
   "label": "Vals.ai CyberBench 1.1 (overall accuracy)",
-  "updated": "2026-10-12",
+  "updated": "2026-10-20",
   "rows": [
     {
       "model": "claude-fable-5-1",
@@ -13,7 +13,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -24,7 +24,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -35,7 +35,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -46,7 +46,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -57,18 +57,18 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
       "model": "gemini-3.8-flash",
       "effort": "all",
       "value": 43.75,
-      "cost_per_task": 1.305189,
+      "cost_per_task": 1.963581,
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -79,7 +79,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -90,7 +90,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -101,7 +101,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -112,7 +112,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -123,7 +123,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -134,7 +134,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -145,7 +145,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     },
     {
@@ -156,7 +156,7 @@
       "cost_benchmark": "vals-cyberbench",
       "cost_source": "https://www.vals.ai/benchmarks/cyber",
       "source_url": "https://www.vals.ai/benchmarks/cyber",
-      "retrieved_at": "2026-10-19T14:46:26.266Z",
+      "retrieved_at": "2026-10-28T01:57:06.616Z",
       "kind": "independent"
     }
   ]

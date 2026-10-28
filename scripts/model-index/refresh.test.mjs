@@ -3,12 +3,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { expect } from "vitest";
 import * as lmarena from "./fetch-lmarena.mjs";
 import * as listPrices from "./fetch-list-prices.mjs";
 import * as vals from "./fetch-vals.mjs";
 import { percent, sourceIds, sourcesDir, Unverifiable, writeSnapshot } from "./lib.mjs";
 import { diffSnapshots, refresh } from "./refresh.mjs";
+
+const { describe, it } = process.env.NODE_TEST_CONTEXT ? await import("node:test") : await import("vitest");
 
 const fixture = (name) => readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", name), "utf8");
 const arenaRows = () => lmarena.parseRows(fixture("lmarena-webdev.json")).rows;
@@ -386,8 +388,9 @@ describe("refresh run state", () => {
       throw new Error("offline");
     };
     try {
-      const first = await refresh("2026-10-11");
-      const second = await refresh("2026-10-11");
+      const credentials = { apiKey: "", keyFile: join(tmpdir(), "wink-MODEL-REFRESH", "no-key") };
+      const first = await refresh("2026-10-11", credentials);
+      const second = await refresh("2026-10-11", credentials);
       expect(first.out.join("\n")).not.toMatch(/already fetched/);
       expect(second.out.join("\n")).not.toMatch(/already fetched/);
       expect(second.out.join("\n")).toMatch(/offline/);

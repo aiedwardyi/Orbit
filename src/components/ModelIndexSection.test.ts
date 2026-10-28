@@ -15,6 +15,7 @@ import { ModelIndexSection } from "./ModelIndexSection";
 
 let root: Root;
 let host: HTMLElement;
+let savedCosts: Array<number | undefined>;
 
 const tab = () => host.querySelector('[role="radio"][aria-checked="true"]')?.textContent;
 const group = (label: string) => host.querySelector(`[role="radiogroup"][aria-label="${label}"]`);
@@ -36,6 +37,11 @@ const press = (target: EventTarget, init: KeyboardEventInit = {}) => {
 };
 
 beforeEach(async () => {
+  savedCosts = MODEL_INDEX_ENTRIES.map((entry) => entry.cost);
+  // Layout tests need priced fixtures even when a live refresh leaves costs pending.
+  MODEL_INDEX_ENTRIES.forEach((entry, i) => {
+    if (entry.index === "intelligence" && entry.cost === undefined) entry.cost = (i + 1) / 10;
+  });
   applyLocale("en");
   host = document.createElement("div");
   document.body.append(host);
@@ -45,6 +51,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  MODEL_INDEX_ENTRIES.forEach((entry, i) => { entry.cost = savedCosts[i]; });
   document.body.innerHTML = "";
 });
 
@@ -271,6 +278,52 @@ describe("promo price on the cost tab", () => {
 });
 
 describe("score vs cost", () => {
+  it("plots Intelligence with committed run costs without layout fixtures", async () => {
+    MODEL_INDEX_ENTRIES.forEach((entry, i) => { entry.cost = savedCosts[i]; });
+    await mount();
+    const opus = MODEL_INDEX_ENTRIES.find((entry) => entry.index === "intelligence" && entry.model === "claude-opus-5-5" && entry.effort === "max")!;
+    expect(opus.cost).toBeGreaterThan(0);
+    expect(chosen("Chart")).toBe("Score vs Cost");
+    expect(host.querySelector('[aria-label="Claude Opus 5.5 max"]')).not.toBeNull();
+    expect(host.textContent).toContain("Cost per task, AA Intelligence Index");
+    expect(host.innerHTML).not.toMatch(/NaN|Infinity/);
+  });
+
+  it("falls back to Ranked when every cost awaits a hand check", async () => {
+    for (const row of MODEL_INDEX_ENTRIES.filter((entry) => entry.index === "intelligence")) row.cost = undefined;
+    await mount();
+    expect(chosen("Chart")).toBe("Ranked");
+    expect([...group("Chart")!.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((el) => el.textContent === "Score vs Cost")!.disabled).toBe(true);
+    expect(host.querySelectorAll('[tabindex="0"]').length).toBeGreaterThan(0);
+    expect(host.innerHTML).not.toMatch(/NaN|Infinity/);
+  });
+
+  it("plots priced rows and keeps unpriced scores and tooltips available in Ranked", async () => {
+    const low = MODEL_INDEX_ENTRIES.find((row) => row.index === "intelligence" && row.model === "claude-opus-5-5" && row.effort === "low")!;
+    const max = MODEL_INDEX_ENTRIES.find((row) => row.index === "intelligence" && row.model === "claude-opus-5-5" && row.effort === "max")!;
+    const costs = [low.cost, max.cost];
+    low.cost = undefined;
+    max.cost = 1.25;
+    try {
+      await mount();
+      expect(chosen("Chart")).toBe("Score vs Cost");
+      const priced = host.querySelector<SVGElement>('[aria-label="Claude Opus 5.5 max"]')!;
+      act(() => priced.focus());
+      expect(host.querySelector('[role="tooltip"]')?.textContent).toContain("Cost per task$1.25");
+      expect(host.innerHTML).not.toMatch(/NaN|Infinity/);
+      pick("Chart", "Ranked");
+      const unpriced = [...host.querySelectorAll<HTMLElement>('[tabindex="0"]')].find((el) => el.textContent?.startsWith("Claude Opus 5.5low"))!;
+      expect(unpriced).toBeDefined();
+      act(() => unpriced.focus());
+      const tip = host.querySelector('[role="tooltip"]')?.textContent ?? "";
+      expect(tip).toContain("Cost per task-");
+      expect(tip).toContain("Price per 1M, in / out$4 / $20");
+      expect(tip).not.toMatch(/undefined|NaN|Infinity/);
+    } finally {
+      [low.cost, max.cost] = costs;
+    }
+  });
+
   it("draws Legal against each model's cost per test", () => {
     pick("Benchmark", "Legal");
     expect(group("Chart")!.querySelector<HTMLButtonElement>('[role="radio"]')!.disabled).toBe(false);
@@ -384,13 +437,16 @@ describe("score vs cost axis", () => {
 
   it("spans the cheapest to the dearest cost per task, with a one-line caption, at the narrowest desktop width", async () => {
     await rebuild(454);
-    const usd = (model: string, effort: string) => MODEL_INDEX_ENTRIES.find((e) => e.index === "intelligence" && e.model === model && e.effort === effort)!.cost!;
     const labels = ticks().map((tick) => tick.label);
     const values = labels.map((label) => Number(label.slice(1)));
     expect(labels.join(), "no k suffix").not.toMatch(/k/);
     expect(values.every(Number.isFinite), labels.join()).toBe(true);
-    expect(values[0]!).toBeLessThanOrEqual(usd("gpt-6-luna", "low"));
-    expect(values[values.length - 1]!).toBeGreaterThanOrEqual(usd("claude-fable-5", "max"));
+    const axis = host.querySelector<SVGLineElement>("line[x1][y1]")!;
+    const xs = [...host.querySelectorAll<SVGElement>('circle[tabindex="0"][aria-label]')]
+      .map((dot) => Number(dot.closest<SVGElement>("[data-mi-move]")!.style.transform.match(/translate\(([\d.]+)px/)?.[1]));
+    expect(xs.length).toBeGreaterThan(1);
+    expect(Math.min(...xs)).toBeGreaterThan(Number(axis.getAttribute("x1")));
+    expect(Math.max(...xs)).toBeLessThan(Number(axis.getAttribute("x2")));
     expect(caption().querySelectorAll("tspan")).toHaveLength(0);
   });
 

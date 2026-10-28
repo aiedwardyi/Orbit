@@ -179,7 +179,7 @@ export function buildSnapshot({ pages, models, previous }) {
 export async function fetchSnapshot() {
   const pages = {};
   for (const [vendor, url] of Object.entries(PAGES)) {
-    const { text, retrievedAt } = await get(url);
+    const { text, retrievedAt } = await get(vendor === "google" ? `${url}?hl=en` : url);
     saveRaw(`list-prices-${vendor}`, text, "html");
     pages[vendor] = { html: text, retrievedAt };
   }

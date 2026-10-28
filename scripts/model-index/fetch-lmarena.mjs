@@ -2,7 +2,7 @@
 import { pathToFileURL } from "node:url";
 import { get, readModels, readSnapshot, saveRaw, sortRows, sourceIds, Unverifiable, writeSnapshot } from "./lib.mjs";
 
-const API_URL = "https://datasets-server.huggingface.co/filter?dataset=lmarena-ai/leaderboard-dataset&config=webdev&split=latest&where=%22category%22%3D%27overall%27";
+const API_URL = "https://datasets-server.huggingface.co/rows?dataset=lmarena-ai/leaderboard-dataset&config=webdev&split=latest";
 export const PAGE_URL = "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest";
 const PAGE_SIZE = 100;
 const FEATURES = ["category", "leaderboard_publish_date", "license", "model_name", "organization", "rank", "rating", "rating_lower", "rating_upper", "variance", "vote_count"];
@@ -70,7 +70,7 @@ export async function fetchSnapshot() {
     const parsed = parseRows(page.text);
     total = parsed.total;
     retrievedAt ??= page.retrievedAt;
-    rows.push(...parsed.rows);
+    rows.push(...parsed.rows.filter((row) => row.category === "overall"));
   }
   return buildSnapshot({ rows, models: readModels(), retrievedAt, previous: readSnapshot("lmarena-webdev") });
 }
