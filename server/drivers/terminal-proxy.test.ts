@@ -13,6 +13,7 @@ import { TOOLS, WORKER_GEMINI_EFFORTS, WORKER_GEMINI_FAMILIES, callTool, claudeS
 const CONFIG = { host: "http://127.0.0.1:1", token: "grant", botId: "bot-1" };
 const BUSY = "● Working on it\n✽ Undulating… (3s · ↓ 75 tokens · thought for 2s)\n────────────────────\n❯\n────────────────────";
 const IDLE = "● pong\n✻ Sautéed for 5s · done 11:34 PM\n──⏸─manual─mode─on──────────\n❯\n────────────────────";
+const CODEX_MENU = "Select Model and Effort\n› 1. GPT-6.1-Sol (current)\n  2. GPT-6-Astra\n\n  enter select · esc back";
 
 type FetchMock = Mock<(url: string | URL | Request, init?: RequestInit) => Promise<Response>>;
 
@@ -492,6 +493,25 @@ describe("terminal proxy", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("esc would interrupt the running Claude turn");
     expect(posted(fetchImpl)).toEqual([]);
+  });
+
+  it.each([
+    ["up", "\x1b[A", "continue\n"],
+    ["down", "\x1b[B", "2"],
+    ["enter", "\r", "\n"],
+    ["esc", "\x1b", "cancel"],
+  ])("refuses text in a Codex selection menu and accepts key %s", async (key, bytes, text) => {
+    const fetchImpl = scripted({ screenText: "›" }, { screenText: CODEX_MENU });
+    const result = await send(fetchImpl, { text, sessionId: "s1", generation: 2 });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("key (up, down, enter, esc)");
+    expect(posted(fetchImpl)).toEqual([]);
+    const keyed = scripted({ screenText: CODEX_MENU });
+    expect((await send(keyed, { key, sessionId: "s1", generation: 2 })).isError).toBeUndefined();
+    expect(posted(keyed)).toEqual([bytes]);
+    const prompt = scripted({ screenText: "1. First task\n2. Second task\n›" });
+    expect((await send(prompt, { text: "continue", sessionId: "s1", generation: 2 })).isError).toBeUndefined();
+    expect(posted(prompt)).toEqual(["continue"]);
   });
 
   it("sends esc when the Claude pane is idle", async () => {
