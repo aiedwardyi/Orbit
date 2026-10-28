@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const XAI_SECRET = "xai-plaintext-secret";
 const COMPOSIO_SECRET = "ak_plaintext_installation_identity";
 
-const h = vi.hoisted(() => ({ home: "", encryptionAvailable: true, writes: [] }));
+const h = vi.hoisted(() => ({ home: "", encryptionAvailable: true, writes: [], packaged: true }));
 
 // speech.mjs resolves its packaged helper bundle from this at import time.
 process.resourcesPath ??= path.join(os.tmpdir(), "orbit-boot-credentials-resources");
@@ -31,7 +31,7 @@ vi.mock("electron", () => {
   // turns whichever branch this runner does not take into a red CI job.
   const app = new Proxy(
     {
-      isPackaged: true,
+      get isPackaged() { return h.packaged; },
       // slog() swallows its own failures, and an ENOTDIR log path keeps it
       // from holding a write stream open in a temp dir each test deletes.
       getPath: (name) => (name === "logs" ? path.join(configPath(), "logs") : path.join(h.home, name)),
@@ -97,6 +97,7 @@ describe("packaged boot credential migration", () => {
   beforeEach(() => {
     h.home = fs.mkdtempSync(path.join(os.tmpdir(), "orbit-boot-credentials-"));
     h.encryptionAvailable = true;
+    h.packaged = true;
     h.writes = [];
     fs.mkdirSync(path.join(h.home, "data"), { recursive: true });
     fs.writeFileSync(
@@ -111,6 +112,8 @@ describe("packaged boot credential migration", () => {
     if (previousDataDir === undefined) delete process.env.OMB_DATA_DIR;
     else process.env.OMB_DATA_DIR = previousDataDir;
     fs.rmSync(h.home, { recursive: true, force: true });
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("encrypts the xai and composio keys before config.json loses them", async () => {
@@ -154,5 +157,35 @@ describe("packaged boot credential migration", () => {
 
     expect(document).toEqual({ xaiApiKey: XAI_SECRET });
     expect(fs.existsSync(credentialsPath())).toBe(false);
+  });
+
+  it("hydrates saved encrypted keys into the development harness on startup without booting a server", async () => {
+    h.packaged = false;
+    vi.stubEnv("OMB_COMMS_TOKEN", "test-dev-token");
+    vi.stubEnv("OMB_PORT", "18999");
+    fs.writeFileSync(configPath(), JSON.stringify({ xai: { key: "" }, tts: { key: "" } }));
+    const fetchMock = vi.fn(async () => ({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.resetModules();
+    const main = await import("./main.mjs");
+    const customKey = { name: "Acme", header: "authorization", prefix: "Bearer ", key: "test-custom-key" };
+    main.openSecureCredentialDocument({
+      xaiApiKey: XAI_SECRET, ttsKey: "test-voice-key", composioApiKey: COMPOSIO_SECRET,
+      "custom:api.acme.dev": JSON.stringify(customKey), googleAccount: { refreshToken: "test-google-token" },
+    });
+
+    await main.syncDevCredentials();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:18999/api/config?secretStorage=external");
+    expect(init.method).toBe("PUT");
+    expect(init.headers.Authorization).toBe("Bearer test-dev-token");
+    expect(JSON.parse(init.body)).toEqual({
+      xai: { key: XAI_SECRET }, tts: { key: "test-voice-key" }, composio: { apiKey: COMPOSIO_SECRET },
+      customKeys: { "api.acme.dev": customKey },
+    });
+    expect(readConfig()).toEqual({ xai: { key: "" }, tts: { key: "" } });
+    expect(h.writes).toEqual([]);
   });
 });

@@ -8,7 +8,7 @@ import {
   type CredentialId,
 } from "../../shared/credential-request";
 import { api, useStore, type ConfigStatus } from "@/state/store";
-import { saveCredential } from "@/lib/credentials";
+import { credentialErrorMessage, saveCredential } from "@/lib/credentials";
 import { cn } from "@/lib/cn";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { usePresence } from "@/lib/use-presence";
@@ -167,7 +167,7 @@ export function ApiKeyRow({
         setValue("");
         onSaved?.(SECTIONS[section].flag(status));
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(credentialErrorMessage(e, t)))
       .finally(() => setSaving(false));
   };
 
@@ -336,7 +336,7 @@ export function SavedKeys() {
     const request = saveCredential(id, "");
     request
       .then((status: ConfigStatus) => dispatch({ type: "configStatus", config: status }))
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(credentialErrorMessage(e, t)));
   };
 
   return (

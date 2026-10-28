@@ -3,7 +3,8 @@ import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 
-import { applyLocale, I18nProvider } from "@/lib/i18n";
+import { persistPreference, I18nProvider } from "@/lib/i18n";
+import { catalogs } from "@/lib/i18n-catalog";
 import type { Bot } from "@/state/store";
 
 const { state, dispatch } = vi.hoisted(() => ({
@@ -32,10 +33,12 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   dispatch.mockClear();
+  persistPreference("en");
 });
 
-async function mount(element: ReactElement) {
-  applyLocale("en");
+async function mount(element: ReactElement, locale: "en" | "ko" = "en") {
+  vi.stubGlobal("localStorage", window.localStorage);
+  persistPreference(locale);
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -58,6 +61,38 @@ const rows: [string, () => ReactElement][] = [
   ["ttsKey", () => createElement(VoiceSettings, { bot, onPatch: vi.fn() })],
   ["openaiImageApiKey", () => createElement(BotProfileAvatarCard, { bot, activeState: "idle", mascotMotion: null, onPatch: vi.fn() })],
 ];
+
+it("localizes credential failures for every Settings save and removal in English and Korean, preserving unknown errors", async () => {
+  const failures = [
+    ["desktop-unavailable", "secret.desktopUnavailable"],
+    ["credential-rejected", "secret.credentialRejected"],
+    ["credential-save-timeout", "secret.saveTimeout"],
+    ["invalid-credential", "secret.invalidCredential"],
+    ["credential-save-failed", "secret.saveFailed"],
+    ["unknown-save-error", null],
+  ] as const;
+  const actions: [() => ReactElement, () => Promise<void>][] = [
+    ...rows.map(([, element]) => [element, saveInput] as [() => ReactElement, () => Promise<void>]),
+    [() => createElement(SavedKeys), async () => {
+      await act(async () => (host.querySelector('button[aria-label]') as HTMLButtonElement).click());
+    }],
+  ];
+  Object.assign(window, { confirm: () => true });
+  for (const locale of ["en", "ko"] as const) {
+    for (const [code, key] of failures) {
+      vi.stubGlobal("fetch", vi.fn(async (path: string) => new Response(JSON.stringify(
+        path === "/api/key-uses" ? { uses: {} } : { error: code },
+      ), { status: path === "/api/key-uses" ? 200 : 503 })));
+      for (const [element, action] of actions) {
+        await mount(element(), locale);
+        await action();
+        expect(host.textContent).toContain(key ? catalogs[locale][key] : code);
+        await act(async () => root.unmount());
+        host.remove();
+      }
+    }
+  }
+});
 
 it.each(rows)("saves remote Settings %s through the owner's credential route", async (target, element) => {
   const fetchMock = vi.fn(async () => new Response(JSON.stringify({ saved: true, config: state.config })));

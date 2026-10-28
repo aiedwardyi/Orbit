@@ -70,7 +70,7 @@ test("credential store failures stay private and do not log or echo the key", as
   assert.deepEqual(await response.json(), { error: "credential-save-failed" });
 });
 
-test("owner 4xx credential rejections use a fixed code without forwarding text", async (t) => {
+test("owner HTTP 400 credential rejections use a fixed code without forwarding text", async (t) => {
   const bridge = createTerminalBridge({
     host: { readBot() {}, sendBot() {} },
     saveCredential: async () => { throw Object.assign(new Error("private provider reason"), { status: 400 }); },
@@ -83,6 +83,24 @@ test("owner 4xx credential rejections use a fixed code without forwarding text",
   });
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), { error: "credential-rejected" });
+});
+
+test("owner auth and conflict errors are save failures, not rejected keys", async (t) => {
+  let status;
+  const bridge = createTerminalBridge({
+    host: { readBot() {}, sendBot() {} },
+    saveCredential: async () => { throw Object.assign(new Error("private owner reason"), { status }); },
+  });
+  t.after(() => bridge.close());
+  const access = await bridge.start();
+  for (status of [401, 403, 409, 500]) {
+    const response = await fetch(`${access.url}/v1/credentials`, {
+      method: "POST", headers: { authorization: `Bearer ${access.token}` },
+      body: JSON.stringify({ target: "ttsKey", value: "test-only-key" }),
+    });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { error: "credential-save-failed" });
+  }
 });
 
 test("requires the private bearer and scopes reads to the requested bot", async () => {

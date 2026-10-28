@@ -145,7 +145,7 @@ export function createTerminalBridge({ host, updater, errorReports, saveCredenti
           await saveCredential(input?.target, input?.value);
           return json(res, 200, { saved: true });
         } catch (error) {
-          if (error?.status >= 400 && error.status < 500) return json(res, 400, { error: "credential-rejected" });
+          if (error?.status === 400) return json(res, 400, { error: "credential-rejected" });
           return json(res, 503, { error: "credential-save-failed" });
         }
       }

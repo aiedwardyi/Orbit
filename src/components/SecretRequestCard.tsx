@@ -7,6 +7,7 @@ import {
   customKeyRecord,
 } from "../../shared/credential-request";
 import { cn } from "@/lib/cn";
+import { credentialErrorMessage } from "@/lib/credentials";
 import { useI18n } from "@/lib/i18n";
 import { api, useStore, type ConfigStatus, type Message } from "@/state/store";
 
@@ -93,12 +94,7 @@ export function SecretRequestCard({
       }
       await notifyProvided();
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      setLocalError(reason === "desktop-unavailable" ? t("secret.desktopUnavailable")
-        : reason === "credential-rejected" ? t("secret.credentialRejected")
-        : reason === "credential-save-timeout" ? t("secret.saveTimeout")
-        : reason === "invalid-credential" ? t("secret.invalidCredential")
-        : reason === "credential-save-failed" ? t("secret.saveFailed") : reason);
+      setLocalError(credentialErrorMessage(error, t));
     } finally {
       setSaving(false);
     }
