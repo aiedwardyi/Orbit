@@ -115,7 +115,7 @@ describe("mascot idle motion mount", () => {
     ["icon-33", "icon-33-wink-mint.png"],
     ["icon-34", "icon-34-wink-peach.png"],
     ["icon-35", "icon-35-wink-lavender.png"],
-    ["icon-36", "icon-36-wink-calm.svg"],
+    ["icon-36", "icon-36-wink-calm.png"],
   ])("renders %s as its chosen artwork in a picker list row", async (mascotStyle, asset) => {
     const { host, root } = await renderInto(createElement(BotPickerList, {
       bots: [{ id: "atlas", name: "Atlas", color: "white", mascotStyle } as Bot],

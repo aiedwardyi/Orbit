@@ -112,7 +112,7 @@ export const BOT_AVATAR_ASSETS = {
   "icon-33": "icon-33-wink-mint.png",
   "icon-34": "icon-34-wink-peach.png",
   "icon-35": "icon-35-wink-lavender.png",
-  "icon-36": "icon-36-wink-calm.svg",
+  "icon-36": "icon-36-wink-calm.png",
 } satisfies Record<BotAvatarId, string>;
 
 export const BOT_AVATAR_LABELS = {
