@@ -36,7 +36,9 @@ const text = z.string().min(1);
 const percent = z.number().finite().nonnegative();
 const timestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value)));
 const oauthWindow = z.object({ utilization: percent, resets_at: timestamp.nullable() });
-const oauthUsage = z.object({ five_hour: oauthWindow.nullable(), seven_day: oauthWindow.nullable() });
+const oauthUsage = z.object({ five_hour: oauthWindow.nullable(), seven_day: oauthWindow.nullable() }).passthrough();
+const codexUsageWindow = z.object({ usedPercent: percent }).passthrough();
+const codexUsage = z.object({ primary: codexUsageWindow.nullable().optional(), secondary: codexUsageWindow.nullable().optional() }).passthrough();
 const claudeStoredOauth = z.object({
   claudeAiOauth: z.object({ accessToken: text, refreshToken: text.optional(), expiresAt: z.number().finite().optional() }).passthrough(),
 }).passthrough();
@@ -810,8 +812,13 @@ export function createUsageRefresh(deps: {
         let windows: RateLimitWindow[];
         let observedAt: string | undefined;
         if (driver === "codex") {
-          const result = z.object({ rateLimits: z.json() }).parse(await (deps.rpc ?? readUsageRpc)(options.cli || "codex", env));
-          windows = codexRateLimitWindows(result.rateLimits);
+          const result = z.object({ rateLimits: z.json(), rateLimitsByLimitId: z.record(z.string(), z.json()).optional() }).parse(await (deps.rpc ?? readUsageRpc)(options.cli || "codex", env));
+          windows = codexRateLimitWindows(codexUsage.parse(result.rateLimits));
+          for (const [id, snapshot] of Object.entries(result.rateLimitsByLimitId ?? {})) {
+            const bucket = codexRateLimitWindows(codexUsage.parse(snapshot));
+            if (!bucket.length) throw new Error("refresh");
+            windows.push(...bucket.map((window) => ({ ...window, id: `${id}:${window.id}` })));
+          }
         } else if (driver === "grokAgent") {
           windows = grokRateLimitWindows(await (deps.billing ?? readGrokBillingRpc)(options.cli || "grok", env));
         } else if (driver === "antigravityAgent") {
@@ -842,8 +849,8 @@ export function createUsageRefresh(deps: {
           if (response.status === 401 || response.status === 403) throw new Error("signin");
           if (!response.ok) throw new Error("refresh");
           const usage = oauthUsage.parse(await response.json());
-          windows = (["five_hour", "seven_day"] as const).flatMap((id) => {
-            const window = usage[id];
+          windows = Object.entries(usage).filter(([id]) => id === "five_hour" || id.startsWith("seven_day")).flatMap(([id, value]) => {
+            const window = oauthWindow.nullable().parse(value);
             return window ? [{ id, usedPercent: window.utilization, resetsAt: window.resets_at ? Date.parse(window.resets_at) : null, windowMinutes: id === "five_hour" ? 300 : 10080 }] : [];
           });
         }

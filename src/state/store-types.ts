@@ -87,6 +87,7 @@ export interface Message {
     signIn?: boolean;
     folder?: string;
     usageLimit?: { resetsAt: number | null };
+    usageWait?: import("../../server/limit-wait-store").UsageWaitView;
   };
   /** user messages sent into a running turn - the model saw it mid-turn */
   steered?: boolean;

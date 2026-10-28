@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createMuseCheck, createUsageRefresh, isCsrfRejection, museCheckModel, readAntigravityQuota, readAntigravityUsageCommand, readGrokBillingRpc, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
 import { antigravityRateLimitWindows } from "./drivers/rate-limits.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
+import type { JsonValue } from "./schema.ts";
 
 const reset = "2026-10-01T12:00:00Z";
 const FAKE_MSP_CLI = join(dirname(fileURLToPath(import.meta.url)), "testing", "fake-msp-cli.ts");
@@ -30,8 +31,31 @@ const fixtures = {
   },
 };
 const credentials = JSON.stringify({ claudeAiOauth: { accessToken: "access-secret" }, "auth.x.ai::test": { key: "access-secret", user_id: "user" }, tokens: { access_token: "access-secret", refresh_token: "refresh-secret" } });
+const unreadableCodexBuckets: Record<string, JsonValue>[] = [{}, { primary: { usedPercent: "unknown" } }];
 
 describe("usage refresh route result", () => {
+  it("preserves model-specific Claude windows beside the session and weekly limits", async () => {
+    const refresh = createUsageRefresh({ platform: "linux", read: async () => credentials,
+      request: async () => Response.json({ ...fixtures.claudeAgent, seven_day_opus: { utilization: 100, resets_at: reset }, extra_usage: { is_enabled: false } }) });
+    const result = await refresh("claudeAgent", { instanceId: "claude" });
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows).toContainEqual({ id: "seven_day_opus", usedPercent: 100, resetsAt: Date.parse(reset), windowMinutes: 10080 });
+  });
+
+  it("preserves every Codex bucket in a read instead of using only the compatibility bucket", async () => {
+    const refresh = createUsageRefresh({ rpc: async () => ({ ...fixtures.codex,
+      rateLimitsByLimitId: { spark: { primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: Date.parse(reset) / 1000 } } } }) });
+    const result = await refresh("codex", { instanceId: "codex" });
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows).toContainEqual({ id: "spark:five_hour", usedPercent: 100, resetsAt: Date.parse(reset), windowMinutes: 300 });
+  });
+
+  it.each(unreadableCodexBuckets)("fails closed for an unreadable scoped Codex bucket: %j", async (snapshot) => {
+    const refresh = createUsageRefresh({ rpc: async () => ({ ...fixtures.codex, rateLimitsByLimitId: { spark: snapshot } }) });
+    const result = await refresh("codex", { instanceId: "codex" });
+    expect(result.error).toBe("Could not refresh Codex limits");
+    expect(result.report).toBeUndefined();
+  });
   it.each(["claudeAgent", "codex"] as const)("normalizes %s without leaking credentials", async (driver) => {
     const refresh = createUsageRefresh({
       platform: "linux",

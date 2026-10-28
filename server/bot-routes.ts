@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { BOT_AVATAR_PICKER_ORDER, botAvatarChoiceSchema, botAvatarUrlFromStoredPath } from "../shared/bot-avatar.ts";
 import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
+import { sameModelSelection } from "../shared/model-selection.ts";
 import { saveImage } from "./attachments.ts";
 import { avatarGenerationRequestSchema, avatarGenerationStateMatches, generateAvatarImage, snapshotAvatarGenerationState } from "./avatar-image.ts";
 import { validateBotCwd } from "./bot-cwd.ts";
@@ -26,6 +27,7 @@ import type { TaskResumePacket } from "./task-state.ts";
 import { isMemoryTopicName, listMemoryTopics, MEMORY_FILE_MAX_BYTES, readMemoryFile, readMemoryTopic, saveMemoryFile } from "./workspace.ts";
 
 type BotRouteDeps = {
+  cancelUsageWait?: (botId: string) => void;
   cfg: AppConfig;
   registry: ProviderRegistry;
   MAX_WORKSPACE_BOTS: number;
@@ -452,7 +454,10 @@ export function createBotRoutes(deps: BotRouteDeps) {
         section !== undefined &&
         sectionKey(existingBot?.section) !== sectionKey(section);
       // After the awaits above, so the pick sees the bot's busy state now.
-      if (normalizedSelection && existingBot) Object.assign(patch, modelPickPatch(existingBot, normalizedSelection));
+      if (normalizedSelection && existingBot) {
+        if (!sameModelSelection(existingBot.pendingModelSelection ?? existingBot.modelSelection, normalizedSelection)) deps.cancelUsageWait?.(existingBot.id);
+        Object.assign(patch, modelPickPatch(existingBot, normalizedSelection));
+      }
       const bot = store.patchBot(m[1], patch);
       if (!bot) return json(res, 404, { error: "no such bot" });
       // A changed working folder must reach existing tasks: their pinned

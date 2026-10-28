@@ -29,6 +29,7 @@ import { TASK_RESUME_PROMPT } from "./turn-context.ts";
 const STOP_RELEASE_MS = 6_000;
 
 type BotChatRouteDeps = {
+  cancelUsageWait?: (botId: string, waitId?: string) => void;
   cfg: AppConfig;
   threadSyncGate: ReturnType<typeof createThreadSyncV2Gate>;
   registry: ProviderRegistry;
@@ -121,6 +122,11 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
     return true;
   };
   return {
+    cancelUsageWait: (res: ServerResponse, m: RegExpMatchArray) => {
+      if (!store.bot(m[1])) return json(res, 404, { error: "no such bot" });
+      deps.cancelUsageWait?.(m[1]!, m[2]);
+      return json(res, 200, { ok: true });
+    },
     patchCard: async (req: IncomingMessage, res: ServerResponse, m: RegExpMatchArray) => {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
@@ -210,6 +216,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
             });
           }
 
+          deps.cancelUsageWait?.(bot.id);
           // Claude can accept the message inside its live turn. A turn-start
           // claim also counts as active while prepareModelContext is running:
           // busy flips only after preparation, so without this check rapid
@@ -380,6 +387,8 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
       if (!bot) return json(res, 404, { error: "no such bot" });
       if (bot.busy) return json(res, 409, { error: "the bot is working - stop it before switching versions" });
       const body = await readBody(req);
+      if (!store.messagesFor(bot.threadId).some((message) => message.id === String(body.messageId ?? ""))) return json(res, 404, { error: "no such message" });
+      deps.cancelUsageWait?.(bot.id);
       const leaf = store.setActiveLeaf(bot.threadId, String(body.messageId ?? ""));
       if (!leaf) return json(res, 404, { error: "no such message" });
       // provider sessions still hold the other branch - next turn replays
@@ -462,6 +471,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
         return json(res, 409, { error: "the bot switched tasks before it could be interrupted" });
       }
       const inFlight = Boolean(busyGroup || bot.busy || botHasActiveTurn(bot.id));
+      deps.cancelUsageWait?.(bot.id);
       if (requireSettled && !inFlight) return json(res, 200, { ok: true, stopped: false, returned: [] });
       if (requireSettled && (!instance || busyGroup)) return json(res, 409, { error: "the waiting turn cannot be interrupted" });
       taskResumes.forgetBot(bot.id);
@@ -490,6 +500,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
     resumeTask: async (res: ServerResponse, m: RegExpMatchArray) => {
       const bot = store.bot(m[1]);
       if (!bot) return json(res, 404, { error: "no such bot" });
+      deps.cancelUsageWait?.(bot.id);
       const conversation = store.conversationForBot(bot.id, m[2]);
       if (!conversation) return json(res, 404, { error: "no such task" });
       if (conversation.group) {
@@ -572,6 +583,7 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
         });
         if (!canSwitchWhileWorking(m[2], active)) return json(res, 409, { error: "this bot is working - stop it before switching tasks" });
       } else pullSyncedThread(m[2]);
+      if (bot.threadId !== m[2] && store.taskByThread(bot.id, m[2]!)) deps.cancelUsageWait?.(bot.id);
       const switched = store.switchTask(bot.id, m[2]);
       if (!switched) return json(res, 404, { error: "no such task" });
       const fresh = botWithThread(switched);
