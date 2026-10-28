@@ -2,10 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Check, ExternalLink, KeyRound, Loader2, LockKeyhole, RefreshCw, X } from "lucide-react";
 
 import {
-  credentialConfigPatch,
   credentialResumeOutcome,
   customKeyRecord,
-  type CredentialTargetId,
 } from "../../shared/credential-request";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
@@ -83,22 +81,21 @@ export function SecretRequestCard({
     try {
       if (!savedLocally) {
         const next = value.trim();
-        // A custom key saves with the exact binding this card shows.
-        const status: ConfigStatus = window.ogb?.setCredential
-          ? await window.ogb.setCredential(secret.target, service ? JSON.stringify(customKeyRecord(service, next)) : next)
-          : await api("/api/config", {
-              method: "PUT",
-              body: JSON.stringify(service
-                ? { customKeys: { [service.host]: customKeyRecord(service, next) } }
-                : credentialConfigPatch(secret.target as CredentialTargetId, next)),
-            });
-        dispatch({ type: "configStatus", config: status });
+        const result: { saved: boolean; config: ConfigStatus } = await api("/api/credentials", {
+          method: "POST",
+          body: JSON.stringify({ target: secret.target, value: service ? JSON.stringify(customKeyRecord(service, next)) : next }),
+        });
+        if (result.saved !== true) throw new Error("credential-save-failed");
+        dispatch({ type: "configStatus", config: result.config });
         setValue("");
         setSavedLocally(true);
       }
       await notifyProvided();
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : String(error));
+      const reason = error instanceof Error ? error.message : String(error);
+      setLocalError(reason === "desktop-unavailable" ? t("secret.desktopUnavailable")
+        : reason === "invalid-credential" ? t("secret.invalidCredential")
+        : reason === "credential-save-failed" ? t("secret.saveFailed") : reason);
     } finally {
       setSaving(false);
     }

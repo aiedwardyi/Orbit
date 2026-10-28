@@ -610,17 +610,15 @@ describe("credential env preference", () => {
     const preset = parseConfigPatch({ xai: { key: "xai-new" } });
     const local = { host: "127.0.0.1:8787" };
     const phone = { host: "127.0.0.1:8787", "x-openmausbot-companion": "1" };
-    const pcOnly = "Custom keys can only be saved on the PC";
     const store = "Custom keys need the desktop app's encrypted key store";
-    expect(customKeyStorageError(custom, phone, undefined, false)).toBe(pcOnly);
-    expect(customKeyStorageError(custom, { host: "orbit.tail1234.ts.net" }, "orbit.tail1234.ts.net", false)).toBe(pcOnly);
+    expect(customKeyStorageError(custom, phone, undefined, false)).toBe(store);
+    expect(customKeyStorageError(custom, { host: "orbit.tail1234.ts.net" }, "orbit.tail1234.ts.net", false)).toBe(store);
     // the localhost browser and an unpackaged desktop both reach here without the encrypted store
     expect(customKeyStorageError(custom, local, "orbit.tail1234.ts.net", false)).toBe(store);
     expect(customKeyStorageError(custom, local, undefined, true)).toBeUndefined();
     expect(customKeyStorageError(preset, phone, undefined, false)).toBeUndefined();
-    // a relay request is a phone whatever its headers claim
-    expect(customKeyStorageError(custom, local, undefined, false, true)).toBe(pcOnly);
-    expect(customKeyStorageError(custom, local, undefined, true, true)).toBe(pcOnly);
+    expect(customKeyStorageError(custom, local, undefined, false, true)).toBe(store);
+    expect(customKeyStorageError(custom, local, undefined, true, true)).toBe(store);
   });
 
   it("syncCredentialEnv keeps model and provider env in step with a save", () => {

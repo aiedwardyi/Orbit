@@ -7,6 +7,69 @@ import { BOT_PANE_LIMIT, createTerminalHost } from "./terminal-host.mjs";
 import { closeBotPanes } from "../server/terminal-cleanup.ts";
 import { terminalPaneCountsGrant as serverTerminalPaneCountsGrant, terminalSendGrant as serverTerminalSendGrant, updateGrant as serverUpdateGrant } from "../server/terminal-grant.ts";
 
+test("credential saves require the full bridge bearer, never terminal or updater grants", async (t) => {
+  const calls = [];
+  const bridge = createTerminalBridge({
+    host: { readBot() {}, sendBot() {} },
+    saveCredential: async (...args) => { calls.push(args); },
+  });
+  t.after(() => bridge.close());
+  const access = await bridge.start();
+  for (const token of ["", "wrong", terminalReadGrant(access.token, "bot"), terminalSendGrant(access.token, "bot"), updateGrant(access.token)]) {
+    const response = await fetch(`${access.url}/v1/credentials`, {
+      method: "POST", headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({ target: "ttsKey", value: "test-only-key" }),
+    });
+    assert.equal(response.status, 401);
+    assert.equal(calls.length, 0);
+  }
+});
+
+test("credential saves confirm only after the owning desktop finishes and never echo its result", async (t) => {
+  let confirm;
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const calls = [];
+  const bridge = createTerminalBridge({
+    host: { readBot() {}, sendBot() {} },
+    saveCredential: async (...args) => {
+      calls.push(args);
+      entered();
+      await new Promise((resolve) => { confirm = resolve; });
+      return { key: "test-only-key" };
+    },
+  });
+  t.after(() => bridge.close());
+  const access = await bridge.start();
+  let answered = false;
+  const pending = fetch(`${access.url}/v1/credentials`, {
+    method: "POST", headers: { authorization: `Bearer ${access.token}` },
+    body: JSON.stringify({ target: "custom:api.acme.dev", value: "test-only-key" }),
+  }).then((response) => { answered = true; return response; });
+  await Promise.race([started, pending]);
+  assert.equal(answered, false);
+  assert.deepEqual(calls, [["custom:api.acme.dev", "test-only-key"]]);
+  confirm();
+  const response = await pending;
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { saved: true });
+});
+
+test("credential store failures stay private and do not log or echo the key", async (t) => {
+  const bridge = createTerminalBridge({
+    host: { readBot() {}, sendBot() {} },
+    saveCredential: async () => { throw new Error("test-only-key"); },
+  });
+  t.after(() => bridge.close());
+  const access = await bridge.start();
+  const response = await fetch(`${access.url}/v1/credentials`, {
+    method: "POST", headers: { authorization: `Bearer ${access.token}` },
+    body: JSON.stringify({ target: "ttsKey", value: "test-only-key" }),
+  });
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: "credential-save-failed" });
+});
+
 test("requires the private bearer and scopes reads to the requested bot", async () => {
   const calls = [];
   const bridge = createTerminalBridge({
