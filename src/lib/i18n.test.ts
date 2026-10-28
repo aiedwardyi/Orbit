@@ -266,6 +266,12 @@ describe("fonts", () => {
     expect(css).toMatch(/--font-sans:[\s\S]*"Malgun Gothic"/);
     expect(css).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com/);
   });
+
+  it("leads with Geist only through a token the Korean UI empties", () => {
+    expect(css).not.toMatch(/--font-sans:\s*"Geist"/);
+    expect(css).toMatch(/--font-sans: var\(--font-geist\) "Inter"/);
+    expect(css).toMatch(/html\[lang="ko"\] \{\s*--font-geist: ;\s*\}/);
+  });
 });
 
 describe("html locale", () => {

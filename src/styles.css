@@ -50,6 +50,13 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 /* Phone terminal: system mono first, Nerd Font only for glyphs it lacks. */
 .orbit-remote-terminal {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Symbols Nerd Font Mono", monospace;
@@ -199,7 +206,7 @@
   --color-danger: #ff5667;
   --color-warning: #ff9800;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
 }
 
@@ -214,6 +221,12 @@
   --color-scrollbar: #3d3d3d;
   /* second speed line of the mascot — contrasts against the app ground */
   --color-maus-line: #fcfcfc;
+  --font-geist: "Geist",;
+}
+
+/* Korean UI keeps its old faces: Geist first would set the Hangul baseline and spaces. */
+html[lang="ko"] {
+  --font-geist: ;
 }
 
 /* ── Midnight ──────────────────────────────────────────────────────────────
@@ -249,7 +262,7 @@
   --color-scrollbar: #3d3d3d;
   --color-maus-line: #fcfcfc;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
@@ -307,8 +320,8 @@
   --color-syntax-tag: #0b4d24;
   --color-syntax-invalid: #8b1a24;
 
-  /* System faces rather than Inter: paper reads as the platform's own. */
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+  /* Geist, then system faces rather than Inter. */
+  --font-sans: var(--font-geist) system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", Roboto, sans-serif;
   --radius-lg: 6px;
   --radius-xl: 10px;
@@ -359,7 +372,7 @@
   --color-scrollbar: #3d3529;
   --color-maus-line: #b0a696;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -430,7 +443,7 @@
   --color-syntax-tag: #0b4d24;
   --color-syntax-invalid: #8b1a24;
 
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+  --font-sans: var(--font-geist) system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", Roboto, sans-serif;
   --radius-lg: 8px;
   --radius-xl: 14px;
@@ -494,7 +507,7 @@
   --color-syntax-tag: #0b4d24;
   --color-syntax-invalid: #8b1a24;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -533,7 +546,7 @@
   --color-scrollbar: #626880;
   --color-maus-line: #b5bfe2;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -572,7 +585,7 @@
   --color-scrollbar: #3b4261;
   --color-maus-line: #a9b1d6;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -610,7 +623,7 @@
   --color-scrollbar: #363636;
   --color-maus-line: #a0a0a0;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -648,7 +661,7 @@
   --color-scrollbar: #2d2d2d;
   --color-maus-line: #e8e6e3;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -686,7 +699,7 @@
   --color-scrollbar: #2a2d35;
   --color-maus-line: #eceef2;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -724,7 +737,7 @@
   --color-scrollbar: #2d2d2d;
   --color-maus-line: #ebe8e7;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -764,7 +777,7 @@
   --color-scrollbar: #44475a;
   --color-maus-line: #a4abcc;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -806,7 +819,7 @@
   --color-scrollbar: #4a4e5c;
   --color-maus-line: #bcaafe;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -844,7 +857,7 @@
   --color-scrollbar: #7c6f64;
   --color-maus-line: #d5c4a1;
 
-  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -885,7 +898,7 @@
   --color-scrollbar: #658594;
   --color-maus-line: #9cabca;
 
-  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -925,7 +938,7 @@
   --color-scrollbar: #575757;
   --color-maus-line: #b5d5ff;
 
-  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -963,7 +976,7 @@
   --color-scrollbar: #403d52;
   --color-maus-line: #908caa;
 
-  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -1000,7 +1013,7 @@
   --color-scrollbar: #4c566a;
   --color-maus-line: #d8dee9;
 
-  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -1037,7 +1050,7 @@
   --color-scrollbar: #444c56;
   --color-maus-line: #adbac7;
 
-  --font-sans: "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
+  --font-sans: var(--font-geist) "Inter", -apple-system, "BlinkMacSystemFont", "SF Pro Text",
     "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -1978,7 +1991,7 @@
   --color-scrollbar: #4a4a4a;
   --color-maus-line: #b8b8b8;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -2014,7 +2027,7 @@
   --color-scrollbar: #515b68;
   --color-maus-line: #bec8d5;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", system-ui, sans-serif;
   --radius-lg: 4px;
   --radius-xl: 8px;
@@ -2052,7 +2065,7 @@
   --color-scrollbar: #4a4540;
   --color-maus-line: #b8b0a6;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", system-ui, sans-serif;
   --radius-lg: 10px;
   --radius-xl: 14px;
@@ -2107,7 +2120,7 @@
   --color-scrollbar: #3b3f4a;
   --color-maus-line: #a3a7b3;
 
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  --font-sans: var(--font-geist) "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", system-ui, sans-serif;
   --radius-lg: 6px;
   --radius-xl: 8px;
@@ -2310,7 +2323,7 @@
   --color-syntax-tag: #0b4d24;
   --color-syntax-invalid: #8b1a24;
 
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+  --font-sans: var(--font-geist) system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   --radius-lg: 6px;
   --radius-xl: 10px;

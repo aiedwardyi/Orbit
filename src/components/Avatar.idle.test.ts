@@ -107,6 +107,31 @@ describe("mascot idle motion mount", () => {
     expect(host.querySelector(".mascot-avatar")).toBeNull();
   });
 
+  it("draws Wink icons calm only where asked, and leaves old icons and photos alone", async () => {
+    const photo = "/api/attachments/123e4567-e89b-12d3-a456-426614174000.webp";
+    const { host } = await renderInto(
+      createElement(
+        "div",
+        null,
+        createElement(BotAvatar, { bot: { name: "Atlas", color: "white", mascotStyle: "icon-34" }, size: 32, calm: true }),
+        createElement(BotAvatar, { bot: { name: "Atlas", color: "white", mascotStyle: "icon-34" }, size: 32 }),
+        createElement(BotAvatar, { bot: { name: "Old", color: "red", mascotStyle: "icon-11" }, size: 32, calm: true }),
+        createElement(BotAvatar, {
+          bot: { name: "Photo", color: "red", mascotStyle: "icon-31", avatarCrop: "circle", avatarUrl: photo },
+          size: 32,
+          calm: true,
+        }),
+      ),
+    );
+
+    const [calm, color, old, picture] = [...host.firstElementChild!.children];
+    expect(calm!.tagName).toBe("svg");
+    expect(calm!.getAttribute("aria-label")).toBe("Atlas avatar");
+    expect(color!.getAttribute("src")).toBe("/avatars/icon-34-wink-peach.png");
+    expect(old!.getAttribute("src")).toBe("/avatars/icon-11-peach-warm.png");
+    expect(picture!.getAttribute("src")).toBe(photo);
+  });
+
   it("clears a forced blink class if animationend never fires", async () => {
     const handle = createRef<MausAvatarHandle>();
     const { host } = await renderInto(
