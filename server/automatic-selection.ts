@@ -40,9 +40,11 @@ export function resolveAutomaticSelection(input: {
   );
   const preferredIds = [input.continuity?.instanceId, input.current?.instanceId];
   const now = Date.now();
+  const model = (entry: AutomaticCandidate) => entry.driverKind === AUTO_FIRST.driverKind ? AUTO_FIRST.model : entry.defaultModel;
   const exhausted = (entry: AutomaticCandidate) => entry.rateLimits?.some(
-    // A model-only window (seven_day_opus) leaves the engine's other models usable
-    (window) => !window.id.startsWith("seven_day_") && Number.isFinite(window.usedPercent) && window.usedPercent >= 100 &&
+    // A model-only window (seven_day_opus) counts only for that model
+    (window) => (!window.id.startsWith("seven_day_") || model(entry).includes(window.id.slice(10))) &&
+      Number.isFinite(window.usedPercent) && window.usedPercent >= 100 &&
       !(window.resetsAt !== null && Number.isFinite(window.resetsAt) && window.resetsAt <= now),
   );
   const candidate =

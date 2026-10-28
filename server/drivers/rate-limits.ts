@@ -85,7 +85,7 @@ export function chatUsageLimit(
   ].filter((s): s is string => typeof s === "string" && Boolean(s)).join("\n");
   const kind = error.codexErrorInfo ?? (typeof body.error === "string" ? body.error : error.type ?? error.code);
   const typed = typeof kind === "string" && /^(?:UsageLimitReached|usageLimitExceeded|usage_limit_reached|usage_limit_exceeded)$/.test(kind);
-  if (/invalid.?api.?key|not logged in|authentication|unauthorized|billing|insufficient.?quota|out of credits|credits exhausted|overloaded|capacity unavailable|upgrade to plus|codex with your chatgpt plan/i.test(message)
+  if (/invalid.?api.?key|not logged in|authentication|unauthorized|billing|insufficient.?quota|out of credits|credits exhausted|overloaded|capacity unavailable|codex with your chatgpt plan|spend cap/i.test(message)
     || (typeof kind === "string" && /auth|billing|quota|overload|capacity|cancel/i.test(kind))) return null;
   const spent = windows.filter((w) => w.usedPercent >= 100 && (w.resetsAt === null || w.resetsAt > now));
   if (!typed && (provider !== "claude" || !/(?:usage limit (?:reached|exceeded)|(?:you(?:'ve| have)? (?:hit|reached)|you(?:'re| are) (?:at|out of)) your (?:(?:usage|session|weekly|opus|sonnet) )?limit)/i.test(message)

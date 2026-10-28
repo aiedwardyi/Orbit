@@ -471,9 +471,14 @@ describe("chatUsageLimit", () => {
   it("keeps an unknown reset null instead of inventing a delay", () => {
     expect(chatUsageLimit("claude", "You've hit your limit", [], true, now)?.usageLimit).toEqual({ resetsAt: null });
   });
-  it.each(["429 Too Many Requests", "rate_limit_error", "overloaded", "capacity unavailable", "Invalid API key: usage limit reached", "authentication failed: usage limit reached", "billing: usage limit reached", "out of credits", "quota configuration unavailable", "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus."])("rejects unrelated failure even next to spent windows: %s", (message) => {
+  it.each(["429 Too Many Requests", "rate_limit_error", "overloaded", "capacity unavailable", "Invalid API key: usage limit reached", "authentication failed: usage limit reached", "billing: usage limit reached", "out of credits", "quota configuration unavailable", "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus.", "You hit your spend cap set in your workspace. Increase your spend cap to continue."])("rejects unrelated failure even next to spent windows: %s", (message) => {
     expect(chatUsageLimit("claude", message, windows, true, now)).toBeNull();
     expect(chatUsageLimit("codex", { message }, windows, true, now)).toBeNull();
+  });
+  it("keeps a Free plan limit with its upgrade hint and retry time", () => {
+    expect(chatUsageLimit("codex", { codexErrorInfo: "usageLimitExceeded", resets_at: reset / 1000,
+      message: "You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again at 3:40 AM." }, [], true, now)?.usageLimit)
+      .toEqual({ resetsAt: reset });
   });
   it("rejects Codex's typed plan-entitlement failure", () => {
     expect(chatUsageLimit("codex", { codexErrorInfo: "usageLimitExceeded", message: "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus." }, windows, true, now)).toBeNull();

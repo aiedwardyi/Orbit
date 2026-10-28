@@ -55,13 +55,15 @@ describe("defaultModelSelection", () => {
   });
 
   it("keeps an engine whose only spent window is model-specific", () => {
-    const opus = engine("opus", {
+    const opus = engine("sonnet", {
       rateLimits: {
         windows: [{ id: "five_hour", usedPercent: 20, resetsAt: null }, { id: "seven_day_opus", usedPercent: 100, resetsAt: null }],
         observedAt: new Date(0).toISOString(),
       },
     });
-    expect(defaultModelSelection([opus, engine("other")])?.instanceId).toBe("opus");
+    expect(defaultModelSelection([opus, engine("other")])?.instanceId).toBe("sonnet");
+    const opusDefault = { ...opus, models: { default: "claude-opus-5-5", options: [] } };
+    expect(defaultModelSelection([opusDefault, engine("other")])?.instanceId).toBe("other");
   });
 
   it("treats a past reset as usable again", () => {
