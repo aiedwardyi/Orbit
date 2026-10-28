@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CREDENTIAL_TARGETS, credentialIsConfigured } from "../shared/credential-request.ts";
 import { createBotChatRoutes } from "../server/bot-chat-routes.ts";
-import { parseConfigPatch } from "../server/config.ts";
+import { customKeyStorageError, parseConfigPatch } from "../server/config.ts";
 import { credentialSaveResponse } from "../server/credential-save.ts";
 import { json, readBody } from "../server/http-helpers.ts";
 import { phoneCookieToken, relayVerdict, requestCredentials } from "../server/phone-auth.ts";
@@ -39,7 +39,7 @@ async function fixture(mode, input, { encryptionAvailable = true, packaged = tru
   const harness = createServer(async (req, res) => {
     if (req.url === "/api/config?secretStorage=external" && req.headers.authorization === `Bearer ${BOOT_TOKEN}`) {
       const patch = parseConfigPatch(await readBody(req));
-      expect(persisted.at(-1)?.[input.target]).toBe(input.value);
+      expect(persisted.at(-1)?.[input.target] === (input.value || undefined)).toBe(true);
       applications.push(patch);
       if (rejectApply) return json(res, 400, { error: KEY });
       Object.assign(cfg, patch);
@@ -50,6 +50,13 @@ async function fixture(mode, input, { encryptionAvailable = true, packaged = tru
     const credentials = requestCredentials(relay, phoneCookieToken(req.headers.cookie) === "test-phone-session", req.headers.authorization === `Bearer ${BOOT_TOKEN}`, REMOTE_KEY);
     if (!credentials.phoneSession && !apiRequestAuthorized(credentials.bearerOk, req.headers.cookie, credentials.remoteKey, req.url)) {
       return json(res, 401, { error: "unauthorized" });
+    }
+    if (req.url === "/api/config") {
+      const patch = parseConfigPatch(await readBody(req));
+      const error = customKeyStorageError(patch, req.headers, HOST, false, relay, !credentials.bearerOk);
+      if (error) return json(res, 400, { error });
+      Object.assign(cfg, patch);
+      return json(res, 200, { configured: true });
     }
     if (req.url === "/api/credentials") {
       const reply = await credentialSaveResponse(access, await readBody(req));
@@ -75,9 +82,9 @@ async function fixture(mode, input, { encryptionAvailable = true, packaged = tru
   const headers = mode === "local PC" ? { authorization: `Bearer ${BOOT_TOKEN}` }
     : mode === "Tailscale PC" ? { cookie: `orbit_remote=${REMOTE_KEY}` }
     : { host: HOST, origin: `https://${HOST}`, cookie: "__Host-wink_phone=test-phone-session" };
-  const post = (path, body, auth = headers) => new Promise((resolve, reject) => {
+  const post = (path, body, auth = headers, method = "POST") => new Promise((resolve, reject) => {
     const req = request(`http://127.0.0.1:${port}${path}`, {
-      method: "POST", headers: { "content-type": "application/json", ...auth },
+      method, headers: { "content-type": "application/json", ...auth },
     }, (res) => {
       const chunks = [];
       res.on("data", (chunk) => chunks.push(chunk));
@@ -92,7 +99,7 @@ async function fixture(mode, input, { encryptionAvailable = true, packaged = tru
 describe("owning desktop key saves", () => {
   it.each(["local PC", "relay PC", "phone", "Tailscale PC"].flatMap((mode) => [
     [mode, custom], ...Object.keys(CREDENTIAL_TARGETS).map((target) => [mode, { target, value: KEY }]),
-  ]))("saves %s credentials to its owning desktop and resumes only afterward: %j", async (mode, input) => {
+  ]))("saves %s credentials to its owning desktop and resumes only afterward", async (mode, input) => {
     const f = await fixture(mode, input);
     const before = await f.post("/api/bots/owner-bot/secret-cards/card/provided", { threadId: "thread" });
     expect(before.status).toBe(409);
@@ -127,7 +134,7 @@ describe("owning desktop key saves", () => {
     const logs = [vi.spyOn(console, "log"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
     const f = await fixture("phone", custom, options);
     const response = await f.post("/api/credentials", custom);
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(options.rejectApply ? 400 : 503);
     expect(await response.text()).not.toContain(KEY);
     expect(f.ownerStore.read()).toEqual({ existing: "kept" });
     expect(f.viewerStore.read()).toEqual({ existing: "viewer-kept" });
@@ -155,7 +162,7 @@ describe("owning desktop key saves", () => {
     {}, { target: "__proto__", value: KEY }, { target: "ttsKey", value: "bad\nkey" },
     { ...custom, value: "not json" }, { ...custom, value: "null" },
     { ...custom, value: JSON.stringify({ name: "Acme", header: "cookie", prefix: "", key: KEY }) },
-  ])("rejects invalid input without echoing or forwarding it: %j", async (input) => {
+  ])("rejects invalid input without echoing or forwarding it", async (input) => {
     const fetchImpl = vi.fn();
     const reply = await credentialSaveResponse({ url: "http://127.0.0.1:1", token: BOOT_TOKEN }, input, fetchImpl);
     expect(reply).toEqual({ status: 400, body: { error: "invalid-credential" } });
@@ -171,11 +178,58 @@ describe("owning desktop key saves", () => {
     }
   });
 
+  it("reports owner rejection without forwarding its reason and rolls back", async () => {
+    const f = await fixture("phone", custom, { rejectApply: true });
+    const response = await f.post("/api/credentials", custom);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "credential-rejected" });
+    expect(f.ownerStore.read()).toEqual({ existing: "kept" });
+    expect(f.resume).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes an after-send timeout from an unavailable desktop", async () => {
+    const fetchImpl = vi.fn(async () => { throw new DOMException("Timed out", "TimeoutError"); });
+    expect(await credentialSaveResponse({ url: "http://127.0.0.1:1", token: BOOT_TOKEN }, custom, fetchImpl))
+      .toEqual({ status: 503, body: { error: "credential-save-timeout" } });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each(["composioApiKey", "openaiCompatKey"])("accepts the Settings credential %s", async (target) => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ saved: true })));
+    expect((await credentialSaveResponse({ url: "http://127.0.0.1:1", token: BOOT_TOKEN }, { target, value: KEY }, fetchImpl)).status).toBe(200);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each(["ttsKey", "custom:api.acme.dev", "composioApiKey"])("allows encrypted removal of %s", async (target) => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ saved: true })));
+    expect((await credentialSaveResponse({ url: "http://127.0.0.1:1", token: BOOT_TOKEN }, { target, value: "" }, fetchImpl)).status).toBe(200);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it.each(["relay PC", "phone", "Tailscale PC"])("refuses plaintext credential PUT from %s", async (mode) => {
+    const f = await fixture(mode, { target: "ttsKey", value: KEY });
+    const response = await f.post("/api/config", { tts: { key: KEY } }, undefined, "PUT");
+    expect(response.status).toBe(400);
+    expect(await response.text()).not.toContain(KEY);
+    expect(f.cfg).toEqual({});
+    expect(f.persisted).toEqual([]);
+  });
+
+  it.each(["composioApiKey", "openaiCompatKey", "ttsKey", "custom:api.acme.dev"])("encrypts and removes Settings %s on the owning desktop", async (target) => {
+    const f = await fixture("phone", { target, value: "" });
+    const response = await f.post("/api/credentials", { target, value: "" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ saved: true });
+    expect(f.ownerStore.read()).toEqual({ existing: "kept" });
+    expect(f.applications).toHaveLength(1);
+  });
+
   it("wires credential saves after the existing session gate and keeps encrypted persistence", () => {
     const server = readFileSync(new URL("../server/index.ts", import.meta.url), "utf8");
     expect(server.indexOf('path === "/api/credentials"')).toBeGreaterThan(server.indexOf("!credentials.phoneSession &&"));
     expect(server).toContain("credentialSaveResponse(terminalBridgeAccess, await readBody(req))");
     expect(server).toContain('externalSecretStorage && !credentials.bearerOk');
+    expect(server).toContain("customKeyStorageError(patch, req.headers, REMOTE_HOST, externalSecretStorage, relay, !credentials.bearerOk)");
     const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
     expect(main).toContain("updateCredentials: updateSecureCredentialDocument");
     expect(main).toContain("writeCredential(name, value, { encrypted: true })");

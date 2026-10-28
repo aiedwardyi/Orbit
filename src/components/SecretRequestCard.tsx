@@ -3,6 +3,7 @@ import { Check, ExternalLink, KeyRound, Loader2, LockKeyhole, RefreshCw, X } fro
 
 import {
   credentialResumeOutcome,
+  customCredentialId,
   customKeyRecord,
 } from "../../shared/credential-request";
 import { cn } from "@/lib/cn";
@@ -83,7 +84,7 @@ export function SecretRequestCard({
         const next = value.trim();
         const result: { saved: boolean; config: ConfigStatus } = await api("/api/credentials", {
           method: "POST",
-          body: JSON.stringify({ target: secret.target, value: service ? JSON.stringify(customKeyRecord(service, next)) : next }),
+          body: JSON.stringify({ target: service ? customCredentialId(service.host) : secret.target, value: service ? JSON.stringify(customKeyRecord(service, next)) : next }),
         });
         if (result.saved !== true) throw new Error("credential-save-failed");
         dispatch({ type: "configStatus", config: result.config });
@@ -94,6 +95,8 @@ export function SecretRequestCard({
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       setLocalError(reason === "desktop-unavailable" ? t("secret.desktopUnavailable")
+        : reason === "credential-rejected" ? t("secret.credentialRejected")
+        : reason === "credential-save-timeout" ? t("secret.saveTimeout")
         : reason === "invalid-credential" ? t("secret.invalidCredential")
         : reason === "credential-save-failed" ? t("secret.saveFailed") : reason);
     } finally {

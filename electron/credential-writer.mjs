@@ -34,7 +34,7 @@ export function createCredentialWriter({ packaged, isEncryptionAvailable, update
         body: JSON.stringify(patch),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error || `Could not save credential (HTTP ${response.status})`);
+      if (!response.ok) throw Object.assign(new Error(body?.error || `Could not save credential (HTTP ${response.status})`), { status: response.status });
       return body;
     };
     if (!encrypted) return applyToHarness();

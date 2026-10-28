@@ -220,16 +220,24 @@ export function parseConfigPatch(value: JsonValue): ConfigPatch {
   return parsed.data;
 }
 
-/** Only the owning desktop may confirm an encrypted custom-key write. */
+/** Remote credential writes need confirmation from the encrypted desktop store. */
 export function customKeyStorageError(
   patch: ConfigPatch,
   headers: IncomingHttpHeaders,
   remoteHost: string | undefined,
   externalSecretStorage: boolean,
   relay = false,
+  remoteSession = false,
 ) {
-  if (!patch.customKeys) return undefined;
   const phone = headers["x-openmausbot-companion"] === "1" || hostMatchesRemote(headers.host, remoteHost);
+  const hasCredential = patch.xai?.key !== undefined || patch.gemini?.apiKey !== undefined ||
+    patch.openaiCompat?.key !== undefined || patch.composio?.apiKey !== undefined ||
+    patch.box?.token !== undefined || patch.tts?.key !== undefined || patch.imageGen?.key !== undefined ||
+    patch.anthropic?.key !== undefined || patch.vertex?.key !== undefined || patch.customKeys !== undefined;
+  if (hasCredential && !externalSecretStorage && (relay || phone || remoteSession)) {
+    return patch.customKeys ? "Custom keys need the desktop app's encrypted key store" : "invalid-credential";
+  }
+  if (!patch.customKeys) return undefined;
   if (externalSecretStorage && !relay && !phone) return undefined;
   return "Custom keys need the desktop app's encrypted key store";
 }

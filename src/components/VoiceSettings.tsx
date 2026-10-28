@@ -8,6 +8,7 @@ import { Check, Loader2, Volume2 } from "lucide-react";
 
 import { api, useStore, type Bot, type ConfigStatus } from "@/state/store";
 import { useDesktopCapabilities } from "@/components/DesktopCapabilities";
+import { saveCredential } from "@/lib/credentials";
 import { speaker } from "@/lib/tts";
 import { cn } from "@/lib/cn";
 
@@ -74,9 +75,7 @@ export function VoiceSettings({
     if (!nextKey) return Promise.resolve();
     setSaving(true);
     setError(null);
-    const request = window.ogb?.setCredential
-      ? window.ogb.setCredential("ttsKey", nextKey)
-      : api("/api/config", { method: "PUT", body: JSON.stringify({ tts: { key: nextKey } }) });
+    const request = saveCredential("ttsKey", nextKey);
     return request
       .then((status: ConfigStatus) => {
         dispatch({ type: "configStatus", config: status });

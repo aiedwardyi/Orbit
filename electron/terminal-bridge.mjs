@@ -142,7 +142,8 @@ export function createTerminalBridge({ host, updater, saveCredential, token = ra
           const input = await readJson(req);
           await saveCredential(input?.target, input?.value);
           return json(res, 200, { saved: true });
-        } catch {
+        } catch (error) {
+          if (error?.status >= 400 && error.status < 500) return json(res, 400, { error: "credential-rejected" });
           return json(res, 503, { error: "credential-save-failed" });
         }
       }

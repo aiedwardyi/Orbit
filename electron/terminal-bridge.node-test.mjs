@@ -70,6 +70,21 @@ test("credential store failures stay private and do not log or echo the key", as
   assert.deepEqual(await response.json(), { error: "credential-save-failed" });
 });
 
+test("owner 4xx credential rejections use a fixed code without forwarding text", async (t) => {
+  const bridge = createTerminalBridge({
+    host: { readBot() {}, sendBot() {} },
+    saveCredential: async () => { throw Object.assign(new Error("private provider reason"), { status: 400 }); },
+  });
+  t.after(() => bridge.close());
+  const access = await bridge.start();
+  const response = await fetch(`${access.url}/v1/credentials`, {
+    method: "POST", headers: { authorization: `Bearer ${access.token}` },
+    body: JSON.stringify({ target: "ttsKey", value: "test-only-key" }),
+  });
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: "credential-rejected" });
+});
+
 test("requires the private bearer and scopes reads to the requested bot", async () => {
   const calls = [];
   const bridge = createTerminalBridge({

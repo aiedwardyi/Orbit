@@ -8293,7 +8293,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const externalSecretStorage = url.searchParams.get("secretStorage") === "external";
       if (externalSecretStorage && !credentials.bearerOk) return json(res, 403, { error: "forbidden" });
-      const customKeyError = customKeyStorageError(patch, req.headers, REMOTE_HOST, externalSecretStorage, relay);
+      const customKeyError = customKeyStorageError(patch, req.headers, REMOTE_HOST, externalSecretStorage, relay, !credentials.bearerOk);
       if (customKeyError) return json(res, 400, { error: customKeyError });
       if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
       if (patch.vps !== undefined) {

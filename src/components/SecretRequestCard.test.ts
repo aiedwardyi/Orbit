@@ -59,17 +59,18 @@ afterEach(async () => {
   root = undefined;
   host?.remove();
   Object.assign(window, { ogb: undefined });
+  applyLocale("en");
   vi.unstubAllGlobals();
 });
 
-async function mountAndFill() {
+async function mountAndFill(target = "custom:api.acme.dev") {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
   await act(async () => root!.render(createElement(I18nProvider, null, createElement(SecretRequestCard, {
     botId: "owner-bot", threadId: "owner-thread",
     message: { id: "card", kind: "secret", role: "bot", at: 1, secret: {
-      target: "custom:api.acme.dev", label: "Acme", description: "Waiting for a key", placeholder: "", helpUrl: "", requestKey: "r",
+      target, label: "Acme", description: "Waiting for a key", placeholder: "", helpUrl: "", requestKey: "r",
       service: { name: "Acme", host: "api.acme.dev", header: "authorization", prefix: "Bearer " },
     } } as Message,
   }))));
@@ -83,6 +84,30 @@ async function mountAndFill() {
 
 const submit = () => act(async () => {
   host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+});
+
+it("binds a synced card to the displayed host even when its target differs", async () => {
+  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ saved: true, config: {} })));
+  vi.stubGlobal("fetch", fetchMock);
+  await mountAndFill("custom:other.example");
+  await submit();
+  const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+  expect(JSON.parse(init.body as string).target).toBe("custom:api.acme.dev");
+});
+
+it.each([
+  ["en", "credential-rejected", "The service rejected this key. Check it and try again."],
+  ["ko", "credential-rejected", "서비스가 이 키를 거부했습니다. 확인한 다음 다시 시도해 주세요."],
+  ["en", "credential-save-timeout", "The key may not have been saved. Check the desktop app on this bot's PC before trying again."],
+  ["ko", "credential-save-timeout", "키가 저장되지 않았을 수 있습니다. 다시 시도하기 전에 이 봇이 있는 PC의 데스크톱 앱을 확인해 주세요."],
+])("shows an honest %s message for %s", async (locale, error, text) => {
+  Object.assign(window, { ogb: { getLocalePreference: () => locale } });
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error }), { status: 503 })));
+  const input = await mountAndFill();
+  await submit();
+  expect(host.querySelector('[role="alert"]')?.textContent).toBe(text);
+  expect(input.disabled).toBe(false);
+  applyLocale("en");
 });
 
 it("keeps the key and waiting card after a failed save, without notifying provided", async () => {
