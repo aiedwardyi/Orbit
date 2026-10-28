@@ -7,6 +7,7 @@ import { existsSync, readdirSync, readFileSync, mkdirSync, rmSync, unlinkSync } 
 import { join } from "node:path";
 
 import { writeFileAtomic } from "./atomic.ts";
+import type { UsageWaitView } from "./limit-wait-store.ts";
 import { peerAllowKey, type PeerAction } from "./peer-approval-key.ts";
 import { DATA_DIR } from "./config.ts";
 import { defaultComputerForNewBot } from "./local-routing.ts";
@@ -148,6 +149,7 @@ export interface Message {
     signIn?: boolean;
     folder?: string;
     usageLimit?: { resetsAt: number | null };
+    usageWait?: UsageWaitView;
     /** an auto-approval chip; the model replay skips it */
     approval?: boolean;
   };

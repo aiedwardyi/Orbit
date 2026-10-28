@@ -56,7 +56,6 @@ import { ApprovalCard } from "./ApprovalCard";
 import { Composer } from "./Composer";
 import { ChatPlanMeters } from "./ChatPlanMeters";
 import { TermStatusLine } from "./TermStatusLine";
-import { useNow } from "./PlanUsageBar";
 import { ChatFindBar } from "./ChatFindBar";
 import { TurnRail } from "./TurnRail";
 import { ReconnectingCue } from "./ReconnectingCue";
@@ -73,7 +72,6 @@ import { TaskPicker } from "./TaskPicker";
 import { MessageMenu, SelectionMenu, contextClickKind, endSelectMode, isTouchPrimary, type MessageMenuRequest } from "./MessageMenu";
 import { CallButton, CallOverlay } from "./CallView";
 import { cn } from "@/lib/cn";
-import { usageLimitReset } from "@/lib/usage";
 import { useFindCurrentId, useSearchFindSeed } from "@/lib/chat-find";
 import { useFocusMessage } from "@/lib/focus-message";
 import { screenImageUrl, useForwardWindow, useJumpWindow, useOlderMessages, useThreadMessage } from "@/lib/message-pages";
@@ -192,15 +190,13 @@ function TaskTimeline({ messages, busy }: { messages: Message[]; busy: boolean }
  * (with the on-focus re-probe) happens by itself when the user returns from
  * the terminal.
  *
- * A spent subscription window is neither: it is an expected state with a
- * known end, so it drops the provider's raw wording for our own, goes
- * warning-toned rather than danger-toned, and keeps the Retry that the
- * reset makes worth pressing. */
-function ErrorRow({
+ * Only durable wait projections may promise an automatic continuation. */
+export function ErrorRow({
   message,
   onRetry,
   setupInstance,
   usageLimit,
+  usageWait,
   signIn,
   folder,
   botId,
@@ -209,15 +205,16 @@ function ErrorRow({
   onRetry?: () => void;
   setupInstance?: InstanceInfo;
   usageLimit?: { resetsAt: number | null };
+  usageWait?: NonNullable<Message["tool"]>["usageWait"];
   signIn?: boolean;
   folder?: string;
   botId: string;
 }) {
-  const { t } = useI18n();
-  const now = useNow();
+  const { t, locale } = useI18n();
   if (folder) return <FolderFix folder={folder} botId={botId} onRetry={onRetry} />;
   const action = setupErrorAction(setupInstance, signIn);
-  const reset = usageLimit ? usageLimitReset(usageLimit.resetsAt, now) : null;
+  const waiting = usageWait?.state === "waiting";
+  const time = usageWait?.resumesAt == null ? "" : new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", ...(usageWait.weekly ? { weekday: "short" } : {}) }).format(usageWait.resumesAt);
   const retryButton = onRetry && (
     <button
       onClick={onRetry}
@@ -242,9 +239,8 @@ function ErrorRow({
           <span className="min-w-0 break-words">
             {usageLimit ? (
               <>
-                <span className="font-semibold">{t("chat.usageLimit")}</span>{" "}
-                {t("chat.usageLimitBody")}
-                {reset && <> {t(reset.key, reset.vars)}</>}
+                <span>{t(!waiting ? "chat.usageWaitManual" : !time ? "chat.usageWaitUnknown" : usageWait.weekly ? "chat.usageWaitWeekly" : "chat.usageWaitAt", { time })}</span>
+                {waiting && usageWait.cancelable && <> · <button className="underline" onClick={() => void api(`/api/bots/${botId}/usage-wait/${usageWait.id}/cancel`, { method: "POST" }).catch(() => {})}>{t("chat.cancelQueuedAction")}</button></>}
                 {/* the engine's own words survive a misread of them */}
                 <span className="mt-1 block text-[12px] opacity-70">{message}</span>
               </>
@@ -260,7 +256,7 @@ function ErrorRow({
             {signIn && retryButton}
           </>
         ) : (
-          retryButton
+          usageLimit ? null : retryButton
         )}
       </div>
     </div>
@@ -769,6 +765,7 @@ const MessagesList = memo(function MessagesList({
                     onRetry={m.id === canonicalLastMessageId && canRetryLast && !m.tool.name.startsWith(SYNC_NOTICE) ? onRegenerate : undefined}
                     setupInstance={m.tool.setup || m.tool.signIn ? engine : undefined}
                     usageLimit={m.tool.usageLimit}
+                    usageWait={m.tool.usageWait}
                     signIn={m.tool.signIn}
                   />
                 );
