@@ -37,9 +37,12 @@ async function fixture(mode, input, { encryptionAvailable = true, packaged = tru
   let port;
   const applications = [];
   const harness = createServer(async (req, res) => {
-    if (req.url === "/api/config?secretStorage=external" && req.headers.authorization === `Bearer ${BOOT_TOKEN}`) {
+    if (req.url?.startsWith("/api/config") && req.headers.authorization === `Bearer ${BOOT_TOKEN}`) {
       const patch = parseConfigPatch(await readBody(req));
-      expect(persisted.at(-1)?.[input.target] === (input.value || undefined)).toBe(true);
+      const encrypted = req.url === "/api/config?secretStorage=external";
+      const error = customKeyStorageError(patch, req.headers, HOST, encrypted);
+      if (error) return json(res, 400, { error });
+      if (encrypted) expect(persisted.at(-1)?.[input.target] === (input.value || undefined)).toBe(true);
       applications.push(patch);
       if (rejectApply) return json(res, 400, { error: KEY });
       Object.assign(cfg, patch);
@@ -75,7 +78,7 @@ async function fixture(mode, input, { encryptionAvailable = true, packaged = tru
   });
   const bridge = createTerminalBridge({
     host: { readBot() {}, sendBot() {} },
-    saveCredential: (target, value) => writeCredential(target, value, { encrypted: true }),
+    saveCredential: writeCredential,
   });
   access = await bridge.start();
   cleanup.push(() => bridge.close());
@@ -124,10 +127,13 @@ describe("owning desktop key saves", () => {
     expect(await response.text()).not.toContain(KEY);
   });
 
-  it("forces encryption even when the owning desktop is a development build", async () => {
+  it("rejects dev custom keys as in base instead of claiming a nonpersistent save", async () => {
     const f = await fixture("phone", custom, { packaged: false });
-    expect((await f.post("/api/credentials", custom)).status).toBe(200);
-    expect(f.ownerStore.read()[custom.target]).toBe(custom.value);
+    expect((await f.post("/api/credentials", custom)).status).toBe(400);
+    expect(f.ownerStore.read()).toEqual({ existing: "kept" });
+    expect(f.persisted).toEqual([]);
+    expect(f.cfg).toEqual({});
+    expect(f.resume).not.toHaveBeenCalled();
   });
 
   it.each([{ encryptionAvailable: false }, { rejectApply: true }])("fails closed and rolls back on a desktop failure: %j", async (options) => {
@@ -232,7 +238,8 @@ describe("owning desktop key saves", () => {
     expect(server).toContain("customKeyStorageError(patch, req.headers, REMOTE_HOST, externalSecretStorage, relay, !credentials.bearerOk)");
     const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
     expect(main).toContain("updateCredentials: updateSecureCredentialDocument");
-    expect(main).toContain("writeCredential(name, value, { encrypted: true })");
+    expect(main).toContain("saveCredential: writeCredential");
+    expect(main).not.toContain("syncDevCredentials");
     expect(main).toContain("safeStorage.encryptStringAsync(JSON.stringify(credentials))");
   });
 });

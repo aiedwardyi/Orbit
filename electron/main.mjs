@@ -39,7 +39,7 @@ import { createAppAuthorization, waitForAppToken } from "./local-api-auth.mjs";
 import { stopUtilityChild } from "./utility-child.mjs";
 import { buildDiagnosticsReport, decodeLogTail, diagnosticsFileName, redactSecretsInLine } from "./diagnostics.mjs";
 import { safeExternalUrl } from "./external-open.mjs";
-import { WORKSPACE_CREDENTIALS, migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace-credentials.mjs";
+import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace-credentials.mjs";
 import { activateExistingWindow, liveMainWindow } from "./single-instance.mjs";
 import {
   SYSTEM_IDLE_THRESHOLD_SECONDS,
@@ -369,7 +369,7 @@ const writeCredential = createCredentialWriter({
   updateCredentials: updateSecureCredentialDocument,
   serverAccess: () => ({ port: app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT), token: serverToken }),
 });
-const terminalBridge = createTerminalBridge({ host: terminalHost, updater: app.isPackaged ? updaterBridge : undefined, errorReports, saveCredential: (name, value) => writeCredential(name, value, { encrypted: true }) });
+const terminalBridge = createTerminalBridge({ host: terminalHost, updater: app.isPackaged ? updaterBridge : undefined, errorReports, saveCredential: writeCredential });
 let terminalBridgeAccess = null;
 ipcMain.handle("terminal:open", (event, input) => terminalHost.open(event, input));
 ipcMain.handle("terminal:prestart", (event, input) => terminalHost.prestart(event, input));
@@ -1039,31 +1039,6 @@ async function startServerPackaged() {
   }
   serverStartConflictOnly = everyPortForeignOwned;
   return false;
-}
-
-export async function syncDevCredentials() {
-  if (app.isPackaged || !serverToken) return;
-  const patch = {};
-  for (const { section, field, name } of WORKSPACE_CREDENTIALS) {
-    if (secureCredentials[name]) patch[section] = { [field]: secureCredentials[name] };
-  }
-  if (secureCredentials.composioApiKey) patch.composio = { apiKey: secureCredentials.composioApiKey };
-  const customKeys = workspaceCredentialEnv(secureCredentials).OMB_CUSTOM_KEYS;
-  if (customKeys) patch.customKeys = JSON.parse(customKeys);
-  if (!Object.keys(patch).length) return;
-  const port = Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT);
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/config?secretStorage=external`, {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${serverToken}`, "content-type": "application/json" },
-      body: JSON.stringify(patch),
-      redirect: "error",
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) slog(`development credential sync failed: HTTP ${response.status}`);
-  } catch {
-    slog("development credential sync failed");
-  }
 }
 
 async function syncDevTerminalBridge() {
@@ -2458,16 +2433,12 @@ app.whenReady().then(async () => {
     await secureComposioConfig();
     await secureWorkspaceConfig();
   } else {
-    await syncDevCredentials();
     await syncDevTerminalBridge();
   }
   // Null means there is no saved session. The server stays pending until this push.
   await pushGoogleSession(secureCredentials.googleAccount ?? null);
   if (!app.isPackaged) {
-    watchDevServer({ getPort: () => Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT), push: async () => {
-      await syncDevCredentials();
-      await pushGoogleSession(secureCredentials.googleAccount ?? null);
-    } });
+    watchDevServer({ getPort: () => Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT), push: () => pushGoogleSession(secureCredentials.googleAccount ?? null) });
   }
   void notifyRestartedPanes({ runs: paneRuns, mailbox: paneMailbox, notePane: postPaneNote, warn: slog });
   // The companion the user left on comes back without anyone finding the

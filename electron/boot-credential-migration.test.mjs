@@ -12,7 +12,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const XAI_SECRET = "xai-plaintext-secret";
 const COMPOSIO_SECRET = "ak_plaintext_installation_identity";
 
-const h = vi.hoisted(() => ({ home: "", encryptionAvailable: true, writes: [], packaged: true }));
+const h = vi.hoisted(() => ({ home: "", encryptionAvailable: true, writes: [], packaged: true, handlers: new Map(), saveCard: null }));
+
+vi.mock("./terminal-bridge.mjs", async (original) => {
+  const module = await original();
+  return { ...module, createTerminalBridge: (options) => {
+    h.saveCard = options.saveCredential;
+    return module.createTerminalBridge(options);
+  } };
+});
 
 // speech.mjs resolves its packaged helper bundle from this at import time.
 process.resourcesPath ??= path.join(os.tmpdir(), "orbit-boot-credentials-resources");
@@ -69,6 +77,7 @@ vi.mock("electron", () => {
   ]) {
     stub[name] = auto();
   }
+  stub.ipcMain = new Proxy({ handle: (name, handler) => h.handlers.set(name, handler) }, { get: (target, key) => key in target ? target[key] : auto() });
   stub.default = stub;
   return stub;
 });
@@ -159,33 +168,32 @@ describe("packaged boot credential migration", () => {
     expect(fs.existsSync(credentialsPath())).toBe(false);
   });
 
-  it("hydrates saved encrypted keys into the development harness on startup without booting a server", async () => {
+  it.each(["save", "replace", "remove"])("keeps the last dev %s in config across restart without encrypted hydration", async (action) => {
     h.packaged = false;
+    h.encryptionAvailable = false;
     vi.stubEnv("OMB_COMMS_TOKEN", "test-dev-token");
     vi.stubEnv("OMB_PORT", "18999");
-    fs.writeFileSync(configPath(), JSON.stringify({ xai: { key: "" }, tts: { key: "" } }));
-    const fetchMock = vi.fn(async () => ({ ok: true }));
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("XAI_API_KEY", undefined);
     vi.resetModules();
+    const { saveConfig, loadConfig } = await import("../server/config.ts");
+    vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+      expect(url).toBe("http://127.0.0.1:18999/api/config");
+      saveConfig(JSON.parse(init.body));
+      return new Response("{}");
+    }));
     const main = await import("./main.mjs");
-    const customKey = { name: "Acme", header: "authorization", prefix: "Bearer ", key: "test-custom-key" };
-    main.openSecureCredentialDocument({
-      xaiApiKey: XAI_SECRET, ttsKey: "test-voice-key", composioApiKey: COMPOSIO_SECRET,
-      "custom:api.acme.dev": JSON.stringify(customKey), googleAccount: { refreshToken: "test-google-token" },
-    });
-
-    await main.syncDevCredentials();
-
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("http://127.0.0.1:18999/api/config?secretStorage=external");
-    expect(init.method).toBe("PUT");
-    expect(init.headers.Authorization).toBe("Bearer test-dev-token");
-    expect(JSON.parse(init.body)).toEqual({
-      xai: { key: XAI_SECRET }, tts: { key: "test-voice-key" }, composio: { apiKey: COMPOSIO_SECRET },
-      customKeys: { "api.acme.dev": customKey },
-    });
-    expect(readConfig()).toEqual({ xai: { key: "" }, tts: { key: "" } });
+    const stale = { xaiApiKey: "stale-encrypted-key", boxToken: "expired-provider-token" };
+    main.openSecureCredentialDocument(stale);
+    await h.saveCard("xaiApiKey", XAI_SECRET);
+    expect(readConfig().xai.key === XAI_SECRET).toBe(true);
+    const value = action === "remove" ? "" : action === "replace" ? "replacement-key" : XAI_SECRET;
+    await h.handlers.get("credential:set")({}, "xaiApiKey", value);
+    vi.resetModules();
+    const restarted = await import("./main.mjs");
+    restarted.openSecureCredentialDocument(stale);
+    expect(restarted.syncDevCredentials).toBeUndefined();
+    expect(loadConfig().xai.key === value).toBe(true);
+    expect(readConfig().xai.key === value).toBe(true);
     expect(h.writes).toEqual([]);
   });
 });
