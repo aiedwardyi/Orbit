@@ -1,4 +1,8 @@
 // @vitest-environment happy-dom
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +12,8 @@ import type { LiveFrame } from "@/lib/live-events";
 import { StoreProvider, type Bot, type InstanceInfo, type Message } from "@/state/store";
 
 import { ChatView } from "./ChatView";
+import { CodexDriver } from "../../server/drivers/codex.ts";
+import { recordEvents } from "../../server/testing/events.ts";
 
 class FakeEventSource {
   static last: FakeEventSource | null = null;
@@ -82,6 +88,55 @@ async function mount(driverKind: string, messages: Message[] = [user]) {
 }
 
 describe("ChatView no reply hint", () => {
+  it("shows Thinking through 3 min of silent Codex reasoning, then its reply", async () => {
+    vi.useRealTimers();
+    const scratch = mkdtempSync(join(tmpdir(), "omb-codex-thinking-"));
+    const fixture = join(scratch, "reasoning.json");
+    writeFileSync(fixture, JSON.stringify([{
+      method: "item/started",
+      params: {
+        threadId: "codex-thread-1", turnId: "native-turn-1",
+        item: { id: "r1", type: "reasoning", summary: [], content: [] },
+      },
+    }]));
+    const instance = await CodexDriver.create({
+      instanceId: "inst", displayName: "Codex", enabled: true,
+      config: { cli: join(dirname(fileURLToPath(import.meta.url)), "../../server/testing/fake-codex-app-server.ts"), fullAuto: false },
+      environment: { FAKE_CODEX_TOOL_FIXTURE: fixture, CODEX_HOME: scratch },
+    });
+    const recorder = recordEvents(instance.adapter);
+    try {
+      await instance.adapter.sendTurn({ threadId: "t1", text: "Think hard" });
+      await recorder.until((e) => e.type === "turn.completed");
+    } finally {
+      recorder.stop();
+      await instance.dispose();
+      rmSync(scratch, { recursive: true, force: true });
+    }
+    vi.useFakeTimers();
+    const render = await mount("codex");
+    const replyAt = recorder.events.findIndex((e) => e.type === "content.delta" && e.streamKind === "assistant_text");
+    expect(replyAt).toBeGreaterThan(-1);
+    for (const event of recorder.events.slice(0, replyAt)) {
+      await frame({ kind: "runtime", event: { ...event, turnId: "turn-1" } });
+    }
+    await advance(2 * MINUTE);
+    expect(hint()).toBeUndefined();
+    expect(host.textContent).toContain("Thinking");
+    await advance(MINUTE);
+    expect(hint()).toBeUndefined();
+    expect(host.textContent).toContain("Thinking");
+    const reply: Message = { id: "b2", at: 4, role: "bot", kind: "text", text: "done from fake codex" };
+    for (const event of recorder.events.slice(replyAt)) {
+      await frame({ kind: "runtime", event: { ...event, turnId: "turn-1" } });
+    }
+    await frame({ kind: "message", threadId: "t1", message: reply });
+    await render({ ...bot([user, reply]), busy: false });
+    expect(host.textContent).toContain(reply.text);
+    expect(host.textContent).not.toContain("Thinking");
+    expect(hint()).toBeUndefined();
+  });
+
   it("never names a Claude turn that keeps reporting thinking tokens", async () => {
     await mount("claudeAgent");
     for (let t = 0; t < 3 * MINUTE; t += 1200) {
