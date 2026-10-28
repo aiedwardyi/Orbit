@@ -160,14 +160,14 @@ afterEach(() => {
 });
 
 describe("Google sync journeys", { timeout: 60_000 }, () => {
-  it("counts a PC whose only published change is auto notes", async () => {
+  it.each([{ ext: "notes", changes: { memoryNotes: false } }, { ext: "style", changes: { mascotStyle: "icon-36" } }])("counts a PC whose only published change is $ext", async ({ ext, changes }) => {
     const home = makePC("home", { bots: [bot("Counsel")] });
     await startOn(home);
     const record = createSyncOperation({
       operationId: randomUUID(), deviceId: "notes-only-pc", sequence: 1, recordedAt: 1_800_000_000_001,
-      entity: "bot", entityId: home.bots[0].syncId, changes: { memoryNotes: false },
+      entity: "bot", entityId: home.bots[0].syncId, changes,
     });
-    write(home.folder!, `changes/000000000001-notes-only-pc-${record.operationId}.notes`, JSON.stringify(record));
+    write(home.folder!, `changes/000000000001-notes-only-pc-${record.operationId}.${ext}`, JSON.stringify(record));
     await settle(home);
     const work = makePC("work");
     work.account.setSession(A);

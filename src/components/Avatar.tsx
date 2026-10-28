@@ -20,7 +20,6 @@ import {
   botAvatarProfile,
   isBotAvatarId,
   resolveMascotStyle,
-  WINK_ICON_IDS,
   type BotAvatarChoice,
   type BotAvatarCrop,
   type MascotStyle,
@@ -149,46 +148,14 @@ export type BotAvatarProps = Omit<MausAvatarProps, "color" | "mascotStyle"> & {
   };
   /** Working-row only. Other call sites leave this off. */
   orbitRing?: boolean;
-  /** Lists and message rows: a Wink icon drops to two skin tones. */
-  calm?: boolean;
 };
-
-const WINK_ICONS = new Set<string>(WINK_ICON_IDS);
-
-function CalmWinkIcon({ size, label }: { size: number; label: string }) {
-  return (
-    <svg
-      viewBox="0 0 256 256"
-      width={size}
-      height={size}
-      role="img"
-      aria-label={label}
-      className="block shrink-0"
-      style={{ width: size, height: size }}
-    >
-      <rect
-        x="13.5"
-        y="13.5"
-        width="229"
-        height="229"
-        rx="52.5"
-        strokeWidth="3"
-        style={{ fill: "var(--color-card)", stroke: "var(--color-hairline)" }}
-      />
-      <g style={{ fill: "var(--color-ink)", stroke: "var(--color-ink)" }} opacity="0.85">
-        <path d="M72 86 122 128 72 170" fill="none" strokeWidth="28" strokeLinecap="round" strokeLinejoin="round" />
-        <rect x="146" y="156" width="52" height="28" rx="14" stroke="none" />
-      </g>
-    </svg>
-  );
-}
 
 /**
  * The one renderer for a bot's chosen profile image. Malformed persisted
  * values and images that fail to load both fall back to the cute mascot,
  * so an old/corrupt profile can never leave a broken-image icon in the app.
  */
-export function BotAvatar({ bot, size = 44, label, orbitRing = false, calm = false, ...mascotProps }: BotAvatarProps) {
+export function BotAvatar({ bot, size = 44, label, orbitRing = false, ...mascotProps }: BotAvatarProps) {
   const profile = botAvatarProfile(bot);
   const [imageFailed, setImageFailed] = useState(false);
 
@@ -196,9 +163,7 @@ export function BotAvatar({ bot, size = 44, label, orbitRing = false, calm = fal
 
   const image = profile.avatarCrop !== "mascot" && Boolean(profile.avatarUrl) && !imageFailed;
   let face: ReactNode;
-  if (calm && profile.avatarCrop === "mascot" && WINK_ICONS.has(profile.mascotStyle)) {
-    face = <CalmWinkIcon size={size} label={label ?? (bot.name ? `${bot.name} avatar` : "Bot avatar")} />;
-  } else if (profile.avatarCrop === "mascot" && isBotAvatarId(profile.mascotStyle) && !imageFailed) {
+  if (profile.avatarCrop === "mascot" && isBotAvatarId(profile.mascotStyle) && !imageFailed) {
     face = (
       <img
         src={botAvatarAssetPath(profile.mascotStyle)}

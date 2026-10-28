@@ -2,8 +2,23 @@ import { describe, expect, it } from "vitest";
 
 import { createBotPackageExport } from "./package-export.ts";
 import type { BotRecord } from "./store.ts";
+import { createTeamManifest } from "./team-manifest.ts";
 
 describe("package export", () => {
+  it.each(["icon-31", "icon-36", "teal"] as const)("exports %s for older package and manifest readers", (mascotStyle) => {
+    const bot: BotRecord = {
+      id: "tutor", threadId: "thread", name: "Tutor", title: "Teacher", description: "Teach",
+      color: "white", mascotStyle, notifications: false, unread: false, createdAt: 1,
+      modelSelection: { instanceId: "claude", model: "model", effort: "medium" }, resumeCursors: {},
+    };
+    const exported = createBotPackageExport({ name: "Tutors", bots: [bot], groups: [], routines: [] });
+    const manifest = createTeamManifest({ name: "Tutors", memberIds: [bot.id] }, [bot]);
+    const expected = mascotStyle === "icon-36" ? "peach" : mascotStyle;
+    expect(exported.package.agents[0]?.appearance.mascotStyle).toBe(expected);
+    expect(manifest.team.members[0]?.appearance.mascotStyle).toBe(expected);
+    expect(bot.mascotStyle).toBe(mascotStyle);
+  });
+
   it("keeps collaboration structure while excluding runtime authority and state", () => {
     const exported = createBotPackageExport({
       name: "Launch Crew",

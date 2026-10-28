@@ -43,7 +43,6 @@ function BotNode({ bot, chief = false }: { bot: Bot; chief?: boolean }) {
         motion="none"
         motionKey={0}
         animated={false}
-        calm
       />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">

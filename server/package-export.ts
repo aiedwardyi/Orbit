@@ -1,3 +1,4 @@
+import { portableBotAvatarChoice } from "../shared/bot-avatar.ts";
 import { parseBotPackage, type BotPackageDefinition, type BotPackagePlaybook, type ParsedBotPackage } from "./bot-package.ts";
 import type { Routine } from "./routines.ts";
 import type { BotRecord, GroupRecord, InstalledPlaybook } from "./store.ts";
@@ -109,7 +110,7 @@ export function createBotPackageExport(input: {
   const agents: BotPackageDefinition["agents"] = bots.map((bot) => {
     const appearance: BotPackageDefinition["agents"][number]["appearance"] = { color: bot.color };
     if (bot.mascotExpression) appearance.mascotExpression = bot.mascotExpression;
-    if (bot.mascotStyle) appearance.mascotStyle = bot.mascotStyle;
+    if (bot.mascotStyle) appearance.mascotStyle = portableBotAvatarChoice(bot.mascotStyle, bot.color);
     const agent: BotPackageDefinition["agents"][number] = {
       key: idToKey.get(bot.id)!,
       name: bot.name,

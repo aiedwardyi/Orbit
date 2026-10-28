@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { writeFileAtomic } from "./atomic.ts";
 import { isEffortLevel, type ModelSelection } from "./contracts.ts";
-import { botAvatarChoiceSchema, botAvatarCropSchema, type BotAvatarCrop } from "../shared/bot-avatar.ts";
+import { botAvatarChoiceSchema, botAvatarCropSchema, EXTENDED_BOT_AVATAR_IDS, type BotAvatarCrop } from "../shared/bot-avatar.ts";
 
 export const PROFILE_SYNC_FORMAT = "orbit.profile-sync" as const;
 export const PROFILE_SYNC_VERSION = 1 as const;
@@ -414,17 +414,22 @@ export function parseSyncOperationText(text: string): ProfileSyncOperation {
 }
 
 // Bot fields older builds reject travel in their own op, under an extension those builds never read.
-const OWN_OP_EXTENSIONS = { memoryNotes: "notes", projectNotes: "paths", pinnedMessageId: "pin" } as const;
+const OWN_OP_EXTENSIONS = { memoryNotes: "notes", projectNotes: "paths", pinnedMessageId: "pin", mascotStyle: "style" } as const;
+
+function ownOpFields(changes: Record<string, unknown>) {
+  return Object.entries(OWN_OP_EXTENSIONS).filter(([field]) => field in changes &&
+    (field !== "mascotStyle" || EXTENDED_BOT_AVATAR_IDS.has(String(changes[field]))));
+}
 
 export function syncOperationFileName(operation: ProfileSyncOperation): string {
   const safe = (value: string) => value.replace(/[^A-Za-z0-9._-]/g, "_");
-  // Older readers scan only .json (1.0.184), .json and .notes (1.0.185) or those and .paths (1.0.200), and Drive mirrors only those.
-  const own = operation.entity === "bot" ? Object.entries(OWN_OP_EXTENSIONS).find(([field]) => field in (operation.changes ?? {})) : undefined;
+  // Keep the extension lists in Drive mirror and Google sync aligned with this reader.
+  const own = operation.entity === "bot" ? ownOpFields(operation.changes ?? {})[0] : undefined;
   const ext = own?.[1] ?? "json";
   return `${String(operation.sequence).padStart(12, "0")}-${safe(operation.deviceId)}-${safe(operation.operationId)}.${ext}`;
 }
 
-const isSyncOperationFile = (name: string) => /\.(?:json|notes|paths|pin)$/.test(name);
+const isSyncOperationFile = (name: string) => /\.(?:json|notes|paths|pin|style)$/.test(name);
 
 export function writeSyncOperation(folder: string, operation: ProfileSyncOperation): string {
   const parsed = parseSyncOperation(operation);
@@ -645,7 +650,6 @@ export function unsyncedChanges(synced: Record<string, string>, local: readonly 
 
 // 1.0.60 rejects a bot op carrying any of these keys, 1.0.184 one carrying memoryNotes, 1.0.185 projectNotes, 1.0.200 pinnedMessageId
 const LATER_BOT_DEFAULTS: Record<string, unknown> = { effort: null, modelMode: null, approvePeerComms: false, memoryNotes: null, projectNotes: null, pinnedMessageId: null };
-const OWN_OP_BOT_FIELDS = Object.keys(OWN_OP_EXTENSIONS);
 
 /** Leaves never-synced defaults of LATER_BOT_DEFAULTS out of the op, marking them synced so a later change still publishes. */
 export function compatibleSyncChanges(synced: Record<string, string>, item: SyncEntityValues): SyncEntityValues {
@@ -662,7 +666,7 @@ export function compatibleSyncChanges(synced: Record<string, string>, item: Sync
 
 /** Bot fields older builds reject go out in their own op, so those builds skip only that op. Empty ops drop out. */
 export function ownOpSyncChanges(item: SyncEntityValues): SyncEntityValues[] {
-  const own = item.entity === "bot" ? Object.keys(item.changes).filter((field) => OWN_OP_BOT_FIELDS.includes(field)) : [];
+  const own = item.entity === "bot" ? ownOpFields(item.changes).map(([field]) => field) : [];
   const rest = Object.fromEntries(Object.entries(item.changes).filter(([field]) => !own.includes(field)));
   return [rest, ...own.map((field) => ({ [field]: item.changes[field] }))]
     .filter((changes) => Object.keys(changes).length)

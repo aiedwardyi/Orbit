@@ -40,7 +40,7 @@ function StackedMauses({ members, density }: { members: Bot[]; density: SidebarD
     const b = members[0];
     return (
       <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
-        {b ? <BotAvatar bot={b} state="happy" size={singleSize} animated={false} calm /> : <Users size={24} className="text-ink-secondary" />}
+        {b ? <BotAvatar bot={b} state="happy" size={singleSize} animated={false} /> : <Users size={24} className="text-ink-secondary" />}
       </div>
     );
   }
@@ -53,7 +53,7 @@ function StackedMauses({ members, density }: { members: Bot[]; density: SidebarD
     >
       <div className="flex items-center -space-x-3">
         {shown.map((b) => (
-          <BotAvatar key={b.id} bot={b} state="happy" size={30} animated={false} calm />
+          <BotAvatar key={b.id} bot={b} state="happy" size={30} animated={false} />
         ))}
         {extra > 0 && (
           <span
@@ -325,7 +325,6 @@ function BotListItem({
           // visible-idle CPU (states are keyword-derived, so "working" can be
           // decorative; busy/unread/motion are the real signals).
           animated={Boolean(bot.busy) || Boolean(bot.unread) || (mascotMotion?.kind ?? "none") !== "none"}
-          calm
         />
         {shownModel && (
           <span
@@ -691,7 +690,7 @@ function ArchivedBotsPanel({
           <div className={cn("grid grid-cols-1 gap-x-8", bots.length >= 2 && "md:grid-cols-2")}>
             {bots.map((bot) => (
               <div key={bot.id} className="flex min-h-[82px] items-center gap-3 border-b border-hairline/35 px-1 py-3">
-                <BotAvatar bot={bot} state="happy" size={42} animated={false} calm />
+                <BotAvatar bot={bot} state="happy" size={42} animated={false} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[14px] font-medium text-ink">{bot.name}</div>
                   <div className="mt-0.5 truncate text-[12.5px] text-ink-secondary">{bot.title || t("chrome.botFallback")}</div>

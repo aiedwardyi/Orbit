@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { botAvatarChoiceSchema, type BotAvatarChoice } from "../shared/bot-avatar.ts";
+import { botAvatarChoiceSchema, portableBotAvatarChoice, type BotAvatarChoice } from "../shared/bot-avatar.ts";
 import { schemaIssue, type JsonValue } from "./schema.ts";
 import type { MausColor } from "./store.ts";
 
@@ -293,7 +293,7 @@ export function createTeamManifest(team: ExportableTeam, bots: ExportableBot[]):
     const key = memberKey(bot.name, index, usedKeys);
     const appearance: TeamManifestMember["appearance"] = { color: bot.color };
     if (bot.mascotExpression) appearance.mascotExpression = bot.mascotExpression;
-    if (bot.mascotStyle) appearance.mascotStyle = bot.mascotStyle;
+    if (bot.mascotStyle) appearance.mascotStyle = portableBotAvatarChoice(bot.mascotStyle, bot.color);
     return {
       key,
       name: bot.name,
