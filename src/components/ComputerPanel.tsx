@@ -158,6 +158,9 @@ export function ComputerPanel({
 }) {
   const { t } = useI18n();
   const [confirming, setConfirming] = useState<"vm-delete" | "vm-recreate" | "vps-replace" | null>(null);
+  useEffect(() => {
+    setConfirming(null);
+  }, [bot.id]);
   // The panel is a fixed column by default; a drag handle on its left edge
   // makes it wide enough to actually read a page in the Browser tab.
   const [panelWidth, setPanelWidth] = useState(readPanelWidth);

@@ -534,7 +534,7 @@ function RoutineDetails({
   const { t } = useI18n();
   const { dispatch, state } = useStore();
   const routine = item.routine;
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState<Routine | null>(null);
   const run = item.run;
   const [working, setWorking] = useState(false);
   useBackLayer(!closing, onClose);
@@ -654,18 +654,18 @@ function RoutineDetails({
           <div className="flex-1" />
           {routine && canToggleRoutine(routine) && <button disabled={working} onClick={async () => { setWorking(true); setError(""); try { const response = await api(`/api/routines/${routine.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !routine.enabled }) }); dispatch({ type: "routinePatched", routine: response.routine }); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setWorking(false); } }} className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink disabled:opacity-40">{routine.enabled ? <Pause size={14} /> : <Play size={14} />}{routine.enabled ? "Pause" : "Resume"}</button>}
           {routine && <button onClick={() => onEdit(routine)} className="rounded-xl px-3 py-2 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink">Edit</button>}
-          {routine && <button onClick={() => setConfirmingDelete(true)} className="rounded-xl p-2 text-ink-secondary hover:bg-danger/10 hover:text-danger" title={t("routine.delete")}><Trash2 size={16} /></button>}
+          {routine && <button onClick={() => setConfirmingDelete(routine)} className="rounded-xl p-2 text-ink-secondary hover:bg-danger/10 hover:text-danger" title={t("routine.delete")}><Trash2 size={16} /></button>}
         </div>
       </div>
-      {confirmingDelete && routine && (
+      {confirmingDelete && (
         <ConfirmDialog
           title={t("routine.delete")}
-          body={t("routine.deleteConfirmHistory", { name: routine.name })}
+          body={t("routine.deleteConfirmHistory", { name: confirmingDelete.name })}
           confirmLabel={t("chrome.delete")}
-          onCancel={() => setConfirmingDelete(false)}
+          onCancel={() => setConfirmingDelete(null)}
           onConfirm={() => {
-            setConfirmingDelete(false);
-            dispatch({ type: "deleteRoutine", routineId: routine.id });
+            setConfirmingDelete(null);
+            dispatch({ type: "deleteRoutine", routineId: confirmingDelete.id });
             onClose();
           }}
         />

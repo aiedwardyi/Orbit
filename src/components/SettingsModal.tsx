@@ -587,6 +587,7 @@ export function SettingsModal({
     dialog?.focus();
 
     const onKey = (event: KeyboardEvent) => {
+      if (event.target instanceof Node && !dialog?.contains(event.target)) return;
       if (event.key === "Escape") {
         event.preventDefault();
         dispatch({ type: "toggleAppSettings", open: false });
