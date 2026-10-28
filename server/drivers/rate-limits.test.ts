@@ -465,12 +465,18 @@ describe("chatUsageLimit", () => {
     expect(parsed.map((w) => w.id)).toEqual(["five_hour", "seven_day", "seven_day_opus"]);
     expect(chatUsageLimit("claude", "You've hit your limit", parsed, true, now)?.usageLimit).toEqual({ resetsAt: reset + 86400_000 });
   });
+  it.each(["You've hit your session limit · resets 3am (Asia/Seoul)", "You've hit your weekly limit · resets Nov 3"])("marks Claude's own limit wording: %s", (message) => {
+    expect(chatUsageLimit("claude", { error: "rate_limit", result: message }, windows, true, now)?.usageLimit).toEqual({ resetsAt: reset });
+  });
   it("keeps an unknown reset null instead of inventing a delay", () => {
     expect(chatUsageLimit("claude", "You've hit your limit", [], true, now)?.usageLimit).toEqual({ resetsAt: null });
   });
-  it.each(["429 Too Many Requests", "rate_limit_error", "overloaded", "capacity unavailable", "Invalid API key: usage limit reached", "authentication failed: usage limit reached", "billing: usage limit reached", "out of credits", "quota configuration unavailable"])("rejects unrelated failure even next to spent windows: %s", (message) => {
+  it.each(["429 Too Many Requests", "rate_limit_error", "overloaded", "capacity unavailable", "Invalid API key: usage limit reached", "authentication failed: usage limit reached", "billing: usage limit reached", "out of credits", "quota configuration unavailable", "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus."])("rejects unrelated failure even next to spent windows: %s", (message) => {
     expect(chatUsageLimit("claude", message, windows, true, now)).toBeNull();
     expect(chatUsageLimit("codex", { message }, windows, true, now)).toBeNull();
+  });
+  it("rejects Codex's typed plan-entitlement failure", () => {
+    expect(chatUsageLimit("codex", { codexErrorInfo: "usageLimitExceeded", message: "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus." }, windows, true, now)).toBeNull();
   });
   it.each(["claude", "codex"] as const)("rejects API/inject billing for %s", (provider) => {
     expect(chatUsageLimit(provider, { type: "UsageLimitReached", message: "usage limit reached" }, windows, false, now)).toBeNull();
