@@ -14,6 +14,7 @@ import {
   botAvatarUrlSchema,
   botNotifyIconPath,
   DEFAULT_MASCOT_STYLE,
+  EXTENDED_BOT_AVATAR_IDS,
   MASCOT_STYLE_ASSETS,
   MASCOT_STYLES,
   mascotStyleFromColor,
@@ -80,9 +81,10 @@ describe("mascot style ids", () => {
     expect(mascotStyleSchema.safeParse("cursor").success).toBe(false);
   });
 
-  it("keeps thirty-six stable fixed artwork ids and offers only the Wink icons", () => {
-    expect(BOT_AVATAR_IDS).toEqual(Array.from({ length: 36 }, (_, index) => `icon-${String(index + 1).padStart(2, "0")}`));
-    expect(BOT_AVATAR_PICKER_ORDER).toEqual(["icon-31", "icon-32", "icon-33", "icon-34", "icon-35", "icon-36"]);
+  it("keeps forty-nine stable artwork ids and offers Wink, job, then engine icons", () => {
+    expect(BOT_AVATAR_IDS).toEqual(Array.from({ length: 49 }, (_, index) => `icon-${String(index + 1).padStart(2, "0")}`));
+    expect(BOT_AVATAR_PICKER_ORDER).toEqual(BOT_AVATAR_IDS.slice(30));
+    expect([...EXTENDED_BOT_AVATAR_IDS]).toEqual(BOT_AVATAR_IDS.slice(35));
     for (const id of BOT_AVATAR_IDS) {
       expect(botAvatarChoiceSchema.parse(id)).toBe(id);
       expect(BOT_AVATAR_ASSETS[id]).toMatch(new RegExp(`^${id}-`));

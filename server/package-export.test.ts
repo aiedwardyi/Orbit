@@ -5,7 +5,7 @@ import type { BotRecord } from "./store.ts";
 import { createTeamManifest } from "./team-manifest.ts";
 
 describe("package export", () => {
-  it.each(["icon-31", "icon-36", "teal"] as const)("exports %s for older package and manifest readers", (mascotStyle) => {
+  it.each(["icon-31", "icon-36", "icon-49", "teal"] as const)("exports %s for older package and manifest readers", (mascotStyle) => {
     const bot: BotRecord = {
       id: "tutor", threadId: "thread", name: "Tutor", title: "Teacher", description: "Teach",
       color: "white", mascotStyle, notifications: false, unread: false, createdAt: 1,
@@ -13,7 +13,7 @@ describe("package export", () => {
     };
     const exported = createBotPackageExport({ name: "Tutors", bots: [bot], groups: [], routines: [] });
     const manifest = createTeamManifest({ name: "Tutors", memberIds: [bot.id] }, [bot]);
-    const expected = mascotStyle === "icon-36" ? "peach" : mascotStyle;
+    const expected = mascotStyle === "icon-36" || mascotStyle === "icon-49" ? "peach" : mascotStyle;
     expect(exported.package.agents[0]?.appearance.mascotStyle).toBe(expected);
     expect(manifest.team.members[0]?.appearance.mascotStyle).toBe(expected);
     expect(bot.mascotStyle).toBe(mascotStyle);

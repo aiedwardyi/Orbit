@@ -70,6 +70,19 @@ export const BOT_AVATAR_IDS = [
   "icon-34",
   "icon-35",
   "icon-36",
+  "icon-37",
+  "icon-38",
+  "icon-39",
+  "icon-40",
+  "icon-41",
+  "icon-42",
+  "icon-43",
+  "icon-44",
+  "icon-45",
+  "icon-46",
+  "icon-47",
+  "icon-48",
+  "icon-49",
 ] as const;
 export const botAvatarIdSchema = z.enum(BOT_AVATAR_IDS);
 export type BotAvatarId = z.infer<typeof botAvatarIdSchema>;
@@ -113,6 +126,19 @@ export const BOT_AVATAR_ASSETS = {
   "icon-34": "icon-34-wink-peach.png",
   "icon-35": "icon-35-wink-lavender.png",
   "icon-36": "icon-36-wink-calm.png",
+  "icon-37": "icon-37-job-code.png",
+  "icon-38": "icon-38-job-research.png",
+  "icon-39": "icon-39-job-design.png",
+  "icon-40": "icon-40-job-ops.png",
+  "icon-41": "icon-41-job-writing.png",
+  "icon-42": "icon-42-job-data.png",
+  "icon-43": "icon-43-job-review.png",
+  "icon-44": "icon-44-job-chat.png",
+  "icon-45": "icon-45-engine-claude.png",
+  "icon-46": "icon-46-engine-codex.png",
+  "icon-47": "icon-47-engine-gemini.png",
+  "icon-48": "icon-48-engine-grok.png",
+  "icon-49": "icon-49-engine-muse.png",
 } satisfies Record<BotAvatarId, string>;
 
 export const BOT_AVATAR_LABELS = {
@@ -152,15 +178,36 @@ export const BOT_AVATAR_LABELS = {
   "icon-34": "Wink peach",
   "icon-35": "Wink lavender",
   "icon-36": "Wink calm",
+  "icon-37": "Code",
+  "icon-38": "Research",
+  "icon-39": "Design",
+  "icon-40": "Ops",
+  "icon-41": "Writing",
+  "icon-42": "Data",
+  "icon-43": "Review",
+  "icon-44": "Chat",
+  "icon-45": "Claude",
+  "icon-46": "Codex",
+  "icon-47": "Gemini",
+  "icon-48": "Grok",
+  "icon-49": "Muse",
 } satisfies Record<BotAvatarId, string>;
 
 export const WINK_ICON_IDS = ["icon-31", "icon-32", "icon-33", "icon-34", "icon-35", "icon-36"] as const satisfies readonly BotAvatarId[];
 
 /** Older ids stay valid and still render; the picker just stops offering them. */
-export const BOT_AVATAR_PICKER_ORDER = WINK_ICON_IDS;
+export const BOT_AVATAR_PICKER_ORDER = [
+  ...WINK_ICON_IDS,
+  "icon-37", "icon-38", "icon-39", "icon-40", "icon-41", "icon-42", "icon-43", "icon-44",
+  "icon-45", "icon-46", "icon-47", "icon-48", "icon-49",
+] as const satisfies readonly BotAvatarId[];
 
 // Older sync and share readers reject these ids.
-export const EXTENDED_BOT_AVATAR_IDS: ReadonlySet<string> = new Set(["icon-36"] satisfies BotAvatarId[]);
+export const EXTENDED_BOT_AVATAR_IDS: ReadonlySet<string> = new Set([
+  "icon-36",
+  "icon-37", "icon-38", "icon-39", "icon-40", "icon-41", "icon-42", "icon-43", "icon-44",
+  "icon-45", "icon-46", "icon-47", "icon-48", "icon-49",
+] satisfies BotAvatarId[]);
 
 const BOT_AVATAR_ID_SET = new Set<string>(BOT_AVATAR_IDS);
 
