@@ -1,34 +1,31 @@
-// Paste-a-key rows. Packaged Electron saves secrets in the OS-backed store;
-// browser development falls back to PUT /api/config. Secrets are write-only
-// either way — GET /api/config returns configured flags, never values.
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, CircleHelp, ExternalLink, Loader2, Trash2, TriangleAlert } from "lucide-react";
 import {
   CREDENTIAL_BROKER,
   CREDENTIAL_TARGETS,
-  credentialConfigPatch,
   customCredentialId,
   type BrokeredCredentialId,
   type CredentialId,
 } from "../../shared/credential-request";
 import { api, useStore, type ConfigStatus } from "@/state/store";
+import { credentialErrorMessage, saveCredential } from "@/lib/credentials";
 import { cn } from "@/lib/cn";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { usePresence } from "@/lib/use-presence";
 import { useBackLayer } from "@/lib/use-back-layer";
 import { Section } from "./SettingsPrimitives";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 export type ConfigSection = "composio" | "box";
 
 const SECTIONS: Record<
   ConfigSection,
-  { body: (value: string) => unknown; flag: (config: ConfigStatus) => boolean }
+  { flag: (config: ConfigStatus) => boolean }
 > = {
   composio: {
-    body: (v) => ({ composio: { apiKey: v } }),
     flag: (c) => c.composio.configured,
   },
-  box: { body: (v) => ({ box: { token: v } }), flag: (c) => c.box.configured },
+  box: { flag: (c) => c.box.configured },
 };
 
 const ELECTRON_CREDENTIAL: Record<ConfigSection, "composioApiKey" | "boxToken"> = {
@@ -164,19 +161,14 @@ export function ApiKeyRow({
     if (saving || (!value.trim() && !configured)) return;
     setSaving(true);
     setError(null);
-    const request = window.ogb?.setCredential
-      ? window.ogb.setCredential(ELECTRON_CREDENTIAL[section], value.trim())
-      : api("/api/config", {
-          method: "PUT",
-          body: JSON.stringify(SECTIONS[section].body(value.trim())),
-        });
+    const request = saveCredential(ELECTRON_CREDENTIAL[section], value.trim());
     request
       .then((status: ConfigStatus) => {
         dispatch({ type: "configStatus", config: status });
         setValue("");
         onSaved?.(SECTIONS[section].flag(status));
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(credentialErrorMessage(e, t)))
       .finally(() => setSaving(false));
   };
 
@@ -320,6 +312,7 @@ export function SavedKeys() {
   const { t, locale } = useI18n();
   const { state, dispatch } = useStore();
   const [uses, setUses] = useState<Record<string, { botId: string; at: string }>>({});
+  const [removing, setRemoving] = useState<{ id: CredentialId; label: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const config = state.config;
   const saved: { id: CredentialId; label: string }[] = [
@@ -339,18 +332,12 @@ export function SavedKeys() {
     };
   }, []);
 
-  const remove = (id: CredentialId, label: string) => {
-    if (!window.confirm(t("keys.removeConfirm", { label }))) return;
+  const remove = (id: CredentialId) => {
     setError(null);
-    const patch = id.startsWith("custom:")
-      ? { customKeys: { [id.slice(7)]: null } }
-      : credentialConfigPatch(id as BrokeredCredentialId, "");
-    const request = window.ogb?.setCredential
-      ? window.ogb.setCredential(id, "")
-      : api("/api/config", { method: "PUT", body: JSON.stringify(patch) });
+    const request = saveCredential(id, "");
     request
       .then((status: ConfigStatus) => dispatch({ type: "configStatus", config: status }))
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(credentialErrorMessage(e, t)));
   };
 
   return (
@@ -371,7 +358,7 @@ export function SavedKeys() {
             </div>
             <button
               type="button"
-              onClick={() => remove(id, label)}
+              onClick={() => setRemoving({ id, label })}
               aria-label={t("connections.removeKey")}
               title={t("connections.removeKey")}
               className="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-secondary hover:bg-control hover:text-danger"
@@ -381,6 +368,18 @@ export function SavedKeys() {
           </div>
         );
       })}
+      {removing && (
+        <ConfirmDialog
+          title={t("connections.removeKey")}
+          body={t("keys.removeConfirm", { label: removing.label })}
+          confirmLabel={t("connections.removeKey")}
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            setRemoving(null);
+            remove(removing.id);
+          }}
+        />
+      )}
       {error && <div className="mt-1 text-[12px] text-danger">{error}</div>}
     </Section>
   );

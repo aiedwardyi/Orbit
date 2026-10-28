@@ -122,7 +122,7 @@ async function handleUpdate(req, res, updater, token, action) {
 }
 
 /** Private loopback bridge between the Electron terminal host and a scoped MCP proxy. */
-export function createTerminalBridge({ host, updater, errorReports, token = randomBytes(24).toString("hex"), port = 0 } = {}) {
+export function createTerminalBridge({ host, updater, errorReports, saveCredential, token = randomBytes(24).toString("hex"), port = 0 } = {}) {
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The host is supplied by the Electron main process.
   if (!host || typeof host.readBot !== "function" || typeof host.sendBot !== "function") throw new Error("Terminal host is required");
   let server;
@@ -136,6 +136,19 @@ export function createTerminalBridge({ host, updater, errorReports, token = rand
         return json(res, 400, { error: "Invalid terminal request" });
       }
       if (parsed.pathname === "/v1/error-reports" && errorReports) return handleServerErrorReport(req, res, token, errorReports);
+      if (parsed.pathname === "/v1/credentials") {
+        if (!grantMatches(req.headers.authorization, token)) return json(res, 401, { error: "Unauthorized" });
+        if (req.method !== "POST") return json(res, 405, { error: "Method not allowed" });
+        if (!saveCredential) return json(res, 503, { error: "desktop-unavailable" });
+        try {
+          const input = await readJson(req);
+          await saveCredential(input?.target, input?.value);
+          return json(res, 200, { saved: true });
+        } catch (error) {
+          if (error?.status === 400) return json(res, 400, { error: "credential-rejected" });
+          return json(res, 503, { error: "credential-save-failed" });
+        }
+      }
       const update = parsed.pathname.match(/^\/v1\/update\/(state|check|download|install)$/);
       if (update) return handleUpdate(req, res, updater, token, update[1]);
       if (parsed.pathname === "/v1/terminal/pane-counts") {

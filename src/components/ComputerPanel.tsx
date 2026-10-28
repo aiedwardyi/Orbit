@@ -9,6 +9,8 @@
 // computer. Cloud, Local VM, Box, backend, VPS, Sleep, and schedules stay
 // folded behind Advanced — same pattern as the model-picker rail.
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "@/lib/i18n";
+import { ConfirmDialog } from "./ConfirmDialog";
 import {
   CalendarClock,
   CalendarDays,
@@ -154,6 +156,11 @@ export function ComputerPanel({
   /** Start with destination/host controls expanded (tests). */
   defaultAdvancedOpen?: boolean;
 }) {
+  const { t } = useI18n();
+  const [confirming, setConfirming] = useState<"vm-delete" | "vm-recreate" | "vps-replace" | null>(null);
+  useEffect(() => {
+    setConfirming(null);
+  }, [bot.id]);
   // The panel is a fixed column by default; a drag handle on its left edge
   // makes it wide enough to actually read a page in the Browser tab.
   const [panelWidth, setPanelWidth] = useState(readPanelWidth);
@@ -702,15 +709,11 @@ export function ComputerPanel({
       .finally(() => setPending(null));
   };
 
-  const runVmAction = async (action: "vm-create" | "vm-recreate" | "vm-delete") => {
-    if (
-      (action === "vm-recreate" || action === "vm-delete") &&
-      !window.confirm(
-        action === "vm-delete"
-          ? `Delete ${bot.name}'s Local VM? Its private durable workspace will remain.`
-          : `Replace ${bot.name}'s Local VM? Its private durable workspace will remain.`,
-      )
-    ) return;
+  const runVmAction = async (action: "vm-create" | "vm-recreate" | "vm-delete", confirmed = false) => {
+    if (action !== "vm-create" && !confirmed) {
+      setConfirming(action);
+      return;
+    }
     setPending(action);
     setError(null);
     setVmStatus(null);
@@ -743,7 +746,6 @@ export function ComputerPanel({
   };
 
   const replaceVpsComputer = async () => {
-    if (!window.confirm(`Replace ${bot.name}'s VPS computer with the version required by this Wink update? Files stored only inside the disposable container will be deleted.`)) return;
     setPending("vps-replace");
     setError(null);
     try {
@@ -1020,7 +1022,7 @@ export function ComputerPanel({
               {phase === "vps-incompatible" && vpsStatus?.managed &&
                 (bot.computer === "cloud" || bot.autoStartVps) && (
                 <button
-                  onClick={() => void replaceVpsComputer()}
+                  onClick={() => setConfirming("vps-replace")}
                   disabled={pending === "vps-replace"}
                   className="mt-1 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-accent-ink hover:brightness-110 disabled:opacity-50"
                 >
@@ -1395,6 +1397,19 @@ export function ComputerPanel({
         />
       )}
     </aside>
+    {confirming && (
+      <ConfirmDialog
+        title={t(confirming === "vm-delete" ? "confirm.deleteVm" : confirming === "vps-replace" ? "confirm.replaceVps" : "confirm.replaceVm")}
+        body={t(confirming === "vm-delete" ? "computer.deleteVmConfirm" : confirming === "vps-replace" ? "computer.replaceVpsConfirm" : "computer.replaceVmConfirm", { name: bot.name })}
+        confirmLabel={t(confirming === "vm-delete" ? "chrome.delete" : "confirm.replace")}
+        onCancel={() => setConfirming(null)}
+        onConfirm={() => {
+          setConfirming(null);
+          if (confirming === "vps-replace") void replaceVpsComputer();
+          else void runVmAction(confirming, true);
+        }}
+      />
+    )}
     <LocalComputerAutoWarning
       open={localAutoWarning}
       onCancel={() => setLocalAutoWarning(false)}

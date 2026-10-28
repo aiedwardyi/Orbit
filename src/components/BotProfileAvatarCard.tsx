@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ImagePlus, Loader2, Sparkles, Trash2 } from "lucide-react";
 
 import { api, useStore, type Bot, type ConfigStatus } from "@/state/store";
+import { credentialErrorMessage, saveCredential } from "@/lib/credentials";
 import { imageAttachmentFromFile } from "@/lib/composer-attachments";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
@@ -99,16 +100,11 @@ export function BotProfileAvatarCard({
     setSavingKey(true);
     setError(null);
     try {
-      const status: ConfigStatus = window.ogb?.setCredential
-        ? await window.ogb.setCredential("openaiImageApiKey", key)
-        : await api("/api/config", {
-            method: "PUT",
-            body: JSON.stringify({ imageGen: { key } }),
-          });
+      const status: ConfigStatus = await saveCredential("openaiImageApiKey", key);
       dispatch({ type: "configStatus", config: status });
       setImageKey("");
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : String(saveError));
+      setError(credentialErrorMessage(saveError, t));
     } finally {
       setSavingKey(false);
     }

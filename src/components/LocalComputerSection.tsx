@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { Card, CommandLine } from "./SettingsPrimitives";
 import { cn } from "@/lib/cn";
+import { useI18n } from "@/lib/i18n";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 type Action = "pull" | "run" | "start" | "stop" | "remove" | "recreate";
 
@@ -102,6 +104,8 @@ function ActionButton({
 }
 
 export function LocalComputerSection() {
+  const { t } = useI18n();
+  const [confirming, setConfirming] = useState<"remove" | "recreate" | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<Action | null>(null);
@@ -157,15 +161,11 @@ export function LocalComputerSection() {
     setStatus(body as Status);
   };
 
-  const act = async (action: Action) => {
-    if (
-      action === "remove" &&
-      !window.confirm("Delete the Local VM? Files and browser sign-ins in its durable workspace will remain.")
-    ) return;
-    if (
-      action === "recreate" &&
-      !window.confirm("Replace the existing Local VM with the pinned image and safety limits? Files and browser sign-ins in its durable workspace will remain.")
-    ) return;
+  const act = async (action: Action, confirmed = false) => {
+    if ((action === "remove" || action === "recreate") && !confirmed) {
+      setConfirming(action);
+      return;
+    }
     setPending(action);
     setError(null);
     try {
@@ -436,6 +436,18 @@ export function LocalComputerSection() {
           {status?.base_image_ref ? <> · Base: {status.base_image_ref}</> : null}
         </div>
       </Card>
+      )}
+      {confirming && (
+        <ConfirmDialog
+          title={t(confirming === "remove" ? "confirm.deleteVm" : "confirm.replaceVm")}
+          body={t(confirming === "remove" ? "localComputer.deleteConfirm" : "localComputer.replaceConfirm")}
+          confirmLabel={t(confirming === "remove" ? "chrome.delete" : "confirm.replace")}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => {
+            setConfirming(null);
+            void act(confirming, true);
+          }}
+        />
       )}
     </>
   );

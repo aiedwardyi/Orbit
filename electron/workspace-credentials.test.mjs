@@ -163,8 +163,8 @@ describe("workspace credential env", () => {
   });
 
   it("keeps packaged credential:set patches aligned with the migration table", () => {
-    const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
-    const patchBlock = main.slice(main.indexOf("const CREDENTIAL_PATCH = {"), main.indexOf("ipcMain.handle(\"credential:set\""));
+    const writer = readFileSync(new URL("./credential-writer.mjs", import.meta.url), "utf8");
+    const patchBlock = writer.slice(writer.indexOf("const CREDENTIAL_PATCH = {"), writer.indexOf("export function"));
     for (const { name } of WORKSPACE_CREDENTIALS) {
       expect(patchBlock, name).toContain(`${name}:`);
     }
