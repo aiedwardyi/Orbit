@@ -19,6 +19,7 @@ import { BOT_PROFILE_LIMITS } from "../shared/bot-profile.ts";
 import { defaultModelEffort, isEffortOffered } from "../shared/model-effort.ts";
 import { canDeleteWhileWorking, runThread, workingThreadId } from "../shared/working-thread.ts";
 import { savedKeysPrompt } from "../shared/credential-request.ts";
+import { credentialSaveResponse } from "./credential-save.ts";
 
 import { approvalKey, autoVerdict, AWAY_DESKTOP_DENY_NOTE, BACKGROUND_DENY_NOTE } from "./auto-approve.ts";
 import { requestReview, resolveAutoReviewMode, shouldReview } from "./auto-review.ts";
@@ -8281,6 +8282,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     const googleSyncReply = await googleSyncRoute(method, path, { relay, bearerOk: credentials.bearerOk, phoneSession: credentials.phoneSession, remoteCookie: apiRequestAuthorized(false, req.headers.cookie, credentials.remoteKey, path) }, googleSync, () => readBody(req));
     if (googleSyncReply) return json(res, googleSyncReply.status, googleSyncReply.body);
+    if (method === "POST" && path === "/api/credentials") {
+      const reply = await credentialSaveResponse(terminalBridgeAccess, await readBody(req));
+      return json(res, reply.status, reply.status === 200 ? { ...reply.body, config: configStatus() } : reply.body);
+    }
     if ((method === "PUT" || method === "PATCH") && path === "/api/config") {
       const body = await readBody(req);
       const patch = parseConfigPatch(body);
@@ -8289,7 +8294,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 400, { error: "avatarUrl must reference an existing stored image" });
       }
       const externalSecretStorage = url.searchParams.get("secretStorage") === "external";
-      const customKeyError = customKeyStorageError(patch, req.headers, REMOTE_HOST, externalSecretStorage, relay);
+      if (externalSecretStorage && !credentials.bearerOk) return json(res, 403, { error: "forbidden" });
+      const customKeyError = customKeyStorageError(patch, req.headers, REMOTE_HOST, externalSecretStorage, relay, !credentials.bearerOk);
       if (customKeyError) return json(res, 400, { error: customKeyError });
       if (providerConfigBusy) return json(res, 409, { error: "provider settings are already being updated" });
       if (patch.vps !== undefined) {

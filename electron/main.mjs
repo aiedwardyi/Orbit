@@ -24,6 +24,7 @@ import { createTerminalHost, trustedTerminalSender } from "./terminal-host.mjs";
 import { installOrbitMsg, postPaneNote, readMailboxSecret } from "./terminal-mailbox.mjs";
 import { createPaneRuns, notifyRestartedPanes } from "./pane-runs.mjs";
 import { createTerminalBridge } from "./terminal-bridge.mjs";
+import { createCredentialWriter } from "./credential-writer.mjs";
 import { spawnTerminalPty } from "./terminal-pty.mjs";
 import { readTerminalAppearance } from "./terminal-appearance.mjs";
 import { applyPendingUpdateInstall, consumePendingUpdateInstall, onUpdaterFailure, onUpdaterState, registerUpdaterIpc, retargetUpdater, startUpdater, switchUpdateChannel, updaterBridge } from "./updater.mjs";
@@ -362,7 +363,13 @@ const terminalHost = createTerminalHost({
     return Object.fromEntries((await response.json()).bots.map((bot) => [bot.id, bot.name]));
   },
 });
-const terminalBridge = createTerminalBridge({ host: terminalHost, updater: app.isPackaged ? updaterBridge : undefined, errorReports });
+const writeCredential = createCredentialWriter({
+  packaged: app.isPackaged,
+  isEncryptionAvailable: () => safeStorage.isAsyncEncryptionAvailable(),
+  updateCredentials: updateSecureCredentialDocument,
+  serverAccess: () => ({ port: app.isPackaged ? SERVER_PORT : Number(process.env.OMB_PORT || process.env.OGB_PORT || SERVER_PORT), token: serverToken }),
+});
+const terminalBridge = createTerminalBridge({ host: terminalHost, updater: app.isPackaged ? updaterBridge : undefined, errorReports, saveCredential: writeCredential });
 let terminalBridgeAccess = null;
 ipcMain.handle("terminal:open", (event, input) => terminalHost.open(event, input));
 ipcMain.handle("terminal:prestart", (event, input) => terminalHost.prestart(event, input));
@@ -2283,63 +2290,7 @@ ipcMain.handle("google-account:sign-in", () => googleAccount.signIn());
 ipcMain.handle("google-account:cancel", () => googleAccount.cancel());
 ipcMain.handle("google-account:sign-out", () => googleAccount.signOut());
 
-const CREDENTIAL_PATCH = {
-  composioApiKey: (value) => ({ composio: { apiKey: value } }),
-  xaiApiKey: (value) => ({ xai: { key: value } }),
-  geminiApiKey: (value) => ({ gemini: { apiKey: value } }),
-  openaiCompatKey: (value) => ({ openaiCompat: { key: value } }),
-  boxToken: (value) => ({ box: { token: value } }),
-  ttsKey: (value) => ({ tts: { key: value } }),
-  openaiImageApiKey: (value) => ({ imageGen: { key: value } }),
-  anthropicApiKey: (value) => ({ anthropic: { key: value } }),
-  vertexApiKey: (value) => ({ vertex: { key: value } }),
-};
-
-ipcMain.handle("credential:set", async (_event, name, value) => {
-  // A custom key's value is its JSON binding; the server validates it before anything goes live.
-  const customHost = /^custom:([a-z0-9.-]{1,253})$/.exec(String(name))?.[1];
-  const patchFor = customHost
-    ? (secret) => ({ customKeys: { [customHost]: secret ? JSON.parse(secret) : null } })
-    : CREDENTIAL_PATCH[name];
-  if (!patchFor || typeof value !== "string") {
-    throw new Error("Unsupported credential");
-  }
-  if (app.isPackaged && !(await safeStorage.isAsyncEncryptionAvailable())) {
-    throw new Error("The operating-system credential store is unavailable");
-  }
-  const secret = value.trim();
-  const applyToHarness = async () => {
-    // In development the server is a separately launched process, so it
-    // cannot receive credentials from Electron at boot. Keep its established
-    // local config path there; production always uses the encrypted store.
-    const secretStorage = app.isPackaged ? "?secretStorage=external" : "";
-    const response = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/config${secretStorage}`, {
-      method: "PUT",
-      headers: {
-        "content-type": "application/json",
-        ...(serverToken ? { Authorization: `Bearer ${serverToken}` } : {}),
-      },
-      redirect: "error",
-      body: JSON.stringify(patchFor(secret)),
-    });
-    const body = await response.json().catch(() => null);
-    if (!response.ok) throw new Error(body?.error || `Could not save credential (HTTP ${response.status})`);
-    return body;
-  };
-  if (!app.isPackaged) return applyToHarness();
-
-  // Commit the encrypted value before the server makes it live. The shared
-  // state rolls credentials.bin back if validation/reload fails, while also
-  // keeping concurrent account and provider updates serialized.
-  return updateSecureCredentialDocument(
-    (credentials) => {
-      if (secret) credentials[name] = secret;
-      else delete credentials[name];
-      return credentials;
-    },
-    applyToHarness,
-  );
-});
+ipcMain.handle("credential:set", (_event, name, value) => writeCredential(name, value));
 
 async function broadcastDesktopCapabilities() {
   const capabilities = withToastCapability(

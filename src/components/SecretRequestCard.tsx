@@ -2,12 +2,12 @@ import { useState, type FormEvent } from "react";
 import { Check, ExternalLink, KeyRound, Loader2, LockKeyhole, RefreshCw, X } from "lucide-react";
 
 import {
-  credentialConfigPatch,
   credentialResumeOutcome,
+  customCredentialId,
   customKeyRecord,
-  type CredentialTargetId,
 } from "../../shared/credential-request";
 import { cn } from "@/lib/cn";
+import { credentialErrorMessage } from "@/lib/credentials";
 import { useI18n } from "@/lib/i18n";
 import { api, useStore, type ConfigStatus, type Message } from "@/state/store";
 
@@ -83,22 +83,18 @@ export function SecretRequestCard({
     try {
       if (!savedLocally) {
         const next = value.trim();
-        // A custom key saves with the exact binding this card shows.
-        const status: ConfigStatus = window.ogb?.setCredential
-          ? await window.ogb.setCredential(secret.target, service ? JSON.stringify(customKeyRecord(service, next)) : next)
-          : await api("/api/config", {
-              method: "PUT",
-              body: JSON.stringify(service
-                ? { customKeys: { [service.host]: customKeyRecord(service, next) } }
-                : credentialConfigPatch(secret.target as CredentialTargetId, next)),
-            });
-        dispatch({ type: "configStatus", config: status });
+        const result: { saved: boolean; config: ConfigStatus } = await api("/api/credentials", {
+          method: "POST",
+          body: JSON.stringify({ target: service ? customCredentialId(service.host) : secret.target, value: service ? JSON.stringify(customKeyRecord(service, next)) : next }),
+        });
+        if (result.saved !== true) throw new Error("credential-save-failed");
+        dispatch({ type: "configStatus", config: result.config });
         setValue("");
         setSavedLocally(true);
       }
       await notifyProvided();
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : String(error));
+      setLocalError(credentialErrorMessage(error, t));
     } finally {
       setSaving(false);
     }

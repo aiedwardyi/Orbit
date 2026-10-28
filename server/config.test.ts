@@ -610,17 +610,40 @@ describe("credential env preference", () => {
     const preset = parseConfigPatch({ xai: { key: "xai-new" } });
     const local = { host: "127.0.0.1:8787" };
     const phone = { host: "127.0.0.1:8787", "x-openmausbot-companion": "1" };
-    const pcOnly = "Custom keys can only be saved on the PC";
     const store = "Custom keys need the desktop app's encrypted key store";
-    expect(customKeyStorageError(custom, phone, undefined, false)).toBe(pcOnly);
-    expect(customKeyStorageError(custom, { host: "orbit.tail1234.ts.net" }, "orbit.tail1234.ts.net", false)).toBe(pcOnly);
+    expect(customKeyStorageError(custom, phone, undefined, false)).toBe(store);
+    expect(customKeyStorageError(custom, { host: "orbit.tail1234.ts.net" }, "orbit.tail1234.ts.net", false)).toBe(store);
     // the localhost browser and an unpackaged desktop both reach here without the encrypted store
     expect(customKeyStorageError(custom, local, "orbit.tail1234.ts.net", false)).toBe(store);
     expect(customKeyStorageError(custom, local, undefined, true)).toBeUndefined();
-    expect(customKeyStorageError(preset, phone, undefined, false)).toBeUndefined();
-    // a relay request is a phone whatever its headers claim
-    expect(customKeyStorageError(custom, local, undefined, false, true)).toBe(pcOnly);
-    expect(customKeyStorageError(custom, local, undefined, true, true)).toBe(pcOnly);
+    expect(customKeyStorageError(preset, phone, undefined, false)).toBeTruthy();
+    expect(customKeyStorageError(custom, local, undefined, false, true)).toBe(store);
+    expect(customKeyStorageError(custom, local, undefined, true, true)).toBe(store);
+  });
+
+  it("refuses every plaintext credential field in remote config writes, including removals", () => {
+    const patches: Record<string, Record<string, string | null>>[] = [
+      { xai: { key: "" } }, { gemini: { apiKey: "" } }, { openaiCompat: { key: "" } },
+      { composio: { apiKey: "" } }, { box: { token: "" } }, { tts: { key: "" } },
+      { imageGen: { key: "" } }, { anthropic: { key: "" } }, { vertex: { key: "" } },
+      { customKeys: { "api.acme.dev": null } },
+    ];
+    for (const input of patches) {
+      const patch = parseConfigPatch(input);
+      for (const [headers, relay] of [
+        [{ host: "127.0.0.1", "x-openmausbot-companion": "1" }, false],
+        [{ host: "owner.tail.ts.net" }, false],
+        [{ host: "owner.example" }, true],
+        [{ host: "127.0.0.1", cookie: "orbit_remote=test-only-session" }, false],
+      ] as const) {
+        expect(Boolean(customKeyStorageError(patch, headers, "owner.tail.ts.net", false, relay, "cookie" in headers))).toBe(true);
+      }
+      if (!("customKeys" in input)) {
+        expect(customKeyStorageError(patch, { host: "127.0.0.1" }, undefined, false)).toBeUndefined();
+      }
+      expect(customKeyStorageError(patch, { host: "127.0.0.1" }, undefined, true)).toBeUndefined();
+    }
+    expect(customKeyStorageError(parseConfigPatch({ tts: { provider: "system" } }), { host: "owner.example" }, undefined, false, true)).toBeUndefined();
   });
 
   it("syncCredentialEnv keeps model and provider env in step with a save", () => {

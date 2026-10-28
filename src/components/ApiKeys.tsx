@@ -1,17 +1,14 @@
-// Paste-a-key rows. Packaged Electron saves secrets in the OS-backed store;
-// browser development falls back to PUT /api/config. Secrets are write-only
-// either way — GET /api/config returns configured flags, never values.
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, CircleHelp, ExternalLink, Loader2, Trash2, TriangleAlert } from "lucide-react";
 import {
   CREDENTIAL_BROKER,
   CREDENTIAL_TARGETS,
-  credentialConfigPatch,
   customCredentialId,
   type BrokeredCredentialId,
   type CredentialId,
 } from "../../shared/credential-request";
 import { api, useStore, type ConfigStatus } from "@/state/store";
+import { credentialErrorMessage, saveCredential } from "@/lib/credentials";
 import { cn } from "@/lib/cn";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { usePresence } from "@/lib/use-presence";
@@ -23,13 +20,12 @@ export type ConfigSection = "composio" | "box";
 
 const SECTIONS: Record<
   ConfigSection,
-  { body: (value: string) => unknown; flag: (config: ConfigStatus) => boolean }
+  { flag: (config: ConfigStatus) => boolean }
 > = {
   composio: {
-    body: (v) => ({ composio: { apiKey: v } }),
     flag: (c) => c.composio.configured,
   },
-  box: { body: (v) => ({ box: { token: v } }), flag: (c) => c.box.configured },
+  box: { flag: (c) => c.box.configured },
 };
 
 const ELECTRON_CREDENTIAL: Record<ConfigSection, "composioApiKey" | "boxToken"> = {
@@ -165,19 +161,14 @@ export function ApiKeyRow({
     if (saving || (!value.trim() && !configured)) return;
     setSaving(true);
     setError(null);
-    const request = window.ogb?.setCredential
-      ? window.ogb.setCredential(ELECTRON_CREDENTIAL[section], value.trim())
-      : api("/api/config", {
-          method: "PUT",
-          body: JSON.stringify(SECTIONS[section].body(value.trim())),
-        });
+    const request = saveCredential(ELECTRON_CREDENTIAL[section], value.trim());
     request
       .then((status: ConfigStatus) => {
         dispatch({ type: "configStatus", config: status });
         setValue("");
         onSaved?.(SECTIONS[section].flag(status));
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(credentialErrorMessage(e, t)))
       .finally(() => setSaving(false));
   };
 
@@ -343,15 +334,10 @@ export function SavedKeys() {
 
   const remove = (id: CredentialId) => {
     setError(null);
-    const patch = id.startsWith("custom:")
-      ? { customKeys: { [id.slice(7)]: null } }
-      : credentialConfigPatch(id as BrokeredCredentialId, "");
-    const request = window.ogb?.setCredential
-      ? window.ogb.setCredential(id, "")
-      : api("/api/config", { method: "PUT", body: JSON.stringify(patch) });
+    const request = saveCredential(id, "");
     request
       .then((status: ConfigStatus) => dispatch({ type: "configStatus", config: status }))
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(credentialErrorMessage(e, t)));
   };
 
   return (
