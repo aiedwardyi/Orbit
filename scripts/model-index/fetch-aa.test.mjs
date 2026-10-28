@@ -119,7 +119,7 @@ describe("AA input", () => {
     assert.equal(saved.retrievedAt, statSync(fixture).mtime.toISOString());
   });
 
-  it("prefers the environment key, then the trimmed file key, and redacts failures", async () => {
+  it("prefers --aa-raw, then the environment key, then the trimmed file key, and redacts failures", async () => {
     const dir = mkdtempSync(join(scratch, "aa-"));
     const keyFile = join(dir, "key");
     writeFileSync(keyFile, "  file-secret\n");
@@ -131,9 +131,11 @@ describe("AA input", () => {
       return { status: 200, text: async () => readFileSync(fixture, "utf8") };
     };
     try {
-      await loadResponse({ apiKey: " env-secret ", keyFile, rawFile: "missing" });
+      await loadResponse({ apiKey: " env-secret ", keyFile });
       await loadResponse({ apiKey: "", keyFile });
       assert.deepEqual(keys, ["env-secret", "file-secret"]);
+      assert.deepEqual((await loadResponse({ apiKey: "env-secret", keyFile, rawFile: fixture })).rows, rows());
+      assert.equal(keys.length, 2);
       globalThis.fetch = async () => { throw new Error("env-secret"); };
       await assert.rejects(loadResponse({ apiKey: "env-secret", keyFile }), (error) => !error.message.includes("env-secret") && /request failed/.test(error.message));
       globalThis.fetch = async () => ({ status: 401, text: async () => "env-secret" });

@@ -87,6 +87,13 @@ export function buildSnapshot({ rows, models, retrievedAt, previous }) {
 }
 
 export async function loadResponse({ rawFile, apiKey = process.env.AA_API_KEY, keyFile = join(homedir(), ".aa", "key") } = {}) {
+  if (rawFile) {
+    try {
+      return { rows: parseResponse(readFileSync(rawFile, "utf8")), retrievedAt: statSync(rawFile).mtime.toISOString() };
+    } catch {
+      throw new Unverifiable("AA saved response could not be read or parsed");
+    }
+  }
   let key = apiKey?.trim();
   if (!key) {
     try {
@@ -103,13 +110,6 @@ export async function loadResponse({ rawFile, apiKey = process.env.AA_API_KEY, k
     } catch (error) {
       if (error instanceof Unverifiable) throw error;
       throw new Unverifiable("AA API request failed; snapshot untouched");
-    }
-  }
-  if (rawFile) {
-    try {
-      return { rows: parseResponse(readFileSync(rawFile, "utf8")), retrievedAt: statSync(rawFile).mtime.toISOString() };
-    } catch {
-      throw new Unverifiable("AA saved response could not be read or parsed");
     }
   }
   return null;
