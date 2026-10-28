@@ -92,8 +92,8 @@ function runScript(project, status, args, env = {}, input) {
       }
       const version = JSON.parse(project.files["package.json"]).version;
       if (url === "https://github.com/aiedwardyi/orbit-releases/releases/tag/v" + version && options.method === "HEAD") return new Response(null, { status: ${status} });
-      if (url === "https://api.github.com/repos/aiedwardyi/Orbit/branches/review-base") return Response.json({ commit: { sha: project.tip ?? project.sha } }, { status: project.tipStatus ?? 200 });
-      const page = String(url).match(/^https:\\/\\/api\\.github\\.com\\/repos\\/aiedwardyi\\/Orbit\\/releases\\?per_page=100&page=(\\d+)$/);
+      if (url === "https://api.github.com/repos/aiedwardyi/Wink/branches/review-base") return Response.json({ commit: { sha: project.tip ?? project.sha } }, { status: project.tipStatus ?? 200 });
+      const page = String(url).match(/^https:\\/\\/api\\.github\\.com\\/repos\\/aiedwardyi\\/Wink\\/releases\\?per_page=100&page=(\\d+)$/);
       if (page) return Response.json(project.pages?.[Number(page[1]) - 1] ?? [], { status: project.releasesStatus ?? 200 });
       throw new Error("Unexpected HTTP request: " + url);
     };`);
@@ -118,8 +118,8 @@ function prepare(project, status = 200, env) {
 
 function publicationAllowed(project, ciAttempt = 1, runAttempt = 1) {
   const { prepare, publish } = workflow().jobs;
-  const github = { repository: "aiedwardyi/Orbit", run_attempt: runAttempt, event: { workflow_run: {
-    conclusion: "success", event: "push", run_attempt: ciAttempt, head_repository: { full_name: "aiedwardyi/Orbit" },
+  const github = { repository: "aiedwardyi/Wink", run_attempt: runAttempt, event: { workflow_run: {
+    conclusion: "success", event: "push", run_attempt: ciAttempt, head_repository: { full_name: "aiedwardyi/Wink" },
   } } };
   if (!runInNewContext(prepare.if, { github })) return false;
   const guard = publish.steps.find((step) => step.id === "guard");
@@ -388,7 +388,7 @@ describe("dev build workflow", () => {
     const runs = workflow().jobs.publish.steps.map((step) => step.run || "").join("\n");
     expect(runs).toContain('--target "$SHA"');
     expect(runs).toContain("--draft --prerelease");
-    expect(runs).toContain("--repo aiedwardyi/Orbit");
+    expect(runs).toContain("--repo aiedwardyi/Wink");
     expect(runs).toContain("--draft=false --prerelease --latest=false");
     expect(runs).toContain(".isPrerelease and (.isDraft | not)");
     expect(runs).toContain(".prerelease and (.draft | not)");

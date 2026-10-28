@@ -4,7 +4,7 @@
 
 Do not open a public issue for a security problem. Report it privately through GitHub:
 
-https://github.com/aiedwardyi/Orbit/security/advisories/new
+https://github.com/aiedwardyi/Wink/security/advisories/new
 
 Wink is maintained by one person. Reports get a best-effort response, and a fix ships in a release once it is ready.
 

@@ -9,7 +9,7 @@ Windows 10 / 11 x64 is the release platform. The server and the test suite are p
 Requirements: Node.js 24+, pnpm 10.33, and at least one engine CLI signed in (see the README).
 
 ```powershell
-git clone https://github.com/aiedwardyi/Orbit.git
+git clone https://github.com/aiedwardyi/Wink.git Orbit
 cd Orbit
 pnpm install --frozen-lockfile
 

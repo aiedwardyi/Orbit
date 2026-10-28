@@ -13,7 +13,7 @@ const STABLE = Object.freeze({
   allowDowngrade: false,
 });
 const DEV = Object.freeze({
-  feed: Object.freeze({ provider: "github", owner: "aiedwardyi", repo: "Orbit" }),
+  feed: Object.freeze({ provider: "github", owner: "aiedwardyi", repo: "Wink" }),
   channel: "dev",
   allowPrerelease: true,
   allowDowngrade: false,

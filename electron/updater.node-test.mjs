@@ -39,7 +39,7 @@ function feedVersion(versions, repo, allowPrerelease) {
   // Prereleases on the stable feed look for dev tags it never has (vendor:12564-12614).
   if (repo === "orbit-releases" && allowPrerelease) throw new Error("No published versions on GitHub");
   // Without prereleases the dev feed asks for a latest release it never has (vendor:12657-12669).
-  if (repo === "Orbit" && !allowPrerelease) throw new Error("Unable to find latest version on GitHub");
+  if (repo === "Wink" && !allowPrerelease) throw new Error("Unable to find latest version on GitHub");
   return version;
 }
 
@@ -240,26 +240,26 @@ test("a Mac ignores a channel file and never touches the jump list", async (t) =
 });
 
 test("joining dev adds the jump list task, checks every 10 minutes and offers the newest dev build", async (t) => {
-  const h = launch(t, { versions: { "orbit-releases": "1.0.192", Orbit: "1.0.193-dev.46" } });
+  const h = launch(t, { versions: { "orbit-releases": "1.0.192", Wink: "1.0.193-dev.46" } });
   await h.api.switchUpdateChannel("dev");
   assert.equal(updateChannel.readUpdateChannel(h.userData), "dev");
   assert.deepEqual(h.tasks, [[TASK]]);
   assert.equal(h.timerList().at(-1), "interval 600000");
-  assert.deepEqual(h.probes, ["orbit-releases", "Orbit"]);
+  assert.deepEqual(h.probes, ["orbit-releases", "Wink"]);
   assert.equal(h.status(), "available");
   assert.equal(h.api.updaterBridge.state().version, "1.0.193-dev.46");
   assert.deepEqual(h.updater.downloads, []);
 });
 
 test("a dev build on the dev channel is offered a stable release newer than every dev build", async (t) => {
-  const h = launch(t, { running: "1.0.193-dev.45", channelFile: "dev", versions: { "orbit-releases": "1.0.193", Orbit: "1.0.193-dev.46" } });
+  const h = launch(t, { running: "1.0.193-dev.45", channelFile: "dev", versions: { "orbit-releases": "1.0.193", Wink: "1.0.193-dev.46" } });
   await h.api.updaterBridge.check();
   assert.equal(h.status(), "available");
   assert.equal(h.api.updaterBridge.state().version, "1.0.193");
 });
 
 test("back to stable from a dev build stages the latest stable, asks, and installs on Restart now", async (t) => {
-  const h = launch(t, { running: "1.0.193-dev.45", channelFile: "dev", versions: { "orbit-releases": "1.0.192", Orbit: "1.0.193-dev.47" }, responses: [0] });
+  const h = launch(t, { running: "1.0.193-dev.45", channelFile: "dev", versions: { "orbit-releases": "1.0.192", Wink: "1.0.193-dev.47" }, responses: [0] });
   assert.deepEqual(h.tasks, [[TASK]]);
   await h.api.updaterBridge.download();
   assert.deepEqual(h.updater.downloads, ["1.0.193-dev.47"]);
@@ -275,7 +275,7 @@ test("back to stable from a dev build stages the latest stable, asks, and instal
 });
 
 test("back to stable while the stable feed is unreachable never offers the dev build seen before", async (t) => {
-  const versions = { "orbit-releases": "1.0.192", Orbit: "1.0.193-dev.47" };
+  const versions = { "orbit-releases": "1.0.192", Wink: "1.0.193-dev.47" };
   const h = launch(t, { running: "1.0.193-dev.45", channelFile: "dev", versions, responses: [0] });
   await h.api.updaterBridge.check();
   assert.equal(h.status(), "available");
@@ -288,7 +288,7 @@ test("back to stable while the stable feed is unreachable never offers the dev b
 });
 
 test("back to stable during a dev download lets it land, then stages stable instead", async (t) => {
-  const h = launch(t, { running: "1.0.193-dev.45", channelFile: "dev", versions: { "orbit-releases": "1.0.192", Orbit: "1.0.193-dev.47" }, responses: [0] });
+  const h = launch(t, { running: "1.0.193-dev.45", channelFile: "dev", versions: { "orbit-releases": "1.0.192", Wink: "1.0.193-dev.47" }, responses: [0] });
   const transfer = deferred();
   h.updater.hold = transfer.promise;
   const download = h.api.updaterBridge.download();
@@ -306,7 +306,7 @@ test("back to stable during a dev download lets it land, then stages stable inst
 });
 
 test("the jump list task goes once a stable build runs on the stable channel", async (t) => {
-  const onStable = launch(t, { running: "1.0.193", channelFile: "dev", versions: { "orbit-releases": "1.0.193", Orbit: "1.0.194-dev.1" } });
+  const onStable = launch(t, { running: "1.0.193", channelFile: "dev", versions: { "orbit-releases": "1.0.193", Wink: "1.0.194-dev.1" } });
   assert.deepEqual(onStable.tasks, [[TASK]]);
   await onStable.api.switchUpdateChannel("stable");
   assert.deepEqual(onStable.tasks.at(-1), []);
@@ -318,7 +318,7 @@ test("the jump list task goes once a stable build runs on the stable channel", a
 });
 
 test("a channel flag that lands before the updater starts is applied once it does", async (t) => {
-  const h = launch(t, { running: "1.0.193-dev.45", channelFile: "dev", versions: { "orbit-releases": "1.0.192", Orbit: "1.0.193-dev.47" }, responses: [0], early: ["dev", "stable"] });
+  const h = launch(t, { running: "1.0.193-dev.45", channelFile: "dev", versions: { "orbit-releases": "1.0.192", Wink: "1.0.193-dev.47" }, responses: [0], early: ["dev", "stable"] });
   for (let i = 0; i < 10; i += 1) await flush();
   assert.equal(updateChannel.readUpdateChannel(h.userData), "stable");
   assert.deepEqual(h.updater.downloads, ["1.0.192"]);
@@ -327,7 +327,7 @@ test("a channel flag that lands before the updater starts is applied once it doe
 });
 
 test("joining dev during a stable check checks the dev feed once that check settles", async (t) => {
-  const h = launch(t, { versions: { "orbit-releases": "1.0.192", Orbit: "1.0.193-dev.46" } });
+  const h = launch(t, { versions: { "orbit-releases": "1.0.192", Wink: "1.0.193-dev.46" } });
   const stableCheck = deferred();
   h.updater.checkHold = stableCheck.promise;
   h.timers[0].callback();
@@ -339,7 +339,7 @@ test("joining dev during a stable check checks the dev feed once that check sett
   h.updater.checkHold = null;
   stableCheck.resolve();
   await join;
-  assert.deepEqual(h.probes, ["orbit-releases", "Orbit"]);
+  assert.deepEqual(h.probes, ["orbit-releases", "Wink"]);
   assert.equal(h.status(), "available");
   assert.equal(h.api.updaterBridge.state().version, "1.0.193-dev.46");
 });

@@ -23,7 +23,7 @@ production hosted service still match this repository.
   Connect definition of ephemeral processing when answering the collection
   question for the submitted build.
 - Privacy policy URL:
-  `https://github.com/aiedwardyi/Orbit/blob/HEAD/docs/ios-privacy.md`
+  `https://github.com/aiedwardyi/Wink/blob/HEAD/docs/ios-privacy.md`
 
 The iOS app does not receive the hosted account's user ID or the computer's
 hosted installation ID. Email sign-in for optional hosted access happens on the

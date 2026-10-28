@@ -193,7 +193,7 @@ jobs:
           if ! gh release view "$tag" --repo aiedwardyi/orbit-releases > /dev/null 2>&1; then
             gh release create "$tag" --repo aiedwardyi/orbit-releases \
               --draft --title "Wink $VERSION" \
-              --notes "Draft assembled by the release workflow from aiedwardyi/Orbit@$SHA. Edit these notes, then publish."
+              --notes "Draft assembled by the release workflow from aiedwardyi/Wink@$SHA. Edit these notes, then publish."
           fi
           while IFS= read -r name; do
             [ -n "$name" ] && [ ! -e "$name" ] && gh release delete-asset "$tag" "$name" --repo aiedwardyi/orbit-releases --yes

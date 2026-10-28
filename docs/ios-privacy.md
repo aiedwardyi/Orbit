@@ -53,7 +53,7 @@ holder asks for deletion. Some minimal records may be retained when required
 for security, fraud prevention, dispute resolution, or law.
 
 To request a copy or deletion of hosted account data, open an
-[Orbit Support](https://github.com/aiedwardyi/Orbit/issues) request
+[Orbit Support](https://github.com/aiedwardyi/Wink/issues) request
 without posting an OTP, pairing code, device token, connector token, or other
 secret. The maintainer will provide a private way to verify control of the
 email address. Deleting hosted account data does not delete transcripts stored
@@ -62,4 +62,4 @@ on the user's own computer.
 ## Support
 
 Privacy questions can be opened at
-[Orbit Support](https://github.com/aiedwardyi/Orbit/issues).
+[Orbit Support](https://github.com/aiedwardyi/Wink/issues).
