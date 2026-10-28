@@ -18,10 +18,13 @@ const botAvatarDir = join(dirname(fileURLToPath(import.meta.url)), "../../public
 describe("fixed bot avatar art pack", () => {
   it("ships a readable PNG for every stable icon id", () => {
     const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    expect(BOT_AVATAR_IDS).toHaveLength(49);
     for (const id of BOT_AVATAR_IDS) {
       const path = join(botAvatarDir, BOT_AVATAR_ASSETS[id]);
       const bytes = readFileSync(path);
       expect(bytes.subarray(0, pngSignature.length).equals(pngSignature), path).toBe(true);
+      expect(bytes.readUInt32BE(16), path).toBe(256);
+      expect(bytes.readUInt32BE(20), path).toBe(256);
     }
   });
 });

@@ -780,7 +780,9 @@ describe("automatic bot sync", () => {
     expect(publish(a)).toEqual([]);
   });
 
-  it.each([false, true])("isolates extended avatars from older readers (new bot: %s)", (fresh) => {
+  it.each([
+    [false, "icon-36"], [true, "icon-36"], [false, "icon-49"], [true, "icon-49"],
+  ])("isolates extended avatars from older readers (new bot: %s, style: %s)", (fresh, mascotStyle) => {
     const folder = mkdtempSync(join(tmpdir(), "orbit-profile-sync-style-"));
     roots.push(folder);
     const a = device("a");
@@ -788,7 +790,7 @@ describe("automatic bot sync", () => {
     a.bots.set("tutor", tutor);
     if (!fresh) for (const op of publish(a)) writeSyncOperation(folder, op);
     const signature = syncOperationsSignature(folder);
-    Object.assign(tutor.changes, { name: "Coach", color: "blue", mascotStyle: "icon-36" });
+    Object.assign(tutor.changes, { name: "Coach", color: "blue", mascotStyle });
     for (const op of publish(a)) writeSyncOperation(folder, op);
     expect(syncOperationsSignature(folder)).not.toBe(signature);
     const names = readdirSync(join(folder, "changes"));
@@ -796,7 +798,7 @@ describe("automatic bot sync", () => {
     const base = names.filter((name) => /\.(?:json|notes|paths|pin)$/.test(name)).flatMap((name) => {
       try {
         const op = parseSyncOperationText(readFileSync(join(folder, "changes", name), "utf8"));
-        if (op.changes?.mascotStyle === "icon-36") throw new Error("Unknown avatar id");
+        if (op.changes?.mascotStyle === mascotStyle) throw new Error("Unknown avatar id");
         return [op];
       } catch {
         invalidFiles.push(name);
@@ -808,7 +810,7 @@ describe("automatic bot sync", () => {
     expect(names.filter((name) => name.endsWith(".style"))).toHaveLength(1);
     const read = readSyncOperations(folder);
     expect(read.invalidFiles).toEqual([]);
-    expect(read.operations.filter((op) => op.changes?.mascotStyle === "icon-36").map((op) => op.changes)).toEqual([{ mascotStyle: "icon-36" }]);
+    expect(read.operations.filter((op) => op.changes?.mascotStyle === mascotStyle).map((op) => op.changes)).toEqual([{ mascotStyle }]);
     const state = applySyncOperations(emptyProfileSyncState(), read.operations);
     expect(state.bots["g-a-tutor"]).toMatchObject(tutor.changes);
     expect(state.conflicts).toEqual([]);
