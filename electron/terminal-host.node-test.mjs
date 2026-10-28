@@ -2277,6 +2277,19 @@ test("Codex capacity waits a minute, continues once without a note and leaves ot
   }
 });
 
+test("Codex capacity leaves input typed before the screen echoes it alone", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  const pane = await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  const child = f.children[0];
+  child.data(codexCapacityScreen());
+  await f.settle();
+  await f.advance(59_999);
+  f.host.write(f.event, pane.sessionId, "please wait");
+  await f.advance(60_001);
+  assert.deepEqual(child.writes, ["codex go\r", "please wait"]);
+});
+
 test("Codex capacity still continues when the error wraps onto two rows", async (t) => {
   for (const wrapped of [
     "■ Selected model is at capacity. Please\r\n  try a different model.",

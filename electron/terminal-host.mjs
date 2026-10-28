@@ -637,7 +637,8 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const capacity = session.engine === "codex" && codexCapacity(session.screen.snapshot({ maxScrollbackChars: 0 }));
       const threshold = capacity ? CODEX_CAPACITY_WAIT_MS : !limit && (!session.agentSeen || session.engine === "claude" && agentJobsRunning(text, true)) ? JOBS_HOLD_MS : stallMs;
       if (session.stallFired || at - session.stallChangedAt < threshold || at < session.stallRetryAt) continue;
-      if (capacity && session.stallChangedAt - session.capacityContinuedAt >= CODEX_CAPACITY_COOLDOWN_MS) {
+      // Typed input can sit in the PTY before the screen echoes it
+      if (capacity && session.userInputAt < session.stallChangedAt && session.stallChangedAt - session.capacityContinuedAt >= CODEX_CAPACITY_COOLDOWN_MS) {
         session.capacityContinuedAt = at;
         session.stallFired = true;
         typeIntoPane(session, "continue\r");
@@ -939,7 +940,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallScreenAt: 0, stallText: null,
-      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, capacityContinuedAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
+      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, capacityContinuedAt: -Infinity, userInputAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
       reported: false, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
       claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false, claudeTrustTimer: null,
     };
@@ -1168,7 +1169,10 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       const echo = mouse ? "" : inputEchoText(data);
       const submit = mouse ? false : isSubmitInput(data);
       // Mouse and focus reports from a TUI are not the user taking over.
-      if (echo || submit) clearActivityTimer(session);
+      if (echo || submit) {
+        clearActivityTimer(session);
+        session.userInputAt = now();
+      }
       if (submit) session.activityArmed = true;
       if (echo) session.pendingInputEcho = `${session.pendingInputEcho}${echo}`.slice(-INPUT_ECHO_LIMIT);
       // A shell can emit a bell more than once; arm the next command after Enter.
