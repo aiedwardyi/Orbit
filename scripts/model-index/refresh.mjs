@@ -1,4 +1,4 @@
-// Re-fetches every source we may fetch, rewrites its snapshot, rebuilds shared/model-index-data.ts and prints what changed. Exit 0 = no change, 2 = changed, 1 = error. Usage: node scripts/model-index/refresh.mjs
+// Re-fetches sources, rebuilds shared/model-index-data.ts and prints what changed. Exit 0 = no change, 2 = changed, 1 = error. Usage: node scripts/model-index/refresh.mjs [--aa-raw file]
 // Weekly routine: commit the rewritten snapshots on exit 0 and exit 2, so the checked date stays true.
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import * as lmarena from "./fetch-lmarena.mjs";
 import * as listPrices from "./fetch-list-prices.mjs";
 import * as vals from "./fetch-vals.mjs";
+import * as aa from "./fetch-aa.mjs";
 import { beginRun, readModels, readSnapshot, root, saveRaw, writeSnapshot } from "./lib.mjs";
 
 const FETCHED = [
@@ -14,12 +15,7 @@ const FETCHED = [
   { name: "vals-cyberbench", fetcher: vals.cyber },
   { name: "list-prices", fetcher: listPrices },
 ];
-const MANUAL = [
-  { name: "aa-intelligence-index", why: "artificialanalysis.ai terms bar scripted access; its API needs an account key" },
-  { name: "aa-terminal-bench", why: "artificialanalysis.ai terms bar scripted access; its API needs an account key" },
-  { name: "aa-gdpval", why: "artificialanalysis.ai terms bar scripted access; its API needs an account key" },
-  { name: "aa-frontiercode", why: "artificialanalysis.ai terms bar scripted access; its API needs an account key" },
-];
+const MANUAL = aa.MANUAL;
 
 // How each provider Wink carries spells its models in source ids.
 const FAMILY = { anthropic: /claude/i, google: /gemini/i, openai: /gpt/i, xai: /grok/i, meta: /muse/i };
@@ -74,7 +70,7 @@ export function formatBuildFailure(build) {
   return `build-data: FAILED - ${build.error?.message ?? build.stderr?.trim()}`;
 }
 
-export async function refresh(today = day(new Date().toISOString())) {
+export async function refresh(today = day(new Date().toISOString()), { rawFile, ...credentials } = {}) {
   beginRun();
   const models = readModels();
   const out = [];
@@ -95,9 +91,33 @@ export async function refresh(today = day(new Date().toISOString())) {
       out.push(`${name}: UNVERIFIABLE, snapshot untouched - ${error.message}`);
     }
   }
+  try {
+    const response = await aa.loadResponse({ rawFile, ...credentials });
+    if (!response) out.push("AA: skipped; set AA_API_KEY, save ~/.aa/key, or pass --aa-raw <file>");
+    else {
+      for (const name of Object.keys(aa.BENCHMARKS)) {
+        const before = readSnapshot(name);
+        try {
+          const { snapshot, unmapped, needsCost } = aa.buildSnapshot({ ...response, models, previous: before });
+          writeSnapshot(name, snapshot);
+          wrote = true;
+          const result = report(name, before, snapshot, unmapped, models, today);
+          out.push(...result.lines);
+          if (needsCost.length) out.push(`  needs hand check: cost: ${needsCost.join(", ")}`);
+          changed ||= result.changed;
+        } catch (error) {
+          failed = true;
+          out.push(`${name}: UNVERIFIABLE, snapshot untouched - ${error.message}`);
+        }
+      }
+    }
+  } catch (error) {
+    failed = true;
+    out.push(`AA: UNVERIFIABLE, snapshots untouched - ${error.message}`);
+  }
   for (const { name, why } of MANUAL) {
     const retrieved = readSnapshot(name).rows.map((row) => row.retrieved_at).sort()[0];
-    out.push(`${name}: manual, last retrieved ${day(retrieved)} (${why})`);
+    out.push(`${name}: MANUAL, last retrieved ${day(retrieved)} (${why})`);
   }
   if (wrote) {
     const build = spawnSync(process.execPath, [join(root, "scripts/model-index/build-data.mjs")], { encoding: "utf8" });
@@ -109,8 +129,14 @@ export async function refresh(today = day(new Date().toISOString())) {
   return { out, code: failed ? 1 : changed ? 2 : 0 };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const { out, code } = await refresh();
-  console.log(out.join("\n"));
-  process.exitCode = code;
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    const rawFile = aa.rawFileArg(process.argv.slice(2));
+    const { out, code } = await refresh(undefined, { rawFile });
+    console.log(out.join("\n"));
+    process.exitCode = code;
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }

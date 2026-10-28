@@ -3,6 +3,8 @@
 // filenames, and stored transcripts are not keys and must never pass through
 // translate().
 export const en = {
+  "settings.errorReports.title": "Send Error Reports",
+  "settings.errorReports.help": "App version, OS and error codes only. Never chats, files or paths.",
   "terminal.appearance.title": "Terminal Colors",
   "terminal.appearance.help": "Use your Terminal profile.",
   "terminal.appearance.loading": "Reading your default profile...",
@@ -1513,6 +1515,8 @@ export const en = {
 export type MessageKey = keyof typeof en;
 
 export const ko = {
+  "settings.errorReports.title": "오류 보고 보내기",
+  "settings.errorReports.help": "앱 버전, 운영체제, 오류 코드만 보냅니다. 대화, 파일, 경로는 보내지 않습니다.",
   "terminal.appearance.title": "터미널 색",
   "terminal.appearance.help": "터미널 프로필을 써요.",
   "terminal.appearance.loading": "기본 프로필을 읽는 중...",

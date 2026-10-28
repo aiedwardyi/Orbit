@@ -1,0 +1,28 @@
+{
+  "status": 200,
+  "prompt_options": { "parallel_queries": 1, "prompt_length": "medium" },
+  "data": [
+    {
+      "id": "opus-max",
+      "name": "Claude Opus 5.5 (Max, Default Fallback)",
+      "slug": "claude-opus-5-5",
+      "model_creator": { "name": "Anthropic", "slug": "anthropic" },
+      "evaluations": { "artificial_analysis_intelligence_index": 62.9, "terminalbench_v4_0": 0.717, "terminalbench_v2_1": 0.399, "terminalbench_hard": 0.087 },
+      "pricing": { "price_1m_blended_3_to_1": 1.925, "price_1m_input_tokens": 1.1, "price_1m_output_tokens": 4.4 }
+    },
+    {
+      "id": "opus-xhigh",
+      "name": "Claude Opus 5.5 (Xhigh, Default Fallback)",
+      "slug": "claude-opus-5-5-xhigh",
+      "model_creator": { "name": "Anthropic", "slug": "anthropic" },
+      "evaluations": { "artificial_analysis_intelligence_index": 55.8, "terminalbench_v4_0": 0.5 }
+    },
+    {
+      "id": "sol-high",
+      "name": "GPT-6.1 Sol (High)",
+      "slug": "gpt-6-1-sol-high",
+      "model_creator": { "name": "OpenAI", "slug": "openai" },
+      "evaluations": { "artificial_analysis_intelligence_index": 87.2, "terminalbench_v4_0": null }
+    }
+  ]
+}

@@ -3,7 +3,7 @@ import path from "node:path";
 
 const DESKTOP_FILES = [
   "credentials.bin", "locale-preference.json", "skin-preference.json", "window-state.json", "companion-settings.json",
-  "cua-local-control.json",
+  "cua-local-control.json", "error-report-consent.json",
 ];
 const DELAYS = [100, 200, 400, 800];
 

@@ -528,11 +528,14 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           case "item/reasoning/textDelta":
           case "item/reasoning/summaryTextDelta": {
             const delta = typeof p.delta === "string" ? p.delta : "";
-            if (delta) emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "reasoning_text", delta });
+            emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "reasoning_text", delta });
             break;
           }
           case "item/started": {
             const item = p.item ?? {};
+            if (item.type === "reasoning") {
+              emit({ ...base(threadId, turnId), type: "content.delta", streamKind: "reasoning_text", delta: "" });
+            }
             const title =
               item.type === "commandExecution"
                 ? String(item.command ?? "shell")

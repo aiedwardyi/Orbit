@@ -307,6 +307,24 @@ describe("CodexDriver turns (fake app-server)", () => {
     expect(threadStart.params).toMatchObject({ model: "gpt-6-sol", modelProvider: "openai" });
   });
 
+  it.each([
+    { method: "item/started", params: { item: { id: "r1", type: "reasoning", summary: [], content: [] } } },
+    { method: "item/reasoning/textDelta", params: { itemId: "r1", contentIndex: 0, delta: "" } },
+    { method: "item/reasoning/summaryTextDelta", params: { itemId: "r1", summaryIndex: 0, delta: "" } },
+  ])("opens a reasoning stream on $method without visible text", async (notification) => {
+    const fixture = join(scratch, "reasoning.json");
+    writeFileSync(fixture, JSON.stringify([{
+      ...notification,
+      params: { threadId: "codex-thread-1", turnId: "native-turn-1", ...notification.params },
+    }]));
+    await create({ environment: { FAKE_CODEX_TOOL_FIXTURE: fixture } });
+    await instance.adapter.sendTurn({ threadId: "t-reasoning", text: "think hard" });
+    await recorder.until((e) => e.type === "turn.completed");
+
+    const reasoning = recorder.events.filter((e) => e.type === "content.delta" && e.streamKind === "reasoning_text");
+    expect(reasoning).toMatchObject([{ delta: "" }]);
+  });
+
   it("names commandExecution Bash and webSearch WebSearch", async () => {
     await create();
     await instance.adapter.sendTurn({ threadId: "t-verb", text: "list files" });

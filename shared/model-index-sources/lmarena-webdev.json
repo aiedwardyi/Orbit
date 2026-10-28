@@ -1,137 +1,137 @@
 {
   "benchmark": "lmarena-webdev",
-  "version": "2026-10-18",
+  "version": "2026-10-23",
   "index": "design",
   "label": "LMArena WebDev leaderboard (rating), CC BY 4.0",
-  "updated": "2026-10-18",
+  "updated": "2026-10-23",
   "rows": [
     {
       "model": "claude-fable-5",
       "effort": "high",
-      "value": 1624.4970020097248,
+      "value": 1624.2578247937013,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "claude-fable-5-1",
       "effort": "max",
-      "value": 1742.2899749914925,
+      "value": 1742.454511159061,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "claude-opus-5-5",
       "effort": "max",
-      "value": 1806.1951256724408,
+      "value": 1806.9194673086658,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "claude-sonnet-5-5",
       "effort": "high",
-      "value": 1709.2667011267456,
+      "value": 1709.231500483586,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "claude-sonnet-5-5",
       "effort": "xhigh",
-      "value": 1767.8459284869168,
+      "value": 1768.9190226748196,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "claude-haiku-5-5",
       "effort": "high",
-      "value": 1585.9907931480423,
+      "value": 1585.637687443752,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "gemini-4-argon",
       "effort": "high",
-      "value": 1678.1422029716816,
+      "value": 1674.1842418710726,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "gemini-3.8-flash",
       "effort": "high",
-      "value": 1585.7106274356925,
+      "value": 1584.9348329163804,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "muse-spark-1.3",
       "effort": "xhigh",
-      "value": 1621.1731349054992,
+      "value": 1620.054552618184,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "muse-spark-1.3",
       "effort": "max",
-      "value": 1659.0466952399227,
+      "value": 1657.1759774339794,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "gpt-5.6-terra",
       "effort": "xhigh",
-      "value": 1521.7642333914368,
+      "value": 1520.5103043039226,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent",
       "harness": "Codex"
     },
     {
       "model": "gpt-6-astra",
       "effort": "max",
-      "value": 1775.652262790731,
+      "value": 1774.3132570847915,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "gpt-6-luna",
       "effort": "max",
-      "value": 1576.5785437285665,
+      "value": 1578.5634843947846,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "gpt-6.1-sol",
       "effort": "max",
-      "value": 1754.3426826713885,
+      "value": 1749.3277254111117,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "grok-4.6",
       "effort": "high",
-      "value": 1617.0356272761205,
+      "value": 1616.6474505009728,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     },
     {
       "model": "grok-4.7",
       "effort": "xhigh",
-      "value": 1638.1677903077173,
+      "value": 1637.9375705540247,
       "source_url": "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset/viewer/webdev/latest",
-      "retrieved_at": "2026-10-19T14:46:45.581Z",
+      "retrieved_at": "2026-10-28T01:56:59.027Z",
       "kind": "independent"
     }
   ]

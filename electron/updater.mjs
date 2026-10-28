@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { createUpdaterCoordinator } from "./updater-coordinator.mjs";
 import { callQuitAndInstall } from "./app-quit.mjs";
 import { channelPath, createChannelUpdater, isDevBuild, readUpdateChannel, registerChannelIpc, writeUpdateChannel } from "./update-channel.mjs";
+import { ERROR_SITES } from "../shared/error-report.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -29,6 +30,11 @@ let checkTimer = null;
 let leavingDev = null;
 let nativeText = null;
 let pendingChannel = null;
+let errorReport = () => {};
+
+export function onUpdaterFailure(capture) {
+  errorReport = capture;
+}
 
 export function consumePendingUpdateInstall() {
   const pending = pendingUpdateInstall;
@@ -118,6 +124,7 @@ export async function switchUpdateChannel(next) {
     });
     await leavingDev;
   } catch (error) {
+    errorReport({ process: "main", code: "UPDATE_FAILED", site: ERROR_SITES.updaterChannel });
     autoUpdater.logger.error(`update channel switch failed: ${error?.stack ?? error}`);
   }
 }
@@ -180,6 +187,7 @@ export function startUpdater(mainWindow, text) {
     ({ autoUpdater } = require("./vendor/electron-updater.cjs"));
   } catch {
     updaterCoordinator = null;
+    errorReport({ process: "main", code: "UPDATE_UNAVAILABLE", site: ERROR_SITES.updaterUnavailable });
     setState({ status: "error", message: "updater unavailable" });
     return;
   }
@@ -199,6 +207,7 @@ export function startUpdater(mainWindow, text) {
     probe: probeFeed,
   });
   updaterCoordinator = createUpdaterCoordinator(updater, setState, {
+    onFailure: () => errorReport({ process: "main", code: "UPDATE_FAILED", site: ERROR_SITES.updaterFailure }),
     quitForInstall: () => {
       pendingUpdateInstall = true;
       app.quit();
