@@ -607,6 +607,31 @@ const playThinkSteer = (prompt: JsonValue) => {
 const playTurn = (prompt: JsonValue) => {
   turnRunning = true;
   steered = [];
+  if (mode.startsWith("usage-limit") || mode === "usage-warning") {
+    const reset = Number(process.env.FAKE_CLAUDE_RESET_AT);
+    const message = process.env.FAKE_CLAUDE_FAILURE_TEXT ?? "You've hit your limit. Send Continue after it resets.";
+    out({ type: "system", subtype: "init", session_id: sessionId, model });
+    if (mode !== "usage-limit-null") out({ type: "rate_limit_event", rate_limit_info: {
+      status: mode === "usage-warning" ? "allowed_warning" : "rejected",
+      unifiedWindows: {
+        five_hour: { utilization: 1, resetsAt: reset },
+        seven_day: { utilization: 1, resetsAt: reset + 86400 },
+        seven_day_opus: { utilization: 1, resetsAt: reset + 172800 },
+      },
+    } });
+    if (mode === "usage-limit-after-text") out({ type: "assistant", message: { content: [{ type: "text", text: "Work saved so far." }] } });
+    if (mode === "usage-warning") {
+      out({ type: "assistant", message: { content: [{ type: "text", text: message }] } });
+    } else if (mode !== "usage-limit-result") {
+      out({ type: "assistant", error: "rate_limit", message: { content: [{ type: "text", text: message }] } });
+    }
+    if (mode === "usage-limit-hold") return;
+    if (mode === "usage-limit-close") return process.stdout.write("", () => process.exit(1));
+    out({ type: "result", is_error: mode !== "usage-warning", errors: [message], total_cost_usd: 0 });
+    turnRunning = false;
+    finishIfDone();
+    return;
+  }
   if (!dumped && process.env.FAKE_CLAUDE_DUMP) {
     dumped = true;
     const configPath = argAfter("--mcp-config");

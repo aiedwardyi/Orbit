@@ -957,12 +957,60 @@ describe("CodexDriver turns (fake app-server)", () => {
     await instance.adapter.sendTurn({ threadId: "t-codex-reconnect", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
 
-    expect(recorder.events.filter((e) => e.type === "runtime.error")).toMatchObject([{ message: USAGE_LIMIT.params.error.message }]);
+    expect(recorder.events.filter((e) => e.type === "runtime.error")).toMatchObject([{ message: USAGE_LIMIT.params.error.message, usageLimit: { resetsAt: null } }]);
     expect(recorder.events.filter((e) => e.type === "turn.retrying")).toMatchObject([
       { attempt: 2, delayMs: 0, reason: "responseStreamDisconnected", maxAttempts: 6 },
       { attempt: 3, delayMs: 0, reason: "responseStreamDisconnected", maxAttempts: 6 },
       { attempt: 4, delayMs: 0, reason: "responseStreamDisconnected", maxAttempts: 6 },
     ]);
+  });
+
+  it.each(["notification", "completion", "both"])("marks typed subscription exhaustion once: %s", async (source) => {
+    const reset = Math.floor(Date.now() / 1000) + 3600;
+    const error = { message: "Plan spent", codexErrorInfo: "usageLimitExceeded", resets_at: reset };
+    const fixture = join(scratch, "usage-failure.json");
+    writeFileSync(fixture, JSON.stringify([
+      { method: "account/rateLimits/updated", params: { rateLimits: { primary: { usedPercent: 100, resetsAt: reset }, secondary: { usedPercent: 100, resetsAt: reset + 86400 } } } },
+      ...(source !== "completion" ? [{ method: "error", params: { error, willRetry: false } }] : []),
+      { method: "turn/completed", params: { turn: { status: "failed", ...(source !== "notification" ? { error } : {}) } } },
+    ]));
+    await create({ environment: { FAKE_CODEX_TOOL_FIXTURE: fixture } });
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-codex-limit", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => e.type === "runtime.error")).toMatchObject([
+      { turnId, message: "Plan spent", usageLimit: { resetsAt: (reset + 86400) * 1000 } },
+    ]);
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toMatchObject([{ ok: false, stopReason: "usage_limit" }]);
+    expect(recorder.events.findIndex((e) => e.type === "runtime.error")).toBeLessThan(recorder.events.findIndex((e) => e.type === "turn.completed"));
+  });
+
+  it.each([
+    ["429 Too Many Requests", "rateLimitExceeded", "failed", undefined],
+    ["Overloaded", "serverOverloaded", "failed", undefined],
+    ["Invalid API key: usage limit reached", "unauthorized", "failed", undefined],
+    ["User cancelled", "usageLimitExceeded", "interrupted", undefined],
+    ["Usage limit reached is an example", undefined, "completed", undefined],
+    ["Usage limit reached", "usageLimitExceeded", "failed", "ollama::qwen"],
+  ])("does not mark Codex negative: %s (%s)", async (message, codexErrorInfo, status, model) => {
+    const fixture = join(scratch, "usage-negative.json");
+    writeFileSync(fixture, JSON.stringify([
+      { method: "account/rateLimits/updated", params: { rateLimits: { primary: { usedPercent: 100, resetsAt: Math.floor(Date.now() / 1000) + 3600 } } } },
+      { method: "turn/completed", params: { turn: { status, error: { message, codexErrorInfo } } } },
+    ]));
+    await create({ environment: { FAKE_CODEX_TOOL_FIXTURE: fixture } });
+    await instance.adapter.sendTurn({ threadId: "t-codex-negative", text: "hi", model });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => e.type === "runtime.error" && e.usageLimit)).toHaveLength(0);
+  });
+
+  it("does not mark an API-key Codex account as a subscription limit", async () => {
+    writeFileSync(join(scratch, "auth.json"), JSON.stringify({ auth_mode: "apikey", OPENAI_API_KEY: "fake-key" }));
+    const fixture = join(scratch, "apikey-limit.json");
+    writeFileSync(fixture, JSON.stringify([USAGE_LIMIT]));
+    await create({ environment: { CODEX_HOME: scratch, FAKE_CODEX_TOOL_FIXTURE: fixture } });
+    await instance.adapter.sendTurn({ threadId: "t-codex-apikey", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => e.type === "runtime.error" && e.usageLimit)).toHaveLength(0);
   });
 
   it("reads a reconnect and an error from the flat {message} payload too", async () => {

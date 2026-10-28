@@ -59,7 +59,7 @@ import {
   resolveInjectId,
 } from "./local-inject.ts";
 import { appendNative, finishNative } from "./native.ts";
-import { claudeRateLimitWindows } from "./rate-limits.ts";
+import { chatUsageLimit, claudeRateLimitWindows } from "./rate-limits.ts";
 import { switchEffort, type EffortRequest } from "./claude-effort.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
 import { redactSecretsInText } from "../redact.ts";
@@ -758,6 +758,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         turnId: string;
         settled: boolean;
         sawStreamDelta: boolean;
+        usageFailure?: unknown;
+        usageStderr?: string;
+        usageWindows?: ReturnType<typeof claudeRateLimitWindows>;
         /** what a retry relaunches; absent on a continuation */
         launch?: { request: SendTurnInput; retry: { attempt: number; cancelled: boolean }; abort: AbortController };
         /** the model answered this prompt, so the session holds it */
@@ -1290,6 +1293,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         t = session.turn,
       ) => {
         if (!t || t.settled) return;
+        const limit = !ok && !session.closing && !t.launch?.retry.cancelled && stopReason !== "interrupted"
+          ? chatUsageLimit("claude", t.usageFailure, t.usageWindows, !injected.injected) : null;
+        if (limit) {
+          emit({ ...base(threadId, t.turnId), type: "runtime.error", ...limit });
+          stopReason = "usage_limit";
+        }
         t.narrationNotice = undefined;
         clearTimeout(t.mergeGuard);
         t.settled = true;
@@ -1490,6 +1499,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             break;
           }
           case "assistant": {
+            if (o.error && !o.parent_tool_use_id && session.turn) session.turn.usageFailure = o;
             if (session.turn) session.turn.promptAccepted = true;
             const msg = o.message ?? {};
             // a subagent's final report is the main agent's input, not a reply
@@ -1607,6 +1617,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             // API's rate-limit headers. Per account, so the harness keeps
             // the newest per instance rather than banking it on the task
             const windows = claudeRateLimitWindows(o.rate_limit_info);
+            if (session.turn && windows.length > 0) session.turn.usageWindows = [...new Map([...(session.turn.usageWindows ?? []), ...windows].map((w) => [w.id, w])).values()];
             if (windows.length > 0) emit({ ...base(threadId, currentTurnId()), type: "account.rate-limits.updated", windows });
             break;
           }
@@ -1614,6 +1625,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             session.replies.get(o.response?.request_id)?.(o.response?.subtype === "success");
             break;
           case "result":
+            if (o.is_error === true && session.turn && (!session.turn.usageFailure || chatUsageLimit("claude", o, session.turn.usageWindows, !injected.injected))) session.turn.usageFailure = o;
             if (session.turn?.merging) {
               const t = session.turn;
               const { held } = t.merging!;
@@ -1680,6 +1692,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       });
 
       child.stderr.on("data", (c) => {
+        if (session.turn) session.turn.usageStderr = ((session.turn.usageStderr ?? "") + c).slice(-8192);
         session.stderr += c;
         if (session.stderr.length > 8192) session.stderr = session.stderr.slice(-8192);
       });
@@ -1701,6 +1714,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         const launch = t?.launch;
         if (t && !t.settled) {
           const message = `claude exited ${code} before result${session.stderr ? `: ${session.stderr.trim().slice(-300)}` : ""}`;
+          t.usageFailure ??= t.usageStderr;
+          const limit = chatUsageLimit("claude", t.usageFailure, t.usageWindows, !injected.injected);
           const resumeRejected = Boolean(
             launch &&
             sessionId &&
@@ -1748,6 +1763,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           if (
             launch &&
             !launch.retry.cancelled &&
+            !limit &&
             code !== 0 &&
             verdict.transient &&
             !t.sawStreamDelta &&
@@ -1821,7 +1837,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             return;
           }
           retryState.delete(threadId);
-          emit({
+          if (!limit) emit({
             ...base(threadId, currentTurnId()),
             type: "runtime.error",
             message,

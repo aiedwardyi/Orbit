@@ -1204,6 +1204,40 @@ describe("agy sign-in error bubble", () => {
 });
 
 describe("error row Retry", () => {
+  it.each(["claudeAgent", "codex"])("renders the usage limit row and reset for %s", async (driverKind) => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
+    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const resetsAt = Date.now() + 90 * 60_000;
+    const bot: Bot = {
+      ...botA, busy: false, activity: "idle", activeLeafId: "err",
+      modelSelection: { instanceId: driverKind, model: "test" },
+      messages: [userMsg("ua", "hi"), { id: "err", parentId: "ua", at: 2, role: "bot", kind: "activity",
+        tool: { name: "error: Plan spent", ok: false, usageLimit: { resetsAt } } }],
+    };
+    function Harness() {
+      const { dispatch } = useStore();
+      useEffect(() => { dispatch({ type: "instances", instances: [{ instanceId: driverKind, driverKind, displayName: driverKind,
+        models: { options: [], default: "test" }, snapshot: { state: "available", billing: "subscription" } }] }); }, [dispatch]);
+      return createElement(ChatView, { bot });
+    }
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(createElement(StoreProvider, null, createElement(Harness))));
+      expect(host.textContent).toContain("Usage limit reached");
+      expect(host.textContent).toContain("Plan spent");
+      expect(host.textContent).toContain("Resets");
+      expect(host.textContent).toContain("Resets in 2 hours");
+      expect(host.textContent).toContain("Retry");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it.each([
     ["a real turn error", "error: the engine stopped", true],
     ["a chat sync notice", "error: This chat also changed on another PC. Both versions were kept.", false],
