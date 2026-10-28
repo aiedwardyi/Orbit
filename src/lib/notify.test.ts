@@ -72,7 +72,7 @@ describe("desktop notifications", () => {
     expect(notices[0]).toMatchObject({ title: frame.title, options: { body: frame.body, tag: `openmausbot:${frame.botId}` } });
   });
 
-  it("stays quiet only when the exact target thread is already visible", () => {
+  it("stays quiet when the exact target thread is already visible", () => {
     const { notices } = installNotification("granted", true);
 
     showNotification(frame, vi.fn(), frame.threadId);
@@ -80,12 +80,12 @@ describe("desktop notifications", () => {
     expect(notices).toHaveLength(0);
   });
 
-  it("still alerts a focused app when another task is visible", () => {
+  it("stays quiet in a focused app showing another task", () => {
     const { notices } = installNotification("granted", true);
 
     showNotification(frame, vi.fn(), "another-thread");
 
-    expect(notices).toHaveLength(1);
+    expect(notices).toHaveLength(0);
   });
 
   it("opens the exact detached task carried by the notification", () => {

@@ -15,12 +15,11 @@ export function windowsAppUserModelId(packagedOrOptions = true) {
   return packaged ? WINDOWS_APP_USER_MODEL_ID : DEV_WINDOWS_APP_USER_MODEL_ID;
 }
 
-/** Minimized counts as background: Win10 renderer `document.hasFocus()` can
- * stay true after minimize and would otherwise swallow the toast. */
-export function shouldShowDesktopToast({ focused, minimized, visibleThreadId, frameThreadId, idleState }) {
+/** Never over a focused window: the toast lands on the Send button and a send
+ * click opens another chat. Minimized counts as background (Win10 `hasFocus()`). */
+export function shouldShowDesktopToast({ focused, minimized, idleState }) {
   if (idleState === "idle" || idleState === "locked") return false;
-  const attentive = focused === true && minimized !== true;
-  return !(attentive && visibleThreadId === frameThreadId);
+  return !(focused === true && minimized !== true);
 }
 
 function asString(value) {
@@ -169,8 +168,6 @@ export function handleDesktopNotify({
     !shouldShowDesktopToast({
       focused: win.isFocused(),
       minimized: win.isMinimized(),
-      visibleThreadId: parsed.visibleThreadId,
-      frameThreadId: parsed.threadId,
       idleState,
     })
   ) {

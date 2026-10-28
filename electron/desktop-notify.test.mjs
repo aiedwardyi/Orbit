@@ -101,7 +101,7 @@ describe("shouldShowDesktopToast", () => {
     ).toBe(true);
   });
 
-  it("stays quiet only when the window is focused and that thread is on screen", () => {
+  it("stays quiet when the window is focused and that thread is on screen", () => {
     expect(
       shouldShowDesktopToast({
         focused: true,
@@ -112,7 +112,7 @@ describe("shouldShowDesktopToast", () => {
     ).toBe(false);
   });
 
-  it("still fires a focused window that is looking at another task", () => {
+  it("stays quiet over a focused window showing another chat", () => {
     expect(
       shouldShowDesktopToast({
         focused: true,
@@ -120,7 +120,7 @@ describe("shouldShowDesktopToast", () => {
         visibleThreadId: "other-thread",
         frameThreadId: "thread-1",
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("fires when Orbit is in the background", () => {
@@ -239,11 +239,11 @@ describe("handleDesktopNotify", () => {
     expect(notices).toHaveLength(0);
   });
 
-  it("does not show a toast when the exact thread is already on a focused window", () => {
+  it("does not show a toast over a focused window, even for another chat", () => {
     const { FakeNotification, notices } = fakeNotificationClass();
     const result = handleDesktopNotify({
       win: fakeWindow({ focused: true, minimized: false }),
-      payload: { ...frame, visibleThreadId: frame.threadId },
+      payload: frame,
       Notification: FakeNotification,
       nativeSupported: true,
     });

@@ -126,9 +126,8 @@ export async function notifyIconDataUrl(path: string | undefined): Promise<strin
   }
 }
 
-/** Show one unless the exact destination conversation is already visible.
- * A focused app may still be showing another task (routine runs are detached),
- * so window focus alone is not proof that the actionable card can be seen. */
+/** Show one only while the app is unfocused: an OS toast over a focused app
+ * sits on the Send button and turns a send click into a chat switch. */
 export function showNotification(
   frame: NotifyFrame,
   onOpen: (target: NotificationTarget) => void,
@@ -152,7 +151,7 @@ export function showNotification(
   }
 
   if (typeof Notification === "undefined") return;
-  if (document.hasFocus() && visibleThreadId === frame.threadId) return;
+  if (document.hasFocus()) return;
 
   const open = () => {
     window.focus();

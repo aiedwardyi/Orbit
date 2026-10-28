@@ -74,16 +74,17 @@ test("background click focuses the existing window for the right bot", () => {
   assert.deepEqual(clicks, [{ botId: "bot-2", threadId: "thread-2" }]);
 });
 
-test("focused on another bot still toasts and routes to the notifying bot", () => {
-  assert.equal(
-    shouldShowDesktopToast({ focused: true, minimized: false, visibleThreadId: "thread-9", frameThreadId: "thread-2" }),
-    true,
-  );
-  const { clicks } = clickWithRealActivate({
-    winOpts: { focused: true, minimized: false },
+test("focused on another bot shows no toast that could steal a send click", () => {
+  assert.equal(shouldShowDesktopToast({ focused: true, minimized: false }), false);
+  const { FakeNotification, notices } = fakeNotificationClass();
+  const result = handleDesktopNotify({
+    win: fakeWindow({ focused: true, minimized: false }),
     payload: { title: "Maus finished", body: "done", botId: "bot-2", threadId: "thread-2", visibleThreadId: "thread-9" },
+    Notification: FakeNotification,
+    nativeSupported: true,
   });
-  assert.deepEqual(clicks, [{ botId: "bot-2", threadId: "thread-2" }]);
+  assert.equal(result.shown, false);
+  assert.equal(notices.length, 0);
 });
 
 test("terminal toast click carries the terminal target, chat carries none", () => {
