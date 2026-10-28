@@ -2278,13 +2278,19 @@ test("Codex capacity waits a minute, continues once without a note and leaves ot
 });
 
 test("Codex capacity still continues when the error wraps onto two rows", async (t) => {
-  const f = stallFixture();
-  t.after(() => f.host.dispose());
-  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
-  f.children[0].data("\x1b[2J\x1b[H■ Selected model is at capacity. Please\r\n  try a different model.\r\n\r\n› \r\n\x1b[4;3H");
-  await f.settle();
-  await f.advance(60_000);
-  assert.deepEqual(f.children[0].writes, ["codex go\r", "continue\r"]);
+  for (const wrapped of [
+    "■ Selected model is at capacity. Please\r\n  try a different model.",
+    "■ Selected model is at capacity. Please t\r\nry a different model.",
+    "■ Selected model is at capacity. Please try a diff\r\nerent model.",
+  ]) {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+    f.children[0].data(`\x1b[2J\x1b[H${wrapped}\r\n\r\n› \r\n\x1b[4;3H`);
+    await f.settle();
+    await f.advance(60_000);
+    assert.deepEqual(f.children[0].writes, ["codex go\r", "continue\r"]);
+  }
 });
 
 test("Codex capacity ignores a menu footer printed before the latest output and prompt", async (t) => {

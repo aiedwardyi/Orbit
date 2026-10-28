@@ -236,8 +236,9 @@ function codexCapacity({ screenText, cursor }) {
   const last = before.findLastIndex((line) => line.trim());
   let first = last;
   while (first > 0 && before[first - 1].trim()) first -= 1;
-  const output = before.slice(first, last + 1).join(" ").replace(/\s+/gu, " ");
-  return /^\s*(?:■\s+)?Selected model is at capacity\. Please try a different model\.\s*$/u.test(output);
+  // A soft wrap can split a word, so compare with all whitespace removed.
+  const output = before.slice(first, last + 1).join("").replace(/\s+/gu, "");
+  return /^(?:■)?Selectedmodelisatcapacity\.Pleasetryadifferentmodel\.$/u.test(output);
 }
 
 function claudeTrustKeys(screenText) {
