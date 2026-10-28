@@ -151,51 +151,10 @@ export const BOT_AVATAR_LABELS = {
   "icon-35": "Wink lavender",
 } satisfies Record<BotAvatarId, string>;
 
-/** Fixed artwork first, with white and mono marks leading the picker. */
-export const BOT_AVATAR_PICKER_ORDER = [
-  "icon-05",
-  "icon-06",
-  "icon-12",
-  "icon-13",
-  "icon-21",
-  "icon-26",
-  "icon-01",
-  "icon-02",
-  "icon-03",
-  "icon-04",
-  "icon-07",
-  "icon-08",
-  "icon-09",
-  "icon-10",
-  "icon-11",
-  "icon-14",
-  "icon-15",
-  "icon-16",
-  "icon-17",
-  "icon-18",
-  "icon-19",
-  "icon-20",
-  "icon-22",
-  "icon-23",
-  "icon-24",
-  "icon-25",
-  "icon-27",
-  "icon-28",
-  "icon-29",
-  "icon-30",
-  "peach",
-  "teal",
-  "lavender",
-  "coral",
-  "squircle",
-  "circle",
-  "pill",
-  "icon-31",
-  "icon-32",
-  "icon-33",
-  "icon-34",
-  "icon-35",
-] as const satisfies readonly BotAvatarChoice[];
+export const WINK_ICON_IDS = ["icon-31", "icon-32", "icon-33", "icon-34", "icon-35"] as const satisfies readonly BotAvatarId[];
+
+/** Older ids stay valid and still render; the picker just stops offering them. */
+export const BOT_AVATAR_PICKER_ORDER = WINK_ICON_IDS;
 
 const BOT_AVATAR_ID_SET = new Set<string>(BOT_AVATAR_IDS);
 

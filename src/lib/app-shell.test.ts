@@ -134,8 +134,8 @@ describe("home-screen app shell", () => {
       [...css.matchAll(/@font-face \{\s*font-family: "([^"]+)";\s*src: url\("\/fonts\/([^"]+)-Variable\.woff2"\)/g)].map((m) => [m[1], m[2]]),
     );
     const expected: Record<string, string> = {};
-    for (const [, selectors, family] of css.matchAll(/((?:\[data-skin="[\w-]+"\],\s*)*\[data-skin="[\w-]+"\]) \{[^}]*?--font-sans: "([^"]+)"/g)) {
-      const file = bundled.get(family);
+    for (const [, selectors, first] of css.matchAll(/((?:\[data-skin="[\w-]+"\],\s*)*\[data-skin="[\w-]+"\]) \{[^}]*?--font-sans: (var\(--font-geist\)|"[^"]+")/g)) {
+      const file = bundled.get(first.startsWith("var(") ? "Geist" : first.slice(1, -1));
       if (!file) continue;
       for (const [, skin] of selectors.matchAll(/\[data-skin="([\w-]+)"\]/g)) expected[skin] = file;
     }

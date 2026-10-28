@@ -80,19 +80,9 @@ describe("mascot style ids", () => {
     expect(mascotStyleSchema.safeParse("cursor").success).toBe(false);
   });
 
-  it("keeps thirty-five stable fixed artwork ids and the approved picker order", () => {
+  it("keeps thirty-five stable fixed artwork ids and offers only the Wink icons", () => {
     expect(BOT_AVATAR_IDS).toEqual(Array.from({ length: 35 }, (_, index) => `icon-${String(index + 1).padStart(2, "0")}`));
-    expect(BOT_AVATAR_PICKER_ORDER.slice(0, 6)).toEqual([
-      "icon-05",
-      "icon-06",
-      "icon-12",
-      "icon-13",
-      "icon-21",
-      "icon-26",
-    ]);
-    expect(BOT_AVATAR_PICKER_ORDER.slice(-12, -5)).toEqual(MASCOT_STYLES);
-    expect(BOT_AVATAR_PICKER_ORDER.slice(-5)).toEqual(["icon-31", "icon-32", "icon-33", "icon-34", "icon-35"]);
-    expect(new Set(BOT_AVATAR_PICKER_ORDER).size).toBe(42);
+    expect(BOT_AVATAR_PICKER_ORDER).toEqual(["icon-31", "icon-32", "icon-33", "icon-34", "icon-35"]);
     for (const id of BOT_AVATAR_IDS) {
       expect(botAvatarChoiceSchema.parse(id)).toBe(id);
       expect(BOT_AVATAR_ASSETS[id]).toMatch(new RegExp(`^${id}-`));

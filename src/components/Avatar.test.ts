@@ -13,6 +13,8 @@ const sources = {
   "ChatView.tsx": readFileSync(join(here, "ChatView.tsx"), "utf8"),
   "Avatar.tsx": readFileSync(join(here, "Avatar.tsx"), "utf8"),
   "BotProfileAvatarCard.tsx": readFileSync(join(here, "BotProfileAvatarCard.tsx"), "utf8"),
+  "SidebarConversations.tsx": readFileSync(join(here, "SidebarConversations.tsx"), "utf8"),
+  "BotPickerList.tsx": readFileSync(join(here, "BotPickerList.tsx"), "utf8"),
   "store.tsx": readFileSync(join(here, "../state/store.tsx"), "utf8"),
   "store-types.ts": readFileSync(join(here, "../state/store-types.ts"), "utf8"),
 } as const;
@@ -32,6 +34,24 @@ describe("channel avatar renderer", () => {
       expect(source).not.toContain("<MausAvatar");
     });
   }
+});
+
+describe("calm list avatars", () => {
+  const tags = (file: keyof typeof sources) => sources[file].match(/<BotAvatar\b[^>]*>/g) ?? [];
+
+  it("draws lists, rows and message avatars calm", () => {
+    for (const file of ["SidebarConversations.tsx", "BotPickerList.tsx", "GroupView.tsx"] as const) {
+      expect(tags(file).length).toBeGreaterThan(0);
+      for (const tag of tags(file)) expect(tag).toMatch(/\bcalm\b/);
+    }
+  });
+
+  it("keeps the open chat header and the profile card in color", () => {
+    const chat = tags("ChatView.tsx");
+    expect(chat.filter((tag) => /\bcalm\b/.test(tag))).toHaveLength(3);
+    expect(chat.find((tag) => tag.includes("size={28}"))).not.toMatch(/\bcalm\b/);
+    for (const tag of tags("BotProfileAvatarCard.tsx")) expect(tag).not.toMatch(/\bcalm\b/);
+  });
 });
 
 describe("bot avatar profile", () => {
