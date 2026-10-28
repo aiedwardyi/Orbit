@@ -155,7 +155,7 @@ describe("summary grace dispatch", () => {
           if (event === "setup note") store.appendMessage("thread", { role: "bot", kind: "note", text: "[pane build] setup finished" });
           return live;
         } },
-        instanceId: "claude", threadId: "thread", bot: { id: "bot" }, claimMark, store, instance,
+        instanceId: "claude", threadId: "thread", bot: { id: "bot" }, claimMark, store, instance, routineTurnThreads: new Set(),
         foldQueuedSends, composeUserTurnPrompt, userTurnReactionKeys, paneNotesForTurn, routineCardsSinceLastUserTurn, withoutTurnNotes,
         buildTurnContext, buildResumeFallback, withSystemChanges, planSummaryGrace,
         clearUnattended: () => {}, resumePaneWakes: () => {}, takeOverPeerTurn: () => {}, paneNoteTurnThreads: new Set(),

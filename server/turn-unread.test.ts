@@ -61,7 +61,7 @@ function rig(target: "bot" | "group") {
   const deps: Record<string, unknown> = {
     reportServerFailure: () => {}, terminalBridgeAccess: null, INCOMPLETE_LOG_MESSAGE: "internal log failure",
     ...turnReply, store, bot: { id: "bot-1" }, group: { id: "group-1" },
-    routineReportGroup: undefined, turnSummary: turnReply.turnSummaries(),
+    routineReportGroup: undefined, turnSummary: turnReply.turnSummaries(), limitWaits: { bind: () => {} },
     threadId: "thread-1", stopScreenPoller: () => {}, activeVpsThreads: new Map(), groupSpeakers: new Map(),
     pushMessage: (message: Omit<Message, "id" | "at">) => messages.push({ id: `message-${messages.length}`, at: 1, ...message }),
   };
@@ -86,8 +86,8 @@ function rig(target: "bot" | "group") {
       compile([summaries, decision, target === "bot" ? botUnread : groupUnread].filter(Boolean).map((node) => node!.getText(parsed)).join("\n"), deps);
     },
     fail() {
-      Object.assign(deps.event as object, { message: "Engine could not start", setup: true });
-      compile(failed.statements.filter((node) => !ts.isBreakStatement(node)).map((node) => node.getText(parsed)).join("\n"), deps);
+      Object.assign(deps.event as object, { type: "runtime.error", message: "Engine could not start", setup: true });
+      compile(`switch (event.type) { ${failed.getText(parsed)} }`, deps);
     },
     screen() {
       compile(`(${screen.arguments[0]!.getText(parsed)})({ png: "pixels", mime: "image/png" });`, deps);

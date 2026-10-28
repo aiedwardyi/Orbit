@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import type { RuntimeEvent } from "./contracts.ts";
@@ -7,10 +8,13 @@ import { INCOMPLETE_LOG_MESSAGE } from "./harness/bus.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 const branch = source.split('case "runtime.error":')[1].split('case "thread.token-usage.updated":')[0];
+const javascript = ts.transpileModule(`switch (event.type) { case "runtime.error": ${branch} }`, {
+  compilerOptions: { target: ts.ScriptTarget.ESNext },
+}).outputText;
 
 function errorRow(event: Extract<RuntimeEvent, { type: "runtime.error" }>) {
   const rows: Message[] = [];
-  const run = new Function("event", "unreadTurns", "store", "pushMessage", "bot", "reportServerFailure", "terminalBridgeAccess", "INCOMPLETE_LOG_MESSAGE", branch.replace(/break;\s*$/, ""));
+  const run = new Function("event", "unreadTurns", "store", "pushMessage", "bot", "reportServerFailure", "terminalBridgeAccess", "INCOMPLETE_LOG_MESSAGE", javascript);
   run(event, { start() {} }, { messagesFor: () => [] }, (row: Message) => rows.push(row), null, () => {}, null, INCOMPLETE_LOG_MESSAGE);
   return rows[0];
 }
