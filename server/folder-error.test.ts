@@ -9,8 +9,8 @@ const branch = source.split('case "runtime.error":')[1].split('case "thread.toke
 
 function errorRow(event: Extract<RuntimeEvent, { type: "runtime.error" }>) {
   const rows: Message[] = [];
-  const run = new Function("event", "unreadTurns", "store", "pushMessage", "bot", branch.replace(/break;\s*$/, ""));
-  run(event, { start() {} }, { messagesFor: () => [] }, (row: Message) => rows.push(row), null);
+  const run = new Function("event", "unreadTurns", "store", "pushMessage", "bot", "reportServerFailure", "terminalBridgeAccess", branch.replace(/break;\s*$/, ""));
+  run(event, { start() {} }, { messagesFor: () => [] }, (row: Message) => rows.push(row), null, () => {}, null);
   return rows[0];
 }
 

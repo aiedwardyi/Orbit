@@ -17,7 +17,7 @@ export function isNewerVersion(candidate, current) {
   return a.pre.localeCompare(b.pre, undefined, { numeric: true }) > 0;
 }
 
-export function createUpdaterCoordinator(updater, setState, { quitForInstall } = {}) {
+export function createUpdaterCoordinator(updater, setState, { quitForInstall, onFailure = () => {} } = {}) {
   let checkOperation = null;
   let downloadOperation = null;
   let installOperation = null;
@@ -28,6 +28,7 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
   const routedErrors = new WeakSet();
 
   const routeError = (manual, error) => {
+    onFailure();
     if (error instanceof Error) routedErrors.add(error);
     if (downloadOperation) downloadOperation.failed = true;
     if (checkOperation) checkOperation.failed = true;
@@ -226,7 +227,7 @@ export function createUpdaterCoordinator(updater, setState, { quitForInstall } =
       operation.timer = setTimeout(() => {
         if (installOperation !== operation) return;
         installOperation = null;
-        setState({ status: "error", message: "The update could not be staged. Quit the app and try again." });
+        routeError(true, new Error("The update could not be staged. Quit the app and try again."));
       }, 2 * 60 * 1000);
       operation.timer.unref?.();
     }

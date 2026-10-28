@@ -10,6 +10,7 @@ import { callQuitAndInstall } from "./app-quit.mjs";
 import { translate } from "./i18n.mjs";
 import * as updateChannel from "./update-channel.mjs";
 import { createUpdaterCoordinator, isNewerVersion } from "./updater-coordinator.mjs";
+import { ERROR_SITES } from "../shared/error-report.mjs";
 
 const EXE = "C:\\Wink\\Orbit.exe";
 const TASK = {
@@ -158,6 +159,7 @@ function launch(t, { platform = "win32", running = "1.0.192", channelFile, versi
     mkdirSync: fs.mkdirSync,
     join: path.join,
     createUpdaterCoordinator,
+    ERROR_SITES,
     callQuitAndInstall,
     ...updateChannel,
     require: (id) => {
@@ -179,7 +181,7 @@ function launch(t, { platform = "win32", running = "1.0.192", channelFile, versi
     .replace(/^import .*;\r?\n/gm, "")
     .replace("const require = createRequire(import.meta.url);", "")
     .replace(/^export /gm, "");
-  h.api = vm.runInContext(`${source}\n({ startUpdater, switchUpdateChannel, updaterBridge, consumePendingUpdateInstall })`, context);
+  h.api = vm.runInContext(`${source}\n({ startUpdater, switchUpdateChannel, updaterBridge, consumePendingUpdateInstall, onUpdaterFailure })`, context);
   const win = { isDestroyed: () => false, webContents: { send() {} } };
   for (const next of early) h.api.switchUpdateChannel(next);
   h.api.startUpdater(win, (key, vars) => translate("en", key, vars));
@@ -214,6 +216,14 @@ test("a Windows PC that never chose a channel starts and checks exactly as befor
   assert.deepEqual(h.log.slice(STARTUP.length), ["checkForUpdates", "checkForUpdates"]);
   assert.deepEqual(h.probes, []);
   assert.equal(h.status(), "available");
+});
+
+test("updater failures report fixed code and site without the error", async (t) => {
+  const h = launch(t);
+  const reports = [];
+  h.api.onUpdaterFailure((report) => reports.push(JSON.parse(JSON.stringify(report))));
+  h.updater.emit("error", new Error("비밀 C:\\사용자\\민수\\비밀.txt secret-token"));
+  assert.deepEqual(reports, [{ process: "main", code: "UPDATE_FAILED", site: ERROR_SITES.updaterFailure }]);
 });
 
 test("a Mac ignores a channel file and never touches the jump list", async (t) => {

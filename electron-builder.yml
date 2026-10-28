@@ -28,6 +28,7 @@ afterPack: ./scripts/after-pack.mjs
 # ELECTRON_RUN_AS_NODE (the agentcal-hq pattern).
 files:
   - electron/**
+  - shared/error-report.mjs
   - "!electron/**/*.test.*"
   - "!electron/terminal-*.node-test.mjs"
   - "!electron/resources/speech-helper"

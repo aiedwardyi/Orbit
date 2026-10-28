@@ -12,7 +12,7 @@
 <p align="center">
   Your AI coding subscriptions, in one desktop app, at terminal speed.
   <br>
-  Runs on the Claude Code, Codex, Gemini, Grok and Muse logins you already have. No API keys. No telemetry.
+  Runs on the Claude Code, Codex, Gemini, Grok and Muse logins you already have. No API keys. No analytics.
 </p>
 
 <p align="center">
@@ -84,14 +84,16 @@ Engine logins stay in each CLI's own store. Wink drives the CLI with the session
 
 ## Trust and security
 
-- No analytics, telemetry or crash upload.
+- No analytics. Error reports are off by default.
 - Listens on this PC only, behind a per-launch token.
 - Engine logins stay in each CLI's own store.
 
 <details>
 <summary>Everything Wink listens on, sends and stores</summary>
 
-Wink has no analytics, telemetry or crash upload. This is everything it listens on, sends and stores.
+Wink has no analytics. This is everything it listens on, sends and stores.
+
+Opt-in error reports contain only app version, OS/architecture, fixed process/error/site codes, bounded counts/exit codes/uptime bucket, UTC hour and a random report ID; off by default.
 
 **Listens** (this PC only)
 
