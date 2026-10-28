@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 import { Suspense, act, createElement, startTransition, use } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { StoreProvider, useStore, type Bot, type Group, type Message } from "@/state/store";
+import { StoreProvider, formatTime, useStore, type Bot, type Group, type Message } from "@/state/store";
 import type { TurnStreamState } from "@/lib/turn-stage";
 import { applyLocale } from "@/lib/i18n";
 import { applySkin } from "@/lib/skins";
@@ -12,10 +12,10 @@ import { ChatView, clearLivePaneCache } from "./ChatView";
 import { GroupView } from "./GroupView";
 
 const live = vi.hoisted(() => ({ current: { streaming: {}, reasoning: {}, signal: {}, gen: {}, turn: {} } as TurnStreamState }));
-vi.mock("@/state/store", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/state/store")>(),
-  useStreaming: () => live.current,
-}));
+vi.mock("@/state/store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/state/store")>();
+  return { ...actual, formatTime: vi.fn(actual.formatTime), useStreaming: () => live.current };
+});
 vi.mock("shiki", () => ({ codeToHtml: async (code: string) => `<pre><code>${code}</code></pre>` }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -110,6 +110,10 @@ function Gate() {
   if (suspendWhen?.(state)) use(never);
   return null;
 }
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date", "performance", "requestAnimationFrame", "cancelAnimationFrame"] });
+});
 
 afterEach(async () => {
   await unmount?.();
@@ -323,6 +327,18 @@ describe("paged transcripts", () => {
   });
 
   const chained = (i: number): Message => ({ ...row(i), parentId: i ? `m${i - 1}` : null });
+
+  it("does not render unchanged chat bubbles when a user row arrives", async () => {
+    const thread = Array.from({ length: 120 }, (_, i) => ({ ...chained(i), at: i + 1 }));
+    pagedServer("thread-a", thread, { bots: [bot(thread, false)], groups: [] });
+    const host = await mount("chat");
+    expect(host.querySelectorAll("[data-orbit-message]")).toHaveLength(120);
+    vi.mocked(formatTime).mockClear();
+    await arrive("thread-a", { ...chained(120), at: 121 });
+    expect(host.querySelector('[data-mid="m120"]')).not.toBeNull();
+    // The day separator formats the first row's timestamp on every list render.
+    expect(vi.mocked(formatTime).mock.calls.filter(([at]) => at > 1 && at < 121)).toHaveLength(0);
+  });
 
   async function scrolledBack(view: "chat" | "room") {
     const thread = Array.from({ length: 500 }, (_, i) => chained(i));
@@ -600,7 +616,7 @@ describe("paged transcripts", () => {
     const calls = pagedServer("thread-a", thread, { bots: [{ ...bot(thread.slice(-200), true), activeLeafId: "m1999" }], groups: [] });
     await mount("chat");
     await vi.waitFor(() => expect(store.state.bots[0]!.messages).toHaveLength(800));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    await act(async () => vi.advanceTimersByTimeAsync(50));
     expect(calls.filter((call) => call.includes("before="))).toHaveLength(3);
     expect(store.state.bots[0]!.messages).toHaveLength(800);
   });
@@ -657,7 +673,7 @@ describe("paged transcripts", () => {
       touch(scroller, "touchmove", 140);
     });
     await snapshot([{ ...a, messages: threads["thread-a"]!.slice(800) }, { ...b, messages: threads["thread-b"]!.slice(800) }]);
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    await act(async () => vi.advanceTimersByTimeAsync(50));
     expect(host.textContent).toContain("b row 999;");
     expect(button(host, "Show later messages")).toBeUndefined();
     expect(calls.filter((call) => call.includes("around="))).toEqual([]);
@@ -679,7 +695,7 @@ describe("paged transcripts", () => {
     await arrive("thread-a2", threads["thread-a2"]![800]!);
     expect(scroller.scrollTop).toBe(scroller.scrollHeight);
     await snapshot([{ ...task, messages: threads["thread-a2"]!.slice(800) }]);
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    await act(async () => vi.advanceTimersByTimeAsync(50));
     expect(host.textContent).toContain("t row 999;");
     expect(button(host, "Show later messages")).toBeUndefined();
     expect(calls.filter((call) => call.includes("around="))).toEqual([]);
@@ -720,6 +736,7 @@ describe("paged transcripts", () => {
     await act(async () => (host.querySelector('[data-mid="m500"] [aria-label="Edit message"]') as HTMLElement).click());
     await act(async () => button(host, "Send")!.click());
     await arrive("thread-a", { id: "e1", at: 2, role: "user", kind: "text", text: "edited;", parentId: "m499" });
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
     await vi.waitFor(() => expect(host.querySelector('[data-mid="m499"]')).not.toBeNull(), { timeout: 4000 });
     expect(failed).toBe(true);
   });
@@ -785,7 +802,7 @@ describe("paged transcripts", () => {
       store.dispatch({ type: "focusMessage", threadId: "thread-a", messageId: "m110" });
     });
     await vi.waitFor(() => expect(host.querySelector('[data-mid="m110"]')).not.toBeNull());
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 100)));
+    await act(async () => vi.advanceTimersByTimeAsync(100));
     expect(calls.filter((call) => call.includes("before=")).length).toBeLessThanOrEqual(1);
   });
 });
@@ -934,13 +951,15 @@ describe("open window and jump pill", () => {
     let landed = false;
     Object.defineProperty(scroller, "scrollTop", { configurable: true, get: () => 0, set: () => (landed ||= Boolean(target())) });
     const atMount: boolean[] = [];
-    new MutationObserver(() => target() && atMount.push(landed)).observe(scroller, { childList: true, subtree: true });
+    const observer = new MutationObserver(() => target() && atMount.push(landed));
+    observer.observe(scroller, { childList: true, subtree: true });
     // outside act, React commits and runs passive effects in separate tasks, as in a browser
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", false);
     store.dispatch({ type: "focusMessage", threadId, messageId: "m30" });
     await vi.waitFor(() => expect(flashed(host, "m30")).toBe(true));
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    expect(atMount[0]).toBe(true);
+    await vi.waitFor(() => expect(atMount[0]).toBe(true));
+    observer.disconnect();
   });
 
   it("shows the active task's pinned folder in the Terminal footer", async () => {
@@ -1041,7 +1060,7 @@ describe("open window and jump pill", () => {
       const calls = pagedServer(view === "chat" ? "thread-a" : "thread-g", thread, snapshot);
       const host = await mount(view);
       await vi.waitFor(() => expect(host.textContent).toContain("note 785;"));
-      await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+      await act(async () => vi.advanceTimersByTimeAsync(50));
       expect(calls.filter((call) => call.includes("before="))).toHaveLength(1);
       expect(host.textContent).toContain("note 605;");
     } finally {
@@ -1228,7 +1247,7 @@ describe("open window and jump pill", () => {
     await act(async () => store.dispatch({ type: "focusMessage", threadId: threadOf(view), messageId: "x5" }));
     size.scroll = 300;
     await resize();
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+    await act(async () => vi.advanceTimersByTimeAsync(50));
     expect(calls.filter((call) => call.includes("before="))).toEqual([]);
   });
 
