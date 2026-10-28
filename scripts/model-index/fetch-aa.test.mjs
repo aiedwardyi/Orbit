@@ -88,6 +88,13 @@ describe("AA response", () => {
     assert.deepEqual(needsCost, ["claude-opus-5-5 max"]);
   });
 
+  it("treats a whole-number API score as a move when the response carries decimals", () => {
+    const prior = { ...previous, rows: [{ model: "claude-opus-5-5", effort: "max", value: 55.6, cost_per_task: 1.25 }] };
+    const { snapshot, needsCost } = build({ previous: prior, rows: [{ ...rows()[0], evaluations: { artificial_analysis_intelligence_index: 56 } }, { ...rows()[1], evaluations: { artificial_analysis_intelligence_index: 51.8 } }] });
+    assert.equal(Object.hasOwn(snapshot.rows.find((row) => row.effort === "max"), "cost_per_task"), false);
+    assert.ok(needsCost.includes("claude-opus-5-5 max"));
+  });
+
   it("compares Terminal-Bench at the converted fraction's precision despite float noise", () => {
     const prior = { ...previous, benchmark: "aa-terminal-bench", version: "4.0", rows: [{ model: "claude-opus-5-5", effort: "max", value: 31.313131313131297, cost_per_task: 2.07, interval: { low: 30, high: 33 }, harness: "Default" }] };
     const { snapshot, needsCost } = build({ previous: prior, rows: [{ ...rows()[0], evaluations: { terminalbench_v4_0: 0.313131313131313 } }] });

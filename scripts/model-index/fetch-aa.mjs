@@ -37,11 +37,18 @@ export function parseResponse(text) {
   return data.data;
 }
 
+function places(value) {
+  const [digits, exponent = "0"] = String(value).split("e");
+  return Math.max(0, (digits.split(".")[1]?.length ?? 0) - Number(exponent));
+}
+
 export function buildSnapshot({ rows, models, retrievedAt, previous }) {
   const benchmark = BENCHMARKS[previous.benchmark];
   if (!benchmark) throw new Unverifiable("AA benchmark has no API field");
-  if (benchmark.version && previous.version !== benchmark.version) throw new Unverifiable("AA API supports Terminal-Bench 2.1, 4.0 and hard; snapshot version does not match 4.0");
+  if (benchmark.version && previous.version !== benchmark.version) throw new Unverifiable(`AA API supports Terminal-Bench 2.1, 4.0 and hard; snapshot version does not match ${benchmark.version}`);
   if (!rows.some((row) => Object.hasOwn(row.evaluations, benchmark.field))) throw new Unverifiable(`AA API has no ${benchmark.field} field`);
+  // JSON drops a trailing zero (56.0 parses as 56), so precision comes from the whole response; past 10 places is float noise
+  const precision = Math.min(10, Math.max(0, ...rows.map((row) => row.evaluations[benchmark.field]).filter(Number.isFinite).map((value) => places(benchmark.fraction ? percent(value) : value))));
   const ids = sourceIds(models, "aa");
   const out = [];
   const unmapped = [];
@@ -66,11 +73,9 @@ export function buildSnapshot({ rows, models, retrievedAt, previous }) {
     if (landed.has(key)) throw new Unverifiable(`repeated ${key}`);
     landed.add(key);
     const score = benchmark.fraction ? percent(value) : value;
-    const [digits, exponent = "0"] = String(score).split("e");
-    const decimals = Math.max(0, (digits.split(".")[1]?.length ?? 0) - Number(exponent));
     const prev = old.get(key);
     const carried = {};
-    if (prev && Number(prev.value.toFixed(decimals)) === score) {
+    if (prev && Number(prev.value.toFixed(precision)) === Number(score.toFixed(precision))) {
       for (const field of ["cost_per_task", "cost_benchmark", "cost_source", "interval", "harness"]) {
         if (Object.hasOwn(prev, field)) carried[field] = prev[field];
       }
@@ -95,7 +100,8 @@ export async function loadResponse({ rawFile, apiKey = process.env.AA_API_KEY, k
       const response = await fetch(API_URL, { headers: { "x-api-key": key }, signal: AbortSignal.timeout(60_000) });
       if (response.status !== 200) throw new Error();
       return { rows: parseResponse(await response.text()), retrievedAt: new Date().toISOString() };
-    } catch {
+    } catch (error) {
+      if (error instanceof Unverifiable) throw error;
       throw new Unverifiable("AA API request failed; snapshot untouched");
     }
   }
