@@ -24,6 +24,7 @@ type Deps = {
 
 export class LimitWaits {
   readonly store: LimitWaitStore;
+  private readonly deps: Deps;
   private readonly now: () => number;
   private readonly wake = wakeClock(10_000);
   private readonly turns = new Map<string, Tracked>();
@@ -31,7 +32,8 @@ export class LimitWaits {
   private readonly lastDispatch = new Map<string, number>();
   private pulse?: Promise<void>;
 
-  constructor(private readonly deps: Deps) {
+  constructor(deps: Deps) {
+    this.deps = deps;
     this.store = deps.store ?? new LimitWaitStore(deps.file);
     this.now = deps.now ?? Date.now;
   }

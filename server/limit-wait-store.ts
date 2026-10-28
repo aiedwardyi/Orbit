@@ -22,8 +22,12 @@ export type UsageWaitView = Pick<LimitWait, "id" | "ownerDeviceId" | "weekly"> &
 export class LimitWaitStore {
   private rows: LimitWait[] = [];
   private writing = false;
+  readonly file: string;
+  private readonly write: typeof writeFileAtomic;
 
-  constructor(readonly file = join(DATA_DIR, "limit-waits.json"), private readonly write = writeFileAtomic) {
+  constructor(file = join(DATA_DIR, "limit-waits.json"), write = writeFileAtomic) {
+    this.file = file;
+    this.write = write;
     try {
       if (existsSync(file)) this.rows = fileSchema.parse(JSON.parse(readFileSync(file, "utf8"))).rows;
     } catch (error) { console.error("limit-waits: could not load, starting empty", error); }
