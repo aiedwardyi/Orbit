@@ -354,7 +354,7 @@ export function PluginsPanel({ closing = false }: { closing?: boolean }) {
 
     (dialog?.querySelector<HTMLElement>("input") ?? focusable()[0] ?? dialog)?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.target instanceof Node && !dialog?.contains(event.target)) return;
+      if (event.target instanceof Element && !dialog?.contains(event.target) && event.target.closest('[aria-modal="true"]')) return;
       if (event.key === "Escape") {
         event.preventDefault();
         dispatch({ type: "togglePlugins", open: false });

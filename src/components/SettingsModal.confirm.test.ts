@@ -90,3 +90,27 @@ it.each([
     vi.unstubAllGlobals();
   }
 });
+
+it("still traps focus and closes on Escape when focus escapes to the page", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  applyLocale("en");
+  state.appSettingsSection = "connections";
+  const host = document.body.appendChild(document.createElement("div"));
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(createElement(SettingsModal, { defaultAdvancedOpen: true })));
+    (document.activeElement as HTMLElement | null)?.blur();
+    const tab = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(host.querySelector('[role="dialog"]')!.contains(document.activeElement)).toBe(true);
+    (document.activeElement as HTMLElement | null)?.blur();
+    dispatch.mockClear();
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: false });
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    vi.unstubAllGlobals();
+  }
+});
