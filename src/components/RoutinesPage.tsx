@@ -246,7 +246,6 @@ function RoutineCard({ item, bot, compact, onOpen }: { item: CalendarItem; bot: 
           animated={animated}
           trackPointer={animated}
           label={`${bot.name} — ${title}`}
-          calm
         />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12px] font-semibold text-white">{title}</div>
@@ -675,7 +674,7 @@ function PausedRoutines({ routines, bots, closing, onClose, onEdit }: { routines
             const bot = bots.find((candidate) => candidate.id === routine.botId);
             return (
               <div key={routine.id} className="flex items-center gap-3 rounded-xl border border-hairline/40 bg-inset p-3">
-                {bot ? <BotAvatar bot={bot} state="sleeping" size={44} animated={false} label={bot.name} calm /> : <div className="flex size-11 items-center justify-center rounded-xl bg-raised text-ink-secondary"><CalendarClock size={20} /></div>}
+                {bot ? <BotAvatar bot={bot} state="sleeping" size={44} animated={false} label={bot.name} /> : <div className="flex size-11 items-center justify-center rounded-xl bg-raised text-ink-secondary"><CalendarClock size={20} /></div>}
                 <div className="min-w-0 flex-1"><div className="truncate text-[14px] font-semibold text-ink">{routine.name}</div><div className="mt-0.5 truncate text-[11.5px] text-ink-secondary">{bot?.name ?? "Deleted bot"} · {scheduleLabel(routine)}</div></div>
                 {bot && <button onClick={() => dispatch({ type: "updateRoutine", routineId: routine.id, patch: { enabled: true } })} className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-accent-ink hover:brightness-110"><Play size={12} />Resume</button>}
                 <button onClick={() => onEdit(routine)} className="rounded-lg px-2 py-1.5 text-[12px] text-ink-secondary hover:bg-raised hover:text-ink">Edit</button>
