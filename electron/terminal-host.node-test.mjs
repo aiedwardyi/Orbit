@@ -2237,6 +2237,126 @@ test("a reused pane that exits before reporting its new task sends EXITED", asyn
   assert.match(f.notes[0].text, /^EXITED: pane shell ended with code 1 /);
 });
 
+const CODEX_CAPACITY = "■ Selected model is at capacity. Please try a different model.";
+const codexCapacityScreen = (output = CODEX_CAPACITY, input = "") => `\x1b[2J\x1b[H${output}\r\n\r\n› ${input}\r\n\r\n  100% context left · ? for shortcuts\x1b[3;${3 + input.length}H`;
+
+test("Codex capacity waits a minute, continues once without a note and leaves other screens alone", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  const child = f.children[0];
+  child.data(codexCapacityScreen());
+  await f.settle();
+  await f.advance(59_999);
+  assert.deepEqual(child.writes, ["codex go\r"]);
+  assert.equal(f.notes.length, 0);
+  await f.advance(1);
+  assert.deepEqual(child.writes, ["codex go\r", "continue\r"]);
+  await f.advance(120_000);
+  assert.deepEqual(child.writes, ["codex go\r", "continue\r"]);
+  assert.equal(f.notes.length, 0);
+
+  for (const [command, screen] of [
+    ["claude go", codexCapacityScreen()],
+    ["codex go", codexCapacityScreen("■ You've hit your usage limit. Try again later.")],
+    ["codex go", codexCapacityScreen(`${CODEX_CAPACITY}\r\nNewer output`)],
+    ["codex go", codexCapacityScreen(CODEX_CAPACITY, "unsent text")],
+    ["codex go", `${codexCapacityScreen(CODEX_CAPACITY, "delete all files")}\x1b[3;3H`],
+    ["codex go", codexCapacityScreen(`${CODEX_CAPACITY}\r\n• Working (esc to interrupt)`)],
+    ["codex go", `${CODEX_CAPACITY}\r\n› 1. Switch model\r\n  2. Keep current model\r\n  enter select · esc back`],
+    ["codex go", `${codexCapacityScreen()}\x1b[6;1H  enter select · esc back\x1b[3;3H`],
+  ]) {
+    const other = stallFixture();
+    t.after(() => other.host.dispose());
+    await other.host.openForBot("bot-1", { label: "W", command });
+    other.children[0].data(screen);
+    await other.settle();
+    await other.advance(60_000);
+    assert.deepEqual(other.children[0].writes, [`${command}\r`]);
+    assert.equal(other.notes.length, 0);
+  }
+});
+
+test("Codex capacity still continues when the error wraps onto two rows", async (t) => {
+  for (const wrapped of [
+    "■ Selected model is at capacity. Please\r\n  try a different model.",
+    "■ Selected model is at capacity. Please t\r\nry a different model.",
+    "■ Selected model is at capacity. Please try a diff\r\nerent model.",
+  ]) {
+    const f = stallFixture();
+    t.after(() => f.host.dispose());
+    await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+    f.children[0].data(`\x1b[2J\x1b[H${wrapped}\r\n\r\n› \r\n\x1b[4;3H`);
+    await f.settle();
+    await f.advance(60_000);
+    assert.deepEqual(f.children[0].writes, ["codex go\r", "continue\r"]);
+  }
+});
+
+test("Codex capacity ignores a menu footer printed before the latest output and prompt", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  f.children[0].data(`${codexCapacityScreen(`enter select · esc back\r\n\r\n${CODEX_CAPACITY}`)}\x1b[5;3H`);
+  await f.settle();
+  await f.advance(60_000);
+  assert.deepEqual(f.children[0].writes, ["codex go\r", "continue\r"]);
+  assert.equal(f.notes.length, 0);
+});
+
+test("an identical Codex capacity screen returning before the next stall check posts STALLED", async (t) => {
+  const f = trustFixture(t);
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  const child = f.children[0];
+  child.data(codexCapacityScreen());
+  await f.advance(10_000);
+  await f.advance(60_000);
+  assert.deepEqual(child.writes, ["codex go\r", "continue\r"]);
+  assert.equal(f.notes.length, 0);
+  child.data("\x1b[2J\x1b[H• Working (esc to interrupt)");
+  child.data(codexCapacityScreen());
+  await f.advance(10_000);
+  await f.advance(60_000);
+  assert.deepEqual(child.writes, ["codex go\r", "continue\r"]);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^STALLED: /);
+  assert.match(f.notes[0].text, /Selected model is at capacity\./);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
+});
+
+test("a second Codex capacity hit within ten minutes posts STALLED, then the cooldown expires", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  const child = f.children[0];
+  child.data(codexCapacityScreen());
+  await f.settle();
+  await f.advance(60_000);
+  assert.deepEqual(child.writes, ["codex go\r", "continue\r"]);
+  assert.equal(f.notes.length, 0);
+  child.data("\x1b[2J\x1b[H• Working (esc to interrupt)");
+  await f.advance(599_999);
+  child.data(codexCapacityScreen());
+  await f.settle();
+  await f.advance(60_000);
+  assert.deepEqual(child.writes, ["codex go\r", "continue\r"]);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^STALLED: /);
+  assert.match(f.notes[0].text, /Selected model is at capacity\./);
+  await f.advance(600_000);
+  assert.deepEqual(child.writes, ["codex go\r", "continue\r"]);
+  assert.equal(f.notes.length, 1);
+  child.data("\x1b[2J\x1b[H• Working (esc to interrupt)");
+  await f.advance(1_000);
+  child.data(codexCapacityScreen());
+  await f.settle();
+  await f.advance(60_000);
+  assert.deepEqual(child.writes, ["codex go\r", "continue\r", "continue\r"]);
+  assert.equal(f.notes.length, 1);
+});
+
 test("a worker pane that goes quiet without a report sends one stall note with its last lines", async () => {
   const f = stallFixture();
   const pane = await f.host.openForBot("bot-1", { label: "TAP-AUDIT | Astra | high", command: "codex --model gpt-6-astra 'Read card.md and do it.'" });

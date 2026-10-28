@@ -23,6 +23,8 @@ const JOBS_HOLD_MS = 30 * 60_000;
 const JOBS_QUIET_MS = 30_000;
 const JOBS_FOOTER_LINES = 4;
 const STALL_CHECK_MS = 10_000;
+const CODEX_CAPACITY_WAIT_MS = 60_000;
+const CODEX_CAPACITY_COOLDOWN_MS = 10 * 60_000;
 // Stop hooks and Codex notify land seconds after the screen settles.
 const STALL_NOTE_SLACK_MS = 30_000;
 const STALL_TAIL_LINES = 15;
@@ -223,6 +225,21 @@ const BRACKETED_PASTE_MODE = 2004;
 const SAVE_ENTER_MS = 5_000;
 const CLAUDE_TRUST_SETTLE_MS = 500;
 const tokenCount = (value, unit) => Math.round(Number(value) * (unit === "M" ? 1_000_000 : unit === "K" ? 1_000 : 1));
+
+function codexCapacity({ screenText, cursor }) {
+  const lines = screenText.split("\n");
+  const prompt = lines[cursor.row] ?? "";
+  if (!/^\s*›\s*$/u.test(prompt) || cursor.col !== prompt.indexOf("›") + 2
+    || AGENT_BUSY_RE.test(screenText) || lines.some((line) => PANE_MENU_RE.test(line))
+    || /(?:^|\n)\s*enter select · esc back\s*$/u.test(screenText)) return false;
+  const before = lines.slice(0, cursor.row);
+  const last = before.findLastIndex((line) => line.trim());
+  let first = last;
+  while (first > 0 && before[first - 1].trim()) first -= 1;
+  // A soft wrap can split a word, so compare with all whitespace removed.
+  const output = before.slice(first, last + 1).join("").replace(/\s+/gu, "");
+  return /^(?:■)?Selectedmodelisatcapacity\.Pleasetryadifferentmodel\.$/u.test(output);
+}
 
 function claudeTrustKeys(screenText) {
   const lines = screenText.split("\n").map((line) => line.trim()).filter(Boolean);
@@ -617,8 +634,16 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
           session.stallTries = 0;
         }
       }
-      const threshold = !limit && (!session.agentSeen || session.engine === "claude" && agentJobsRunning(text, true)) ? JOBS_HOLD_MS : stallMs;
+      const capacity = session.engine === "codex" && codexCapacity(session.screen.snapshot({ maxScrollbackChars: 0 }));
+      const threshold = capacity ? CODEX_CAPACITY_WAIT_MS : !limit && (!session.agentSeen || session.engine === "claude" && agentJobsRunning(text, true)) ? JOBS_HOLD_MS : stallMs;
       if (session.stallFired || at - session.stallChangedAt < threshold || at < session.stallRetryAt) continue;
+      if (capacity && session.stallChangedAt - session.capacityContinuedAt >= CODEX_CAPACITY_COOLDOWN_MS) {
+        session.capacityContinuedAt = at;
+        session.stallFired = true;
+        typeIntoPane(session, "continue\r");
+        session.stallText = null;
+        continue;
+      }
       if (limitKey && session.limitsNoted.has(limitKey)) continue;
       // Its report on this task, or a hook note on this task as the screen settled, already reached the teacher.
       if (session.reportAt >= session.stallArmedAt) continue;
@@ -914,7 +939,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
       failure: null, attentionReported: false, activityArmed: false, activityCooldownUntil: 0, activityTimer: null,
       outputParser: createTerminalOutputParser(), screen: createTerminalScreen({ cols: input.cols, rows: input.rows }), cols: input.cols ?? 80, pendingInputEcho: "", truncated: false,
       workerReady: false, mail, compactSignal: paneEnv.ORBIT_COMPACT_SIGNAL ?? null, teacher: folder.teacher ?? input.botId, worker: false, engine: null, stallArmedAt: 0, stallChangedAt: 0, stallScreenAt: 0, stallText: null,
-      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
+      stallDirty: false, stallFired: false, stallTries: 0, stallRetryAt: 0, capacityContinuedAt: -Infinity, limitsNoted: new Set(), resizedAt: -Infinity, reportAt: 0, noteAt: 0, prestartedAt: null,
       reported: false, finished: [], exitNote: null, autoNote: null, autoDelivered: false, autoReported: false, agentBusy: false, agentSeen: false, contextNote: null, contextCompactPending: false,
       claudeTrust: false, claudeTrustMoved: false, claudeTrustAnswered: false, claudeTrustTimer: null,
     };
