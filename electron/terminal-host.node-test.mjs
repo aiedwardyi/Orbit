@@ -2264,6 +2264,7 @@ test("Codex capacity waits a minute, continues once without a note and leaves ot
     ["codex go", `${codexCapacityScreen(CODEX_CAPACITY, "delete all files")}\x1b[3;3H`],
     ["codex go", codexCapacityScreen(`${CODEX_CAPACITY}\r\n• Working (esc to interrupt)`)],
     ["codex go", `${CODEX_CAPACITY}\r\n› 1. Switch model\r\n  2. Keep current model\r\n  enter select · esc back`],
+    ["codex go", `${codexCapacityScreen()}\x1b[6;1H  enter select · esc back\x1b[3;3H`],
   ]) {
     const other = stallFixture();
     t.after(() => other.host.dispose());
@@ -2284,6 +2285,39 @@ test("Codex capacity still continues when the error wraps onto two rows", async 
   await f.settle();
   await f.advance(60_000);
   assert.deepEqual(f.children[0].writes, ["codex go\r", "continue\r"]);
+});
+
+test("Codex capacity ignores a menu footer printed before the latest output and prompt", async (t) => {
+  const f = stallFixture();
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  f.children[0].data(`${codexCapacityScreen(`enter select · esc back\r\n\r\n${CODEX_CAPACITY}`)}\x1b[5;3H`);
+  await f.settle();
+  await f.advance(60_000);
+  assert.deepEqual(f.children[0].writes, ["codex go\r", "continue\r"]);
+  assert.equal(f.notes.length, 0);
+});
+
+test("an identical Codex capacity screen returning before the next stall check posts STALLED", async (t) => {
+  const f = trustFixture(t);
+  t.after(() => f.host.dispose());
+  await f.host.openForBot("bot-1", { label: "W", command: "codex go" });
+  const child = f.children[0];
+  child.data(codexCapacityScreen());
+  await f.advance(10_000);
+  await f.advance(60_000);
+  assert.deepEqual(child.writes, ["codex go\r", "continue\r"]);
+  assert.equal(f.notes.length, 0);
+  child.data("\x1b[2J\x1b[H• Working (esc to interrupt)");
+  child.data(codexCapacityScreen());
+  await f.advance(10_000);
+  await f.advance(60_000);
+  assert.deepEqual(child.writes, ["codex go\r", "continue\r"]);
+  assert.equal(f.notes.length, 1);
+  assert.match(f.notes[0].text, /^STALLED: /);
+  assert.match(f.notes[0].text, /Selected model is at capacity\./);
+  await f.advance(600_000);
+  assert.equal(f.notes.length, 1);
 });
 
 test("a second Codex capacity hit within ten minutes posts STALLED, then the cooldown expires", async (t) => {

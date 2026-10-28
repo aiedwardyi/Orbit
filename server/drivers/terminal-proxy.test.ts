@@ -501,7 +501,7 @@ describe("terminal proxy", () => {
     ["enter", "\r", "\n"],
     ["esc", "\x1b", "cancel"],
   ])("refuses text in a Codex selection menu and accepts key %s", async (key, bytes, text) => {
-    const fetchImpl = scripted({ screenText: "›" }, { screenText: CODEX_MENU });
+    const fetchImpl = scripted({ screenText: "›" }, { screenText: `${CODEX_MENU}\n  \n` });
     const result = await send(fetchImpl, { text, sessionId: "s1", generation: 2 });
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("key (up, down, enter, esc)");
@@ -512,6 +512,12 @@ describe("terminal proxy", () => {
     const prompt = scripted({ screenText: "1. First task\n2. Second task\n›" });
     expect((await send(prompt, { text: "continue", sessionId: "s1", generation: 2 })).isError).toBeUndefined();
     expect(posted(prompt)).toEqual(["continue"]);
+  });
+
+  it.each(["$ ", "› "])("accepts text after a printed menu footer followed by a %s prompt", async (prompt) => {
+    const fetchImpl = scripted({ screenText: `enter select · esc back\n${prompt}` });
+    expect((await send(fetchImpl, { text: "continue", sessionId: "s1", generation: 2 })).isError).toBeUndefined();
+    expect(posted(fetchImpl)).toEqual(["continue"]);
   });
 
   it("sends esc when the Claude pane is idle", async () => {

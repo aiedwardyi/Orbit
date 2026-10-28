@@ -231,7 +231,7 @@ function codexCapacity({ screenText, cursor }) {
   const prompt = lines[cursor.row] ?? "";
   if (!/^\s*›\s*$/u.test(prompt) || cursor.col !== prompt.indexOf("›") + 2
     || AGENT_BUSY_RE.test(screenText) || lines.some((line) => PANE_MENU_RE.test(line))
-    || /enter select · esc back/u.test(screenText)) return false;
+    || /(?:^|\n)\s*enter select · esc back\s*$/u.test(screenText)) return false;
   const before = lines.slice(0, cursor.row);
   const last = before.findLastIndex((line) => line.trim());
   let first = last;
@@ -640,6 +640,7 @@ export function createTerminalHost({ authorize, resolveCwd, owner: paneOwner = (
         session.capacityContinuedAt = at;
         session.stallFired = true;
         typeIntoPane(session, "continue\r");
+        session.stallText = null;
         continue;
       }
       if (limitKey && session.limitsNoted.has(limitKey)) continue;
