@@ -11,6 +11,7 @@
 // and falls back to a fresh thread/start. After Orbit compaction the
 // harness omits resumeCursor and injects the bounded transcript instead.
 import { homedir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
@@ -42,7 +43,7 @@ import { codexLocalProviderArgs } from "./local-inject.ts";
 import { augmentedPath } from "../env-path.ts";
 import { classifyError, computeBackoff, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { appendNative, finishNative } from "./native.ts";
-import { codexRateLimitWindows } from "./rate-limits.ts";
+import { chatUsageLimit, codexRateLimitWindows } from "./rate-limits.ts";
 import { accountLabel, cachedSignIn, storedAccount } from "./auth-status.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
@@ -347,6 +348,14 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       // the first and latest model call's prompt, and the model's window
       let promptTokens: { first: number; last: number } | undefined;
       let contextWindow: number | undefined;
+      let usageWindows: ReturnType<typeof codexRateLimitWindows> = [];
+      let usageLimitReported = false;
+      let apiKeyAccount = false;
+      try {
+        apiKeyAccount = codexAuthSchema.pick({ auth_mode: true }).safeParse(JSON.parse(readFileSync(join(codexHome(env), "auth.json"), "utf8"))).data?.auth_mode === "apikey";
+      } catch {}
+      const usageFailure = (failure: unknown) => chatUsageLimit("codex", failure, usageWindows,
+        [null, "openai"].includes(decodeCodexSelection(turn.model).modelProvider) && !apiKeyAccount);
 
       const asks = new Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>();
       let nextId = 1;
@@ -624,12 +633,18 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             // the ChatGPT plan's 5-hour and weekly windows; API-key accounts
             // never send this, and the Usage screen says so instead of guessing
             const windows = codexRateLimitWindows(p.rateLimits ?? p);
+            usageWindows = windows;
             if (windows.length > 0) emit({ ...base(threadId, turnId), type: "account.rate-limits.updated", windows });
             break;
           }
           case "turn/completed": {
             const t = p.turn ?? {};
-            settle(t.status === "completed", t.status === "completed" ? null : (t.error?.message ?? t.status ?? "failed"));
+            const limit = t.status === "failed" && !stopRequested ? usageFailure(t.error) : null;
+            if (limit && !usageLimitReported) {
+              emit({ ...base(threadId, turnId), type: "runtime.error", ...limit });
+              usageLimitReported = true;
+            }
+            settle(t.status === "completed" && !usageLimitReported, usageLimitReported ? "usage_limit" : t.status === "completed" ? null : (t.error?.message ?? t.status ?? "failed"));
             break;
           }
           case "error":
@@ -648,8 +663,12 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                   reason: codexErrorKind.safeParse(p.error?.codexErrorInfo).data ?? "stream_error",
                   maxAttempts: tries ? Number(tries[2]) + 1 : undefined,
                 });
-              } else if (message) {
-                emit({ ...base(threadId, turnId), type: "runtime.error", message: String(message).slice(0, 400) });
+              } else if (!stopRequested) {
+                const limit = usageFailure(p);
+                if (limit && !usageLimitReported) {
+                  emit({ ...base(threadId, turnId), type: "runtime.error", ...limit });
+                  usageLimitReported = true;
+                } else if (message && !usageLimitReported) emit({ ...base(threadId, turnId), type: "runtime.error", message: String(message).slice(0, 400) });
               }
             }
             break;

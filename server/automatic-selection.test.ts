@@ -44,6 +44,11 @@ describe("automatic usage ranking", () => {
     expect(pick([candidate("first", { rateLimits: [window(10), window(100, now + 1, "five_hour")] }), used("second", 0)])).toBe("second");
   });
 
+  it("keeps an engine whose only spent window is model-specific", () => {
+    expect(pick([candidate("first", { rateLimits: [window(50), window(100, now + 1, "seven_day_opus")] }), used("second", 0)])).toBe("first");
+    expect(pick([candidate("claude", { driverKind: "claudeAgent", rateLimits: [window(50), window(100, now + 1, "seven_day_opus")] }), used("codex", 0, { driverKind: "codex" })])).toBe("codex");
+  });
+
   it("keeps the first eligible engine when every engine is exhausted", () => {
     expect(pick([used("first", 125), used("second", 100)])).toBe("first");
   });

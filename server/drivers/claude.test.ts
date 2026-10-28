@@ -455,6 +455,50 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(instance.adapter.hasSession("t-happy")).toBe(false);
   });
 
+  it.each(["usage-limit", "usage-limit-result", "usage-limit-null", "usage-limit-after-text", "usage-limit-close"])("marks subscription exhaustion once before failure: %s", async (mode) => {
+    const reset = Math.floor(Date.now() / 1000) + 3600;
+    await create(mode, { FAKE_CLAUDE_RESET_AT: String(reset) });
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-limit", text: "continue work", model: "claude-opus-5" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const errors = recorder.events.filter((e) => e.type === "runtime.error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ turnId, usageLimit: { resetsAt: mode === "usage-limit-null" ? null : (reset + 172800) * 1000 } });
+    expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", turnId, ok: false, stopReason: "usage_limit" });
+    expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
+    expect(recorder.events.some((e) => e.type === "turn.retrying")).toBe(false);
+    if (mode === "usage-limit-after-text") expect(recorder.events.some((e) => e.type === "content.delta" && e.delta === "Work saved so far.")).toBe(true);
+  });
+
+  it.each([
+    ["usage-warning", "You've hit your limit in an example."],
+    ["usage-limit-result", "429 Too Many Requests"],
+    ["usage-limit-result", "Overloaded: capacity unavailable"],
+    ["usage-limit-result", "Invalid API key: usage limit reached"],
+    ["usage-limit-result", "Not logged in. Usage limit reached"],
+  ])("does not mark %s: %s", async (mode, message) => {
+    await create(mode, { FAKE_CLAUDE_RESET_AT: String(Math.floor(Date.now() / 1000) + 3600), FAKE_CLAUDE_FAILURE_TEXT: message });
+    await instance.adapter.sendTurn({ threadId: "t-limit-negative", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => e.type === "runtime.error" && e.usageLimit)).toHaveLength(0);
+    if (mode === "usage-warning") expect(recorder.events.at(-1)).toMatchObject({ ok: true });
+  });
+
+  it("does not mark a user cancel after a Claude assistant error", async () => {
+    await create("usage-limit-hold");
+    await instance.adapter.sendTurn({ threadId: "t-limit-stop", text: "hi" });
+    await recorder.until((e) => e.type === "content.delta");
+    await instance.adapter.interruptTurn("t-limit-stop");
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => e.type === "runtime.error" && e.usageLimit)).toHaveLength(0);
+  });
+
+  it("does not mark injected Claude billing as a subscription limit", async () => {
+    await create("usage-limit-null");
+    await instance.adapter.sendTurn({ threadId: "t-limit-inject", text: "hi", model: "ollama::qwen" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.filter((e) => e.type === "runtime.error" && e.usageLimit)).toHaveLength(0);
+  });
+
   const capture = async (name: string, input: unknown, content: unknown, is_error = false) => {
     saveConfig({ features: { toolDetailCapture: true } });
     const path = join(scratch, "tool-detail.json");
