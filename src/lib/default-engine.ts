@@ -20,6 +20,8 @@ export function defaultModelSelection(
   const exhausted = (instance: InstanceInfo): boolean =>
     instance.rateLimits?.windows.some(
       (window) =>
+        // A model-only window (seven_day_opus) leaves the engine's other models usable
+        !window.id.startsWith("seven_day_") &&
         Number.isFinite(window.usedPercent) &&
         window.usedPercent >= 100 &&
         !(window.resetsAt !== null && Number.isFinite(window.resetsAt) && window.resetsAt <= now),

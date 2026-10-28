@@ -54,6 +54,16 @@ describe("defaultModelSelection", () => {
     expect(defaultModelSelection([spent])?.instanceId).toBe("spent");
   });
 
+  it("keeps an engine whose only spent window is model-specific", () => {
+    const opus = engine("opus", {
+      rateLimits: {
+        windows: [{ id: "five_hour", usedPercent: 20, resetsAt: null }, { id: "seven_day_opus", usedPercent: 100, resetsAt: null }],
+        observedAt: new Date(0).toISOString(),
+      },
+    });
+    expect(defaultModelSelection([opus, engine("other")])?.instanceId).toBe("opus");
+  });
+
   it("treats a past reset as usable again", () => {
     const reset = engine("reset", {
       rateLimits: {
