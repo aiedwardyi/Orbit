@@ -29,7 +29,7 @@ import { TASK_RESUME_PROMPT } from "./turn-context.ts";
 const STOP_RELEASE_MS = 6_000;
 
 type BotChatRouteDeps = {
-  cancelUsageWait?: (botId: string, waitId?: string) => void;
+  cancelUsageWait?: (botId: string, waitId?: string, preserveTurn?: boolean) => void;
   cfg: AppConfig;
   threadSyncGate: ReturnType<typeof createThreadSyncV2Gate>;
   registry: ProviderRegistry;
@@ -216,13 +216,14 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
             });
           }
 
-          deps.cancelUsageWait?.(bot.id);
+          const adapter = registry.get(currentAtStart.modelSelection.instanceId)?.adapter;
+          const steering = Boolean(currentAtStart.busy && steersSend(adapter, currentAtStart.busy, body.deliver === "after"));
+          deps.cancelUsageWait?.(bot.id, undefined, steering);
           // Claude can accept the message inside its live turn. A turn-start
           // claim also counts as active while prepareModelContext is running:
           // busy flips only after preparation, so without this check rapid
           // sends race the claim and receive a false busy rejection.
           if (currentAtStart.busy || botHasActiveTurn(bot.id, threadId)) {
-            const adapter = registry.get(currentAtStart.modelSelection.instanceId)?.adapter;
             let steered = false;
             // a steered message takes a peer turn over when the model reads
             // it; without a read signal, when the route accepts the steer
@@ -284,9 +285,11 @@ export function createBotChatRoutes(deps: BotChatRouteDeps) {
                 sendId,
                 steered: true,
               });
+              deps.cancelUsageWait?.(bot.id, undefined, true);
               markChatLatency({ sendId, threadId, userMessageId: message.id }, "queue.decided");
               return { ok: true as const, steered: true as const, threadId, message };
             }
+            deps.cancelUsageWait?.(bot.id);
             if (!current.busy && !botHasActiveTurn(bot.id, threadId)) {
               const started = await startTurn(bot.id, text, { threadId, replyTo, sendId });
               return sendPostReceipt(started, threadId);

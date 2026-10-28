@@ -1503,7 +1503,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             if (session.turn) session.turn.promptAccepted = true;
             const msg = o.message ?? {};
             // a subagent's final report is the main agent's input, not a reply
-            if (!o.parent_tool_use_id) {
+            if (!o.parent_tool_use_id && !o.error) {
               const turn = session.turn;
               const messageId: string | undefined = msg.id || undefined;
               // A later assistant message is a new response unless it carries this id.

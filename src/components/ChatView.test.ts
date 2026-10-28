@@ -1204,7 +1204,7 @@ describe("agy sign-in error bubble", () => {
 });
 
 describe("error row Retry", () => {
-  it.each(["claudeAgent", "codex"])("renders manual recovery when %s has no durable usage wait", async (driverKind) => {
+  it.each(["claudeAgent", "codex"])("retains reset and Retry for an untracked %s usage limit", async (driverKind) => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 404 })));
     vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
@@ -1229,9 +1229,10 @@ describe("error row Retry", () => {
       await act(async () => root.render(createElement(StoreProvider, null, createElement(Harness))));
       expect(host.textContent).toContain("Usage limit reached");
       expect(host.textContent).toContain("Plan spent");
-      expect(host.textContent).toContain("send Continue after it resets");
+      expect(host.textContent).toContain("Try again after it resets.");
+      expect(host.textContent).not.toContain("send Continue after it resets");
       expect(host.textContent).not.toContain("Resumes at");
-      expect([...host.querySelectorAll("button")].some((button) => button.textContent?.trim() === "Retry")).toBe(false);
+      expect([...host.querySelectorAll("button")].some((button) => button.textContent?.trim() === "Retry")).toBe(true);
     } finally {
       await act(async () => root.unmount());
       host.remove();

@@ -99,6 +99,8 @@ import { timelineEvents } from "@/lib/taskTimeline";
 import { useReplyDraft } from "@/lib/drafts";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { localeTag, useI18n } from "@/lib/i18n";
+import { usageLimitReset } from "@/lib/usage";
+import { useNow } from "./PlanUsageBar";
 import { isAskUserCard, pinnedQuestion } from "@/lib/open-question";
 import { isRinging } from "@/lib/routine-ring";
 import { activeRunForBot, routineThreadReturn, routineWorkingElsewhere } from "../../shared/working-thread";
@@ -211,8 +213,10 @@ export function ErrorRow({
   botId: string;
 }) {
   const { t, locale } = useI18n();
+  const now = useNow();
   if (folder) return <FolderFix folder={folder} botId={botId} onRetry={onRetry} />;
   const action = setupErrorAction(setupInstance, signIn);
+  const reset = usageLimit && !usageWait ? usageLimitReset(usageLimit.resetsAt, now) : null;
   const waiting = usageWait?.state === "waiting";
   const time = usageWait?.resumesAt == null ? "" : new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", ...(usageWait.weekly ? { weekday: "short" } : {}) }).format(usageWait.resumesAt);
   const retryButton = onRetry && (
@@ -239,7 +243,9 @@ export function ErrorRow({
           <span className="min-w-0 break-words">
             {usageLimit ? (
               <>
-                <span>{t(!waiting ? "chat.usageWaitManual" : !time ? "chat.usageWaitUnknown" : usageWait.weekly ? "chat.usageWaitWeekly" : "chat.usageWaitAt", { time })}</span>
+                {!usageWait ? <><span className="font-semibold">{t("chat.usageLimit")}</span>{" "}{t("chat.usageLimitBody")}{reset && <> {t(reset.key, reset.vars)}</>}</>
+                  : waiting ? <span>{t(!time ? "chat.usageWaitUnknown" : usageWait.weekly ? "chat.usageWaitWeekly" : "chat.usageWaitAt", { time })}</span>
+                    : usageWait.state === "manual" ? <span>{t("chat.usageWaitManual")}</span> : null}
                 {waiting && usageWait.cancelable && <> · <button className="underline" onClick={() => void api(`/api/bots/${botId}/usage-wait/${usageWait.id}/cancel`, { method: "POST" }).catch(() => {})}>{t("chat.cancelQueuedAction")}</button></>}
                 {/* the engine's own words survive a misread of them */}
                 <span className="mt-1 block text-[12px] opacity-70">{message}</span>
@@ -256,7 +262,7 @@ export function ErrorRow({
             {signIn && retryButton}
           </>
         ) : (
-          usageLimit ? null : retryButton
+          usageLimit && usageWait ? null : retryButton
         )}
       </div>
     </div>

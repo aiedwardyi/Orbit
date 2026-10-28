@@ -17,14 +17,16 @@ const rowSchema = z.object({
 });
 const fileSchema = z.object({ v: z.literal(1), rows: z.array(rowSchema) });
 export type LimitWait = z.infer<typeof rowSchema>;
-export type UsageWaitView = Pick<LimitWait, "id" | "ownerDeviceId" | "state" | "weekly"> & { resumesAt: number | null; cancelable?: boolean };
+export type UsageWaitView = Pick<LimitWait, "id" | "ownerDeviceId" | "weekly"> & { state: LimitWait["state"] | "finished"; resumesAt: number | null; cancelable?: boolean };
 
 export class LimitWaitStore {
   private rows: LimitWait[] = [];
   private writing = false;
 
   constructor(readonly file = join(DATA_DIR, "limit-waits.json"), private readonly write = writeFileAtomic) {
-    if (existsSync(file)) this.rows = fileSchema.parse(JSON.parse(readFileSync(file, "utf8"))).rows;
+    try {
+      if (existsSync(file)) this.rows = fileSchema.parse(JSON.parse(readFileSync(file, "utf8"))).rows;
+    } catch (error) { console.error("limit-waits: could not load, starting empty", error); }
     for (const row of this.rows) if (row.state === "dispatching") this.set({ ...row, state: "manual" });
   }
 
