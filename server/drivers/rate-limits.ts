@@ -34,8 +34,9 @@ export function claudeRateLimitWindows(info: unknown): RateLimitWindow[] {
   const out: RateLimitWindow[] = [];
   const unified = isRecord(info.unifiedWindows) ? info.unifiedWindows : null;
   if (unified) {
-    for (const [id, windowMinutes] of [["five_hour", FIVE_HOURS], ["seven_day", SEVEN_DAYS]] as const) {
-      const window = unified[id];
+    for (const [id, window] of Object.entries(unified)) {
+      if (id.includes("overage")) continue;
+      const windowMinutes = id === "five_hour" ? FIVE_HOURS : id.startsWith("seven_day") ? SEVEN_DAYS : undefined;
       if (!isRecord(window) || !finite(window.utilization)) continue;
       out.push({ id, usedPercent: round1(window.utilization * 100), resetsAt: epochMs(window.resetsAt), windowMinutes });
     }
@@ -66,6 +67,34 @@ export function codexRateLimitWindows(snapshot: unknown): RateLimitWindow[] {
     out.push(normalized);
   }
   return out;
+}
+
+export function chatUsageLimit(
+  provider: "claude" | "codex",
+  failure: unknown,
+  windows: readonly RateLimitWindow[] = [],
+  subscription = true,
+  now = Date.now(),
+): { message: string; usageLimit: { resetsAt: number | null } } | null {
+  if (!subscription) return null;
+  const body = isRecord(failure) ? failure : {};
+  const error = isRecord(body.error) ? body.error : body;
+  const content = isRecord(body.message) && Array.isArray(body.message.content) ? body.message.content : [];
+  const message = [typeof failure === "string" ? failure : "", error.message, body.result,
+    ...(Array.isArray(body.errors) ? body.errors : []), ...content.map((b: unknown) => isRecord(b) ? b.text : ""),
+  ].filter((s): s is string => typeof s === "string" && Boolean(s)).join("\n");
+  const kind = error.codexErrorInfo ?? (typeof body.error === "string" ? body.error : error.type ?? error.code);
+  const typed = typeof kind === "string" && /^(?:UsageLimitReached|usageLimitExceeded|usage_limit_reached|usage_limit_exceeded)$/.test(kind);
+  if (/invalid.?api.?key|not logged in|authentication|unauthorized|billing|insufficient.?quota|out of credits|credits exhausted|overloaded|capacity unavailable|codex with your chatgpt plan|spend cap/i.test(message)
+    || (typeof kind === "string" && /auth|billing|quota|overload|capacity|cancel/i.test(kind))) return null;
+  const spent = windows.filter((w) => w.usedPercent >= 100 && (w.resetsAt === null || w.resetsAt > now));
+  if (!typed && (provider !== "claude" || !/(?:usage limit (?:reached|exceeded)|(?:you(?:'ve| have)? (?:hit|reached)|you(?:'re| are) (?:at|out of)) your (?:(?:usage|session|weekly|opus|sonnet) )?limit)/i.test(message)
+    || (windows.length > 0 && spent.length === 0))) return null;
+  const resets = [body, error, ...(isRecord(kind) ? [kind] : [])].flatMap((detail) =>
+    ["resetsAt", "resets_at", "resetAt", "reset_at"].map((key) => epochMs(detail[key])));
+  resets.push(...spent.map((w) => w.resetsAt));
+  const known = resets.filter((at): at is number => at !== null);
+  return { message: message || "Usage limit reached", usageLimit: { resetsAt: known.length ? Math.max(...known) : null } };
 }
 
 /** Grok Build ACP `x.ai/billing` / CLI `/usage`: one weekly included pool.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   antigravityRateLimitWindows,
+  chatUsageLimit,
   claudeRateLimitWindows,
   codexRateLimitWindows,
   epochMs,
@@ -431,5 +432,61 @@ describe("exhaustedWindow", () => {
     expect(exhaustedWindow([{ id: "seven_day", usedPercent: 100, resetsAt: now - 1 }], now)).toBeNull();
     expect(exhaustedWindow([], now)).toBeNull();
     expect(exhaustedWindow(undefined, now)).toBeNull();
+  });
+});
+
+
+describe("chatUsageLimit", () => {
+  const now = 1_800_000_000_000;
+  const reset = now + 3600_000;
+  const windows = [{ id: "five_hour", usedPercent: 100, resetsAt: reset }];
+  it.each(["UsageLimitReached", "usageLimitExceeded", "usage_limit_reached"])("prefers typed %s with provider reset", (type) => {
+    expect(chatUsageLimit("codex", { type, message: "Plan spent", resets_at: reset / 1000 }, [], true, now))
+      .toEqual({ message: "Plan spent", usageLimit: { resetsAt: reset } });
+  });
+  it("uses the latest reset of every exhausted window and ignores expired ones", () => {
+    expect(chatUsageLimit("claude", "You've hit your limit", [
+      ...windows, { id: "seven_day", usedPercent: 100, resetsAt: reset + 86400_000 },
+      { id: "old", usedPercent: 100, resetsAt: now - 1 },
+      { id: "available", usedPercent: 90, resetsAt: reset + 172800_000 },
+    ], true, now)?.usageLimit).toEqual({ resetsAt: reset + 86400_000 });
+  });
+  it("prefers a typed Claude assistant error over generic result wording", () => {
+    expect(chatUsageLimit("claude", { type: "assistant", error: "usage_limit_reached", resetsAt: reset,
+      message: { content: [{ type: "text", text: "Plan spent" }] } }, [], true, now))
+      .toEqual({ message: "Plan spent", usageLimit: { resetsAt: reset } });
+  });
+  it("retains exhausted model-specific Claude windows", () => {
+    const parsed = claudeRateLimitWindows({ unifiedWindows: {
+      five_hour: { utilization: 0.2, resetsAt: reset / 1000 },
+      seven_day: { utilization: 0.5, resetsAt: reset / 1000 },
+      seven_day_opus: { utilization: 1, resetsAt: (reset + 86400_000) / 1000 },
+    } });
+    expect(parsed.map((w) => w.id)).toEqual(["five_hour", "seven_day", "seven_day_opus"]);
+    expect(chatUsageLimit("claude", "You've hit your limit", parsed, true, now)?.usageLimit).toEqual({ resetsAt: reset + 86400_000 });
+  });
+  it.each(["You've hit your session limit · resets 3am (Asia/Seoul)", "You've hit your weekly limit · resets Nov 3"])("marks Claude's own limit wording: %s", (message) => {
+    expect(chatUsageLimit("claude", { error: "rate_limit", result: message }, windows, true, now)?.usageLimit).toEqual({ resetsAt: reset });
+  });
+  it("keeps an unknown reset null instead of inventing a delay", () => {
+    expect(chatUsageLimit("claude", "You've hit your limit", [], true, now)?.usageLimit).toEqual({ resetsAt: null });
+  });
+  it.each(["429 Too Many Requests", "rate_limit_error", "overloaded", "capacity unavailable", "Invalid API key: usage limit reached", "authentication failed: usage limit reached", "billing: usage limit reached", "out of credits", "quota configuration unavailable", "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus.", "You hit your spend cap set in your workspace. Increase your spend cap to continue."])("rejects unrelated failure even next to spent windows: %s", (message) => {
+    expect(chatUsageLimit("claude", message, windows, true, now)).toBeNull();
+    expect(chatUsageLimit("codex", { message }, windows, true, now)).toBeNull();
+  });
+  it("keeps a Free plan limit with its upgrade hint and retry time", () => {
+    expect(chatUsageLimit("codex", { codexErrorInfo: "usageLimitExceeded", resets_at: reset / 1000,
+      message: "You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again at 3:40 AM." }, [], true, now)?.usageLimit)
+      .toEqual({ resetsAt: reset });
+  });
+  it("rejects Codex's typed plan-entitlement failure", () => {
+    expect(chatUsageLimit("codex", { codexErrorInfo: "usageLimitExceeded", message: "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus." }, windows, true, now)).toBeNull();
+  });
+  it.each(["claude", "codex"] as const)("rejects API/inject billing for %s", (provider) => {
+    expect(chatUsageLimit(provider, { type: "UsageLimitReached", message: "usage limit reached" }, windows, false, now)).toBeNull();
+  });
+  it("requires current window corroboration for untyped Claude wording when available", () => {
+    expect(chatUsageLimit("claude", "You've hit your limit", [{ ...windows[0], usedPercent: 99 }], true, now)).toBeNull();
   });
 });
