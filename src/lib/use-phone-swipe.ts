@@ -12,6 +12,7 @@ import {
   lockAxis,
   neighborId,
   reducedMotion,
+  sheetSwipeCloses,
   sidebarBotIds,
   swipeBlocked,
   swipeStep,
@@ -29,6 +30,7 @@ type Drag = {
 };
 
 const TAP_ENTER_PX = 32;
+const FLICK_STILL_MS = 100;
 
 function settle(stages: (HTMLElement | null | undefined)[], from: number, to: number, opacity = 1) {
   for (const stage of stages) {
@@ -259,4 +261,91 @@ export function useDrawerSwipe(open: boolean, side: SidebarSide, close: () => vo
   }, [el, open]);
 
   return shell;
+}
+
+type SheetDrag = { x: number; y: number; lastY: number; lastT: number; velocity: number; pulling: boolean };
+
+/** Swipe down on the open bottom sheet in `sheetRef` to close it through `close`. A scrolled list in it scrolls first: the sheet drags only from the list's top. */
+export function useSheetSwipe(sheetRef: RefObject<HTMLElement | null>, open: boolean, close: () => void): void {
+  const latest = useRef(close);
+  useLayoutEffect(() => {
+    latest.current = close;
+  });
+
+  useEffect(() => {
+    const sheet = sheetRef.current;
+    if (!sheet || !open) return;
+    const clear = () => {
+      sheet.style.removeProperty("translate");
+      sheet.style.removeProperty("transition");
+    };
+    // a reopen mid-close gets back the sheet a swipe let go of lower down
+    clear();
+    let drag: SheetDrag | null = null;
+    let springTimer: ReturnType<typeof setTimeout> | undefined;
+    const onStart = (e: TouchEvent) => {
+      clearTimeout(springTimer);
+      clear();
+      drag = null;
+      const touch = e.touches[0];
+      if (e.touches.length !== 1 || !touch || !(e.target instanceof Element)) return;
+      for (let node: Element | null = e.target; node && node !== sheet.parentElement; node = node.parentElement) {
+        if (node.scrollTop > 0) return;
+      }
+      drag = { x: touch.clientX, y: touch.clientY, lastY: touch.clientY, lastT: e.timeStamp, velocity: 0, pulling: false };
+    };
+    const onMove = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (!drag || !touch) return;
+      const dx = touch.clientX - drag.x;
+      const dy = touch.clientY - drag.y;
+      if (!drag.pulling) {
+        const axis = lockAxis(dx, dy);
+        if (axis === "x" || (axis === "y" && dy < 0)) {
+          drag = null;
+          return;
+        }
+        drag.pulling = axis === "y";
+        // the browser can start its own scroll before the slop, so a downward start claims its moves from the first one
+        if (!drag.pulling && !(dy > 0 && dy >= Math.abs(dx))) return;
+      }
+      if (e.cancelable) e.preventDefault();
+      const dt = e.timeStamp - drag.lastT;
+      if (dt > 0) drag.velocity = (touch.clientY - drag.lastY) / dt;
+      drag.lastY = touch.clientY;
+      drag.lastT = e.timeStamp;
+      if (drag.pulling && !reducedMotion()) sheet.style.translate = `0 ${Math.max(0, dy)}px`;
+    };
+    const finish = (commit: boolean, e: TouchEvent) => {
+      const done = drag;
+      drag = null;
+      if (!done?.pulling) return;
+      // cancelling the touchend is what keeps a drag from ending in a click
+      if (e.cancelable) e.preventDefault();
+      // a finger that stopped before lifting is no flick
+      const velocity = e.timeStamp - done.lastT > FLICK_STILL_MS ? 0 : done.velocity;
+      if (commit && sheetSwipeCloses(done.lastY - done.y, velocity, sheet.offsetHeight)) {
+        // the exit fade plays from where the finger let go
+        latest.current();
+        return;
+      }
+      if (reducedMotion()) return;
+      sheet.style.transition = `translate ${SWIPE_MOTION_MS}ms ${SWIPE_SPRING}`;
+      sheet.style.translate = "0 0";
+      springTimer = setTimeout(clear, SWIPE_MOTION_MS);
+    };
+    const onEnd = (e: TouchEvent) => finish(true, e);
+    const onCancel = (e: TouchEvent) => finish(false, e);
+    sheet.addEventListener("touchstart", onStart, { passive: true });
+    sheet.addEventListener("touchmove", onMove, { passive: false });
+    sheet.addEventListener("touchend", onEnd);
+    sheet.addEventListener("touchcancel", onCancel);
+    return () => {
+      sheet.removeEventListener("touchstart", onStart);
+      sheet.removeEventListener("touchmove", onMove);
+      sheet.removeEventListener("touchend", onEnd);
+      sheet.removeEventListener("touchcancel", onCancel);
+      clearTimeout(springTimer);
+    };
+  }, [sheetRef, open]);
 }

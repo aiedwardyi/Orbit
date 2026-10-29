@@ -8,6 +8,7 @@ import { chipEffortLabel, chipEffortShortLabel } from "@/lib/model-chip";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
 import { isPhone, PHONE_QUERY } from "@/lib/phone-swipe";
 import { useBackLayer } from "@/lib/use-back-layer";
+import { useSheetSwipe } from "@/lib/use-phone-swipe";
 import type { Message } from "@/state/store";
 import { listedRuns, listedSessionId, workerAnchors, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
 import { ProviderMark } from "./ProviderIcons";
@@ -174,6 +175,7 @@ function WorkerList({ title, runs, livePanes, onClose, onOpenTerminalPane }: { t
   useEffect(() => {
     onCloseRef.current = onClose;
   });
+  useSheetSwipe(panelRef, true, onClose);
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
@@ -227,6 +229,7 @@ function WorkerList({ title, runs, livePanes, onClose, onOpenTerminalPane }: { t
         data-worker-list
         className="animate-pop-in flex max-h-[80dvh] w-full flex-col rounded-t-[24px] border border-hairline/50 bg-panel px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl shadow-black/50"
       >
+        <div aria-hidden className="mx-auto -mt-2 mb-1 h-1 w-9 shrink-0 rounded-full bg-ink-secondary/40" />
         <div className="mb-1 flex items-center justify-between gap-3">
           <h2 id={titleId} className="text-[15px] font-semibold text-ink">{title}</h2>
           <button ref={closeRef} type="button" onClick={onClose} aria-label={t("workers.close")} className="flex size-11 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink">

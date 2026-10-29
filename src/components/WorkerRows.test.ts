@@ -8,6 +8,7 @@ import type { Message } from "@/state/store";
 import { workerRuns, type WorkerShownState } from "@/lib/worker-runs";
 import { ProviderMark } from "./ProviderIcons";
 import { applyLocale } from "@/lib/i18n";
+import { SWIPE_MOTION_MS } from "@/lib/phone-swipe";
 import { WORKER_STATUS, WorkerChip, WorkerRow, useWorkerRows, type ShownRun } from "./WorkerRows";
 
 const run = (label: string) => {
@@ -691,5 +692,157 @@ describe("WorkerChip", () => {
     } finally {
       await unmount();
     }
+  });
+
+  describe("phone sheet swipe", () => {
+    const openSheet = async (count: number, reduce = false) => {
+      Object.defineProperty(window, "matchMedia", { value: (query: string) => ({ matches: query.includes("reduce") ? reduce : true }), configurable: true, writable: true });
+      const runs = Array.from({ length: count }, (_, i) => shown(`W${i}`, "working", `s${i}`, i));
+      const onOpen = vi.fn();
+      const mounted = await mount(runs, { onOpenTerminalPane: onOpen, livePanes: new Set(runs.map((entry) => entry.run.id)) });
+      await act(async () => mounted.chip()!.click());
+      const sheet = document.body.querySelector<HTMLElement>("[data-worker-list]")!;
+      // happy-dom has no layout
+      Object.defineProperty(sheet, "offsetHeight", { configurable: true, value: 600 });
+      return { ...mounted, sheet, row: sheet.querySelector<HTMLButtonElement>("li > button")!, onOpen };
+    };
+    const touch = (target: Element, type: string, y: number, timeStamp: number) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [{ clientX: 200, clientY: y }] });
+      Object.defineProperty(event, "timeStamp", { value: timeStamp });
+      target.dispatchEvent(event);
+      return event;
+    };
+    const drag = async (target: Element, ys: number[], ms: number) => {
+      const events: Event[] = [];
+      await act(async () => {
+        ys.forEach((y, i) => events.push(touch(target, i === 0 ? "touchstart" : "touchmove", y, i * ms)));
+        events.push(touch(target, "touchend", 0, ys.length * ms));
+      });
+      return events;
+    };
+
+    it("tops the phone sheet with a grabber screen readers skip", async () => {
+      const { sheet, unmount } = await openSheet(1);
+      try {
+        expect(sheet.firstElementChild!.getAttribute("aria-hidden")).toBe("true");
+        expect(sheet.firstElementChild!.className).toMatch(/(^|\s)bg-ink-secondary\/40(\s|$)/);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("follows the finger down 1:1, never up, and springs back from a drag under a third of its height", async () => {
+      const { sheet, row, chip, unmount } = await openSheet(1);
+      try {
+        await act(async () => {
+          touch(row, "touchstart", 300, 0);
+          touch(row, "touchmove", 340, 200);
+        });
+        expect(sheet.style.translate).toBe("0 40px");
+        await act(async () => touch(row, "touchmove", 280, 400));
+        expect(sheet.style.translate).toBe("0 0px");
+        await act(async () => touch(row, "touchmove", 400, 600));
+        await act(async () => touch(row, "touchmove", 470, 800));
+        expect(sheet.style.translate).toBe("0 170px");
+        let end!: Event;
+        await act(async () => { end = touch(row, "touchend", 0, 1000); });
+        expect(end.defaultPrevented).toBe(true);
+        expect(chip()!.getAttribute("aria-expanded")).toBe("true");
+        expect(sheet.style.translate).toBe("0 0");
+        await act(() => new Promise<void>((done) => setTimeout(done, SWIPE_MOTION_MS + 40)));
+        expect(sheet.style.translate).toBe("");
+        await act(async () => sheet.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click());
+        expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+      } finally {
+        await unmount();
+      }
+    });
+
+    it.each([
+      ["a slow drag past a third of its height", [300, 360, 420, 490], 200],
+      ["a quick short flick", [300, 320, 340], 16],
+    ])("closes on %s", async (_name, ys, ms) => {
+      const { sheet, row, chip, unmount } = await openSheet(1);
+      try {
+        const events = await drag(row, ys, ms);
+        expect(events.at(-1)!.defaultPrevented).toBe(true);
+        expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+        expect(sheet.isConnected).toBe(false);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("springs back from a quick short drag that stops before the finger lifts", async () => {
+      const { sheet, row, chip, unmount } = await openSheet(1);
+      try {
+        await act(async () => {
+          touch(row, "touchstart", 300, 0);
+          touch(row, "touchmove", 320, 16);
+          touch(row, "touchmove", 340, 32);
+          touch(row, "touchend", 0, 182);
+        });
+        expect(chip()!.getAttribute("aria-expanded")).toBe("true");
+        expect(sheet.style.translate).toBe("0 0");
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("lets a scrolled list scroll first and drags the sheet only from the list's top", async () => {
+      const { sheet, row, chip, unmount } = await openSheet(13);
+      const list = sheet.querySelector("ul")!;
+      try {
+        list.scrollTop = 40;
+        const scroll = await drag(row, [300, 360, 420, 490], 200);
+        expect(scroll.some((event) => event.defaultPrevented)).toBe(false);
+        expect(sheet.style.translate).toBe("");
+        expect(chip()!.getAttribute("aria-expanded")).toBe("true");
+        list.scrollTop = 0;
+        await drag(row, [300, 360, 420, 490], 200);
+        expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("still opens a row on a tap that jitters under the slop, and drags the sheet past it", async () => {
+      const { sheet, row, onOpen, chip, unmount } = await openSheet(1);
+      try {
+        await act(async () => {
+          touch(row, "touchstart", 300, 0);
+          touch(row, "touchmove", 312, 200);
+        });
+        expect(sheet.style.translate).toBe("0 12px");
+        let end!: Event;
+        await act(async () => { end = touch(row, "touchend", 0, 400); });
+        expect(end.defaultPrevented).toBe(true);
+        const tap = await drag(row, [300, 304, 308], 50);
+        expect(tap.at(-1)!.defaultPrevented).toBe(false);
+        expect(sheet.style.translate).toBe("");
+        await act(async () => row.click());
+        expect(onOpen).toHaveBeenCalledExactlyOnceWith("s0");
+        expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("closes on a long drag without following the finger under reduced motion", async () => {
+      const { sheet, row, chip, unmount } = await openSheet(1, true);
+      try {
+        await act(async () => {
+          touch(row, "touchstart", 300, 0);
+          touch(row, "touchmove", 500, 1000);
+        });
+        expect(sheet.style.translate).toBe("");
+        await act(async () => touch(row, "touchend", 0, 1200));
+        expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+        expect(sheet.isConnected).toBe(false);
+      } finally {
+        await unmount();
+      }
+    });
   });
 });

@@ -15,6 +15,7 @@ import {
   lockAxis,
   neighborId,
   saveVibration,
+  sheetSwipeCloses,
   sidebarBotIds,
   swipeBlocked,
   swipeStep,
@@ -110,6 +111,23 @@ describe("drawerOffset", () => {
     expect(drawerOffset(90, "left")).toBe(0);
     expect(drawerOffset(90, "right")).toBe(90);
     expect(drawerOffset(-90, "right")).toBe(0);
+  });
+});
+
+describe("sheetSwipeCloses", () => {
+  it("closes past a third of the sheet's height", () => {
+    expect(sheetSwipeCloses(190, 0.1, 600)).toBe(true);
+    expect(sheetSwipeCloses(170, 0.1, 600)).toBe(false);
+  });
+
+  it("closes on a short fast flick down", () => {
+    expect(sheetSwipeCloses(40, 0.8, 600)).toBe(true);
+    expect(sheetSwipeCloses(12, 0.8, 600)).toBe(false);
+  });
+
+  it("never closes upward or when the release flicks back up", () => {
+    expect(sheetSwipeCloses(-300, -0.8, 600)).toBe(false);
+    expect(sheetSwipeCloses(300, -0.6, 600)).toBe(false);
   });
 });
 
