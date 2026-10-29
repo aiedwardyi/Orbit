@@ -95,7 +95,7 @@ describe("KeepGoing gate", () => {
     ["no-approved-step", (h) => setPlan(h, [{ step: "Write tests", status: "done" }, { step: "Build UI", status: "done" }])],
     ["usage-unknown", (h) => { h.state.usage = null; }],
     ["usage-stale", (h) => { h.state.usage = { ...h.state.usage!, observedAt: new Date(NOON_KST - 2 * 60 * 60_000 - 1).toISOString() }; }],
-    ["usage-low", (h) => { h.state.usage = { ...h.state.usage!, windows: [...h.state.usage!.windows, { id: "seven_day", usedPercent: 80, resetsAt: null }] }; }],
+    ["usage-low", (h) => { h.state.usage = { ...h.state.usage!, windows: [...h.state.usage!.windows, { id: "seven_day", usedPercent: 100, resetsAt: null }] }; }],
     ["panes-unknown", (h) => { h.state.panes = null; }],
     ["workers-running", (h) => { h.state.panes = 1; }],
   ];
@@ -106,6 +106,13 @@ describe("KeepGoing gate", () => {
     arrange(h);
     await expect(h.keepGoing.check("b1")).resolves.toEqual({ skipped: reason });
     expect(h.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("keeps going with almost no usage left", async () => {
+    const h = harness();
+    h.keepGoing.enable("b1", "t1", h.state.packet);
+    h.state.usage = { ...h.state.usage!, windows: [...h.state.usage!.windows, { id: "seven_day", usedPercent: 99, resetsAt: null }] };
+    await expect(h.keepGoing.check("b1")).resolves.toEqual({ dispatched: "Write tests" });
   });
 
   it("skips at the daily cap", async () => {
