@@ -1,0 +1,32 @@
+{
+  "stamp": {
+    "engine": "grok",
+    "cliVersion": "1.0.70",
+    "recordedAt": "2026-10-29T18:16:09.291Z",
+    "sourcePc": "home",
+    "source": "_x.ai/billing"
+  },
+  "reply": {
+    "config": {
+      "creditUsagePercent": 51,
+      "currentPeriod": {
+        "type": "USAGE_PERIOD_TYPE_WEEKLY",
+        "start": "2026-10-25T08:45:16.197799+00:00",
+        "end": "2026-11-01T08:45:16.197799+00:00"
+      },
+      "onDemandCap": {
+        "val": "<redacted>"
+      },
+      "onDemandUsed": {
+        "val": "<redacted>"
+      },
+      "prepaidBalance": {
+        "val": "<redacted>"
+      },
+      "isUnifiedBillingUser": true,
+      "billingPeriodStart": "2026-10-25T08:45:16.197799+00:00",
+      "billingPeriodEnd": "2026-11-01T08:45:16.197799+00:00"
+    },
+    "subscription_tier": "<redacted>"
+  }
+}
