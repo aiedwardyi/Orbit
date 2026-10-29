@@ -1,6 +1,6 @@
 // Locale detection, persistence, and phrase lookup. English and Korean are
-// first-class; anything else falls back to English. First launch follows the
-// OS. An explicit Settings choice is remembered and stops following the OS.
+// first-class; anything else falls back to English. First launch defaults to
+// English. An explicit Settings choice is remembered.
 // User messages, bot output, filenames, and transcripts never enter t().
 import { createContext, createElement, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { catalogs, type MessageKey } from "./i18n-catalog";
@@ -14,7 +14,7 @@ export type LocalePreference = (typeof LOCALE_PREFERENCES)[number];
 export type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string;
 
 export const DEFAULT_LOCALE: LocaleId = "en";
-export const DEFAULT_PREFERENCE: LocalePreference = "system";
+export const DEFAULT_PREFERENCE: LocalePreference = "en";
 
 const KEY = "omb-locale";
 
