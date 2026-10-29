@@ -227,15 +227,16 @@ describe("provider-neutral context compaction", () => {
     );
   });
 
-  it("tells the summarizer to keep values the user asked to keep out of memory", async () => {
+  it("tells the summarizer to keep user-given values even when told not to save them", async () => {
     const summarize = vi.fn(async (_prompt: string) => "SUMMARY\nsummary");
     await prepareModelContext({
-      messages: longHistory(205),
+      messages: [message("u0", "Codename CRANE-7314. Keep it in this conversation only."), ...longHistory(205, 1)],
       contextWindow: 2_048,
       taskRecordText: "Goal: finish",
       summarize,
     });
 
+    expect(summarize.mock.calls[0]?.[0]).toContain("Codename CRANE-7314. Keep it in this conversation only.");
     expect(summarize.mock.calls[0]?.[0]).toContain(
       "Keep names, numbers, ids and other values the user gave verbatim. A request to keep something in this conversation only or not to save it limits memory and files, never this summary.",
     );
