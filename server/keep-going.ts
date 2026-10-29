@@ -10,7 +10,6 @@ import type { TaskResumePacket } from "./task-state.ts";
 export const KEEP_GOING_INTERVAL_MS = 30 * 60_000;
 export const KEEP_GOING_DAILY_CAP = 12;
 export const KEEP_GOING_USAGE_FRESH_MS = 2 * 60 * 60_000;
-export const KEEP_GOING_MIN_LEFT_PERCENT = 20;
 const BENCH_ZONE = "Asia/Seoul";
 const BENCH_FROM = 3 * 60 + 45;
 const BENCH_TO = 5 * 60;
@@ -137,7 +136,7 @@ export function usageSkip(report: RateLimitsReport | null, now: number): KeepGoi
   if (!report || report.windows.length === 0) return "usage-unknown";
   const observed = Date.parse(report.observedAt);
   if (!Number.isFinite(observed) || now - observed > KEEP_GOING_USAGE_FRESH_MS) return "usage-stale";
-  return report.windows.every((window) => 100 - window.usedPercent > KEEP_GOING_MIN_LEFT_PERCENT) ? null : "usage-low";
+  return report.windows.every((window) => window.usedPercent < 100) ? null : "usage-low";
 }
 
 function moved(packet: TaskResumePacket | null, before: Receipt["before"]): boolean {
