@@ -158,6 +158,25 @@ describe("UsageSection friends plan card", () => {
     expect(muse).toBeGreaterThan(grok);
   });
 
+  it("lists only engines this PC has installed or has a reading for", () => {
+    const previous = mockState.instances;
+    const missing = { snapshot: { state: "unavailable" as const } };
+    mockState.instances = previous.map((instance) =>
+      instance.instanceId === "codex" || instance.instanceId === "muse" ? { ...instance, ...missing } : instance);
+    try {
+      persistPreference("en");
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(html).toContain("Claude");
+      expect(html).toContain("Grok");
+      expect(html).toContain("Meta Muse");
+      expect(html).not.toContain("Codex");
+      mockState.instances = mockState.instances.map((instance) => ({ ...instance, ...missing, rateLimits: undefined }));
+      expect(renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)))).toContain("No usage reported yet.");
+    } finally {
+      mockState.instances = previous;
+    }
+  });
+
   it("keeps the toggle group and refresh button on one unwrapped row", async () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -176,6 +195,48 @@ describe("UsageSection friends plan card", () => {
       await act(async () => root.unmount());
       host.remove();
       persistPreference("en");
+    }
+  });
+
+  it("refreshes only shown engines and confirms their success", async () => {
+    const previous = mockState.instances;
+    mockState.instances = previous.map((instance) => instance.instanceId === "codex"
+      ? { ...instance, snapshot: { state: "unavailable" }, rateLimits: undefined }
+      : instance);
+    mockApi.mockReset();
+    mockApi.mockImplementation(async (path: string) => path.endsWith("/codex")
+      ? { error: "Could not refresh Codex limits" }
+      : { report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } });
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      persistPreference("en");
+      await act(async () => root.render(createElement(I18nProvider, null, createElement(UsageSection))));
+      expect(host.textContent).not.toContain("Codex");
+      await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Refresh All"]')!.click());
+      expect(host.querySelector('[role="status"]')?.textContent).toContain("Updated just now");
+      expect(mockApi.mock.calls.map(([path]) => path)).toEqual([
+        "/api/usage/refresh/claude", "/api/usage/refresh/grok", "/api/usage/check/muse",
+      ]);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      mockState.instances = previous;
+      mockApi.mockReset();
+      mockApi.mockImplementation(async () => ({ report: { windows: [], observedAt: "2026-01-01T00:00:00.000Z" } }));
+    }
+  });
+
+  it("hides Refresh All when every engine is hidden", () => {
+    const previous = mockState.instances;
+    mockState.instances = previous.map((instance) => ({ ...instance, snapshot: { state: "unavailable" }, rateLimits: undefined }));
+    try {
+      persistPreference("en");
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(html).toContain("No usage reported yet.");
+      expect(html).not.toContain('aria-label="Refresh All"');
+    } finally {
+      mockState.instances = previous;
     }
   });
 

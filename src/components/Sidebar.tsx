@@ -1166,6 +1166,8 @@ export function Sidebar({
   const rowsReorderable = q.length === 0;
   // Search must show every match. The icon rail has no headers but honors the same collapse.
   const sectionsCollapsible = q.length === 0;
+  const sectionCollapsed = (id: string) => !(id === UNASSIGNED_SECTION_ID && sectionIds.length === 1)
+    && sectionsCollapsible && collapsedSections.has(id);
   // The rail shows every chat except those inside a collapsed section, and a
   // visible icon glows for itself: the expand button stands in only for those
   // section-hidden chats, so one arrival glows exactly one place.
@@ -1173,7 +1175,7 @@ export function Sidebar({
     !sidebarCollapsed
       ? []
       : sectionIds.flatMap((id) =>
-          sectionsCollapsible && collapsedSections.has(id)
+          sectionCollapsed(id)
             ? (orderedItemsBySection.get(id) ?? [])
                 .filter((item) => item.id !== state.selectedId)
                 .map((item) => item.id)
@@ -1797,7 +1799,8 @@ export function Sidebar({
           {sectionIds.map((id) => {
             const name = sectionLabel(id);
             const sectionItems = orderedItemsBySection.get(id) ?? [];
-            const collapsed = sectionsCollapsible && collapsedSections.has(id);
+            const lone = id === UNASSIGNED_SECTION_ID && sectionIds.length === 1;
+            const collapsed = sectionCollapsed(id);
             const hiddenItems = collapsed ? sectionItems.filter((item) => item.id !== state.selectedId) : [];
             const shownItems = collapsed ? sectionItems.filter((item) => item.id === state.selectedId) : sectionItems;
             const hiddenUnread = unreadConversationCount(
@@ -1823,7 +1826,7 @@ export function Sidebar({
                 {itemSectionDropTarget === id && (
                   <div data-sidebar-bot-drop-marker className="mx-1 my-1 h-1 rounded-full bg-accent shadow-[0_0_8px] shadow-accent/60" />
                 )}
-                {density !== "icons" && (
+                {density !== "icons" && !lone && (
                   <SidebarSectionHeader
                     name={name}
                     reorderable={sectionsReorderable}

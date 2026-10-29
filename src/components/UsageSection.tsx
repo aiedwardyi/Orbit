@@ -169,9 +169,13 @@ function PlanUsage() {
     () => splitFriendsEngines(state.instances).friends.filter((instance) => PLAN_USAGE_DRIVERS.has(instance.driverKind)),
     [state.instances],
   );
-  const refreshable = useMemo(
-    () => engines.filter((instance) => canRefresh(instance) || instance.driverKind === "museAgent"),
+  const shown = useMemo(
+    () => engines.filter((instance) => instance.snapshot.state === "available" || instance.rateLimits),
     [engines],
+  );
+  const refreshable = useMemo(
+    () => shown.filter((instance) => canRefresh(instance) || instance.driverKind === "museAgent"),
+    [shown],
   );
   const [limits, setLimits] = useState<CheckLimits>({});
   const refresh = useCallback(async (instance: InstanceInfo, action: "refresh" | "check" = "refresh"): Promise<RefreshResult> => {
@@ -257,11 +261,11 @@ function PlanUsage() {
           </div>
         )}
       </div>
-      {engines.length === 0 ? (
+      {shown.length === 0 ? (
         <div className="text-[13px] text-ink-secondary">{t("usage.limits.empty")}</div>
       ) : (
         <div className="flex flex-col gap-5">
-          {engines.map((instance) => (
+          {shown.map((instance) => (
             <EnginePlanRow
               key={instance.instanceId}
               instance={instance}

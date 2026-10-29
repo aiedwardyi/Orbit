@@ -305,7 +305,8 @@ describe("SyncPanel folder view", () => {
     routes.set(GOOGLE, () => google("unavailable"));
     routes.set(FOLDER, () => folderStatus({ configured: false, folder: null, status: "disconnected" }));
     const host = await mount();
-    expect(line(host)).toBe("Not connected");
+    expect(line(host)).toBeNull();
+    expect(host.textContent).toContain("Syncing across your PCs is off.");
     expect(buttons(host)).toEqual(["Choose Drive Folder"]);
   });
 
@@ -354,7 +355,8 @@ describe("SyncPanel folder view", () => {
     routes.set("DELETE /api/profile-sync", () => folderStatus({ configured: false, folder: null, status: "disconnected" }));
     const host = await mount();
     await click(button(host, "Disconnect"));
-    expect(line(host)).toBe("Not connected");
+    expect(line(host)).toBeNull();
+    expect(host.textContent).toContain("Syncing across your PCs is off.");
     expect(buttons(host)).toEqual(["Choose Drive Folder"]);
   });
 
@@ -363,7 +365,8 @@ describe("SyncPanel folder view", () => {
     routes.set(FOLDER, () => folderStatus({ configured: false, folder: null, status: "disconnected" }));
     const host = await mount();
     await click(button(host, "Drive Folder"));
-    expect(line(host)).toBe("Not connected");
+    expect(line(host)).toBeNull();
+    expect(host.textContent).toContain("Syncing across your PCs is off.");
     expect(buttons(host)).toEqual(["Choose Drive Folder", "Back"]);
     await click(button(host, "Back"));
     expect(buttons(host)).toEqual(["Google Sign-in", "Drive Folder"]);
@@ -552,10 +555,11 @@ describe("SyncPanel on a phone", () => {
     expect(start).not.toHaveBeenCalled();
   });
 
-  it("shows Not connected under the subtitle when signed out", async () => {
+  it("says sync is off in one line when signed out", async () => {
     routes.set(GOOGLE, () => google("signed-out", { email: null }));
     const host = await mount();
-    expect(line(host)).toBe("Not connected");
+    expect(line(host)).toBeNull();
+    expect(host.textContent).toContain("Syncing across your PCs is off.");
     expect(buttons(host)).toEqual([]);
   });
 

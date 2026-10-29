@@ -11,9 +11,9 @@ interface MockSheetState {
   instances?: InstanceInfo[];
 }
 
-const { mockState } = vi.hoisted(() => {
-  const value: MockSheetState = {};
-  return { mockState: { value } };
+const { mockState, mockDispatch } = vi.hoisted(() => {
+  const value: MockSheetState = { instances: [] };
+  return { mockState: { value }, mockDispatch: vi.fn() };
 });
 
 vi.mock("@/state/store", async (importOriginal) => {
@@ -22,7 +22,7 @@ vi.mock("@/state/store", async (importOriginal) => {
     ...actual,
     useStore: () => ({
       state: mockState.value,
-      dispatch: () => undefined,
+      dispatch: mockDispatch,
     }),
   };
 });
@@ -86,7 +86,8 @@ afterEach(() => {
     writable: true,
     value: undefined,
   });
-  mockState.value = {};
+  mockState.value = { instances: [] };
+  mockDispatch.mockReset();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
@@ -158,13 +159,28 @@ describe("CreateBotSheet submit", () => {
       const field = host.querySelector<HTMLInputElement>("#create-bot-name");
       if (!field) throw new Error("name field did not render");
       expect(field.maxLength).toBe(100);
-      expect(submitButton(host).disabled).toBe(true);
       await fillName(host, "   ");
       expect(submitButton(host).disabled).toBe(true);
       await pressEnter(field);
       expect(calls).toHaveLength(0);
       await fillName(host, "Mira");
       expect(submitButton(host).disabled).toBe(false);
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+
+  it("prefills an editable name so Start chatting works right away", async () => {
+    const calls = stubPostBot();
+    const { host, root } = await renderSheet();
+    try {
+      const field = host.querySelector<HTMLInputElement>("#create-bot-name")!;
+      expect(field.value).toBe("Mira");
+      expect(submitButton(host).disabled).toBe(false);
+      await pressEnter(field);
+      expect(calls[0]?.body).toMatchObject({ name: "Mira" });
     } finally {
       await act(async () => {
         root.unmount();
@@ -250,6 +266,25 @@ describe("CreateBotSheet submit", () => {
         resolvePost(new Response(JSON.stringify({ bot: { id: "b1" } }), { status: 201 }));
       });
       await flush();
+    } finally {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+  });
+});
+
+describe("CreateBotSheet with no engine", () => {
+  it("offers Connect an AI tool instead of a name form", async () => {
+    mockState.value = { instances: [{ ...availableEngine(), snapshot: { state: "unavailable" } } as InstanceInfo] };
+    const { host, root } = await renderSheet({ required: false });
+    try {
+      expect(host.querySelector("#create-bot-name")).toBeNull();
+      expect(host.textContent).toContain("No AI tool is connected yet.");
+      const connect = [...host.querySelectorAll("button")].find((button) => button.textContent === "Connect an AI tool")!;
+      await act(async () => connect.click());
+      expect(mockDispatch).toHaveBeenCalledWith({ type: "closeCreateBot" });
+      expect(mockDispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "connections" });
     } finally {
       await act(async () => {
         root.unmount();

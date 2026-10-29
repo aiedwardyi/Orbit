@@ -416,7 +416,7 @@ describe("ModelPicker friends chip", () => {
   it("shortens the Claude chip on phones only", () => {
     const html = markup({ instanceId: "claude", model: "claude-opus-5-5", mode: "pinned", effort: "xhigh" });
     expect(html).toContain('<span class="max-md:hidden">Claude Opus 5.5</span><span class="md:hidden">Opus 5.5</span>');
-    expect(html).toContain('class="max-md:hidden">Extra High<');
+    expect(html).toContain('class="max-md:hidden">Extra High effort<');
     expect(html).toContain('class="md:hidden">XHigh<');
   });
 
@@ -429,7 +429,7 @@ describe("ModelPicker friends chip", () => {
   ])("paints the %s effort marker with %s", (instanceId, model, accent) => {
     const html = markup({ instanceId, model, mode: "pinned", effort: "medium" });
     expect(html).toContain("data-model-effort");
-    expect(html).toContain('class="max-md:hidden">Medium<');
+    expect(html).toContain('class="max-md:hidden">Medium effort<');
     expect(html).toContain('class="md:hidden">Med<');
     expect(html).not.toContain(">medium<");
     expect(html).toContain(accent);

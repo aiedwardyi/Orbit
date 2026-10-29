@@ -214,7 +214,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           <div className="flex flex-col items-center px-8 py-9">
             <OrbitMark size={56} />
             <h1 id="onboarding-title" className="mt-5 text-[20px] font-semibold tracking-[-0.02em] text-ink">{t("onboarding.signInTitle")}</h1>
-            <p className="mt-1.5 max-w-[420px] text-center text-[13.5px] leading-relaxed text-ink-secondary">
+            <p className="mt-1.5 max-w-[420px] break-keep text-center text-[13.5px] leading-relaxed text-ink-secondary">
               {t("onboarding.signInBody")}
             </p>
             <button

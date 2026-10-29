@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { persistPreference } from "@/lib/i18n";
+import { noteArrival, resetArrivalGlow } from "@/lib/arrival-glow";
 import { hapticTick } from "@/lib/phone-swipe";
 import {
   SIDEBAR_COLLAPSED_KEY,
@@ -1252,12 +1253,40 @@ describe("Sidebar section collapse", () => {
     }
   });
 
-  it("collapses Unassigned alone and still shows a newly created bot there", async () => {
+  it("hides the Unassigned header while it is the only section", async () => {
+    const { host, unmount } = await mount([bot("u1"), bot("u2")]);
+    try {
+      expect(shownBots(host, "unassigned")).toEqual(["u1", "u2"]);
+      expect(header(host, "unassigned")).toBeNull();
+      expect(host.textContent).not.toContain("Unassigned");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("glows only the visible row when lone Unassigned has a saved collapse", async () => {
+    resetArrivalGlow();
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(["unassigned"]));
     const { host, unmount } = await mount([bot("u1"), bot("u2")]);
     try {
       await select("u1");
-      const unassigned = host.querySelector<HTMLButtonElement>('[data-sidebar-section-id="unassigned"] [data-sidebar-section-toggle]')!;
-      expect(host.querySelector("[data-sidebar-section-handle]")).toBeNull();
+      expect(shownBots(host, "unassigned")).toEqual(["u1", "u2"]);
+      await act(async () => { noteArrival("u2"); });
+      expect(host.querySelector('[data-sidebar-row-id="u2"] [data-arrival-glow="true"]')).not.toBeNull();
+      expect(host.querySelector('button[title="Expand sidebar"]')?.hasAttribute("data-arrival-glow")).toBe(false);
+    } finally {
+      await unmount();
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+      resetArrivalGlow();
+    }
+  });
+
+  it("collapses Unassigned alone and still shows a newly created bot there", async () => {
+    const { host, unmount } = await mount([bot("u1"), bot("u2"), scoped("w1", "Work")]);
+    try {
+      await select("u1");
+      const unassigned = header(host, "unassigned")!;
       await act(async () => unassigned.click());
       expect(unassigned.getAttribute("aria-expanded")).toBe("false");
       expect(shownBots(host, "unassigned")).toEqual(["u1"]);
@@ -2020,7 +2049,7 @@ describe("Sidebar touch drag", () => {
   });
 
   it("moves the drop target without re-rendering the list", async () => {
-    const view = await mount(["a", "b", "c", "d"].map(bot));
+    const view = await mount([...["a", "b", "c", "d"].map(bot), { ...bot("w"), section: "Work" }]);
     try {
       await view.hold("d");
       const before = view.commits.count;
@@ -2034,14 +2063,14 @@ describe("Sidebar touch drag", () => {
       await view.moveOver(view.row("c"), view.row("d"));
       expect(view.commits.count).toBe(before);
       await act(async () => void touch(view.row("d"), "touchend"));
-      expect(view.order()).toEqual(["a", "b", "d", "c"]);
+      expect(view.order()).toEqual(["a", "b", "d", "c", "w"]);
     } finally {
       await view.unmount();
     }
   });
 
   it("draws the drop target with one moving marker, never restyling the target", async () => {
-    const view = await mount(["a", "b", "c", "d"].map(bot));
+    const view = await mount([...["a", "b", "c", "d"].map(bot), { ...bot("w"), section: "Work" }]);
     try {
       await view.hold("d");
       const marker = () => view.host.querySelector<HTMLElement>("[data-touch-drop-marker]");

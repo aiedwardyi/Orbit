@@ -1625,7 +1625,7 @@ export function GroupView({ group }: { group: Group }) {
               type="button"
               onClick={() => setMembersOpen(true)}
               title={t("room.manageMembers")}
-              aria-label={t("room.manageMembersCount", { count: members.length })}
+              aria-label={members.length === 1 ? t("room.manageMembersCountOne") : t("room.manageMembersCount", { count: members.length })}
               className="flex items-center gap-1.5 rounded-full py-0.5 pl-1 pr-1.5 hover:bg-raised/60 max-md:gap-0 max-md:-space-x-1.5"
             >
               {memberMauses}
