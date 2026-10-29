@@ -1951,7 +1951,7 @@ export function Sidebar({
             />
           )}
           {density !== "icons" && <button
-            onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: "general" })}
+            onClick={() => dispatch({ type: "toggleAppSettings", open: true })}
             aria-label={t("chrome.appSettings")}
             className="flex size-10 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
             title={t("chrome.appSettings")}

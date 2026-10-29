@@ -3,7 +3,7 @@
 // is the stuff shared by every bot: who you are, your keys, and the
 // machine your bots can borrow.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChartScatter, ChevronDown, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Settings, Smartphone, Terminal, User, Users, X } from "lucide-react";
+import { ChartScatter, ChevronDown, ChevronLeft, ChevronRight, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Settings, Smartphone, Terminal, User, Users, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { builtInBrowserEnabled, detailedRepliesEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
@@ -47,6 +47,8 @@ import { saveRainbowBox, useRainbowBox, type RainbowBox } from "@/lib/rainbow-bo
 import { saveTerminalPopups, useTerminalPopups } from "@/lib/terminal-popups";
 import { saveReplyStyle, useReplyStyle, type ReplyStyle } from "@/lib/reply-style";
 import { cn } from "@/lib/cn";
+import { useBackLayer } from "@/lib/use-back-layer";
+import { useIsPhone } from "@/lib/use-phone-swipe";
 import { SyncPanel } from "./SyncPanel";
 import { StartFreshRow } from "./StartFreshRow";
 import { ErrorReportsRow } from "./ErrorReportsRow";
@@ -523,6 +525,14 @@ export function SettingsModal({
   const { state, dispatch } = useStore();
   const { capabilities } = useDesktopCapabilities();
   const section = resolvedAppSettingsSection(state.appSettingsSection);
+  const phone = useIsPhone();
+  const page = !phone || state.appSettingsPage;
+  const back = useCallback(() => {
+    dispatch({ type: "toggleAppSettings", open: phone && page });
+  }, [dispatch, phone, page]);
+  const backRef = useRef(back);
+  useEffect(() => { backRef.current = back; }, [back]);
+  useBackLayer(!closing && phone && page, back);
   const dialogRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(defaultAdvancedOpen);
@@ -536,8 +546,8 @@ export function SettingsModal({
   const [teamStats, setTeamStats] = useState<TeamView | null>(null);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const sectionShown = useCallback(
-    (entry: (typeof SECTIONS)[number]) => (entry.id !== "team" || teamOwner) && sectionNavVisible(entry, q, phoneAvailable),
-    [phoneAvailable, q, teamOwner],
+    (entry: (typeof SECTIONS)[number]) => (entry.id !== "team" || teamOwner) && (!phone || entry.id !== "shortcuts") && sectionNavVisible(entry, q, phoneAvailable),
+    [phoneAvailable, q, teamOwner, phone],
   );
   const visibleSections = SECTIONS.filter(sectionShown);
 
@@ -577,8 +587,8 @@ export function SettingsModal({
     const visible = SECTIONS.filter(sectionShown);
     if (visible.some((entry) => entry.id === section)) return;
     const first = visible[0];
-    if (first) dispatch({ type: "toggleAppSettings", open: true, section: first.id });
-  }, [closing, dispatch, section, sectionShown]);
+    if (first) dispatch(phone ? { type: "toggleAppSettings", open: true } : { type: "toggleAppSettings", open: true, section: first.id });
+  }, [closing, dispatch, phone, section, sectionShown]);
 
   useEffect(() => {
     if (closing) return;
@@ -590,7 +600,7 @@ export function SettingsModal({
       if (event.target instanceof Element && !dialog?.contains(event.target) && event.target.closest('[aria-modal="true"]')) return;
       if (event.key === "Escape") {
         event.preventDefault();
-        dispatch({ type: "toggleAppSettings", open: false });
+        backRef.current();
         return;
       }
       if (event.key !== "Tab" || !dialog) return;
@@ -625,6 +635,10 @@ export function SettingsModal({
     };
   }, [closing, dispatch]);
 
+  useEffect(() => {
+    if (phone && !closing) dialogRef.current?.focus();
+  }, [phone, page, closing]);
+
   return (
     <div
       data-closing={closing || undefined}
@@ -640,11 +654,30 @@ export function SettingsModal({
         tabIndex={-1}
         // h-* alone overflows the 600x480 window floor above and below; max-h-full
         // hands the excess to the content pane, which is the only thing that scrolls.
-        // Below md the nav collapses to a horizontal icon strip above the content —
-        // side by side at 190px fixed left the content pane too narrow to fit a card.
         className="animate-pop-in flex h-[560px] max-h-full w-full max-w-[860px] overflow-hidden rounded-2xl border border-hairline/50 bg-panel shadow-2xl outline-none max-md:flex-col"
       >
-        {/* section nav */}
+        {phone && !page && (
+          <nav className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-center justify-between px-5 py-3">
+              <span id="app-settings-title" className="text-[17px] font-semibold text-ink">{t("settings.title")}</span>
+              <button onClick={() => dispatch({ type: "toggleAppSettings", open: false })} aria-label={t("settings.close")} className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 pb-5">
+              <div className="overflow-hidden rounded-xl bg-card">
+                {visibleSections.map(({ id, icon: Icon }) => (
+                  <button key={id} aria-label={t(SECTION_KEY[id])} onClick={() => dispatch({ type: "toggleAppSettings", open: true, section: id })} className="flex min-h-[50px] w-full items-center gap-3 border-t border-hairline/40 px-4 text-left first:border-t-0 hover:bg-control">
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-control text-ink-secondary"><Icon size={15} /></span>
+                    <span className="min-w-0 flex-1 truncate text-[15px] text-ink">{t(SECTION_KEY[id])}</span>
+                    <ChevronRight size={16} className="shrink-0 text-ink-secondary" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </nav>
+        )}
+        {!phone && (
         <nav className="flex w-[190px] shrink-0 flex-col gap-0.5 border-r border-hairline/40 p-3 max-md:w-full max-md:border-r-0 max-md:border-b max-md:p-2">
           <div id="app-settings-title" className="px-2 pb-2 pt-1 text-[15px] font-semibold text-ink max-md:hidden">
             {t("settings.title")}
@@ -697,14 +730,21 @@ export function SettingsModal({
             ))}
           </div>
         </nav>
+        )}
 
-        <div className="flex min-w-0 flex-1 flex-col max-md:min-h-0">
-          <div className="flex shrink-0 items-center justify-between px-5 py-3 gap-3">
-            <span className="text-[15px] font-semibold text-ink">
+        {page && (
+        <div data-settings-page={phone ? section : undefined} className="flex min-w-0 flex-1 flex-col max-md:min-h-0">
+          <div className={phone ? "relative flex shrink-0 items-center gap-3 px-2 py-3" : "flex shrink-0 items-center justify-between px-5 py-3 gap-3"}>
+            {phone && (
+              <button onClick={back} aria-label={t("settings.sync.back")} className="flex min-h-11 items-center gap-0.5 rounded-md px-1.5 text-[15px] text-accent hover:bg-control">
+                <ChevronLeft size={20} />{t("settings.title")}
+              </button>
+            )}
+            <span id={phone ? "app-settings-title" : undefined} className={cn("text-[15px] font-semibold text-ink", phone && "pointer-events-none absolute left-1/2 -translate-x-1/2")}>
               {t(SECTION_KEY[section])}
             </span>
             <div className="ml-auto flex items-center gap-3">
-              {section === "themes" && <GeometryPicker />}
+              {!phone && section === "themes" && <GeometryPicker />}
               <button
                 onClick={() => dispatch({ type: "toggleAppSettings", open: false })}
                 aria-label={t("settings.close")}
@@ -714,6 +754,7 @@ export function SettingsModal({
               </button>
             </div>
           </div>
+          {phone && section === "themes" && <div className="flex justify-end px-5 pb-3"><GeometryPicker /></div>}
 
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 pb-5">
             {section === "account" && (
@@ -859,6 +900,7 @@ export function SettingsModal({
             {section === "shortcuts" && <KeyboardShortcuts />}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

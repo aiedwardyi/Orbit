@@ -21,6 +21,7 @@ import { speaker } from "@/lib/tts";
 import { preferredStartupSelectionId } from "@/lib/sidebar-order";
 import { loadSidebarOrder } from "@/lib/sidebar-preferences";
 import { loadReplyStyle } from "@/lib/reply-style";
+import { appSettingsNavigation } from "@/lib/settings-chrome";
 import { createBotPatchQueue } from "./bot-patch-queue";
 import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-chat-snapshot";
 import { readSnapshotCache, writeSnapshotCache } from "./snapshot-cache";
@@ -709,8 +710,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const open = action.open ?? !state.appSettingsOpen;
       return {
         ...state,
-        appSettingsOpen: open,
-        appSettingsSection: action.section ?? (open ? "general" : state.appSettingsSection),
+        ...appSettingsNavigation(state, action),
         settingsOpen: open ? false : state.settingsOpen,
         computerOpen: open ? false : state.computerOpen,
         inspectorOpen: open ? false : state.inspectorOpen,
@@ -1095,6 +1095,7 @@ export const initialState: AppState = {
   inspectorOpen: false,
   appSettingsOpen: false,
   appSettingsSection: "general",
+  appSettingsPage: false,
   screens: {},
   provisioning: {},
   computerControl: {},
