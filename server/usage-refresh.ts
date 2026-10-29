@@ -777,13 +777,6 @@ async function readClaudeFileUsage(deps: ClaudeFileDeps): Promise<Response> {
   return response;
 }
 
-const skippedWindows = new Set<string>();
-function skipWindow(name: string, id: string): void {
-  if (skippedWindows.has(`${name}:${id}`)) return;
-  skippedWindows.add(`${name}:${id}`);
-  console.warn(`usage-refresh: skipped unreadable ${name} window ${id}`);
-}
-
 export function canRefreshUsage(driver: string, environment: NodeJS.ProcessEnv = {}, platform = process.platform): boolean {
   return ["claudeAgent", "codex", "grokAgent", "antigravityAgent", "museAgent"].includes(driver)
     && (driver !== "claudeAgent" || platform !== "darwin" || Boolean(({ ...process.env, ...environment }).CLAUDE_CODE_OAUTH_TOKEN));
@@ -811,6 +804,12 @@ export function createUsageRefresh(deps: {
   const mintedByPath = new Map<string, { accessToken: string; refreshToken: string }>();
   const clock = deps.now ?? Date.now;
   const cache = new Map<string, { retryAt: number; pending: Promise<Result> }>();
+  const skipped = new Set<string>();
+  const skipWindow = (name: string, id: string) => {
+    if (skipped.has(`${name}:${id}`)) return;
+    skipped.add(`${name}:${id}`);
+    console.warn(`usage-refresh: skipped unreadable ${name} window ${id}`);
+  };
   return async (driver: string, options: Options, previous?: Report): Promise<Result> => {
     const name = driver === "claudeAgent" ? "Claude" : driver === "codex" ? "Codex" : driver === "grokAgent" ? "Grok" : driver === "antigravityAgent" ? "Antigravity" : driver === "museAgent" ? "Muse" : undefined;
     if (!name) return { report: previous, error: "Usage refresh is not supported", retryAt: 0 };
@@ -829,9 +828,8 @@ export function createUsageRefresh(deps: {
           windows = codexRateLimitWindows(rateLimits);
           for (const [id, snapshot] of Object.entries(result.rateLimitsByLimitId ?? {})) {
             // the map lists the default bucket again under its own limitId
-            if (id === rateLimits.limitId) continue;
-            const parsed = codexUsage.safeParse(snapshot);
-            const bucket = parsed.success ? codexRateLimitWindows(parsed.data) : [];
+            if (id === (rateLimits.limitId ?? "codex")) continue;
+            const bucket = codexRateLimitWindows(snapshot);
             if (!bucket.length) skipWindow(name, id);
             windows.push(...bucket.map((window) => ({ ...window, id: `${id}:${window.id}` })));
           }
@@ -870,7 +868,7 @@ export function createUsageRefresh(deps: {
           const usage = oauthUsage.parse(await response.json());
           windows = Object.entries(usage).filter(([id]) => id === "five_hour" || id.startsWith("seven_day")).flatMap(([id, value]) => {
             const parsed = oauthWindow.nullable().safeParse(value);
-            if (!parsed.success) skipWindow(name, id);
+            if (!parsed.success) { skipWindow(name, id); return []; }
             const window = parsed.data;
             return window ? [{ id, usedPercent: window.utilization, resetsAt: window.resets_at ? Date.parse(window.resets_at) : null, windowMinutes: id === "five_hour" ? 300 : 10080 }] : [];
           });

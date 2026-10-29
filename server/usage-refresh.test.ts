@@ -83,6 +83,25 @@ describe("usage refresh route result", () => {
     expect(result.report?.windows).toEqual([{ id: "seven_day", usedPercent: 58, resetsAt: 1_793_774_106_000, windowMinutes: 10_080 }]);
   });
 
+  it("lists the default Codex bucket once when its limitId is null", async () => {
+    const codex = real.codex as { rateLimits: Record<string, unknown> };
+    const refresh = createUsageRefresh({ rpc: async () => ({ ...codex, rateLimits: { ...codex.rateLimits, limitId: null } }) });
+    const result = await refresh("codex", { instanceId: "codex" });
+    expect(result.report?.windows.map((window) => window.id)).toEqual(["seven_day"]);
+  });
+
+  it("keeps a scoped Codex window beside an unreadable sibling", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const spark = { primary: { usedPercent: 40, windowDurationMins: 300 }, secondary: { usedPercent: "unknown" } };
+      const refresh = createUsageRefresh({ rpc: async () => ({ ...fixtures.codex, rateLimitsByLimitId: { spark } }) });
+      const result = await refresh("codex", { instanceId: "codex" });
+      expect(result.report?.windows.map((window) => window.id)).toEqual(["five_hour", "seven_day", "spark:five_hour"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("reads Claude windows past a seven_day key that is not a window and logs the key once", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
