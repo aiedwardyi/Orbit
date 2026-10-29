@@ -36,6 +36,7 @@ const real = {
   claude: z.object({ reply: z.json() }).parse(JSON.parse(readFileSync(new URL("../test/fixtures/recorded/claude/oauth-usage.json", import.meta.url), "utf8"))).reply,
   codex: z.object({ reply: z.json() }).parse(JSON.parse(readFileSync(new URL("../test/fixtures/recorded/codex/rate-limits.json", import.meta.url), "utf8"))).reply,
   grok: z.object({ reply: z.json(), settled: z.json() }).parse(JSON.parse(readFileSync(new URL("../test/fixtures/recorded/grok/billing-renewal.json", import.meta.url), "utf8"))),
+  grokUsed: z.object({ reply: z.json() }).parse(JSON.parse(readFileSync(new URL("../test/fixtures/recorded/grok/billing-used.json", import.meta.url), "utf8"))).reply,
 };
 const credentials = JSON.stringify({ claudeAiOauth: { accessToken: "access-secret" }, "auth.x.ai::test": { key: "access-secret", user_id: "user" }, tokens: { access_token: "access-secret", refresh_token: "refresh-secret" } });
 const unreadableCodexBuckets: Record<string, JsonValue>[] = [{}, { primary: { usedPercent: "unknown" } }];
@@ -187,6 +188,17 @@ describe("usage refresh route result", () => {
       { id: "seven_day", usedPercent: 0, resetsAt: Date.parse("2026-11-05T07:02:43.495651+00:00"), windowMinutes: 10_080 },
     ]);
     expect(answers).toEqual([]);
+  });
+
+  it("reads the recorded Grok answer after credit use", async () => {
+    const answers = [real.grokUsed, real.grokUsed];
+    const refresh = createUsageRefresh({ platform: "linux", billing: async () => answers.shift() ?? {} });
+    const result = await refresh("grokAgent", { instanceId: "grok" });
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows).toEqual([
+      { id: "seven_day", usedPercent: 51, resetsAt: Date.parse("2026-11-01T08:45:16.197799+00:00"), windowMinutes: 10_080 },
+    ]);
+    expect(answers).toHaveLength(1);
   });
 
   it.each([
