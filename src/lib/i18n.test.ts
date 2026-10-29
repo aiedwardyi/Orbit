@@ -672,8 +672,8 @@ describe("empty-engine first launch copy", () => {
     expect(en["noEngines.title"]).toBe("Connect an Engine");
     expect(ko["noEngines.title"]).toBe("엔진을 연결하세요");
     expect(ko["noEngines.title"]).not.toMatch(/Connect an Engine/i);
-    expect(en["noEngines.body"]).toBe("Your bots need one of these to run. Pick the one you already use.");
-    expect(ko["noEngines.body"]).toBe("봇을 쓰려면 이 중 하나가 필요합니다. 이미 쓰는 것을 고르세요.");
+    expect(en["noEngines.body"]).toBe("Your bots run on an engine. Most people start with Claude.");
+    expect(ko["noEngines.body"]).toBe("봇은 엔진으로 작동합니다. 대부분 Claude로 시작합니다.");
     expect(ko["noEngines.body"]).not.toMatch(/Your bots need one of these/i);
     expect(en["noEngines.checkAgain"]).toBe("Check again");
     expect(ko["noEngines.checkAgain"]).toBe("다시 확인");
@@ -689,11 +689,13 @@ describe("empty-engine first launch copy", () => {
   it("wires that path into NoEngines and first-run onboarding", () => {
     expect(noEngines).toContain('t("noEngines.title")');
     expect(noEngines).toContain('t("noEngines.body")');
-    expect(noEngines).toContain('t("noEngines.checkAgain")');
+    expect(noEngines).toContain("<EngineConnect");
+    expect(noEngines).not.toContain('t("noEngines.checkAgain")');
     expect(noEngines).not.toMatch(/Install an AI engine to get started/);
     expect(onboarding).toContain('t("noEngines.title")');
     expect(onboarding).toContain('t("noEngines.body")');
-    expect(onboarding).toContain('t("noEngines.checkAgain")');
+    expect(onboarding).toContain("<EngineConnect");
+    expect(onboarding).not.toContain('t("noEngines.checkAgain")');
   });
 });
 

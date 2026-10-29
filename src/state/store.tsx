@@ -1194,9 +1194,8 @@ const StoreContext = createContext<{
   dispatch: React.Dispatch<Action>;
   /** Commit any debounced profile edits before an operation reads the bot. */
   flushBotPatches: (botId: string) => Promise<void>;
-  /** Re-fetch engine availability. Only `rescan`, a user-driven recheck that
-   * may start WSL, re-probes the CLIs; otherwise it is the server's last check. */
-  refreshInstances: (rescan?: boolean) => Promise<void>;
+  /** `passive` re-probes without starting WSL; true allows WSL; default reads the last check. */
+  refreshInstances: (mode?: boolean | "passive") => Promise<void>;
 } | null>(null);
 
 const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
@@ -2587,7 +2586,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, []);
   const refreshInstances = useCallback(
-    (rescan = false) => loadInstances(rescan ? "?rescan=1" : ""),
+    (mode: boolean | "passive" = false) => loadInstances(mode === "passive" ? "?refresh=1" : mode ? "?rescan=1" : ""),
     [loadInstances],
   );
 
@@ -2608,8 +2607,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       focusProbe.current.blurredAt = 0;
       if (!blurredAt || Date.now() - blurredAt < AWAY_MS) return;
       focusProbe.current.quietUntil = Infinity;
-      // ?refresh=1, not ?rescan=1: re-probes the CLIs without starting WSL
-      void loadInstances("?refresh=1").finally(() => {
+      void refreshInstances("passive").finally(() => {
         focusProbe.current.quietUntil = Date.now() + AWAY_MS;
       });
     };
@@ -2619,7 +2617,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
     };
-  }, [loadInstances]);
+  }, [refreshInstances]);
 
   // A chat left open on a hidden or unfocused window is not "read" until the
   // window is actually visible and focused again - that moment is the only

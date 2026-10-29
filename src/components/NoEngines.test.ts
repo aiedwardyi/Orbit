@@ -109,7 +109,7 @@ describe("empty-engine first launch screen", () => {
     claude.install = { ...claude.install, login: { args: ["auth", "login"] } };
     try {
       const html = markup();
-      expect(html).toContain(">Sign In<");
+      expect(html).toContain(">Sign in to Claude<");
       expect(html).not.toContain(">Details<");
       expect(html).not.toContain("Open Sign-in in Terminal");
       expect(html).toContain("Install Grok");
@@ -119,15 +119,16 @@ describe("empty-engine first launch screen", () => {
     const html = markup();
     expect(html).toContain("Connect an Engine");
     expect(html).not.toContain("Connect Claude or Grok");
-    expect(html).toContain("Your bots need one of these to run. Pick the one you already use.");
-    const installs = ["Claude", "Codex", "Grok", "Antigravity", "Meta Muse"].map((name) => html.indexOf(`Install ${name}`));
+    expect(html).toContain("Your bots run on an engine. Most people start with Claude.");
+    const installs = ["Claude", "Codex", "Antigravity", "Grok", "Meta Muse"].map((name) => html.indexOf(`Install ${name}`, html.indexOf("data-engine-connect-commands")));
     expect(installs).not.toContain(-1);
     expect(installs).toEqual([...installs].sort((a, b) => a - b));
     expect(html).toContain("curl -fsSL https://x.ai/cli/install.sh | bash");
     expect(html).toContain("npm install -g @anthropic-ai/claude-code");
     expect(html).toContain("curl -fsSL https://muse.example/install.sh | bash");
     expect(html).toContain("Requires Node.js and npm.");
-    expect(html).toContain("Check again");
+    expect(html).toContain("Show Commands");
+    expect(html).not.toContain("Check again");
     expect(html).not.toContain("Install an AI engine to get started");
     expect(html).not.toContain("Install Gemini");
     expect(html).not.toContain("Install Kimi");

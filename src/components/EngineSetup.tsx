@@ -205,7 +205,7 @@ export function CommandRow({ command, actionLabel, signInInstanceId, installInst
   );
 }
 
-export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; onUpdated?: (instance: InstanceInfo) => void }) {
+export function EngineSignIn({ instance, onUpdated, buttonLabel, buttonClassName }: { instance: InstanceInfo; onUpdated?: (instance: InstanceInfo) => void; buttonLabel?: string; buttonClassName?: string }) {
   const { t } = useI18n();
   const [current, setCurrent] = useState(instance);
   const [waiting, setWaiting] = useState(instance.loginState === "pending");
@@ -303,7 +303,7 @@ export function EngineSignIn({ instance, onUpdated }: { instance: InstanceInfo; 
           {capture.url && <a href={capture.url} target="_blank" rel="noreferrer" className="text-ink underline">{deviceFlow ? t("engines.openLink") : t("engines.openAgain")}</a>}
           <button type="button" onClick={() => void cancel()} disabled={busy} className="text-ink underline disabled:opacity-50">{t("engines.cancel")}</button>
         </div>
-      </> : <button type="button" onClick={() => void start()} className="rounded-lg bg-control px-3 py-2 font-medium text-ink hover:bg-raised-hover">{t("engines.signIn")}</button>}
+      </> : <button type="button" onClick={() => void start()} className={buttonClassName ?? "rounded-lg bg-control px-3 py-2 font-medium text-ink hover:bg-raised-hover"}>{buttonLabel ?? t("engines.signIn")}</button>}
       {failed && <span>{t("engines.didntFinish")}</span>}
     </div>
   );
