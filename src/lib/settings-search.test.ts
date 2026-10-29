@@ -93,8 +93,9 @@ describe("settings section search", () => {
     expect(settingsSectionMatches("connections", query)).toBe(false);
   });
 
-  it.each(["phone", "휴대폰"])("finds %s on Account and on General's phone notifications", (query) => {
-    expect(settingsSectionMatches("account", query)).toBe(true);
+  it.each(["phone", "휴대폰"])("finds %s on Phone and on General's phone notifications", (query) => {
+    expect(settingsSectionMatches("account", query)).toBe(false);
+    expect(settingsSectionMatches("companion", query)).toBe(true);
     expect(settingsSectionMatches("general", query)).toBe(true);
     expect(settingsSectionMatches("connections", query)).toBe(false);
   });

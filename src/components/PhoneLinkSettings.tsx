@@ -1,102 +1,117 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 
 import { useI18n } from "@/lib/i18n";
+import { remotePhoneSetup, type RemotePhoneLink } from "@/lib/phone-setup";
 import { api } from "@/state/store";
-import { Section } from "./SettingsPrimitives";
+import { PhoneAccessSettings } from "./PhoneAccessSettings";
 
-interface RemoteLink {
-  url: string | null;
-  setup?: {
-    state: "checking" | "disabled" | "missing" | "not-running" | "serve-disabled" | "error" | "ready";
-    enableUrl?: string;
-  };
-}
+const DOWNLOAD = "https://tailscale.com/download";
+const button = "inline-flex items-center gap-1.5 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-control/70";
 
 export function PhoneLinkSettings() {
   const { t } = useI18n();
-  const [status, setStatus] = useState<RemoteLink | null>(null);
+  const [status, setStatus] = useState<RemotePhoneLink | null>(null);
   const [copied, setCopied] = useState(false);
+  const [relayOpen, setRelayOpen] = useState(false);
+  const copiedTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     let live = true;
     let pending = false;
     const load = async () => {
-      if (pending) return;
+      if (pending || document.visibilityState === "hidden") return;
       pending = true;
       try {
-        const body: RemoteLink = await api("/api/remote-link");
-        if (!live) return;
-        setStatus(body);
-        if (body.url || body.setup?.state === "disabled") stop();
+        const body: RemotePhoneLink = await api("/api/remote-link");
+        if (live) {
+          setStatus(body);
+          setCopied(false);
+        }
       } catch {
+        if (live) setStatus({ url: null, setup: { state: "error" } });
       } finally {
         pending = false;
       }
     };
-    const timer = window.setInterval(load, 5_000);
-    const stop = () => {
-      window.clearInterval(timer);
-      window.removeEventListener("focus", load);
-    };
+    const timer = window.setInterval(() => void load(), 15_000);
     window.addEventListener("focus", load);
+    document.addEventListener("visibilitychange", load);
     void load();
     return () => {
       live = false;
-      stop();
+      window.clearInterval(timer);
+      window.clearTimeout(copiedTimer.current);
+      window.removeEventListener("focus", load);
+      document.removeEventListener("visibilitychange", load);
     };
   }, []);
 
-  const url = status?.url;
-  const setup = status?.setup;
-  if (!url) {
-    if (!setup || setup.state === "disabled") return null;
-    const help = setup.state === "missing" ? "settings.phoneLink.missing"
-      : setup.state === "not-running" ? "settings.phoneLink.notRunning"
-      : setup.state === "serve-disabled" ? "settings.phoneLink.serveDisabled"
-      : setup.state === "checking" ? "settings.phoneLink.checking"
-      : "settings.phoneLink.error";
-    return (
-      <Section title={t("settings.phoneLink.title")} subtitle={<span className="break-keep">{t(help)}</span>}>
-        {setup.state === "serve-disabled" && setup.enableUrl && (
-          <a
-            href={setup.enableUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-control/70"
-          >
-            {t("settings.phoneLink.enableServe")}
-          </a>
-        )}
-      </Section>
-    );
-  }
-
+  const setup = remotePhoneSetup(status);
   const copy = async () => {
+    if (!setup.url) return;
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(setup.url);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
-    } catch {
-      // clipboard permission can be denied; leave the button unchanged
-    }
+      window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 1200);
+    } catch {}
   };
 
   return (
-    <Section title={t("settings.phoneLink.title")} subtitle={<span className="break-keep">{t("settings.phoneLink.help")}</span>}>
-      <div className="flex flex-wrap items-center gap-2">
-        <code className="min-w-0 flex-1 basis-full truncate rounded-lg bg-inset px-3 py-2 font-mono text-[13px] text-ink sm:basis-0">
-          {new URL(url).host}/••••••••
-        </code>
-        <button
-          type="button"
-          onClick={() => void copy()}
-          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-control px-3 py-2 text-[13px] text-ink hover:bg-control/70"
-        >
-          {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
-          {copied ? t("settings.phoneLink.copied") : t("settings.phoneLink.copy")}
-        </button>
-      </div>
-    </Section>
+    <div data-phone-settings className="rounded-xl bg-card p-4">
+      <p className="break-keep text-[13px] leading-relaxed text-ink-secondary">{t("settings.phone.intro")}</p>
+      <ol className="mt-5 flex flex-col gap-5">
+        <li data-phone-step="1" data-complete={setup.running} className="flex items-start gap-3">
+          <span className={`flex size-7 shrink-0 items-center justify-center rounded-full text-[13px] ${setup.running ? "bg-success/15 text-success" : "bg-control text-ink"}`}>
+            {setup.running ? <Check size={15} aria-label={t("settings.phone.pcReady")} /> : "1"}
+          </span>
+          <div className="min-w-0">
+            <h3 className="pt-0.5 text-[13px] font-medium text-ink">{t("settings.phone.step1")}</h3>
+            {!setup.running && <a
+              href={DOWNLOAD}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => {
+                if (window.ogb?.openExternal) {
+                  event.preventDefault();
+                  void window.ogb.openExternal(DOWNLOAD).catch(() => {});
+                }
+              }}
+              className={`${button} mt-2`}
+            >{t("settings.phone.getTailscale")}</a>}
+          </div>
+        </li>
+        <li data-phone-step="2" className="flex items-start gap-3">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-control text-[13px] text-ink">2</span>
+          <h3 className="pt-0.5 text-[13px] font-medium text-ink">{t("settings.phone.step2")}</h3>
+        </li>
+        <li data-phone-step="3" className="flex items-start gap-3">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-control text-[13px] text-ink">3</span>
+          <div className="min-w-0">
+            <h3 className="pt-0.5 text-[13px] font-medium text-ink">{t("settings.phone.step3")}</h3>
+            {setup.url ? <>
+              <div data-phone-link-qr className="mt-3 w-fit rounded-xl bg-white p-3" aria-label={t("settings.phoneAccess.qrLabel")}>
+                <QRCodeSVG value={setup.url} size={168} level="M" bgColor="#ffffff" fgColor="#111111" />
+              </div>
+              <button type="button" onClick={() => void copy()} className={`${button} mt-3`}>
+                {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+                {copied ? t("settings.phoneLink.copied") : t("settings.phoneLink.copy")}
+              </button>
+            </> : <>
+              <p className="mt-2 text-[12px] text-ink-secondary">{t(setup.help)}</p>
+              {setup.state === "serve-disabled" && status?.setup?.enableUrl && <a href={status.setup.enableUrl} target="_blank" rel="noreferrer" className={`${button} mt-2`}>
+                {t("settings.phoneLink.enableServe")}
+              </a>}
+            </>}
+          </div>
+        </li>
+      </ol>
+      <button type="button" aria-expanded={relayOpen} aria-controls="phone-relay-settings" onClick={() => setRelayOpen((open) => !open)} className="mt-5 text-[12px] text-ink-secondary underline hover:text-ink">
+        {t("settings.phone.relay")}
+      </button>
+      {relayOpen && <div id="phone-relay-settings" className="mt-4 border-t border-hairline/40 pt-4"><PhoneAccessSettings /></div>}
+    </div>
   );
 }

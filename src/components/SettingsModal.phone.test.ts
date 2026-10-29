@@ -134,7 +134,7 @@ describe("phone Settings navigation", () => {
     phone = false;
     await open();
     expect([...dialog()!.querySelectorAll("nav button")].map((node) => node.getAttribute("aria-label"))).toEqual([
-      "Account", "General", "Connections", "Themes", "Usage", "Model Index", "Shortcuts",
+      "Account", "General", "Connections", "Phone", "Themes", "Usage", "Model Index", "Shortcuts",
     ]);
     expect(button("General")?.getAttribute("aria-current")).toBe("page");
     expect(button("Back")).toBeNull();

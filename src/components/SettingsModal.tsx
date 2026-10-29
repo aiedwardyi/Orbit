@@ -34,9 +34,6 @@ import { TerminalAppearanceRow } from "./TerminalAppearanceRow";
 import { KeyboardShortcuts } from "./KeyboardShortcuts";
 import { LanguagePicker } from "./LanguagePicker";
 import { useI18n } from "@/lib/i18n";
-import { useDesktopCapabilities } from "./DesktopCapabilities";
-import { phoneSettingsAvailable } from "@/lib/phone-availability";
-import { PhoneAccessSettings } from "./PhoneAccessSettings";
 import { PhoneLinkSettings } from "./PhoneLinkSettings";
 import { PhoneNotificationSettings } from "./PhoneNotificationSettings";
 import { RoomTurnTimeoutSettings } from "./RoomTurnTimeoutSettings";
@@ -61,13 +58,13 @@ const SECTIONS: Array<{
   { id: "account", icon: User },
   { id: "general", icon: Settings },
   { id: "connections", icon: KeyRound },
+  { id: "companion", icon: Smartphone },
   { id: "themes", icon: Palette, shortcut: "Alt+T" },
   { id: "usage", icon: Coins, shortcut: "Alt+U" },
   { id: "team", icon: Users },
   { id: "models-index", icon: ChartScatter, shortcut: "Alt+I" },
   { id: "shortcuts", icon: Keyboard },
   { id: "engines", icon: Terminal },
-  { id: "companion", icon: Smartphone },
   { id: "computer", icon: Monitor },
 ];
 
@@ -523,7 +520,6 @@ export function SettingsModal({
 }) {
   const { t } = useI18n();
   const { state, dispatch } = useStore();
-  const { capabilities } = useDesktopCapabilities();
   const section = resolvedAppSettingsSection(state.appSettingsSection);
   const phone = useIsPhone();
   const page = !phone || state.appSettingsPage;
@@ -539,7 +535,7 @@ export function SettingsModal({
   const [preferencesOpen, setPreferencesOpen] = useState(defaultAdvancedOpen);
   const [moreServicesOpen, setMoreServicesOpen] = useState(defaultMoreServicesOpen);
   const q = query.trim().toLowerCase();
-  const phoneAvailable = phoneSettingsAvailable(capabilities.host);
+  const phoneAvailable = !phone;
   const advancedShown = showSettingsAdvancedControls(advancedOpen);
   const moreServicesShown = showSettingsMoreServices(moreServicesOpen);
   const [teamOwner, setTeamOwner] = useState(false);
@@ -763,12 +759,10 @@ export function SettingsModal({
                   <ProfileFields />
                 </Card>
                 <SyncPanel onAccountEmail={setAccountEmail} />
-                <div className="flex flex-col gap-4 rounded-xl bg-card p-4 empty:hidden">
-                  <PhoneAccessSettings />
-                  <PhoneLinkSettings />
-                </div>
               </>
             )}
+
+            {section === "companion" && <PhoneLinkSettings />}
 
             {section === "general" && (
               <>

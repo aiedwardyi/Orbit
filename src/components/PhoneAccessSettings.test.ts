@@ -103,7 +103,7 @@ describe("PhoneAccessSettings", () => {
     });
     const { host, root } = await renderView();
     expect(host.querySelector("[data-phone-access-setup]")).not.toBeNull();
-    expect(host.textContent).not.toContain("Paste the setup code you were sent to reach this PC from your phone.");
+    expect(host.textContent).toContain("Paste the setup code you were sent to reach this PC from your phone.");
     expect(host.querySelector('[role="switch"]')).toBeNull();
     await act(async () => type(host.querySelector<HTMLInputElement>('input[aria-label="Setup Code"]')!, ` ${CODE} `));
     await act(async () => click(button(host, "Set Up")));
@@ -114,9 +114,9 @@ describe("PhoneAccessSettings", () => {
   });
 
   it.each([
-    ["en", "No setup code? Use Phone Link below."],
-    ["ko", "설정 코드가 없나요? 아래 휴대폰 링크를 사용하세요."],
-  ])("points a setup card to Phone Link for anyone without a code in %s", async (locale, copy) => {
+    ["en", "Paste the setup code"],
+    ["ko", "설정 코드"],
+  ])("explains the relay code without the removed Phone Link direction in %s", async (locale, copy) => {
     localStorage.setItem("omb-locale", locale);
     serve({ "GET /api/phone-relay/status": () => status({ available: true, configured: false, enabled: false, state: "off", host: null }) });
     const { host, root } = await renderView();

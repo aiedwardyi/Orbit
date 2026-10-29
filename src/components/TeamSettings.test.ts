@@ -120,7 +120,7 @@ describe("Team settings", () => {
   it("shows Team after Usage for the owner, with one card per person", async () => {
     await render();
     await vi.waitFor(() => expect(labels()).toContain("Team"));
-    expect(labels()).toEqual(["Account", "General", "Connections", "Themes", "Usage", "Team", "Model Index", "Shortcuts"]);
+    expect(labels()).toEqual(["Account", "General", "Connections", "Phone", "Themes", "Usage", "Team", "Model Index", "Shortcuts"]);
     const team = [...host.querySelectorAll("nav button")].find((button) => button.getAttribute("aria-label") === "Team");
     await act(async () => team!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await vi.waitFor(() => expect(host.textContent).toContain("Ada"));
@@ -153,7 +153,7 @@ describe("Team settings", () => {
     await act(async () => team!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await vi.waitFor(() => expect(host.textContent).toContain("Ada"));
     expect(host.textContent).toContain("No mobile today");
-    expect(host.textContent).not.toContain("Phone");
+    expect(host.querySelector("article")?.textContent).not.toContain("Phone");
   });
 
   it("hides Team when the server says not owner", async () => {

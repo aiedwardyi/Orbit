@@ -32,23 +32,21 @@ export function showSettingsMoreServices(moreServicesOpen: boolean): boolean {
   return showSettingsMoreServicesSection() && moreServicesOpen;
 }
 
-/** Idle friends settings hide Local VM, Phone, and the Engines tab
- * (engines live on Connections). Local VM stays off the nav even when search
- * would otherwise match — Advanced is not on this surface. */
+// Phone setup belongs to the PC; engines live on Connections.
 export function friendsSettingsNavVisible(
   id: AppSettingsSection,
   query: string,
   input: { phoneAvailable: boolean },
 ): boolean {
-  void input;
-  if (id === "sync" || id === "companion" || id === "computer") return false;
+  if (id === "sync" || id === "computer") return false;
+  if (id === "companion" && !input.phoneAvailable) return false;
   if (id === "engines" && !showSettingsEnginesNav()) return false;
   return settingsSectionMatches(id, query);
 }
 
 /** Preserve old section links after regrouping Settings. */
 export function resolvedAppSettingsSection(id: AppSettingsSection): AppSettingsSection {
-  if (id === "sync" || id === "companion") return "account";
+  if (id === "sync") return "account";
   if (id === "engines" && !showSettingsEnginesNav()) return "connections";
   return id;
 }

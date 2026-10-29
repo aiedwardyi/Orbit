@@ -1,6 +1,28 @@
 import type { CompanionAccountState } from "../types/ogb";
 import type { CompanionEndpoint } from "./companion-pairing";
 
+export interface RemotePhoneLink {
+  url: string | null;
+  setup?: {
+    state: "checking" | "disabled" | "missing" | "not-running" | "serve-disabled" | "error" | "ready";
+    enableUrl?: string;
+  };
+}
+
+export function remotePhoneSetup(status: RemotePhoneLink | null) {
+  const state = status?.setup?.state ?? (status?.url ? "ready" : "checking");
+  return {
+    state,
+    running: state === "serve-disabled" || state === "ready",
+    url: state === "ready" ? status?.url ?? null : null,
+    help: state === "missing" ? "settings.phoneLink.missing" as const
+      : state === "not-running" ? "settings.phoneLink.notRunning" as const
+      : state === "serve-disabled" ? "settings.phoneLink.serveDisabled" as const
+      : state === "checking" ? "settings.phoneLink.checking" as const
+      : "settings.phoneLink.error" as const,
+  };
+}
+
 export type PhoneSetupPhase = "intro" | "sign-in" | "verifying" | "qr" | "success";
 
 export interface PhoneSetupFlowState {
