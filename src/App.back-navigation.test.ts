@@ -42,7 +42,7 @@ describe("Back with no bots", () => {
       });
       if (layer === "create-bot") {
         await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
-        await vi.waitFor(() => expect(host.textContent).toContain("No AI tool is connected yet."));
+        await vi.waitFor(() => expect(host.textContent).toContain("No engine is connected yet."));
       }
       expect(push).toHaveBeenLastCalledWith({ orbitBack: layer === "create-bot" ? "create-bot" : "popup:test", depth: 1 }, "");
       await act(async () => window.dispatchEvent(new PopStateEvent("popstate", { state: null })));

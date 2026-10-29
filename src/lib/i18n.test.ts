@@ -773,8 +773,8 @@ describe("first-run core path leftovers", () => {
     expect(en["model.switchEngine"]).toBe("Switch engine");
     expect(ko["model.switchEngine"]).toBe("엔진 바꾸기");
     expect(ko["model.switchEngine"]).not.toMatch(/Switch engine/i);
-    expect(en["model.cliVersion"]).toBe("CLI {version}");
-    expect(ko["model.cliVersion"]).toBe("CLI 패키지 {version}");
+    expect(en["model.cliVersion"]).toBe("Engine {version}");
+    expect(ko["model.cliVersion"]).toBe("엔진 {version}");
     expect(en["model.pinnedTitle"]).toBe("{engine} · {model}");
     expect(ko["model.pinnedTitle"]).toBe("{engine} · {model}");
     expect(en["model.automaticTitle"]).toBe("Stay on this engine while it works. Currently {name}.");
@@ -794,12 +794,12 @@ describe("first-run core path leftovers", () => {
     expect(en["usage.limits.pending"]).toBe("Appears after your next {name} message.");
     expect(en["usage.limits.pending"]).not.toBe(en["usage.limits.notReported"]);
     expect(Object.hasOwn(en, "usage.limits.unavailable")).toBe(false);
-    expect(translate("en", "model.cliVersion", { version: "1.0.13" })).toBe("CLI 1.0.13");
-    expect(translate("ko", "model.cliVersion", { version: "1.0.13" })).toBe("CLI 패키지 1.0.13");
+    expect(translate("en", "model.cliVersion", { version: "1.0.13" })).toBe("Engine 1.0.13");
+    expect(translate("ko", "model.cliVersion", { version: "1.0.13" })).toBe("엔진 1.0.13");
     expect(en["model.showAll"]).toContain("{count}");
     expect(ko["model.showAll"]).toContain("{count}");
-    expect(en["engines.setCli"]).toBe("Set CLI…");
-    expect(ko["engines.setCli"]).toBe("CLI 지정…");
+    expect(en["engines.setCli"]).toBe("Set engine path…");
+    expect(ko["engines.setCli"]).toBe("엔진 경로 지정…");
     expect(en["connections.connected"]).toBe("Connected");
     expect(ko["connections.connected"]).toBe("연결됨");
     expect(en["engines.unavailable"]).toBe("Unavailable");
@@ -844,7 +844,7 @@ describe("first-run core path leftovers", () => {
     expect(enginesSettings).toContain('t("engines.moreEngines")');
     expect(enginesSettings).toContain('t("engines.notInstalled")');
     expect(enginesSettings).toContain('t("engines.install")');
-    expect(enginesSettings).not.toMatch(/>Set CLI…</);
+    expect(enginesSettings).not.toMatch(/>Set engine path…</);
     expect(enginesSettings).not.toMatch(/· in use/);
     expect(enginesSettings).not.toMatch(/>Cloud</);
   });

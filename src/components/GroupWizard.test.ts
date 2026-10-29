@@ -347,7 +347,7 @@ describe("GroupWizard members", () => {
         button(host, "+ New bot").click();
       });
       await act(async () => {
-        button(host, "Connect an AI tool").click();
+        button(host, "Connect an engine").click();
       });
       expect(dispatched).toContainEqual(
         expect.objectContaining({ type: "toggleAppSettings", section: "connections" }),

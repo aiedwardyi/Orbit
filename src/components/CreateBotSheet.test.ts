@@ -275,13 +275,13 @@ describe("CreateBotSheet submit", () => {
 });
 
 describe("CreateBotSheet with no engine", () => {
-  it("offers Connect an AI tool instead of a name form", async () => {
+  it("offers Connect an engine instead of a name form", async () => {
     mockState.value = { instances: [{ ...availableEngine(), snapshot: { state: "unavailable" } } as InstanceInfo] };
     const { host, root } = await renderSheet({ required: false });
     try {
       expect(host.querySelector("#create-bot-name")).toBeNull();
-      expect(host.textContent).toContain("No AI tool is connected yet.");
-      const connect = [...host.querySelectorAll("button")].find((button) => button.textContent === "Connect an AI tool")!;
+      expect(host.textContent).toContain("No engine is connected yet.");
+      const connect = [...host.querySelectorAll("button")].find((button) => button.textContent === "Connect an engine")!;
       await act(async () => connect.click());
       expect(mockDispatch).toHaveBeenCalledWith({ type: "closeCreateBot" });
       expect(mockDispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "connections" });
