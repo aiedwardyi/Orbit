@@ -191,12 +191,14 @@ describe("usage refresh route result", () => {
   });
 
   it("reads the recorded Grok answer after credit use", async () => {
-    const refresh = createUsageRefresh({ platform: "linux", billing: async () => real.grokUsed });
+    const answers = [real.grokUsed, real.grokUsed];
+    const refresh = createUsageRefresh({ platform: "linux", billing: async () => answers.shift() ?? {} });
     const result = await refresh("grokAgent", { instanceId: "grok" });
     expect(result.error).toBeUndefined();
     expect(result.report?.windows).toEqual([
       { id: "seven_day", usedPercent: 51, resetsAt: Date.parse("2026-11-01T08:45:16.197799+00:00"), windowMinutes: 10_080 },
     ]);
+    expect(answers).toHaveLength(1);
   });
 
   it.each([
