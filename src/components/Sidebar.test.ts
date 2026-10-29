@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { persistPreference } from "@/lib/i18n";
+import { noteArrival, resetArrivalGlow } from "@/lib/arrival-glow";
 import { hapticTick } from "@/lib/phone-swipe";
 import {
   SIDEBAR_COLLAPSED_KEY,
@@ -1260,6 +1261,24 @@ describe("Sidebar section collapse", () => {
       expect(host.textContent).not.toContain("Unassigned");
     } finally {
       await unmount();
+    }
+  });
+
+  it("glows only the visible row when lone Unassigned has a saved collapse", async () => {
+    resetArrivalGlow();
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(["unassigned"]));
+    const { host, unmount } = await mount([bot("u1"), bot("u2")]);
+    try {
+      await select("u1");
+      expect(shownBots(host, "unassigned")).toEqual(["u1", "u2"]);
+      await act(async () => { noteArrival("u2"); });
+      expect(host.querySelector('[data-sidebar-row-id="u2"] [data-arrival-glow="true"]')).not.toBeNull();
+      expect(host.querySelector('button[title="Expand sidebar"]')?.hasAttribute("data-arrival-glow")).toBe(false);
+    } finally {
+      await unmount();
+      window.localStorage.removeItem(SIDEBAR_COLLAPSED_KEY);
+      resetArrivalGlow();
     }
   });
 

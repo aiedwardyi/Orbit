@@ -169,11 +169,14 @@ function PlanUsage() {
     () => splitFriendsEngines(state.instances).friends.filter((instance) => PLAN_USAGE_DRIVERS.has(instance.driverKind)),
     [state.instances],
   );
-  const refreshable = useMemo(
-    () => engines.filter((instance) => canRefresh(instance) || instance.driverKind === "museAgent"),
+  const shown = useMemo(
+    () => engines.filter((instance) => instance.snapshot.state === "available" || instance.rateLimits),
     [engines],
   );
-  const shown = engines.filter((instance) => instance.snapshot.state === "available" || instance.rateLimits);
+  const refreshable = useMemo(
+    () => shown.filter((instance) => canRefresh(instance) || instance.driverKind === "museAgent"),
+    [shown],
+  );
   const [limits, setLimits] = useState<CheckLimits>({});
   const refresh = useCallback(async (instance: InstanceInfo, action: "refresh" | "check" = "refresh"): Promise<RefreshResult> => {
     try {

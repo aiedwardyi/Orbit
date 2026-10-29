@@ -569,12 +569,13 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
   }, []);
 
   useEffect(() => {
-    if (!backNavigation.current || !state.bots.length) return;
-    const root = state.bots.find((candidate) => candidate.chiefOfStaff)?.id ?? state.bots[0].id;
+    if (!backNavigation.current) return;
+    const root = state.bots.find((candidate) => candidate.chiefOfStaff)?.id ?? state.bots[0]?.id;
     const trail = selectionTrail.current;
     const exists = (id: string) =>
       latestState.current.bots.some((candidate) => candidate.id === id) || latestState.current.groups.some((candidate) => candidate.id === id);
-    followSelection(trail, root, state.selectedId, exists);
+    if (root) followSelection(trail, root, state.selectedId, exists);
+    else trail.length = 0;
     const chats: BackLayer[] = trail.slice(1).map((id, index) => ({
       key: `chat:${id}`,
       close: () => {
