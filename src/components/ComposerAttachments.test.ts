@@ -26,6 +26,15 @@ describe("ComposerAttachments remove button", () => {
     expect(className).toContain("pointer-coarse:opacity-100");
     expect(className).toContain("pointer-coarse:size-6");
   });
+
+  it("gets room in the scrolling row for its corner offset", () => {
+    const row = /<div class="([^"]*overflow-x-auto[^"]*)"/.exec(markup)?.[1] ?? "";
+    expect(className).toContain("-top-1.5");
+    expect(className).toContain("-right-1.5");
+    expect(row).toContain("pt-1.5");
+    expect(row).toContain("pr-1.5");
+    expect(row).not.toContain("-mt-");
+  });
 });
 
 describe("ComposerAttachments upload chip", () => {
