@@ -88,11 +88,27 @@ describe("Phone setup steps", () => {
     expect(button("Copied")).toBeDefined();
   });
 
+  it("keeps Copied through a focus refresh", async () => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    await render({ url, setup: { state: "ready" } });
+    await act(async () => button("Copy Link").click());
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(button("Copied")).toBeDefined();
+  });
+
+  it.each(["not-running", "serve-disabled", "error", "checking"])("hides Get Tailscale when %s", async (state) => {
+    await render({ url: null, setup: { state } });
+    expect(button("Get Tailscale")).toBeUndefined();
+  });
+
   it("opens the relay code box only from its link", async () => {
     await render({ url: null, setup: { state: "missing" } });
+    const relay = button("Have a relay setup code?");
     expect(host.querySelector("[data-phone-access-setup]")).toBeNull();
-    await act(async () => button("Have a relay setup code?").click());
+    expect(document.getElementById(relay.getAttribute("aria-controls")!)?.hidden).toBe(true);
+    await act(async () => relay.click());
     expect(host.querySelector("[data-phone-access-setup]")).not.toBeNull();
+    expect(document.getElementById(relay.getAttribute("aria-controls")!)?.hidden).toBe(false);
   });
 
   it.each(["focus", "poll"])("refreshes on %s even after ready and stops on unmount", async (trigger) => {

@@ -143,6 +143,13 @@ describe("phone Settings navigation", () => {
     expect(dialog()?.parentElement?.hasAttribute("data-closing")).toBe(true);
   });
 
+  it("keeps Phone in a narrow desktop window", async () => {
+    vi.stubGlobal("ogb", {});
+    await open();
+    const rows = [...dialog()!.querySelectorAll("nav button")].map((node) => node.textContent);
+    expect(rows).toContain("Phone");
+  });
+
   it("shows the list when desktop Shortcuts narrows to phone", async () => {
     phone = false;
     await open();

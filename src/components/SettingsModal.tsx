@@ -535,7 +535,7 @@ export function SettingsModal({
   const [preferencesOpen, setPreferencesOpen] = useState(defaultAdvancedOpen);
   const [moreServicesOpen, setMoreServicesOpen] = useState(defaultMoreServicesOpen);
   const q = query.trim().toLowerCase();
-  const phoneAvailable = !phone;
+  const phoneAvailable = !phone || Boolean(window.ogb);
   const advancedShown = showSettingsAdvancedControls(advancedOpen);
   const moreServicesShown = showSettingsMoreServices(moreServicesOpen);
   const [teamOwner, setTeamOwner] = useState(false);

@@ -25,10 +25,7 @@ export function PhoneLinkSettings() {
       pending = true;
       try {
         const body: RemotePhoneLink = await api("/api/remote-link");
-        if (live) {
-          setStatus(body);
-          setCopied(false);
-        }
+        if (live) setStatus(body);
       } catch {
         if (live) setStatus({ url: null, setup: { state: "error" } });
       } finally {
@@ -69,7 +66,7 @@ export function PhoneLinkSettings() {
           </span>
           <div className="min-w-0">
             <h3 className="pt-0.5 text-[13px] font-medium text-ink">{t("settings.phone.step1")}</h3>
-            {!setup.running && <a
+            {setup.state === "missing" && <a
               href={DOWNLOAD}
               target="_blank"
               rel="noreferrer"
@@ -111,7 +108,7 @@ export function PhoneLinkSettings() {
       <button type="button" aria-expanded={relayOpen} aria-controls="phone-relay-settings" onClick={() => setRelayOpen((open) => !open)} className="mt-5 text-[12px] text-ink-secondary underline hover:text-ink">
         {t("settings.phone.relay")}
       </button>
-      {relayOpen && <div id="phone-relay-settings" className="mt-4 border-t border-hairline/40 pt-4"><PhoneAccessSettings /></div>}
+      <div id="phone-relay-settings" hidden={!relayOpen} className="mt-4 border-t border-hairline/40 pt-4">{relayOpen && <PhoneAccessSettings />}</div>
     </div>
   );
 }
