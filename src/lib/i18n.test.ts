@@ -244,9 +244,10 @@ describe("preference persistence", () => {
     vi.unstubAllGlobals();
   });
 
-  it("defaults to English when nothing is stored, even on a Korean OS", () => {
-    expect(readPreference()).toBe("en");
-    expect(resolveLocale(readPreference(), "ko-KR")).toBe("en");
+  it("follows the OS when nothing is stored", () => {
+    expect(readPreference()).toBe("system");
+    expect(resolveLocale(readPreference(), "ko-KR")).toBe("ko");
+    expect(resolveLocale(readPreference(), "en-US")).toBe("en");
   });
 
   it("remembers an explicit English or Korean choice", () => {

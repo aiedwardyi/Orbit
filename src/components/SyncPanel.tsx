@@ -179,7 +179,7 @@ export function SyncPanel({ onAccountEmail }: { onAccountEmail?: (email: string 
     ready = folder !== null;
     if (folder) {
       const label = statusLabel(folder.status, t);
-      line = folder.configured ? `${label} · ${folderName(folder.folder)}` : label;
+      line = folder.configured ? `${label} · ${folderName(folder.folder)}` : null;
       main = { label: t(folder.configured ? "settings.sync.changeFolder" : "settings.sync.chooseFolder"), run: () => void chooseFolder() };
       if (folder.configured) {
         if (state === "folder" && window.ogb?.googleAccount) {
@@ -196,7 +196,6 @@ export function SyncPanel({ onAccountEmail }: { onAccountEmail?: (email: string 
     const folderAction = { label: t("settings.sync.useFolder"), run: revealFolder };
     const refused = Boolean(google.move && google.problem);
     if (google.state === "signed-out") {
-      if (!window.ogb) line = t("settings.sync.disconnected");
       main = signInAction;
       quiets.push(folderAction);
     } else if (google.state === "ready") {
@@ -237,10 +236,11 @@ export function SyncPanel({ onAccountEmail }: { onAccountEmail?: (email: string 
   }
 
   const shown = notice || (ready ? line : loadError);
+  const off = !signingIn && (folderView ? folder?.configured === false : state === "signed-out");
   const desktop = Boolean(window.ogb);
 
   return (
-    <Card title={t("settings.section.sync")} subtitle={t("settings.sync.subtitle")}>
+    <Card title={t("settings.section.sync")} subtitle={t(off ? "settings.sync.offSubtitle" : "settings.sync.subtitle")}>
       {shown || (ready && desktop && (main || quiets.length > 0)) ? (
         <div className="flex flex-col gap-3">
           {shown ? <div role="status" className="text-[13px] text-ink">{shown}</div> : null}

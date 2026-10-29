@@ -1797,7 +1797,8 @@ export function Sidebar({
           {sectionIds.map((id) => {
             const name = sectionLabel(id);
             const sectionItems = orderedItemsBySection.get(id) ?? [];
-            const collapsed = sectionsCollapsible && collapsedSections.has(id);
+            const lone = id === UNASSIGNED_SECTION_ID && sectionIds.length === 1;
+            const collapsed = !lone && sectionsCollapsible && collapsedSections.has(id);
             const hiddenItems = collapsed ? sectionItems.filter((item) => item.id !== state.selectedId) : [];
             const shownItems = collapsed ? sectionItems.filter((item) => item.id === state.selectedId) : sectionItems;
             const hiddenUnread = unreadConversationCount(
@@ -1823,7 +1824,7 @@ export function Sidebar({
                 {itemSectionDropTarget === id && (
                   <div data-sidebar-bot-drop-marker className="mx-1 my-1 h-1 rounded-full bg-accent shadow-[0_0_8px] shadow-accent/60" />
                 )}
-                {density !== "icons" && (
+                {density !== "icons" && !lone && (
                   <SidebarSectionHeader
                     name={name}
                     reorderable={sectionsReorderable}

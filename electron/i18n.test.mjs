@@ -15,8 +15,8 @@ describe("packaged locale", () => {
   it("persists an explicit choice in userData", () => {
     const dir = mkdtempSync(join(tmpdir(), "orbit-locale-"));
     try {
-      expect(readPreference(dir)).toBe("en");
-      expect(resolveLocale(readPreference(dir), "ko-KR")).toBe("en");
+      expect(readPreference(dir)).toBe("system");
+      expect(resolveLocale(readPreference(dir), "ko-KR")).toBe("ko");
       writePreference(dir, "ko");
       expect(readPreference(dir)).toBe("ko");
       expect(resolveLocale(readPreference(dir), "ko-KR")).toBe("ko");

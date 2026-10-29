@@ -233,7 +233,7 @@ export function ModelPickerControl({
   // (wizard bots, muse) still show it; only the effort label stays gated
   // on displayedChipEffort. No state changes here.
   const chipEffort = displayedChipEffort(active, selection.model, selection.effort);
-  const effortFull = chipEffort ? chipEffortLabel(chipEffort, t) : "";
+  const effortFull = chipEffort ? t("model.effortChip", { level: chipEffortLabel(chipEffort, t) }) : "";
   const effortShort = chipEffort ? chipEffortShortLabel(chipEffort, t) : "";
   const chipName = modelChipText({ instance: active, model: selection.model, effort: selection.effort }, t);
   const phoneName = chipPhoneName(active?.driverKind, chipName);

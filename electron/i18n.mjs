@@ -7,7 +7,7 @@ import path from "node:path";
 
 export const LOCALE_IDS = ["en", "ko"];
 export const LOCALE_PREFERENCES = ["system", "en", "ko"];
-export const DEFAULT_PREFERENCE = "en";
+export const DEFAULT_PREFERENCE = "system";
 
 const en = {
   "settings.startFresh.error": "Could not start fresh. Your data is unchanged.",
@@ -131,7 +131,7 @@ export function readPreference(userDataDir) {
     const parsed = JSON.parse(fs.readFileSync(preferencePath(userDataDir), "utf8"));
     if (isPreference(parsed?.preference)) return parsed.preference;
   } catch {
-    /* missing or unreadable - default to English */
+    /* missing or unreadable - follow the OS */
   }
   return DEFAULT_PREFERENCE;
 }

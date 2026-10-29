@@ -487,7 +487,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
     dispatch({ type: "toggleComputer", open: true });
   };
 
-  const createBotSheetOpen = !onboardingOpen && !noEngines && state.connected && state.hydrated && (state.createBotOpen || state.bots.length === 0);
+  const createBotSheetOpen = !onboardingOpen && state.connected && state.hydrated && (state.createBotOpen || (!noEngines && state.bots.length === 0));
   const secondaryViewOpen =
     onboardingOpen ||
     state.activeView !== "chat" ||
@@ -806,7 +806,7 @@ function Shell({ onboardingOpen }: { onboardingOpen: boolean }) {
       <Presence open={createBotSheetOpen}>
         {(closing) => (
           <LazyView overlay>
-            <CreateBotSheet required={state.bots.length === 0} closing={closing} />
+            <CreateBotSheet required={!noEngines && state.bots.length === 0} closing={closing} />
           </LazyView>
         )}
       </Presence>

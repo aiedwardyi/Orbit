@@ -94,7 +94,7 @@ describe("Account settings", () => {
     expect(cards[0].querySelector("#settings-profile-name")).not.toBeNull();
     expect(cards[0].textContent).toContain("Profile");
     expect(cards[1].firstElementChild?.textContent).toBe("Sync");
-    expect(cards[1].textContent).toContain("Synced across your PCs.");
+    expect(cards[1].textContent).toContain("Syncing across your PCs is off.");
     expect([...cards[2].children].map((section) => section.firstElementChild?.textContent)).toEqual([
       "Phone Access", "Phone Link",
     ]);
@@ -104,7 +104,7 @@ describe("Account settings", () => {
     const pane = await render();
     const sync = pane.children[1];
     expect(sync.querySelector(".bg-card")).toBeNull();
-    expect(sync.children[1]?.textContent).toBe("Synced across your PCs.");
+    expect(sync.children[1]?.textContent).toBe("Syncing across your PCs is off.");
   });
 
   it("labels Account in Korean", async () => {

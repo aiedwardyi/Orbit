@@ -158,6 +158,25 @@ describe("UsageSection friends plan card", () => {
     expect(muse).toBeGreaterThan(grok);
   });
 
+  it("lists only engines this PC has installed or has a reading for", () => {
+    const previous = mockState.instances;
+    const missing = { snapshot: { state: "unavailable" as const } };
+    mockState.instances = previous.map((instance) =>
+      instance.instanceId === "codex" || instance.instanceId === "muse" ? { ...instance, ...missing } : instance);
+    try {
+      persistPreference("en");
+      const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)));
+      expect(html).toContain("Claude");
+      expect(html).toContain("Grok");
+      expect(html).toContain("Meta Muse");
+      expect(html).not.toContain("Codex");
+      mockState.instances = mockState.instances.map((instance) => ({ ...instance, ...missing, rateLimits: undefined }));
+      expect(renderToStaticMarkup(createElement(I18nProvider, null, createElement(UsageSection)))).toContain("No usage reported yet.");
+    } finally {
+      mockState.instances = previous;
+    }
+  });
+
   it("keeps the toggle group and refresh button on one unwrapped row", async () => {
     const host = document.createElement("div");
     document.body.append(host);

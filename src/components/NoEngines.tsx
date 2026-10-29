@@ -12,6 +12,7 @@ import { EngineRow } from "@/components/EnginesSettings";
 import { ProviderMark } from "@/components/ProviderIcons";
 import { firstLaunchConnectInstances } from "@/lib/engine-rail";
 import { useI18n } from "@/lib/i18n";
+import { isPhone } from "@/lib/phone-swipe";
 
 export function NoEngines() {
   const { t } = useI18n();
@@ -21,6 +22,7 @@ export function NoEngines() {
   // Shipped engines only. Retired ones would turn first launch into a zoo.
   // Box has no installer, so it never belongs on this screen.
   const engines = firstLaunchConnectInstances(state.instances);
+  const phone = !window.ogb && isPhone();
 
   const recheck = async () => {
     setRechecking(true);
@@ -36,10 +38,10 @@ export function NoEngines() {
       <div className="mx-auto w-full max-w-[560px] px-6 py-12">
         <h1 className="text-[20px] font-semibold text-ink">{t("noEngines.title")}</h1>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-secondary">
-          {t("noEngines.body")}
+          {phone ? t("noEngines.phoneBody") : t("noEngines.body")}
         </p>
 
-        <div className="mt-6 flex flex-col gap-2.5">
+        {!phone && <div className="mt-6 flex flex-col gap-2.5">
           {engines.map((instance) => (
             <div key={instance.instanceId} className="rounded-xl border border-hairline/40 bg-card p-3.5">
               {instance.snapshot.state === "available" ? <EngineRow instance={instance} /> : <>
@@ -51,7 +53,7 @@ export function NoEngines() {
               </>}
             </div>
           ))}
-        </div>
+        </div>}
 
         <button
           onClick={recheck}

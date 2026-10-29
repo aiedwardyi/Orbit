@@ -173,6 +173,7 @@ function PlanUsage() {
     () => engines.filter((instance) => canRefresh(instance) || instance.driverKind === "museAgent"),
     [engines],
   );
+  const shown = engines.filter((instance) => instance.snapshot.state === "available" || instance.rateLimits);
   const [limits, setLimits] = useState<CheckLimits>({});
   const refresh = useCallback(async (instance: InstanceInfo, action: "refresh" | "check" = "refresh"): Promise<RefreshResult> => {
     try {
@@ -257,11 +258,11 @@ function PlanUsage() {
           </div>
         )}
       </div>
-      {engines.length === 0 ? (
+      {shown.length === 0 ? (
         <div className="text-[13px] text-ink-secondary">{t("usage.limits.empty")}</div>
       ) : (
         <div className="flex flex-col gap-5">
-          {engines.map((instance) => (
+          {shown.map((instance) => (
             <EnginePlanRow
               key={instance.instanceId}
               instance={instance}
