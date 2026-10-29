@@ -2,6 +2,15 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.215] - 2026-10-30
+
+### Fixed
+- Settings > Usage shows each Codex limit once.
+- Claude and Grok limits refresh again in Settings > Usage.
+- The usage refresh error reads as two sentences, in Korean on a Korean screen.
+- Long chats keep the names, codes and numbers you gave the bot after a summary.
+- The remove X on an attached file shows in full.
+
 ## [1.0.214] - 2026-10-29
 
 ### Added
@@ -339,6 +348,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.215]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.215
 [1.0.214]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.214
 [1.0.213]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.213
 [1.0.212]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.212
