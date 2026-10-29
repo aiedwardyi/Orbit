@@ -111,7 +111,7 @@ describe("Onboarding engine check", () => {
     const host = await renderWith(401);
     expect(host.textContent).toContain("Sign in to this PC");
     expect(host.textContent).toContain("Settings → Phone link");
-    expect(host.textContent).not.toContain("couldn't check the AI engines");
+    expect(host.textContent).not.toContain("couldn't check the engines");
   });
 
   it("opens a paired phone straight to the chat", async () => {
@@ -133,7 +133,7 @@ describe("Onboarding engine check", () => {
 
   it("still reports a real engine check failure", async () => {
     const host = await renderWith(500);
-    expect(host.textContent).toContain("Wink couldn't check the AI engines on this computer.");
+    expect(host.textContent).toContain("Wink couldn't check the engines on this computer.");
     expect(host.textContent).not.toContain("Sign in to this PC");
   });
 

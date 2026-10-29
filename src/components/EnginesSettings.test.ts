@@ -499,7 +499,7 @@ describe("EnginesSettings friends Connections list", () => {
     expect(html).not.toMatch(/<(input|select|code)/);
     expect(html).not.toContain("lucide-triangle-alert");
     expect(html).not.toContain("lucide-check");
-    expect(html).not.toContain("Set CLI");
+    expect(html).not.toContain("Set engine path");
     expect(html).not.toContain("Gemini API");
     expect(html).not.toContain("Kimi");
   });
