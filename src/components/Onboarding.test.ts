@@ -26,11 +26,11 @@ describe("onboarding empty-engine path", () => {
   });
 
   it("wires that path into the first-launch dialog instead of the engine zoo", () => {
-    expect(source).toContain("firstLaunchConnectInstances");
+    expect(source).toContain("<EngineConnect");
     expect(source).toContain("isEmptyEngineLaunch");
     expect(source).toContain('t("noEngines.title")');
     expect(source).toContain('t("noEngines.body")');
-    expect(source).toContain('t("noEngines.checkAgain")');
+    expect(source).not.toContain('t("noEngines.checkAgain")');
   });
 
   it("does not suffix Ready tiles with a CLI version token", () => {
@@ -40,8 +40,6 @@ describe("onboarding empty-engine path", () => {
   });
 
   it("lets an empty-engine launch skip into the shell", () => {
-    const footer = source.slice(source.indexOf('t("onboarding.back")'));
-    expect(footer).toContain('emptyConnect ? t("noEngines.checkAgain")');
-    expect(footer).toContain("onClick={finish}");
+    expect(source).toContain("footer={{ back: () => setStep(0), open: finish }}");
   });
 });

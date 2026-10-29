@@ -5,7 +5,8 @@ import { isRetiredEngineKind } from "../../shared/model-selection.ts";
 import { EngineSetup } from "./EngineSetup";
 import { EngineRow } from "./EnginesSettings";
 import { OrbitMark } from "./OrbitMark";
-import { firstLaunchConnectInstances, isEmptyEngineLaunch, isFriendsCliEngine } from "@/lib/engine-rail";
+import { isEmptyEngineLaunch, isFriendsCliEngine } from "@/lib/engine-rail";
+import { EngineConnect } from "./EngineConnect";
 import { useI18n } from "@/lib/i18n";
 import { isPhone } from "@/lib/phone-swipe";
 import { ProviderMark } from "./ProviderIcons";
@@ -97,6 +98,7 @@ function Principle({ icon, title, text }: { icon: ReactNode; title: string; text
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const { t } = useI18n();
   const [step, setStep] = useState(0);
+  const [connectSession, setConnectSession] = useState(false);
   const [instances, setInstances] = useState<InstanceInfo[] | null>(null);
   const [instancesError, setInstancesError] = useState<string | null>(null);
   const [signedOut, setSignedOut] = useState(false);
@@ -169,11 +171,10 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 
   if (phone && !signedOut && !instancesError) return null;
 
-  const emptyConnect = instances !== null && isEmptyEngineLaunch(instances);
+  const emptyConnect = connectSession || instances !== null && isEmptyEngineLaunch(instances);
 
   const retryInstances = () => {
-    // Keep the connect cards up while we recheck. Nulling the list here
-    // would flash the disabled Open Orbit button and look like a dead app.
+    // Keep setup visible while an install probe runs.
     if (!emptyConnect) setInstances(null);
     setInstancesError(null);
     setRefreshKey((key) => key + 1);
@@ -197,7 +198,6 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const readyEngines = engines.filter(engineReady);
   const setupEngines = engines.filter((instance) => !engineReady(instance));
   const hasReadyEngine = live.some(engineReady);
-  const connectEngines = emptyConnect ? firstLaunchConnectInstances(instances) : setupEngines;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-app/95 p-6 backdrop-blur-xl">
@@ -248,7 +248,12 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             <button
               type="button"
               disabled={!instances && !instancesError}
-              onClick={() => instancesError ? retryInstances() : hasReadyEngine ? finish() : setStep(1)}
+              onClick={() => {
+                if (instancesError) return retryInstances();
+                if (hasReadyEngine) return finish();
+                setConnectSession(emptyConnect);
+                setStep(1);
+              }}
               className={`${instancesError ? "mt-3" : "mt-6"} w-full rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-accent-ink transition-[filter,transform] hover:brightness-110 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40`}
             >
               {instancesError ? t("onboarding.tryAgain") : !instances ? t("onboarding.checking") : emptyConnect ? t("noEngines.title") : t("onboarding.continue")}
@@ -263,6 +268,9 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                 <p className="mt-0.5 text-[12.5px] text-ink-secondary">{emptyConnect ? t("noEngines.body") : t("onboarding.enginesFound")}</p>
               </div>
             </div>
+            {emptyConnect && instances ? <div className="mt-5 flex min-h-0 flex-col">
+              <EngineConnect instances={instances} onRefresh={retryInstances} recheckOnFocus={false} footer={{ back: () => setStep(0), open: finish }} />
+            </div> : <>
             <div className="mt-5 flex min-h-0 flex-col gap-2.5 overflow-y-auto pr-1 [scrollbar-width:thin]">
               {instancesError ? (
                 <div role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-3.5 py-3 text-[12.5px] text-danger">
@@ -272,8 +280,6 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                 <div className="flex items-center justify-center gap-2 py-12 text-[13px] text-ink-secondary">
                   <Loader2 size={15} className="animate-spin" /> {t("onboarding.checking")}
                 </div>
-              ) : emptyConnect ? (
-                connectEngines.map((instance) => <SetupRow key={instance.instanceId} instance={instance} onConnected={retryInstances} />)
               ) : (
                 <>
                   {readyEngines.length > 0 && (
@@ -302,11 +308,9 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             </div>
             <div className="mt-5 flex shrink-0 items-center gap-2.5">
               <button type="button" onClick={() => setStep(0)} className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">{t("onboarding.back")}</button>
-              <button type="button" onClick={instancesError || emptyConnect ? retryInstances : finish} disabled={!instancesError && !emptyConnect && !hasReadyEngine} className="flex-1 rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-accent-ink hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{instancesError ? t("onboarding.tryAgain") : emptyConnect ? t("noEngines.checkAgain") : t("onboarding.openOrbit")}</button>
-              {emptyConnect && !instancesError && (
-                <button type="button" onClick={finish} className="rounded-xl px-4 py-2.5 text-[13px] text-ink-secondary hover:bg-control hover:text-ink">{t("onboarding.openOrbit")}</button>
-              )}
+              <button type="button" onClick={instancesError ? retryInstances : finish} disabled={!instancesError && !hasReadyEngine} className="flex-1 rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-accent-ink hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">{instancesError ? t("onboarding.tryAgain") : t("onboarding.openOrbit")}</button>
             </div>
+            </>}
           </div>
         )}
       </div>
