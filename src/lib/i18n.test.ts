@@ -244,20 +244,36 @@ describe("preference persistence", () => {
     vi.unstubAllGlobals();
   });
 
-  it("defaults to English when nothing is stored, even on a Korean OS", () => {
-    expect(readPreference()).toBe("en");
-    expect(resolveLocale(readPreference(), "ko-KR")).toBe("en");
+  it.each([
+    ["ko-KR", "ko"],
+    ["en-US", "en"],
+    ["ja-JP", "en"],
+  ])("uses %s on first launch to select %s", (osTag, locale) => {
+    vi.stubGlobal("navigator", { language: osTag });
+    expect(resolveLocale(readPreference())).toBe(locale);
   });
 
   it("remembers an explicit English or Korean choice", () => {
     persistPreference("ko");
     expect(readPreference()).toBe("ko");
-    expect(resolveLocale(readPreference(), "ko-KR")).toBe("ko");
+    expect(resolveLocale(readPreference(), "en-US")).toBe("ko");
     expect(activeLocale()).toBe("ko");
     persistPreference("en");
     expect(readPreference()).toBe("en");
     expect(resolveLocale(readPreference(), "ko-KR")).toBe("en");
     expect(activeLocale()).toBe("en");
+  });
+
+  it.each([
+    ["ko-KR", "ko"],
+    ["en-US", "en"],
+  ])("remembers Auto on %s and selects %s", (osTag, locale) => {
+    vi.stubGlobal("navigator", { language: osTag });
+    persistPreference("en");
+    persistPreference("system");
+    expect(readPreference()).toBe("system");
+    expect(resolveLocale(readPreference())).toBe(locale);
+    expect(activeLocale()).toBe(locale);
   });
 });
 
