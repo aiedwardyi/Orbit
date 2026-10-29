@@ -4,7 +4,7 @@ import type { InstanceInfo } from "@/state/store";
 import { firstLaunchConnectInstances } from "@/lib/engine-rail";
 import { useI18n } from "@/lib/i18n";
 import { useEngineInstall } from "@/lib/use-engine-install";
-import { EngineSetup, installCommandFor, openEngineInstallOrCopy } from "./EngineSetup";
+import { EngineSetup, EngineSignIn, installCommandFor, openEngineInstallOrCopy } from "./EngineSetup";
 import { ProviderMark } from "./ProviderIcons";
 
 const ORDER = ["claudeAgent", "codex", "antigravityAgent", "grokAgent", "museAgent"];
@@ -21,9 +21,9 @@ export function EngineConnect({ instances, onRefresh, recheckOnFocus = true, foo
   const commandsId = useId();
   const [commands, setCommands] = useState(!canInstall);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
   const { attempts, begin, fail } = useEngineInstall(instances, onRefresh, recheckOnFocus);
   const engines = firstLaunchConnectInstances(instances).sort((a, b) => ORDER.indexOf(a.driverKind) - ORDER.indexOf(b.driverKind));
-  const name = (instance: InstanceInfo) => instance.driverKind === "antigravityAgent" ? "Gemini (Antigravity)" : instance.displayName;
 
   const install = async (instance: InstanceInfo) => {
     const id = instance.instanceId;
@@ -31,20 +31,16 @@ export function EngineConnect({ instances, onRefresh, recheckOnFocus = true, foo
     const command = installCommandFor(instance.install);
     if (!canInstall || !command) { setCommands(true); return; }
     begin(id);
+    setOpened((current) => ({ ...current, [id]: false }));
     setBusy((current) => ({ ...current, [id]: true }));
     try {
-      if (await openEngineInstallOrCopy(id, command) === "copied") fail(id);
+      const result = await openEngineInstallOrCopy(id, command);
+      if (result === "copied") fail(id);
+      if (result === "opened") {
+        setOpened((current) => ({ ...current, [id]: true }));
+        setCommands(true);
+      }
     } catch { fail(id); }
-    finally { setBusy((current) => ({ ...current, [id]: false })); }
-  };
-
-  const signIn = async (instance: InstanceInfo) => {
-    const id = instance.instanceId;
-    if (busy[id]) return;
-    setBusy((current) => ({ ...current, [id]: true }));
-    try {
-      if (!window.ogb?.openEngineSignIn || await window.ogb.openEngineSignIn(id) === "copied") setCommands(true);
-    } catch { setCommands(true); }
     finally { setBusy((current) => ({ ...current, [id]: false })); }
   };
 
@@ -54,32 +50,36 @@ export function EngineConnect({ instances, onRefresh, recheckOnFocus = true, foo
     const attempt = attempts[instance.instanceId];
     const working = !installed && attempt && !attempt.failed;
     const failed = !installed && attempt?.failed;
-    const label = ready ? t("engineConnect.ready", { name: name(instance) })
-      : installed ? t("engineConnect.signIn", { name: name(instance) })
-        : working ? t("engineConnect.installing", { name: name(instance) })
-          : failed ? t("engineConnect.tryAgain")
-            : recommended ? t("engineConnect.install", { name: name(instance) }) : t("engines.install");
+    const paste = working && opened[instance.instanceId];
+    const label = ready ? t("engineConnect.ready", { name: instance.displayName })
+      : installed ? t("engineConnect.signIn", { name: instance.displayName })
+        : paste ? t("engine.terminalOpened")
+          : working ? t("engineConnect.installing", { name: instance.displayName })
+            : failed ? t("engineConnect.tryAgain")
+              : recommended ? t("engineConnect.install", { name: instance.displayName }) : t("engines.install");
     const accountKey = ACCOUNTS[instance.driverKind as keyof typeof ACCOUNTS];
-    const button = <button type="button" disabled={Boolean(working || busy[instance.instanceId])}
-      onClick={() => ready ? undefined : installed ? void signIn(instance) : void install(instance)}
-      className={`flex shrink-0 items-center justify-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold disabled:cursor-default ${recommended ? "w-full bg-accent text-accent-ink hover:brightness-110" : "bg-control text-ink hover:bg-raised-hover"}`}>
-      {ready ? <Check size={14} /> : working ? <Loader2 size={14} className="animate-spin" /> : recommended ? <Download size={14} /> : null}
+    const buttonClassName = `flex shrink-0 items-center justify-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold disabled:cursor-default ${recommended ? "w-full bg-accent text-accent-ink hover:brightness-110" : "bg-control text-ink hover:bg-raised-hover"}`;
+    const button = installed && !ready ? <EngineSignIn instance={instance} buttonLabel={label} buttonClassName={buttonClassName}
+      onUpdated={(next) => { if (next.snapshot.authenticated === true) void onRefresh(); }} />
+      : <button type="button" disabled={Boolean(ready || working || busy[instance.instanceId])}
+      onClick={() => void install(instance)} className={buttonClassName}>
+      {ready || paste ? <Check size={14} /> : working ? <Loader2 size={14} className="animate-spin" /> : recommended ? <Download size={14} /> : null}
       {label}
     </button>;
     return <div key={instance.instanceId} data-engine-connect={instance.instanceId}
       className={recommended ? "rounded-xl border border-hairline/50 bg-card p-4" : "border-b border-hairline/30 py-3 last:border-0"}>
       {recommended ? <>
-        <div className="mb-3 flex items-center gap-2 text-[15px] font-semibold text-ink"><ProviderMark driverKind={instance.driverKind} size={20} />{name(instance)}</div>
+        <div className="mb-3 flex items-center gap-2 text-[15px] font-semibold text-ink"><ProviderMark driverKind={instance.driverKind} size={20} />{instance.displayName}</div>
         {button}
         <p className="mt-2.5 break-keep text-[12px] leading-relaxed text-ink-secondary">{t("engineConnect.note")}</p>
       </> : <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2.5"><ProviderMark driverKind={instance.driverKind} size={16} />
-          <div><div className="text-[13px] font-medium text-ink">{name(instance)}</div>
+          <div><div className="text-[13px] font-medium text-ink">{instance.displayName}</div>
             {accountKey && <div className="mt-0.5 text-[11.5px] text-ink-secondary">{t(accountKey)}</div>}
           </div>
         </div>{button}
       </div>}
-      {working && <p role="status" className="mt-2 text-[12px] text-ink-secondary">{t("engineConnect.finish")}</p>}
+      {working && <p role="status" className="mt-2 text-[12px] text-ink-secondary">{t(paste ? "engine.pasteAndEnter" : "engineConnect.finish")}</p>}
       {failed && <p role="status" className="mt-2 text-[12px] text-ink-secondary">{t("engineConnect.didntFinish")}</p>}
     </div>;
   };

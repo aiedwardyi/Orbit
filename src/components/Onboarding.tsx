@@ -102,20 +102,18 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const [instances, setInstances] = useState<InstanceInfo[] | null>(null);
   const [instancesError, setInstancesError] = useState<string | null>(null);
   const [signedOut, setSignedOut] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const refreshInstancesRef = useRef<() => Promise<void>>(async () => {});
   const dialogRef = useRef<HTMLDivElement>(null);
   // A phone opens a PC that is already set up, so it only ever needs the sign-in.
   const phone = !window.ogb && isPhone();
 
   useEffect(() => {
     let active = true;
-    let latestRequest = 0;
-    // The first check reads the server's last probe; a retry or a return from
-    // installing a CLI in a terminal asks it to probe again.
+    let pending: Promise<void> | undefined;
     const refresh = (probe: boolean) => {
-      const request = ++latestRequest;
+      if (pending) return pending;
       setInstancesError(null);
-      fetch(probe ? "/api/instances?refresh=1" : "/api/instances")
+      pending = fetch(probe ? "/api/instances?refresh=1" : "/api/instances")
         .then((response) => {
           // A phone without this PC's cookie, not a broken engine check.
           if (response.status === 401) return null;
@@ -123,26 +121,28 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
           return response.json();
         })
         .then((data) => {
-          if (!active || request !== latestRequest) return;
+          if (!active) return;
           if (data && phone) return onDone();
           setSignedOut(!data);
           if (data) setInstances(data.instances ?? []);
         })
         .catch(() => {
-          if (active && request === latestRequest) {
+          if (active) {
             setSignedOut(false);
             setInstancesError(t("onboarding.enginesError"));
           }
-        });
+        }).finally(() => { pending = undefined; });
+      return pending;
     };
-    refresh(refreshKey > 0);
-    const onFocus = () => refresh(true);
+    refreshInstancesRef.current = () => refresh(true);
+    void refresh(false);
+    const onFocus = () => { void refresh(true); };
     window.addEventListener("focus", onFocus);
     return () => {
       active = false;
       window.removeEventListener("focus", onFocus);
     };
-  }, [refreshKey]);
+  }, []);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -177,7 +177,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     // Keep setup visible while an install probe runs.
     if (!emptyConnect) setInstances(null);
     setInstancesError(null);
-    setRefreshKey((key) => key + 1);
+    return refreshInstancesRef.current();
   };
 
   const finish = () => {
@@ -269,7 +269,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               </div>
             </div>
             {emptyConnect && instances ? <div className="mt-5 flex min-h-0 flex-col">
-              <EngineConnect instances={instances} onRefresh={retryInstances} recheckOnFocus={false} footer={{ back: () => setStep(0), open: finish }} />
+              <EngineConnect instances={instances} onRefresh={retryInstances} recheckOnFocus={false} footer={{ back: () => { setConnectSession(false); setStep(0); }, open: finish }} />
             </div> : <>
             <div className="mt-5 flex min-h-0 flex-col gap-2.5 overflow-y-auto pr-1 [scrollbar-width:thin]">
               {instancesError ? (

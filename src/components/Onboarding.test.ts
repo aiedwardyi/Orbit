@@ -40,6 +40,6 @@ describe("onboarding empty-engine path", () => {
   });
 
   it("lets an empty-engine launch skip into the shell", () => {
-    expect(source).toContain("footer={{ back: () => setStep(0), open: finish }}");
+    expect(source).toContain("open: finish");
   });
 });

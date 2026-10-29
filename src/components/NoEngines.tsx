@@ -15,7 +15,7 @@ export function NoEngines() {
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-secondary">
           {phone ? t("noEngines.phoneBody") : t("noEngines.body")}
         </p>
-        {!phone && <div className="mt-6"><EngineConnect instances={state.instances} onRefresh={() => refreshInstances(true)} /></div>}
+        {!phone && <div className="mt-6"><EngineConnect instances={state.instances} onRefresh={() => refreshInstances("passive")} /></div>}
       </div>
     </main>
   );

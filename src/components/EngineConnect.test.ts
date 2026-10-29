@@ -1,17 +1,18 @@
 import "./ProfileFields.test-dom.ts";
-import { act, createElement } from "react";
+import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { persistPreference, I18nProvider } from "@/lib/i18n";
 import type { InstanceInfo } from "@/state/store";
 import { Onboarding } from "./Onboarding";
 import { NoEngines } from "./NoEngines";
+import { EngineConnect } from "./EngineConnect";
 
 let instances: InstanceInfo[];
 let host: HTMLDivElement;
 let root: Root | undefined;
 let fetchMock: ReturnType<typeof vi.fn>;
-const refreshInstances = vi.fn(async () => {});
+const refreshInstances = vi.fn(async (_mode?: boolean | "passive") => {});
 vi.mock("@/state/store", async (original) => ({
   ...await original<typeof import("@/state/store")>(),
   useStore: () => ({ state: { instances }, refreshInstances }),
@@ -19,7 +20,7 @@ vi.mock("@/state/store", async (original) => ({
 
 const fleet = () => [
   ["claude", "claudeAgent", "Claude"], ["codex", "codex", "Codex"],
-  ["grok", "grokAgent", "Grok"], ["antigravity", "antigravityAgent", "Antigravity"],
+  ["grok", "grokAgent", "Grok"], ["antigravity", "antigravityAgent", "Gemini (Antigravity)"],
   ["muse", "museAgent", "Meta Muse"],
 ].map(([instanceId, driverKind, displayName]): InstanceInfo => ({
   instanceId, driverKind, displayName, snapshot: { state: "unavailable" }, models: { default: "", options: [] },
@@ -27,7 +28,7 @@ const fleet = () => [
     signInCommand: `${instanceId} login`, docsUrl: `https://example.com/${instanceId}` },
 }));
 
-async function render(view = createElement(Onboarding, { onDone: vi.fn() })) {
+async function render(view: ReactElement = createElement(Onboarding, { onDone: vi.fn() })) {
   root ??= createRoot(host);
   await act(async () => root!.render(createElement(I18nProvider, null, view)));
 }
@@ -109,7 +110,8 @@ describe("first engine connection", () => {
     await advance(15000);
     expect(fetchMock).toHaveBeenCalledTimes(count);
     await click("Sign in to Claude");
-    expect(window.ogb!.openEngineSignIn).toHaveBeenCalledExactlyOnceWith("claude");
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/instances/claude/sign-in", expect.objectContaining({ method: "POST", body: '{"device":false}' }));
+    expect(window.ogb!.openEngineSignIn).not.toHaveBeenCalled();
     instances = instances.map((row) => row.instanceId === "claude" ? { ...row, snapshot: { state: "available", authenticated: true } } : row);
     await act(async () => window.dispatchEvent(new Event("focus")));
     expect(host.textContent).toContain("Claude is ready");
@@ -233,10 +235,83 @@ describe("first engine connection", () => {
     expect(host.textContent).toContain("Install Claude");
     expect(host.querySelector("code")).toBeNull();
     await act(async () => window.dispatchEvent(new Event("focus")));
-    expect(refreshInstances).toHaveBeenCalledWith(true);
+    expect(refreshInstances).toHaveBeenCalledExactlyOnceWith("passive");
     await click("Install Claude");
     await advance(5000);
     expect(refreshInstances).toHaveBeenCalledTimes(2);
+    expect(refreshInstances).toHaveBeenLastCalledWith("passive");
+    expect(refreshInstances.mock.calls.every((args) => !args.includes(true))).toBe(true);
+  });
+
+  it("keeps an onboarding poll response that takes longer than five seconds, including a focus check", async () => {
+    await connect();
+    await click("Install Claude");
+    fetchMock.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 12000));
+      return Response.json({ instances: instances.map((row) => row.instanceId === "claude"
+        ? { ...row, snapshot: { state: "available", authenticated: true } } : row) });
+    });
+    await advance(5000);
+    await advance(5000);
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await advance(7000);
+    expect(host.textContent).toContain("Claude is ready");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/instances", "/api/instances?refresh=1"]);
+  });
+
+  it("shows paste guidance and commands for a blank terminal, polling until the ten-minute deadline", async () => {
+    Object.assign(window.ogb!, { platform: "linux", openEngineInstall: vi.fn(async () => "opened") });
+    await connect();
+    await click("Install Claude");
+    const row = host.querySelector('[data-engine-connect="claude"]')!;
+    expect(row.textContent).toContain("Paste the command in Terminal and press Enter.");
+    expect(row.textContent).toContain("Terminal opened");
+    expect(row.textContent).not.toContain("Installing Claude…");
+    expect(row.textContent).not.toContain("Finish in the window that opened.");
+    expect(host.querySelector("[data-engine-connect-commands] code")?.textContent).toBe("install-claude");
+    await advance(595000);
+    expect(fetchMock).toHaveBeenCalledTimes(120);
+    await advance(25000);
+    expect(fetchMock).toHaveBeenCalledTimes(120);
+    expect(row.textContent).toContain("Didn't finish?");
+  });
+
+  it.each(["claudeAgent", "codex"])("signs in the configured %s instance through the server", async (kind) => {
+    const instance = instances.find((row) => row.driverKind === kind)!;
+    const configured = { ...instance, instanceId: `${instance.instanceId} work/profile`,
+      snapshot: { state: "available" as const, authenticated: false } };
+    await render(createElement(EngineConnect, { instances: [configured], onRefresh: refreshInstances }));
+    await click(`Sign in to ${configured.displayName}`);
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`/api/instances/${encodeURIComponent(configured.instanceId)}/sign-in`,
+      expect.objectContaining({ method: "POST", body: '{"device":false}' }));
+    expect(window.ogb!.openEngineSignIn).not.toHaveBeenCalled();
+  });
+
+  it("disables the ready status button", async () => {
+    instances[0]!.snapshot = { state: "available", authenticated: true };
+    await render(createElement(EngineConnect, { instances, onRefresh: refreshInstances }));
+    const button = host.querySelector<HTMLButtonElement>('[data-engine-connect="claude"] button')!;
+    expect(button.textContent).toBe("Claude is ready");
+    expect(button.disabled).toBe(true);
+  });
+
+  it("resets the connect session on Back after an engine becomes available", async () => {
+    await connect();
+    instances[0]!.snapshot = { state: "available", authenticated: false };
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await click("Back");
+    expect([...host.querySelectorAll("button")].some((button) => button.textContent === "Continue")).toBe(true);
+    await click("Continue");
+    expect(host.textContent).toContain("Wink found the engines on this computer.");
+  });
+
+  it("uses the configured Antigravity display name", async () => {
+    instances.find((row) => row.driverKind === "antigravityAgent")!.displayName = "Gemini Work";
+    await connect();
+    const row = host.querySelector('[data-engine-connect="antigravity"]')!;
+    expect(row.textContent).toContain("Gemini Work");
+    expect(row.textContent).not.toContain("Gemini (Antigravity)");
   });
 
   it.each(["en", "ko"] as const)("shows only the phone copy in %s, with no commands or polling", async (locale) => {
