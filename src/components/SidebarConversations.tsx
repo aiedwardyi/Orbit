@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Crown, Loader2, Pin, Users, X } from "lucide-react";
 import { roomConversationPreview } from "@/lib/conversation-preview";
@@ -19,6 +19,7 @@ import { chatNeedsYou } from "@/lib/open-question";
 import { routineRinging } from "@/lib/routine-ring";
 import { useArrivalGlow } from "@/lib/arrival-glow";
 import { localeTag, useI18n } from "@/lib/i18n";
+import { sidebarWorkerStatus } from "@/lib/worker-status";
 import { terminalAttentionCopy } from "@/lib/notify";
 
 export function compactSidebarModelLabel(label: string): string {
@@ -286,12 +287,8 @@ function BotListItem({
   const expandedModelLabel = modelLabel ? compactSidebarModelLabel(modelLabel) : null;
   const terminalAttention = terminalAttentionForBot(state.terminalAttention, bot.id);
   const terminalCopy = terminalAttention ? terminalAttentionCopy(terminalAttention.reason, locale) : null;
-  const paneLabels = state.terminalPanes[bot.id] ?? [];
-  const workerPanes = paneLabels.length;
-  const workerPanesLabel = workerPanes
-    ? t(workerPanes === 1 ? "chrome.workerPanesOne" : "chrome.workerPanesMany", { count: workerPanes })
-    : null;
-  const workerPanesTitle = workerPanesLabel && [workerPanesLabel, ...paneLabels.filter(Boolean)].join("\n");
+  const paneLabels = state.terminalPanes[bot.id];
+  const workerStatus = useMemo(() => sidebarWorkerStatus(visible, paneLabels ?? [], t), [visible, paneLabels, t]);
   const question = chatNeedsYou(bot.messages);
   const asking = question || routineRinging(state.routineRuns, bot.threadId, bot.tasks);
   const unreadRing = Boolean(bot.unread) && !asking;
@@ -310,7 +307,7 @@ function BotListItem({
     unreadRing && "relative unread-ring",
     arrival.playing && "relative arrival-glow",
   );
-  const iconLabel = [bot.name, modelLabel, keepGoingLabel].filter(Boolean).join(" · ");
+  const iconLabel = [bot.name, workerStatus || modelLabel, keepGoingLabel].filter(Boolean).join(" · ");
   const body = (
     <>
       <span className={cn("relative shrink-0", iconOnly && "inline-flex")}>
@@ -351,43 +348,26 @@ function BotListItem({
             <KeepGoingMark state={keepGoing} size={avatarSize >= 44 ? 12 : 10} />
           </span>
         )}
-        {(terminalCopy || workerPanesLabel) && (
+        {terminalAttention && terminalCopy && (
           <span className="absolute -right-1 -top-1 z-10 flex">
-            {terminalAttention && terminalCopy ? (
-              <button
-                type="button"
-                data-sidebar-terminal-attention
-                data-terminal-session-id={terminalAttention.sessionId}
-                data-terminal-reason={terminalAttention.reason}
-                aria-label={`${bot.name}: ${[terminalCopy.tooltip, workerPanesLabel].filter(Boolean).join(", ")}`}
-                title={[terminalCopy.tooltip, workerPanesTitle].filter(Boolean).join("\n")}
-                onKeyDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  if (onTerminalAttention) onTerminalAttention(terminalAttention);
-                  else dispatch({ type: "ackTerminalAttention", botId: terminalAttention.botId, sessionId: terminalAttention.sessionId });
-                }}
-                className="flex h-5 min-w-5 items-center justify-center gap-0.5 rounded-sm border border-accent/60 bg-panel px-1 font-mono text-[9px] font-bold leading-none shadow-sm hover:bg-accent/10"
-              >
-                <span aria-hidden="true" className="text-accent">&gt;_</span>
-                {workerPanes > 0 && (
-                  <span data-sidebar-worker-panes={workerPanes} aria-hidden="true" className="text-ink-secondary">
-                    {workerPanes}
-                  </span>
-                )}
-              </button>
-            ) : (
-              <span
-                role="img"
-                aria-label={`${bot.name}: ${workerPanesLabel}`}
-                title={workerPanesTitle ?? undefined}
-                className="flex h-5 min-w-5 items-center justify-center gap-0.5 rounded-sm border border-hairline/60 bg-panel px-1 font-mono text-[9px] font-bold leading-none text-ink-secondary shadow-sm"
-              >
-                <span aria-hidden="true">&gt;_</span>
-                <span data-sidebar-worker-panes={workerPanes} aria-hidden="true">{workerPanes}</span>
-              </span>
-            )}
+            <button
+              type="button"
+              data-sidebar-terminal-attention
+              data-terminal-session-id={terminalAttention.sessionId}
+              data-terminal-reason={terminalAttention.reason}
+              aria-label={`${bot.name}: ${terminalCopy.tooltip}`}
+              title={terminalCopy.tooltip}
+              onKeyDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (onTerminalAttention) onTerminalAttention(terminalAttention);
+                else dispatch({ type: "ackTerminalAttention", botId: terminalAttention.botId, sessionId: terminalAttention.sessionId });
+              }}
+              className="flex h-5 min-w-5 items-center justify-center gap-0.5 rounded-sm border border-accent/60 bg-panel px-1 font-mono text-[9px] font-bold leading-none shadow-sm hover:bg-accent/10"
+            >
+              <span aria-hidden="true" className="text-accent">&gt;_</span>
+            </button>
           </span>
         )}
       </span>
@@ -438,7 +418,9 @@ function BotListItem({
                 <Crown size={11} /> {t("chrome.chiefOfStaff")}
               </div>
             )}
-            {(expandedModelLabel || bot.busy) && (
+            {workerStatus ? (
+              <div data-sidebar-worker-status className={cn("truncate text-ink-secondary", density === "compact" ? "text-xs leading-tight" : "text-[13px]")}>{workerStatus}</div>
+            ) : (expandedModelLabel || bot.busy) && (
               <div
                 data-sidebar-model-row
                 className={cn(
