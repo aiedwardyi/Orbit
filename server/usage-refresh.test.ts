@@ -5,6 +5,8 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { z } from "zod";
+
 import { canRefreshUsage, createMuseCheck, createUsageRefresh, isCsrfRejection, museCheckModel, readAntigravityQuota, readAntigravityUsageCommand, readGrokBillingRpc, readMuseUsage, usageRefreshResponse } from "./usage-refresh.ts";
 import { antigravityRateLimitWindows } from "./drivers/rate-limits.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
@@ -30,6 +32,9 @@ const fixtures = {
     },
   },
 };
+// Redacted real reads: Codex repeats its default bucket, Claude adds seven_day_breakdown, Grok renews a login mid-read.
+const real = z.object({ claude: z.json(), codex: z.json(), grokRenewing: z.json(), grokSettled: z.json() })
+  .parse(JSON.parse(readFileSync(new URL("./usage-refresh.fixture.json", import.meta.url), "utf8")));
 const credentials = JSON.stringify({ claudeAiOauth: { accessToken: "access-secret" }, "auth.x.ai::test": { key: "access-secret", user_id: "user" }, tokens: { access_token: "access-secret", refresh_token: "refresh-secret" } });
 const unreadableCodexBuckets: Record<string, JsonValue>[] = [{}, { primary: { usedPercent: "unknown" } }];
 
@@ -59,11 +64,40 @@ describe("usage refresh route result", () => {
     expect(result.report?.windows).toContainEqual({ id: "spark:five_hour", usedPercent: 100, resetsAt: Date.parse(reset), windowMinutes: 300 });
   });
 
-  it.each(unreadableCodexBuckets)("fails closed for an unreadable scoped Codex bucket: %j", async (snapshot) => {
-    const refresh = createUsageRefresh({ rpc: async () => ({ ...fixtures.codex, rateLimitsByLimitId: { spark: snapshot } }) });
+  it.each(unreadableCodexBuckets)("skips an unreadable scoped Codex bucket and keeps the known windows: %j", async (snapshot) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const refresh = createUsageRefresh({ rpc: async () => ({ ...fixtures.codex, rateLimitsByLimitId: { spark: snapshot } }) });
+      const result = await refresh("codex", { instanceId: "codex" });
+      expect(result.error).toBeUndefined();
+      expect(result.report?.windows.map((window) => window.id)).toEqual(["five_hour", "seven_day"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("lists the default Codex bucket once when rateLimitsByLimitId repeats it", async () => {
+    const refresh = createUsageRefresh({ rpc: async () => real.codex });
     const result = await refresh("codex", { instanceId: "codex" });
-    expect(result.error).toBe("Could not refresh Codex limits");
-    expect(result.report).toBeUndefined();
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows).toEqual([{ id: "seven_day", usedPercent: 58, resetsAt: 1_793_774_106_000, windowMinutes: 10_080 }]);
+  });
+
+  it("reads Claude windows past a seven_day key that is not a window and logs the key once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const refresh = createUsageRefresh({ platform: "linux", throttleMs: 0, read: async () => credentials, request: async () => Response.json(real.claude) });
+      for (const result of [await refresh("claudeAgent", { instanceId: "claude" }), await refresh("claudeAgent", { instanceId: "claude" })]) {
+        expect(result.error).toBeUndefined();
+        expect(result.report?.windows).toEqual([
+          { id: "five_hour", usedPercent: 30, resetsAt: Date.parse("2026-10-29T15:09:59.696703+00:00"), windowMinutes: 300 },
+          { id: "seven_day", usedPercent: 81, resetsAt: Date.parse("2026-11-02T07:59:59.696721+00:00"), windowMinutes: 10_080 },
+        ]);
+      }
+      expect(warn.mock.calls.filter(([line]) => String(line).includes("seven_day_breakdown"))).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
   it.each(["claudeAgent", "codex"] as const)("normalizes %s without leaking credentials", async (driver) => {
     const refresh = createUsageRefresh({
@@ -121,6 +155,17 @@ describe("usage refresh route result", () => {
     expect(result.report?.windows).toEqual([
       { id: "seven_day", usedPercent: 0, resetsAt: Date.parse(reset), windowMinutes: 10_080 },
     ]);
+  });
+
+  it("reads Grok billing again when the answer after a login renewal has no tier yet", async () => {
+    const answers = [real.grokRenewing, real.grokSettled];
+    const refresh = createUsageRefresh({ platform: "linux", billing: async () => answers.shift() ?? {} });
+    const result = await refresh("grokAgent", { instanceId: "grok" });
+    expect(result.error).toBeUndefined();
+    expect(result.report?.windows).toEqual([
+      { id: "seven_day", usedPercent: 0, resetsAt: Date.parse("2026-11-05T07:02:43.495651+00:00"), windowMinutes: 10_080 },
+    ]);
+    expect(answers).toEqual([]);
   });
 
   it.each([

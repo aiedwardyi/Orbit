@@ -10,7 +10,7 @@ import { api, useStore, type InstanceInfo } from "@/state/store";
 import { MausAvatar } from "./Avatar";
 import { Card } from "./SettingsPrimitives";
 import { EngineMark } from "./EngineMark";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type Translate } from "@/lib/i18n";
 import { showUsagePerBotTable } from "@/lib/friends-chrome";
 import { splitFriendsEngines } from "@/lib/engine-rail";
 import { setUsageMode, useUsageMode } from "@/lib/usage-preferences";
@@ -47,6 +47,13 @@ const PLAN_USAGE_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent", "museAg
 const REFRESH_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent"]);
 const canRefresh = (instance: InstanceInfo) => REFRESH_DRIVERS.has(instance.driverKind);
 type RefreshResult = { error?: string; status?: string };
+// The server words these failures in English, without a period.
+function refreshErrorText(error: string, t: Translate): string {
+  const failed = /^Could not refresh (.+) limits$/.exec(error);
+  if (failed) return t("usage.limits.couldNotRefresh", { name: failed[1]! });
+  const signIn = /^Sign in again in (.+)$/.exec(error);
+  return signIn ? t("usage.limits.signInAgain", { name: signIn[1]! }) : error;
+}
 type CheckLimits = Record<string, { resetsAt: number | null }>;
 
 // One shared row for every engine in the plan card: the label sits left and
@@ -141,8 +148,8 @@ function EnginePlanRow({
       {error && (
         <div className="mt-1 text-[12px] text-danger">
           {instance.rateLimits
-            ? t("usage.limits.refreshFailed", { message: error })
-            : t("usage.limits.refreshFailedNoData", { message: error })}
+            ? t("usage.limits.refreshFailed", { message: refreshErrorText(error, t) })
+            : t("usage.limits.refreshFailedNoData", { message: refreshErrorText(error, t) })}
         </div>
       )}
     </div>

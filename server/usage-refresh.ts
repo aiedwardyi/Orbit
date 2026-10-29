@@ -38,7 +38,7 @@ const timestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value)))
 const oauthWindow = z.object({ utilization: percent, resets_at: timestamp.nullable() });
 const oauthUsage = z.object({ five_hour: oauthWindow.nullable(), seven_day: oauthWindow.nullable() }).passthrough();
 const codexUsageWindow = z.object({ usedPercent: percent }).passthrough();
-const codexUsage = z.object({ primary: codexUsageWindow.nullable().optional(), secondary: codexUsageWindow.nullable().optional() }).passthrough();
+const codexUsage = z.object({ limitId: z.string().nullish(), primary: codexUsageWindow.nullable().optional(), secondary: codexUsageWindow.nullable().optional() }).passthrough();
 const claudeStoredOauth = z.object({
   claudeAiOauth: z.object({ accessToken: text, refreshToken: text.optional(), expiresAt: z.number().finite().optional() }).passthrough(),
 }).passthrough();
@@ -777,6 +777,13 @@ async function readClaudeFileUsage(deps: ClaudeFileDeps): Promise<Response> {
   return response;
 }
 
+const skippedWindows = new Set<string>();
+function skipWindow(name: string, id: string): void {
+  if (skippedWindows.has(`${name}:${id}`)) return;
+  skippedWindows.add(`${name}:${id}`);
+  console.warn(`usage-refresh: skipped unreadable ${name} window ${id}`);
+}
+
 export function canRefreshUsage(driver: string, environment: NodeJS.ProcessEnv = {}, platform = process.platform): boolean {
   return ["claudeAgent", "codex", "grokAgent", "antigravityAgent", "museAgent"].includes(driver)
     && (driver !== "claudeAgent" || platform !== "darwin" || Boolean(({ ...process.env, ...environment }).CLAUDE_CODE_OAUTH_TOKEN));
@@ -818,14 +825,21 @@ export function createUsageRefresh(deps: {
         let observedAt: string | undefined;
         if (driver === "codex") {
           const result = z.object({ rateLimits: z.json(), rateLimitsByLimitId: z.record(z.string(), z.json()).optional() }).parse(await (deps.rpc ?? readUsageRpc)(options.cli || "codex", env));
-          windows = codexRateLimitWindows(codexUsage.parse(result.rateLimits));
+          const rateLimits = codexUsage.parse(result.rateLimits);
+          windows = codexRateLimitWindows(rateLimits);
           for (const [id, snapshot] of Object.entries(result.rateLimitsByLimitId ?? {})) {
-            const bucket = codexRateLimitWindows(codexUsage.parse(snapshot));
-            if (!bucket.length) throw new Error("refresh");
+            // the map lists the default bucket again under its own limitId
+            if (id === rateLimits.limitId) continue;
+            const parsed = codexUsage.safeParse(snapshot);
+            const bucket = parsed.success ? codexRateLimitWindows(parsed.data) : [];
+            if (!bucket.length) skipWindow(name, id);
             windows.push(...bucket.map((window) => ({ ...window, id: `${id}:${window.id}` })));
           }
         } else if (driver === "grokAgent") {
-          windows = grokRateLimitWindows(await (deps.billing ?? readGrokBillingRpc)(options.cli || "grok", env));
+          const billing = deps.billing ?? readGrokBillingRpc;
+          windows = grokRateLimitWindows(await billing(options.cli || "grok", env));
+          // grok's first answer after renewing an expired login can lack the plan tier
+          if (!windows.length) windows = grokRateLimitWindows(await billing(options.cli || "grok", env));
         } else if (driver === "antigravityAgent") {
           windows = antigravityRateLimitWindows(await (deps.antigravity ?? readAntigravityQuota)(options.cli || "agy", env), clock());
         } else if (driver === "museAgent") {
@@ -855,7 +869,9 @@ export function createUsageRefresh(deps: {
           if (!response.ok) throw new Error("refresh");
           const usage = oauthUsage.parse(await response.json());
           windows = Object.entries(usage).filter(([id]) => id === "five_hour" || id.startsWith("seven_day")).flatMap(([id, value]) => {
-            const window = oauthWindow.nullable().parse(value);
+            const parsed = oauthWindow.nullable().safeParse(value);
+            if (!parsed.success) skipWindow(name, id);
+            const window = parsed.data;
             return window ? [{ id, usedPercent: window.utilization, resetsAt: window.resets_at ? Date.parse(window.resets_at) : null, windowMinutes: id === "five_hour" ? 300 : 10080 }] : [];
           });
         }
