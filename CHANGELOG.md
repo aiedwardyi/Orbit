@@ -2,6 +2,24 @@
 
 All notable changes to Wink, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Earlier releases are on [GitHub Releases](https://github.com/aiedwardyi/orbit-releases/releases).
 
+## [1.0.214] - 2026-10-29
+
+### Added
+- A chat that hits a Claude or Codex usage limit resumes on its own when the limit resets; sending any message cancels it.
+- 13 more avatar choices: 8 job symbols and 5 engine colors.
+- Optional error reports, off until you turn them on.
+
+### Changed
+- A usage limit shows "Usage limit reached" with its reset time.
+- Each bot shows the avatar color you picked everywhere, and a calm gray icon is one of the choices.
+- Confirmations like delete open inside Wink instead of a Windows dialog.
+- Wink shows no Windows pop-ups while it is the window in front.
+
+### Fixed
+- Keys saved from your phone or another PC are stored on the bot's own PC.
+- Codex "model at capacity" stalls continue on their own and never type over a message you are writing.
+- While Codex thinks silently, the chat shows Thinking instead of the no-reply hint.
+
 ## [1.0.213] - 2026-10-28
 
 ### Changed
@@ -321,6 +339,7 @@ All notable changes to Wink, newest first. The format follows [Keep a Changelog]
 - Over-limit task records rejected, or clipped inside a file path.
 - Timeline, swipe and question card polish.
 
+[1.0.214]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.214
 [1.0.213]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.213
 [1.0.212]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.212
 [1.0.211]: https://github.com/aiedwardyi/orbit-releases/releases/tag/v1.0.211
