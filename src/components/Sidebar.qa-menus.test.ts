@@ -29,11 +29,11 @@ describe("bot list menu", () => {
     expect(sidebar).not.toContain("writeText(bot.threadId)");
   });
 
-  it("opens Account from the profile and General from the gear", () => {
+  it("opens Account from the profile and Settings from the gear", () => {
     const start = sidebar.indexOf("data-sidebar-profile-row");
     const row = sidebar.slice(start, sidebar.indexOf("{menu &&", start));
     const profile = row.indexOf('section: "account"');
-    const gear = row.indexOf('dispatch({ type: "toggleAppSettings", open: true, section: "general" })');
+    const gear = row.indexOf('dispatch({ type: "toggleAppSettings", open: true })');
     expect(profile).toBeGreaterThan(-1);
     expect(gear).toBeGreaterThan(profile);
   });

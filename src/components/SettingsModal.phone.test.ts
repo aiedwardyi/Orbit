@@ -10,6 +10,7 @@ import { PRESENCE_EXIT_MS } from "@/lib/use-presence";
 let host: HTMLDivElement;
 let root: Root;
 let phone: boolean;
+const changes = new Set<() => void>();
 const dialog = () => document.querySelector('[aria-labelledby="app-settings-title"]');
 const button = (label: string) => dialog()?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 const wait = (ms = 20) => act(() => new Promise<void>((done) => setTimeout(done, ms)));
@@ -44,7 +45,9 @@ beforeEach(() => {
   vi.stubGlobal("EventSource", class { onmessage = null; close() {} });
   vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
     matches: phone && query.includes("max-width"), media: query, onchange: null,
-    addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => true,
+    addListener() {}, removeListener() {}, dispatchEvent: () => true,
+    addEventListener: (_: string, flip: EventListenerOrEventListenerObject) => { changes.add(flip as () => void); },
+    removeEventListener: (_: string, flip: EventListenerOrEventListenerObject) => { changes.delete(flip as () => void); },
   }));
   localStorage.setItem("omb-onboarding-done", "true");
   localStorage.setItem(SNAPSHOT_CACHE_KEY, JSON.stringify({
@@ -59,6 +62,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   localStorage.clear();
+  changes.clear();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -137,5 +141,15 @@ describe("phone Settings navigation", () => {
     expect(dialog()!.querySelector('[aria-label="Bot List Side"]')).not.toBeNull();
     await escape();
     expect(dialog()?.parentElement?.hasAttribute("data-closing")).toBe(true);
+  });
+
+  it("shows the list when desktop Shortcuts narrows to phone", async () => {
+    phone = false;
+    await open();
+    await act(async () => button("Shortcuts")!.click());
+    phone = true;
+    await act(async () => changes.forEach((flip) => flip()));
+    expect(button("Back")).toBeNull();
+    expect(dialog()!.querySelector("nav")?.textContent).toContain("Account");
   });
 });

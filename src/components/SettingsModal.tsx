@@ -587,8 +587,8 @@ export function SettingsModal({
     const visible = SECTIONS.filter(sectionShown);
     if (visible.some((entry) => entry.id === section)) return;
     const first = visible[0];
-    if (first) dispatch({ type: "toggleAppSettings", open: true, section: first.id });
-  }, [closing, dispatch, section, sectionShown]);
+    if (first) dispatch(phone ? { type: "toggleAppSettings", open: true } : { type: "toggleAppSettings", open: true, section: first.id });
+  }, [closing, dispatch, phone, section, sectionShown]);
 
   useEffect(() => {
     if (closing) return;
