@@ -50,7 +50,13 @@ describe("recorded engine fixture gate", () => {
     expect(check(source)).toContain(seam.path);
   });
 
-  it.each([null, "not json", "{}", JSON.stringify({ stamp: { engine: "claude" } })])("rejects missing or unstamped recordings: %s", (body) => {
+  it.each([
+    null,
+    "not json",
+    "{}",
+    JSON.stringify({ stamp: { engine: "claude" } }),
+    JSON.stringify({ stamp: JSON.parse(recording).stamp }),
+  ])("rejects missing, unstamped or reply-less recordings: %s", (body) => {
     expect(check(imports + loader, [seam.path], body)).toContain(seam.path);
   });
 

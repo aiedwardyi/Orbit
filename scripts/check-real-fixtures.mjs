@@ -56,8 +56,8 @@ export function missingRealFixture(seams, changed, read) {
         const source = read(fixture);
         if (source === null) return false;
         try {
-          const { stamp } = JSON.parse(source);
-          return typeof stamp?.engine === "string" && typeof stamp.cliVersion === "string" &&
+          const { stamp, reply } = JSON.parse(source);
+          return typeof reply === "object" && reply !== null && typeof stamp?.engine === "string" && typeof stamp.cliVersion === "string" &&
             Number.isFinite(Date.parse(stamp.recordedAt)) && ["home", "work"].includes(stamp.sourcePc);
         } catch {
           return false;
@@ -75,7 +75,7 @@ function main() {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const git = (args) => execFileSync("git", args, { cwd: root, encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   const seams = JSON.parse(readFileSync(new URL("./engine-seams.json", import.meta.url), "utf8"));
-  const changed = git(["diff", "--name-only", "--no-renames", base, ...(head ? [head] : []), "--"]).trim().split(/\r?\n/);
+  const changed = git(["diff", "--name-only", "--no-renames", base, ...(head ? [head] : []), "--"]).trim().split(/\r?\n/).filter(Boolean);
   const read = (file) => {
     try {
       return head ? git(["show", `${head}:${file}`]) : readFileSync(path.join(root, file), "utf8");
