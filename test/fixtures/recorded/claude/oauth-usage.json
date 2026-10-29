@@ -1,5 +1,12 @@
 {
-  "claude": {
+  "stamp": {
+    "engine": "claude",
+    "cliVersion": "2.1.310",
+    "recordedAt": "2026-10-29T12:07:00.727371Z",
+    "sourcePc": "work",
+    "source": "USAGE-214/remote/work-fetch.out.txt: claude usage shape"
+  },
+  "reply": {
     "five_hour": {
       "utilization": 30,
       "resets_at": "2026-10-29T15:09:59.696703+00:00",
@@ -140,100 +147,5 @@
         "allowance_percent_of_weekly": 50
       }
     ]
-  },
-  "codex": {
-    "ordinaryUsageAllowed": true,
-    "rateLimits": {
-      "limitId": "codex",
-      "limitName": null,
-      "normalModelSlug": null,
-      "primary": {
-        "usedPercent": 58,
-        "windowDurationMins": 10080,
-        "resetsAt": 1793774106
-      },
-      "secondary": null,
-      "credits": {
-        "hasCredits": false,
-        "unlimited": false,
-        "balance": "0"
-      },
-      "individualLimit": null,
-      "spendControlReached": false,
-      "planType": "prolite",
-      "rateLimitReachedType": null
-    },
-    "rateLimitsByLimitId": {
-      "codex": {
-        "limitId": "codex",
-        "limitName": null,
-        "normalModelSlug": null,
-        "primary": {
-          "usedPercent": 58,
-          "windowDurationMins": 10080,
-          "resetsAt": 1793774106
-        },
-        "secondary": null,
-        "credits": {
-          "hasCredits": false,
-          "unlimited": false,
-          "balance": "0"
-        },
-        "individualLimit": null,
-        "spendControlReached": false,
-        "planType": "prolite",
-        "rateLimitReachedType": null
-      }
-    },
-    "rateLimitResetCredits": {
-      "availableCount": 0,
-      "credits": []
-    },
-    "accountId": "<redacted>",
-    "rateLimitUpsell": null
-  },
-  "grokRenewing": {
-    "config": {
-      "currentPeriod": {
-        "type": "USAGE_PERIOD_TYPE_WEEKLY",
-        "start": "2026-10-29T07:02:43.495651+00:00",
-        "end": "2026-11-05T07:02:43.495651+00:00"
-      },
-      "onDemandCap": {
-        "val": 0
-      },
-      "onDemandUsed": {
-        "val": 0
-      },
-      "prepaidBalance": {
-        "val": 0
-      },
-      "isUnifiedBillingUser": true,
-      "billingPeriodStart": "2026-10-29T07:02:43.495651+00:00",
-      "billingPeriodEnd": "2026-11-05T07:02:43.495651+00:00"
-    },
-    "subscription_tier": null
-  },
-  "grokSettled": {
-    "config": {
-      "currentPeriod": {
-        "type": "USAGE_PERIOD_TYPE_WEEKLY",
-        "start": "2026-10-29T07:02:43.495651+00:00",
-        "end": "2026-11-05T07:02:43.495651+00:00"
-      },
-      "onDemandCap": {
-        "val": 0
-      },
-      "onDemandUsed": {
-        "val": 0
-      },
-      "prepaidBalance": {
-        "val": 0
-      },
-      "isUnifiedBillingUser": true,
-      "billingPeriodStart": "2026-10-29T07:02:43.495651+00:00",
-      "billingPeriodEnd": "2026-11-05T07:02:43.495651+00:00"
-    },
-    "subscription_tier": "SuperGrok"
   }
 }

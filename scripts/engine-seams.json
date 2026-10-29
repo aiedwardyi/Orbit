@@ -1,0 +1,176 @@
+[
+  {
+    "path": "server/usage-refresh.ts",
+    "reads": "Claude OAuth usage and credentials; Codex account/rateLimits/read; Grok ACP billing; Antigravity quota; Muse MSP usage",
+    "status": "covered",
+    "tests": ["server/usage-refresh.test.ts"]
+  },
+  {
+    "path": "server/drivers/rate-limits.ts",
+    "reads": "Claude stream limits, Codex limit buckets, Grok billing, Antigravity quota, Muse usage and provider limit errors",
+    "status": "covered",
+    "tests": ["server/usage-refresh.test.ts", "server/drivers/rate-limits.test.ts"]
+  },
+  {
+    "path": "server/drivers/claude.ts",
+    "reads": "Claude auth status, settings model catalog, stream-json chat/session events and one-shot results",
+    "status": "pending",
+    "tests": ["server/drivers/claude.test.ts", "server/drivers/claude-auth.test.ts", "server/drivers/claude-catalog.test.ts"]
+  },
+  {
+    "path": "server/drivers/codex.ts",
+    "reads": "Codex auth.json and JWT account claims; app-server chat/session, tool and limit events",
+    "status": "pending",
+    "tests": ["server/drivers/codex.test.ts"]
+  },
+  {
+    "path": "server/drivers/codex-catalog.ts",
+    "reads": "Codex model/list, config.toml, cached model-catalogs JSON and provider /models APIs",
+    "status": "pending",
+    "tests": ["server/drivers/codex-catalog.test.ts"]
+  },
+  {
+    "path": "server/drivers/antigravity.ts",
+    "reads": "Antigravity settings.json model lists and MCP config; stream-json chat/session events",
+    "status": "pending",
+    "tests": ["server/drivers/antigravity.test.ts"]
+  },
+  {
+    "path": "server/drivers/antigravity-auth.ts",
+    "reads": "Antigravity keyring presence from cmdkey/security output",
+    "status": "pending",
+    "tests": ["server/drivers/antigravity-auth.test.ts"]
+  },
+  {
+    "path": "server/drivers/auth-status.ts",
+    "reads": "Engine auth files for cached sign-in state and account labels",
+    "status": "pending",
+    "tests": ["server/drivers/auth-status.test.ts"]
+  },
+  {
+    "path": "server/drivers/acp/connection.ts",
+    "reads": "ACP CLI JSON-RPC replies, errors, requests and notifications",
+    "status": "pending",
+    "tests": ["server/drivers/acp/connection.test.ts"]
+  },
+  {
+    "path": "server/drivers/acp/core.ts",
+    "reads": "ACP initialize/auth, session/new/load, chat/tool/permission updates, model options and usage",
+    "status": "pending",
+    "tests": ["server/drivers/acp/acp.test.ts"]
+  },
+  {
+    "path": "server/drivers/acp/grok.ts",
+    "reads": "Grok auth.json, models config, ACP session config options, model state and compaction updates",
+    "status": "pending",
+    "tests": ["server/drivers/acp/grok-auth.test.ts", "server/drivers/acp/grok-catalog.test.ts", "server/drivers/acp/grok-effort.test.ts"]
+  },
+  {
+    "path": "server/drivers/acp/muse.ts",
+    "reads": "Muse auth.json account/login fields, WSL CLI discovery output and provider error kinds",
+    "status": "pending",
+    "tests": ["server/drivers/acp/muse.test.ts"]
+  },
+  {
+    "path": "server/drivers/msp/protocol.ts",
+    "reads": "Muse MSP JSON-RPC replies, errors, server requests and notifications",
+    "status": "pending",
+    "tests": ["server/drivers/msp/protocol.test.ts"]
+  },
+  {
+    "path": "server/drivers/msp/runtime.ts",
+    "reads": "Muse MSP initialize, model/list, session start/resume, chat/tool views, approvals and usage",
+    "status": "pending",
+    "tests": ["server/drivers/msp/runtime.test.ts"]
+  },
+  {
+    "path": "server/drivers/local-inject.ts",
+    "reads": "Local engine /models, model status and health APIs; Unsloth agent_api_key.json",
+    "status": "pending",
+    "tests": ["server/drivers/local-inject.test.ts"]
+  },
+  {
+    "path": "server/drivers/boxagent.ts",
+    "reads": "Box engine prompt, run status and chat/tool event API replies",
+    "status": "pending",
+    "tests": ["server/drivers/boxagent.test.ts"]
+  },
+  {
+    "path": "server/cli-probe.ts",
+    "reads": "Engine CLI --version stdout and failure stderr",
+    "status": "pending",
+    "tests": []
+  },
+  {
+    "path": "server/tool-detail.ts",
+    "reads": "Engine tool rawInput, paths, commands, output and edits",
+    "status": "pending",
+    "tests": ["server/drivers/tool-detail.test.ts"]
+  },
+  {
+    "path": "server/permission-proxy.ts",
+    "reads": "Claude permission-prompt-tool MCP requests on stdin",
+    "status": "pending",
+    "tests": []
+  },
+  {
+    "path": "server/drivers/agents-proxy.ts",
+    "reads": "Engine MCP stdio requests for agent tools and structured tool arguments",
+    "status": "pending",
+    "tests": ["server/drivers/agents-proxy.test.ts"]
+  },
+  {
+    "path": "server/drivers/browser-proxy.ts",
+    "reads": "Engine MCP stdio browser tool requests",
+    "status": "pending",
+    "tests": ["server/drivers/browser-proxy.test.ts"]
+  },
+  {
+    "path": "server/drivers/dweb-proxy.ts",
+    "reads": "Engine MCP stdio web tool requests",
+    "status": "pending",
+    "tests": ["server/drivers/dweb-proxy.test.ts"]
+  },
+  {
+    "path": "server/drivers/phone-proxy.ts",
+    "reads": "Engine MCP stdio phone tool requests",
+    "status": "pending",
+    "tests": ["server/drivers/phone-proxy.test.ts"]
+  },
+  {
+    "path": "server/drivers/terminal-proxy.ts",
+    "reads": "Engine MCP stdio terminal tool requests",
+    "status": "pending",
+    "tests": ["server/drivers/terminal-proxy.test.ts"]
+  },
+  {
+    "path": "server/mcp-bridge.ts",
+    "reads": "Engine MCP tools/call frames for the computer control gate",
+    "status": "pending",
+    "tests": ["server/mcp-bridge.test.ts"]
+  },
+  {
+    "path": "scripts/mcp-server.ts",
+    "reads": "Engine MCP stdio requests for Wink tools",
+    "status": "pending",
+    "tests": ["server/mcp-server.test.ts"]
+  },
+  {
+    "path": "server/auto-review.ts",
+    "reads": "Engine-generated permission verdict JSON",
+    "status": "pending",
+    "tests": ["server/auto-review.test.ts"]
+  },
+  {
+    "path": "server/memory-pass.ts",
+    "reads": "Claude one-shot generated facts JSON",
+    "status": "pending",
+    "tests": ["server/memory-pass.test.ts"]
+  },
+  {
+    "path": "electron/terminal-host.mjs",
+    "reads": "Engine terminal output for context usage, limit reset text, capacity and trust prompts",
+    "status": "pending",
+    "tests": ["electron/terminal-host.node-test.mjs"]
+  }
+]
