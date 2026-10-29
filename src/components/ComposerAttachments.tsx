@@ -136,7 +136,7 @@ export function ComposerAttachments({
       )}
 
       {items.length > 0 && (
-        <div className="mb-2 flex gap-2 overflow-x-auto">
+        <div className="mb-2 flex gap-2 overflow-x-auto pr-1.5 pt-1.5">
           {items.map((a) =>
             a.kind === "paste" ? (
               <Chip
@@ -282,8 +282,8 @@ function Chip({
         </span>
       </div>
       {/* hover reveals it, but so must focus: `hidden` would take the only
-          way to drop a chip out of reach of the keyboard. Touch has no hover, and
-          the overflow-x-auto row would clip the -top corner. */}
+          way to drop a chip out of reach of the keyboard. Touch has no hover, so
+          it always shows there. */}
       <button
         onClick={onRemove}
         aria-label={removeLabel ?? t(kind === "PASTED" ? "composer.removePasted" : kind === "IMAGE" ? "composer.removeImage" : "composer.removeFile")}
