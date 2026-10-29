@@ -134,13 +134,20 @@ describe("phone Settings navigation", () => {
     phone = false;
     await open();
     expect([...dialog()!.querySelectorAll("nav button")].map((node) => node.getAttribute("aria-label"))).toEqual([
-      "Account", "General", "Connections", "Themes", "Usage", "Model Index", "Shortcuts",
+      "Account", "General", "Connections", "Phone", "Themes", "Usage", "Model Index", "Shortcuts",
     ]);
     expect(button("General")?.getAttribute("aria-current")).toBe("page");
     expect(button("Back")).toBeNull();
     expect(dialog()!.querySelector('[aria-label="Bot List Side"]')).not.toBeNull();
     await escape();
     expect(dialog()?.parentElement?.hasAttribute("data-closing")).toBe(true);
+  });
+
+  it("keeps Phone in a narrow desktop window", async () => {
+    vi.stubGlobal("ogb", {});
+    await open();
+    const rows = [...dialog()!.querySelectorAll("nav button")].map((node) => node.textContent);
+    expect(rows).toContain("Phone");
   });
 
   it("shows the list when desktop Shortcuts narrows to phone", async () => {

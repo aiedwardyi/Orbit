@@ -76,28 +76,28 @@ describe("Account settings", () => {
     return host.querySelector(".overflow-y-auto")!;
   }
 
-  it("orders the seven visible pages with Account and General icons", async () => {
+  it("orders Phone after Connections with the matching icons", async () => {
     await render();
     const buttons = [...host.querySelectorAll("nav button")];
     expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Account", "General", "Connections", "Themes", "Usage", "Model Index", "Shortcuts",
+      "Account", "General", "Connections", "Phone", "Themes", "Usage", "Model Index", "Shortcuts",
     ]);
     expect(buttons.map((button) => button.querySelector("svg")?.classList.item(1))).toEqual([
-      "lucide-user", "lucide-settings", "lucide-key-round", "lucide-palette", "lucide-coins", "lucide-chart-scatter", "lucide-keyboard",
+      "lucide-user", "lucide-settings", "lucide-key-round", "lucide-smartphone", "lucide-palette", "lucide-coins", "lucide-chart-scatter", "lucide-keyboard",
     ]);
   });
 
-  it("renders Profile, titled Sync, then both phone sections in one card", async () => {
+  it("keeps Profile and Sync without phone sections or their requests", async () => {
     const pane = await render();
     const cards = [...pane.children];
-    expect(cards).toHaveLength(3);
+    expect(cards).toHaveLength(2);
     expect(cards[0].querySelector("#settings-profile-name")).not.toBeNull();
     expect(cards[0].textContent).toContain("Profile");
     expect(cards[1].firstElementChild?.textContent).toBe("Sync");
     expect(cards[1].textContent).toContain("Syncing across your PCs is off.");
-    expect([...cards[2].children].map((section) => section.firstElementChild?.textContent)).toEqual([
-      "Phone Access", "Phone Link",
-    ]);
+    expect(pane.querySelector("[data-phone-settings]")).toBeNull();
+    expect(pane.querySelector("[data-phone-access-setup]")).toBeNull();
+    expect(request.mock.calls.some(([path]) => path === "/api/remote-link" || path === "/api/phone-relay/status")).toBe(false);
   });
 
   it("renders Sync as one card, not a card inside a card", async () => {
@@ -137,28 +137,30 @@ describe("Account settings", () => {
     expect(request.mock.calls.some(([path]) => path === "/api/phone-relay/status")).toBe(false);
   });
 
-  it("hides the phone card when both phone components return nothing", async () => {
-    phoneAvailable = false;
-    url = "";
-    const pane = await render();
-    const phone = pane.lastElementChild!;
-    expect(phone.matches(":empty")).toBe(true);
-    expect(phone.classList.contains("empty:hidden")).toBe(true);
-  });
-
-  it.each(["relay", "link"])("keeps the phone card when only %s is available", async (available) => {
-    phoneAvailable = available === "relay";
-    url = available === "link" ? url : "";
-    const pane = await render();
-    expect(pane.children).toHaveLength(3);
-    expect(pane.lastElementChild?.children).toHaveLength(1);
-    expect(pane.lastElementChild?.textContent).toContain(available === "relay" ? "Phone Access" : "Phone Link");
-  });
-
-  it.each(["sync", "companion"] as const)("renders the %s deep link as Account", async (section) => {
-    const pane = await render(section);
+  it("preserves the Sync deep link to Account", async () => {
+    const pane = await render("sync");
     expect(host.querySelector('nav [aria-current="page"]')?.getAttribute("aria-label")).toBe("Account");
     expect(pane.querySelector("#settings-profile-name")).not.toBeNull();
-    expect(host.querySelector("output")?.textContent).toBe(section);
+    expect(host.querySelector("output")?.textContent).toBe("sync");
+  });
+
+  it("lands the companion deep link on Phone and reveals relay setup on demand", async () => {
+    const pane = await render("companion");
+    expect(host.querySelector('nav [aria-current="page"]')?.getAttribute("aria-label")).toBe("Phone");
+    expect(pane.querySelector("[data-phone-settings]")).not.toBeNull();
+    expect(pane.querySelector("#settings-profile-name")).toBeNull();
+    expect(pane.querySelector("[data-phone-access-setup]")).toBeNull();
+    const relay = [...pane.querySelectorAll("button")].find((node) => node.textContent === "Have a relay setup code?")!;
+    await act(async () => relay.click());
+    expect(pane.querySelector("[data-phone-access-setup]")).not.toBeNull();
+  });
+
+  it("shows Phone even on a packaged PC without the legacy companion service", async () => {
+    vi.stubGlobal("ogb", { platform: "win32", packaged: true });
+    phoneAvailable = false;
+    url = "";
+    const pane = await render("companion");
+    expect(host.querySelector('nav [aria-current="page"]')?.getAttribute("aria-label")).toBe("Phone");
+    expect(pane.querySelectorAll("ol > li")).toHaveLength(3);
   });
 });

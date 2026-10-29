@@ -222,7 +222,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               onClick={retryInstances}
               className="mt-6 w-full rounded-xl bg-accent py-2.5 text-[14px] font-semibold text-accent-ink transition-[filter,transform] hover:brightness-110 active:scale-[0.99]"
             >
-              {t("onboarding.tryAgain")}
+              {t("onboarding.phoneTryAgain")}
             </button>
           </div>
         ) : step === 0 ? (

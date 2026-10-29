@@ -109,8 +109,10 @@ describe("Onboarding engine check", () => {
 
   it("asks an unpaired phone to sign in instead of blaming the engines", async () => {
     const host = await renderWith(401);
-    expect(host.textContent).toContain("Sign in to this PC");
-    expect(host.textContent).toContain("Settings → Phone link");
+    expect(host.textContent).toContain("Scan the code on your PC");
+    expect(host.textContent).toContain("Settings → Phone.");
+    expect(host.textContent).not.toContain("Copy");
+    expect(host.querySelector("button")?.textContent).toBe("Try Again");
     expect(host.textContent).not.toContain("couldn't check the engines");
   });
 
@@ -124,7 +126,7 @@ describe("Onboarding engine check", () => {
 
   it("still asks an unpaired phone to sign in, and welcomes a first launch of the desktop app", async () => {
     phoneWidth();
-    expect((await renderWith(401)).textContent).toContain("Sign in to this PC");
+    expect((await renderWith(401)).textContent).toContain("Scan the code on your PC");
     vi.stubGlobal("ogb", { platform: "win32" });
     const onDone = vi.fn();
     expect((await renderWith(200, onDone)).textContent).toContain("Welcome to Wink");

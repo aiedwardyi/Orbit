@@ -22,7 +22,7 @@ describe("showSettingsMoreServices", () => {
 });
 
 describe("friendsSettingsNavVisible", () => {
-  it("hides Local VM, Phone, and the Engines tab", () => {
+  it("hides Local VM, phone setup on phones, and the Engines tab", () => {
     expect(friendsSettingsNavVisible("computer", "", { phoneAvailable: false })).toBe(false);
     expect(friendsSettingsNavVisible("computer", "", { phoneAvailable: true })).toBe(false);
     expect(friendsSettingsNavVisible("companion", "", { phoneAvailable: false })).toBe(false);
@@ -38,15 +38,16 @@ describe("friendsSettingsNavVisible", () => {
     expect(friendsSettingsNavVisible("computer", "local vm", { phoneAvailable: false })).toBe(false);
   });
 
-  it("keeps Phone off the idle surface even when the host would otherwise show it", () => {
-    expect(friendsSettingsNavVisible("companion", "", { phoneAvailable: true })).toBe(false);
-    expect(friendsSettingsNavVisible("companion", "phone", { phoneAvailable: true })).toBe(false);
+  it("shows Phone on the PC including search", () => {
+    expect(friendsSettingsNavVisible("companion", "", { phoneAvailable: true })).toBe(true);
+    expect(friendsSettingsNavVisible("companion", "phone", { phoneAvailable: true })).toBe(true);
   });
 });
 
 describe("resolvedAppSettingsSection", () => {
-  it.each(["sync", "companion"] as const)("folds %s into Account", (section) => {
-    expect(resolvedAppSettingsSection(section)).toBe("account");
+  it("folds Sync into Account and preserves Phone deep links", () => {
+    expect(resolvedAppSettingsSection("sync")).toBe("account");
+    expect(resolvedAppSettingsSection("companion")).toBe("companion");
   });
 
   it("folds Engines into Connections", () => {
