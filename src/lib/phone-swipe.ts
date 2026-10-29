@@ -46,6 +46,11 @@ export function drawerOffset(dx: number, side: SidebarSide): number {
   return side === "left" ? Math.min(0, dx) : Math.max(0, dx);
 }
 
+/** A phone bottom sheet closes downward on the same thresholds, measured against its height. */
+export function sheetSwipeCloses(dy: number, velocity: number, height: number): boolean {
+  return swipeStep(dy, velocity, height) === -1;
+}
+
 /** Stops at both ends, no wrap. */
 export function neighborId(ids: readonly string[], currentId: string, step: SwipeStep): string | null {
   const index = ids.indexOf(currentId);

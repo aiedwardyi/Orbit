@@ -8,19 +8,19 @@ import { chipEffortLabel, chipEffortShortLabel } from "@/lib/model-chip";
 import { NOTE_STATUS_KEY, noteText } from "@/lib/pane-note";
 import { isPhone, PHONE_QUERY } from "@/lib/phone-swipe";
 import { useBackLayer } from "@/lib/use-back-layer";
+import { useSheetSwipe } from "@/lib/use-phone-swipe";
 import type { Message } from "@/state/store";
-import { listedRuns, listedSessionId, workerAnchors, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
+import { listedSessionId, workerAnchors, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
+import { workerStatusRuns, workerStatusText } from "@/lib/worker-status";
 import { ProviderMark } from "./ProviderIcons";
 
-const CHIP_LIMIT = 3;
-
 export const WORKER_STATUS = {
-  working: { glyph: "●", key: "workers.working", text: "text-accent", dot: "bg-accent" },
-  waiting: { glyph: "‖", key: "workers.waiting", text: "text-warning", dot: "bg-warning" },
-  failed: { glyph: "!", key: "workers.failed", text: "text-danger", dot: "bg-danger" },
-  done: { glyph: "✓", key: "workers.done", text: "text-success", dot: "bg-success" },
-  ended: { glyph: "○", key: "workers.ended", text: "text-ink-secondary", dot: "bg-ink-secondary" },
-} as const satisfies Record<WorkerShownState, { glyph: string; key: string; text: string; dot: string }>;
+  working: { glyph: "●", key: "workers.working", text: "text-accent" },
+  waiting: { glyph: "‖", key: "workers.waiting", text: "text-warning" },
+  failed: { glyph: "!", key: "workers.failed", text: "text-danger" },
+  done: { glyph: "✓", key: "workers.done", text: "text-success" },
+  ended: { glyph: "○", key: "workers.ended", text: "text-ink-secondary" },
+} as const satisfies Record<WorkerShownState, { glyph: string; key: string; text: string }>;
 
 export type ShownRun = { run: WorkerRun; state: WorkerShownState };
 
@@ -134,7 +134,13 @@ function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose, inset, ni
   const entry = cn(ENTRY_CLASS, inset && "px-3");
   return (
     // The sheet's list spans its padding, so a phone's overlay scrollbar paints there instead of over the status.
-    <ul className={cn("min-h-0 overflow-y-auto", !inset && "-mx-5 px-5")}>
+    <ul
+      className={cn("min-h-0 overflow-y-auto", !inset && "-mx-5 px-5 overscroll-y-contain touch-[pan-up_pinch-zoom]")}
+      onScroll={!inset ? (event) => {
+        // Set this before the next touch starts; changing it during a gesture is too late.
+        event.currentTarget.style.touchAction = event.currentTarget.scrollTop > 0 ? "pan-y pinch-zoom" : "pan-up pinch-zoom";
+      } : undefined}
+    >
       {runs.map((shown) => {
         const sessionId = listedSessionId(shown.run, livePanes);
         if (!onOpenTerminalPane || !sessionId) {
@@ -174,6 +180,7 @@ function WorkerList({ title, runs, livePanes, onClose, onOpenTerminalPane }: { t
   useEffect(() => {
     onCloseRef.current = onClose;
   });
+  useSheetSwipe(panelRef, true, onClose);
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
@@ -225,8 +232,9 @@ function WorkerList({ title, runs, livePanes, onClose, onOpenTerminalPane }: { t
         aria-modal
         aria-labelledby={titleId}
         data-worker-list
-        className="animate-pop-in flex max-h-[80dvh] w-full flex-col rounded-t-[24px] border border-hairline/50 bg-panel px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl shadow-black/50"
+        className="animate-pop-in flex max-h-[80dvh] w-full touch-[pan-up_pinch-zoom] flex-col rounded-t-[24px] border border-hairline/50 bg-panel px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl shadow-black/50"
       >
+        <div aria-hidden className="mx-auto -mt-2 mb-1 h-1 w-9 shrink-0 rounded-full bg-ink-secondary/40" />
         <div className="mb-1 flex items-center justify-between gap-3">
           <h2 id={titleId} className="text-[15px] font-semibold text-ink">{title}</h2>
           <button ref={closeRef} type="button" onClick={onClose} aria-label={t("workers.close")} className="flex size-11 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink">
@@ -240,16 +248,6 @@ function WorkerList({ title, runs, livePanes, onClose, onOpenTerminalPane }: { t
   );
 }
 
-function Mark({ run, state, className }: ShownRun & { className?: string }) {
-  return (
-    <span data-worker-state={state} className={cn("relative flex", className)}>
-      <WorkerMark provider={run.provider} />
-      <span aria-hidden className={cn("absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-2 ring-app", WORKER_STATUS[state].dot)} />
-    </span>
-  );
-}
-
-/** Header chip for this chat's listed runs. Opens the worker list. */
 export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLive = false, onOpenTerminalPane }: { name: string; runs: ShownRun[]; livePanes?: Set<string> | null; paneLabels?: ReadonlyMap<string, string>; waitForLive?: boolean; onOpenTerminalPane?: (sessionId: string) => void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -258,7 +256,7 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
-  const listed = livePanes === null && waitForLive ? [] : listedRuns(runs, livePanes, paneLabels);
+  const listed = livePanes === null && waitForLive ? [] : workerStatusRuns(runs, livePanes, paneLabels);
   const [phone, setPhone] = useState(isPhone);
   useEffect(() => {
     const media = window.matchMedia?.(PHONE_QUERY);
@@ -278,7 +276,7 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
     const root = rootRef.current;
     const main = root.closest("main");
     const place = () => {
-      // The menu hangs left of the chip; the chat column clips its edges.
+      // The chat column clips the menu, so keep both edges inside it.
       const row = root.getBoundingClientRect();
       const bounds = main?.getBoundingClientRect();
       const [min, max] = bounds ? [bounds.left + 8, bounds.right - 8] : [8, window.innerWidth - 8];
@@ -334,40 +332,22 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
     window.addEventListener("orbit:close-worker-menu", onClose);
     return () => window.removeEventListener("orbit:close-worker-menu", onClose);
   }, [open]);
-  const first = listed[0];
-  if (!first) return null;
-  const counts = {
-    working: listed.filter((shown) => shown.state === "working").length,
-    waiting: listed.filter((shown) => shown.state === "waiting").length,
-    failed: listed.filter((shown) => shown.state === "failed").length,
-    done: listed.filter((shown) => shown.state === "done").length,
-  };
-  const face = listed.slice(0, CHIP_LIMIT);
-  const more = listed.length - face.length;
+  const status = workerStatusText(listed, t);
+  if (!status) return null;
   const close = () => setOpen(false);
   return (
-    <div ref={rootRef} className="relative shrink-0">
+    <div ref={rootRef} className="relative min-w-0">
       <button
         ref={buttonRef}
         type="button"
-        data-worker-strip=""
+        data-worker-status=""
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={t("workers.stripAria", counts)}
-        className="relative flex shrink-0 items-center whitespace-nowrap"
+        aria-label={status}
+        className="block max-w-full truncate text-left text-[12px] leading-4 text-ink-secondary hover:text-ink"
       >
-        <span data-worker-chip-desktop className="hidden items-center gap-1 md:flex @max-4xl/chathead:!hidden">
-          {face.map((shown) => (
-            <Mark key={shown.run.id} {...shown} />
-          ))}
-          {more > 0 && <span aria-hidden className="ml-2 text-[12px] text-ink-secondary">+{more}</span>}
-        </span>
-        <span data-worker-chip-phone className="relative flex items-center gap-0.5 md:hidden @max-4xl/chathead:!flex">
-          <Mark {...first} />
-          {listed.length >= 2 && <span aria-hidden className="text-[11px] tabular-nums text-ink-secondary">{listed.length}</span>}
-          <span aria-hidden className="absolute left-1/2 top-1/2 size-11 -translate-x-1/2 -translate-y-1/2" />
-        </span>
+        {status}
       </button>
       {open && phone && <WorkerList title={t("workers.title", { name })} runs={listed} livePanes={livePanes} onClose={close} onOpenTerminalPane={onOpenTerminalPane} />}
       {open && !phone && (

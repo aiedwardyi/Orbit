@@ -125,7 +125,7 @@ describe("RemoteTerminalView", () => {
   it("shows the no-terminal state and disables copy", async () => {
     store.api.mockResolvedValue({ state: "no-terminal", screenText: "", recentText: "" });
     const { host, root } = await renderView();
-    expect(host.textContent).toContain("No active terminal");
+    expect(host.textContent).toContain("Workers show up here when Ada starts one.");
     expect(host.querySelector("pre")).toBeNull();
     expect(button(host, "Copy").disabled).toBe(true);
     await act(async () => root.unmount());

@@ -1796,7 +1796,7 @@ describe("Sidebar bot second line", () => {
     }
   });
 
-  it("counts open worker panes in a gray badge and turns only the user's own terminal alert pink", async () => {
+  it("says worker counts in the row and keeps terminal attention separate", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     vi.stubGlobal(
       "fetch",
@@ -1814,25 +1814,13 @@ describe("Sidebar bot second line", () => {
         data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
         lastEventId: "",
       }));
-      const busy = await vi.waitFor(() => {
-        const element = row("busy")?.querySelector("[data-sidebar-worker-panes]");
-        expect(element).not.toBeNull();
-        return element!;
-      });
-      expect(busy.textContent).toBe("3");
-      const chip = busy.parentElement!;
-      expect(chip.textContent).toBe(">_3");
-      expect(chip.getAttribute("title")).toBe("3 worker panes open\nAUDIT | Astra | high\nBADGE | Opus 5.5 | max");
-      expect(chip.className).toContain("text-ink-secondary");
-      expect(chip.className).not.toContain("accent");
-      expect(row("busy")?.querySelector("[data-sidebar-terminal-attention]")).toBeNull();
-      expect(row("solo")?.querySelector("[data-sidebar-worker-panes]")?.parentElement?.getAttribute("title")).toBe("1 worker pane open\nSOLO | Luna | max");
+      await vi.waitFor(() => expect(row("busy")?.querySelector("[data-sidebar-worker-status]")?.textContent).toBe("3 workers working"));
+      expect(row("solo")?.querySelector("[data-sidebar-worker-status]")?.textContent).toBe("1 worker working");
+      expect(host.querySelector("[data-sidebar-worker-panes]")).toBeNull();
       const alert = row("attention")?.querySelector("[data-sidebar-terminal-attention]");
-      expect(alert?.textContent).toBe(">_2");
-      expect(alert?.getAttribute("title")).toBe("The terminal is waiting for input.\n2 worker panes open\nA1\nA2");
-      expect(alert?.querySelector("[data-sidebar-worker-panes]")?.className).toContain("text-ink-secondary");
-      expect(row("idle")?.querySelector("[data-sidebar-worker-panes]")).toBeNull();
-      expect(row("idle")?.textContent).not.toContain(">_");
+      expect(alert?.textContent).toBe(">_");
+      expect(alert?.getAttribute("title")).toBe("The terminal is waiting for input.");
+      expect(row("idle")?.querySelector("[data-sidebar-worker-status]")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();

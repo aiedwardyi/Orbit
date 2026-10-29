@@ -8,6 +8,7 @@ import type { Message } from "@/state/store";
 import { workerRuns, type WorkerShownState } from "@/lib/worker-runs";
 import { ProviderMark } from "./ProviderIcons";
 import { applyLocale } from "@/lib/i18n";
+import { SWIPE_MOTION_MS } from "@/lib/phone-swipe";
 import { WORKER_STATUS, WorkerChip, WorkerRow, useWorkerRows, type ShownRun } from "./WorkerRows";
 
 const run = (label: string) => {
@@ -169,7 +170,7 @@ describe("WorkerChip", () => {
     return {
       host,
       root,
-      chip: () => host.querySelector<HTMLButtonElement>("[data-worker-strip]"),
+      chip: () => host.querySelector<HTMLButtonElement>("[data-worker-status]"),
       unmount: async () => { await act(async () => root.unmount()); host.remove(); },
     };
   };
@@ -239,45 +240,13 @@ describe("WorkerChip", () => {
     }
   });
 
-  it("stacks three marks on desktop and one mark plus a count on a phone", async () => {
-    vi.stubGlobal("matchMedia", () => ({ matches: false }));
-    const runs = [1, 2, 3, 4].map((at) => shown(`W${at}`, "working", `session-${at}`, at));
-    const { host, unmount } = await mount(runs);
+  it("shows words without header icons", async () => {
+    const { host, chip, unmount } = await mount([1, 2, 3, 4].map((at) => shown(`W${at}`, "working", `session-${at}`, at)));
     try {
-      const desktop = host.querySelector("[data-worker-chip-desktop]")!;
-      expect(desktop.querySelectorAll("[data-worker-state]")).toHaveLength(3);
-      expect(desktop.textContent).toBe("+1");
-      const phone = host.querySelector("[data-worker-chip-phone]")!;
-      expect(phone.querySelectorAll("[data-worker-state]")).toHaveLength(1);
-      expect(phone.textContent).toBe("4");
-      expect(host.querySelector("[data-worker-strip]")?.getAttribute("aria-label")).toBe("4 working, 0 waiting, 0 failed, 0 done. Show workers");
-    } finally {
-      await unmount();
-    }
-  });
-
-  it("lays wide marks in a row with a gap and no z-index", async () => {
-    vi.stubGlobal("matchMedia", () => ({ matches: false }));
-    const runs = [1, 2, 3, 4].map((at) => shown(`W${at}`, at === 1 ? "waiting" : "working", `session-${at}`, at));
-    const { host, unmount } = await mount(runs);
-    try {
-      const desktop = host.querySelector("[data-worker-chip-desktop]")!;
-      const phone = host.querySelector("[data-worker-chip-phone]")!;
-      const klass = desktop.getAttribute("class") ?? "";
-      expect({
-        gap: /(?:^|\s)gap-1(?:\s|$)/.test(klass),
-        overlap: klass.includes("-space-x-"),
-        stacked: [...desktop.querySelectorAll("[class*='z-']")].map((el) => el.getAttribute("class")),
-        phone: phone.getAttribute("class"),
-      }).toEqual({
-        gap: true,
-        overlap: false,
-        stacked: [],
-        phone: "relative flex items-center gap-0.5 md:hidden @max-4xl/chathead:!flex",
-      });
-    } finally {
-      await unmount();
-    }
+      expect(chip()!.textContent).toBe("4 workers working");
+      expect(host.querySelector("svg")).toBeNull();
+      expect(host.querySelector("[data-worker-strip]")).toBeNull();
+    } finally { await unmount(); }
   });
 
   it("lists only live panes, urgent first, and opens that pane", async () => {
@@ -292,8 +261,8 @@ describe("WorkerChip", () => {
       livePanes: new Set(["wait-1", "fail-1", "done-1"]),
     });
     try {
-      expect(host.querySelector("[data-worker-strip]")).not.toBeNull();
-      expect([...host.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")].map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "failed", "done"]);
+      expect(host.querySelector("[data-worker-status]")).not.toBeNull();
+      expect(host.querySelector("[data-worker-status]")!.textContent).toContain("waiting");
       const opener = chip()!;
       opener.focus();
       await act(async () => opener.click());
@@ -324,7 +293,7 @@ describe("WorkerChip", () => {
       shown("SHIP", "failed", "fail-1", 4),
     ], { livePanes: null });
     try {
-      expect([...host.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")].map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "working"]);
+      expect(host.querySelector("[data-worker-status]")!.textContent).toContain("waiting");
       await act(async () => chip()!.click());
       expect([...host.querySelectorAll("[data-worker-list] li")].map((li) => li.textContent)).toEqual([
         "WAITOpus 5.5 · High‖Waiting", "WORKOpus 5.5 · High●Working",
@@ -398,9 +367,9 @@ describe("WorkerChip", () => {
     const runs = [shown("WORK", "working", "work-1", 1), shown("WAIT", "waiting", "wait-1", 2)];
     const { host, root, chip, unmount } = await mount(runs, { livePanes: null, waitForLive: true });
     try {
-      expect(host.querySelector("[data-worker-strip]")).toBeNull();
+      expect(host.querySelector("[data-worker-status]")).toBeNull();
       await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: new Set(["work-1"]), waitForLive: true })));
-      expect(chip()!.getAttribute("aria-label")).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers");
+      expect(chip()!.getAttribute("aria-label")).toBe("1 worker working");
     } finally {
       await unmount();
     }
@@ -416,7 +385,7 @@ describe("WorkerChip", () => {
         shown("COPY", "done", "done-1", 3),
       ], { livePanes: null });
       try {
-        expect([...host.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")].map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "working"]);
+        expect(host.querySelector("[data-worker-status]")!.textContent).toContain("waiting");
       } finally {
         await unmount();
       }
@@ -432,12 +401,8 @@ describe("WorkerChip", () => {
       { run: run("REL-CHAIN-166 | script"), state: "waiting" },
     ], { livePanes: null });
     try {
-      const desktop = [...host.querySelectorAll("[data-worker-chip-desktop] svg")];
-      expect(desktop).toHaveLength(2);
-      expect(desktop[0]!.classList.contains("lucide-scroll-text")).toBe(true);
-      expect(desktop.some((svg) => svg.classList.contains("lucide-square-terminal"))).toBe(false);
-      const phone = host.querySelector("[data-worker-chip-phone] svg")!;
-      expect(phone.classList.contains("lucide-scroll-text")).toBe(true);
+      expect(chip()!.textContent).toBe("2 workers · 1 waiting");
+      expect(host.querySelector("svg")).toBeNull();
       await act(async () => chip()!.click());
       const list = host.querySelector("[data-worker-list]")!;
       expect([...list.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
@@ -458,11 +423,10 @@ describe("WorkerChip", () => {
       { id: "n1", at: 2, role: "bot", kind: "note", text: "[pane aaaaaaaa] [GO-GOOGLE | Opus 5.5 | high] from Wink (61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b): BLOCKED CHAIN-GP2 branch=x sha=y dirty=no" },
     ]).map((run) => ({ run, state: run.state }));
     const onOpen = vi.fn();
-    const { host, root, chip, unmount } = await mount(runs, { livePanes: new Set(["aaaaaaaa-1"]), onOpenTerminalPane: onOpen });
+    const { root, chip, unmount } = await mount(runs, { livePanes: new Set(["aaaaaaaa-1"]), onOpenTerminalPane: onOpen });
     try {
-      expect(chip()!.getAttribute("aria-label")).toBe("0 working, 1 waiting, 0 failed, 0 done. Show workers");
-      expect(host.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")).toHaveLength(1);
-      expect(host.querySelector("[data-worker-chip-phone]")!.textContent).toBe("");
+      expect(chip()!.getAttribute("aria-label")).toBe("1 worker · 1 waiting");
+      expect(chip()!.textContent).toBe("1 worker · 1 waiting");
       await act(async () => chip()!.click());
       const list = document.body.querySelector("[data-worker-list]")!;
       expect(list.querySelectorAll("li")).toHaveLength(1);
@@ -470,7 +434,7 @@ describe("WorkerChip", () => {
       await act(async () => list.querySelector<HTMLButtonElement>("li > button")!.click());
       expect(onOpen).toHaveBeenCalledExactlyOnceWith("aaaaaaaa-1");
       await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: null })));
-      expect(chip()!.getAttribute("aria-label")).toBe("1 working, 1 waiting, 0 failed, 0 done. Show workers");
+      expect(chip()!.getAttribute("aria-label")).toBe("2 workers · 1 waiting");
       await act(async () => chip()!.click());
       const roomList = document.body.querySelector("[data-worker-list]")!;
       expect(roomList.querySelectorAll("li")).toHaveLength(2);
@@ -507,7 +471,7 @@ describe("WorkerChip", () => {
       shown("WORK", "working", "work-1", 1),
     ], { livePanes: new Set() });
     try {
-      expect(host.querySelector("[data-worker-strip]")).toBeNull();
+      expect(host.querySelector("[data-worker-status]")).toBeNull();
     } finally {
       await unmount();
     }
@@ -691,5 +655,156 @@ describe("WorkerChip", () => {
     } finally {
       await unmount();
     }
+  });
+
+  describe("phone sheet swipe", () => {
+    const openSheet = async (count: number, reduce = false) => {
+      Object.defineProperty(window, "matchMedia", { value: (query: string) => ({ matches: query.includes("reduce") ? reduce : true }), configurable: true, writable: true });
+      const runs = Array.from({ length: count }, (_, i) => shown(`W${i}`, "working", `s${i}`, i));
+      const onOpen = vi.fn();
+      const mounted = await mount(runs, { onOpenTerminalPane: onOpen, livePanes: new Set(runs.map((entry) => entry.run.id)) });
+      await act(async () => mounted.chip()!.click());
+      const sheet = document.body.querySelector<HTMLElement>("[data-worker-list]")!;
+      // happy-dom has no layout
+      Object.defineProperty(sheet, "offsetHeight", { configurable: true, value: 600 });
+      return { ...mounted, sheet, row: sheet.querySelector<HTMLButtonElement>("li > button")!, onOpen };
+    };
+    const touch = (target: Element, type: string, y: number, timeStamp: number) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [{ clientX: 200, clientY: y }] });
+      Object.defineProperty(event, "timeStamp", { value: timeStamp });
+      target.dispatchEvent(event);
+      return event;
+    };
+    const drag = async (target: Element, ys: number[], ms: number) => {
+      const events: Event[] = [];
+      await act(async () => {
+        ys.forEach((y, i) => events.push(touch(target, i === 0 ? "touchstart" : "touchmove", y, i * ms)));
+        events.push(touch(target, "touchend", 0, ys.length * ms));
+      });
+      return events;
+    };
+
+    it("tops the phone sheet with a grabber screen readers skip", async () => {
+      const { sheet, unmount } = await openSheet(1);
+      try {
+        expect(sheet.firstElementChild!.getAttribute("aria-hidden")).toBe("true");
+        expect(sheet.firstElementChild!.className).toMatch(/(^|\s)bg-ink-secondary\/40(\s|$)/);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("follows the finger down 1:1, never up, and springs back from a drag under a third of its height", async () => {
+      const { sheet, row, chip, unmount } = await openSheet(1);
+      try {
+        await act(async () => {
+          touch(row, "touchstart", 300, 0);
+          touch(row, "touchmove", 340, 200);
+        });
+        expect(sheet.style.translate).toBe("0 40px");
+        await act(async () => touch(row, "touchmove", 280, 400));
+        expect(sheet.style.translate).toBe("0 0px");
+        await act(async () => touch(row, "touchmove", 400, 600));
+        await act(async () => touch(row, "touchmove", 470, 800));
+        expect(sheet.style.translate).toBe("0 170px");
+        let end!: Event;
+        await act(async () => { end = touch(row, "touchend", 0, 1000); });
+        expect(end.defaultPrevented).toBe(true);
+        expect(chip()!.getAttribute("aria-expanded")).toBe("true");
+        expect(sheet.style.translate).toBe("0 0");
+        await act(() => new Promise<void>((done) => setTimeout(done, SWIPE_MOTION_MS + 40)));
+        expect(sheet.style.translate).toBe("");
+        await act(async () => sheet.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click());
+        expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+      } finally {
+        await unmount();
+      }
+    });
+
+    it.each([
+      ["a slow drag past a third of its height", [300, 360, 420, 490], 200],
+      ["a quick short flick", [300, 320, 340], 16],
+    ])("closes on %s", async (_name, ys, ms) => {
+      const { sheet, row, chip, unmount } = await openSheet(1);
+      try {
+        const events = await drag(row, ys, ms);
+        expect(events.at(-1)!.defaultPrevented).toBe(true);
+        expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+        expect(sheet.isConnected).toBe(false);
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("springs back from a quick short drag that stops before the finger lifts", async () => {
+      const { sheet, row, chip, unmount } = await openSheet(1);
+      try {
+        await act(async () => {
+          touch(row, "touchstart", 300, 0);
+          touch(row, "touchmove", 320, 16);
+          touch(row, "touchmove", 340, 32);
+          touch(row, "touchend", 0, 182);
+        });
+        expect(chip()!.getAttribute("aria-expanded")).toBe("true");
+        expect(sheet.style.translate).toBe("0 0");
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("lets a scrolled list scroll first and drags the sheet only from the list's top", async () => {
+      const { sheet, row, chip, unmount } = await openSheet(13);
+      const list = sheet.querySelector("ul")!;
+      try {
+        list.scrollTop = 40;
+        const scroll = await drag(row, [300, 360, 420, 490], 200);
+        expect(scroll.some((event) => event.defaultPrevented)).toBe(false);
+        expect(sheet.style.translate).toBe("");
+        expect(chip()!.getAttribute("aria-expanded")).toBe("true");
+        list.scrollTop = 0;
+        await drag(row, [300, 360, 420, 490], 200);
+        expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+      } finally {
+        await unmount();
+      }
+    });
+
+    it.each([0, 4, 8])("leaves every event of a %i px jitter tap uncancelled and claims a pull", async (jitter) => {
+      const { sheet, row, onOpen, chip, unmount } = await openSheet(1);
+      try {
+        await act(async () => {
+          touch(row, "touchstart", 300, 0);
+          touch(row, "touchmove", 312, 200);
+        });
+        expect(sheet.style.translate).toBe("0 12px");
+        let end!: Event;
+        await act(async () => { end = touch(row, "touchend", 0, 400); });
+        expect(end.defaultPrevented).toBe(true);
+        const tap = await drag(row, [300, 300 + jitter / 2, 300 + jitter], 50);
+        expect(tap.some((event) => event.defaultPrevented)).toBe(false);
+        expect(sheet.style.translate).toBe("");
+        expect(onOpen).not.toHaveBeenCalled();
+        expect(chip()!.getAttribute("aria-expanded")).toBe("true");
+      } finally {
+        await unmount();
+      }
+    });
+
+    it("closes on a long drag without following the finger under reduced motion", async () => {
+      const { sheet, row, chip, unmount } = await openSheet(1, true);
+      try {
+        await act(async () => {
+          touch(row, "touchstart", 300, 0);
+          touch(row, "touchmove", 500, 1000);
+        });
+        expect(sheet.style.translate).toBe("");
+        await act(async () => touch(row, "touchend", 0, 1200));
+        expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+        expect(sheet.isConnected).toBe(false);
+      } finally {
+        await unmount();
+      }
+    });
   });
 });
