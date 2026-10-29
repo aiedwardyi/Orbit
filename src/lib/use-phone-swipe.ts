@@ -306,8 +306,7 @@ export function useSheetSwipe(sheetRef: RefObject<HTMLElement | null>, open: boo
           return;
         }
         drag.pulling = axis === "y";
-        // the browser can start its own scroll before the slop, so a downward start claims its moves from the first one
-        if (!drag.pulling && !(dy > 0 && dy >= Math.abs(dx))) return;
+        if (!drag.pulling) return;
       }
       if (e.cancelable) e.preventDefault();
       const dt = e.timeStamp - drag.lastT;

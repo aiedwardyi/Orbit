@@ -807,7 +807,7 @@ describe("WorkerChip", () => {
       }
     });
 
-    it("still opens a row on a tap that jitters under the slop, and drags the sheet past it", async () => {
+    it.each([0, 4, 8])("leaves every event of a %i px jitter tap uncancelled and claims a pull", async (jitter) => {
       const { sheet, row, onOpen, chip, unmount } = await openSheet(1);
       try {
         await act(async () => {
@@ -818,12 +818,11 @@ describe("WorkerChip", () => {
         let end!: Event;
         await act(async () => { end = touch(row, "touchend", 0, 400); });
         expect(end.defaultPrevented).toBe(true);
-        const tap = await drag(row, [300, 304, 308], 50);
-        expect(tap.at(-1)!.defaultPrevented).toBe(false);
+        const tap = await drag(row, [300, 300 + jitter / 2, 300 + jitter], 50);
+        expect(tap.some((event) => event.defaultPrevented)).toBe(false);
         expect(sheet.style.translate).toBe("");
-        await act(async () => row.click());
-        expect(onOpen).toHaveBeenCalledExactlyOnceWith("s0");
-        expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+        expect(onOpen).not.toHaveBeenCalled();
+        expect(chip()!.getAttribute("aria-expanded")).toBe("true");
       } finally {
         await unmount();
       }

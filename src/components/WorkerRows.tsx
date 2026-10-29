@@ -135,7 +135,13 @@ function WorkerEntries({ runs, livePanes, onOpenTerminalPane, onClose, inset, ni
   const entry = cn(ENTRY_CLASS, inset && "px-3");
   return (
     // The sheet's list spans its padding, so a phone's overlay scrollbar paints there instead of over the status.
-    <ul className={cn("min-h-0 overflow-y-auto", !inset && "-mx-5 px-5")}>
+    <ul
+      className={cn("min-h-0 overflow-y-auto", !inset && "-mx-5 px-5 overscroll-y-contain touch-[pan-up_pinch-zoom]")}
+      onScroll={!inset ? (event) => {
+        // Set this before the next touch starts; changing it during a gesture is too late.
+        event.currentTarget.style.touchAction = event.currentTarget.scrollTop > 0 ? "pan-y pinch-zoom" : "pan-up pinch-zoom";
+      } : undefined}
+    >
       {runs.map((shown) => {
         const sessionId = listedSessionId(shown.run, livePanes);
         if (!onOpenTerminalPane || !sessionId) {
@@ -227,7 +233,7 @@ function WorkerList({ title, runs, livePanes, onClose, onOpenTerminalPane }: { t
         aria-modal
         aria-labelledby={titleId}
         data-worker-list
-        className="animate-pop-in flex max-h-[80dvh] w-full flex-col rounded-t-[24px] border border-hairline/50 bg-panel px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl shadow-black/50"
+        className="animate-pop-in flex max-h-[80dvh] w-full touch-[pan-up_pinch-zoom] flex-col rounded-t-[24px] border border-hairline/50 bg-panel px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-4 shadow-2xl shadow-black/50"
       >
         <div aria-hidden className="mx-auto -mt-2 mb-1 h-1 w-9 shrink-0 rounded-full bg-ink-secondary/40" />
         <div className="mb-1 flex items-center justify-between gap-3">
