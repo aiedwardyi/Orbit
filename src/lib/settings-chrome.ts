@@ -6,6 +6,18 @@ import {
 } from "./friends-chrome";
 import { settingsSectionMatches } from "./settings-search";
 
+export function appSettingsNavigation(
+  state: { appSettingsOpen: boolean; appSettingsSection: AppSettingsSection },
+  action: { open?: boolean; section?: AppSettingsSection },
+) {
+  const open = action.open ?? !state.appSettingsOpen;
+  return {
+    appSettingsOpen: open,
+    appSettingsSection: action.section ?? (open ? "general" as const : state.appSettingsSection),
+    appSettingsPage: open && action.section !== undefined,
+  };
+}
+
 /** Fold Local VM / channel turns / experiments / diagnostics when that
  * section is on the surface. `advancedOpen` is ignored while
  * `showSettingsAdvancedSection()` is off; it matters again if that flag

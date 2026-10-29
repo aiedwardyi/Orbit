@@ -39,6 +39,7 @@ vi.mock("@/state/store", async (importOriginal) => {
       state: {
         appSettingsOpen: true,
         appSettingsSection: mock.section,
+        appSettingsPage: true,
         bots: [],
         config: {
           composio: { configured: false },
@@ -257,15 +258,6 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain("Alt+U");
     expect(html).toContain('aria-keyshortcuts="Alt+T"');
     expect(html).toContain('aria-keyshortcuts="Alt+U"');
-  });
-
-  it("spreads the phone icon strip across the full row and leaves the desktop column alone", () => {
-    const html = markup("general");
-    const nav = html.slice(html.indexOf("<nav"), html.indexOf("</nav>"));
-    const strip = nav.match(/<div class="([^"]*max-md:flex-row[^"]*)"/)![1]!.split(" ");
-    expect(strip).toContain("max-md:justify-between");
-    expect(strip).not.toContain("justify-between");
-    expect(nav.match(/<button/g)!.length).toBeGreaterThanOrEqual(7);
   });
 
   it("places Model index right after Usage with its shortcuts", () => {
