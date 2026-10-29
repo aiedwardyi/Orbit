@@ -1032,8 +1032,8 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         [...enHost.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "Refresh All")?.click();
       });
-      expect(enHost.textContent).toContain("Could not refresh Claude limits Showing the last good values.");
-      expect(enHost.textContent).toContain("Could not refresh Codex limits No usage data yet.");
+      expect(enHost.textContent).toContain("Could not refresh Claude limits. Showing the last good values.");
+      expect(enHost.textContent).toContain("Could not refresh Codex limits. No usage data yet.");
       expect(enHost.textContent).not.toMatch(/\d+[mh] old/);
       await act(async () => enRoot.unmount());
       enHost.remove();
@@ -1046,7 +1046,9 @@ describe("UsageSection friends plan card", () => {
       await act(async () => {
         [...koHost.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "모두 새로 고침")?.click();
       });
-      expect(koHost.textContent).toContain("아직 사용량 정보가 없습니다.");
+      expect(koHost.textContent).toContain("Claude 한도를 새로 고치지 못했습니다. 마지막으로 정상 확인한 값을 표시합니다.");
+      expect(koHost.textContent).toContain("Codex 한도를 새로 고치지 못했습니다. 아직 사용량 정보가 없습니다.");
+      expect(koHost.textContent).not.toContain("Could not refresh");
       expect(koHost.textContent).not.toContain("— 전 정보");
       await act(async () => koRoot.unmount());
       koHost.remove();
