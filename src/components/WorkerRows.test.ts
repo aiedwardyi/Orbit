@@ -170,7 +170,7 @@ describe("WorkerChip", () => {
     return {
       host,
       root,
-      chip: () => host.querySelector<HTMLButtonElement>("[data-worker-strip]"),
+      chip: () => host.querySelector<HTMLButtonElement>("[data-worker-status]"),
       unmount: async () => { await act(async () => root.unmount()); host.remove(); },
     };
   };
@@ -240,45 +240,13 @@ describe("WorkerChip", () => {
     }
   });
 
-  it("stacks three marks on desktop and one mark plus a count on a phone", async () => {
-    vi.stubGlobal("matchMedia", () => ({ matches: false }));
-    const runs = [1, 2, 3, 4].map((at) => shown(`W${at}`, "working", `session-${at}`, at));
-    const { host, unmount } = await mount(runs);
+  it("shows words without header icons", async () => {
+    const { host, chip, unmount } = await mount([1, 2, 3, 4].map((at) => shown(`W${at}`, "working", `session-${at}`, at)));
     try {
-      const desktop = host.querySelector("[data-worker-chip-desktop]")!;
-      expect(desktop.querySelectorAll("[data-worker-state]")).toHaveLength(3);
-      expect(desktop.textContent).toBe("+1");
-      const phone = host.querySelector("[data-worker-chip-phone]")!;
-      expect(phone.querySelectorAll("[data-worker-state]")).toHaveLength(1);
-      expect(phone.textContent).toBe("4");
-      expect(host.querySelector("[data-worker-strip]")?.getAttribute("aria-label")).toBe("4 working, 0 waiting, 0 failed, 0 done. Show workers");
-    } finally {
-      await unmount();
-    }
-  });
-
-  it("lays wide marks in a row with a gap and no z-index", async () => {
-    vi.stubGlobal("matchMedia", () => ({ matches: false }));
-    const runs = [1, 2, 3, 4].map((at) => shown(`W${at}`, at === 1 ? "waiting" : "working", `session-${at}`, at));
-    const { host, unmount } = await mount(runs);
-    try {
-      const desktop = host.querySelector("[data-worker-chip-desktop]")!;
-      const phone = host.querySelector("[data-worker-chip-phone]")!;
-      const klass = desktop.getAttribute("class") ?? "";
-      expect({
-        gap: /(?:^|\s)gap-1(?:\s|$)/.test(klass),
-        overlap: klass.includes("-space-x-"),
-        stacked: [...desktop.querySelectorAll("[class*='z-']")].map((el) => el.getAttribute("class")),
-        phone: phone.getAttribute("class"),
-      }).toEqual({
-        gap: true,
-        overlap: false,
-        stacked: [],
-        phone: "relative flex items-center gap-0.5 md:hidden @max-4xl/chathead:!flex",
-      });
-    } finally {
-      await unmount();
-    }
+      expect(chip()!.textContent).toBe("4 workers working");
+      expect(host.querySelector("svg")).toBeNull();
+      expect(host.querySelector("[data-worker-strip]")).toBeNull();
+    } finally { await unmount(); }
   });
 
   it("lists only live panes, urgent first, and opens that pane", async () => {
@@ -293,8 +261,8 @@ describe("WorkerChip", () => {
       livePanes: new Set(["wait-1", "fail-1", "done-1"]),
     });
     try {
-      expect(host.querySelector("[data-worker-strip]")).not.toBeNull();
-      expect([...host.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")].map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "failed", "done"]);
+      expect(host.querySelector("[data-worker-status]")).not.toBeNull();
+      expect(host.querySelector("[data-worker-status]")!.textContent).toContain("waiting");
       const opener = chip()!;
       opener.focus();
       await act(async () => opener.click());
@@ -325,7 +293,7 @@ describe("WorkerChip", () => {
       shown("SHIP", "failed", "fail-1", 4),
     ], { livePanes: null });
     try {
-      expect([...host.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")].map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "working"]);
+      expect(host.querySelector("[data-worker-status]")!.textContent).toContain("waiting");
       await act(async () => chip()!.click());
       expect([...host.querySelectorAll("[data-worker-list] li")].map((li) => li.textContent)).toEqual([
         "WAITOpus 5.5 · High‖Waiting", "WORKOpus 5.5 · High●Working",
@@ -399,9 +367,9 @@ describe("WorkerChip", () => {
     const runs = [shown("WORK", "working", "work-1", 1), shown("WAIT", "waiting", "wait-1", 2)];
     const { host, root, chip, unmount } = await mount(runs, { livePanes: null, waitForLive: true });
     try {
-      expect(host.querySelector("[data-worker-strip]")).toBeNull();
+      expect(host.querySelector("[data-worker-status]")).toBeNull();
       await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: new Set(["work-1"]), waitForLive: true })));
-      expect(chip()!.getAttribute("aria-label")).toBe("1 working, 0 waiting, 0 failed, 0 done. Show workers");
+      expect(chip()!.getAttribute("aria-label")).toBe("1 worker working");
     } finally {
       await unmount();
     }
@@ -417,7 +385,7 @@ describe("WorkerChip", () => {
         shown("COPY", "done", "done-1", 3),
       ], { livePanes: null });
       try {
-        expect([...host.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")].map((el) => el.getAttribute("data-worker-state"))).toEqual(["waiting", "working"]);
+        expect(host.querySelector("[data-worker-status]")!.textContent).toContain("waiting");
       } finally {
         await unmount();
       }
@@ -433,12 +401,8 @@ describe("WorkerChip", () => {
       { run: run("REL-CHAIN-166 | script"), state: "waiting" },
     ], { livePanes: null });
     try {
-      const desktop = [...host.querySelectorAll("[data-worker-chip-desktop] svg")];
-      expect(desktop).toHaveLength(2);
-      expect(desktop[0]!.classList.contains("lucide-scroll-text")).toBe(true);
-      expect(desktop.some((svg) => svg.classList.contains("lucide-square-terminal"))).toBe(false);
-      const phone = host.querySelector("[data-worker-chip-phone] svg")!;
-      expect(phone.classList.contains("lucide-scroll-text")).toBe(true);
+      expect(chip()!.textContent).toBe("2 workers · 1 waiting");
+      expect(host.querySelector("svg")).toBeNull();
       await act(async () => chip()!.click());
       const list = host.querySelector("[data-worker-list]")!;
       expect([...list.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
@@ -459,11 +423,10 @@ describe("WorkerChip", () => {
       { id: "n1", at: 2, role: "bot", kind: "note", text: "[pane aaaaaaaa] [GO-GOOGLE | Opus 5.5 | high] from Wink (61902933-1c2d-4e5f-8a9b-0c1d2e3f4a5b): BLOCKED CHAIN-GP2 branch=x sha=y dirty=no" },
     ]).map((run) => ({ run, state: run.state }));
     const onOpen = vi.fn();
-    const { host, root, chip, unmount } = await mount(runs, { livePanes: new Set(["aaaaaaaa-1"]), onOpenTerminalPane: onOpen });
+    const { root, chip, unmount } = await mount(runs, { livePanes: new Set(["aaaaaaaa-1"]), onOpenTerminalPane: onOpen });
     try {
-      expect(chip()!.getAttribute("aria-label")).toBe("0 working, 1 waiting, 0 failed, 0 done. Show workers");
-      expect(host.querySelectorAll("[data-worker-chip-desktop] [data-worker-state]")).toHaveLength(1);
-      expect(host.querySelector("[data-worker-chip-phone]")!.textContent).toBe("");
+      expect(chip()!.getAttribute("aria-label")).toBe("1 worker · 1 waiting");
+      expect(chip()!.textContent).toBe("1 worker · 1 waiting");
       await act(async () => chip()!.click());
       const list = document.body.querySelector("[data-worker-list]")!;
       expect(list.querySelectorAll("li")).toHaveLength(1);
@@ -471,7 +434,7 @@ describe("WorkerChip", () => {
       await act(async () => list.querySelector<HTMLButtonElement>("li > button")!.click());
       expect(onOpen).toHaveBeenCalledExactlyOnceWith("aaaaaaaa-1");
       await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: null })));
-      expect(chip()!.getAttribute("aria-label")).toBe("1 working, 1 waiting, 0 failed, 0 done. Show workers");
+      expect(chip()!.getAttribute("aria-label")).toBe("2 workers · 1 waiting");
       await act(async () => chip()!.click());
       const roomList = document.body.querySelector("[data-worker-list]")!;
       expect(roomList.querySelectorAll("li")).toHaveLength(2);
@@ -508,7 +471,7 @@ describe("WorkerChip", () => {
       shown("WORK", "working", "work-1", 1),
     ], { livePanes: new Set() });
     try {
-      expect(host.querySelector("[data-worker-strip]")).toBeNull();
+      expect(host.querySelector("[data-worker-status]")).toBeNull();
     } finally {
       await unmount();
     }
