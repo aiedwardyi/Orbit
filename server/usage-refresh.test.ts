@@ -32,9 +32,11 @@ const fixtures = {
     },
   },
 };
-// Redacted real reads: Codex repeats its default bucket, Claude adds seven_day_breakdown, Grok renews a login mid-read.
-const real = z.object({ claude: z.json(), codex: z.json(), grokRenewing: z.json(), grokSettled: z.json() })
-  .parse(JSON.parse(readFileSync(new URL("./usage-refresh.fixture.json", import.meta.url), "utf8")));
+const real = {
+  claude: z.object({ reply: z.json() }).parse(JSON.parse(readFileSync(new URL("../test/fixtures/recorded/claude/oauth-usage.json", import.meta.url), "utf8"))).reply,
+  codex: z.object({ reply: z.json() }).parse(JSON.parse(readFileSync(new URL("../test/fixtures/recorded/codex/rate-limits.json", import.meta.url), "utf8"))).reply,
+  grok: z.object({ reply: z.json(), settled: z.json() }).parse(JSON.parse(readFileSync(new URL("../test/fixtures/recorded/grok/billing-renewal.json", import.meta.url), "utf8"))),
+};
 const credentials = JSON.stringify({ claudeAiOauth: { accessToken: "access-secret" }, "auth.x.ai::test": { key: "access-secret", user_id: "user" }, tokens: { access_token: "access-secret", refresh_token: "refresh-secret" } });
 const unreadableCodexBuckets: Record<string, JsonValue>[] = [{}, { primary: { usedPercent: "unknown" } }];
 
@@ -177,7 +179,7 @@ describe("usage refresh route result", () => {
   });
 
   it("reads Grok billing again when the answer after a login renewal has no tier yet", async () => {
-    const answers = [real.grokRenewing, real.grokSettled];
+    const answers = [real.grok.reply, real.grok.settled];
     const refresh = createUsageRefresh({ platform: "linux", billing: async () => answers.shift() ?? {} });
     const result = await refresh("grokAgent", { instanceId: "grok" });
     expect(result.error).toBeUndefined();

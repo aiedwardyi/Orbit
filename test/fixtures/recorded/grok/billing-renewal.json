@@ -1,0 +1,55 @@
+{
+  "stamp": {
+    "engine": "grok",
+    "cliVersion": "1.0.70",
+    "recordedAt": "2026-10-29T11:53:22.220Z",
+    "sourcePc": "work",
+    "source": "USAGE-214/remote/work-grok-billing.out.txt: billing context after login renewal; work-fetch.out.txt: settled rpc id=3 result"
+  },
+  "reply": {
+    "config": {
+      "currentPeriod": {
+        "type": "USAGE_PERIOD_TYPE_WEEKLY",
+        "start": "2026-10-29T07:02:43.495651+00:00",
+        "end": "2026-11-05T07:02:43.495651+00:00"
+      },
+      "onDemandCap": {
+        "val": 0
+      },
+      "onDemandUsed": {
+        "val": 0
+      },
+      "prepaidBalance": {
+        "val": 0
+      },
+      "isUnifiedBillingUser": true,
+      "billingPeriodStart": "2026-10-29T07:02:43.495651+00:00",
+      "billingPeriodEnd": "2026-11-05T07:02:43.495651+00:00",
+      "historyLen": 0
+    },
+    "onDemandEnabled": null,
+    "subscriptionTier": null
+  },
+  "settled": {
+    "config": {
+      "currentPeriod": {
+        "type": "USAGE_PERIOD_TYPE_WEEKLY",
+        "start": "2026-10-29T07:02:43.495651+00:00",
+        "end": "2026-11-05T07:02:43.495651+00:00"
+      },
+      "onDemandCap": {
+        "val": 0
+      },
+      "onDemandUsed": {
+        "val": 0
+      },
+      "prepaidBalance": {
+        "val": 0
+      },
+      "isUnifiedBillingUser": true,
+      "billingPeriodStart": "2026-10-29T07:02:43.495651+00:00",
+      "billingPeriodEnd": "2026-11-05T07:02:43.495651+00:00"
+    },
+    "subscription_tier": "SuperGrok"
+  }
+}

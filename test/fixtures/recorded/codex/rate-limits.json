@@ -1,0 +1,60 @@
+{
+  "stamp": {
+    "engine": "codex",
+    "cliVersion": "0.165.0",
+    "recordedAt": "2026-10-29T12:07:00.541Z",
+    "sourcePc": "work",
+    "source": "USAGE-214/remote/work-fetch.out.txt: codex rpc id=2 result"
+  },
+  "reply": {
+    "ordinaryUsageAllowed": true,
+    "rateLimits": {
+      "limitId": "codex",
+      "limitName": null,
+      "normalModelSlug": null,
+      "primary": {
+        "usedPercent": 58,
+        "windowDurationMins": 10080,
+        "resetsAt": 1793774106
+      },
+      "secondary": null,
+      "credits": {
+        "hasCredits": false,
+        "unlimited": false,
+        "balance": "0"
+      },
+      "individualLimit": null,
+      "spendControlReached": false,
+      "planType": "prolite",
+      "rateLimitReachedType": null
+    },
+    "rateLimitsByLimitId": {
+      "codex": {
+        "limitId": "codex",
+        "limitName": null,
+        "normalModelSlug": null,
+        "primary": {
+          "usedPercent": 58,
+          "windowDurationMins": 10080,
+          "resetsAt": 1793774106
+        },
+        "secondary": null,
+        "credits": {
+          "hasCredits": false,
+          "unlimited": false,
+          "balance": "0"
+        },
+        "individualLimit": null,
+        "spendControlReached": false,
+        "planType": "prolite",
+        "rateLimitReachedType": null
+      }
+    },
+    "rateLimitResetCredits": {
+      "availableCount": 0,
+      "credits": []
+    },
+    "accountId": "<redacted>",
+    "rateLimitUpsell": null
+  }
+}
