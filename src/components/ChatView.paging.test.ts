@@ -229,8 +229,8 @@ describe("paged transcripts", () => {
     // JOB's launch is only on the jumped page. Chat still lists it: one live pane starts with its pane id. A room has no roster.
     const chat = view === "chat";
     expect(strip.getAttribute("aria-label")).toBe(chat
-      ? "2 workers working"
-      : "1 worker working");
+      ? "2 workers"
+      : "1 worker");
     await act(async () => strip.click());
     expect(Array.from(document.querySelectorAll("[data-worker-list] li")).map((li) => li.textContent)).toEqual(
       chat ? ["CURRENTscript●Working", "JOBscript✓Done"] : ["CURRENTscript●Working"],

@@ -10,8 +10,8 @@ import { isPhone, PHONE_QUERY } from "@/lib/phone-swipe";
 import { useBackLayer } from "@/lib/use-back-layer";
 import { useSheetSwipe } from "@/lib/use-phone-swipe";
 import type { Message } from "@/state/store";
-import { listedSessionId, workerAnchors, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
-import { workerStatusRuns, workerStatusText } from "@/lib/worker-status";
+import { listedRuns, listedSessionId, workerAnchors, type WorkerRun, type WorkerShownState } from "@/lib/worker-runs";
+import { workerStatusText } from "@/lib/worker-status";
 import { ProviderMark } from "./ProviderIcons";
 
 export const WORKER_STATUS = {
@@ -256,7 +256,7 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
-  const listed = livePanes === null && waitForLive ? [] : workerStatusRuns(runs, livePanes, paneLabels);
+  const listed = livePanes === null && waitForLive ? [] : listedRuns(runs, livePanes, paneLabels);
   const [phone, setPhone] = useState(isPhone);
   useEffect(() => {
     const media = window.matchMedia?.(PHONE_QUERY);

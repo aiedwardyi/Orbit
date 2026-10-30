@@ -14,12 +14,16 @@ afterEach(() => { applyLocale("en"); vi.unstubAllGlobals(); });
 
 it.each([
   [[], "", ""],
-  [["working"], "1 worker working", "작업자 1개 작업 중"],
-  [["working", "working", "working"], "3 workers working", "작업자 3개 작업 중"],
-  [["working", "working", "waiting"], "3 workers · 1 waiting", "작업자 3개 · 1개 대기 중"],
-  [["working", "waiting", "failed"], "3 workers · 1 waiting · 1 failed", "작업자 3개 · 1개 대기 중 · 1개 실패"],
-  [["done"], "1 worker done", "작업자 1개 완료"],
-  [["done", "done", "done"], "3 workers done", "작업자 3개 완료"],
+  [["working"], "1 worker", "작업자 1개"],
+  [["waiting"], "1 worker", "작업자 1개"],
+  [["working", "working", "working"], "3 workers", "작업자 3개"],
+  [["working", "working", "waiting"], "3 workers", "작업자 3개"],
+  [["working", "waiting", "failed"], "3 workers", "작업자 3개"],
+  [["working", "done", "failed"], "3 workers", "작업자 3개"],
+  [["done"], "", ""],
+  [["done", "done", "done"], "", ""],
+  [["failed"], "", ""],
+  [["done", "failed", "ended"], "", ""],
 ] as const)("says %j in English and Korean", async (states, en, ko) => {
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
@@ -43,7 +47,7 @@ it.each([false, true])("opens the list and terminal from the words with phone=%s
   try {
     await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs: shown(["working"]), livePanes: new Set(["worker-0"]), onOpenTerminalPane: open })));
     const status = host.querySelector<HTMLButtonElement>("[data-worker-status]");
-    expect(status?.textContent).toBe("1 worker working");
+    expect(status?.textContent).toBe("1 worker");
     await act(async () => status!.click());
     const list = document.body.querySelector("[data-worker-list]");
     expect(list?.getAttribute("role")).toBe("dialog");
@@ -53,14 +57,12 @@ it.each([false, true])("opens the list and terminal from the words with phone=%s
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
-it("keeps the finished count after the last pane closes", async () => {
+it("hides the status after the last pane closes", async () => {
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
   try {
     await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs: shown(["done", "done"]), livePanes: new Set<string>() })));
-    expect(host.textContent).toBe("2 workers done");
-    await act(async () => host.querySelector("button")!.click());
-    expect(document.body.querySelectorAll("[data-worker-list] li")).toHaveLength(2);
-    expect(document.body.querySelector("[data-worker-list] li > button")).toBeNull();
+    expect(host.textContent).toBe("");
+    expect(host.querySelector("[data-worker-status]")).toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });

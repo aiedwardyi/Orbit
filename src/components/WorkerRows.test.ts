@@ -243,7 +243,7 @@ describe("WorkerChip", () => {
   it("shows words without header icons", async () => {
     const { host, chip, unmount } = await mount([1, 2, 3, 4].map((at) => shown(`W${at}`, "working", `session-${at}`, at)));
     try {
-      expect(chip()!.textContent).toBe("4 workers working");
+      expect(chip()!.textContent).toBe("4 workers");
       expect(host.querySelector("svg")).toBeNull();
       expect(host.querySelector("[data-worker-strip]")).toBeNull();
     } finally { await unmount(); }
@@ -262,7 +262,7 @@ describe("WorkerChip", () => {
     });
     try {
       expect(host.querySelector("[data-worker-status]")).not.toBeNull();
-      expect(host.querySelector("[data-worker-status]")!.textContent).toContain("waiting");
+      expect(host.querySelector("[data-worker-status]")!.textContent).toBe("3 workers");
       const opener = chip()!;
       opener.focus();
       await act(async () => opener.click());
@@ -293,7 +293,7 @@ describe("WorkerChip", () => {
       shown("SHIP", "failed", "fail-1", 4),
     ], { livePanes: null });
     try {
-      expect(host.querySelector("[data-worker-status]")!.textContent).toContain("waiting");
+      expect(host.querySelector("[data-worker-status]")!.textContent).toBe("2 workers");
       await act(async () => chip()!.click());
       expect([...host.querySelectorAll("[data-worker-list] li")].map((li) => li.textContent)).toEqual([
         "WAITOpus 5.5 · High‖Waiting", "WORKOpus 5.5 · High●Working",
@@ -369,7 +369,7 @@ describe("WorkerChip", () => {
     try {
       expect(host.querySelector("[data-worker-status]")).toBeNull();
       await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: new Set(["work-1"]), waitForLive: true })));
-      expect(chip()!.getAttribute("aria-label")).toBe("1 worker working");
+      expect(chip()!.getAttribute("aria-label")).toBe("1 worker");
     } finally {
       await unmount();
     }
@@ -385,7 +385,7 @@ describe("WorkerChip", () => {
         shown("COPY", "done", "done-1", 3),
       ], { livePanes: null });
       try {
-        expect(host.querySelector("[data-worker-status]")!.textContent).toContain("waiting");
+        expect(host.querySelector("[data-worker-status]")!.textContent).toBe("2 workers");
       } finally {
         await unmount();
       }
@@ -401,7 +401,7 @@ describe("WorkerChip", () => {
       { run: run("REL-CHAIN-166 | script"), state: "waiting" },
     ], { livePanes: null });
     try {
-      expect(chip()!.textContent).toBe("2 workers · 1 waiting");
+      expect(chip()!.textContent).toBe("2 workers");
       expect(host.querySelector("svg")).toBeNull();
       await act(async () => chip()!.click());
       const list = host.querySelector("[data-worker-list]")!;
@@ -425,8 +425,8 @@ describe("WorkerChip", () => {
     const onOpen = vi.fn();
     const { root, chip, unmount } = await mount(runs, { livePanes: new Set(["aaaaaaaa-1"]), onOpenTerminalPane: onOpen });
     try {
-      expect(chip()!.getAttribute("aria-label")).toBe("1 worker · 1 waiting");
-      expect(chip()!.textContent).toBe("1 worker · 1 waiting");
+      expect(chip()!.getAttribute("aria-label")).toBe("1 worker");
+      expect(chip()!.textContent).toBe("1 worker");
       await act(async () => chip()!.click());
       const list = document.body.querySelector("[data-worker-list]")!;
       expect(list.querySelectorAll("li")).toHaveLength(1);
@@ -434,7 +434,7 @@ describe("WorkerChip", () => {
       await act(async () => list.querySelector<HTMLButtonElement>("li > button")!.click());
       expect(onOpen).toHaveBeenCalledExactlyOnceWith("aaaaaaaa-1");
       await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs, livePanes: null })));
-      expect(chip()!.getAttribute("aria-label")).toBe("2 workers · 1 waiting");
+      expect(chip()!.getAttribute("aria-label")).toBe("2 workers");
       await act(async () => chip()!.click());
       const roomList = document.body.querySelector("[data-worker-list]")!;
       expect(roomList.querySelectorAll("li")).toHaveLength(2);

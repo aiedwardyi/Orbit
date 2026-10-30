@@ -1814,8 +1814,8 @@ describe("Sidebar bot second line", () => {
         data: JSON.stringify({ kind: "hello", resumed: false, cursor: "c0" }),
         lastEventId: "",
       }));
-      await vi.waitFor(() => expect(row("busy")?.querySelector("[data-sidebar-worker-status]")?.textContent).toBe("3 workers working"));
-      expect(row("solo")?.querySelector("[data-sidebar-worker-status]")?.textContent).toBe("1 worker working");
+      await vi.waitFor(() => expect(row("busy")?.querySelector("[data-sidebar-worker-status]")?.textContent).toBe("3 workers"));
+      expect(row("solo")?.querySelector("[data-sidebar-worker-status]")?.textContent).toBe("1 worker");
       expect(host.querySelector("[data-sidebar-worker-panes]")).toBeNull();
       const alert = row("attention")?.querySelector("[data-sidebar-terminal-attention]");
       expect(alert?.textContent).toBe(">_");
