@@ -10,6 +10,7 @@ import Markdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Extension } from "mdast-util-from-markdown";
 import { Check, Copy } from "lucide-react";
+import { ReadableImage } from "./MediaViewerProvider";
 import { z } from "zod";
 
 import { useI18n, type MessageKey } from "@/lib/i18n";
@@ -519,7 +520,7 @@ function PhoneFile({
     );
   }
   if (kind === "image") {
-    return <img src={src} alt="" data-phone-media="image" className="max-h-96 max-w-full rounded-lg border border-hairline/30" />;
+    return <ReadableImage src={src} alt="" data-phone-media="image" className="max-h-96 max-w-full rounded-lg border border-hairline/30" />;
   }
   if (kind === "audio") return <audio src={src} controls data-phone-media="audio" className="max-w-full" />;
   if (kind === "pdf") {
@@ -671,7 +672,7 @@ function ChatMarkdownComponent({
     },
     img({ src, alt }: { src?: string; alt?: string }) {
       return (
-        <img
+        <ReadableImage
           src={src}
           alt={alt ?? ""}
           loading="lazy"

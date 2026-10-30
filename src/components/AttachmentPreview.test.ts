@@ -39,7 +39,7 @@ describe("ShownImage", () => {
       expect(downloadLink.getAttribute("href")).toBe("/api/attachments/abc-123.png");
       expect(downloadLink.getAttribute("download")).toBe("abc-123.png");
 
-      await act(async () => click(dialog()!.querySelector('[aria-label="Close image preview"]')!));
+      await act(async () => click(dialog()!.querySelector('[aria-label="Close Image Preview"]')!));
       expect(dialog()).toBeNull();
     } finally {
       await act(async () => root.unmount());
@@ -51,7 +51,7 @@ describe("ShownImage", () => {
     const { host, root } = await renderShownImage("/a/b/abc-123.png");
     try {
       await act(async () => click(host.querySelector("button")!));
-      await act(async () => click(dialog()!.querySelector('[aria-label="Close image preview"]')!));
+      await act(async () => click(dialog()!.querySelector('[aria-label="Close Image Preview"]')!));
       await act(() => new Promise<void>((done) => setTimeout(done, PRESENCE_EXIT_MS + 60)));
       expect(document.body.querySelector('[aria-label="Preview abc-123.png"]')).toBeNull();
     } finally {
@@ -112,12 +112,119 @@ describe("AttachmentPreviewDialog viewer image", () => {
     }
     const img = stage.querySelector("img")!;
     Object.defineProperties(img, {
-      naturalWidth: { value: 400, configurable: true },
-      naturalHeight: { value: 300, configurable: true },
+      naturalWidth: { value: 3216, configurable: true },
+      naturalHeight: { value: 4974, configurable: true },
     });
     await act(async () => img.dispatchEvent(new Event("load")));
     return { host, root, stage, img };
   }
+
+  const frame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  const pointer = (img: Element, type: string, x = 350, y = 290, pointerType = "mouse", pointerId = 1) => img.dispatchEvent(new PointerEvent(type, {
+    bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y, pointerId, pointerType,
+  }));
+
+  it.each(["mouse", "touch"])("double %s toggles native and fit while a single action leaves scale alone", async (pointerType) => {
+    const { root, stage, img } = await renderDialog(() => {});
+    try {
+      const fit = Number(stage.dataset.zoom);
+      await act(async () => { pointer(img, "pointerdown", 350, 290, pointerType); pointer(img, "pointerup", 350, 290, pointerType); });
+      await frame();
+      expect(Number(stage.dataset.zoom)).toBe(fit);
+      await act(async () => { pointer(img, "pointerdown", 350, 290, pointerType); pointer(img, "pointerup", 350, 290, pointerType); });
+      await frame();
+      expect(Number(stage.dataset.zoom)).toBe(1);
+      await act(async () => {
+        pointer(img, "pointerdown", 350, 290, pointerType); pointer(img, "pointerup", 350, 290, pointerType);
+        pointer(img, "pointerdown", 350, 290, pointerType); pointer(img, "pointerup", 350, 290, pointerType);
+      });
+      await frame();
+      expect(Number(stage.dataset.zoom)).toBe(fit);
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("zooms with plain wheel, line wheel and Ctrl wheel", async () => {
+    const { root, stage, img } = await renderDialog(() => {});
+    try {
+      let previous = Number(stage.dataset.zoom);
+      for (const event of [{ deltaY: -120 }, { deltaY: -2, deltaMode: 1 }, { deltaY: -120, ctrlKey: true }]) {
+        const wheel = new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: 400, clientY: 300, ...event });
+        Object.defineProperties(wheel, { clientX: { value: 400 }, clientY: { value: 300 } });
+        await act(async () => img.dispatchEvent(wheel));
+        expect(wheel.defaultPrevented).toBe(true);
+        await frame();
+        expect(Number(stage.dataset.zoom)).toBeGreaterThan(previous);
+        previous = Number(stage.dataset.zoom);
+      }
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it.each([{}, { ctrlKey: true }, { metaKey: true }])("owns zoom keys with modifier %j", async (modifiers) => {
+    const { root, stage } = await renderDialog(() => {});
+    try {
+      const fit = Number(stage.dataset.zoom);
+      for (const key of ["+", "=", "-", "0"]) {
+        const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers });
+        await act(async () => window.dispatchEvent(event));
+        await frame();
+        expect(event.defaultPrevented).toBe(true);
+        expect(Number(stage.dataset.zoom)).toBe(key === "0" ? fit : key === "-" ? fit * 1.25 : key === "=" ? fit * 1.25 * 1.25 : fit * 1.25);
+      }
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("traps focus, makes the chat inert, closes with Escape and restores focus", async () => {
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    const onClose = vi.fn();
+    const { root, host } = await renderDialog(onClose);
+    try {
+      expect(host.inert).toBe(true);
+      const controls = dialog()!.querySelectorAll<HTMLElement>("a, button");
+      controls[controls.length - 1].focus();
+      await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+      expect(document.activeElement).toBe(controls[0]);
+      await act(async () => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally { await act(async () => root.unmount()); }
+    expect(host.inert).toBe(false);
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("keeps Close and Download available after failure and retries the same source", async () => {
+    const { root, img } = await renderDialog(() => {});
+    try {
+      await act(async () => img.dispatchEvent(new Event("error")));
+      expect(dialog()!.querySelector("a[download]")?.getAttribute("href")).toBe(image.src);
+      expect(dialog()!.querySelector('[aria-label="Close Image Preview"]')).not.toBeNull();
+      const retry = [...dialog()!.querySelectorAll("button")].find((button) => button.textContent === "Retry")!;
+      await act(async () => click(retry));
+      expect(dialog()!.querySelector("img")?.getAttribute("src")).toBe(image.src + "?retry=1");
+    } finally { await act(async () => root.unmount()); }
+  });
+
+  it("cancels downward dismiss when a second finger starts a pinch", async () => {
+    const onClose = vi.fn();
+    const { root, img, stage } = await renderDialog(onClose);
+    try {
+      await act(async () => {
+        pointer(img, "pointerdown", 300, 200, "touch", 1);
+        pointer(img, "pointermove", 300, 340, "touch", 1);
+        pointer(img, "pointerdown", 400, 340, "touch", 2);
+        pointer(img, "pointermove", 500, 340, "touch", 2);
+        pointer(img, "pointerup", 500, 340, "touch", 2);
+        pointer(img, "pointerup", 300, 340, "touch", 1);
+      });
+      await frame();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(Number(stage.dataset.zoom)).toBeGreaterThan(Number(stage.clientHeight) / 4974);
+      expect(stage.style.transform).toBe("");
+    } finally { await act(async () => root.unmount()); }
+  });
 
   it("leaves the viewer image hit-testable for the native menu", async () => {
     const { host, root } = await renderDialog(() => {});
@@ -131,9 +238,10 @@ describe("AttachmentPreviewDialog viewer image", () => {
     }
   });
 
-  it("still pans and zooms from a pointer event on the image", async () => {
+  it("single clicks leave the image scale unchanged", async () => {
     const { host, root, stage, img } = await renderDialog(() => {});
     try {
+      const before = stage.getAttribute("data-zoom");
       const down = new PointerEvent("pointerdown", {
         bubbles: true, cancelable: true, button: 0, clientX: 60, clientY: 70, pointerId: 7,
       });
@@ -141,7 +249,7 @@ describe("AttachmentPreviewDialog viewer image", () => {
       expect(down.defaultPrevented).toBe(true);
       const up = new PointerEvent("pointerup", { bubbles: true, clientX: 60, clientY: 70, pointerId: 7 });
       await act(async () => img.dispatchEvent(up));
-      expect(stage.getAttribute("data-zoom")).not.toBe("1");
+      expect(stage.getAttribute("data-zoom")).toBe(before);
     } finally {
       await act(async () => root.unmount());
       host.remove();
