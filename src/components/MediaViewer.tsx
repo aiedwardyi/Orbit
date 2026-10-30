@@ -179,9 +179,6 @@ export function MediaViewer({ image, closing = false, onClose, previous, next, o
           (event.shiftKey ? controls.at(-1) : controls[0])?.focus();
         }
         event.stopImmediatePropagation();
-      } else if (event.altKey || event.ctrlKey || event.metaKey) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
       }
       event.stopImmediatePropagation();
     };

@@ -30,7 +30,7 @@ export function atFit(view: ZoomView, frame: ZoomFrame): boolean {
 export function clampScale(scale: number, fit: number): number {
   if (!Number.isFinite(scale)) return fit;
   if (Math.abs(scale - 1) < 1e-12) return 1;
-  return Math.min(Math.max(8, fit * 8), Math.max(fit, scale));
+  return Math.min(8, Math.max(fit, scale));
 }
 
 export function clampPan(panX: number, panY: number, sw: number, sh: number, viewW: number, viewH: number) {
