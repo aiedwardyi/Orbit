@@ -156,7 +156,7 @@ describe("worker list shortcut", () => {
   it.each([[false, false], [true, false], [false, true], [true, true]])("toggles the active conversation with group=%s phone=%s", async (group, phone) => {
     const { host, press, unmount } = await mount(group, phone);
     try {
-      const chip = host.querySelector("[data-worker-strip]")!;
+      const chip = host.querySelector("[data-worker-status]")!;
       expect(chip.getAttribute("aria-expanded")).toBe("false");
       expect((await press()).defaultPrevented).toBe(true);
       expect(chip.getAttribute("aria-expanded")).toBe("true");
@@ -173,7 +173,7 @@ describe("worker list shortcut", () => {
   it("prevents the Window mnemonic even when there are no workers", async () => {
     const { host, press, unmount } = await mount(false, false, false);
     try {
-      expect(host.querySelector("[data-worker-strip]")).toBeNull();
+      expect(host.querySelector("[data-worker-status]")).toBeNull();
       expect((await press()).defaultPrevented).toBe(true);
       expect(document.body.querySelector("[data-worker-list]")).toBeNull();
     } finally {
@@ -230,7 +230,7 @@ describe("worker list shortcut", () => {
       expect(document.activeElement).toBe(inside);
       await press();
       expect(document.body.querySelector("[data-worker-list]")).toBeNull();
-      expect(document.activeElement).toBe(host.querySelector("[data-worker-strip]"));
+      expect(document.activeElement).toBe(host.querySelector("[data-worker-status]"));
     } finally {
       await unmount();
     }

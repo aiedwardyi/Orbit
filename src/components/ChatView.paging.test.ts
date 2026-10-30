@@ -224,13 +224,13 @@ describe("paged transcripts", () => {
     await act(async () => store.dispatch({ type: "focusMessage", threadId, messageId: "old-hit" }));
     await vi.waitFor(() => expect(host.querySelector('[data-mid="old-hit"]')).not.toBeNull());
     expect(host.querySelector("[data-worker-run] [data-worker-state]")?.getAttribute("data-worker-state")).toBe("done");
-    const strip = host.querySelector<HTMLButtonElement>("[data-worker-strip]")!;
+    const strip = host.querySelector<HTMLButtonElement>("[data-worker-status]")!;
     expect(strip.closest("[class*='@container/chathead']")).not.toBeNull();
     // JOB's launch is only on the jumped page. Chat still lists it: one live pane starts with its pane id. A room has no roster.
     const chat = view === "chat";
     expect(strip.getAttribute("aria-label")).toBe(chat
-      ? "1 working, 0 waiting, 0 failed, 1 done. Show workers"
-      : "1 working, 0 waiting, 0 failed, 0 done. Show workers");
+      ? "2 workers"
+      : "1 worker");
     await act(async () => strip.click());
     expect(Array.from(document.querySelectorAll("[data-worker-list] li")).map((li) => li.textContent)).toEqual(
       chat ? ["CURRENTscript●Working", "JOBscript✓Done"] : ["CURRENTscript●Working"],
@@ -256,7 +256,7 @@ describe("paged transcripts", () => {
     await vi.waitFor(() => expect(host.querySelector('[data-mid="old-hit"]')).not.toBeNull());
     expect(readBot).not.toHaveBeenCalled();
     expect(onExit).not.toHaveBeenCalled();
-    expect(host.querySelector("[data-worker-strip]")).toBeNull();
+    expect(host.querySelector("[data-worker-status]")).toBeNull();
     expect(host.querySelector("[data-worker-run]")).not.toBeNull();
   });
 
