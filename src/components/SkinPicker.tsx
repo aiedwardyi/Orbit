@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { LIGHT_SKIN_IDS, SKINS, SKIN_CHANGE_EVENT, applySkin, readSkin, type SkinId } from "@/lib/skins";
 import { useI18n } from "@/lib/i18n";
+import { showSkinTaglines } from "@/lib/friends-chrome";
 import { cn } from "@/lib/cn";
 import { Section } from "./SettingsPrimitives";
 
@@ -119,9 +120,11 @@ export function SkinPicker() {
                   <div className="flex items-start gap-1.5 px-0.5 pb-0.5">
                     <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-medium text-ink">{skin.name}</div>
-                      <div className="mt-0.5 text-[11px] leading-snug text-ink-secondary">
-                        {t(`settings.skin.${skin.id}.tagline`)}
-                      </div>
+                      {showSkinTaglines() && (
+                        <div className="mt-0.5 text-[11px] leading-snug text-ink-secondary">
+                          {t(`settings.skin.${skin.id}.tagline`)}
+                        </div>
+                      )}
                     </div>
                     {selected && <Check size={13} className="mt-0.5 shrink-0 text-accent-text" />}
                   </div>

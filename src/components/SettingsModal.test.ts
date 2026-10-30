@@ -120,7 +120,8 @@ describe("SettingsModal friends chrome", () => {
     expect(html).toContain(">Auto<");
     expect(html).not.toContain("Uses English or Korean from the operating system.");
     expect(html).not.toContain("aria-describedby");
-    expect(html).toContain("Reply Style");
+    expect(html).not.toContain("Reply Style");
+    expect(html).not.toContain("Bot List Side");
     expect(html).toContain("English");
     expect(html).toContain("한국어");
     expect(html).not.toContain("Your name");
@@ -252,10 +253,12 @@ describe("SettingsModal friends chrome", () => {
     ]);
   });
 
-  it("shows Alt+T and Alt+U on the Themes and Usage nav rows", () => {
+  it("keeps Alt+T and Alt+U as nav shortcuts without hint text or a name tooltip", () => {
     const html = markup("themes");
-    expect(html).toContain("Alt+T");
-    expect(html).toContain("Alt+U");
+    expect(html).not.toContain(">Alt+T<");
+    expect(html).not.toContain(">Alt+U<");
+    expect(html).not.toContain('title="Themes"');
+    expect(html).toContain('aria-label="Themes"');
     expect(html).toContain('aria-keyshortcuts="Alt+T"');
     expect(html).toContain('aria-keyshortcuts="Alt+U"');
   });
@@ -374,10 +377,10 @@ describe("SettingsModal friends chrome", () => {
     expect(themes).toContain("settings.skin.title");
   });
 
-  it("orders General with reply style above phone controls and Advanced after Updates", () => {
+  it("orders General with Bot List Side and Reply Style first under Advanced", () => {
     const source = readFileSync(join(here, "SettingsModal.tsx"), "utf8");
     const general = source.slice(source.indexOf('section === "general"'), source.indexOf('section === "connections"'));
-    const order = ["<LanguagePicker", "<SidebarSideRow", "<ReplyStyleRow", "<PhoneNotificationSettings", "<VibrationRow", "<UpdatesRow", "data-settings-preferences", "<TerminalAppearanceRow", "<ToolCallsRow", "<DetailedRepliesRow", "<NotificationsRow", "<StartFreshRow"].map((marker) => general.indexOf(marker));
+    const order = ["<LanguagePicker", "<PhoneNotificationSettings", "<VibrationRow", "<UpdatesRow", "data-settings-preferences", "<SidebarSideRow", "<ReplyStyleRow", "<TerminalAppearanceRow", "<ToolCallsRow", "<DetailedRepliesRow", "<NotificationsRow", "<StartFreshRow"].map((marker) => general.indexOf(marker));
     expect(order.every((at) => at > -1)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });

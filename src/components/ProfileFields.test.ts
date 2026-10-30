@@ -182,7 +182,7 @@ describe("ProfileFields photo", () => {
     expect(button(empty.host, "Change Photo")).toBeTruthy();
     expect(button(empty.host, "Remove Photo")).toBeNull();
     expect(empty.host.querySelector('input[type="file"]')?.getAttribute("accept")).toBe("image/png,image/jpeg,image/gif,image/webp");
-    expect(empty.host.textContent).toContain("PNG, JPEG, GIF, or WebP");
+    expect(empty.host.textContent).not.toContain("up to 10 MB");
     await act(async () => empty.root.unmount());
 
     mock.config = { profile: { name: "Ada", email: "", avatarUrl: "/api/attachments/ada.png" } };
@@ -220,6 +220,7 @@ describe("ProfileFields photo", () => {
 
     expect(request).not.toHaveBeenCalled();
     expect(host.querySelector("[role=alert]")?.textContent).toBe("Choose a PNG, JPEG, GIF, or WebP image");
+    expect(host.textContent).toContain("PNG, JPEG, GIF, or WebP · up to 10 MB");
     await act(async () => root.unmount());
   });
 

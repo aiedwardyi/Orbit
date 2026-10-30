@@ -8,7 +8,7 @@ import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
 import { builtInBrowserEnabled, memoryNotesEnabled } from "@/lib/feature-flags";
-import { showBotDetailsAdvanced } from "@/lib/friends-chrome";
+import { showBotDetailsAdvanced, showDisabledShareTerminal } from "@/lib/friends-chrome";
 import {
   dropMemory,
   editMemory,
@@ -595,6 +595,7 @@ export function SettingsPanel({
   const browserEnabled = bot.browser !== false;
   const terminalShared =
     bot.shareTerminalWithChat === true || (bot.shareTerminalWithChat !== false && (desktopTerminal || serverHasTerminal));
+  const shareTerminalDisabled = !terminalShared && !desktopTerminal && !serverHasTerminal;
   const sectionName = bot.section?.trim() || "General";
   useEffect(() => {
     if (avatarRequest === 0 || avatarRequest === seenAvatarRequest.current) return;
@@ -781,33 +782,52 @@ export function SettingsPanel({
             </button>
           </div>
 
-          <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
-            <div>
-              <div className="text-[15px] font-medium text-ink">{t("bot.shareTerminal")}</div>
-            </div>
-            <button
-              role="switch"
-              aria-checked={terminalShared}
-              aria-label={t("bot.shareTerminal")}
-              disabled={!terminalShared && !desktopTerminal && !serverHasTerminal}
-              onClick={() => patch({ shareTerminalWithChat: !terminalShared })}
-              className={cn(
-                "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-                terminalShared ? "bg-accent" : "bg-control",
-              )}
-            >
-              <span
+          {(!shareTerminalDisabled || showDisabledShareTerminal()) && (
+            <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
+              <div>
+                <div className="text-[15px] font-medium text-ink">{t("bot.shareTerminal")}</div>
+              </div>
+              <button
+                role="switch"
+                aria-checked={terminalShared}
+                aria-label={t("bot.shareTerminal")}
+                disabled={shareTerminalDisabled}
+                onClick={() => patch({ shareTerminalWithChat: !terminalShared })}
                 className={cn(
-                  "absolute top-[3px] size-5 rounded-full bg-white transition-all",
-                  terminalShared ? "left-[21px]" : "left-[3px]",
+                  "relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                  terminalShared ? "bg-accent" : "bg-control",
                 )}
-              />
-            </button>
-          </div>
+              >
+                <span
+                  className={cn(
+                    "absolute top-[3px] size-5 rounded-full bg-white transition-all",
+                    terminalShared ? "left-[21px]" : "left-[3px]",
+                  )}
+                />
+              </button>
+            </div>
+          )}
 
           <KeepGoingRow bot={bot} />
 
-          {engine?.driverKind === "claudeAgent" && (
+          {showBotDetailsAdvanced() && (
+            <>
+          <button
+            type="button"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen((open) => !open)}
+            className="flex w-full items-center justify-between rounded-xl border border-hairline/40 bg-card px-4 py-3 text-left hover:bg-control/60"
+          >
+            <span>
+              <span className="block text-[14px] font-medium text-ink">Advanced</span>
+            </span>
+            <ChevronDown
+              size={16}
+              className={cn("text-ink-secondary transition-transform", advancedOpen && "rotate-180")}
+            />
+          </button>
+
+          {advancedOpen && engine?.driverKind === "claudeAgent" && (
             <div className="flex items-center justify-between gap-4 rounded-xl bg-card p-4">
               <div>
                 <div className="text-[15px] font-medium text-ink">{t("bot.leanStartup")}</div>
@@ -831,23 +851,6 @@ export function SettingsPanel({
               </button>
             </div>
           )}
-
-          {showBotDetailsAdvanced() && (
-            <>
-          <button
-            type="button"
-            aria-expanded={advancedOpen}
-            onClick={() => setAdvancedOpen((open) => !open)}
-            className="flex w-full items-center justify-between rounded-xl border border-hairline/40 bg-card px-4 py-3 text-left hover:bg-control/60"
-          >
-            <span>
-              <span className="block text-[14px] font-medium text-ink">Advanced</span>
-            </span>
-            <ChevronDown
-              size={16}
-              className={cn("text-ink-secondary transition-transform", advancedOpen && "rotate-180")}
-            />
-          </button>
 
           {advancedOpen && (
             <div className={cn(

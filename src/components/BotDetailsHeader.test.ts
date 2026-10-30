@@ -39,7 +39,7 @@ describe("QA 17 one Bot-details header entry", () => {
   it("keeps avatar and name as the ChatView header entry that opens Bot details", () => {
     expect(chatHeader).toContain('title={t("chat.openProfile"');
     expect(chatHeader).toContain('onActivate={() => dispatch({ type: "toggleSettings", open: true })}');
-    expect(chatHeader).toContain('onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}');
+    expect(chatHeader).not.toContain("avatar: !isPhone()");
   });
 
   it("shows the bot name below md and opens Bot details with no pencil", () => {

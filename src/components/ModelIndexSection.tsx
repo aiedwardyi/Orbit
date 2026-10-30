@@ -8,6 +8,7 @@ import { localeTag, useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n-catalog";
 import { cn } from "@/lib/cn";
 import { isPhone } from "@/lib/phone-swipe";
+import { showSettingsHotkeyHints } from "@/lib/friends-chrome";
 import { useBackLayer } from "@/lib/use-back-layer";
 import {
   CHART_PROVIDERS,
@@ -912,12 +913,14 @@ export function ModelIndexSection() {
                 setTab(id);
               }}
             />
-            <kbd
-              aria-label={t("shortcuts.modelsIndexCycle")}
-              className="shrink-0 font-mono text-[10px] tracking-wide text-ink-secondary/55 max-md:hidden"
-            >
-              Alt+Shift+I
-            </kbd>
+            {showSettingsHotkeyHints() && (
+              <kbd
+                aria-label={t("shortcuts.modelsIndexCycle")}
+                className="shrink-0 font-mono text-[10px] tracking-wide text-ink-secondary/55 max-md:hidden"
+              >
+                Alt+Shift+I
+              </kbd>
+            )}
           </div>
           {tab === "coding" && (
             <Segmented<Coding>

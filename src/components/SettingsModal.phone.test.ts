@@ -82,7 +82,7 @@ describe("phone Settings navigation", () => {
   it("pushes a page and pops with the button before Escape closes Settings", async () => {
     await open();
     await tap("General");
-    expect(dialog()!.querySelector('[aria-label="Bot List Side"]')).not.toBeNull();
+    expect(dialog()!.querySelector('[aria-label="Language"]')).not.toBeNull();
     expect(button("Back")?.textContent).toBe("Settings");
     await act(async () => button("Back")!.click());
     expect(button("Back")).toBeNull();
@@ -138,7 +138,7 @@ describe("phone Settings navigation", () => {
     ]);
     expect(button("General")?.getAttribute("aria-current")).toBe("page");
     expect(button("Back")).toBeNull();
-    expect(dialog()!.querySelector('[aria-label="Bot List Side"]')).not.toBeNull();
+    expect(dialog()!.querySelector('[aria-label="Language"]')).not.toBeNull();
     await escape();
     expect(dialog()?.parentElement?.hasAttribute("data-closing")).toBe(true);
   });

@@ -265,7 +265,7 @@ describe("Settings Polish", () => {
   it("defaults Reply style to Paragraphs on this device", async () => {
     mockState.appSettingsSection = "general";
     localStorage.removeItem("omb-reply-style");
-    await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal))));
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal, { defaultAdvancedOpen: true }))));
     const choice = host.querySelector('[role="radiogroup"][aria-label="Reply Style"] [role="radio"][aria-checked="true"]');
     expect(choice?.textContent).toBe("Paragraphs");
   });
@@ -274,14 +274,14 @@ describe("Settings Polish", () => {
     mockState.appSettingsSection = "general";
     localStorage.removeItem("omb-reply-style");
     mockApi.mockClear();
-    await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal))));
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal, { defaultAdvancedOpen: true }))));
     const live = [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((button) => button.textContent === "Live Typing");
     mockApi.mockClear();
     await act(async () => live?.click());
     expect(localStorage.getItem("omb-reply-style")).toBe("live");
     expect(mockApi).not.toHaveBeenCalled();
     await act(async () => root.render(null));
-    await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal))));
+    await act(async () => root.render(createElement(I18nProvider, null, createElement(SettingsModal, { defaultAdvancedOpen: true }))));
     expect(host.querySelector('[role="radiogroup"][aria-label="Reply Style"] [aria-checked="true"]')?.textContent).toBe("Live Typing");
     localStorage.removeItem("omb-reply-style");
   });

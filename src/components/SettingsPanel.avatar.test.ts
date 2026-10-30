@@ -115,9 +115,9 @@ async function renderPanel() {
   return { host, root };
 }
 
-describe("chat avatar opens the avatar picker", () => {
-  it("wires the header avatar, not the pencil, and keeps Customize in the catalog", () => {
-    expect(chatView).toContain('onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}');
+describe("chat avatar opens Bot Details collapsed", () => {
+  it("opens collapsed from the header avatar and keeps Customize in the catalog", () => {
+    expect(chatView).not.toContain("avatar: !isPhone()");
     expect(chatView).toContain('onActivate={() => dispatch({ type: "toggleSettings", open: true })}');
     expect(settingsPanel).toContain("settingsAvatarRequest");
     expect(settingsPanel).toContain("scrollIntoView");
