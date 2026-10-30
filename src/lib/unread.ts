@@ -1,3 +1,4 @@
+import { isShownMessage } from "./shown-message";
 import { listedGroups } from "./sidebar-order";
 
 export function unreadConversationCount(
@@ -17,6 +18,19 @@ export function collapsedUnreadCount(
     bots.filter((bot) => bot.id !== currentId),
     groups.filter((group) => group.id !== currentId),
   );
+}
+
+/** Shown replies after your last message; an unread chat with none still shows 1. */
+export function unreadReplyCount(
+  unread: boolean | undefined,
+  messages: ReadonlyArray<{ role?: string; kind?: string; summarized?: boolean }>,
+): number {
+  if (!unread) return 0;
+  let count = 0;
+  for (let i = messages.length - 1; i >= 0 && messages[i].role !== "user"; i--) {
+    if (messages[i].role === "bot" && messages[i].kind === "text" && isShownMessage(messages[i])) count += 1;
+  }
+  return Math.max(1, count);
 }
 
 export function formatCollapsedUnreadBadge(count: number): string | null {

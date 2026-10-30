@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// An unread chat that is not asking wears a steady accent halo instead of a
-// dot; a live reply to a closed chat glows once, then rests on the halo.
+// An unread chat shows its new reply count on the avatar; rows never glow on
+// arrival, only the controls that hide rows do.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -114,6 +114,8 @@ const sendFrame = (frame: unknown, lastEventId = "") =>
 
 const replyFrame = (threadId: string, message: unknown) => ({ kind: "message", threadId, message });
 const botText = (id: string, at: number) => ({ id, role: "bot", kind: "text", text: `reply ${id}`, at });
+const unreadBadge = (host: HTMLElement, id: string) =>
+  host.querySelector(`[data-sidebar-row-id="${id}"] [data-sidebar-unread-count]`)?.textContent ?? null;
 const endGlow = (el: Element) =>
   act(async () => {
     el.dispatchEvent(new Event("animationend", { bubbles: true }));
@@ -181,79 +183,72 @@ async function mountApp(bots: unknown[]) {
   };
 }
 
-describe("Sidebar unread ring", () => {
-  it("rings an unread bot row and drops the dot", async () => {
+describe("Sidebar unread count", () => {
+  it("badges an unread bot row with its count and no halo", async () => {
     const { host, unmount } = await mountSidebar({ bots: [bot("open"), bot("closed", { unread: true })], groups: [] });
     try {
       await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
       const { row, control } = rowControl(host, "closed");
       expect(row?.hasAttribute("data-sidebar-chat-unread")).toBe(true);
-      expect(control?.className).toContain("unread-ring");
-      expect(row?.querySelector("span.bg-accent")).toBeNull();
-      const open = rowControl(host, "open");
-      expect(open.row?.hasAttribute("data-sidebar-chat-unread")).toBe(false);
-      expect(open.control?.className).not.toContain("unread-ring");
+      expect(control?.className).not.toContain("unread-ring");
+      expect(unreadBadge(host, "closed")).toBe("1");
+      expect(row?.querySelector("[data-sidebar-unread-count]")?.getAttribute("aria-label")).toBe("1 new");
+      expect(unreadBadge(host, "open")).toBeNull();
     } finally {
       await unmount();
     }
   });
 
-  it("rings normal, compact, and icon-only bot rows", async () => {
+  it("counts replies after your last message and caps at 9+", async () => {
+    const replies = (n: number) => Array.from({ length: n }, (_, i) => botText(`r${n}-${i}`, 10 + i));
+    const mine = { id: "me", role: "user", kind: "text", text: "go", at: 5 };
+    const { host, unmount } = await mountSidebar({
+      bots: [
+        bot("open"),
+        bot("three", { unread: true, messages: [botText("old", 1), mine, ...replies(3)] }),
+        bot("twelve", { unread: true, messages: [mine, ...replies(12)] }),
+        bot("read", { messages: [mine, ...replies(2)] }),
+      ],
+      groups: [room("room", { unread: true, messages: [mine, ...replies(2)] })],
+    });
+    try {
+      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="twelve"]')).not.toBeNull());
+      expect(unreadBadge(host, "three")).toBe("3");
+      expect(unreadBadge(host, "twelve")).toBe("9+");
+      expect(unreadBadge(host, "read")).toBeNull();
+      expect(unreadBadge(host, "room")).toBe("2");
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("badges normal, compact, and icon-only rows", async () => {
     const { host, unmount } = await mountSidebar({
       bots: [bot("open"), bot("pinned", { pinned: true, unread: true }), bot("plain", { unread: true })],
       groups: [],
     });
     try {
       await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="plain"]')).not.toBeNull());
-      const normal = rowControl(host, "pinned").control;
-      const compact = rowControl(host, "plain").control;
-      expect(normal?.className).toContain("pr-12");
-      expect(compact?.className).toContain("pr-10");
-      expect(normal?.className).toContain("unread-ring");
-      expect(compact?.className).toContain("unread-ring");
+      expect(rowControl(host, "pinned").control?.className).toContain("pr-12");
+      expect(rowControl(host, "plain").control?.className).toContain("pr-10");
+      expect(unreadBadge(host, "pinned")).toBe("1");
+      expect(unreadBadge(host, "plain")).toBe("1");
     } finally {
       await unmount();
     }
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
-    const icons = await mountSidebar({ bots: [bot("open"), bot("closed", { unread: true })], groups: [] });
-    try {
-      await vi.waitFor(() => expect(icons.host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
-      const control = rowControl(icons.host, "closed").control;
-      expect(control?.className).toContain("justify-center");
-      expect(control?.className).toContain("unread-ring");
-      expect(rowControl(icons.host, "closed").row?.querySelector("span.bg-accent")).toBeNull();
-    } finally {
-      await icons.unmount();
-    }
-  });
-
-  it("rings unread room rows and drops both dots", async () => {
-    const { host, unmount } = await mountSidebar({
-      bots: [bot("open")],
-      groups: [room("room", { unread: true })],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="room"]')).not.toBeNull());
-      const { row, control } = rowControl(host, "room");
-      expect(row?.hasAttribute("data-sidebar-chat-unread")).toBe(true);
-      expect(control?.className).toContain("unread-ring");
-      expect(row?.querySelector("span.bg-accent")).toBeNull();
-    } finally {
-      await unmount();
-    }
-    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
-    const icons = await mountSidebar({ bots: [bot("open")], groups: [room("room", { unread: true })] });
+    const icons = await mountSidebar({ bots: [bot("open"), bot("closed", { unread: true })], groups: [room("room", { unread: true })] });
     try {
       await vi.waitFor(() => expect(icons.host.querySelector('[data-sidebar-row-id="room"]')).not.toBeNull());
-      const { row, control } = rowControl(icons.host, "room");
-      expect(control?.className).toContain("unread-ring");
-      expect(row?.querySelector("span.bg-accent")).toBeNull();
+      expect(rowControl(icons.host, "closed").control?.className).toContain("justify-center");
+      expect(unreadBadge(icons.host, "closed")).toBe("1");
+      expect(unreadBadge(icons.host, "room")).toBe("1");
     } finally {
       await icons.unmount();
     }
   });
 
-  it("shows only needs-you on an asking row, with or without unread", async () => {
+  it("keeps needs-you on an asking row, with or without unread", async () => {
     const { host, unmount } = await mountSidebar({
       bots: [
         bot("open"),
@@ -267,31 +262,13 @@ describe("Sidebar unread ring", () => {
       for (const id of ["asker", "asker-read"]) {
         const { control } = rowControl(host, id);
         expect(control?.className).toContain("needs-you-glow");
-        expect(control?.className).not.toContain("unread-ring");
         expect(control?.className).not.toContain("arrival-glow");
       }
-      expect(rowControl(host, "asker").row?.hasAttribute("data-sidebar-chat-unread")).toBe(true);
+      expect(unreadBadge(host, "asker")).toBe("1");
+      expect(unreadBadge(host, "asker-read")).toBeNull();
     } finally {
       await unmount();
     }
-  });
-
-  it("is box shadows on a pseudo-element only, with no sizing or filter side effects", () => {
-    const ring = css.match(/\.unread-ring::after \{(.*?)\}/s)?.[1] ?? "";
-    expect(ring).toContain("box-shadow");
-    expect(ring).not.toContain("animation");
-    expect(css.match(/\.unread-ring \{(.*?)\}/s)?.[1] ?? "").not.toContain("box-shadow");
-    const rule = css.match(/\.unread-ring \{(.*?)\}/s)?.[1] ?? "";
-    expect(rule).not.toContain("filter");
-    expect(rule).not.toContain("opacity");
-    expect(rule).not.toContain("border");
-  });
-
-  it("is a blurred accent halo with no spread-only ring line", () => {
-    const halo = shadows(css.match(/\.unread-ring::after \{(.*?)\}/s)?.[1] ?? "");
-    expect(halo.length).toBeGreaterThan(0);
-    expect(halo.some((shadow) => /^0 0 0 /.test(shadow))).toBe(false);
-    expect(halo.some((shadow) => /^0 0 [1-9][\d.]*px /.test(shadow) && shadow.includes("var(--color-accent)"))).toBe(true);
   });
 
   it("gives edge rows the side halo gutter without moving the list", async () => {
@@ -310,150 +287,21 @@ describe("Sidebar unread ring", () => {
 });
 
 describe("Sidebar arrival glow", () => {
-  it("glows once when a reply lands in a closed chat, then rests on the ring", async () => {
+  it("never glows a row when a reply lands in a closed chat; its count rises", async () => {
     const { host, dispatch, unmount } = await mountSidebar({
       bots: [bot("open"), bot("closed", { unread: true })],
-      groups: [],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
-      await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
-      const { control } = rowControl(host, "closed");
-      expect(control?.hasAttribute("data-arrival-glow")).toBe(true);
-      expect(control?.className).toContain("arrival-glow");
-      expect(rowControl(host, "open").control?.hasAttribute("data-arrival-glow")).toBe(false);
-      await endGlow(control!);
-      expect(control?.hasAttribute("data-arrival-glow")).toBe(false);
-      expect(control?.className).not.toContain("arrival-glow");
-      expect(control?.className).toContain("unread-ring");
-    } finally {
-      await unmount();
-    }
-  });
-
-  it("glows a room row when its reply lands", async () => {
-    const { host, dispatch, unmount } = await mountSidebar({
-      bots: [bot("open")],
       groups: [room("room", { unread: true })],
     });
     try {
       await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="room"]')).not.toBeNull());
       await act(async () => dispatch()({ type: "select", id: "open" }));
+      await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
+      await sendFrame(replyFrame("closed-thread", { ...botText("live-2", 12), parentId: "live-1" }));
       await sendFrame(replyFrame("room-thread", botText("live-r1", 11)));
-      const { control } = rowControl(host, "room");
-      expect(control?.hasAttribute("data-arrival-glow")).toBe(true);
-      await endGlow(control!);
-      expect(control?.className).toContain("unread-ring");
-    } finally {
-      await unmount();
-    }
-  });
-
-  it("stops a bot row glow at once when its chat opens, without replaying", async () => {
-    const { host, dispatch, unmount } = await mountSidebar({
-      bots: [bot("open"), bot("closed", { unread: true })],
-      groups: [],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
-      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(true);
-      await act(async () => dispatch()({ type: "select", id: "closed" }));
-      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(false);
       expect(host.querySelector("[data-arrival-glow]")).toBeNull();
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(false);
-      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
-    } finally {
-      await unmount();
-    }
-  });
-
-  it("stops a room row glow at once when its chat opens, without replaying", async () => {
-    const { host, dispatch, unmount } = await mountSidebar({
-      bots: [bot("open")],
-      groups: [room("room", { unread: true })],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="room"]')).not.toBeNull());
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      await sendFrame(replyFrame("room-thread", botText("live-r1", 11)));
-      expect(rowControl(host, "room").control?.hasAttribute("data-arrival-glow")).toBe(true);
-      await act(async () => dispatch()({ type: "select", id: "room" }));
-      expect(rowControl(host, "room").control?.hasAttribute("data-arrival-glow")).toBe(false);
-      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      expect(rowControl(host, "room").control?.hasAttribute("data-arrival-glow")).toBe(false);
-      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
-    } finally {
-      await unmount();
-    }
-  });
-
-  it("glows again for a second reply 20 s later", async () => {
-    let now = 1_000_000;
-    vi.spyOn(Date, "now").mockImplementation(() => now);
-    const { host, dispatch, unmount } = await mountSidebar({
-      bots: [bot("open"), bot("closed", { unread: true })],
-      groups: [],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
-      const { control } = rowControl(host, "closed");
-      expect(control?.hasAttribute("data-arrival-glow")).toBe(true);
-      await endGlow(control!);
-      now += 20_000;
-      await sendFrame(replyFrame("closed-thread", botText("live-2", 12)));
-      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(true);
-    } finally {
-      await unmount();
-    }
-  });
-
-  it("glows once for 3 replies inside 10 s", async () => {
-    let now = 2_000_000;
-    vi.spyOn(Date, "now").mockImplementation(() => now);
-    const { host, dispatch, unmount } = await mountSidebar({
-      bots: [bot("open"), bot("closed", { unread: true })],
-      groups: [],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
-      const { control } = rowControl(host, "closed");
-      expect(control?.hasAttribute("data-arrival-glow")).toBe(true);
-      await endGlow(control!);
-      now += 5_000;
-      await sendFrame(replyFrame("closed-thread", botText("live-2", 12)));
-      now += 4_000;
-      await sendFrame(replyFrame("closed-thread", botText("live-3", 13)));
-      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(false);
-      now += 1_000;
-      await sendFrame(replyFrame("closed-thread", botText("live-4", 14)));
-      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(true);
-    } finally {
-      await unmount();
-    }
-  });
-
-  it("glows two chats that reply together", async () => {
-    const { host, dispatch, unmount } = await mountSidebar({
-      bots: [bot("open"), bot("b", { unread: true }), bot("c", { unread: true })],
-      groups: [],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="c"]')).not.toBeNull());
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      await sendFrame(replyFrame("b-thread", botText("live-b", 11)));
-      await sendFrame(replyFrame("c-thread", botText("live-c", 11)));
-      expect(rowControl(host, "b").control?.hasAttribute("data-arrival-glow")).toBe(true);
-      expect(rowControl(host, "c").control?.hasAttribute("data-arrival-glow")).toBe(true);
+      expect(rowControl(host, "closed").control?.className).not.toContain("arrival-glow");
+      expect(unreadBadge(host, "closed")).toBe("2");
+      expect(unreadBadge(host, "room")).toBe("1");
     } finally {
       await unmount();
     }
@@ -477,7 +325,7 @@ describe("Sidebar arrival glow", () => {
       await sendFrame(replyFrame("open-thread", botText("live-open", 22)));
       expect(host.querySelector("[data-arrival-glow]")).toBeNull();
       await act(async () => dispatch()({ type: "markUnread", botId: "closed" }));
-      expect(rowControl(host, "closed").control?.className).toContain("unread-ring");
+      expect(unreadBadge(host, "closed")).toBe("1");
       expect(host.querySelector("[data-arrival-glow]")).toBeNull();
       await sendFrame(replyFrame("closed-thread", askCard("ask-live")));
       const { control } = rowControl(host, "closed");
@@ -526,57 +374,6 @@ describe("Sidebar arrival glow", () => {
     }
   });
 
-  it("glows once when a routine card patches to completed, not on hydration", async () => {
-    const card = (status: string) => ({
-      id: "run-card",
-      role: "bot",
-      kind: "routine.run",
-      text: "Routine",
-      at: 5,
-      routineRun: { runId: "run-1", routineId: "routine-1", routineName: "Tool to try", status },
-    });
-    const { host, dispatch, unmount } = await mountSidebar({
-      bots: [bot("open"), bot("closed", { unread: true, messages: [card("running")] })],
-      groups: [room("room", { messages: [{ ...card("completed"), id: "room-card", routineRun: { ...card("completed").routineRun, runId: "run-2" } }] })],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
-      await sendFrame({ kind: "message.patch", threadId: "closed-thread", message: card("completed") });
-      const { control } = rowControl(host, "closed");
-      expect(control?.hasAttribute("data-arrival-glow")).toBe(true);
-      await endGlow(control!);
-      expect(control?.hasAttribute("data-arrival-glow")).toBe(false);
-      await sendFrame({ kind: "message.patch", threadId: "closed-thread", message: { ...card("failed"), at: 40 } });
-      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
-      await sendFrame({ kind: "message.patch", threadId: "room-thread", message: { ...card("completed"), id: "room-card", routineRun: { ...card("completed").routineRun, runId: "run-2" } } });
-      expect(host.querySelector("[data-arrival-glow]")).toBeNull();
-    } finally {
-      await unmount();
-    }
-  });
-
-  it("drops the glow for needs-you when an ask card lands mid-glow", async () => {
-    const { host, dispatch, unmount } = await mountSidebar({
-      bots: [bot("open"), bot("closed", { unread: true })],
-      groups: [],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
-      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(true);
-      await sendFrame(replyFrame("closed-thread", askCard("ask-live")));
-      const { control } = rowControl(host, "closed");
-      expect(control?.hasAttribute("data-arrival-glow")).toBe(false);
-      expect(control?.className).toContain("needs-you-glow");
-      expect(control?.className).not.toContain("unread-ring");
-    } finally {
-      await unmount();
-    }
-  });
-
   it("glows the collapsed sidebar button once for a section-hidden chat", async () => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
     window.localStorage.setItem(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(["section:Ops"]));
@@ -601,7 +398,7 @@ describe("Sidebar arrival glow", () => {
     }
   });
 
-  it("glows the rail icon and not the expand button when the icon is visible", async () => {
+  it("badges the rail icon and glows neither it nor the expand button when the icon is visible", async () => {
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "1");
     const { host, dispatch, unmount } = await mountSidebar({
       bots: [bot("open"), bot("closed", { unread: true })],
@@ -612,7 +409,8 @@ describe("Sidebar arrival glow", () => {
       await act(async () => dispatch()({ type: "select", id: "open" }));
       const expand = () => host.querySelector("[data-sidebar-collapsed-unread]")?.closest("button") ?? null;
       await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
-      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(true);
+      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(false);
+      expect(unreadBadge(host, "closed")).toBe("1");
       expect(expand()?.hasAttribute("data-arrival-glow")).toBe(false);
       expect(expand()?.className).not.toContain("arrival-glow");
     } finally {
@@ -638,33 +436,6 @@ describe("Sidebar arrival glow", () => {
       await endGlow(header()!);
       expect(header()?.hasAttribute("data-arrival-glow")).toBe(false);
       expect(host.querySelector('[data-section="Ops"] [data-sidebar-section-unread]')?.textContent).toBe("1");
-    } finally {
-      await unmount();
-    }
-  });
-
-  it("gives ring only under reduced motion", async () => {
-    vi.spyOn(window, "matchMedia").mockReturnValue({
-      matches: true,
-      media: "(prefers-reduced-motion: reduce)",
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    });
-    const { host, dispatch, unmount } = await mountSidebar({
-      bots: [bot("open"), bot("closed", { unread: true })],
-      groups: [],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
-      const { control } = rowControl(host, "closed");
-      expect(control?.hasAttribute("data-arrival-glow")).toBe(false);
-      expect(control?.className).toContain("unread-ring");
     } finally {
       await unmount();
     }
@@ -700,7 +471,7 @@ describe("Sidebar arrival glow", () => {
       const menu = () => host.querySelector("[data-phone-menu]");
       expect(menu()?.hasAttribute("data-arrival-glow")).toBe(false);
       await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
-      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(true);
+      expect(rowControl(host, "closed").control?.hasAttribute("data-arrival-glow")).toBe(false);
       expect(menu()?.hasAttribute("data-arrival-glow")).toBe(false);
       await width.setPhone(true);
       expect(menu()?.hasAttribute("data-arrival-glow")).toBe(false);
@@ -732,38 +503,6 @@ describe("Sidebar arrival glow", () => {
     expect(peak.length).toBe(2);
     expect(shadows(css.match(/\.arrival-glow::before \{(.*?)\}/s)?.[1] ?? "")).toEqual(peak);
     expect(css).not.toMatch(/\.unread-ring\.arrival-glow::before[^{]*\{[^}]*box-shadow/);
-  });
-
-  it("keeps the halo with no animation under reduced motion", async () => {
-    vi.spyOn(window, "matchMedia").mockReturnValue({
-      matches: true,
-      media: "(prefers-reduced-motion: reduce)",
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    });
-    const { host, dispatch, unmount } = await mountSidebar({
-      bots: [bot("open"), bot("closed", { unread: true })],
-      groups: [],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelector('[data-sidebar-row-id="closed"]')).not.toBeNull());
-      await act(async () => dispatch()({ type: "select", id: "open" }));
-      await sendFrame(replyFrame("closed-thread", botText("live-1", 11)));
-      const { control } = rowControl(host, "closed");
-      expect(control?.className).toContain("unread-ring");
-      expect(control?.hasAttribute("data-arrival-glow")).toBe(false);
-    } finally {
-      await unmount();
-    }
-    const halo = css.match(/\.unread-ring::after \{(.*?)\}/s)?.[1] ?? "";
-    expect(halo).not.toContain("animation");
-    expect(shadows(halo).some((shadow) => /^0 0 [1-9][\d.]*px /.test(shadow))).toBe(true);
-    const reduced = css.split("@media (prefers-reduced-motion: reduce)").slice(1).map((block) => block.split(/\n\}/)[0]);
-    expect(reduced.some((block) => block.includes(".unread-ring"))).toBe(false);
   });
 
   it("rests the arrival glow invisible outside the animation", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { collapsedUnreadCount, formatCollapsedUnreadBadge, unreadConversationCount } from "./unread";
+import { collapsedUnreadCount, formatCollapsedUnreadBadge, unreadConversationCount, unreadReplyCount } from "./unread";
 
 describe("unreadConversationCount", () => {
   it("counts visible bot and room conversations but ignores archived bots", () => {
@@ -47,5 +47,20 @@ describe("formatCollapsedUnreadBadge", () => {
     expect(formatCollapsedUnreadBadge(9)).toBe("9");
     expect(formatCollapsedUnreadBadge(10)).toBe("9+");
     expect(formatCollapsedUnreadBadge(42)).toBe("9+");
+  });
+});
+
+describe("unreadReplyCount", () => {
+  const reply = { role: "bot", kind: "text" };
+  const mine = { role: "user", kind: "text" };
+
+  it("counts shown text replies after your last message", () => {
+    expect(unreadReplyCount(true, [reply, mine, reply, { role: "bot", kind: "activity" }, { ...reply, summarized: true }, reply])).toBe(2);
+  });
+
+  it("is 0 for a read chat and at least 1 for an unread one", () => {
+    expect(unreadReplyCount(false, [mine, reply, reply])).toBe(0);
+    expect(unreadReplyCount(true, [reply, mine])).toBe(1);
+    expect(unreadReplyCount(true, [])).toBe(1);
   });
 });
