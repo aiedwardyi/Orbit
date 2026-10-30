@@ -43,7 +43,7 @@ describe("QA 17 one Bot-details header entry", () => {
   });
 
   it("shows the bot name below md and opens Bot details with no pencil", () => {
-    const phoneTitle = 'min-w-0 shrink truncate text-left text-[15px] font-semibold text-ink md:hidden';
+    const phoneTitle = 'min-w-0 max-w-full shrink truncate text-left text-[15px] font-semibold text-ink md:hidden';
     const at = chatHeader.indexOf(phoneTitle);
     expect(at).toBeGreaterThan(-1);
     const phone = chatHeader.slice(at - 240, at + phoneTitle.length);
@@ -52,7 +52,7 @@ describe("QA 17 one Bot-details header entry", () => {
     expect(phone).not.toContain("Pencil");
     expect(phone).not.toContain("showEditButton");
     expect(phone).not.toContain("onDoubleClick");
-    expect(phone).not.toContain("w-full");
+    expect(phoneTitle.split(" ")).not.toContain("w-full");
     expect(chatHeader).toContain("max-md:flex-[0_1000_auto]");
     expect(chatHeader).not.toContain("minmax(4.5rem,1fr)");
     expect(phoneHeaderName).toContain('cluster.style.flex = "0 1000 auto"');

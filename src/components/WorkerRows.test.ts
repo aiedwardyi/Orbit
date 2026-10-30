@@ -175,6 +175,40 @@ describe("WorkerChip", () => {
     };
   };
 
+  it.each([false, true])("closes when the last active run finishes in a live pane with phone=%s", async (phone) => {
+    stubMedia({ matches: phone });
+    const layers = new Set<string>();
+    const onLayer = (event: WindowEventMap["orbit:back-layer"]) => {
+      if (event.detail.close) layers.add(event.detail.key);
+      else layers.delete(event.detail.key);
+    };
+    window.addEventListener("orbit:back-layer", onLayer);
+    const livePanes = new Set(["work-1"]);
+    const { host, root, chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)], { livePanes });
+    const render = async (state: ShownRun["state"]) => {
+      await act(async () => root.render(createElement(WorkerChip, { name: "Ada", runs: [shown("WORK", state, "work-1", 1)], livePanes })));
+    };
+    try {
+      await act(async () => chip()!.click());
+      expect(document.querySelector("[data-worker-list]")).not.toBeNull();
+      expect(layers.size).toBe(phone ? 1 : 0);
+      await render("done");
+      expect(chip()).toBeNull();
+      expect(document.querySelector("[data-worker-list]")).toBeNull();
+      expect(layers.size).toBe(0);
+      await render("working");
+      expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+      await render("done");
+      await act(async () => { window.dispatchEvent(new Event("orbit:toggle-worker-menu")); });
+      await render("working");
+      expect(host.querySelector("[data-worker-list]")).toBeNull();
+      expect(chip()!.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      await unmount();
+      window.removeEventListener("orbit:back-layer", onLayer);
+    }
+  });
+
   it.each([false, true])("toggles on the app event and keeps dismissal with phone=%s", async (phone) => {
     stubMedia({ matches: phone });
     const { chip, unmount } = await mount([shown("WORK", "working", "work-1", 1)]);

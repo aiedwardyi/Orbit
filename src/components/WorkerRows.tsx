@@ -257,6 +257,7 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
   const buttonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const listed = livePanes === null && waitForLive ? [] : listedRuns(runs, livePanes, paneLabels);
+  const status = workerStatusText(listed, t);
   const [phone, setPhone] = useState(isPhone);
   useEffect(() => {
     const media = window.matchMedia?.(PHONE_QUERY);
@@ -268,9 +269,9 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
     return () => media?.removeEventListener?.("change", flip);
   }, []);
   useEffect(() => {
-    if (listed.length === 0) setOpen(false);
-  }, [listed.length]);
-  useBackLayer(open && phone, () => setOpen(false));
+    if (!status) setOpen(false);
+  }, [status]);
+  useBackLayer(open && phone && Boolean(status), () => setOpen(false));
   useLayoutEffect(() => {
     if (!open || phone || !rootRef.current) return;
     const root = rootRef.current;
@@ -318,21 +319,20 @@ export function WorkerChip({ name, runs, livePanes = null, paneLabels, waitForLi
     };
   }, [open, phone]);
   useEffect(() => {
-    if (listed.length === 0) return;
+    if (!status) return;
     const onToggle = () => {
       if (open && rootRef.current?.contains(document.activeElement)) buttonRef.current?.focus();
       setOpen(!open);
     };
     window.addEventListener("orbit:toggle-worker-menu", onToggle);
     return () => window.removeEventListener("orbit:toggle-worker-menu", onToggle);
-  }, [listed.length, open]);
+  }, [status, open]);
   useEffect(() => {
     if (!open) return;
     const onClose = () => setOpen(false);
     window.addEventListener("orbit:close-worker-menu", onClose);
     return () => window.removeEventListener("orbit:close-worker-menu", onClose);
   }, [open]);
-  const status = workerStatusText(listed, t);
   if (!status) return null;
   const close = () => setOpen(false);
   return (

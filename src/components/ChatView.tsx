@@ -1447,7 +1447,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
               ref={phoneNameRef}
               type="button"
               onClick={() => dispatch({ type: "toggleSettings", open: true })}
-              className="min-w-0 shrink truncate text-left text-[15px] font-semibold text-ink md:hidden"
+              className="min-w-0 max-w-full shrink truncate text-left text-[15px] font-semibold text-ink md:hidden"
               title={t("chat.openProfile", { name: bot.name })}
               aria-label={t("chat.openProfile", { name: bot.name })}
             >
