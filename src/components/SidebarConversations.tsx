@@ -26,7 +26,7 @@ export function compactSidebarModelLabel(label: string): string {
   return label.replace(/\s+Contributor$/i, " Cont.");
 }
 
-function UnreadCountBadge({ count, onAvatar = false, selected = false }: { count: number; onAvatar?: boolean; selected?: boolean }) {
+function UnreadCountBadge({ count, selected }: { count: number; selected: boolean }) {
   const { t } = useI18n();
   const shown = formatCollapsedUnreadBadge(count);
   if (!shown) return null;
@@ -36,8 +36,8 @@ function UnreadCountBadge({ count, onAvatar = false, selected = false }: { count
       role="img"
       aria-label={t("chrome.unreadReplies", { count })}
       className={cn(
-        "pointer-events-none flex h-4 min-w-4 shrink-0 items-center justify-center self-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none tabular-nums text-accent-ink",
-        onAvatar && ["absolute -right-1 -top-1 z-10 ring-[1.5px]", selected ? "ring-raised" : "ring-panel"],
+        "pointer-events-none absolute -right-1 -top-1 z-10 flex h-3.5 min-w-3.5 items-center justify-center rounded-[min(4px,var(--radius-lg))] bg-accent px-[3px] text-[9px] font-semibold leading-none tabular-nums text-accent-ink ring-[1.5px]",
+        selected ? "ring-raised" : "ring-panel",
       )}
     >
       {shown}
@@ -221,11 +221,11 @@ function GroupListItem({
       >
         <span className="relative shrink-0">
           <StackedMauses members={members} density={density} />
-          {density === "icons" && <UnreadCountBadge count={unreadCount} onAvatar selected={selected} />}
+          <UnreadCountBadge count={unreadCount} selected={selected} />
         </span>
         <div className={cn("@container/rowtext min-w-0 flex-1", density === "icons" && "hidden")}>
           <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
-            <span className={cn("min-w-0 flex-1 truncate text-[15px] text-ink", unreadCount ? "font-semibold" : "font-medium")}>
+            <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">
               {group.name}
               <span className="sr-only" aria-live="polite">{asking ? t(question ? "ask.hasQuestionSuffix" : "routine.rangSuffix") : ""}</span>
             </span>
@@ -239,7 +239,6 @@ function GroupListItem({
                 {formatTime(last.at, localeTag(locale))}
               </span>
             )}
-            {density !== "icons" && <UnreadCountBadge count={unreadCount} />}
           </div>
           <div className="flex items-center justify-between gap-2">
             <span
@@ -385,7 +384,7 @@ function BotListItem({
             </button>
           </span>
         ) : (
-          iconOnly && <UnreadCountBadge count={unreadCount} onAvatar selected={selected} />
+          <UnreadCountBadge count={unreadCount} selected={selected} />
         )}
       </span>
       <div
@@ -399,8 +398,7 @@ function BotListItem({
           <span
             className={cn(
               "flex min-w-0 flex-1 items-center gap-1.5 text-ink",
-              density === "compact" ? "text-[13px]" : "text-[15px]",
-              unreadCount ? "font-semibold" : "font-medium",
+              density === "compact" ? "text-[13px] font-medium" : "text-[15px] font-semibold",
             )}
           >
             {bot.pinned && <Pin size={12} className="shrink-0 text-ink-secondary" />}
@@ -428,7 +426,6 @@ function BotListItem({
               {formatTime(last.at, localeTag(locale))}
             </span>
           )}
-          {!renaming && !iconOnly && <UnreadCountBadge count={unreadCount} />}
         </div>
         <div className="flex min-w-0 items-center justify-between gap-2">
           <div className="min-w-0 flex-1">

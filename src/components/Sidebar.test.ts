@@ -1753,7 +1753,7 @@ describe("Sidebar bot second line", () => {
     }
   });
 
-  it("keeps the model dot cornered and counts the unread row while exposing terminal attention", async () => {
+  it("keeps the model dot cornered and gives the unread corner to terminal attention", async () => {
     const attentionBot = {
       ...bot("attention"),
       unread: true,
@@ -1788,7 +1788,7 @@ describe("Sidebar bot second line", () => {
       expect(host.querySelector("[data-sidebar-model-dot]")?.className).toContain("left-0.5");
       const row = host.querySelector('[data-sidebar-row-id="attention"]');
       expect(row?.hasAttribute("data-sidebar-chat-unread")).toBe(true);
-      expect(row?.querySelector("[data-sidebar-unread-count]")?.textContent).toBe("1");
+      expect(row?.querySelector("[data-sidebar-unread-count]")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();
