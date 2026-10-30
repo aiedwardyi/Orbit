@@ -5,6 +5,13 @@ const user = (id: string, name: string): MediaMessage => ({ id, role: "user", ki
 const shown = (id: string, name: string): MediaMessage => ({ id, role: "bot", kind: "screen", image: name });
 
 describe("active chat media", () => {
+  it.each(["text", "screen"])("excludes summarized bot %s images and their registered copies", (kind) => {
+    const hidden = { id: "hidden", role: "bot", kind, summarized: true, text: "![Hidden](/api/attachments/hidden.png)", image: kind === "screen" ? "hidden.png" : undefined };
+    const rendered = { id: "hidden:/api/attachments/hidden.png", messageId: "hidden", src: "/api/attachments/hidden.png", name: "hidden.png" };
+    const visible = { ...user("visible", "visible.png"), summarized: true };
+    expect(mediaList([hidden, visible], [rendered]).map((image) => image.name)).toEqual(["visible.png"]);
+  });
+
   it.each(["bot", "group"])("keeps loaded %s branch order across sent, shown and markdown images", () => {
     const messages = [user("m1", "first.png"), shown("m2", "second.png"), { id: "m3", role: "bot", kind: "text", text: "![Detail](/api/attachments/third.png)" }];
     expect(mediaList(messages).map((image) => image.name)).toEqual(["first.png", "second.png", "third.png"]);

@@ -1,6 +1,7 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { defaultUrlTransform } from "react-markdown";
 import { attachmentBasename, attachmentImageUrl, splitAttachedImages } from "./composer-attachments";
+import { isShownMessage } from "./shown-message";
 
 export interface PreviewImage {
   src: string;
@@ -36,6 +37,7 @@ export function markdownImage(src: string | undefined, alt = ""): PreviewImage |
 export function mediaList(messages: readonly MediaMessage[], rendered: readonly MediaReference[] = []): MediaReference[] {
   const result: MediaReference[] = [];
   for (const message of messages) {
+    if (!isShownMessage(message)) continue;
     const seen = new Set<string>();
     const add = (image: PreviewImage | null) => {
       if (!image || seen.has(image.src)) return;

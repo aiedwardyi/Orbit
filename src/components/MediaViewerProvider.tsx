@@ -23,7 +23,15 @@ export function MediaViewerProvider({ threadId, messages, children }: { threadId
   const open = useCallback((image: PreviewImage, opener: HTMLElement) => {
     opener.focus({ preventScroll: true });
     const list = mediaList(source.current.messages, source.current.rendered);
-    setImages(list);
+    const order = new Map<string, number>();
+    document.querySelectorAll<HTMLImageElement>("[data-mid] img").forEach((img, index) => {
+      const id = `${img.closest("[data-mid]")?.getAttribute("data-mid")}:${img.getAttribute("src")}`;
+      if (!order.has(id)) order.set(id, index);
+    });
+    const mounted = list.filter((item) => order.has(item.id)).sort((a, b) => a.messageId === b.messageId ? order.get(a.id)! - order.get(b.id)! : 0);
+    let index = 0;
+    const ordered = list.map((item) => order.has(item.id) ? mounted[index++] : item);
+    setImages(ordered);
     const messageId = opener.closest("[data-mid]")?.getAttribute("data-mid");
     setSelected(list.find((item) => item.messageId === messageId && item.src === image.src)
       ?? list.find((item) => item.src === image.src) ?? image);
@@ -35,9 +43,12 @@ export function MediaViewerProvider({ threadId, messages, children }: { threadId
   const context = useMemo(() => ({ open, register }), [open, register]);
   useEffect(() => {
     if (!selected) return;
+    const sameOrigin = (src: string) => {
+      try { return new URL(src, window.location.href).origin === window.location.origin; } catch { return false; }
+    };
     for (const direction of [-1, 1]) {
       const adjacent = adjacentMedia(images, selected, direction);
-      if (adjacent) new Image().src = adjacent.src;
+      if (adjacent && sameOrigin(adjacent.src)) new Image().src = adjacent.src;
     }
   }, [images, selected]);
   return <MediaContext.Provider value={context}>
@@ -60,7 +71,7 @@ export function ReadableImage({ src, alt = "", ...props }: { src?: string; alt?:
   const [linked, setLinked] = useState(false);
   const image = useMemo(() => markdownImage(src, alt), [src, alt]);
   useLayoutEffect(() => {
-    if (ref.current?.closest("a")) setLinked(true);
+    if (ref.current?.closest("a, [data-file-link]")) setLinked(true);
   }, []);
   useEffect(() => {
     const messageId = ref.current?.closest("[data-mid]")?.getAttribute("data-mid");

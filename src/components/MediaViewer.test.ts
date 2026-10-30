@@ -41,10 +41,63 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   document.body.innerHTML = "";
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 describe("media reader regressions", () => {
+  it("opens the desktop file when its link contains an image", async () => {
+    const bridge = window.ogb;
+    const openFile = vi.fn(async () => undefined);
+    window.ogb = { openFile } as unknown as NonNullable<typeof window.ogb>;
+    try {
+      const { host } = await render(createElement(ChatMarkdown, { text: "[![Report](/api/attachments/preview.png)](/tmp/report.pdf)" }));
+      const link = host.querySelector("[data-file-link]")!;
+      await act(async () => (link.querySelector("img") as HTMLElement).click());
+      expect(openFile).toHaveBeenCalledExactlyOnceWith("/tmp/report.pdf", undefined);
+      expect(link.querySelector("button")).toBeNull();
+      expect(document.querySelector("[data-media-viewer]")).toBeNull();
+    } finally {
+      window.ogb = bridge;
+    }
+  });
+
+  it.each([
+    "[First](/tmp/first.png)\n\n![Second](/api/attachments/second.png)",
+    "![Second](/api/attachments/second.png)\n\n[First](/tmp/first.png)",
+    "[First][file]\n\n![Second](/api/attachments/second.png)\n\n[file]: /tmp/first.png",
+  ])("navigates validated phone files and markdown images in displayed order: %s", async (text) => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 200 })));
+    const messages = [{ id: "m1", role: "bot", kind: "text", text }];
+    const children = createElement("div", { "data-mid": "m1" }, createElement(ChatMarkdown, { text, threadId: "chat" }));
+    const { host } = await render(createElement(MediaViewerProvider, { threadId: "chat", messages, children }));
+    const displayed = [...host.querySelectorAll("img")].map((img) => img.getAttribute("src"));
+    expect(displayed).toHaveLength(2);
+    await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+    expect(document.querySelector("[data-viewer-previous]")).toBeNull();
+    await act(async () => document.querySelector<HTMLButtonElement>("[data-viewer-next]")!.click());
+    expect(stage().querySelector("img")!.getAttribute("src")).toBe(displayed[1]);
+  });
+
+  it.each(["https://other.example/a.png", "//other.example/a.png", "/\\other.example/a.png", "https://["])("does not preload a cross-origin or invalid neighbor: %s", async (src) => {
+    const preloaded: string[] = [];
+    vi.stubGlobal("Image", class { set src(value: string) { preloaded.push(value); } });
+    const messages = [image.src, src].map((src, i) => ({ id: `m${i}`, role: "bot", kind: "text", text: `![Image](${src})` }));
+    const { host } = await render(createElement(MediaViewerProvider, { threadId: "chat", messages, children: createElement(ReadableImage, image) }));
+    await act(async () => host.querySelector("button")!.click());
+    expect(preloaded).toEqual([]);
+    expect(document.querySelector("[data-viewer-next]")).not.toBeNull();
+  });
+
+  it.each(["/api/attachments/next.png", new URL("/api/attachments/next.png", window.location.href).href])("preloads a same-origin neighbor: %s", async (src) => {
+    const preloaded: string[] = [];
+    vi.stubGlobal("Image", class { set src(value: string) { preloaded.push(value); } });
+    const messages = [image.src, src].map((src, i) => ({ id: `m${i}`, role: "bot", kind: "text", text: `![Image](${src})` }));
+    const { host } = await render(createElement(MediaViewerProvider, { threadId: "chat", messages, children: createElement(ReadableImage, image) }));
+    await act(async () => host.querySelector("button")!.click());
+    expect(preloaded).toEqual([src]);
+  });
+
   it("does no media parsing for 30 patches of 300 messages while closed, then parses on open", async () => {
     let messages = Array.from({ length: 300 }, (_, i) => ({ id: `m${i}`, role: i % 2 ? "bot" : "user", kind: "text", text: "A reply." }));
     const child = createElement(ReadableImage, image);
