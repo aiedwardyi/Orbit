@@ -19,6 +19,33 @@ function render(windows: RateLimitWindow[] | undefined) {
 }
 
 describe("ChatPlanMeters", () => {
+  it.each(["en", "ko"] as const)("opens Usage from either meter with a localized button name in %s", async (locale) => {
+    applyLocale(locale);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const onOpenUsage = vi.fn();
+    try {
+      await act(async () => root.render(createElement(ChatPlanMeters, {
+        windows: [
+          { id: "five_hour", usedPercent: 25, resetsAt: now + 113 * 60_000 },
+          { id: "seven_day", usedPercent: 80, resetsAt: now + 53 * 3_600_000 },
+        ], now, onOpenUsage,
+      })));
+      const buttons = host.querySelectorAll("button");
+      expect(buttons).toHaveLength(2);
+      for (const button of buttons) {
+        expect(button.getAttribute("aria-label")).toBe(locale === "en" ? "Open Usage Settings" : "사용량 설정 열기");
+        await act(async () => button.click());
+      }
+      expect(onOpenUsage).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      applyLocale("en");
+    }
+  });
+
   it("hides when the engine has no live plan windows", () => {
     expect(render(undefined)).toBe("");
     expect(render([])).toBe("");
@@ -27,7 +54,7 @@ describe("ChatPlanMeters", () => {
     ).toBe("");
   });
 
-  it("shows the live 5-hour and weekly windows with used percent and a compact reset", () => {
+  it("shows live windows and keeps resets in their tooltips", () => {
     setUsageMode("used");
     const html = render([
       { id: "five_hour", usedPercent: 10, resetsAt: now + 115 * 60_000 },
@@ -39,8 +66,8 @@ describe("ChatPlanMeters", () => {
     expect(html).toContain("7d");
     expect(html).toContain(">10%<");
     expect(html).toContain(">49%<");
-    expect(html).toContain("1h55m");
-    expect(html).toContain("2d5h");
+    expect(html).not.toContain("1h55m");
+    expect(html).not.toContain("2d5h");
     expect(html).not.toContain(">75%<");
     expect(html).not.toContain(">40%<");
     expect(html).not.toContain(">90%<");
@@ -52,8 +79,8 @@ describe("ChatPlanMeters", () => {
     expect(html).not.toContain("on-demand");
     expect(html).toContain("▰▱▱▱▱▱▱▱▱▱");
     expect(html).toContain("▰▰▰▰▰▱▱▱▱▱");
-    expect(html).toContain("(1h55m)");
-    expect(html).toContain("(2d5h)");
+    expect(html).not.toContain("(1h55m)");
+    expect(html).not.toContain("(2d5h)");
     expect(html).toContain('aria-label="5h: 10% used"');
     expect(html).toContain('aria-label="7d: 49% used"');
     expect(html).toContain("text-accent");
@@ -70,7 +97,7 @@ describe("ChatPlanMeters", () => {
     expect(html).toContain('aria-label="5h: 20% remaining"');
     expect(html).toContain('aria-label="7d: 0% remaining"');
     expect(html).toContain("▰▰▱▱▱▱▱▱▱▱");
-    expect(html).toContain("(1h46m)");
+    expect(html).not.toContain("1h46m");
     const unknown = render([{ id: "five_hour", usedPercent: NaN, resetsAt: now + 60_000 }]);
     expect(unknown).not.toContain("100%");
     expect(unknown).not.toContain("▰");
@@ -194,9 +221,9 @@ describe("ChatPlanMeters", () => {
     const describedBy = stale?.getAttribute("aria-describedby");
     expect(describedBy).toBeTruthy();
     expect(host.querySelector(`[id="${describedBy}"]`)?.textContent).toBe("Last seen 4d ago");
-    expect(stale?.getAttribute("aria-label")).toBe("Open usage settings");
+    expect(stale?.getAttribute("aria-label")).toBe("Open Usage Settings");
     const fresh = draw(30 * 60_000);
     expect(fresh?.hasAttribute("aria-describedby")).toBe(false);
-    expect(fresh?.getAttribute("aria-label")).toBe("Open usage settings");
+    expect(fresh?.getAttribute("aria-label")).toBe("Open Usage Settings");
   });
 });

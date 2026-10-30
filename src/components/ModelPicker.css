@@ -219,6 +219,13 @@ html[data-orbit-caption="win32"] .model-cross-header { top: calc(var(--orbit-cap
 button.model-cross-binding:hover { color: #fff; }
 button.model-cross-binding:disabled { opacity: 0.4; }
 
+@media (pointer: coarse) {
+  .model-cross-dialog[data-touch-picker-legend="hidden"] [data-picker-key-legend],
+  .model-cross-dialog[data-touch-picker-legend="hidden"] [data-picker-current-model],
+  .model-cross-dialog[data-touch-picker-legend="hidden"] .model-cross-footer button kbd { display: none; }
+  .model-cross-dialog[data-touch-picker-legend="hidden"] button.model-cross-binding { min-width: 64px; min-height: 44px; justify-content: center; }
+}
+
 @media (max-height: 720px) {
   .model-cross-plane { --picker-y-step: 112px; --picker-card-height: 88px; }
   .model-cross-footer { padding-block: 12px 18px; }

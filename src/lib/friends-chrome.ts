@@ -79,3 +79,68 @@ export function showUsagePerBotTable(): boolean {
 export function showEngineRailZoo(): boolean {
   return false;
 }
+
+export function showSkinTaglines(): boolean {
+  return false;
+}
+
+export function showWelcomeTiles(): boolean {
+  return false;
+}
+
+/** Alt+T/U/I hints in the Settings nav and Alt+Shift+I on Model Index. The keys still work. */
+export function showSettingsHotkeyHints(): boolean {
+  return false;
+}
+
+/** Share Terminal with Chat where it can't be turned on (phone, browser). */
+export function showDisabledShareTerminal(): boolean {
+  return false;
+}
+
+export function showEmptyKeysCard(): boolean {
+  return false;
+}
+
+/** File-type line under Upload; a rejected file still says why. */
+export function showAvatarFormatsHint(): boolean {
+  return false;
+}
+
+
+export function showBotMenuCopy(): boolean {
+  return false;
+}
+
+export function showBotMenuMakeGroup(): boolean {
+  return false;
+}
+
+export function showNewMenuExport(): boolean {
+  return false;
+}
+
+export function showNewMenuTeams(): boolean {
+  return false;
+}
+
+export function showGroupMenuCopyId(): boolean {
+  return false;
+}
+
+export function showPhoneDrawerCollapse(): boolean {
+  return false;
+}
+
+
+export function showHeaderPencil(): boolean {
+  return false;
+}
+
+export function showTouchPickerLegend(): boolean {
+  return false;
+}
+
+export function showHoverPin(): boolean {
+  return false;
+}

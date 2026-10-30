@@ -7,6 +7,7 @@ import { StoreProvider, useStore, type Bot, type Group, type Message } from "@/s
 import { I18nProvider } from "@/lib/i18n";
 import { en, ko } from "@/lib/i18n-catalog";
 import { applySkin } from "@/lib/skins";
+import * as friendsChrome from "@/lib/friends-chrome";
 import { EXTENDED_REACTIONS } from "../../shared/reactions";
 
 import { ChatView } from "./ChatView";
@@ -252,6 +253,8 @@ describe("message menu helpers", () => {
 describe("message menu in 1:1 chats", () => {
   it("opens a bot menu with quick reactions, Reply and Copy", async () => {
     const host = await mountChat(bot([userMsg("u1", "hi"), botMsg("b1", "hello there")]));
+    expect(host.querySelector('[data-message-hover-actions] .lucide-pin')).toBeNull();
+    expect(host.querySelector('[data-message-hover-actions] .lucide-pin-off')).toBeNull();
     await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
 
     const menu = messageMenu();
@@ -260,6 +263,7 @@ describe("message menu in 1:1 chats", () => {
     expect(menu?.querySelector("[data-menu-expand]")).not.toBeNull();
     expect(menu?.querySelector("[data-menu-reply]")?.textContent).toBe("Reply");
     expect(menu?.querySelector("[data-menu-copy]")?.textContent).toBe("Copy");
+    expect(menu?.querySelector("[data-menu-pin]")?.textContent).toBe("Pin message");
     expect(menu?.textContent).not.toContain("Copy ID");
   });
 
@@ -342,7 +346,7 @@ describe("message menu in 1:1 chats", () => {
     expect(menu?.querySelector("[data-menu-copy]")?.textContent).toBe("Copy");
   });
 
-  it("pins above Reply and toggles to Unpin like the hover button", async () => {
+  it("pins above Reply and toggles to Unpin in the menu", async () => {
     const messages = [userMsg("u1", "hi"), botMsg("b1", "hello there")];
     const host = await mountChat(bot(messages));
     await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
@@ -365,7 +369,8 @@ describe("message menu in 1:1 chats", () => {
     expect(pinnedChatId()).toBe("");
   });
 
-  it("pins from the menu and unpins with the hover button", async () => {
+  it("restores hover unpin when its gate is enabled", async () => {
+    vi.spyOn(friendsChrome, "showHoverPin").mockReturnValue(true);
     const messages = [botMsg("b1", "hover target")];
     const host = await mountChat(bot(messages));
     await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
@@ -572,6 +577,8 @@ describe("message menu in rooms", () => {
 
   it("opens a bot menu with reactions, Pin, Reply and Copy", async () => {
     const host = await mountRoom(members, room([userMsg("u1", "hi all"), roomBot("b1", "room hello")]));
+    expect(host.querySelector('[data-message-hover-actions] .lucide-pin')).toBeNull();
+    expect(host.querySelector('[data-message-hover-actions] .lucide-pin-off')).toBeNull();
     await rightClick(host.querySelector('[data-mid="b1"] [data-orbit-message-content]')!);
 
     const menu = messageMenu();

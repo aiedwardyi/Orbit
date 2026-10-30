@@ -38,9 +38,8 @@ import { isTerminalSkin, useSkin } from "@/lib/skins";
 import { logLine } from "@/lib/terminal-skin";
 import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { usePhoneHeaderNameFloor } from "@/lib/use-phone-header-name";
-import { isPhone } from "@/lib/phone-swipe";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
-import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
+import { showBotNewTaskControl, showComputerPanelChrome, showHeaderPencil } from "@/lib/friends-chrome";
 import { stateForBot } from "@/lib/mascot";
 import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
 import { composerIsBusy, splitQueuedSends, turnPresenceWaiting, withAcceptedMessages } from "@/lib/send-accept";
@@ -1429,7 +1428,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
         <div ref={phoneClusterRef} className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1.5 py-1 max-md:flex-[0_1000_auto]">
           <button
             data-orbit-chat-focus-fallback=""
-            onClick={() => dispatch({ type: "toggleSettings", open: true, avatar: !isPhone() })}
+            onClick={() => dispatch({ type: "toggleSettings", open: true })}
             className="flex size-10 shrink-0 items-center justify-center rounded-lg hover:bg-raised/50"
             title={t("chat.openProfile", { name: bot.name })}
             aria-label={t("chat.openProfile", { name: bot.name })}
@@ -1458,7 +1457,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                 value={bot.name}
                 onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
                 onActivate={() => dispatch({ type: "toggleSettings", open: true })}
-                showEditButton
+                showEditButton={showHeaderPencil()}
                 className="truncate text-[15px] font-semibold text-ink"
                 inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
               />
@@ -1468,11 +1467,12 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
           <DeviceTag />
           {bot.chiefOfStaff && (
             <span
-              className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-accent/12 px-2 py-0.5 text-[11px] font-medium text-accent max-md:hidden"
+              role="img"
+              className="shrink-0 text-accent"
               title={t("chrome.chiefOfStaff")}
               aria-label={t("chrome.chiefOfStaff")}
             >
-              <Crown size={11} aria-hidden="true" /> <span className="@max-xs/chathead:sr-only">{t("chrome.chiefOfStaff")}</span>
+              <Crown size={14} aria-hidden="true" />
             </span>
           )}
         </div>

@@ -1,5 +1,5 @@
 // Double-click a title to rename it in place. Settings still exists for
-// the rest of the profile — this is just the fast path for the name.
+// the rest of the profile - this is just the fast path for the name.
 import { useEffect, useState } from "react";
 import { Pencil } from "lucide-react";
 
@@ -86,7 +86,7 @@ export function RenameTitle({
     setMode(true);
   };
 
-  if (showEditButton) {
+  if (showEditButton || onActivate) {
     return (
       <span className="flex min-w-0 items-center gap-0.5">
         {onActivate ? (
@@ -102,7 +102,7 @@ export function RenameTitle({
         ) : (
           <span className={cn("min-w-0 truncate", className)}>{value}</span>
         )}
-        <button
+        {showEditButton && <button
           type="button"
           onClick={onActivate ?? startRename}
           aria-label={onActivate ? t("chat.openProfile", { name: value }) : t("rename.named", { name: value })}
@@ -110,7 +110,7 @@ export function RenameTitle({
           className="flex size-10 shrink-0 items-center justify-center rounded text-ink-secondary opacity-70 hover:bg-raised hover:text-ink hover:opacity-100"
         >
           <Pencil size={12} />
-        </button>
+        </button>}
       </span>
     );
   }

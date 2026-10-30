@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import { imageAttachmentFromFile } from "@/lib/composer-attachments";
 import { useI18n, type MessageKey } from "@/lib/i18n";
+import { showAvatarFormatsHint } from "@/lib/friends-chrome";
 import { botAvatarUrlFromStoredPath } from "../../shared/bot-avatar";
 import { InitialsAvatar, profileInitials } from "./Avatar";
 
@@ -13,6 +14,7 @@ export function ProfileFields() {
   const [name, setName] = useState(state.config?.profile?.name ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [rejected, setRejected] = useState(false);
   const avatarUrl = state.config?.profile?.avatarUrl;
   useEffect(() => {
     setName(state.config?.profile?.name ?? "");
@@ -47,9 +49,13 @@ export function ProfileFields() {
 
   const changePhoto = async (file: File | undefined) => {
     if (!file) return;
+    setRejected(false);
     await put(async () => {
       const saved = await imageAttachmentFromFile(file);
-      if (!saved) throw new Error(t("bot.avatarWrongType"));
+      if (!saved) {
+        setRejected(true);
+        throw new Error(t("bot.avatarWrongType"));
+      }
       const avatarUrl = botAvatarUrlFromStoredPath(saved.path);
       if (!avatarUrl) throw new Error(t("bot.avatarUnusable"));
       return { avatarUrl };
@@ -106,7 +112,7 @@ export function ProfileFields() {
           ) : null}
         </div>
       </div>
-      <p className="text-[11.5px] text-ink-secondary">{t("bot.avatarFormats")}</p>
+      {(showAvatarFormatsHint() || rejected) && <p className="text-[11.5px] text-ink-secondary">{t("bot.avatarFormats")}</p>}
       <label htmlFor="settings-profile-name" className="sr-only">{t("settings.profile.nameLabel")}</label>
       <input
         id="settings-profile-name"

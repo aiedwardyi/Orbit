@@ -4,7 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import type { Bot } from "@/state/store";
 
-const chrome = vi.hoisted(() => ({ botDetailsAdvanced: false }));
+const chrome = vi.hoisted(() => ({ botDetailsAdvanced: false, disabledShareTerminal: false }));
 
 const storeMock = vi.hoisted(() => ({ dispatch: vi.fn() }));
 
@@ -23,6 +23,7 @@ vi.mock("@/lib/friends-chrome", async (importOriginal) => {
   return {
     ...actual,
     showBotDetailsAdvanced: () => chrome.botDetailsAdvanced,
+    showDisabledShareTerminal: () => chrome.disabledShareTerminal,
   };
 });
 
@@ -194,10 +195,12 @@ describe("SettingsPanel Korean bot details", () => {
   });
 
   afterEach(() => {
+    configMock.terminalHost = false;
     vi.unstubAllGlobals();
   });
 
   it("renders the bot details header while keeping the core rows in Korean", async () => {
+    configMock.terminalHost = true;
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
     const html = renderToStaticMarkup(
@@ -238,11 +241,25 @@ describe("SettingsPanel lean startup", () => {
     storeMock.dispatch.mockClear();
   });
 
-  it("shows Load skills and plugins on by default with no hint", async () => {
+  afterEach(() => {
+    chrome.botDetailsAdvanced = false;
+  });
+
+  it("keeps Load Skills & Plugins off the idle surface", async () => {
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
     const html = renderToStaticMarkup(
-      createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })),
+      createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot, defaultAdvancedOpen: true })),
+    );
+    expect(html).not.toContain("Load Skills");
+  });
+
+  it("shows Load skills and plugins on by default with no hint", async () => {
+    chrome.botDetailsAdvanced = true;
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot, defaultAdvancedOpen: true })),
     );
     expect(html).toContain("Load Skills &amp; Plugins");
     expect(html).toContain('aria-label="Load Skills &amp; Plugins"');
@@ -253,13 +270,14 @@ describe("SettingsPanel lean startup", () => {
   });
 
   it("shows off when leanStartup is true", async () => {
+    chrome.botDetailsAdvanced = true;
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
     const html = renderToStaticMarkup(
       createElement(
         I18nProvider,
         null,
-        createElement(SettingsPanel, { bot: { ...claudeBot, leanStartup: true } as Bot }),
+        createElement(SettingsPanel, { bot: { ...claudeBot, leanStartup: true } as Bot, defaultAdvancedOpen: true }),
       ),
     );
     const labelAt = html.indexOf('aria-label="Load Skills');
@@ -277,14 +295,32 @@ describe("SettingsPanel share terminal switch", () => {
 
   afterEach(() => {
     configMock.terminalHost = false;
+    chrome.disabledShareTerminal = false;
     (globalThis as { window: { ogb?: unknown } }).window.ogb = undefined;
   });
 
-  it("stays disabled when neither the desktop app nor the server has a terminal bridge", async () => {
+  it("hides when neither the desktop app nor the server has a terminal bridge", async () => {
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(SettingsPanel, { bot })));
+    expect(html).not.toContain("Share Terminal with Chat");
+  });
+
+  it("stays disabled without a terminal bridge when the flag shows it", async () => {
+    chrome.disabledShareTerminal = true;
     const { SettingsPanel } = await import("./SettingsPanel");
     const { I18nProvider } = await import("@/lib/i18n");
     const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(SettingsPanel, { bot })));
     expect(terminalButtonTag(html)).toContain('disabled=""');
+  });
+
+  it("stays visible to turn off a share saved on another device", async () => {
+    const { SettingsPanel } = await import("./SettingsPanel");
+    const { I18nProvider } = await import("@/lib/i18n");
+    const html = renderToStaticMarkup(
+      createElement(I18nProvider, null, createElement(SettingsPanel, { bot: { ...bot, shareTerminalWithChat: true } })),
+    );
+    expect(terminalButtonTag(html)).not.toContain('disabled=""');
   });
 
   it("enables when the server reports a terminal bridge", async () => {

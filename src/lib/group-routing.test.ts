@@ -47,7 +47,7 @@ describe("group chrome phrases", () => {
     expect(groupResponseHint(room, members, t)).toBe(translate("ko", "room.hint.everyone"));
     expect(groupResponseHint(room, members, t)).not.toMatch(/Everyone responds|@mention/i);
     const lead = { ...room, defaultResponder: { kind: "member" as const, botId: "atlas" } };
-    expect(groupResponseHint(lead, members, t)).toContain("Atlas");
+    expect(groupResponseHint(lead, members, t)).toBe("답변할 봇을 고르려면 @로 언급하세요.");
     expect(groupResponseHint(lead, members, t)).not.toMatch(/responds by default/i);
   });
 
@@ -58,8 +58,21 @@ describe("group chrome phrases", () => {
     expect(everyone).toBe(translate("ko", "composer.roomEveryone", { name: "Launch" }));
     expect(everyone).not.toMatch(/everyone responds|Message Launch/i);
     const lead = groupComposerHint({ ...room, defaultResponder: { kind: "member", botId: "atlas" } satisfies { kind: "member"; botId: string } }, members, t);
-    expect(lead).toContain("Atlas");
+    expect(lead).toBe("Launch에 메시지");
     expect(lead).toContain("Launch");
     expect(lead).not.toMatch(/Atlas responds/i);
+  });
+
+  it.each(["en", "ko"] as const)("keeps every group mode's placeholder the same in %s", (locale) => {
+    const t = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate(locale, key, vars);
+    const modes = [
+      { ...room, dm: true },
+      room,
+      { ...room, defaultResponder: { kind: "mentions" as const } },
+      { ...room, defaultResponder: { kind: "member" as const, botId: "atlas" } },
+    ];
+    for (const group of modes) {
+      expect(groupComposerHint(group, members, t)).toBe(locale === "en" ? "Message Launch" : "Launch에 메시지");
+    }
   });
 });

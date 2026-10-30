@@ -108,9 +108,9 @@ describe("SavedKeys", () => {
     expect(render()).toContain("Acme · api.acme.dev");
   });
 
-  it("shows one muted line when no key is saved", () => {
+  it("hides the card when no key is saved", () => {
     mockState.config = { imageGen: { configured: false } };
-    expect(render()).toContain("Bots ask for keys when they need them.");
+    expect(render()).toBe("");
   });
 });
 

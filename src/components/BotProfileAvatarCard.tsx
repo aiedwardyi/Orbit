@@ -13,7 +13,7 @@ import {
   type MausMotion,
   type MausState,
 } from "@/lib/mascot";
-import { showAvatarImageGenerate, showAvatarShapeOptions } from "@/lib/friends-chrome";
+import { showAvatarFormatsHint, showAvatarImageGenerate, showAvatarShapeOptions } from "@/lib/friends-chrome";
 import {
   BOT_AVATAR_CROPS,
   BOT_AVATAR_LABELS,
@@ -74,6 +74,7 @@ export function BotProfileAvatarCard({
   const [direction, setDirection] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rejected, setRejected] = useState(false);
   const crop = bot.avatarCrop ?? "mascot";
   const selectedAvatar = resolveBotAvatarChoice(bot.mascotStyle, bot.color);
   const pickerButtonRefs = useRef<Partial<Record<BotAvatarChoice, HTMLButtonElement | null>>>({});
@@ -90,9 +91,13 @@ export function BotProfileAvatarCard({
     if (!file) return;
     setUploading(true);
     setError(null);
+    setRejected(false);
     try {
       const saved = await imageAttachmentFromFile(file);
-      if (!saved) throw new Error(t("bot.avatarWrongType"));
+      if (!saved) {
+        setRejected(true);
+        throw new Error(t("bot.avatarWrongType"));
+      }
       const avatarUrl = botAvatarUrlFromStoredPath(saved.path);
       if (!avatarUrl) throw new Error(t("bot.avatarUnusable"));
       const latestCrop = cropRef.current;
@@ -214,7 +219,7 @@ export function BotProfileAvatarCard({
             </button>
           )}
         </div>
-        <div className="mt-1.5 text-[11.5px] text-ink-secondary">{t("bot.avatarFormats")}</div>
+        {(showAvatarFormatsHint() || rejected) && <div className="mt-1.5 text-[11.5px] text-ink-secondary">{t("bot.avatarFormats")}</div>}
 
         {showAvatarShapeOptions() && (
           <>

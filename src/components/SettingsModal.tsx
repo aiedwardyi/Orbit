@@ -9,6 +9,7 @@ import { builtInBrowserEnabled, detailedRepliesEnabled, modelDialEnabled, showTo
 import {
   showSettingsAdvancedSection,
   showSettingsEnginesNav,
+  showSettingsHotkeyHints,
   showSettingsMoreServicesSection,
   showSettingsSearch,
 } from "@/lib/friends-chrome";
@@ -728,7 +729,6 @@ export function SettingsModal({
                 aria-current={section === id ? "page" : undefined}
                 aria-keyshortcuts={shortcut}
                 aria-label={t(SECTION_KEY[id])}
-                title={t(SECTION_KEY[id])}
                 className={cn(
                   "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px] max-md:shrink-0",
                   section === id ? "bg-control text-ink" : "text-ink-secondary hover:bg-control/50 hover:text-ink",
@@ -736,7 +736,7 @@ export function SettingsModal({
               >
                 <Icon size={15} />
                 <span className="-mr-1.5 min-w-0 flex-1 truncate max-md:hidden">{t(SECTION_KEY[id])}</span>
-                {shortcut && (
+                {shortcut && showSettingsHotkeyHints() && (
                   <kbd className="ml-auto shrink-0 font-mono text-[10px] tracking-wide text-ink-secondary/55 max-md:hidden">
                     {shortcut}
                   </kbd>
@@ -786,8 +786,6 @@ export function SettingsModal({
             {section === "general" && (
               <>
                 <LanguagePicker />
-                <SidebarSideRow />
-                <ReplyStyleRow />
                 {!window.ogb && <Card><PhoneNotificationSettings /></Card>}
                 <VibrationRow />
                 <UpdatesRow />
@@ -806,6 +804,8 @@ export function SettingsModal({
                 </button>
                 {preferencesOpen && (
                   <div data-settings-preferences className="flex flex-col gap-4">
+                    <SidebarSideRow />
+                    <ReplyStyleRow />
                     <TerminalAppearanceRow />
                     <ToolCallsRow />
                     <DetailedRepliesRow />

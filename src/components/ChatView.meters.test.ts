@@ -119,7 +119,7 @@ describe("ChatView plan meters follow the shown pick", () => {
       [claude, gemini],
     );
     expect(meter(host, "5h: 29% remaining")).toBeNull();
-    expect(host.querySelector('button[aria-label="Open usage settings"]')).toBeNull();
+    expect(host.querySelector('button[aria-label="Open Usage Settings"]')).toBeNull();
   });
 
   it("shows the pending instance's windows in ChatPlanMeters", async () => {

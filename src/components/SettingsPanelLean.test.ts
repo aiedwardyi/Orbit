@@ -7,6 +7,12 @@ import { I18nProvider } from "@/lib/i18n";
 import type { Bot } from "@/state/store";
 
 const { mockDispatch, mockConfig } = vi.hoisted(() => ({ mockDispatch: vi.fn(), mockConfig: { current: {} as { features?: { memoryNotes?: boolean } } } }));
+const chrome = vi.hoisted(() => ({ botDetailsAdvanced: false }));
+
+vi.mock("@/lib/friends-chrome", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/friends-chrome")>()),
+  showBotDetailsAdvanced: () => chrome.botDetailsAdvanced,
+}));
 
 vi.mock("@/state/store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/state/store")>();
@@ -86,16 +92,18 @@ describe("SettingsPanel lean startup switch", () => {
     document.body.append(host);
     root = createRoot(host);
     (window as any).ogb = {};
+    chrome.botDetailsAdvanced = true;
   });
 
   afterEach(() => {
+    chrome.botDetailsAdvanced = false;
     root.unmount();
     host.remove();
   });
 
   it("off saves leanStartup true", async () => {
     await act(async () => {
-      root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
+      root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot, defaultAdvancedOpen: true })));
     });
     const toggle = host.querySelector('button[aria-label="Load Skills & Plugins"]');
     expect(toggle?.getAttribute("aria-checked")).toBe("true");
@@ -112,7 +120,7 @@ describe("SettingsPanel lean startup switch", () => {
   it("on saves leanStartup false", async () => {
     await act(async () => {
       root.render(
-        createElement(I18nProvider, null, createElement(SettingsPanel, { bot: { ...claudeBot, leanStartup: true } as Bot })),
+        createElement(I18nProvider, null, createElement(SettingsPanel, { bot: { ...claudeBot, leanStartup: true } as Bot, defaultAdvancedOpen: true })),
       );
     });
     const toggle = host.querySelector('button[aria-label="Load Skills & Plugins"]');
@@ -255,12 +263,12 @@ describe("SettingsPanel memory and order", () => {
     }
   });
 
-  it("orders the detail rows with lean startup after the terminal share", async () => {
+  it("orders the detail rows down to the terminal share", async () => {
     await act(async () => {
-      root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: claudeBot })));
+      root.render(createElement(I18nProvider, null, createElement(SettingsPanel, { bot: { ...claudeBot, shareTerminalWithChat: true } })));
     });
     const text = host.textContent ?? "";
-    const order = ["Title", "Description", "Memory", "Project Folder", "Approval", "Notifications", "Share Terminal with Chat", "Load Skills & Plugins"];
+    const order = ["Title", "Description", "Memory", "Project Folder", "Approval", "Notifications", "Share Terminal with Chat"];
     const at = order.map((label) => text.indexOf(label));
     expect(at).not.toContain(-1);
     expect([...at].sort((a, b) => a - b)).toEqual(at);

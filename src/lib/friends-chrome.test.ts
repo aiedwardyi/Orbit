@@ -22,6 +22,21 @@ import {
   showSidebarPhone,
   showSidebarRoutines,
   showSidebarTeachSkill,
+  showSkinTaglines,
+  showWelcomeTiles,
+  showSettingsHotkeyHints,
+  showDisabledShareTerminal,
+  showEmptyKeysCard,
+  showAvatarFormatsHint,
+  showBotMenuCopy,
+  showBotMenuMakeGroup,
+  showNewMenuExport,
+  showNewMenuTeams,
+  showGroupMenuCopyId,
+  showPhoneDrawerCollapse,
+  showHeaderPencil,
+  showTouchPickerLegend,
+  showHoverPin,
 } from "./friends-chrome";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -63,6 +78,15 @@ describe("friends chrome flags", () => {
     expect(showSettingsEnginesNav()).toBe(false);
     expect(showUsagePerBotTable()).toBe(false);
     expect(showEngineRailZoo()).toBe(false);
+    expect(showBotMenuCopy()).toBe(false);
+    expect(showBotMenuMakeGroup()).toBe(false);
+    expect(showNewMenuExport()).toBe(false);
+    expect(showNewMenuTeams()).toBe(false);
+    expect(showGroupMenuCopyId()).toBe(false);
+    expect(showPhoneDrawerCollapse()).toBe(false);
+    expect(showHeaderPencil()).toBe(false);
+    expect(showTouchPickerLegend()).toBe(false);
+    expect(showHoverPin()).toBe(false);
   });
 });
 
@@ -209,5 +233,26 @@ describe("friends chrome call sites keep the feature code", () => {
     expect(groupView).toContain("<RoomWorkingFolderChip");
     expect(groupView).not.toMatch(/Start a new task/);
     expect(groupView).not.toMatch(/Fixed for this task/);
+  });
+});
+
+describe("declutter settings flags", () => {
+  it("hides first-run and Settings extras behind flags that keep the code", () => {
+    expect(showSkinTaglines()).toBe(false);
+    expect(showWelcomeTiles()).toBe(false);
+    expect(showSettingsHotkeyHints()).toBe(false);
+    expect(showDisabledShareTerminal()).toBe(false);
+    expect(showEmptyKeysCard()).toBe(false);
+    expect(showAvatarFormatsHint()).toBe(false);
+    const read = (name: string) => readFileSync(join(components, name), "utf8");
+    expect(read("SkinPicker.tsx")).toContain("showSkinTaglines() && (");
+    expect(read("Onboarding.tsx")).toContain("showWelcomeTiles() && (");
+    expect(settingsModal).toContain("shortcut && showSettingsHotkeyHints() && (");
+    expect(read("ModelIndexSection.tsx")).toContain("showSettingsHotkeyHints() && (");
+    expect(settingsPanel).toContain("(!shareTerminalDisabled || showDisabledShareTerminal()) && (");
+    expect(read("ApiKeys.tsx")).toContain("saved.length === 0 && !showEmptyKeysCard()");
+    expect(read("ApiKeys.tsx")).toContain('t("keys.empty")');
+    expect(avatarCard).toContain("(showAvatarFormatsHint() || rejected) && ");
+    expect(read("ProfileFields.tsx")).toContain("(showAvatarFormatsHint() || rejected) && ");
   });
 });

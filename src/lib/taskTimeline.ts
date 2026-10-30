@@ -1,3 +1,5 @@
+import { en } from "./i18n-catalog.ts";
+
 /** The persisted message fields this pure projection needs. Keeping this
  * structural avoids pulling the renderer's TSX store into server tests. */
 export interface TimelineMessage {
@@ -19,7 +21,7 @@ export interface TimelineEvent {
 }
 
 /** Turn an already-persisted transcript into a compact, honest timeline. It
- * deliberately derives only from events the harness has recorded — this UI
+ * deliberately derives only from events the harness has recorded - this UI
  * never guesses that an action or result happened. */
 export function timelineEvents(messages: TimelineMessage[], localize: (line: string) => string = (line) => line): TimelineEvent[] {
   const events: TimelineEvent[] = [];
@@ -29,7 +31,7 @@ export function timelineEvents(messages: TimelineMessage[], localize: (line: str
       events.push({
         id: message.id,
         at: message.at,
-        label: sawUserInput ? "User input" : "Task started",
+        label: localize(en[sawUserInput ? "chat.timeline.userInput" : "chat.timeline.taskStarted"]),
         state: "observed",
         kind: "task",
       });
@@ -46,9 +48,9 @@ export function timelineEvents(messages: TimelineMessage[], localize: (line: str
         kind: "tool",
       });
     } else if (message.kind === "screen") {
-      events.push({ id: message.id, at: message.at, label: "Screen observed", state: "observed", kind: "screen" });
+      events.push({ id: message.id, at: message.at, label: localize(en["chat.timeline.screenObserved"]), state: "observed", kind: "screen" });
     } else if (message.kind === "text" && message.role === "bot" && message.text?.trim()) {
-      events.push({ id: message.id, at: message.at, label: "Response recorded", state: "complete", kind: "result" });
+      events.push({ id: message.id, at: message.at, label: localize(en["chat.timeline.responseRecorded"]), state: "complete", kind: "result" });
     }
   }
   return events;

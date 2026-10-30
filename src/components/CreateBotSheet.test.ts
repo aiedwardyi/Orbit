@@ -334,6 +334,7 @@ describe("CreateBotSheet folder choice", () => {
     const { host, root } = await renderSheet();
     try {
       expect(folderField(host)).toBeInstanceOf(HTMLInputElement);
+      expect(folderField(host).placeholder).toBe("Optional");
       expect(host.textContent).not.toContain("Add a folder");
     } finally {
       await act(async () => {
