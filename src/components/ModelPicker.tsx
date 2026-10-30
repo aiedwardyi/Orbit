@@ -15,6 +15,8 @@ import { ProviderMark } from "./ProviderIcons";
 import { EngineSetup, needsCli, needsSignIn } from "./EngineSetup";
 import { cn } from "@/lib/cn";
 import { useI18n } from "@/lib/i18n";
+import { modelDialEnabled } from "@/lib/feature-flags";
+import { ModelDial, useModelDialFits, type ModelDialHandle } from "./ModelDial";
 import "./ModelPicker.css";
 
 const EFFORT_EDGE_CLEARANCE = 130 / 2 + 38; // Half the horizontal step plus chevron clearance.
@@ -28,6 +30,7 @@ type ModelPickerProps = {
   switchControl?: Ref<(() => void) | null>;
   onSwitching?: (stage: "saving" | "rerunning" | null) => void;
   onRerunSettled?: () => void;
+  dial?: boolean;
 };
 
 type PickerStore = {
@@ -38,11 +41,11 @@ type PickerStore = {
 
 export function ModelPicker(props: ModelPickerProps) {
   const store = useStore();
-  return <ModelPickerControl {...props} store={store} accepted={store.state.acceptedSends[props.bot.threadId]} />;
+  return <ModelPickerControl {...props} store={store} accepted={store.state.acceptedSends[props.bot.threadId]} dial={modelDialEnabled(store.state.config)} />;
 }
 
 export function ModelPickerControl({
-  bot, className, contained = false, label, defaultOpen = false, store, accepted, switchControl, onSwitching, onRerunSettled,
+  bot, className, contained = false, label, defaultOpen = false, store, accepted, switchControl, onSwitching, onRerunSettled, dial = false,
 }: ModelPickerProps & { store: PickerStore; accepted?: readonly AcceptedSend[] }) {
   const { t } = useI18n();
   const { state, dispatch, refreshInstances } = store;
@@ -56,6 +59,10 @@ export function ModelPickerControl({
   const [customOpen, setCustomOpen] = useState(false);
   useBackLayer(open && customOpen, () => setCustomOpen(false));
   const [query, setQuery] = useState("");
+  const dialFits = useModelDialFits(dial);
+  const [listView, setListView] = useState(false);
+  const dialView = dial && dialFits && !listView;
+  const dialRef = useRef<ModelDialHandle>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const focusComposerAfterCloseRef = useRef(false);
@@ -107,6 +114,7 @@ export function ModelPickerControl({
   const show = (viaShortcut = false, switching = false) => {
     setDraft(selection);
     setCustomOpen(false);
+    setListView(false);
     setQuery("");
     focusComposerAfterCloseRef.current = false;
     openedWithShortcutRef.current = viaShortcut;
@@ -227,7 +235,7 @@ export function ModelPickerControl({
       observer.disconnect();
       document.body.style.overflow = overflow;
     };
-  }, [open]);
+  }, [open, dialView]);
 
   // Display-only: the accent dot is engine-driven, so effortless models
   // (wizard bots, muse) still show it; only the effort label stays gated
@@ -291,6 +299,7 @@ export function ModelPickerControl({
           if (presence.closing) return;
           event.stopPropagation();
           if (event.nativeEvent.isComposing) return;
+          if (dialView && dialRef.current?.key(event)) return;
           if (event.key === "Escape" || (event.altKey && !event.ctrlKey && !event.shiftKey && event.code === "KeyM")) {
             event.preventDefault();
             close();
@@ -329,8 +338,10 @@ export function ModelPickerControl({
       >
         <header className="model-cross-header">
           <h2 className="sr-only">{t("model.choose")}</h2>
+          {dial && dialFits && <button type="button" className="model-dial-view" onClick={() => setListView(!listView)}>{t(listView ? "model.dial.dial" : "model.dial.list")}</button>}
           <button data-picker-action type="button" onClick={close} aria-label={t("createBot.cancel")}><X size={18} /></button>
         </header>
+        {dialView ? <ModelDial rows={rows} draft={draft} canCommit={canCommit} onDraft={pick} onSave={save} handle={dialRef} stageRef={stageRef} bindingsId={bindingsId} /> : <>
         <div ref={stageRef} className="model-cross-stage" aria-label={t("engines.models")}>
           <div className="model-cross-plane" style={planeStyle}>
             <div className="model-cross-column" style={{ transform: `translateY(calc(${modelIndex} * -1 * var(--picker-y-step)))` }}>
@@ -429,6 +440,7 @@ export function ModelPickerControl({
           <button type="button" disabled={!canSave} className="model-cross-binding" onClick={() => save()}><kbd>Enter</kbd>{t("settings.profile.save")}</button>
           <button data-picker-action type="button" className="model-cross-binding" onClick={close}><kbd>Esc</kbd>{t("createBot.cancel")}</button>
         </footer>
+        </>}
       </div>
     </div>
   );

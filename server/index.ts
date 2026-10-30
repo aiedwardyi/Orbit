@@ -6902,6 +6902,7 @@ function configStatus() {
       browser: builtInBrowserEnabled(cfg),
       memoryNotes: memoryNotesEnabled(cfg),
       terminalHost: Boolean(terminalBridgeAccess),
+      modelDial: cfg.features?.modelDial === true,
     },
     browserProfiles: cfg.browserProfiles ?? [],
   };

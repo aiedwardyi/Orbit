@@ -353,7 +353,7 @@ export interface ConfigStatus {
   /** who's using the app - collected in onboarding, shown in the sidebar */
   profile?: { name: string; email: string; avatarUrl?: string; googlePhoto?: boolean };
   /** Opt-in flags. Absent means off, except memoryNotes. */
-  features?: { skillRecorder: boolean; showToolCalls?: boolean; detailedReplies?: boolean; browser?: boolean; memoryNotes?: boolean; terminalHost?: boolean };
+  features?: { skillRecorder: boolean; showToolCalls?: boolean; detailedReplies?: boolean; browser?: boolean; memoryNotes?: boolean; terminalHost?: boolean; modelDial?: boolean };
   /** Named browser sessions any bot can be pointed at. */
   browserProfiles?: BrowserProfile[];
 }

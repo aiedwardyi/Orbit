@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChartScatter, ChevronDown, ChevronLeft, ChevronRight, Coins, Keyboard, KeyRound, Monitor, Palette, Search, Settings, Smartphone, Terminal, User, Users, X } from "lucide-react";
 import { api, useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
-import { builtInBrowserEnabled, detailedRepliesEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
+import { builtInBrowserEnabled, detailedRepliesEnabled, modelDialEnabled, showToolCallsEnabled, skillRecorderEnabled } from "@/lib/feature-flags";
 import {
   showSettingsAdvancedSection,
   showSettingsEnginesNav,
@@ -382,11 +382,12 @@ function ExperimentalFeaturesRow() {
   const { state, dispatch } = useStore();
   const skillRecorder = skillRecorderEnabled(state.config);
   const browser = builtInBrowserEnabled(state.config);
+  const modelDial = modelDialEnabled(state.config);
   const desktopBrowser = Boolean(window.ogb?.browser);
-  const [saving, setSaving] = useState<"skillRecorder" | "browser" | null>(null);
+  const [saving, setSaving] = useState<"skillRecorder" | "browser" | "modelDial" | null>(null);
   const [error, setError] = useState("");
 
-  const toggle = async (feature: "skillRecorder" | "browser", next: boolean) => {
+  const toggle = async (feature: "skillRecorder" | "browser" | "modelDial", next: boolean) => {
     if (saving) return;
     setSaving(feature);
     setError("");
@@ -424,6 +425,24 @@ function ExperimentalFeaturesRow() {
           className={`${cnSwitch(skillRecorder)} disabled:cursor-wait disabled:opacity-50`}
         >
           <span className={cnKnob(skillRecorder)} />
+        </button>
+      </div>
+      <div className="mt-4 flex items-center justify-between gap-4 border-t border-hairline/30 pt-4">
+        <div className="min-w-0">
+          <div className="text-[14px] font-medium text-ink">{t("settings.experimental.modelDial")}</div>
+          <div className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">
+            {t("settings.experimental.modelDialHelp")}
+          </div>
+        </div>
+        <button
+          role="switch"
+          aria-checked={modelDial}
+          aria-label={t("settings.experimental.modelDialAria")}
+          disabled={saving !== null}
+          onClick={() => void toggle("modelDial", !modelDial)}
+          className={`${cnSwitch(modelDial)} disabled:cursor-wait disabled:opacity-50`}
+        >
+          <span className={cnKnob(modelDial)} />
         </button>
       </div>
       {browser ? (
