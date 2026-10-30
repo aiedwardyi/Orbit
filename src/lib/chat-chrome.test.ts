@@ -80,9 +80,7 @@ describe("assistant message action bar", () => {
   });
 
   it("reserves its band so it cannot cover the timestamp or the reaction chips", () => {
-    // both rows dock under the bubble since the copy-buttons fix, so the
-    // band is unconditional, not bot-only
-    expect(bubbleFn).toContain('cn("relative w-fit max-w-[min(42rem,78%)]", hasReactions ? "pb-11" : "pb-8")');
+    expect(bubbleFn).toContain('className="relative w-fit max-w-[min(42rem,78%)] pb-8"');
     expect(bubbleFn).not.toContain("top-full");
   });
 });
@@ -251,7 +249,7 @@ describe("room header on a phone", () => {
     expect(button.has("min-w-0")).toBe(true);
     expect(button.has("max-md:shrink-0")).toBe(true);
     expect(chip).toMatch(/<Folder size=\{12\} className="shrink-0" \/>/);
-    expect(chip).toMatch(/"truncate max-md:hidden"/);
+    expect(chip).toMatch(/"truncate font-mono max-md:hidden"/);
   });
 
   it("overlaps the roster avatars on a phone", () => {

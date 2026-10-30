@@ -822,12 +822,12 @@ function RoomWorkingFolderChip({ group, onToggle }: { group: Group; onToggle: ()
   return (
     <button
       onClick={onToggle}
-      className="flex min-w-0 max-w-[220px] shrink-[8] items-center gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
+      className="flex min-w-0 max-w-[220px] shrink-[8] items-center max-md:shrink-0 gap-1.5 rounded-full border border-hairline/40 bg-raised/60 px-2.5 py-1 text-[12.5px] text-ink-secondary hover:bg-raised hover:text-ink"
       title={folder ? t("room.workingFolderNamed", { folder }) : t("room.workingFolderChip")}
       aria-label={folder ? t("room.workingFolderNamed", { folder }) : t("room.projectFolderChip")}
     >
       <Folder size={12} className="shrink-0" />
-      {folder && <span className="truncate font-mono">{name}</span>}
+      {folder && <span className="truncate font-mono max-md:hidden">{name}</span>}
     </button>
   );
 }
