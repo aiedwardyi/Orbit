@@ -61,7 +61,7 @@ async function key(key: string) {
   });
 }
 
-const wait = (ms: number) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
+const wait = (ms: number) => act(async () => vi.isFakeTimers() ? vi.advanceTimersByTimeAsync(ms) : new Promise((resolve) => setTimeout(resolve, ms)));
 
 async function settle() {
   for (let i = 0; i < 60; i++) await wait(20);
@@ -100,6 +100,7 @@ afterEach(async () => {
   await act(async () => root?.unmount());
   document.body.replaceChildren();
   dispatch.mockReset();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   Element.prototype.animate = originalAnimate;
 });
@@ -259,6 +260,7 @@ describe("ModelDial", () => {
     });
 
     it("coasts after a flick and lands on a model", async () => {
+      vi.useFakeTimers({ toFake: ["performance", "requestAnimationFrame", "cancelAnimationFrame"] });
       media({ phone: true });
       await mount();
       await drag(0, -120, 4, 10);
@@ -271,6 +273,7 @@ describe("ModelDial", () => {
     });
 
     it("stays put when the finger rests before release", async () => {
+      vi.useFakeTimers({ toFake: ["performance", "requestAnimationFrame", "cancelAnimationFrame"] });
       media({ phone: true });
       await mount();
       await pointer("pointerdown", 200, 400);
@@ -325,6 +328,7 @@ describe("ModelDial", () => {
     });
 
     it("snaps without coasting under reduced motion", async () => {
+      vi.useFakeTimers({ toFake: ["performance", "requestAnimationFrame", "cancelAnimationFrame"] });
       media({ phone: true, reduced: true });
       await mount();
       await drag(0, -120, 4, 10);
