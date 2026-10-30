@@ -270,6 +270,20 @@ describe("ModelDial", () => {
       expect(order.indexOf(selected()!)).toBe(landed);
     });
 
+    it("stays put when the finger rests before release", async () => {
+      media({ phone: true });
+      await mount();
+      await pointer("pointerdown", 200, 400);
+      for (let i = 1; i <= 4; i++) {
+        await wait(10);
+        await pointer("pointermove", 200, 400 - 30 * i);
+      }
+      await wait(150);
+      await pointer("pointerup", 200, 280);
+      await settle();
+      expect(selected()).toBe("gpt-6.1-sol");
+    });
+
     it("moves effort one notch per horizontal swipe", async () => {
       media({ phone: true });
       await mount();

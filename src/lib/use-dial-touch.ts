@@ -101,7 +101,9 @@ export function useDialTouch(ref: RefObject<HTMLElement | null>, enabled: boolea
     };
     const onUp = (event: PointerEvent) => {
       if (event.pointerId !== drag?.id) return;
-      const [first, last] = [drag.samples[0], drag.samples.at(-1)];
+      const now = performance.now();
+      const live = drag.samples.filter((sample) => now - sample.t < SAMPLE_MS);
+      const [first, last] = [live[0], live.at(-1)];
       const speed = drag.axis === "y" && first && last && last.t > first.t ? (last.y - first.y) / (last.t - first.t) : 0;
       velocity = event.type === "pointerup" && !reducedMotion() && Math.abs(speed) >= FLICK_MIN ? Math.max(-FLICK_MAX, Math.min(FLICK_MAX, speed)) : 0;
       drag = null;
