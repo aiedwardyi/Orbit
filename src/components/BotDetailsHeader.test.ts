@@ -63,7 +63,7 @@ describe("QA 17 one Bot-details header entry", () => {
     expect(chatHeader).toContain("data-chat-terminal");
     expect(chatHeader).toContain('data-chat-name className="min-w-0 flex-1"');
     expect(chatHeader).toContain('className="min-w-0 max-md:hidden"');
-    expect(chatHeader).toContain("showEditButton");
+    expect(chatHeader).toContain("showEditButton={showHeaderPencil()}");
   });
 
   it("keeps the Chief of Staff name when the badge folds to the crown", () => {

@@ -10,6 +10,7 @@ import { FileAttachmentRows } from "./FileAttachmentRow";
 import { ReactionBar, ReactionChips } from "./Reactions";
 import { contextClickKind, holdToOpen, isTouchPrimary, keepsNativeMenu, type MessageMenuRequest, type MessageMenuTarget } from "./MessageMenu";
 import { cn } from "@/lib/cn";
+import { showHoverPin } from "@/lib/friends-chrome";
 import { useThreadMessage } from "@/lib/message-pages";
 import { detectChatOptions } from "@/lib/chat-options";
 import { ChatOptionChips } from "./ChatOptionChips";
@@ -360,7 +361,7 @@ const Bubble = memo(function Bubble({
     return (
       <div data-orbit-message="peer" className="group flex w-full flex-col items-start outline-none focus-visible:outline-2 focus-visible:outline-accent" tabIndex={0} {...menuProps}>
         <div className="orbit-message-speaker hidden">{message.from.name}</div>
-        <div className={cn("relative w-full", hasReactions && "pb-8")}>
+        <div className="relative w-full">
           <div data-orbit-message-content className="contents">
             {attachedImages && attachedImages.images.length > 0 && (
               <AttachedImageGallery paths={attachedImages.images} className="ml-3 max-w-[min(42rem,78%)] justify-start pl-3" />
@@ -368,7 +369,7 @@ const Bubble = memo(function Bubble({
             <PeerMessageBody text={visibleText} />
             {attachedImages && <FileAttachmentRows files={attachedImages.files} className="mt-2 ml-3 max-w-[min(42rem,78%)] pl-3" />}
           </div>
-          {!message.placeholder && <ReactionChips threadId={threadId} message={message} members={members} corner="left" className="bottom-4 ml-3" />}
+          {!message.placeholder && <ReactionChips threadId={threadId} message={message} members={members} corner="left" className="static mt-1 ml-3 max-w-full translate-y-0" />}
         </div>
         <TimestampLabel at={message.at} />
       </div>
@@ -387,7 +388,7 @@ const Bubble = memo(function Bubble({
       <div
         data-orbit-message-body
         data-strip={hasReactions || dockShown ? "" : undefined}
-        className={cn("relative w-fit max-w-[min(42rem,78%)]", hasReactions ? "pb-11" : "pb-8")}
+        className="relative w-fit max-w-[min(42rem,78%)] pb-8"
         style={dock?.wrap && !hasReactions ? { paddingBottom: "2.5rem" } : undefined}
       >
         <div className="orbit-message-speaker hidden">{user ? (message.from?.name ?? t("chat.you")) : botName}</div>
@@ -418,7 +419,7 @@ const Bubble = memo(function Bubble({
             >
               <MessageSquareReply size={14} />
             </button>
-            <button
+            {showHoverPin() && <button
               onClick={() =>
                 dispatch({
                   type: "updateBot",
@@ -432,7 +433,7 @@ const Bubble = memo(function Bubble({
               title={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
             >
               {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-            </button>
+            </button>}
           </div>
         )}
         <div
@@ -534,7 +535,7 @@ const Bubble = memo(function Bubble({
             >
               <MessageSquareReply size={14} />
             </button>
-            <button
+            {showHoverPin() && <button
               onClick={() =>
                 dispatch({
                   type: "updateBot",
@@ -548,7 +549,7 @@ const Bubble = memo(function Bubble({
               title={pinned ? t("chat.unpinMessage") : t("chat.pinMessage")}
             >
               {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-            </button>
+            </button>}
           </div>
         )}
         {!message.placeholder && (
@@ -557,7 +558,7 @@ const Bubble = memo(function Bubble({
             message={message}
             members={members}
             corner={user ? "left" : "right"}
-            className="bottom-11"
+            className="static mt-1 max-w-full translate-y-0"
           />
         )}
       </div>

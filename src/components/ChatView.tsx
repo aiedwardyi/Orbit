@@ -40,7 +40,7 @@ import { DRAWER_HEADER_LEFT, DRAWER_HEADER_RIGHT } from "@/lib/drawer-button";
 import { usePhoneHeaderNameFloor } from "@/lib/use-phone-header-name";
 import { isPhone } from "@/lib/phone-swipe";
 import { useSidebarSide } from "@/lib/sidebar-preferences";
-import { showBotNewTaskControl, showComputerPanelChrome } from "@/lib/friends-chrome";
+import { showBotNewTaskControl, showComputerPanelChrome, showHeaderPencil } from "@/lib/friends-chrome";
 import { stateForBot } from "@/lib/mascot";
 import { transcriptIdleAfterOnboarding } from "@/lib/conversation-preview";
 import { composerIsBusy, splitQueuedSends, turnPresenceWaiting, withAcceptedMessages } from "@/lib/send-accept";
@@ -1458,7 +1458,7 @@ export function ChatView({ bot, focusComposerBlocked = false, onOpenTerminal, on
                 value={bot.name}
                 onCommit={(name) => dispatch({ type: "updateBot", botId: bot.id, patch: { name } })}
                 onActivate={() => dispatch({ type: "toggleSettings", open: true })}
-                showEditButton
+                showEditButton={showHeaderPencil()}
                 className="truncate text-[15px] font-semibold text-ink"
                 inputClassName="max-w-[220px] rounded bg-inset px-1.5 py-0.5 text-[15px] font-semibold"
               />

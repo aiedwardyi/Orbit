@@ -6,7 +6,6 @@ import { cn } from "@/lib/cn";
 import { useUsageMode } from "@/lib/usage-preferences";
 import type { RateLimitWindow } from "../../server/contracts.ts";
 import {
-  resetCompact,
   resetPhrase,
   windowFillPercent,
   windowKind,
@@ -77,25 +76,22 @@ export function PlanWindowMeter({
   const kind = windowKind(window.id, window.windowMinutes);
   const labelKey = (compact ? PLAN_WINDOW_SHORT_LABEL_KEY : PLAN_WINDOW_LABEL_KEY)[kind];
   const phrase = resetPhrase(window.resetsAt, now);
-  const compactReset = resetCompact(window.resetsAt, now);
   const label = `${t(labelKey)}: ${percent === null ? t(phrase.key, phrase.vars) : t(mode === "used" ? "usage.limits.used" : "usage.limits.remaining", { percent })}`;
   if (compact) {
     const segments = Math.round(fill / 10);
     return (
-      <div role="group" aria-label={label}>
-        <div className={cn("flex flex-wrap items-center gap-x-2 text-[12.5px]", muted ? "text-ink-secondary" : "text-ink")}>
-          <span>{t(labelKey)}</span>
-          <span aria-hidden="true" className={cn("font-mono tracking-tight", muted ? "text-ink-secondary" : planUsageTone(usedFill).textClass)}>
-            {percent === null ? "▱".repeat(10) : "▰".repeat(segments) + "▱".repeat(10 - segments)}
+      <div role="group" aria-label={label} title={t(phrase.key, phrase.vars)}>
+        <div className={cn("flex items-center gap-x-2 whitespace-nowrap text-[12.5px] max-md:gap-x-1", muted ? "text-ink-secondary" : "text-ink")}>
+          <span className="shrink-0">{t(labelKey)}</span>
+          <span aria-hidden="true" className={cn("min-w-0 font-mono tracking-tight max-md:flex-1 md:shrink-0", muted ? "text-ink-secondary" : planUsageTone(usedFill).textClass)}>
+            <span className="max-md:hidden">{percent === null ? "▱".repeat(10) : "▰".repeat(segments) + "▱".repeat(10 - segments)}</span>
+            <svg viewBox="0 0 100 10" preserveAspectRatio="none" className="h-[7px] w-full md:hidden">
+              {Array.from({ length: 10 }, (_, index) => (
+                <polygon key={index} points={`${index * 10 + 3},1 ${index * 10 + 9},1 ${index * 10 + 7},9 ${index * 10 + 1},9`} fill={index < segments ? "currentColor" : "none"} stroke="currentColor" strokeWidth="0.75" vectorEffect="non-scaling-stroke" />
+              ))}
+            </svg>
           </span>
-          <span className="flex min-w-0 items-center gap-1.5 tabular-nums">
-            {percent !== null && <span>{t("usage.limits.percentUsed", { percent })}</span>}
-            {compactReset && (
-              <span className="text-ink-secondary" title={t(phrase.key, phrase.vars)}>
-                ({t(compactReset.key, compactReset.vars)})
-              </span>
-            )}
-          </span>
+          {percent !== null && <span className="shrink-0 tabular-nums">{t("usage.limits.percentUsed", { percent })}</span>}
         </div>
       </div>
     );

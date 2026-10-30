@@ -15,6 +15,12 @@ const enT: Translate = (key, vars) => translate("en", key, vars);
 const koT: Translate = (key, vars) => translate("ko", key, vars);
 
 describe("who answers label", () => {
+  it("names member management in Korean for one or several bots", () => {
+    expect(koT("room.manageMembersCountOne")).toBe("구성원 관리 · 이 그룹에 봇 1개");
+    expect(koT("room.manageMembersCount", { count: 2 })).toBe("구성원 관리 · 이 그룹에 봇 2개");
+    expect(groupView).toContain('aria-label={members.length === 1 ? t("room.manageMembersCountOne") : t("room.manageMembersCount", { count: members.length })}');
+  });
+
   it("names the closed control in English and Korean", () => {
     expect(en["room.whoAnswers"]).toBe("Who answers: {name}");
     expect(ko["room.whoAnswers"]).toBe("답변: {name}");

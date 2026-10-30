@@ -79,3 +79,15 @@ export function showUsagePerBotTable(): boolean {
 export function showEngineRailZoo(): boolean {
   return false;
 }
+
+export function showHeaderPencil(): boolean {
+  return false;
+}
+
+export function showTouchPickerLegend(): boolean {
+  return false;
+}
+
+export function showHoverPin(): boolean {
+  return false;
+}

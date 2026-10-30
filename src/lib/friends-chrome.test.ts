@@ -18,6 +18,9 @@ import {
   showSettingsEnginesNav,
   showUsagePerBotTable,
   showEngineRailZoo,
+  showHeaderPencil,
+  showTouchPickerLegend,
+  showHoverPin,
   showSidebarDensityControls,
   showSidebarPhone,
   showSidebarRoutines,
@@ -63,6 +66,9 @@ describe("friends chrome flags", () => {
     expect(showSettingsEnginesNav()).toBe(false);
     expect(showUsagePerBotTable()).toBe(false);
     expect(showEngineRailZoo()).toBe(false);
+    expect(showHeaderPencil()).toBe(false);
+    expect(showTouchPickerLegend()).toBe(false);
+    expect(showHoverPin()).toBe(false);
   });
 });
 
