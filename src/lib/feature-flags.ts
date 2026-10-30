@@ -1,5 +1,5 @@
 export interface FeatureFlagConfig {
-  features?: { skillRecorder?: boolean; showToolCalls?: boolean; detailedReplies?: boolean; browser?: boolean; memoryNotes?: boolean };
+  features?: { skillRecorder?: boolean; showToolCalls?: boolean; detailedReplies?: boolean; browser?: boolean; memoryNotes?: boolean; modelDial?: boolean };
 }
 
 export function detailedRepliesEnabled(config: FeatureFlagConfig | null | undefined): boolean {
@@ -14,6 +14,10 @@ export function memoryNotesEnabled(config: FeatureFlagConfig | null | undefined,
 /** Experimental features are available only after an explicit opt-in. */
 export function skillRecorderEnabled(config: FeatureFlagConfig | null | undefined): boolean {
   return config?.features?.skillRecorder === true;
+}
+
+export function modelDialEnabled(config: FeatureFlagConfig | null | undefined): boolean {
+  return config?.features?.modelDial === true;
 }
 
 /** The built-in per-bot browser (Browser tab of the computer panel) is

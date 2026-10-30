@@ -91,6 +91,8 @@ const featureConfigSchema = z.object({
   browser: z.boolean().optional(),
   /** Background notes from chat into MEMORY.md. On unless switched off. */
   memoryNotes: z.boolean().optional(),
+  /** Experimental dial view of the model picker. Off unless explicitly enabled. */
+  modelDial: z.boolean().optional(),
 });
 const instanceConfigSchema = z.object({
   driver: z.string().min(1),
@@ -197,7 +199,7 @@ export interface AppConfig {
    * separate container, durable workspace, viewer and lease. */
   localVm?: { mode?: "shared" | "per-bot"; maxInstances?: number };
   /** Product switches. Every flag defaults to off except memoryNotes. */
-  features?: { skillRecorder?: boolean; showToolCalls?: boolean; toolDetailCapture?: boolean; detailedReplies?: boolean; browser?: boolean; memoryNotes?: boolean };
+  features?: { skillRecorder?: boolean; showToolCalls?: boolean; toolDetailCapture?: boolean; detailedReplies?: boolean; browser?: boolean; memoryNotes?: boolean; modelDial?: boolean };
   /** Named browser sessions any bot can be pointed at. */
   browserProfiles?: BrowserProfile[];
   instances?: InstanceConfigMap;
