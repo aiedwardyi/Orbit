@@ -35,7 +35,7 @@ function media({ wide = true, reduced = false, phone = false } = {}) {
   }));
 }
 
-async function mount({ grokSignedIn = true, dial = true } = {}) {
+async function mount({ grokSignedIn = true, dial = true, model = "claude-opus-5-5" } = {}) {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -44,7 +44,7 @@ async function mount({ grokSignedIn = true, dial = true } = {}) {
     engine("codex", "codex", ["gpt-6.1-sol", "gpt-6-luna"]),
     engine("grok", "grokAgent", ["grok-4.7"], grokSignedIn),
   ];
-  const bot: Bot = { id: "bot-1", threadId: "thread-1", name: "Dial", title: "", description: "", color: "green", notifications: false, unread: false, messages: [], modelSelection: { instanceId: "claude", model: "claude-opus-5-5", effort: "high", mode: "pinned" } };
+  const bot: Bot = { id: "bot-1", threadId: "thread-1", name: "Dial", title: "", description: "", color: "green", notifications: false, unread: false, messages: [], modelSelection: { instanceId: "claude", model, effort: "high", mode: "pinned" } };
   await act(async () => {
     root.render(createElement(I18nProvider, null, createElement(ModelPickerControl, {
       bot,
@@ -86,6 +86,11 @@ const order = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6.1-sol", "gpt-6-lun
 const selected = () => document.querySelector('.dial-card[aria-pressed="true"]')?.getAttribute("data-model-cell");
 const effort = () => document.querySelector(".dial-effort b")?.textContent;
 const saved = () => dispatch.mock.calls.find(([action]) => action.type === "setModel")?.[0].selection;
+
+function spoken(node: Node): string {
+  if (node instanceof Element && node.getAttribute("aria-hidden") === "true") return "";
+  return node.nodeType === Node.TEXT_NODE ? node.textContent ?? "" : Array.from(node.childNodes, spoken).join("");
+}
 
 beforeEach(() => {
   Element.prototype.animate = animate;
@@ -136,6 +141,50 @@ describe("ModelDial", () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 400)));
     expect(document.querySelector("[data-model-picker-content]")).toBeNull();
     expect(saved()).toBeUndefined();
+  });
+
+  it.each([
+    [true, '[aria-label="Previous model"]', "grok-4.7"],
+    [true, '[aria-label="Next model"]', "claude-sonnet-5-5"],
+    [true, '[data-dial-lab="codex"]', "gpt-6.1-sol"],
+    [false, '[aria-label="Previous model"]', "grok-4.7"],
+    [false, '[aria-label="Next model"]', "claude-sonnet-5-5"],
+  ])("keeps native Enter activation on %s dial %s", async (dial, selector, model) => {
+    media();
+    await mount({ dial });
+    const button = document.querySelector<HTMLButtonElement>(selector)!;
+    button.focus();
+    const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    await act(async () => (button.querySelector("svg") ?? button).dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(false);
+    expect(saved()).toBeUndefined();
+    await act(async () => button.click());
+    expect(document.querySelector(`[data-model-cell="${model}"][aria-pressed="true"]`)).not.toBeNull();
+    expect(saved()).toBeUndefined();
+    expect(document.querySelector("[data-model-picker-content]")).not.toBeNull();
+  });
+
+  it("keeps native Enter activation on List View", async () => {
+    media();
+    await mount();
+    const button = document.querySelector<HTMLButtonElement>(".model-dial-view")!;
+    button.focus();
+    const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    await act(async () => button.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(false);
+    expect(saved()).toBeUndefined();
+    await act(async () => button.click());
+    expect(document.querySelector(".model-cross-stage")).not.toBeNull();
+    expect(saved()).toBeUndefined();
+  });
+
+  it.each([
+    ["claude-opus-5-5", ["53.6", "54.0", "2.94"]],
+    ["unlisted-model", ["Unavailable", "Unavailable", "Unavailable"]],
+  ])("exposes formatted stats without rolling digits for %s", async (model, values) => {
+    media();
+    await mount({ model });
+    expect(Array.from(document.querySelectorAll(".dial-odo"), spoken)).toEqual(values);
   });
 
   it("jumps by typed name and lands with Enter", async () => {

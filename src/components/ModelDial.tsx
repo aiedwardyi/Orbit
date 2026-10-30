@@ -67,6 +67,7 @@ type ModelDialProps = {
 };
 
 function Odometer({ value, int, dec }: { value: number | undefined; int: number; dec: number }) {
+  const { t } = useI18n();
   const digits = value == null ? "" : value.toFixed(dec).replace(".", "").padStart(int + dec, " ");
   const strip = (k: number) => (
     <span key={k} className="dg">
@@ -77,11 +78,12 @@ function Odometer({ value, int, dec }: { value: number | undefined; int: number;
   );
   return (
     <span className="dial-odo" data-none={value == null || undefined}>
-      <span className="cells">
+      <span className="sr-only">{value == null ? t("engines.unavailable") : value.toFixed(dec)}</span>
+      <span className="cells" aria-hidden>
         {Array.from({ length: int }, (_, k) => strip(k))}
         {dec > 0 && <><span>.</span>{Array.from({ length: dec }, (_, k) => strip(int + k))}</>}
       </span>
-      <span className="dash">-</span>
+      <span className="dash" aria-hidden>-</span>
     </span>
   );
 }
@@ -301,7 +303,8 @@ export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, sta
         ArrowRight: () => shiftEffort(1),
       };
       if (key === "Enter") {
-        if (event.target instanceof Element && event.target !== event.currentTarget && !event.target.closest(".dial-stage")) return false;
+        const target = event.target instanceof Element ? event.target : null;
+        if (target && target !== event.currentTarget && (!target.closest(".dial-stage") || (target.closest("button") && !target.closest(".dial-card")))) return false;
         quench();
         onSave(draft, true);
       } else if (moves[key]) {
