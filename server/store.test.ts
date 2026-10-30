@@ -402,6 +402,42 @@ describe("Store", () => {
     expect(reloaded.group(group.id)?.defaultResponder).toEqual({ kind: "member", botId: first.id });
   });
 
+  it("stamps readAt when unread clears, not when it is set, and keeps it across a restart", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const group = store.createGroup("Team", [bot.id]);
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    store.patchBot(bot.id, { unread: true });
+    store.patchGroup(group.id, { unread: true });
+    expect(store.bot(bot.id)?.readAt).toBeUndefined();
+    expect(store.group(group.id)?.readAt).toBeUndefined();
+    store.patchBot(bot.id, { unread: false });
+    store.patchGroup(group.id, { unread: false });
+    vi.mocked(Date.now).mockReturnValue(2_000);
+    store.patchBot(bot.id, { unread: true });
+    store.patchGroup(group.id, { unread: true });
+    vi.restoreAllMocks();
+
+    const reloaded = new Store(selection);
+    expect(reloaded.bot(bot.id)).toMatchObject({ unread: true, readAt: 1_000 });
+    expect(reloaded.group(group.id)).toMatchObject({ unread: true, readAt: 1_000 });
+  });
+
+  it.each(["bot", "group"] as const)("keeps an explicit %s readAt when clearing unread", (kind) => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    const group = store.createGroup("Team", [bot.id]);
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      if (kind === "bot") store.patchBot(bot.id, { unread: false, readAt: 500 });
+      else store.patchGroup(group.id, { unread: false, readAt: 500 });
+      const reloaded = new Store(selection);
+      expect(kind === "bot" ? reloaded.bot(bot.id) : reloaded.group(group.id)).toMatchObject({ unread: false, readAt: 500 });
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("persists bots and messages across a restart, resetting busy", () => {
     const store = new Store(selection);
     const bot = store.createBot();

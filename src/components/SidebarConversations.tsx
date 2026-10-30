@@ -17,13 +17,32 @@ import { sidebarPriorityFor } from "@/lib/sidebar-order";
 import { sidebarConversationRowTone } from "@/lib/sidebar-row";
 import { chatNeedsYou } from "@/lib/open-question";
 import { routineRinging } from "@/lib/routine-ring";
-import { useArrivalGlow } from "@/lib/arrival-glow";
+import { formatCollapsedUnreadBadge, unreadReplyCount } from "@/lib/unread";
 import { localeTag, useI18n } from "@/lib/i18n";
 import { sidebarWorkerStatus } from "@/lib/worker-status";
 import { terminalAttentionCopy } from "@/lib/notify";
 
 export function compactSidebarModelLabel(label: string): string {
   return label.replace(/\s+Contributor$/i, " Cont.");
+}
+
+function UnreadCountBadge({ count, selected }: { count: number; selected: boolean }) {
+  const { t } = useI18n();
+  const shown = formatCollapsedUnreadBadge(count);
+  if (!shown) return null;
+  return (
+    <span
+      data-sidebar-unread-count={count}
+      role="img"
+      aria-label={t("chrome.unreadReplies", { count })}
+      className={cn(
+        "pointer-events-none absolute -right-1 -top-1 z-10 flex h-3.5 min-w-3.5 items-center justify-center rounded-[min(4px,var(--radius-lg))] bg-accent px-[3px] text-[9px] font-semibold leading-none tabular-nums text-accent-ink ring-[1.5px]",
+        selected ? "ring-raised" : "ring-panel",
+      )}
+    >
+      {shown}
+    </span>
+  );
 }
 
 interface MenuState {
@@ -92,8 +111,8 @@ function GroupListItem({
   const last = group.messages.filter(isShownMessage).at(-1);
   const question = chatNeedsYou(group.messages);
   const asking = question || routineRinging(state.routineRuns, group.threadId, group.tasks);
-  const unreadRing = Boolean(group.unread) && !asking;
-  const arrival = useArrivalGlow([group.id], { enabled: !selected, asking });
+  const unreadCount = useMemo(() => unreadReplyCount(group.unread, group.readAt, group.messages), [group.unread, group.readAt, group.messages]);
+  const iconLabel = [asking ? t(question ? "ask.rowHasQuestion" : "routine.rowRang", { name: group.name }) : group.name, unreadCount ? t("chrome.unreadReplies", { count: unreadCount }) : null].filter(Boolean).join(" · ");
   const select = () => {
     if (selected) onReselect?.();
     dispatch({ type: "select", id: group.id });
@@ -197,15 +216,14 @@ function GroupListItem({
           density === "icons" ? "justify-center px-1 py-1.5" : density === "compact" ? "gap-2 px-2 py-1.5" : "gap-2 px-3 py-1.5",
           selected ? "bg-raised" : "hover:bg-raised/50",
           asking && "relative needs-you-glow",
-          unreadRing && "relative unread-ring",
-          arrival.playing && "relative arrival-glow",
         )}
-        data-arrival-glow={arrival.playing || undefined}
-        onAnimationEnd={arrival.onAnimationEnd}
-        aria-label={density === "icons" ? (asking ? t(question ? "ask.rowHasQuestion" : "routine.rowRang", { name: group.name }) : group.name) : undefined}
+        aria-label={density === "icons" ? iconLabel : undefined}
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
       >
-        <StackedMauses members={members} density={density} />
+        <span className="relative shrink-0">
+          <StackedMauses members={members} density={density} />
+          <UnreadCountBadge count={unreadCount} selected={selected} />
+        </span>
         <div className={cn("@container/rowtext min-w-0 flex-1", density === "icons" && "hidden")}>
           <div className="flex min-w-0 items-baseline gap-2 overflow-hidden">
             <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink">
@@ -291,10 +309,9 @@ function BotListItem({
   const workerStatus = useMemo(() => sidebarWorkerStatus(visible, paneLabels ?? [], t), [visible, paneLabels, t]);
   const question = chatNeedsYou(bot.messages);
   const asking = question || routineRinging(state.routineRuns, bot.threadId, bot.tasks);
-  const unreadRing = Boolean(bot.unread) && !asking;
+  const unreadCount = useMemo(() => unreadReplyCount(bot.unread, bot.readAt, visible), [bot.unread, bot.readAt, visible]);
   const keepGoing = keepGoingMarkState(bot);
   const keepGoingLabel = keepGoing ? t(keepGoing === "on" ? "bot.keepGoingOnMark" : "bot.keepGoingPausedMark") : undefined;
-  const arrival = useArrivalGlow([bot.id], { enabled: !selected, asking });
   const rowClass = cn(
     "flex w-full items-center rounded-xl border text-left",
     iconOnly
@@ -304,10 +321,9 @@ function BotListItem({
         : "gap-2 px-3 py-1.5 pr-12",
     sidebarConversationRowTone(selected),
     asking && "relative needs-you-glow",
-    unreadRing && "relative unread-ring",
-    arrival.playing && "relative arrival-glow",
   );
   const iconLabel = [bot.name, workerStatus || modelLabel, keepGoingLabel].filter(Boolean).join(" · ");
+  const accessibleIconLabel = [asking ? t(question ? "ask.rowHasQuestion" : "routine.rowRang", { name: iconLabel }) : iconLabel, unreadCount ? t("chrome.unreadReplies", { count: unreadCount }) : null].filter(Boolean).join(" · ");
   const body = (
     <>
       <span className={cn("relative shrink-0", iconOnly && "inline-flex")}>
@@ -348,7 +364,7 @@ function BotListItem({
             <KeepGoingMark state={keepGoing} size={avatarSize >= 44 ? 12 : 10} />
           </span>
         )}
-        {terminalAttention && terminalCopy && (
+        {terminalAttention && terminalCopy ? (
           <span className="absolute -right-1 -top-1 z-10 flex">
             <button
               type="button"
@@ -369,6 +385,8 @@ function BotListItem({
               <span aria-hidden="true" className="text-accent">&gt;_</span>
             </button>
           </span>
+        ) : (
+          <UnreadCountBadge count={unreadCount} selected={selected} />
         )}
       </span>
       <div
@@ -453,8 +471,6 @@ function BotListItem({
       <div
         className={rowClass}
         onContextMenu={onContextMenu}
-        data-arrival-glow={arrival.playing || undefined}
-        onAnimationEnd={arrival.onAnimationEnd}
       >
         {body}
       </div>
@@ -515,7 +531,7 @@ function BotListItem({
       <div
         role="button"
         tabIndex={0}
-        aria-label={iconOnly ? (asking ? t(question ? "ask.rowHasQuestion" : "routine.rowRang", { name: iconLabel }) : iconLabel) : undefined}
+        aria-label={iconOnly ? accessibleIconLabel : undefined}
         aria-keyshortcuts={drag?.onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onClick={(event) => {
           select();
@@ -544,8 +560,6 @@ function BotListItem({
         }}
         onContextMenu={onContextMenu}
         className={rowClass}
-        data-arrival-glow={arrival.playing || undefined}
-        onAnimationEnd={arrival.onAnimationEnd}
       >
         {body}
       </div>

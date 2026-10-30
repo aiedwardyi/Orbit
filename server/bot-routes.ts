@@ -359,6 +359,10 @@ export function createBotRoutes(deps: BotRouteDeps) {
         if (typeof body.shareTerminalWithChat !== "boolean") return json(res, 400, { error: "shareTerminalWithChat must be true or false" });
         patch.shareTerminalWithChat = body.shareTerminalWithChat;
       }
+      if (body.readAt !== undefined) {
+        if (!Number.isFinite(body.readAt)) return json(res, 400, { error: "readAt must be a time in ms" });
+        patch.readAt = body.readAt;
+      }
       if (body.leanStartup !== undefined) {
         if (typeof body.leanStartup !== "boolean") return json(res, 400, { error: "leanStartup must be true or false" });
         patch.leanStartup = body.leanStartup;

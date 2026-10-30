@@ -23,10 +23,12 @@ import { loadSidebarOrder } from "@/lib/sidebar-preferences";
 import { loadReplyStyle } from "@/lib/reply-style";
 import { appSettingsNavigation } from "@/lib/settings-chrome";
 import { createBotPatchQueue } from "./bot-patch-queue";
+import { createViewedReplies } from "./viewed-replies";
 import { firstChatPeripherals, scheduleDeferredInstancesLoad } from "./first-chat-snapshot";
 import { readSnapshotCache, writeSnapshotCache } from "./snapshot-cache";
 import { skillRecorderEnabled } from "@/lib/feature-flags";
 import { completedReopenDismissals } from "@/lib/task-recovery";
+import { markUnreadReadAt } from "@/lib/unread";
 import { openLiveEvents, snapshotCoversHello } from "@/lib/live-events";
 import { holdReload } from "@/lib/reload-hold";
 import { botDraftId, returnSendsToComposer, takeQueuedDraft } from "@/lib/drafts";
@@ -415,7 +417,11 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, groups };
     }
     case "markUnread":
-      return updateBot(withMascotMotion(state, action.botId, "surprise"), action.botId, (b) => ({ ...b, unread: true }));
+      return updateBot(withMascotMotion(state, action.botId, "surprise"), action.botId, (b) => ({
+        ...b,
+        unread: true,
+        readAt: markUnreadReadAt(previewMessages(b)) ?? b.readAt,
+      }));
     case "markTerminalAttention": {
       const key = terminalAttentionKey(action.botId, action.sessionId);
       if (state.terminalAttention[key]) return state;
@@ -1203,6 +1209,7 @@ const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, rawDispatch] = useReducer(reducer, initialState, withCachedSnapshot);
   const stateRef = useRef(state);
+  const viewedReplies = useRef(createViewedReplies());
   stateRef.current = state;
   useMascotMotionExpiry(state.mascotMotion?.nonce, rawDispatch);
   const cancelledSendsRef = useRef(new Set<string>());
@@ -1768,11 +1775,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
           break;
         }
-        case "markUnread":
-          api(`/api/bots/${action.botId}`, { method: "PATCH", body: JSON.stringify({ unread: true }) }).catch(
+        case "markUnread": {
+          const bot = stateRef.current.bots.find((b) => b.id === action.botId);
+          if (bot) viewedReplies.current.forget(bot.threadId);
+          const readAt = bot ? markUnreadReadAt(previewMessages(bot)) : undefined;
+          api(`/api/bots/${action.botId}`, { method: "PATCH", body: JSON.stringify({ unread: true, readAt }) }).catch(
             () => {},
           );
           break;
+        }
         case "setWorkspaceOpen": {
           if (action.open || stateRef.current.activeView !== "chat") break;
           const selected = stateRef.current.selectedId;
@@ -2282,6 +2293,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         case "message": {
           const launchFrom = frame.message?.kind === "launch" ? lastMessageIdFor(frame.threadId) : undefined;
+          viewedReplies.current.note(stateRef.current, frame.threadId, frame.message, document.visibilityState === "visible" && document.hasFocus());
           rawDispatch({ type: "messageAdded", threadId: frame.threadId, message: frame.message });
           noteStreamTail(frame.threadId, frame.message?.id);
           if (launchFrom !== undefined && frame.message?.id) retargetStream(frame.threadId, launchFrom, frame.message.id);
@@ -2341,12 +2353,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const bot = frame.bot as BotAnnouncement;
           // reading the selected chat clears its badge immediately - but only
           // on the window actually being looked at right now
-          if (shouldClearSelectedUnread(stateRef.current, bot, document.visibilityState === "visible" && document.hasFocus())) {
-            bot.unread = false;
+          const readPatch = viewedReplies.current.patch(bot, shouldClearSelectedUnread(stateRef.current, bot, document.visibilityState === "visible" && document.hasFocus()));
+          if (readPatch) {
             fetch(`/api/bots/${bot.id}`, {
               method: "PATCH",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ unread: false }),
+              body: JSON.stringify(readPatch),
             }).catch(() => {});
           }
           rawDispatch({
@@ -2359,12 +2371,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const group = frame.group as Partial<Group> & { id: string };
           // reading the selected room clears its badge immediately - but only
           // on the window actually being looked at right now
-          if (shouldClearSelectedUnread(stateRef.current, group, document.visibilityState === "visible" && document.hasFocus())) {
-            group.unread = false;
+          const readPatch = viewedReplies.current.patch(group, shouldClearSelectedUnread(stateRef.current, group, document.visibilityState === "visible" && document.hasFocus()));
+          if (readPatch) {
             fetch(`/api/groups/${group.id}`, {
               method: "PATCH",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ unread: false }),
+              body: JSON.stringify(readPatch),
             }).catch(() => {});
           }
           // every group frame is a full snapshot, so a missing pinnedCwd means not pinned

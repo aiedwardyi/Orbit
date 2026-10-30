@@ -1264,7 +1264,7 @@ describe("Sidebar section collapse", () => {
     }
   });
 
-  it("glows only the visible row when lone Unassigned has a saved collapse", async () => {
+  it("glows neither the visible row nor the expand button when lone Unassigned has a saved collapse", async () => {
     resetArrivalGlow();
     window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
     window.localStorage.setItem(SIDEBAR_COLLAPSED_SECTIONS_KEY, JSON.stringify(["unassigned"]));
@@ -1273,7 +1273,7 @@ describe("Sidebar section collapse", () => {
       await select("u1");
       expect(shownBots(host, "unassigned")).toEqual(["u1", "u2"]);
       await act(async () => { noteArrival("u2"); });
-      expect(host.querySelector('[data-sidebar-row-id="u2"] [data-arrival-glow="true"]')).not.toBeNull();
+      expect(host.querySelector('[data-sidebar-row-id="u2"] [data-arrival-glow="true"]')).toBeNull();
       expect(host.querySelector('button[title="Expand sidebar"]')?.hasAttribute("data-arrival-glow")).toBe(false);
     } finally {
       await unmount();
@@ -1753,7 +1753,7 @@ describe("Sidebar bot second line", () => {
     }
   });
 
-  it("keeps the model dot cornered and rings the unread row while exposing terminal attention", async () => {
+  it("keeps the model dot cornered and gives the unread corner to terminal attention", async () => {
     const attentionBot = {
       ...bot("attention"),
       unread: true,
@@ -1788,8 +1788,7 @@ describe("Sidebar bot second line", () => {
       expect(host.querySelector("[data-sidebar-model-dot]")?.className).toContain("left-0.5");
       const row = host.querySelector('[data-sidebar-row-id="attention"]');
       expect(row?.hasAttribute("data-sidebar-chat-unread")).toBe(true);
-      expect(row?.querySelector('[role="button"]')?.className).toContain("unread-ring");
-      expect(row?.querySelector("span.bg-accent")).toBeNull();
+      expect(row?.querySelector("[data-sidebar-unread-count]")).toBeNull();
     } finally {
       await act(async () => root.unmount());
       host.remove();

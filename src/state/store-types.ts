@@ -142,6 +142,7 @@ export interface Group {
   defaultResponder: GroupDefaultResponder;
   bulletin: string;
   unread: boolean;
+  readAt?: number;
   createdAt: number;
   /** auto-created bot⇄bot channel (ask_bot exchanges mirror here) */
   dm?: boolean;
@@ -255,6 +256,7 @@ export interface Bot {
   /** Mascot, or the crop applied to avatarUrl. */
   avatarCrop?: BotAvatarCrop;
   unread: boolean;
+  readAt?: number;
   busy?: boolean;
   /** Thread startTurn is actually running, when busy. Null if idle or unknown. */
   workingThreadId?: string | null;
