@@ -22,9 +22,9 @@ function engine(instanceId: string, driverKind: string, ids: string[], signedIn 
   };
 }
 
-function media({ wide = true, reduced = false } = {}) {
+function media({ wide = true, reduced = false, phone = false } = {}) {
   vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
-    matches: query.includes("reduce") ? reduced : wide,
+    matches: query.includes("reduce") ? reduced : query.startsWith("(max-width") ? phone : wide,
     media: query,
     onchange: null,
     addEventListener: () => undefined,
@@ -61,6 +61,28 @@ async function key(key: string) {
   });
 }
 
+const wait = (ms: number) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
+
+async function settle() {
+  for (let i = 0; i < 60; i++) await wait(20);
+}
+
+async function pointer(type: string, x: number, y: number) {
+  await act(async () => {
+    document.querySelector(".dial-stage")!.dispatchEvent(new window.PointerEvent(type, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+  });
+}
+
+async function drag(dx: number, dy: number, moves = 4, ms = 30) {
+  await pointer("pointerdown", 200, 400);
+  for (let i = 1; i <= moves; i++) {
+    await wait(ms);
+    await pointer("pointermove", 200 + dx * i / moves, 400 + dy * i / moves);
+  }
+  await pointer("pointerup", 200 + dx, 400 + dy);
+}
+
+const order = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6.1-sol", "gpt-6-luna", "grok-4.7"];
 const selected = () => document.querySelector('.dial-card[aria-pressed="true"]')?.getAttribute("data-model-cell");
 const effort = () => document.querySelector(".dial-effort b")?.textContent;
 const saved = () => dispatch.mock.calls.find(([action]) => action.type === "setModel")?.[0].selection;
@@ -168,5 +190,83 @@ describe("ModelDial", () => {
     media();
     await key("ArrowDown");
     expect(document.querySelector(".dial-plane")?.hasAttribute("data-open")).toBe(false);
+  });
+
+  describe("on a phone", () => {
+    beforeEach(() => {
+      Element.prototype.setPointerCapture = () => undefined;
+    });
+
+    it("turns one model per drag step", async () => {
+      media({ phone: true });
+      await mount();
+      expect(document.querySelector(".dial-stage")?.hasAttribute("data-phone")).toBe(true);
+      await drag(0, -60, 4, 60);
+      await settle();
+      expect(selected()).toBe("claude-sonnet-5-5");
+      await drag(0, 60, 4, 60);
+      await settle();
+      expect(selected()).toBe("claude-opus-5-5");
+    });
+
+    it("coasts after a flick and lands on a model", async () => {
+      media({ phone: true });
+      await mount();
+      await drag(0, -120, 4, 10);
+      await settle();
+      const landed = order.indexOf(selected()!);
+      expect(landed).toBeGreaterThan(2);
+      expect(document.querySelectorAll('.dial-card[aria-pressed="true"]')).toHaveLength(1);
+      await settle();
+      expect(order.indexOf(selected()!)).toBe(landed);
+    });
+
+    it("moves effort one notch per horizontal swipe", async () => {
+      media({ phone: true });
+      await mount();
+      await drag(200, 0);
+      expect(effort()).toBe("Extra high");
+      await drag(-200, 0);
+      await drag(-200, 0);
+      expect(effort()).toBe("medium");
+      expect(selected()).toBe("claude-opus-5-5");
+    });
+
+    it("picks a tapped card and saves with the pick button", async () => {
+      media({ phone: true });
+      await mount();
+      await act(async () => document.querySelector<HTMLButtonElement>('.dial-card[data-model-cell="claude-sonnet-5-5"]')!.click());
+      expect(selected()).toBe("claude-sonnet-5-5");
+      expect(saved()).toBeUndefined();
+      await act(async () => document.querySelector<HTMLButtonElement>("[data-dial-pick]")!.click());
+      expect(saved()).toEqual({ instanceId: "claude", model: "claude-sonnet-5-5", effort: "high", mode: "pinned" });
+    });
+
+    it("keeps a dial drag from the sidebar swipe", async () => {
+      media({ phone: true });
+      await mount();
+      const swipe = vi.fn();
+      document.addEventListener("touchstart", swipe);
+      document.addEventListener("touchmove", swipe);
+      const stage = document.querySelector(".dial-stage")!;
+      await act(async () => {
+        stage.dispatchEvent(new window.TouchEvent("touchstart", { bubbles: true }));
+        stage.dispatchEvent(new window.TouchEvent("touchmove", { bubbles: true, cancelable: true }));
+      });
+      await drag(0, -60, 4, 60);
+      await settle();
+      expect(selected()).toBe("claude-sonnet-5-5");
+      expect(swipe).not.toHaveBeenCalled();
+      document.removeEventListener("touchstart", swipe);
+      document.removeEventListener("touchmove", swipe);
+    });
+
+    it("snaps without coasting under reduced motion", async () => {
+      media({ phone: true, reduced: true });
+      await mount();
+      await drag(0, -120, 4, 10);
+      await settle();
+      expect(selected()).toBe("gpt-6.1-sol");
+    });
   });
 });

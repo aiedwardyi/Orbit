@@ -6,14 +6,19 @@ import { DIAL_DIGITS, dialFind, dialPrice, dialScore, dialShift, dialSource, dia
 import { formatUsd, pickerPrice } from "@/lib/model-index";
 import { MODEL_INDEX_AS_OF } from "../../shared/model-index-data.ts";
 import { engineBadgeText, modelEffortLabel, modelFamilyAccent } from "@/lib/model-chip";
-import { reducedMotion } from "@/lib/phone-swipe";
+import { PHONE_QUERY, reducedMotion } from "@/lib/phone-swipe";
+import { useDialTouch } from "@/lib/use-dial-touch";
 import { useI18n } from "@/lib/i18n";
 import { ProviderMark } from "./ProviderIcons";
 import { needsCli, needsSignIn } from "./EngineSetup";
 import "./ModelDial.css";
 
 const DIAL_QUERY = "(min-width: 640px) and (pointer: fine)";
+const PHONE_DIAL_QUERY = `${PHONE_QUERY} and (pointer: coarse)`;
 const FADE = [1, 0.55, 0.22];
+const PHONE_FADE = [1, 0.38];
+// Card spacing in the phone layout; ModelDial.css uses the same 62px.
+const PHONE_PITCH = 62;
 // Overdrive's outer arc: a segment every 12 deg, minus three under the effort label and one under the max pointer.
 const RING = Array.from({ length: 30 }, (_, k) => 270 + k * 12).filter((a) => Math.abs(a - 450) > 12 && a !== 366);
 
@@ -33,18 +38,20 @@ function sector(r0: number, r1: number, a0: number, a1: number) {
 
 const SQUIGGLE = Array.from({ length: 24 }, (_, k) => ` Q${k * 10 + 6} ${5 + (k % 2 ? 1 : -1) * [4.2, 3.2, 4.6, 3.6][k % 4]!} ${k * 10 + 11} 5`).join("");
 
-export function useModelDialFits(enabled: boolean): boolean {
-  const [fits, setFits] = useState(() => enabled && (globalThis.window?.matchMedia?.(DIAL_QUERY).matches ?? false));
+function useMatch(media: string, enabled: boolean): boolean {
+  const [fits, setFits] = useState(() => enabled && (globalThis.window?.matchMedia?.(media).matches ?? false));
   useEffect(() => {
-    const query = enabled ? window.matchMedia?.(DIAL_QUERY) : undefined;
+    const query = enabled ? window.matchMedia?.(media) : undefined;
     if (!query) return setFits(false);
     const change = () => setFits(query.matches);
     change();
     query.addEventListener("change", change);
     return () => query.removeEventListener("change", change);
-  }, [enabled]);
+  }, [media, enabled]);
   return fits;
 }
+
+export const useModelDialFits = (enabled: boolean) => useMatch(`${DIAL_QUERY}, ${PHONE_DIAL_QUERY}`, enabled);
 
 export type ModelDialHandle = { key: (event: ReactKeyboardEvent) => boolean };
 
@@ -81,6 +88,7 @@ function Odometer({ value, int, dec }: { value: number | undefined; int: number;
 
 export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, stageRef, bindingsId }: ModelDialProps) {
   const { t } = useI18n();
+  const phone = useMatch(PHONE_DIAL_QUERY, true);
   const models = pickerModels(rows);
   const count = models.length;
   const labOf = models.map((item) => rows.findIndex((row) => row.instance === item.instance));
@@ -141,17 +149,21 @@ export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, sta
   const shown = useRef<{ i?: number; effort?: string; blend?: number }>({});
 
   useEffect(() => {
-    const fit = () => setZoom(Math.min(window.innerWidth / 1440, window.innerHeight / 900));
-    fit();
-    window.addEventListener("resize", fit);
     let frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => setBoot(false)); });
     return () => {
-      window.removeEventListener("resize", fit);
       cancelAnimationFrame(frame);
       clearTimeout(bar.current.timer);
       clearTimeout(typing.current.timer);
     };
   }, []);
+
+  useEffect(() => {
+    const [width, height] = phone ? [390, 844] : [1440, 900];
+    const fit = () => setZoom(Math.min(window.innerWidth / width, window.innerHeight / height));
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [phone]);
 
   const quench = () => {
     intro.current.forEach((anim) => anim.cancel());
@@ -276,6 +288,7 @@ export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, sta
     clearTimeout(typing.current.timer);
     typing.current.timer = window.setTimeout(() => setTyped((current) => ({ ...current, on: false })), 700);
   };
+  useDialTouch(stage, phone, index, PHONE_PITCH * zoom, { step: stepModel, shift: shiftEffort });
 
   useImperativeHandle(handle, () => ({
     key: (event) => {
@@ -325,7 +338,7 @@ export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, sta
 
   return (
     <div ref={stageRef} className="model-dial">
-      <div ref={stage} className="dial-stage" style={stageStyle} data-boot={boot || undefined} data-max={max || undefined}>
+      <div ref={stage} className="dial-stage" style={stageStyle} data-boot={boot || undefined} data-max={max || undefined} data-phone={phone || undefined}>
         <div className="dial-layer dial-scene" aria-hidden>
           <div className="dial-layer dial-scene-base" />
           {rows.map((row, j) => <div key={row.instance.instanceId} className="dial-layer dial-scene-lab" data-on={j === lab || undefined} style={{ "--c": modelFamilyAccent(row.instance.driverKind) } as CSSProperties} />)}
@@ -430,6 +443,7 @@ export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, sta
             {models.map((model, j) => {
               const k = shortest(j - index, count);
               const ak = Math.abs(k);
+              const fade = (phone ? PHONE_FADE : FADE)[ak];
               const option = j === index ? draft.model : model.cell.options[0]!.id;
               const cost = dialPrice(option);
               return (
@@ -441,7 +455,7 @@ export function ModelDial({ rows, draft, canCommit, onDraft, onSave, handle, sta
                   data-model-row={model.instance.instanceId}
                   data-model-cell={model.cell.options[0]!.id}
                   aria-pressed={j === index}
-                  style={{ "--k": k, "--ak": ak, "--o": FADE[ak] ?? 0, "--lag": `${lead && Math.min(Math.max(1 + lead * k, 0), 2) * 10}ms`, pointerEvents: FADE[ak] ? undefined : "none" } as CSSProperties}
+                  style={{ "--k": k, "--ak": ak, "--o": fade ?? 0, "--lag": `${lead && Math.min(Math.max(1 + lead * k, 0), 2) * 10}ms`, pointerEvents: fade ? undefined : "none" } as CSSProperties}
                   onClick={() => (j === index ? onSave() : go(j))}
                 >
                   <ProviderMark driverKind={model.instance.driverKind} size={18} className="dial-mark" />
